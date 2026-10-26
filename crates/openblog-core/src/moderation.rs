@@ -20,6 +20,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use crate::attributed_perspective::AttributedTarget;
 use crate::collaboration::{
     AuthorizationAction, AuthorizationRole, AuthorizationTarget, SharedPublication,
 };
@@ -28,6 +29,7 @@ use crate::date::DateTime;
 use crate::invitation::Identities;
 use crate::model::Site;
 use crate::participation::{Origin, ParticipationKind, ParticipationMode, TargetShape};
+use crate::third_perspective::PerspectiveTarget;
 
 const DAY_SECONDS: i64 = 86_400;
 /// The longest retention period accepted, in days (about ten years).
@@ -666,8 +668,27 @@ pub struct Submission<'a> {
     pub mode: ParticipationMode,
     /// For a response or a report: the stored parent and its kind's mode.
     pub parent: Option<(&'a ItemFacts<'a>, ParticipationMode)>,
+    /// For an author response to a Third Perspective: the target that
+    /// perspective stores. Required there, so a caller cannot leave out the
+    /// one fact that says whose section it is (ADR 0163).
+    pub parent_target: Option<&'a PerspectiveTarget>,
+    /// Proof that the author of an attributed section was confirmed. Only
+    /// [`crate::attributed_perspective::admit_response`] can issue one.
+    pub author_grant: Option<AuthorGrant>,
     pub clarification_consent: bool,
     pub at: DateTime,
+}
+
+/// A sealed token: the author of an attributed section was checked against
+/// the private record. It has no public constructor, so a plain author
+/// response (a coordinator's, a site owner's) can never stand in for it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AuthorGrant(());
+
+impl AuthorGrant {
+    pub(crate) fn issue() -> Self {
+        Self(())
+    }
 }
 
 /// A created item: always pending, at version and revision 1.
@@ -994,6 +1015,22 @@ impl ModerationPolicy {
         }
         let related = match (rules.target, submission.parent) {
             (TargetShape::Item, Some((parent, parent_mode))) => {
+                if submission.kind == ParticipationKind::AuthorResponse
+                    && parent.kind == ParticipationKind::ThirdPerspective
+                {
+                    // An answer about an attributed section is that section
+                    // author's alone: refused here unless it carries the grant
+                    // `admit_response` issues, whoever else may otherwise
+                    // write author responses on this work.
+                    let Some(target) = submission.parent_target else {
+                        return Err(PolicyError::InvalidTarget);
+                    };
+                    if !matches!(AttributedTarget::from_perspective(target), Ok(None))
+                        && submission.author_grant.is_none()
+                    {
+                        return Err(PolicyError::Denied);
+                    }
+                }
                 let answerable = match submission.kind {
                     ParticipationKind::AuthorResponse => {
                         parent.kind.rules().publishable

@@ -17,7 +17,7 @@ use openblog_core::invitation::Identities;
 use openblog_core::model::{LoadOptions, Site, SourceFile, Sources};
 use openblog_core::moderation::{
     ItemFacts, ModerationAction, ModerationPolicy, ModerationState, PolicyError, Principal,
-    Request, SharedWorks, MODERATION_TOKEN_ACTOR,
+    Request, SharedWorks, Submission, MODERATION_TOKEN_ACTOR,
 };
 use openblog_core::participation::{ParticipationKind, ParticipationMode};
 use openblog_core::passage_target::{PassageSelector, PassageTarget};
@@ -141,12 +141,35 @@ const TURNS: [(&str, &str); 3] = [
     ("MINA", "Neither explains the harbour."),
 ];
 
+/// The credits sidecar assembly writes: one credit per contributor at their
+/// first appearance in the body, each naming the public registry key.
+fn credits(turns: &[(&str, &str)]) -> String {
+    let mut keys: Vec<String> = Vec::new();
+    for (name, _) in turns {
+        let key = name.to_lowercase();
+        if !keys.contains(&key) {
+            keys.push(key);
+        }
+    }
+    let credits: Vec<String> = keys
+        .iter()
+        .map(|key| {
+            format!(
+                "{{\"contributor\":\"{key}\",\"roles\":[{{\"vocabulary\":\"crossref\",\"role\":\"author\"}}]}}"
+            )
+        })
+        .collect();
+    format!("{{\"version\":1,\"credits\":[{}]}}", credits.join(","))
+}
+
+/// Sections read from committed content alone: the body and its sidecar. No
+/// private record is involved, as in a static or CI build.
 fn sections(
-    record: &SharedPublication,
+    _record: &SharedPublication,
     layout: ReflectionLayout,
     turns: &[(&str, &str)],
 ) -> AttributedSections {
-    AttributedSections::from_published(record, &body(layout, turns))
+    AttributedSections::from_published(&body(layout, turns), Some(&credits(turns)))
 }
 
 fn target_of(sections: &AttributedSections, contribution: &str, nth: usize) -> AttributedTarget {
@@ -166,12 +189,12 @@ fn a_target_is_an_ordinary_section_target_and_never_visual() {
     let record = record();
     let published = sections(&record, ReflectionLayout::SideBySide, &TURNS);
     let section = &published.sections()[2];
-    assert_eq!(section.anchor(), "ob-by-p-mina-1");
+    assert_eq!(section.anchor(), "ob-by-mina-1");
     let target = section.target().perspective_target();
     // The stored form is B5's section target: no new shape to read.
     let json = target.to_json();
     assert!(json.contains("\"kind\":\"section\""));
-    assert!(json.contains("ob-by-p-mina-1"));
+    assert!(json.contains("ob-by-mina-1"));
     for visual in ["left", "right", "lane", "column", "side", "position"] {
         assert!(!json.contains(visual), "{visual}");
     }
@@ -181,6 +204,12 @@ fn a_target_is_an_ordinary_section_target_and_never_visual() {
         Some(section.target())
     );
     assert_eq!(section.digest.len(), 32);
+    // Its own digest label: never equal to B5's digest of a heading section
+    // with the same words.
+    assert_ne!(
+        section.digest,
+        openblog_core::passage_target::section_digest(TURNS[2].1)
+    );
 }
 
 #[test]
@@ -198,10 +227,10 @@ fn a_reserved_anchor_must_be_canonical_and_carry_a_digest() {
     let digest = Some("0123456789abcdef0123456789abcdef".to_string());
     for bad in [
         "ob-by-",
-        "ob-by-p-mina",
-        "ob-by-p-mina-",
-        "ob-by-p-mina-01",
-        "ob-by-p-mina-1000",
+        "ob-by-mina",
+        "ob-by-mina-",
+        "ob-by-mina-01",
+        "ob-by-mina-1000",
         "ob-by--1",
         "ob-by-p..mina-1",
     ] {
@@ -212,7 +241,7 @@ fn a_reserved_anchor_must_be_canonical_and_carry_a_digest() {
         );
     }
     // Without the digest the author and place could point at other words.
-    let bare = PerspectiveTarget::section(Some(anchor("p-mina", 0)), None);
+    let bare = PerspectiveTarget::section(Some(anchor("mina", 0)), None);
     assert_eq!(
         AttributedTarget::from_perspective(&bare)
             .unwrap_err()
@@ -227,7 +256,7 @@ fn a_quotation_or_a_sectionless_anchor_is_never_attributed() {
     // RD10 refuses a quotation as a Third Perspective target, so an attributed
     // section can only ever be a whole-section target.
     let quote = PassageTarget {
-        section: Some(anchor("p-mina", 0)),
+        section: Some(anchor("mina", 0)),
         selector: PassageSelector::Quote(openblog_core::passage_target::TextQuote {
             exact: "moon".into(),
             prefix: String::new(),
@@ -245,8 +274,8 @@ fn a_quotation_or_a_sectionless_anchor_is_never_attributed() {
 fn reordering_or_relayout_keeps_every_target_on_its_own_words() {
     let record = record();
     let original = sections(&record, ReflectionLayout::Sequential, &TURNS);
-    let joe = target_of(&original, "p-joe", 0);
-    let mina_second = target_of(&original, "p-mina", 1);
+    let joe = target_of(&original, "joe", 0);
+    let mina_second = target_of(&original, "mina", 1);
 
     // Every layout, left and right swapped: same sections, same standing.
     for layout in ReflectionLayout::ALL {
@@ -288,7 +317,7 @@ fn reordering_or_relayout_keeps_every_target_on_its_own_words() {
 fn an_edited_section_is_stale_and_never_retargeted() {
     let record = record();
     let original = sections(&record, ReflectionLayout::Sequential, &TURNS);
-    let first = target_of(&original, "p-mina", 0);
+    let first = target_of(&original, "mina", 0);
     let edited = sections(
         &record,
         ReflectionLayout::Sequential,
@@ -298,12 +327,12 @@ fn an_edited_section_is_stale_and_never_retargeted() {
     assert_eq!(
         edited.resolve(&first),
         Standing::Stale {
-            reason: StaleReason::SectionChanged,
+            reason: StaleReason::SectionChangedOrRemoved,
             author: Some("MINA".into())
         }
     );
     assert_eq!(
-        edited.resolve(&first).target_status("p-mina"),
+        edited.resolve(&first).target_status("mina"),
         TargetStatus::Stale {
             section_present: true
         }
@@ -314,14 +343,14 @@ fn an_edited_section_is_stale_and_never_retargeted() {
 fn a_deleted_section_or_author_keeps_honest_context() {
     let record = record();
     let original = sections(&record, ReflectionLayout::Sequential, &TURNS);
-    let second = target_of(&original, "p-mina", 1);
-    let joe = target_of(&original, "p-joe", 0);
+    let second = target_of(&original, "mina", 1);
+    let joe = target_of(&original, "joe", 0);
 
     let without_second = sections(&record, ReflectionLayout::Sequential, &TURNS[..2]);
     assert_eq!(
         without_second.resolve(&second),
         Standing::Stale {
-            reason: StaleReason::SectionRemoved,
+            reason: StaleReason::SectionChangedOrRemoved,
             author: Some("MINA".into())
         }
     );
@@ -330,12 +359,12 @@ fn a_deleted_section_or_author_keeps_honest_context() {
     assert_eq!(
         without_joe.resolve(&joe),
         Standing::Stale {
-            reason: StaleReason::SectionRemoved,
+            reason: StaleReason::AuthorAbsent,
             author: None
         }
     );
     assert_eq!(
-        without_joe.resolve(&joe).target_status("p-joe"),
+        without_joe.resolve(&joe).target_status("joe"),
         TargetStatus::Stale {
             section_present: false
         }
@@ -347,7 +376,7 @@ fn identical_sections_are_ambiguous_unless_the_place_breaks_the_tie() {
     let record = record();
     let twin = [("MINA", "Same."), ("JOE", "Other."), ("MINA", "Same.")];
     let published = sections(&record, ReflectionLayout::Sequential, &twin);
-    let second = target_of(&published, "p-mina", 1);
+    let second = target_of(&published, "mina", 1);
     // The place agrees, so the section the reader saw is still the one.
     assert!(published.resolve(&second).is_current());
     // The first copy is deleted: one remains, and it is the same text.
@@ -373,9 +402,55 @@ fn identical_sections_are_ambiguous_unless_the_place_breaks_the_tie() {
 }
 
 #[test]
-fn a_name_that_matches_nobody_or_two_people_is_never_targetable() {
+fn credits_that_do_not_pair_with_the_body_attribute_nothing() {
+    let layout = ReflectionLayout::Sequential;
+    // Two authors who share a published name: one distinct name, two credits.
+    let shared_name = [("MINA", "One."), ("MINA", "Two.")];
+    let two_credits = "{\"version\":1,\"credits\":[\
+        {\"contributor\":\"mina\",\"roles\":[{\"vocabulary\":\"crossref\",\"role\":\"author\"}]},\
+        {\"contributor\":\"mina2\",\"roles\":[{\"vocabulary\":\"crossref\",\"role\":\"author\"}]}]}";
+    let published =
+        AttributedSections::from_published(&body(layout, &shared_name), Some(two_credits));
+    assert!(published.sections().is_empty());
+    assert_eq!(published.unattributed(), 2);
+    // No sidecar, an unreadable one, and a credit that is not a registry key.
+    for bad in [
+        None,
+        Some("not json"),
+        Some("{\"version\":2,\"credits\":[]}"),
+        Some("{\"version\":1,\"credits\":[{\"contributor\":\"Mina\",\"roles\":[]}]}"),
+    ] {
+        let published = AttributedSections::from_published(&body(layout, &TURNS), bad);
+        assert!(published.sections().is_empty(), "{bad:?}");
+    }
+    // Not a shared reflection at all: nothing is attributed.
+    let plain = AttributedSections::from_published("# Heading\n\nText", Some(&credits(&TURNS)));
+    assert!(plain.sections().is_empty());
+    assert_eq!(plain.unattributed(), 0);
+}
+
+#[test]
+fn a_ci_style_build_resolves_without_any_private_record() {
+    // Only the committed body and credits exist: no participants, bindings or
+    // identities. Targets are built, resolved and moved exactly as with them.
+    let layout = ReflectionLayout::SideBySide;
+    let published =
+        AttributedSections::from_published(&body(layout, &TURNS), Some(&credits(&TURNS)));
+    assert_eq!(published.sections().len(), 3);
+    let joe = published.sections()[1].target();
+    let reordered = [TURNS[1], TURNS[0], TURNS[2]];
+    let moved =
+        AttributedSections::from_published(&body(layout, &reordered), Some(&credits(&reordered)));
+    assert!(moved.resolve(&joe).is_current());
+    // And it is the same answer a build with the record gives.
+    assert_eq!(sections(&record(), layout, &TURNS), published);
+}
+
+#[test]
+fn a_same_name_invite_after_publication_changes_nothing() {
     let mut record = record();
-    // A second participant with the same display name as MINA.
+    let before = world_for(&record);
+    // Someone is invited who shares MINA's display name, after publication.
     member(&mut record, "mina2", AuthorizationRole::Contributor);
     record
         .collaboration
@@ -383,22 +458,93 @@ fn a_name_that_matches_nobody_or_two_people_is_never_targetable() {
         .last_mut()
         .unwrap()
         .display_name = "MINA".into();
-    let published = sections(&record, ReflectionLayout::Sequential, &TURNS);
-    assert_eq!(published.sections().len(), 1, "only JOE is unambiguous");
-    assert_eq!(published.unattributed(), 2);
-    // Not a shared reflection at all: nothing is attributed.
-    let plain = AttributedSections::from_published(&record, "# Heading\n\nText");
-    assert!(plain.sections().is_empty());
+    let after = world_for(&record);
+    // The published sections and every existing target are untouched.
+    assert_eq!(before.published, after.published);
+    assert_eq!(after.published.unattributed(), 0);
+    let first = before.published.sections()[0].target();
+    assert_eq!(
+        after.published.resolve(&first),
+        before.published.resolve(&first)
+    );
+    // The original author still answers; the namesake cannot answer as them.
+    let identities = Identities {
+        active_admin_users: &[
+            "owner-admin",
+            "coord-admin",
+            "mina-admin",
+            "joe-admin",
+            "mina2-admin",
+        ],
+        contributor_ids: &["owner", "coord", "mina", "joe", "mina2"],
+    };
+    let answer = respond(&after, "mina-admin", &perspective(), &identities)
+        .expect("the author's answer is unaffected");
+    assert_eq!(answer.responder.participant, "p-mina");
+    assert_eq!(answer.responder.contributor, "mina");
+    assert_eq!(
+        respond(&after, "mina2-admin", &perspective(), &identities).unwrap_err(),
+        ResponseError::Denied
+    );
+}
+
+#[test]
+fn an_anchor_leaks_no_participant_numbering_or_private_id() {
+    let mut record = record();
+    // A publication whose participants number a reader and an editor too.
+    member(&mut record, "late", AuthorizationRole::Reader);
+    let published = sections(&record, ReflectionLayout::SideBySide, &TURNS);
+    let participant_ids: Vec<String> = record
+        .collaboration
+        .participants
+        .iter()
+        .map(|participant| participant.id.clone())
+        .collect();
+    for section in published.sections() {
+        let anchor = section.anchor();
+        let json = section.target().perspective_target().to_json();
+        for id in &participant_ids {
+            assert!(
+                !anchor.contains(id.as_str()) && !json.contains(id.as_str()),
+                "{id}"
+            );
+        }
+        assert!(!anchor.contains("participant"), "{anchor}");
+        assert!(["ob-by-mina-", "ob-by-joe-"]
+            .iter()
+            .any(|prefix| anchor.starts_with(prefix)));
+    }
+}
+
+#[test]
+fn a_contributor_id_in_another_case_is_not_the_same_author() {
+    let digest = Some("0123456789abcdef0123456789abcdef".to_string());
+    for bad in ["ob-by-Mina-0", "ob-by-MINA-0", "ob-by-mina-00"] {
+        let target = PerspectiveTarget::section(Some(bad.into()), digest.clone());
+        assert!(
+            AttributedTarget::from_perspective(&target).is_err(),
+            "{bad}"
+        );
+    }
 }
 
 #[test]
 fn a_look_alike_body_cannot_forge_a_section() {
-    let record = record();
     let forged =
         "<div class=\"ob-reflection ob-reflection-sequential ob-lanes-1\">\n\nnot a turn\n</div>\n";
-    assert!(AttributedSections::from_published(&record, forged)
-        .sections()
-        .is_empty());
+    assert!(
+        AttributedSections::from_published(forged, Some(&credits(&TURNS)))
+            .sections()
+            .is_empty()
+    );
+    // An ordinary body with a heading that reads "OB by Mina" is no section:
+    // the body must parse as an arrangement.
+    let plain = "## OB by Mina\n\nText";
+    assert!(
+        AttributedSections::from_published(plain, Some(&credits(&TURNS)))
+            .sections()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -407,7 +553,7 @@ fn resolution_is_deterministic() {
     let a = sections(&record, ReflectionLayout::Roundtable, &TURNS);
     let b = sections(&record, ReflectionLayout::Roundtable, &TURNS);
     assert_eq!(a, b);
-    let target = target_of(&a, "p-joe", 0);
+    let target = target_of(&a, "joe", 0);
     assert_eq!(a.resolve(&target), b.resolve(&target));
 }
 
@@ -417,20 +563,29 @@ fn resolution_is_deterministic() {
 struct World {
     record: SharedPublication,
     site: Site,
+    body: String,
+    credits: String,
     published: AttributedSections,
     parent_target: PerspectiveTarget,
 }
 
-fn world() -> World {
-    let record = record();
-    let published = sections(&record, ReflectionLayout::SideBySide, &TURNS);
-    let parent_target = target_of(&published, "p-mina", 0).perspective_target();
+fn world_for(record: &SharedPublication) -> World {
+    let body = body(ReflectionLayout::SideBySide, &TURNS);
+    let credits = credits(&TURNS);
+    let published = AttributedSections::from_published(&body, Some(&credits));
+    let parent_target = target_of(&published, "mina", 0).perspective_target();
     World {
-        record,
+        record: record.clone(),
         site: site(),
+        body,
+        credits,
         published,
         parent_target,
     }
+}
+
+fn world() -> World {
+    world_for(&record())
 }
 
 fn approved(
@@ -454,18 +609,19 @@ fn approved(
     }
 }
 
-fn respond_to(
+/// An answer written against explicit published content, so a test can
+/// publish something else than the world's own body.
+fn respond_with(
     world: &World,
-    principal: Principal<'_>,
     admin_user: &str,
     parent: &ItemFacts<'_>,
     parent_target: &PerspectiveTarget,
-    published: &AttributedSections,
+    body: &str,
+    credits: Option<&str>,
     identities: &Identities<'_>,
 ) -> Result<AttributedResponse, ResponseError> {
     let records = [world.record.clone()];
     let works = SharedWorks::new(&records, &world.site);
-    let actor = works.actor(principal, Some(WORK), identities);
     admit_response(
         &ModerationPolicy::new(Default::default()),
         &ResponseRequest {
@@ -473,34 +629,44 @@ fn respond_to(
             record: &world.record,
             identities,
             admin_user,
-            actor,
+            works: &works,
             work: WORK,
             mode: ParticipationMode::Open,
             parent,
             parent_mode: ParticipationMode::Open,
             parent_target,
-            sections: published,
+            body,
+            credits,
             at: DateTime::from_unix(1_800_000_100),
         },
     )
 }
 
+fn respond_to(
+    world: &World,
+    admin_user: &str,
+    parent: &ItemFacts<'_>,
+    parent_target: &PerspectiveTarget,
+    identities: &Identities<'_>,
+) -> Result<AttributedResponse, ResponseError> {
+    respond_with(
+        world,
+        admin_user,
+        parent,
+        parent_target,
+        &world.body,
+        Some(&world.credits),
+        identities,
+    )
+}
+
 fn respond(
     world: &World,
-    principal: Principal<'_>,
     admin_user: &str,
     parent: &ItemFacts<'_>,
     identities: &Identities<'_>,
 ) -> Result<AttributedResponse, ResponseError> {
-    respond_to(
-        world,
-        principal,
-        admin_user,
-        parent,
-        &world.parent_target,
-        &world.published,
-        identities,
-    )
+    respond_to(world, admin_user, parent, &world.parent_target, identities)
 }
 
 fn session(admin_user: &str) -> Principal<'_> {
@@ -514,14 +680,8 @@ fn perspective() -> ItemFacts<'static> {
 #[test]
 fn the_sections_own_contributor_answers_and_the_answer_starts_pending() {
     let world = world();
-    let answer = respond(
-        &world,
-        session("mina-admin"),
-        "mina-admin",
-        &perspective(),
-        &identities(),
-    )
-    .expect("mina wrote the section");
+    let answer = respond(&world, "mina-admin", &perspective(), &identities())
+        .expect("mina wrote the section");
     assert_eq!(answer.admission.state, ModerationState::Pending);
     assert_eq!(
         answer.admission.audit.actor_id.as_deref(),
@@ -531,7 +691,9 @@ fn the_sections_own_contributor_answers_and_the_answer_starts_pending() {
         answer.admission.audit.related.as_deref(),
         Some("perspective-1")
     );
+    // The private binding and the public handle are both stored.
     assert_eq!(answer.responder.participant, "p-mina");
+    assert_eq!(answer.responder.contributor, "mina");
     assert_eq!(answer.responder.author, "MINA");
     assert!(answer.responder.standing.is_current());
 }
@@ -541,8 +703,8 @@ fn nobody_else_can_answer_as_that_author() {
     let world = world();
     let identities = identities();
     // Another contributor, the coordinator, the site owner, an editor, a
-    // reader, an account in the registry bound to nothing, an unknown
-    // account and the moderation token: the same refusal, whoever asks.
+    // reader, an account in the registry bound to nothing and an unknown
+    // account: the same refusal, whoever asks.
     for admin_user in [
         "joe-admin",
         "coord-admin",
@@ -553,61 +715,28 @@ fn nobody_else_can_answer_as_that_author() {
         "nobody",
     ] {
         assert_eq!(
-            respond(
-                &world,
-                session(admin_user),
-                admin_user,
-                &perspective(),
-                &identities
-            )
-            .unwrap_err(),
+            respond(&world, admin_user, &perspective(), &identities).unwrap_err(),
             ResponseError::Denied,
             "{admin_user}"
         );
     }
+    // The moderation token is no Admin account at all.
     assert_eq!(
-        respond(
-            &world,
-            Principal::ModerationToken,
-            MODERATION_TOKEN_ACTOR,
-            &perspective(),
-            &identities
-        )
-        .unwrap_err(),
+        respond(&world, MODERATION_TOKEN_ACTOR, &perspective(), &identities).unwrap_err(),
         ResponseError::Denied
     );
 }
 
 #[test]
-fn impersonation_and_a_registry_key_alone_are_refused() {
+fn a_registry_key_alone_and_a_dropped_account_are_refused() {
     let world = world();
-    // Joe's session claiming to be mina-admin: the request's account and the
-    // resolved actor must agree.
-    assert_eq!(
-        respond(
-            &world,
-            session("joe-admin"),
-            "mina-admin",
-            &perspective(),
-            &identities()
-        )
-        .unwrap_err(),
-        ResponseError::Denied
-    );
     // The key `mina` is no longer in the registry.
     let without_key = Identities {
         active_admin_users: &USERS,
         contributor_ids: &["owner", "coord", "joe", "ed", "rea"],
     };
     assert_eq!(
-        respond(
-            &world,
-            session("mina-admin"),
-            "mina-admin",
-            &perspective(),
-            &without_key
-        )
-        .unwrap_err(),
+        respond(&world, "mina-admin", &perspective(), &without_key).unwrap_err(),
         ResponseError::Denied
     );
     // A deactivated account.
@@ -616,14 +745,22 @@ fn impersonation_and_a_registry_key_alone_are_refused() {
         contributor_ids: &KEYS,
     };
     assert_eq!(
-        respond(
-            &world,
-            session("mina-admin"),
-            "mina-admin",
-            &perspective(),
-            &inactive
-        )
-        .unwrap_err(),
+        respond(&world, "mina-admin", &perspective(), &inactive).unwrap_err(),
+        ResponseError::Denied
+    );
+}
+
+#[test]
+fn another_publications_record_never_answers_for_this_work() {
+    let world = world();
+    let mut other = world.record.clone();
+    other.publication_id = "other-publication".into();
+    let swapped = World {
+        record: other,
+        ..world_for(&world.record)
+    };
+    assert_eq!(
+        respond(&swapped, "mina-admin", &perspective(), &identities()).unwrap_err(),
         ResponseError::Denied
     );
 }
@@ -641,14 +778,7 @@ fn registry_identity_without_the_contributor_role_grants_nothing() {
     // Mina is demoted to editor: still in the registry, still bound.
     world.record.authorization.bindings[index].roles = vec![AuthorizationRole::Editor];
     assert_eq!(
-        respond(
-            &world,
-            session("mina-admin"),
-            "mina-admin",
-            &perspective(),
-            &identities()
-        )
-        .unwrap_err(),
+        respond(&world, "mina-admin", &perspective(), &identities()).unwrap_err(),
         ResponseError::Denied
     );
     // The contributor role on that participant is the grant, whatever else
@@ -657,14 +787,7 @@ fn registry_identity_without_the_contributor_role_grants_nothing() {
         AuthorizationRole::Coordinator,
         AuthorizationRole::Contributor,
     ];
-    assert!(respond(
-        &world,
-        session("mina-admin"),
-        "mina-admin",
-        &perspective(),
-        &identities()
-    )
-    .is_ok());
+    assert!(respond(&world, "mina-admin", &perspective(), &identities()).is_ok());
 }
 
 #[test]
@@ -704,25 +827,21 @@ fn the_grant_is_the_contributors_own_participant_only() {
 fn in_a_group_work_each_author_answers_only_their_own_sections() {
     let world = world();
     let identities = identities();
-    let joe_target = target_of(&world.published, "p-joe", 0).perspective_target();
+    let joe_target = target_of(&world.published, "joe", 0).perspective_target();
     assert!(respond_to(
         &world,
-        session("joe-admin"),
         "joe-admin",
         &perspective(),
         &joe_target,
-        &world.published,
         &identities
     )
     .is_ok());
     assert_eq!(
         respond_to(
             &world,
-            session("mina-admin"),
             "mina-admin",
             &perspective(),
             &joe_target,
-            &world.published,
             &identities
         )
         .unwrap_err(),
@@ -733,11 +852,9 @@ fn in_a_group_work_each_author_answers_only_their_own_sections() {
     assert_eq!(
         respond_to(
             &world,
-            session("joe-admin"),
             "joe-admin",
             &perspective(),
             &PerspectiveTarget::work(),
-            &world.published,
             &identities
         )
         .unwrap_err(),
@@ -746,66 +863,52 @@ fn in_a_group_work_each_author_answers_only_their_own_sections() {
 }
 
 #[test]
-fn a_changed_section_can_still_be_answered_but_a_gone_or_renamed_author_cannot() {
+fn a_changed_section_can_still_be_answered_but_a_gone_author_cannot() {
     let world = world();
     let identities = identities();
-    let edited = sections(
-        &world.record,
-        ReflectionLayout::Sequential,
-        &[("MINA", "Rewritten."), TURNS[1], TURNS[2]],
-    );
-    let answer = respond_to(
+    let edited_turns = [("MINA", "Rewritten."), TURNS[1], TURNS[2]];
+    let answer = respond_with(
         &world,
-        session("mina-admin"),
         "mina-admin",
         &perspective(),
         &world.parent_target,
-        &edited,
+        &body(ReflectionLayout::Sequential, &edited_turns),
+        Some(&credits(&edited_turns)),
         &identities,
     )
     .expect("the author may answer a reader of the earlier text");
     assert!(matches!(
         answer.responder.standing,
         Standing::Stale {
-            reason: StaleReason::SectionChanged,
+            reason: StaleReason::SectionChangedOrRemoved,
             ..
         }
     ));
-    // The section is gone: the author cannot be confirmed.
-    let gone = sections(&world.record, ReflectionLayout::Sequential, &[TURNS[1]]);
+    // The author has no section any more: nothing is left to answer about.
+    let gone_turns = [TURNS[1]];
     assert_eq!(
-        respond_to(
+        respond_with(
             &world,
-            session("mina-admin"),
             "mina-admin",
             &perspective(),
             &world.parent_target,
-            &gone,
+            &body(ReflectionLayout::Sequential, &gone_turns),
+            Some(&credits(&gone_turns)),
             &identities
         )
         .unwrap_err(),
         ResponseError::AuthorUnconfirmed
     );
-    // The participant id now belongs to someone else: the name the section
-    // is published under is no longer theirs.
-    let mut renamed = world.record.clone();
-    for participant in &mut renamed.collaboration.participants {
-        if participant.id == "p-mina" {
-            participant.display_name = "SOMEONE ELSE".into();
-        }
-    }
-    let renamed_world = World {
-        record: renamed,
-        site: site(),
-        published: world.published.clone(),
-        parent_target: world.parent_target.clone(),
-    };
+    // Without the committed sidecar nothing can be attributed, so nothing is
+    // answered either.
     assert_eq!(
-        respond(
-            &renamed_world,
-            session("mina-admin"),
+        respond_with(
+            &world,
             "mina-admin",
             &perspective(),
+            &world.parent_target,
+            &world.body,
+            None,
             &identities
         )
         .unwrap_err(),
@@ -823,14 +926,7 @@ fn a_removed_participant_leaves_nobody_who_can_answer() {
         .bindings
         .retain(|binding| binding.participant_id != "p-mina");
     assert_eq!(
-        respond(
-            &world,
-            session("mina-admin"),
-            "mina-admin",
-            &perspective(),
-            &identities
-        )
-        .unwrap_err(),
+        respond(&world, "mina-admin", &perspective(), &identities).unwrap_err(),
         ResponseError::Denied
     );
     world
@@ -839,14 +935,7 @@ fn a_removed_participant_leaves_nobody_who_can_answer() {
         .participants
         .retain(|participant| participant.id != "p-mina");
     assert_eq!(
-        respond(
-            &world,
-            session("mina-admin"),
-            "mina-admin",
-            &perspective(),
-            &identities
-        )
-        .unwrap_err(),
+        respond(&world, "mina-admin", &perspective(), &identities).unwrap_err(),
         ResponseError::Denied
     );
 }
@@ -865,14 +954,7 @@ fn the_parent_must_be_a_public_third_perspective_of_this_work() {
     purged.content_retained = false;
     for parent in [pending, comment, elsewhere, purged] {
         assert_eq!(
-            respond(
-                &world,
-                session("mina-admin"),
-                "mina-admin",
-                &parent,
-                &identities
-            )
-            .unwrap_err(),
+            respond(&world, "mina-admin", &parent, &identities).unwrap_err(),
             ResponseError::Unavailable
         );
     }
@@ -884,7 +966,6 @@ fn modes_and_the_one_policy_still_decide() {
     let identities = identities();
     let records = [world.record.clone()];
     let works = SharedWorks::new(&records, &world.site);
-    let actor = works.actor(session("mina-admin"), Some(WORK), &identities);
     let parent = perspective();
     for (mode, expected) in [
         (ParticipationMode::Locked, PolicyError::Closed),
@@ -897,19 +978,147 @@ fn modes_and_the_one_policy_still_decide() {
                 record: &world.record,
                 identities: &identities,
                 admin_user: "mina-admin",
-                actor,
+                works: &works,
                 work: WORK,
                 mode,
                 parent: &parent,
                 parent_mode: ParticipationMode::Open,
                 parent_target: &world.parent_target,
-                sections: &world.published,
+                body: &world.body,
+                credits: Some(&world.credits),
                 at: DateTime::from_unix(1_800_000_100),
             },
         )
         .unwrap_err();
         assert_eq!(error, ResponseError::Policy(expected));
     }
+}
+
+// ---------------------------------------------------------------------------
+// The sealed admission and the stored responder
+
+/// A plain author response, as RD12 alone would admit it, from `admin_user`
+/// on this work, without the sealed grant.
+fn plain_admit(
+    world: &World,
+    principal: Principal<'_>,
+    parent_target: Option<&PerspectiveTarget>,
+) -> Result<(), PolicyError> {
+    let records = [world.record.clone()];
+    let works = SharedWorks::new(&records, &world.site);
+    let identities = identities();
+    let actor = works.actor(principal, Some(WORK), &identities);
+    let parent = perspective();
+    ModerationPolicy::new(Default::default())
+        .admit(&Submission {
+            id: "plain",
+            actor,
+            kind: ParticipationKind::AuthorResponse,
+            work: Some(WORK),
+            mode: ParticipationMode::Open,
+            parent: Some((&parent, ParticipationMode::Open)),
+            parent_target,
+            author_grant: None,
+            clarification_consent: false,
+            at: DateTime::from_unix(1_800_000_100),
+        })
+        .map(|_| ())
+}
+
+#[test]
+fn a_coordinator_cannot_speak_as_the_author_through_the_plain_policy() {
+    let world = world();
+    // The coordinator, the publication's site owner and the moderation token
+    // are all permitted author responses by RD12 in general...
+    let work = PerspectiveTarget::work();
+    for principal in [
+        session("coord-admin"),
+        session("owner-admin"),
+        Principal::ModerationToken,
+        session("mina-admin"),
+    ] {
+        assert!(
+            plain_admit(&world, principal, Some(&work)).is_ok(),
+            "{principal:?}"
+        );
+        // ...but not to a perspective about an attributed section, however
+        // the request is made, unless it came through `admit_response`.
+        assert_eq!(
+            plain_admit(&world, principal, Some(&world.parent_target)),
+            Err(PolicyError::Denied),
+            "{principal:?}"
+        );
+        // Leaving the target out is no way around it.
+        assert_eq!(
+            plain_admit(&world, principal, None),
+            Err(PolicyError::InvalidTarget),
+            "{principal:?}"
+        );
+    }
+    // A reserved anchor that is not a valid section is no ordinary heading.
+    let digest = Some("0123456789abcdef0123456789abcdef".to_string());
+    let broken = PerspectiveTarget::section(Some("ob-by-Mina-0".into()), digest);
+    assert_eq!(
+        plain_admit(&world, session("coord-admin"), Some(&broken)),
+        Err(PolicyError::Denied)
+    );
+    // An ordinary heading keeps RD12's generic meaning.
+    let heading = PerspectiveTarget::section(Some("methods".into()), None);
+    assert!(plain_admit(&world, session("coord-admin"), Some(&heading)).is_ok());
+}
+
+#[test]
+fn a_stored_responder_must_be_the_sections_own_contributor() {
+    let parent = perspective();
+    let response = approved(
+        "response-1",
+        ParticipationKind::AuthorResponse,
+        Some("perspective-1"),
+    );
+    let open = ParticipationMode::Open;
+    let target = target_of(
+        &sections(&record(), ReflectionLayout::Sequential, &TURNS),
+        "mina",
+        0,
+    )
+    .perspective_target();
+    // The bound contributor's answer is shown...
+    assert!(response_shown(
+        &response,
+        open,
+        Some("mina"),
+        &parent,
+        open,
+        &target
+    ));
+    // ...another contributor's, or one with no stored responder (a coordinator
+    // who got a plain author response stored), is not.
+    for responder in [Some("joe"), Some("coord"), Some("MINA"), None] {
+        assert!(
+            !response_shown(&response, open, responder, &parent, open, &target),
+            "{responder:?}"
+        );
+    }
+    // A perspective that is not about an attributed section needs no responder.
+    assert!(response_shown(
+        &response,
+        open,
+        None,
+        &parent,
+        open,
+        &PerspectiveTarget::work()
+    ));
+    // A malformed reserved anchor is never shown an answer.
+    let digest = Some("0123456789abcdef0123456789abcdef".to_string());
+    let broken = PerspectiveTarget::section(Some("ob-by-mina".into()), digest);
+    assert!(!response_shown(
+        &response,
+        open,
+        Some("mina"),
+        &parent,
+        open,
+        &broken
+    ));
 }
 
 #[test]
@@ -921,19 +1130,23 @@ fn a_response_is_shown_only_while_it_and_its_parent_are_public() {
         Some("perspective-1"),
     );
     let open = ParticipationMode::Open;
-    assert!(response_shown(&response, open, &parent, open));
+    let target = PerspectiveTarget::work();
+    let shown = |response: &ItemFacts<'_>, response_mode, parent: &ItemFacts<'_>, parent_mode| {
+        response_shown(response, response_mode, None, parent, parent_mode, &target)
+    };
+    assert!(shown(&response, open, &parent, open));
     // Taking the parent down hides the response without touching it.
     let mut removed = perspective();
     removed.state = ModerationState::Removed;
-    assert!(!response_shown(&response, open, &removed, open));
+    assert!(!shown(&response, open, &removed, open));
     // A hidden kind, a pending response, another parent.
-    assert!(!response_shown(
+    assert!(!shown(
         &response,
         ParticipationMode::Hidden,
         &perspective(),
         open
     ));
-    assert!(!response_shown(
+    assert!(!shown(
         &response,
         open,
         &perspective(),
@@ -942,15 +1155,15 @@ fn a_response_is_shown_only_while_it_and_its_parent_are_public() {
     let mut pending = response;
     pending.state = ModerationState::Pending;
     pending.approved_revision = None;
-    assert!(!response_shown(&pending, open, &perspective(), open));
+    assert!(!shown(&pending, open, &perspective(), open));
     let other = approved(
         "response-2",
         ParticipationKind::AuthorResponse,
         Some("perspective-9"),
     );
-    assert!(!response_shown(&other, open, &perspective(), open));
+    assert!(!shown(&other, open, &perspective(), open));
     // Locked still shows what was approved.
-    assert!(response_shown(
+    assert!(shown(
         &response,
         ParticipationMode::Locked,
         &perspective(),
@@ -993,4 +1206,77 @@ fn a_coordinator_moderates_the_response_but_a_contributor_never_does() {
         decide("mina-admin", ModerationAction::Approve).unwrap_err(),
         PolicyError::Denied
     );
+}
+
+// ---------------------------------------------------------------------------
+// The reserved anchor space
+
+fn heading_ids(markdown: &str) -> Vec<String> {
+    let html = openblog_core::markdown::render(markdown, Default::default()).html;
+    html.match_indices("<h")
+        .filter_map(|(at, _)| {
+            let tag = &html[at..];
+            let id = tag.split("id=\"").nth(1)?.split('"').next()?;
+            Some(id.to_string())
+        })
+        .collect()
+}
+
+#[test]
+fn no_heading_can_take_an_attributed_anchor() {
+    // Generated slugs: "OB by Mina" would slug to `ob-by-mina`.
+    let ids = heading_ids("## OB by Mina\n\ntext\n\n## OB by Mina\n\n## Methods\n");
+    assert!(
+        ids.iter().all(|id| !id.starts_with(ANCHOR_PREFIX)),
+        "{ids:?}"
+    );
+    assert_eq!(ids.len(), 3);
+    // Still unique and still deterministic.
+    assert_ne!(ids[0], ids[1]);
+    assert_eq!(ids[2], "methods");
+    assert_eq!(
+        ids,
+        heading_ids("## OB by Mina\n\ntext\n\n## OB by Mina\n\n## Methods\n")
+    );
+    // An id the author writes in the reserved space is not honoured either.
+    let written = heading_ids("## Notes {#ob-by-mina-0}\n\n## Other {#plain}\n");
+    assert!(
+        written.iter().all(|id| !id.starts_with(ANCHOR_PREFIX)),
+        "{written:?}"
+    );
+    assert_eq!(written[1], "plain");
+    // The ordinary headings are untouched.
+    assert_eq!(heading_ids("## Obey the tide\n"), ["obey-the-tide"]);
+}
+
+#[test]
+fn nobody_approves_their_own_answer_even_as_a_coordinator() {
+    use openblog_core::attributed_perspective::may_decide_response;
+    // A coordinator who is also a contributor writes an answer...
+    let mut world = world();
+    for binding in &mut world.record.authorization.bindings {
+        if binding.participant_id == "p-mina" {
+            binding.roles = vec![
+                AuthorizationRole::Coordinator,
+                AuthorizationRole::Contributor,
+            ];
+        }
+    }
+    assert!(respond(&world, "mina-admin", &perspective(), &identities()).is_ok());
+    // ...but cannot approve it, while another coordinator can.
+    assert_eq!(
+        may_decide_response(Some("mina-admin"), "mina-admin", ModerationAction::Approve),
+        Err(PolicyError::Denied)
+    );
+    assert_eq!(
+        may_decide_response(Some("mina-admin"), "coord-admin", ModerationAction::Approve),
+        Ok(())
+    );
+    // Taking one's own words down is always allowed.
+    for action in [ModerationAction::Remove, ModerationAction::Reject] {
+        assert_eq!(
+            may_decide_response(Some("mina-admin"), "mina-admin", action),
+            Ok(())
+        );
+    }
 }

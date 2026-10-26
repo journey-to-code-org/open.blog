@@ -7,9 +7,10 @@
 //! format and without a parallel policy:
 //!
 //! - *What does the reader point at?* An [`AttributedTarget`]: the author's
-//!   contribution id, the section's place among that author's sections, and
-//!   the digest of the text the reader read. It is written as an ordinary RD10
-//!   section target (`ob-by-{contribution}-{nth}` plus B5's digest), so every
+//!   public contributor id (the registry key the committed credits sidecar
+//!   names), the section's place among that author's sections, and the digest
+//!   of the text the reader read. It is written as an ordinary RD10
+//!   section target (`ob-by-{contribution}-{nth}` plus a digest under its own label), so every
 //!   stored copy and every reader of one already understands it. Nothing in it
 //!   is visual: no side, lane, column or position in the layout.
 //! - *Is it still the same section?* [`AttributedSections::resolve`] looks the
@@ -18,27 +19,30 @@
 //!   [`Standing::Stale`] with the honest reason. It never points at another
 //!   author's or another passage's text.
 //! - *Who may answer as that author?* [`admit_response`]: only the participant
-//!   who wrote the section, bound as a contributor of the publication, signed
-//!   in as the account bound to them, and still the author the section was
-//!   published under. A contributor registry key alone, a coordinator, a site
-//!   owner, an editor or the moderation token never can. The answer is then
-//!   admitted by RD12's one policy as an ordinary pending `author-response`.
+//!   whose binding names that public contributor id, as a contributor of the
+//!   publication, signed in as the account bound to them. A contributor
+//!   registry key alone, a coordinator, a site owner, an editor or the
+//!   moderation token never can. The answer is then admitted by RD12's one
+//!   policy as a pending `author-response`, and only this function can obtain
+//!   the sealed [`AuthorGrant`] the policy demands for an attributed parent.
 //!
-//! Everything here is pure. Callers bring the published post's body, the
-//! shared publication record and the identities loaded in the same
-//! transaction as any change.
+//! Which author wrote a section is read from committed, public content only:
+//! the post's arranged body and its credits sidecar (ADR 0161). The private
+//! shared-publication record decides one thing, who may answer, and is never
+//! needed to resolve, render or build a target. Everything here is pure.
 
 use crate::arrangement::Arrangement;
 use crate::collaboration::{
-    valid_id, AuthorizationAction, AuthorizationTarget, SharedPublication, MAX_IDENTIFIER_BYTES,
+    valid_contributor_id, AuthorizationAction, AuthorizationTarget, SharedPublication,
 };
 use crate::date::DateTime;
 use crate::invitation::Identities;
 use crate::moderation::{
-    is_public, Actor, Admission, ItemFacts, ModerationPolicy, PolicyError, Submission,
+    is_public, Admission, AuthorGrant, ItemFacts, ModerationPolicy, PolicyError, Principal,
+    SharedWorks, Submission,
 };
 use crate::participation::{ParticipationKind, ParticipationMode};
-use crate::passage_target::{normalize_passage_text, section_digest, PassageSelector};
+use crate::passage_target::{attributed_section_digest, normalize_passage_text, PassageSelector};
 use crate::reflection::MAX_TOTAL_TURNS;
 use crate::third_perspective::{PerspectiveTarget, TargetStatus};
 
@@ -102,7 +106,9 @@ fn split_anchor(text: &str) -> Result<Option<(String, usize)>, TargetError> {
         && nth.len() <= 3
         && nth.bytes().all(|byte| byte.is_ascii_digit())
         && (nth == "0" || !nth.starts_with('0'));
-    if !canonical || !valid_id(contribution) || contribution.len() > MAX_IDENTIFIER_BYTES {
+    // The contributor id is a registry key: lowercase only, so one section
+    // has one spelling and no look-alike casing is read as the same author.
+    if !canonical || !valid_contributor_id(contribution) {
         return Err(TargetError::Malformed);
     }
     let nth: usize = nth.parse().map_err(|_| TargetError::Malformed)?;
@@ -115,15 +121,17 @@ fn split_anchor(text: &str) -> Result<Option<(String, usize)>, TargetError> {
 /// One author's section as the work publishes it now.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AttributedSection {
-    /// The author's contribution (draft) id, the opaque handle the shared
-    /// publication uses for them. Never a name or an account.
+    /// The author's public contributor id, the registry key the post's
+    /// committed credits sidecar names. Never a participant id, a name or an
+    /// account, so it says nothing about how many people the work had.
     pub contribution: String,
     /// Zero-based place among that author's sections in reading order. A
     /// hint only: the text, not the place, decides what a target means.
     pub nth: usize,
     /// The name the section is published under.
     pub author: String,
-    /// B5's digest of the section's normalized Markdown text.
+    /// The digest of the section's normalized Markdown text, under its own
+    /// label ([`attributed_section_digest`]), not B5's heading-section label.
     pub digest: String,
 }
 
@@ -186,10 +194,12 @@ impl AttributedTarget {
 /// Why an attributed target no longer points at what the reader read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StaleReason {
-    /// The author still has a section there, with different text.
-    SectionChanged,
-    /// The author has no section with that text, or no section at all.
-    SectionRemoved,
+    /// The author still publishes sections, but none has the text the reader
+    /// read. Whether it was edited or removed cannot be told from the
+    /// published work alone, so it is never claimed to be either.
+    SectionChangedOrRemoved,
+    /// No section by that author is published now.
+    AuthorAbsent,
     /// Two of the author's sections hold the same text and neither is at the
     /// place the reader saw, so which one was meant cannot be told.
     Ambiguous,
@@ -198,8 +208,8 @@ pub enum StaleReason {
 impl StaleReason {
     pub fn id(self) -> &'static str {
         match self {
-            StaleReason::SectionChanged => "section-changed",
-            StaleReason::SectionRemoved => "section-removed",
+            StaleReason::SectionChangedOrRemoved => "section-changed-or-removed",
+            StaleReason::AuthorAbsent => "author-absent",
             StaleReason::Ambiguous => "ambiguous",
         }
     }
@@ -254,39 +264,65 @@ pub struct AttributedSections {
 }
 
 impl AttributedSections {
-    /// The sections as the work's Markdown body publishes them: its arranged
-    /// reflection read back (ADR 0033), each turn matched to the one
-    /// participant whose display name heads it. A body that is not an arranged
-    /// reflection has none, and a turn whose name matches no participant or
-    /// more than one is counted but never targetable, so a renamed or
-    /// duplicated name fails closed instead of guessing an author.
-    pub fn from_published(record: &SharedPublication, body: &str) -> Self {
+    /// The sections as the work's committed content publishes them: the
+    /// Markdown body read back as an arranged reflection (ADR 0033) and its
+    /// credits sidecar, which lists each contributor once, in the order they
+    /// first appear (ADR 0030). The k-th distinct author name in the body is
+    /// the k-th credit. Nothing private is read and no name is compared with
+    /// any record, so a static or CI build, a later invitation of someone with
+    /// the same name, or a look-alike name changes nothing. A body that is not
+    /// an arranged reflection has no sections; a sidecar whose credits do not
+    /// pair one to one with the body's distinct names (two authors sharing a
+    /// name, a hand-edited body, a missing or unreadable sidecar) attributes
+    /// nothing and counts every turn as unattributed, so it fails closed
+    /// instead of guessing an author.
+    pub fn from_published(body: &str, credits: Option<&str>) -> Self {
         let Some(arrangement) = Arrangement::parse(body) else {
             return Self::default();
         };
-        let participants = &record.collaboration.participants;
+        let turns: Vec<_> = arrangement.turns().collect();
+        let ids = credits.and_then(crate::contributor::credited_ids);
+        let mut names: Vec<&str> = Vec::new();
+        for turn in &turns {
+            if !names.contains(&turn.author.as_str()) {
+                names.push(&turn.author);
+            }
+        }
+        let paired = ids.filter(|ids| {
+            ids.len() == names.len()
+                && ids.iter().all(|id| valid_contributor_id(id))
+                && ids
+                    .iter()
+                    .enumerate()
+                    .all(|(index, id)| !ids[..index].contains(id))
+        });
+        let Some(ids) = paired else {
+            return Self {
+                sections: Vec::new(),
+                unattributed: turns.len(),
+            };
+        };
         let mut sections: Vec<AttributedSection> = Vec::new();
         let mut unattributed = 0;
-        for turn in arrangement.turns() {
-            let mut named = participants
+        for turn in &turns {
+            let index = names
                 .iter()
-                .filter(|participant| participant.display_name == turn.author);
-            let (Some(participant), None) = (named.next(), named.next()) else {
+                .position(|name| *name == turn.author)
+                .unwrap_or_default();
+            if sections.len() >= MAX_SECTIONS {
                 unattributed += 1;
                 continue;
-            };
-            if sections.len() >= MAX_SECTIONS {
-                break;
             }
+            let contribution = &ids[index];
             let nth = sections
                 .iter()
-                .filter(|section| section.contribution == participant.id)
+                .filter(|section| &section.contribution == contribution)
                 .count();
             sections.push(AttributedSection {
-                contribution: participant.id.clone(),
+                contribution: contribution.clone(),
                 nth,
                 author: turn.author.clone(),
-                digest: section_digest(&normalize_passage_text(&turn.body)),
+                digest: attributed_section_digest(&normalize_passage_text(&turn.body)),
             });
         }
         Self {
@@ -300,8 +336,8 @@ impl AttributedSections {
         &self.sections
     }
 
-    /// How many published turns have no single matching author, so cannot be
-    /// targeted.
+    /// How many published turns cannot be attributed to one credited author,
+    /// so cannot be targeted.
     pub fn unattributed(&self) -> usize {
         self.unattributed
     }
@@ -314,15 +350,11 @@ impl AttributedSections {
         let own: Vec<&AttributedSection> = self
             .sections
             .iter()
-            .filter(|section| {
-                section
-                    .contribution
-                    .eq_ignore_ascii_case(&target.contribution)
-            })
+            .filter(|section| section.contribution == target.contribution)
             .collect();
         let Some(first) = own.first() else {
             return Standing::Stale {
-                reason: StaleReason::SectionRemoved,
+                reason: StaleReason::AuthorAbsent,
                 author: None,
             };
         };
@@ -351,11 +383,7 @@ impl AttributedSections {
                 author: section.author.clone(),
             },
             None => Standing::Stale {
-                reason: if own.iter().any(|section| section.nth == target.nth) {
-                    StaleReason::SectionChanged
-                } else {
-                    StaleReason::SectionRemoved
-                },
+                reason: StaleReason::SectionChangedOrRemoved,
                 author: Some(first.author.clone()),
             },
         }
@@ -370,12 +398,12 @@ pub enum ResponseError {
     NotAttributed,
     /// The requester is not the contributor who wrote that section. The same
     /// answer for a registry key without a binding, an editor, a coordinator,
-    /// a site owner, the moderation token, a binding to another participant
-    /// and a binding that no longer resolves.
+    /// a site owner, the moderation token, a binding to another participant,
+    /// a binding that no longer resolves and a publication that is not the
+    /// one that publishes this work.
     Denied,
-    /// The requester is that author, but the section's author cannot be
-    /// confirmed as the same person now: no section by them is published, or
-    /// the name it is published under is no longer theirs.
+    /// The requester is that author, but no section by them is published now,
+    /// so there is nothing the answer is an answer about.
     AuthorUnconfirmed,
     /// The parent is not a public Third Perspective of this work.
     Unavailable,
@@ -403,11 +431,16 @@ impl std::fmt::Display for ResponseError {
 
 impl std::error::Error for ResponseError {}
 
-/// Who answered, as the audit trail keeps it and as the page names them.
+/// Who answered, as the store keeps it (ADR 0164). The binding is private:
+/// it never leaves the record. The handle, the published name and the
+/// standing are what a public page may say.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Responder {
-    /// The participant who wrote the section (private; never public).
+    /// The participant who wrote the section. Private; never public.
     pub participant: String,
+    /// The public contributor id the section is credited to. It must equal
+    /// the parent's attributed contributor for the answer to be shown.
+    pub contributor: String,
     /// The name the section, and so the answer, is published under.
     pub author: String,
     /// Where the section stood when the answer was written.
@@ -449,10 +482,11 @@ pub struct ResponseRequest<'a> {
     pub id: &'a str,
     pub record: &'a SharedPublication,
     pub identities: &'a Identities<'a>,
-    /// The signed-in Admin account, from the session.
+    /// The signed-in Admin account, from the session. The actor is derived
+    /// from it here, never supplied.
     pub admin_user: &'a str,
-    /// The account's actor on this work, from `SharedWorks::actor`.
-    pub actor: Actor<'a>,
+    /// The loaded works of every shared publication.
+    pub works: &'a SharedWorks<'a>,
     /// The published work's path.
     pub work: &'a str,
     /// `author-response`'s mode on that work.
@@ -463,8 +497,10 @@ pub struct ResponseRequest<'a> {
     pub parent_mode: ParticipationMode,
     /// The target the Third Perspective stores.
     pub parent_target: &'a PerspectiveTarget,
-    /// The work's sections as published now.
-    pub sections: &'a AttributedSections,
+    /// The work's published Markdown body, as committed.
+    pub body: &'a str,
+    /// The work's credits sidecar, as committed.
+    pub credits: Option<&'a str>,
     pub at: DateTime,
 }
 
@@ -478,11 +514,13 @@ pub struct AttributedResponse {
 /// Admit an author's answer to a Third Perspective about their own section.
 ///
 /// Checks run in a fixed order so a requester who is not that author learns
-/// nothing: the target's kind, the author grant, the parent, the author's
-/// standing, then RD12's [`ModerationPolicy::admit`]. A section that has since
-/// changed still lets its author answer (the page says the section changed);
-/// one the author no longer publishes, or under a name that is no longer
-/// theirs, does not, because the person who wrote it cannot be confirmed.
+/// nothing: the target's kind, that this publication publishes this work, the
+/// author grant, the parent, the author's standing, then RD12's
+/// [`ModerationPolicy::admit`], handed the sealed [`AuthorGrant`] only here.
+/// The sections are built here from the published body and credits, never
+/// taken from the caller. A section that has since changed still lets its
+/// author answer (the page says so); an author with no published section
+/// cannot, because there is nothing left to answer about.
 pub fn admit_response(
     policy: &ModerationPolicy,
     request: &ResponseRequest<'_>,
@@ -490,46 +528,65 @@ pub fn admit_response(
     let target = AttributedTarget::from_perspective(request.parent_target)
         .map_err(|_| ResponseError::NotAttributed)?
         .ok_or(ResponseError::NotAttributed)?;
-    // The actor the session resolved must be this very account, so a
-    // request cannot pair one account's grant with another's actor.
-    if request.actor.admin_user() != Some(request.admin_user) {
+    // The record must be the publication whose post is this work, so one
+    // work's grant is never spent on another's.
+    if !request
+        .works
+        .works(&request.record.publication_id)
+        .contains(&request.work)
+    {
         return Err(ResponseError::Denied);
     }
-    let participant = request
+    // The participant is found only by the public contributor id the section
+    // is credited to; no name is ever compared.
+    let binding = request
         .record
-        .collaboration
-        .participants
+        .authorization
+        .bindings
         .iter()
-        .find(|participant| participant.id.eq_ignore_ascii_case(&target.contribution))
+        .find(|binding| binding.contributor_id == target.contribution)
         .ok_or(ResponseError::Denied)?;
     authorize_author(
         request.record,
         request.identities,
         request.admin_user,
-        &participant.id,
+        &binding.participant_id,
     )?;
+    let actor = request.works.actor(
+        Principal::AdminSession {
+            admin_user: request.admin_user,
+        },
+        Some(request.work),
+        request.identities,
+    );
+    if actor.admin_user() != Some(request.admin_user) {
+        return Err(ResponseError::Denied);
+    }
     if request.parent.kind != ParticipationKind::ThirdPerspective
         || request.parent.work != Some(request.work)
         || !is_public(request.parent, request.parent_mode)
     {
         return Err(ResponseError::Unavailable);
     }
-    let standing = request.sections.resolve(&target);
+    let sections = AttributedSections::from_published(request.body, request.credits);
+    let standing = sections.resolve(&target);
     let author = match &standing {
         Standing::Current { author, .. } => Some(author),
         Standing::Stale { author, .. } => author.as_ref(),
     };
-    let Some(author) = author.filter(|name| **name == participant.display_name) else {
+    let Some(author) = author else {
         return Err(ResponseError::AuthorUnconfirmed);
     };
     let admission = policy
         .admit(&Submission {
             id: request.id,
-            actor: request.actor,
+            actor,
             kind: ParticipationKind::AuthorResponse,
             work: Some(request.work),
             mode: request.mode,
             parent: Some((request.parent, request.parent_mode)),
+            parent_target: Some(request.parent_target),
+            author_grant: Some(AuthorGrant::issue()),
             clarification_consent: false,
             at: request.at,
         })
@@ -537,26 +594,61 @@ pub fn admit_response(
     Ok(AttributedResponse {
         admission,
         responder: Responder {
-            participant: participant.id.clone(),
+            participant: binding.participant_id.clone(),
+            contributor: target.contribution.clone(),
             author: author.clone(),
             standing,
         },
     })
 }
 
-/// Whether a stored response is shown to readers: it is public itself and
-/// answers a Third Perspective that is public now. A response never outlives
-/// its parent's publication, and removing the parent hides it without
-/// deleting it.
+/// Whether a stored response is shown to readers: it is public itself, it
+/// answers a Third Perspective that is public now, and, when that perspective
+/// is about an attributed section, the response's stored responder is that
+/// section's own contributor. A response stored without a responder, or with
+/// another's, is never shown under an attributed parent, so a plain author
+/// response a coordinator or site owner managed to store cannot speak as the
+/// author. A response never outlives its parent's publication, and removing
+/// the parent hides it without deleting it.
 pub fn response_shown(
     response: &ItemFacts<'_>,
     response_mode: ParticipationMode,
+    responder_contributor: Option<&str>,
     parent: &ItemFacts<'_>,
     parent_mode: ParticipationMode,
+    parent_target: &PerspectiveTarget,
 ) -> bool {
-    response.kind == ParticipationKind::AuthorResponse
+    let bound = match AttributedTarget::from_perspective(parent_target) {
+        Ok(None) => true,
+        Ok(Some(target)) => responder_contributor == Some(target.contribution.as_str()),
+        Err(_) => false,
+    };
+    bound
+        && response.kind == ParticipationKind::AuthorResponse
         && response.parent == Some(parent.id)
         && response.work == parent.work
         && is_public(response, response_mode)
         && is_public(parent, parent_mode)
+}
+
+/// Whether `decider_admin_user` may take `action` on an author response that
+/// `responder_admin_user` wrote. RD12's table already keeps a contributing
+/// author from moderating; this closes the one gap left, a coordinator or
+/// site owner who is also the section's contributor and so may write the
+/// answer: nobody approves their own answer. Removing or rejecting one's own
+/// answer stays allowed, because taking words down is never the risk. The
+/// submitter is the audit event's account, which the policy's item facts do
+/// not carry, so the route that stores responses calls this beside
+/// [`ModerationPolicy::decide`].
+pub fn may_decide_response(
+    responder_admin_user: Option<&str>,
+    decider_admin_user: &str,
+    action: crate::moderation::ModerationAction,
+) -> Result<(), PolicyError> {
+    if action == crate::moderation::ModerationAction::Approve
+        && responder_admin_user == Some(decider_admin_user)
+    {
+        return Err(PolicyError::Denied);
+    }
+    Ok(())
 }
