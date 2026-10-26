@@ -3533,7 +3533,7 @@ a.oba-btn-primary {
   outline-offset: 2px;
 }
 
-/* Research workspace (ADR 0132): private research and the publishable draft are told apart in
+/* Research workspace (ADR 0120): private research and the publishable draft are told apart in
    words first; the border style only repeats it (solid for private, double for publishable). */
 .oba-research-nav {
   display: flex;
@@ -3667,7 +3667,7 @@ a.oba-btn-primary {
   }
 }
 
-/* The draft-side research panel (ADR 0134): beside the writing surface on wide screens, below
+/* The draft-side research panel (ADR 0122): beside the writing surface on wide screens, below
    it on narrow ones, in reading order either way. */
 .oba-write-layout[data-research="open"] {
   display: grid;
@@ -3812,7 +3812,7 @@ a.oba-btn-primary {
   border-top: var(--ob-border-width) solid var(--oba-panel-border);
 }
 
-/* Research review before publication (#62, ADR 0135) */
+/* Research review before publication (#62, ADR 0123) */
 .oba-review-dialog {
   width: min(48rem, calc(100vw - 2rem));
 }
@@ -3930,7 +3930,7 @@ a.oba-btn-primary {
   }
 }
 
-/* What will be public (ADR 0137): one section per projection, items that wrap at any width or zoom.
+/* What will be public (ADR 0125): one section per projection, items that wrap at any width or zoom.
    Published and withheld are told apart in words; the border style only repeats it. */
 .oba-boundary-projection {
   margin-block: 1.25rem;
@@ -3974,4 +3974,44 @@ a.oba-btn-primary {
 .oba-boundary-post {
   margin-top: 1rem;
   min-width: 0;
+}
+
+/* Correction decisions (ADR 0117): one disclosure per item, beside the moderation decisions, its
+   choices stacked so they reflow at any width or zoom. */
+.oba-decision {
+  margin-top: 0.75rem;
+  border-top: 1px solid var(--ob-color-border);
+  padding-top: 0.5rem;
+}
+
+.oba-decision > summary,
+.oba-feedback-decisions > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.oba-decision-choices {
+  display: grid;
+  gap: 0.4rem;
+  min-inline-size: 0;
+  margin: 0.75rem 0;
+  border: 1px solid var(--ob-color-border);
+  border-radius: 0.35rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.oba-decision-choices[hidden],
+.oba-decision [hidden] {
+  display: none;
+}
+
+.oba-decision-choice p {
+  margin: 0.1rem 0 0 1.6rem;
+}
+
+.oba-decision select,
+.oba-decision textarea,
+.oba-decision input[type="text"] {
+  max-inline-size: 100%;
+  overflow-wrap: anywhere;
 }

@@ -1342,6 +1342,87 @@ needs, added by `supabase/moderation.sql` and `supabase/feedback.sql` and switch
 (ADR 0106).
 _Avoid_: Migration (it is additive and optional), new comment system
 
+**Evidence submission**:
+A suggested source or suggested correction (the two evidence kinds), optionally with an evidence
+block naming the published claim, evidence link, citation or source it concerns. Reader data and
+the reader's statement, never evaluated and never a correction until the author decides
+(ADR 0116).
+_Avoid_: Correction, evidence link, citation, fact check
+
+**Evidence block**:
+The `evidence` member of a version 2 feedback submission: the claim, evidence link, citation and
+offered source a reader names by the site's public ids, with locators and the reader's stance.
+Never an A4 evidence link and never copied into research.
+_Avoid_: Evidence (for the author's evidence links), vote, endorsement
+
+**Published references**:
+The claims, evidence links and sources one post publishes, the things a reader's evidence block is
+checked against (an offered source is checked against the sources the whole site publishes). A
+reference outside them reads only as not published here, never as private.
+_Avoid_: Claims file, Source Library lookup
+
+**Correction decision**:
+The author's recorded conclusion about one evidence submission: an outcome linked to the item,
+the post's revision note and, where relevant, the claim evidence link the author recorded. Separate
+from moderation; it never edits the post and never changes the reader's record (ADR 0117).
+_Avoid_: Moderation, approval, verdict, fact check
+
+**Decision outcome**:
+Accepted as a correction, accepted as a clarification, accepted as evidence (each in full or in
+part), declined with the author's reason, or already addressed. Only accepted as a correction makes
+anything a correction.
+_Avoid_: Verdict, rating, true or false
+
+**Decision log**:
+Every correction decision about one item, oldest first and numbered from 1. A new decision names
+how many it saw and supersedes the last without removing it.
+_Avoid_: Overwriting a decision, audit trail when moderation events are meant
+
+**Item standing**:
+How a reader's item reads to readers and editors: a question, another interpretation, a proposed source,
+a challenged citation or a possible error until the author decides, then the outcome in force. It
+depends on the kind, the evidence block and the decision only, never on counts.
+_Avoid_: Standing on its own (it collides with claim and relationship standing), status
+(moderation), score, consensus
+
+**Public decision**:
+The public form of an item's decision in force (outcome, extent, reason, rationale, revision note,
+published claim evidence, day), shown only while the reader's item is itself public, and naming
+neither the reader nor who decided.
+_Avoid_: Correction notice for a private submission, decision export
+
+**Evidence choices**:
+What a post's feedback form lets a reader name in an evidence block: the post's published claims
+and their published evidence links, the sources it publishes and the sources the site publishes,
+each by id and public label. Built from public output only, so a reader picks and never types an id
+(ADR 0118).
+_Avoid_: Claim search, source lookup
+
+**Duplicate cue**:
+A link, on an inbox card, to another item on the same page about the same post that points at the
+same passage or names the same claim, evidence link or source. A reason to read them together,
+never a count and never a reason to decide.
+_Avoid_: Vote, tally, merge
+
+**Record decision**:
+The inbox's action for a correction decision, offered beside moderation to the site Admin and the
+work's coordinator where the policy and the hosted store allow. It points at a revision note and an
+evidence link recorded separately and never edits the post (ADR 0118).
+_Avoid_: Approve, publish, correct
+
+**Published outcome**:
+What a published suggested source or correction came to, on the post's canonical page and in its
+portable copies: the author's decision with its day and rationale, the revision the note was about,
+the post's own revision note that records the change and the evidence link the author recorded,
+each linked only while the post still publishes it. Carried in `reader-feedback.json` (version 2)
+beside the note, and never with who decided or the reader's words in a portable copy (ADR 0119).
+_Avoid_: Fact check, verdict, correction notice for a private submission
+
+**Unresolved suggestion**:
+A published suggested source or correction the author has not decided, shown, on a site that takes
+evidence, as a reader's suggestion and not a settled correction.
+_Avoid_: Pending (moderation), disputed, contested
+
 ## Admin workspace
 
 **Workspace preferences**:
@@ -1362,7 +1443,7 @@ _Avoid_: Default tool, pinned tool
 
 **Research workspace**:
 The one Admin destination for an author's research: the Workflow, Sources, Notebook, Atlas and
-Compare panels under `#/research/`, with Claims and the Draft beside them (ADR 0132). Its earlier
+Compare panels under `#/research/`, with Claims and the Draft beside them (ADR 0120). Its earlier
 routes redirect into it. It changes where research is reached, never what is stored or published.
 _Avoid_: Research tools, research mode
 
@@ -1383,7 +1464,7 @@ _Avoid_: Public, shared; a label states what publishing does, not who may read t
 
 **Kept panel**:
 A workspace panel with unsaved changes that the Admin set aside in memory, instead of discarding,
-while the author opened another panel; reopening it restores it exactly (ADR 0133). Kept panels
+while the author opened another panel; reopening it restores it exactly (ADR 0121). Kept panels
 are discarded, after asking, when the author leaves the workspace or signs out, and survive an
 expired session only for the same user's next sign-in in that page.
 _Avoid_: Autosave, draft recovery; nothing is written anywhere
@@ -1391,24 +1472,24 @@ _Avoid_: Autosave, draft recovery; nothing is written anywhere
 **Draft-side research panel**:
 The narrow, non-modal panel beside a post's writing surface that searches the author's research
 and inserts from it: a quotation with its checked citation, a citation, a context link or a
-converted note (ADR 0134). It writes nothing but the unsaved draft.
+converted note (ADR 0122). It writes nothing but the unsaved draft.
 _Avoid_: Research sidebar, inspector
 
 **Context link**:
 A link inserted into a draft to a published atlas entry, its published dating, or a published
 comparison. It exists only for a page the next build publishes; anything private or unpublished
-has no address to link (ADR 0134).
+has no address to link (ADR 0122).
 _Avoid_: Reference, related link; a citation names a source, a context link names a page
 
 **Note conversion**:
 The author's explicit step that puts a private research note into a draft as their own words,
-after confirming it becomes part of the post. It is the only way a note reaches a draft (ADR 0134).
+after confirming it becomes part of the post. It is the only way a note reaches a draft (ADR 0122).
 _Avoid_: Publishing a note, copying a note
 
 **Research review before publication**:
 What the research checks already say about a post, gathered when the author publishes or
 schedules a research or cited post, or asks for it in Evidence Studio: grouped by what blocks the
-build, then by outcome, each finding linked to its line, field or research object (ADR 0135). It
+build, then by outcome, each finding linked to its line, field or research object (ADR 0123). It
 uses the research-completeness contract's finding shape and has no score.
 _Avoid_: Readiness score, publication check, approval, quality gate
 
@@ -1420,7 +1501,7 @@ _Avoid_: Error, failure, must-fix warning
 
 **Context link check**:
 The check that each context link in a post names a page the next build publishes, owned by
-`context_links` and reported as `context-link-unpublished` (ADR 0135). A missing page is a gap to
+`context_links` and reported as `context-link-unpublished` (ADR 0123). A missing page is a gap to
 repair, never a privacy failure.
 _Avoid_: Broken link check, link validation
 
@@ -1433,14 +1514,14 @@ _Avoid_: Dismissal, resolution, waiver; acknowledging an integrity or privacy fa
 **Publication boundary**:
 The line between private research and what the public site carries. Nothing crosses it because it
 exists: only what a projection publishes, and only the fields that projection copies, are public
-(ADR 0137). The build checks its output against it before writing anything: structure refuses, text only
+(ADR 0125). The build checks its output against it before writing anything: structure refuses, text only
 warns outside a projection's machine data.
 _Avoid_: Visibility filter, export rules, privacy setting
 
 **What will be public**:
 The preview of the publication boundary, for the whole site or one post: what each research
 projection publishes, with the fields it copies, what it withholds and why, and what is never
-published. It is built from the same projection values the build writes (ADR 0137).
+published. It is built from the same projection values the build writes (ADR 0125).
 _Avoid_: Publication report, readiness, manifest score
 
 **Withheld reason**:
@@ -1458,7 +1539,7 @@ which the alignments file records as a fingerprint of the passage's locators. On
 fingerprint that no longer matches withholds; an approval made before the record existed never
 does. The item alone is withheld and named, and the author checks it and chooses *Checked -
 approve again*; saving it any other way keeps the recorded places, and the finding cannot be
-acknowledged while it withholds (ADR 0137).
+acknowledged while it withholds (ADR 0125).
 _Avoid_: Expired approval, invalid comparison
 
 **Unsafe web address**:
@@ -1480,5 +1561,114 @@ in a projection's machine data (the atlas, comparisons and claim-evidence JSON, 
 data) refuses the build; a hit anywhere else (pages, feeds, search, static, theme and front-end
 files, a portable Markdown export) is a `boundary:` warning naming the output, the file, the
 record and the field, never the text, and saying to remove it from the public file or keep it.
-Private text of fewer than six words is not guarded by text (ADR 0137).
+Private text of fewer than six words is not guarded by text (ADR 0125).
 _Avoid_: Leak scanner, content filter
+
+## Third Perspectives
+
+Readers' own reflections on published works (ADRs 0109 to 0115). They extend the one reader
+participation seam as the kind `third-perspective`; they never join the authors' work.
+
+**Reader reflection**:
+A reader's own interpretation of a published work, in whatever stage it is: a private draft, a
+submitted copy or an approved response. Reader data, never research, never an author's
+contribution and never a work credit.
+_Avoid_: Comment, review, reply, contribution
+
+**Third Perspective**:
+A reader reflection on a shared reflection or a post, about the whole work or one section,
+offered for publication. Public only with the reader's consent and a moderator's approval of that
+exact text and consent, attributed as the reader chooses or anonymously, and always shown as a
+reader's, never as one of the authors' perspectives or as a vote between them.
+_Avoid_: Third author, verdict, rebuttal, side, comment
+
+**Response category**:
+An optional prompt a reader may pick to frame a reflection: another reading, a connection, from
+experience, a question, or putting it to use. It describes the kind of thought, never its worth
+or which author it sides with; a reflection without one is complete.
+_Avoid_: Rating, score, vote, stance, agree or disagree
+
+**Local reflection**:
+A reader's private draft on their own device. It has no id, provenance, consent or moderation
+state, and the site holds nothing of it until the reader submits it.
+_Avoid_: Pending submission, saved comment
+
+**Submitted copy**:
+The site's private copy of a submitted reflection: its current text and revision, its provenance,
+its intake and the reader's consent history. Visible only to moderation and the submitter.
+_Avoid_: Published reflection, response
+
+**Approved response**:
+The one public form of an approved submitted copy, for the canonical page only: the work and
+section it is about, whether that section has changed, whether the reader read an earlier
+revision, the optional category, the text, the day received and a name only with consent. Never
+in the Post, its credits, feeds or portable exports.
+_Avoid_: Comment, author perspective, featured reflection
+
+**Featured reflection**:
+An approved response an editor chose to feature, covered by the reader's separate feature consent
+for that approved revision. Editorial, never chosen by counts, rank or reactions, and never a
+consensus claim (RD14).
+_Avoid_: Top reflection, most liked, endorsed reflection
+
+**Submission consent**:
+One immutable, numbered record of what a reader agreed to: publication on the canonical page,
+the name and whether to show it, being asked to clarify, and which revision may be featured.
+Narrowing applies at once, even when the history is nearly full (room is kept for it and for
+revocation); showing a name, or another name, is accepted only before a moderator decides;
+revoking publication is a final withdrawal.
+_Avoid_: Terms acceptance, checkbox state, approval
+
+**Intake**:
+How a submitted copy can be acted for: the digest of the private receipt a hosted submitter
+holds, or the Admin user who entered a reader's message by hand. Never the receipt itself and
+never public. A manual copy has no submitter: revoking it is an Admin removal with an immediate
+purge, and it cannot be clarified.
+_Avoid_: Account, login, contact details
+
+**Moderation provenance**:
+Everything moderation keeps about where a copy came from, whatever the reader shows publicly:
+the work and revision read, the target, when it was received, the channel, the name as given and
+the intake. Anonymous display never makes it anonymous.
+_Avoid_: Public provenance, identity verification
+
+**Moderation decision**:
+A moderator's transition of an item in the one moderation state machine, with its private audit
+event. Approving a Third Perspective also binds the text revision and the consent record the
+moderator reviewed, and always names the moderator.
+_Avoid_: Vote, verdict, ruling on who is right
+
+**Continuation**:
+A typed link from an approved response to a later published work that took it up (RD15). It never
+edits the reflection and never implies that the reflection caused, or is endorsed by, the new work.
+_Avoid_: Reply chain, thread, follow-up comment
+
+**Third Perspective region**:
+The "Offer a Third Perspective" section of a post where the kind is open: static text that says
+how to write to the author without JavaScript, replaced by the form that asks for the reader's
+consent explicitly and sends through the hosted service only where it issues receipts. When the
+service cannot take it, or the reader does not agree to publish, the reflection is offered as
+text to copy and send instead (ADR 0114).
+_Avoid_: Comment box, rating widget, reply form
+
+**Perspective consent record**:
+A Submission consent as a hosted row keeps it: one numbered entry of `details.consents`, the last
+one in effect. A reader changes it only through their receipt, which appends a record and raises
+the row's version; an approval stores the number of the record it covered (ADR 0113).
+_Avoid_: Consent flag, clarification column
+
+**Published Third Perspective**:
+The public part of an approved Third Perspective, kept in `third-perspectives.json` in the content
+folder: the post and work, the revision and target the reader wrote about, the optional prompt,
+the text, the days received and approved, and a name only while the approved and current consent
+show it and it matches no credited name. Written by Admin only while the one projection shows the
+copy, re-projected on every build under the kind's published mode, shown on the canonical page
+only; portable copies, feeds and `llms` files carry a labelled link instead (ADR 0115).
+_Avoid_: Comment, reader feedback, moderation record, export
+
+**Reflection status**:
+What a reader learns of their own Third Perspective through its private receipt, and nothing
+else: waiting for review (never published), asked to clarify, approved and shown as a reader's
+reflection, approved but not shown, not published, or withdrawn. Looked up by the receipt alone,
+so it cannot enumerate anyone else's reflection (ADR 0115).
+_Avoid_: Public queue, submission list, tracking id

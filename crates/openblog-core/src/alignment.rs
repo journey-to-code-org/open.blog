@@ -197,7 +197,7 @@ pub struct Alignment {
     )]
     pub publish_normalized: bool,
     /// The fingerprint of each aligned passage's locators when the alignment
-    /// was last saved approved (ADR 0137): what the author saw and approved.
+    /// was last saved approved (ADR 0125): what the author saw and approved.
     /// Additive and optional: an approval recorded before this field has none
     /// and is never withheld as stale. Cleared when the alignment is saved
     /// private.

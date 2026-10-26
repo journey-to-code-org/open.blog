@@ -78,7 +78,7 @@ pub fn run(
     let projection = PortableProjection::for_site(&site, post)?;
     let markdown = projection.portable_markdown()?;
     let portable = projection.portable_html()?;
-    // The publication boundary (ADR 0137): no private research text leaves
+    // The publication boundary (ADR 0125): no private research text leaves
     // in an export that nothing public holds.
     for warning in crate::boundary::check_export(
         root,

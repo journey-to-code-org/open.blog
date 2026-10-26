@@ -21,7 +21,7 @@ import {
   workspacePanelKey,
 } from "../../web/admin/admin.js";
 
-// The research workspace in Admin navigation (A8.1, ADR 0132 and ADR 0133): one route namespace
+// The research workspace in Admin navigation (A8.1, ADR 0120 and ADR 0121): one route namespace
 // with the earlier routes redirected, private research and the publishable draft told apart in
 // words and data, landmarks with a skip link and focus on route change, presets that place the
 // workspace in the main navigation, and panels with unsaved changes kept while another opens.
@@ -942,5 +942,5 @@ test("the workspace reflows at 320 pixels and tells visibility apart without col
   assert.match(styles, /\.oba-research-item \{[^}]*overflow-wrap: anywhere;/);
   assert.match(styles, /\.oba-visibility\[data-visibility="publishable"\],[^{]*\{[^}]*border-style: double;/, "a border style repeats what the words say");
   assert.match(styles, /@media \(max-width: 44rem\) \{\s*\.oba-shell \{[^}]*\}\s*\.oba-app-header \{\s*flex-wrap: wrap;/, "the header wraps instead of overflowing on a phone");
-  assert.doesNotMatch(styles.slice(styles.indexOf("/* Research workspace (ADR 0132)")), /animation|transition/, "the workspace adds no motion");
+  assert.doesNotMatch(styles.slice(styles.indexOf("/* Research workspace (ADR 0120)")), /animation|transition/, "the workspace adds no motion");
 });

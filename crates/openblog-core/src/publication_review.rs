@@ -1,4 +1,4 @@
-//! The research review before publication (#62, ADR 0135, ADR 0136).
+//! The research review before publication (#62, ADR 0123, ADR 0124).
 //!
 //! Before a post is published or scheduled, Admin gathers what the existing
 //! research checks already say about it: the research-profile audit, the
@@ -14,7 +14,7 @@
 //! key and fingerprint, the order and the counts are that contract's, under
 //! the same names and JSON fields, so the readiness report of #194 replaces
 //! the converters here without changing what Admin receives. What the
-//! adapter adds is recorded in ADR 0135. Every validator states the same
+//! adapter adds is recorded in ADR 0123. Every validator states the same
 //! position-free facts as RW9's, so fingerprints agree with the contract's.
 //!
 //! The review is a prompt, never a verdict. There is no score, total, pass,
@@ -83,7 +83,7 @@ pub enum Validator {
     Claims,
     Alignments,
     ComparisonProjection,
-    /// `context_links::review_context_links`, proposed to the contract in ADR 0135.
+    /// `context_links::review_context_links`, proposed to the contract in ADR 0123.
     PublicationContext,
 }
 
@@ -1070,7 +1070,7 @@ impl Acknowledgement {
     }
 }
 
-/// The stored acknowledgements (ADR 0136): a versioned, sorted, duplicate-free list.
+/// The stored acknowledgements (ADR 0124): a versioned, sorted, duplicate-free list.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AcknowledgementSet {
@@ -1154,7 +1154,7 @@ impl AcknowledgementSet {
     }
 }
 
-/// Whether a JSON object is shaped like the acknowledgements file (ADR 0136):
+/// Whether a JSON object is shaped like the acknowledgements file (ADR 0124):
 /// exactly `version` and `acknowledgements`, every record naming a validator,
 /// code and fingerprint. The private-research guards refuse a copy of it in
 /// public input wherever it was saved, as they do the other research files.

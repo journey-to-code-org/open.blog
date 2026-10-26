@@ -1,4 +1,4 @@
-# ADR 0137: One publication boundary, previewed from and enforced on the build's own projections
+# ADR 0125: One publication boundary, previewed from and enforced on the build's own projections
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -12,9 +12,9 @@
   [ADR 0075](0075-publish-approved-claim-evidence-in-the-post-with-public-revision-notes.md),
   [ADR 0092](0092-publish-approved-comparisons-as-one-rights-gated-projection.md),
   [ADR 0099](0099-approved-datings-publish-through-the-atlas-projection.md),
-  [ADR 0132](0132-the-research-workspace-is-one-admin-destination-with-one-route-namespace.md),
-  [ADR 0134](0134-the-draft-side-research-panel-inserts-only-checked-and-published-research.md),
-  [ADR 0136](0136-review-acknowledgements-are-a-private-revisioned-file-of-keys-and-fingerprints.md)
+  [ADR 0120](0120-the-research-workspace-is-one-admin-destination-with-one-route-namespace.md),
+  [ADR 0122](0122-the-draft-side-research-panel-inserts-only-checked-and-published-research.md),
+  [ADR 0124](0124-review-acknowledgements-are-a-private-revisioned-file-of-keys-and-fingerprints.md)
 
 ## Context
 
@@ -56,7 +56,7 @@ projection.
   alignments and every projection on, `openblog build` took a median of 8.5 s before and 6.1 s
   after (seven runs each, debug builds, a machine shared with other work; indicative, not a
   benchmark). `POST /admin/api/research/boundary` reads one post's unsaved fields
-  and body through the preview loader, as the research review does (ADR 0135). Both are read-only,
+  and body through the preview loader, as the research review does (ADR 0123). Both are read-only,
   Admin-only, behind the session and CSRF seams, and change no file.
 - **Withheld reasons are the projections' rules, never judgements.** `projection-off`,
   `not-approved`, `unsourced`, `notebook-passage`, `private-dependency`, `contradiction-withheld`,
@@ -213,7 +213,7 @@ projection.
   with the private panels because the preview itself is Admin-only), and Evidence Studio gains
   **What this post makes public**. Each projection is a labelled section with its switch, then
   "Published (n)" and "Withheld (n)" lists; each item says Published or Withheld in words (the
-  visibility labels of ADR 0132), with the fields it copies or the reason, and a withheld item links
+  visibility labels of ADR 0120), with the fields it copies or the reason, and a withheld item links
   to where it is changed by its own address (an atlas relationship by
   `#/research/atlas/relationships/<id>`, a dating by the entry or relationship it dates, a claim
   or an evidence link by its post's Evidence Studio when the post is saved and known; an

@@ -9,7 +9,7 @@ import {
   createBoundaryPreview,
 } from "../../web/admin/admin.js";
 
-// What will be public (A8.4, ADR 0137): one section per projection in the server's order, its
+// What will be public (A8.4, ADR 0125): one section per projection in the server's order, its
 // switch, every item it publishes with the fields it copies and the fields it keeps private,
 // every item it withholds with the reason in words and a link to where it is changed, what is
 // never published, and failures scoped to the projection or file they belong to.
@@ -337,7 +337,7 @@ test("the preview builds DOM safely, adds no motion, reflows, and is reachable f
   assert.match(admin, /this\.app\.api\.call\("POST", "research\/boundary"/);
   assert.match(admin, /"data-boundary-post-open": "true"/);
   assert.match(admin, /\{ label: "What will be public", category: "Research"/);
-  const css = styles.slice(styles.indexOf("/* What will be public (ADR 0137)"));
+  const css = styles.slice(styles.indexOf("/* What will be public (ADR 0125)"));
   assert.doesNotMatch(css, /transition|animation/);
   assert.match(css, /overflow-wrap: anywhere/);
   assert.match(css, /min-width: 0/);
@@ -363,7 +363,7 @@ test("a withheld claim links to its post's Evidence Studio and a withheld dating
 }));
 
 test("the site preview sits under the panel's h2 and the post preview's button controls and reports its region", () => {
-  const panel = admin.slice(admin.indexOf("async showPublicPreview()"), admin.indexOf("// ---- what will be public (#63, ADR 0137)") + 4000);
+  const panel = admin.slice(admin.indexOf("async showPublicPreview()"), admin.indexOf("// ---- what will be public (#63, ADR 0125)") + 4000);
   assert.match(admin, /level: 3, scope: "site", postPaths/, "projections are h3 under the panel's h2");
   assert.match(panel, /h\("h2", \{ id: "oba-boundary-heading" \}/);
   assert.match(admin, /"data-boundary-post-open": "true", "aria-controls": "oba-boundary-post", "aria-expanded": "false"/);

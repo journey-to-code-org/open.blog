@@ -305,3 +305,121 @@ test("the inbox reflows at 320px with every control reachable", async ({ browser
   }
   await context.close();
 });
+
+test("a Third Perspective's card shows its consent and credit hint, and its approval names what was seen", async ({ page }) => {
+  const perspective = inboxItem(9, {
+    source: "feedback",
+    kind: "third-perspective",
+    kindLabel: "Third Perspective",
+    revision: 2,
+    body: `Tides as one conversation. ${HOSTILE}`,
+    details: { category: "connection", categoryLabel: "A connection", prompt: "What does this bring to mind: another work, idea or source?" },
+    reader: { name: "A", publishName: true },
+    clarification: { askedAboutThisText: false, consent: true },
+    perspective: { about: "section", section: "methods", check: "current", revision: 2, consent: { number: 3, publish: true, showName: true, clarification: true, feature: false }, approvedConsent: null, nameMatchesCredit: true, channel: "hosted" },
+    perspectivePreview: { heading: "Third Perspective from a reader", name: null, about: "section", section: "methods", stale: false, received: "2026-10-26" },
+    publicPreview: null,
+    published: null,
+    actions: [
+      { action: "approve", label: "Approve", reasons: [], guidance: "Approves exactly this text under the consent the reader gives now, to be shown on the post as a reader’s reflection, never as yours." },
+      { action: "reject", label: "Reject", reasons: DECLINE, guidance: "Never shown." },
+    ],
+  });
+  let items = [perspective];
+  const changes = [];
+  await page.route(`${origin}/admin/api/engagement/moderation?**`, (route) => json(route, 200, page_(items, { kind: "third-perspective" })));
+  await page.route(`${origin}/admin/api/engagement/moderation`, async (route) => {
+    const body = route.request().postDataJSON();
+    changes.push(body);
+    items = [];
+    return json(route, 200, { item: { id: body.id, status: "approved" }, published: false, publishError: null });
+  });
+  await signIn(page);
+  await page.goto(`${origin}/admin/#/moderation/pending?kind=third-perspective`);
+  await expect(page.getByLabel("Kind", { exact: true })).toHaveValue("third-perspective");
+  const card = page.locator(`[data-moderation-id="${ID(9)}"]`);
+  await expect(card.getByRole("heading", { name: "Third Perspective on “Tides”", level: 3 })).toBeVisible();
+  await expect(card.getByRole("heading", { name: "The reader’s reflection", level: 4 })).toBeVisible();
+  await expect(card.getByText(`Tides as one conversation. ${HOSTILE}`)).toBeVisible();
+  await expect(card.locator("img")).toHaveCount(0);
+  await expect(card.getByText("About the section #methods.")).toBeVisible();
+  await expect(card.getByText("Prompt: A connection", { exact: false })).toBeVisible();
+  await expect(card.getByText("Consent record 3: the reader agrees to publish it with their name, if you approve it", { exact: false })).toBeVisible();
+  await expect(card.getByText("matches a name this work credits", { exact: false })).toBeVisible();
+  await expect(card.getByText("If approved, it is shown as “Third Perspective from a reader”", { exact: false })).toBeVisible();
+  await card.getByRole("button", { name: "Approve", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await expect(queueStatus(page)).toContainText("consent record 3, as a reader’s reflection on “Tides”");
+  expect(changes).toEqual([{ source: "feedback", id: ID(9), action: "approve", from: "pending", version: 3, seenRevision: 2, seenConsent: 3 }]);
+});
+
+test("a reflection the reader withdrew is taken off its post from its card, by the site Admin", async ({ page }) => {
+  const withdrawn = inboxItem(11, {
+    source: "feedback",
+    kind: "third-perspective",
+    kindLabel: "Third Perspective",
+    status: "withdrawn",
+    statusLabel: "Withdrawn",
+    purged: true,
+    body: null,
+    details: {},
+    reader: { publishName: false },
+    published: true,
+    mayBeShown: false,
+    nameOutOfDate: false,
+    actions: [],
+  });
+  let items = [withdrawn];
+  const synced = [];
+  await page.route(`${origin}/admin/api/engagement/moderation?**`, (route) => json(route, 200, page_(items, { state: "withdrawn", kind: "third-perspective" })));
+  await page.route(`${origin}/admin/api/engagement/third-perspectives/unpublish`, async (route) => {
+    synced.push(route.request().postDataJSON());
+    items = [{ ...withdrawn, published: false }];
+    return json(route, 200, { published: false, build: { ok: true, posts: 1 } });
+  });
+  await signIn(page);
+  await page.goto(`${origin}/admin/#/moderation/withdrawn?kind=third-perspective`);
+  const card = page.locator(`[data-moderation-id="${ID(11)}"]`);
+  await expect(card.getByText("The reader withdrew this reflection through their receipt", { exact: false })).toBeVisible();
+  const button = card.getByRole("button", { name: "Take it off the post" });
+  await button.focus();
+  await page.keyboard.press("Enter");
+  await expect(queueStatus(page)).toContainText("Taken off “Tides”.");
+  expect(synced).toEqual([{ id: ID(11) }]);
+  await expect(page.locator(`[data-moderation-id="${ID(11)}"]`).getByRole("button", { name: "Take it off the post" })).toHaveCount(0);
+});
+
+test("published reflections that must come off are counted on every tab, and taken off from the banner", async ({ page }) => {
+  let audit = {
+    checked: 2,
+    truncated: false,
+    mustComeOff: [{ id: ID(21), post: "posts/tides.md" }],
+    unknown: [{ id: ID(22), post: "posts/tides.md" }],
+  };
+  const synced = [];
+  await page.route(`${origin}/admin/api/engagement/moderation?**`, (route) => json(route, 200, page_([], { state: new URL(route.request().url()).searchParams.get("state") })));
+  await page.route(`${origin}/admin/api/engagement/third-perspectives/published`, (route) => json(route, 200, audit));
+  await page.route(`${origin}/admin/api/engagement/third-perspectives/unpublish`, async (route) => {
+    synced.push(route.request().postDataJSON());
+    audit = { ...audit, mustComeOff: [] };
+    return json(route, 200, { published: false, build: { ok: true, posts: 1 } });
+  });
+  await signIn(page);
+  // Pending, with no card for it, and under another filter: the banner is on every tab.
+  for (const hash of ["pending", "approved", "withdrawn?kind=third-perspective"]) {
+    await page.goto(`${origin}/admin/#/moderation/${hash}`);
+    await expect(page.locator('[data-perspective-notice="mustComeOff"]')).toContainText("1 published reflection must come off its post");
+    await expect(page.locator('[data-perspective-notice="unknown"]')).toContainText("cannot be checked against the hosted copy");
+  }
+  // The Withdrawn tab no longer says these were never published.
+  await expect(page.getByText("never published", { exact: false })).toHaveCount(0);
+  await expect(page.getByText("stays on its post until you take it off", { exact: false })).toBeVisible();
+  // Keyboard: take it off from the banner.
+  const button = page.locator('[data-perspective-notice="mustComeOff"]').getByRole("button", { name: "Take it off the post" });
+  await button.focus();
+  await page.keyboard.press("Enter");
+  await expect(queueStatus(page)).toContainText("Taken off its post.");
+  expect(synced).toEqual([{ id: ID(21) }]);
+  await expect(page.locator('[data-perspective-notice="mustComeOff"]')).toHaveCount(0);
+  await expect(page.locator('[data-perspective-notice="unknown"]')).toBeVisible();
+});

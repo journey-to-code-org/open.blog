@@ -472,7 +472,7 @@ pub fn public_identifier(scheme: &str, value: &str) -> bool {
 }
 
 /// Why a web address may not be published, or `None` when it may (#63,
-/// ADR 0137): only a plain `http` or `https` address a reader can reach,
+/// ADR 0125): only a plain `http` or `https` address a reader can reach,
 /// without credentials, naming a public host and carrying no query parameter
 /// that is named like a secret. The library already refuses other schemes and
 /// credentials; the boundary also withholds addresses on a private network

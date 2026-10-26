@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// The research review before publication in the real Admin Studio (A8.3, ADR 0135 and ADR 0136):
+// The research review before publication in the real Admin Studio (A8.3, ADR 0123 and ADR 0124):
 // publishing a research post opens the review first; a citation the build would refuse blocks
 // it and cannot be acknowledged; advisory findings never block, can be acknowledged from the
 // keyboard and stay listed; every finding goes to its line, field or research object, keeping

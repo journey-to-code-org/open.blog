@@ -1,6 +1,6 @@
 //! The research review before a post is published or scheduled (#62,
-//! ADR 0135), and the private file of the author's acknowledgements
-//! (ADR 0136).
+//! ADR 0123), and the private file of the author's acknowledgements
+//! (ADR 0124).
 //!
 //! [`gather`] reads what the existing checks say about one post and maps it
 //! into the contract's finding shape through `openblog_core::publication_review`.
@@ -428,7 +428,7 @@ fn first_line(text: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// The acknowledgements file (ADR 0136)
+// The acknowledgements file (ADR 0124)
 // ---------------------------------------------------------------------------
 
 /// One read of the acknowledgements and the revision a change must name.

@@ -598,6 +598,14 @@ pub struct EngagementConfig {
     /// `supabase/protection.sql` and set `OPENBLOG_PROTECTION_ENABLED`.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub receipts: bool,
+    /// Offer readers an optional evidence block on suggested sources and
+    /// corrections: the published claim, evidence link, citation or source
+    /// they mean, chosen from what the site publishes (ADR 0116). Off by
+    /// default, and left out of the written file while off; the deployer
+    /// must also run `supabase/feedback.sql` again and set
+    /// `OPENBLOG_CORRECTIONS_ENABLED`.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub evidence: bool,
 }
 
 impl Default for EngagementConfig {
@@ -610,6 +618,7 @@ impl Default for EngagementConfig {
             feedback: false,
             feedback_contact: String::new(),
             receipts: false,
+            evidence: false,
         }
     }
 }

@@ -17,23 +17,39 @@
 // plain text to copy and send to the author, and nothing they wrote is lost.
 // Nothing is stored in the browser.
 //
+// A suggested source or correction may also name what it is about (ADR 0116):
+// a published claim, an evidence link on it or a source the post cites, and a
+// source the site publishes with where in it the reader looked, and how the
+// reader says it bears on the passage. The choices are only what the build
+// published in <script type="application/json" id="ob-evidence-references">,
+// so a reader never types an id and nothing private is ever listed or
+// confirmed. The block is the reader's statement; nothing checks or counts it.
+//
 // Every piece of state is a private field, so nothing here can shadow one of
 // HTMLElement's own properties.
 
 import { MAX_QUOTE_CHARS, createQuoteTarget, normalizePassageText, readTarget } from "./passage-target.js";
 import {
+  EVIDENCE_KINDS,
+  EVIDENCE_STANCES,
   FEEDBACK_KINDS,
+  LOCATOR_KINDS,
   canonicalTime,
   feedbackCopyText,
   isCanonicalTime,
   isPassageRevision,
   isWorkPath,
+  isPublicId,
   readFeedbackSubmissionJson,
+  readSubmissionJson,
   submissionValue,
 } from "./passage-feedback.js";
 import { isReceipt, receiptManager, receiptPanel } from "./feedback-receipt.js";
 
 export const DATA_ELEMENT_ID = "ob-passages";
+export const EVIDENCE_ELEMENT_ID = "ob-evidence-references";
+// Far beyond any site's published sources; anything larger is not read at all.
+const MAX_EVIDENCE_DATA_LENGTH = 2_000_000;
 export const SUPPORTED_VERSION = 1;
 // Far beyond any post's passage text; anything larger is not read at all.
 const MAX_DATA_LENGTH = 8_000_000;
@@ -87,6 +103,38 @@ export function readPassages(text) {
   }
   return Object.freeze({ work: data.work, revision: data.revision, sections: Object.freeze(sections) });
 }
+
+const choice = (value) => value && typeof value === "object" && isPublicId(value.id) && isText(value.label) && value.label !== "";
+
+/**
+ * What the build says a reader may name in an evidence offer: { claims: [{ id, label, links: [{
+ * id, label }] }], citations: [{ id, label }], sources: [{ id, label }] }, or null when there is
+ * no such data, it cannot be read or its version is newer than this component knows. A malformed
+ * entry makes the whole list unusable, so nothing half-read is offered.
+ */
+export function readEvidenceChoices(text) {
+  if (!isText(text) || text.length > MAX_EVIDENCE_DATA_LENGTH) return null;
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!data || typeof data !== "object" || data.version !== 1) return null;
+  const list = (value) => (Array.isArray(value) && value.every(choice) ? value.map(({ id, label }) => Object.freeze({ id, label })) : null);
+  const citations = list(data.citations);
+  const sources = list(data.sources);
+  if (!Array.isArray(data.claims) || !citations || !sources) return null;
+  const claims = [];
+  for (const claim of data.claims) {
+    const links = choice(claim) ? list(claim.links) : null;
+    if (!links) return null;
+    claims.push(Object.freeze({ id: claim.id, label: claim.label, links: Object.freeze(links) }));
+  }
+  return Object.freeze({ claims: Object.freeze(claims), citations: Object.freeze(citations), sources: Object.freeze(sources) });
+}
+
+const STANCE_LABELS = Object.freeze({ supports: "It supports the passage", contradicts: "It contradicts the passage", contextualizes: "It gives context to the passage" });
 
 const SELECTION_PROBLEMS = Object.freeze({
   outside: "Select words inside the post’s text.",
@@ -199,6 +247,10 @@ const FIELD_PROBLEMS = Object.freeze({
   invalidTarget: ["passage", "That passage cannot be used. Choose a section, or select the words again."],
   invalidName: ["name", "Use plain text of up to 80 characters for your name."],
   consentWithoutName: ["consent", "Enter your name to have it shown, or leave this unchecked."],
+  linkWithoutClaim: ["claim", "Choose the claim the evidence link belongs to."],
+  locatorsWithoutSource: ["offered", "Choose the source you looked in before saying where."],
+  invalidLocator: ["locator", "Say where in the source in plain text of up to 64 characters on one line, such as 40 or 12–14."],
+  stanceWithoutEvidence: ["stance", "Say how a source bears on the passage only when you offer one: choose a source or give a link."],
 });
 
 /** A contact link the build allows: a plain mailto: address or an https: page. */
@@ -241,6 +293,7 @@ export class ObPassageFeedback extends HTMLElement {
   #sending = null;
   #scheduled = false;
   #receipt = null;
+  #choices = null;
 
   connectedCallback() {
     if (this.#listeners) return;
@@ -255,6 +308,11 @@ export class ObPassageFeedback extends HTMLElement {
       this.#endpoint = endpoint;
       this.#page = this.getAttribute("page") || "";
       this.#contact = safeContact(this.getAttribute("contact"));
+      // The evidence offer, once the site says the hosted service stores it, and only with readable
+      // choices; without them the form is exactly what it was.
+      this.#choices = this.hasAttribute("evidence") && kinds.some((each) => EVIDENCE_KINDS.includes(each))
+        ? readEvidenceChoices(document.getElementById(EVIDENCE_ELEMENT_ID)?.textContent)
+        : null;
       const seen = canonicalTime(new Date());
       this.#seenAt = seen && isCanonicalTime(seen) ? seen : undefined;
       instances += 1;
@@ -419,6 +477,9 @@ export class ObPassageFeedback extends HTMLElement {
       consentError,
     );
 
+    // The evidence offer (ADR 0116): every choice is something the site publishes.
+    const evidence = this.#choices ? this.#buildEvidence(id, { make, hint, labelled, choice, describe, errorFor, field }) : null;
+
     const privacy = hint("privacy", "Your note goes to the author for review. Nothing is published unless they approve it, and no e-mail address or account is asked for.");
     const submit = make("button", undefined, "Send for review");
     submit.type = "submit";
@@ -431,6 +492,7 @@ export class ObPassageFeedback extends HTMLElement {
       field(labelled(body, `${id}-body`, "Your note"), body, bodyError),
       field(sourceLabel, source, sourceHint, sourceError),
       suggestedField,
+      ...(evidence ? [evidence.fieldset] : []),
       attribution,
       privacy,
       actions,
@@ -466,9 +528,9 @@ export class ObPassageFeedback extends HTMLElement {
     selectionButton.type = "button";
     selectionButton.hidden = true;
 
-    const errors = { passage: passageError, body: bodyError, source: sourceError, suggested: suggestedError, name: nameError, consent: consentError };
-    const controls = { body, source, suggested, name, consent };
-    const hints = { passage: passageHint.id, source: sourceHint.id, name: nameHint.id };
+    const errors = { passage: passageError, body: bodyError, source: sourceError, suggested: suggestedError, name: nameError, consent: consentError, ...(evidence?.errors || {}) };
+    const controls = { body, source, suggested, name, consent, ...(evidence?.controls || {}) };
+    const hints = { passage: passageHint.id, source: sourceHint.id, name: nameHint.id, ...(evidence?.hints || {}) };
     describe(source, sourceHint.id);
     describe(name, nameHint.id);
 
@@ -488,8 +550,142 @@ export class ObPassageFeedback extends HTMLElement {
     return {
       form, alert, passage, work, section, quote, sectionSelect, quoteText, selectionNote, kind, kindHint, body, source,
       sourceLabel, suggested, suggestedField, name, consent, submit, status, done, fallback, fallbackMessage, copyArea,
-      copyButton, contactLink, selectionButton, errors, controls, hints,
+      copyButton, contactLink, selectionButton, errors, controls, hints, evidence,
     };
+  }
+
+  /**
+   * The evidence fieldset: the claim, an evidence link on it, a cited source, an offered source with
+   * where in it, and the reader's stance, each optional and chosen only from published choices.
+   */
+  #buildEvidence(id, { make, hint, labelled, describe, errorFor, field }) {
+    const choices = this.#choices;
+    const fieldset = make("fieldset", "ob-passage-feedback-evidence");
+    const intro = hint("evidence", "Optional. Name what your note is about, from what this site publishes. The author reads it as your statement; nothing is checked, scored or counted.");
+    fieldset.setAttribute("aria-describedby", intro.id);
+    const select = (name, none, items) => {
+      const control = make("select");
+      control.name = name;
+      const empty = make("option", undefined, none);
+      empty.value = "";
+      control.append(empty);
+      for (const item of items) {
+        const option = make("option", undefined, item.label);
+        option.value = item.id;
+        control.append(option);
+      }
+      return control;
+    };
+    const claim = select("claim", "No claim", choices.claims);
+    const link = select("evidence-link", "No evidence link", []);
+    link.disabled = true;
+    const citation = select("citation", "No cited source", choices.citations);
+    const offered = select("offered", "No source", choices.sources);
+    const locatorKind = make("select");
+    for (const kind of LOCATOR_KINDS) {
+      const option = make("option", undefined, kind[0].toUpperCase() + kind.slice(1));
+      option.value = kind;
+      locatorKind.append(option);
+    }
+    const locator = make("input");
+    locator.type = "text";
+    locator.maxLength = 64;
+    locator.spellcheck = false;
+    const locatorTo = make("input");
+    locatorTo.type = "text";
+    locatorTo.maxLength = 64;
+    locatorTo.spellcheck = false;
+    const locatorHint = hint("locator", "Where in the source you looked, such as page 40; add an end for a range.");
+    for (const control of [locatorKind, locator, locatorTo]) control.disabled = true;
+    const stance = make("fieldset", "ob-passage-feedback-stance");
+    const stanceHint = hint("stance", "Only for a source you offer here or link above.");
+    stance.setAttribute("aria-describedby", stanceHint.id);
+    stance.append(make("legend", undefined, "How does it bear on the passage?"), stanceHint);
+    const stances = [];
+    for (const value of ["", ...EVIDENCE_STANCES]) {
+      const input = make("input");
+      input.type = "radio";
+      input.name = `${id}-stance`;
+      input.value = value;
+      input.checked = value === "";
+      stances.push(input);
+      const wrapper = make("div", "ob-passage-feedback-choice");
+      wrapper.append(input, labelled(input, `${id}-stance-${value || "none"}`, value ? STANCE_LABELS[value] : "I am not saying"));
+      stance.append(wrapper);
+    }
+    const errors = { claim: errorFor("claim"), offered: errorFor("offered"), locator: errorFor("locator"), stance: errorFor("stance") };
+    stance.append(errors.stance);
+    const subfield = (...children) => {
+      const wrapper = make("div", "ob-passage-feedback-subfield");
+      wrapper.append(...children);
+      return wrapper;
+    };
+    const locatorFields = make("div", "ob-passage-feedback-locator");
+    locatorFields.append(
+      subfield(labelled(locatorKind, `${id}-locator-kind`, "Kind of place"), locatorKind),
+      subfield(labelled(locator, `${id}-locator`, "Where"), locator),
+      subfield(labelled(locatorTo, `${id}-locator-to`, "To (optional)"), locatorTo),
+    );
+    describe(locator, locatorHint.id);
+    const parts = [make("legend", undefined, "Evidence (optional)"), intro];
+    if (choices.claims.length) {
+      parts.push(field(labelled(claim, `${id}-claim`, "A claim in this post your note is about"), claim, errors.claim));
+      parts.push(field(labelled(link, `${id}-evidence-link`, "Evidence for that claim you question"), link));
+    }
+    if (choices.citations.length) parts.push(field(labelled(citation, `${id}-citation`, "A source this post cites that you question"), citation));
+    if (choices.sources.length) {
+      parts.push(field(labelled(offered, `${id}-offered`, "A source this site publishes that you offer"), offered, errors.offered));
+      parts.push(field(locatorHint, locatorFields, errors.locator));
+    }
+    parts.push(stance);
+    fieldset.append(...parts);
+    const syncLinks = () => {
+      const chosen = choices.claims.find((item) => item.id === claim.value);
+      link.replaceChildren(link.options[0]);
+      for (const item of chosen?.links || []) {
+        const option = make("option", undefined, item.label);
+        option.value = item.id;
+        link.append(option);
+      }
+      link.value = "";
+      link.disabled = !chosen || chosen.links.length === 0;
+    };
+    const syncLocator = () => {
+      for (const control of [locatorKind, locator, locatorTo]) control.disabled = offered.value === "";
+    };
+    claim.addEventListener("change", syncLinks);
+    offered.addEventListener("change", syncLocator);
+    // Back to nothing named, after a note was sent.
+    const reset = () => {
+      for (const control of [claim, citation, offered, locator, locatorTo]) control.value = "";
+      syncLinks();
+      syncLocator();
+      stances[0].checked = true;
+    };
+    return {
+      fieldset, claim, link, citation, offered, locatorKind, locator, locatorTo, stances, errors, reset,
+      controls: { claim, offered, locator, stance: stances[0] },
+      hints: { locator: locatorHint.id, stance: stanceHint.id },
+    };
+  }
+
+  /** The evidence block the reader chose, or null when they named nothing. */
+  #evidenceValue() {
+    const ui = this.#ui.evidence;
+    if (!ui || ui.fieldset.hidden) return null;
+    const value = {};
+    if (ui.claim.value) value.claim = ui.claim.value;
+    if (ui.link.value) value.evidenceLink = ui.link.value;
+    if (ui.citation.value) value.citation = ui.citation.value;
+    if (ui.offered.value) value.source = ui.offered.value;
+    if (ui.offered.value && (ui.locator.value.trim() !== "" || ui.locatorTo.value.trim() !== "")) {
+      const locator = { kind: ui.locatorKind.value, value: ui.locator.value };
+      if (ui.locatorTo.value.trim() !== "") locator.to = ui.locatorTo.value;
+      value.locators = [locator];
+    }
+    const stance = ui.stances.find((input) => input.checked)?.value;
+    if (stance) value.stance = stance;
+    return Object.keys(value).length ? value : null;
   }
 
   #kindChanged() {
@@ -500,6 +696,8 @@ export class ObPassageFeedback extends HTMLElement {
     ui.sourceLabel.textContent = required ? "Link to the source" : "Link to a source (optional)";
     ui.source.required = required;
     ui.suggestedField.hidden = rules.suggestedText === "notUsed";
+    // Only a suggested source or correction offers evidence (ADR 0116).
+    if (ui.evidence) ui.evidence.fieldset.hidden = !EVIDENCE_KINDS.includes(ui.kind.value);
   }
 
   #schedule() {
@@ -592,7 +790,7 @@ export class ObPassageFeedback extends HTMLElement {
     for (const [name, error] of Object.entries(ui.errors)) {
       error.hidden = true;
       error.textContent = "";
-      if (name === "passage") continue;
+      if (name === "passage" || name === "stance") continue;
       const control = ui.controls[name];
       control.removeAttribute("aria-invalid");
       if (ui.hints[name]) control.setAttribute("aria-describedby", ui.hints[name]);
@@ -600,6 +798,10 @@ export class ObPassageFeedback extends HTMLElement {
     }
     ui.passage.setAttribute("aria-describedby", ui.hints.passage);
     for (const radio of [ui.work, ui.section, ui.quote]) radio.removeAttribute("aria-invalid");
+    if (ui.evidence) {
+      for (const radio of ui.evidence.stances) radio.removeAttribute("aria-invalid");
+      ui.evidence.fieldset.querySelector(".ob-passage-feedback-stance")?.setAttribute("aria-describedby", ui.hints.stance);
+    }
   }
 
   /** Marks one control invalid, describes it with the message, announces it and moves focus there. */
@@ -609,6 +811,14 @@ export class ObPassageFeedback extends HTMLElement {
     error.textContent = message;
     error.hidden = false;
     ui.alert.textContent = message;
+    if (name === "stance") {
+      const group = ui.evidence.fieldset.querySelector(".ob-passage-feedback-stance");
+      group.setAttribute("aria-describedby", `${ui.hints.stance} ${error.id}`);
+      const checked = ui.evidence.stances.find((radio) => radio.checked) ?? ui.evidence.stances[0];
+      checked.setAttribute("aria-invalid", "true");
+      checked.focus();
+      return;
+    }
     if (name === "passage") {
       ui.passage.setAttribute("aria-describedby", `${ui.hints.passage} ${error.id}`);
       const checked = [ui.work, ui.section, ui.quote].find((radio) => radio.checked) ?? ui.work;
@@ -650,7 +860,9 @@ export class ObPassageFeedback extends HTMLElement {
     if (this.#seenAt) value.seenAt = this.#seenAt;
     const name = ui.name.value;
     if (name.trim() !== "" || ui.consent.checked) value.attribution = { name, publishName: ui.consent.checked };
-    const read = readFeedbackSubmissionJson(JSON.stringify(value));
+    const evidence = this.#evidenceValue();
+    if (evidence) Object.assign(value, { version: 2, evidence });
+    const read = evidence ? readSubmissionJson(JSON.stringify(value), { evidence: true }) : readFeedbackSubmissionJson(JSON.stringify(value));
     if (!read.ok) {
       const known = FIELD_PROBLEMS[read.error.code];
       if (known) {
@@ -711,6 +923,12 @@ export class ObPassageFeedback extends HTMLElement {
       this.#showError(known[0], known[1]);
       return;
     }
+    // A site whose hosted service does not store evidence yet refuses version 2 (ADR 0116): the
+    // note, with its evidence, is still the reader's to copy and send.
+    if (outcome.status === 422 && outcome.code === "unsupportedVersion") {
+      this.#fallback(submission, "Your note was not sent: this site does not take evidence through the form right now.");
+      return;
+    }
     if (outcome.status === 403 && outcome.code === "closed") {
       ui.status.textContent = "Feedback on this post is closed, so your note was not sent.";
       return;
@@ -735,6 +953,7 @@ export class ObPassageFeedback extends HTMLElement {
   #succeeded(receipt) {
     const ui = this.#ui;
     for (const control of [ui.body, ui.source, ui.suggested]) control.value = "";
+    ui.evidence?.reset();
     ui.status.textContent = "Sent for review.";
     ui.done.textContent = receipt
       ? "Thank you. Your note was sent to the author for review. Nothing is published unless they approve it. Keep the receipt below."

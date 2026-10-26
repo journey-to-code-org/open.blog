@@ -1,5 +1,5 @@
 //! The private-to-public research boundary at build time and in the Admin
-//! preview (#63, ADR 0137).
+//! preview (#63, ADR 0125).
 //!
 //! [`project`] attaches the research projections to a loaded site exactly as
 //! a build does; [`manifest`] then says what they publish and why everything
@@ -389,7 +389,7 @@ fn allow_source(guard: &mut PrivateText, path: &Path) {
 }
 
 /// The guard for this site: every private research file's text, less what
-/// THIS build publishes (ADR 0137): the text of the published posts and
+/// THIS build publishes (ADR 0125): the text of the published posts and
 /// pages, the published reader feedback file, the site's own configuration,
 /// the approved projections and the descriptions of the sources they publish.
 /// Drafts, held-back posts, other content files and the static and theme
@@ -713,7 +713,7 @@ fn split_reference_data(page: &str) -> (Option<&str>, String) {
     (Some(data), rest)
 }
 
-/// Scan generated and copied files (ADR 0137). Private text in a projection's
+/// Scan generated and copied files (ADR 0125). Private text in a projection's
 /// machine data (the atlas, comparisons and claim-evidence JSON, and a page's
 /// reader reference data), read field by field, is a refusal. Everywhere else
 /// (pages, feeds, search, llms, static, theme and front-end files) a match is

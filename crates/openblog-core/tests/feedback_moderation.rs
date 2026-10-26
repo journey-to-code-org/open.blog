@@ -280,6 +280,7 @@ fn moderation_view(item: &HostedFeedback, site: &Site) -> Value {
         identities: &identities,
         policy: ModerationPolicy::default(),
         protocol: Protocol::Full,
+        third_perspectives: false,
         now: at("2026-10-27T10:00:00Z"),
     }
     .view(&item)
@@ -607,7 +608,7 @@ fn a_hostile_or_broken_file_is_refused_naming_the_item_and_never_repeating_it() 
         ),
         (
             "newer version",
-            json!({"version": 2, "items": []}).to_string(),
+            json!({"version": 3, "items": []}).to_string(),
         ),
         (
             "duplicate id",

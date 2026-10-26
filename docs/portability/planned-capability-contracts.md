@@ -24,6 +24,7 @@ behavior, while the contract task owns the portability gate.
 | Scholarly interpretations | [#31](https://github.com/journey-to-code-org/open.blog/issues/31) | [#88](https://github.com/journey-to-code-org/open.blog/issues/88) | Defined |
 | Shared source-led reflections | [#144](https://github.com/journey-to-code-org/open.blog/issues/144) | [#158](https://github.com/journey-to-code-org/open.blog/issues/158) | Defined |
 | Protected reflection drafts | [#146](https://github.com/journey-to-code-org/open.blog/issues/146) | [#162](https://github.com/journey-to-code-org/open.blog/issues/162) | Defined |
+| Third Perspectives | [#201](https://github.com/journey-to-code-org/open.blog/issues/201) | [#222](https://github.com/journey-to-code-org/open.blog/issues/222) | Defined |
 | Diagrams | No owning story exists | [#110](https://github.com/journey-to-code-org/open.blog/issues/110) | Blocked; scope guard only |
 
 ## Required gate for every defined capability

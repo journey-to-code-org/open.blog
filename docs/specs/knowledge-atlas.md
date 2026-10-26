@@ -234,7 +234,7 @@ relationships by entry, users by source and users by passage. Nothing is indexed
 
 Defined by [ADR 0057](../adr/0057-accessible-atlas-authoring-and-a-text-first-explorer.md).
 Admin Studio's **Atlas** panel (in the research workspace, next to Notebook, at
-`#/research/atlas/<id>`; the earlier `#/atlas/<id>` redirects there, ADR 0132) lists,
+`#/research/atlas/<id>`; the earlier `#/atlas/<id>` redirects there, ADR 0120) lists,
 searches and filters entries by kind, edits one entry or relationship, and explores an
 entry's relationships as text. There is no graph drawing.
 

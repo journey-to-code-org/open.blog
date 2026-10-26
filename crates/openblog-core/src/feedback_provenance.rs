@@ -61,6 +61,14 @@ impl ReaderAttribution {
         Self::default()
     }
 
+    /// A name, shown only when `publish_name` is true.
+    pub fn named(name: &str, publish_name: bool) -> Self {
+        Self {
+            name: Some(name.to_string()),
+            publish_name,
+        }
+    }
+
     /// The name the public may see: only one the reader agreed to show.
     pub fn public_name(&self) -> Option<&str> {
         self.name.as_deref().filter(|_| self.publish_name)

@@ -321,7 +321,7 @@ pub struct ComparisonInputs<'a> {
     pub contributors: &'a BTreeMap<String, Contributor>,
 }
 
-/// Approved alignments whose approval has gone stale (#63, ADR 0137): a
+/// Approved alignments whose approval has gone stale (#63, ADR 0125): a
 /// passage the alignment names was re-located after the alignment was last
 /// saved approved, which the alignments file records as a fingerprint of the
 /// passage's locators. Each is withheld from the projection, and only it,

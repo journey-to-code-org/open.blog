@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// The draft-side research panel in the real Admin Studio (A8.2, ADR 0134): a quotation goes in
+// The draft-side research panel in the real Admin Studio (A8.2, ADR 0122): a quotation goes in
 // with its server-checked citation and renders exactly in the production preview; Ctrl+Z undoes
 // it; Visual and Markdown modes keep the same bytes; context links appear only for published
 // pages; a private note goes in only through explicit conversion; the panel works from the

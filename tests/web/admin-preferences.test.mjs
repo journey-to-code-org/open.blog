@@ -259,7 +259,7 @@ test("untrusted preference values normalize to safe, complete settings", () => {
 });
 
 test("layouts saved before the research workspace keep it hidden where they hid Evidence Studio", () => {
-  // Research showed only with Evidence Studio before the workspace existed (ADR 0132).
+  // Research showed only with Evidence Studio before the workspace existed (ADR 0120).
   const before = ADMIN_OPTIONAL_MODULES.filter((module) => module !== "research");
   const hidEvidence = normalizeAdminPreferences({ preset: "custom", moduleOrder: before, hiddenModules: ["evidence"] });
   assert.deepEqual(hidEvidence.hiddenModules, ["evidence", "research"]);

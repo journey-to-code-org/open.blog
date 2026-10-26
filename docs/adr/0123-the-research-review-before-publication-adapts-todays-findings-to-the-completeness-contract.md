@@ -1,4 +1,4 @@
-# ADR 0135: The research review before publication adapts today's findings to the completeness contract
+# ADR 0123: The research review before publication adapts today's findings to the completeness contract
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -11,8 +11,8 @@
   [ADR 0074](0074-evidence-gaps-are-prompts-in-the-shared-finding-contract.md),
   [ADR 0092](0092-publish-approved-comparisons-as-one-rights-gated-projection.md),
   [ADR 0097](0097-chronology-prompts-are-structural-and-never-verdicts.md),
-  [ADR 0133](0133-workspace-panels-keep-unsaved-changes-while-another-panel-opens.md),
-  [ADR 0134](0134-the-draft-side-research-panel-inserts-only-checked-and-published-research.md)
+  [ADR 0121](0121-workspace-panels-keep-unsaved-changes-while-another-panel-opens.md),
+  [ADR 0122](0122-the-draft-side-research-panel-inserts-only-checked-and-published-research.md)
 - Coordinates with: the research-completeness contract of RW9 (ADR 0144 and ADR 0145 on
   `story/rw9-research-completeness`, still being revised) and
   [#194](https://github.com/journey-to-code-org/open.blog/issues/194), which exposes one
@@ -52,7 +52,7 @@ would make #194 a migration.
   from the draft's site load; this post's claim findings from `claim_review::review_claims`
   against the saved drafts, as Evidence Studio and `openblog check` give them; while the site
   publishes claim evidence, the claims file's notices about this post's claims. For every context
-  link in the draft (ADR 0134), the new `context-link` check below, and for each linked page the
+  link in the draft (ADR 0122), the new `context-link` check below, and for each linked page the
   next build publishes, the atlas notices and chronology prompts about that entry and the
   comparison's withheld places and alignment notices. And for each private file the build that
   publishes the post reads (the library and notebook whenever any research projection publishes,
@@ -124,7 +124,7 @@ would make #194 a migration.
   a source, atlas entry, atlas relationship or comparison opens by its own address in the research
   workspace (Sources now opens a source by id, `#/research/sources/<id>`, and the Knowledge Atlas a
   relationship, focused, by `#/research/atlas/relationships/<id>`), keeping the unsaved draft
-  (ADR 0133); a file-level finding opens its panel. Going anywhere closes the review without
+  (ADR 0121); a file-level finding opens its panel. Going anywhere closes the review without
   saving.
 - **Accessible and keyboard operable.** The review is a modal `dialog` named by its heading and
   described by the sentence that says these are prompts, never verdicts. Focus starts on the

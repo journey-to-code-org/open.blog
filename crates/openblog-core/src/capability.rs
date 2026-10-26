@@ -40,6 +40,7 @@ const PLANNED_CAPABILITIES: &[(&str, Option<&str>)] = &[
     ("scholarly-interpretations", Some("Interpretations")),
     ("shared-source-led-reflections", Some("Shared reflections")),
     ("protected-reflection-drafts", None),
+    ("third-perspectives", Some("Third Perspectives")),
     ("diagrams", Some("Diagram")),
 ];
 

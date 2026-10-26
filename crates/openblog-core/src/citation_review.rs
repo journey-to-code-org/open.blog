@@ -155,7 +155,7 @@ pub fn review_citations<'l>(
                         identifier.value.as_str(),
                     ]));
                 }
-                // A web address the publication boundary withholds (ADR 0137).
+                // A web address the publication boundary withholds (ADR 0125).
                 if let Some(problem) = (identifier.scheme == "url")
                     .then(|| crate::citations::public_url_problem(&identifier.value))
                     .flatten()

@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// The research workspace in the real Admin Studio (A8.1, ADR 0132 and ADR 0133): landmarks, the
+// The research workspace in the real Admin Studio (A8.1, ADR 0120 and ADR 0121): landmarks, the
 // skip link and focus on route change; the earlier research routes redirecting; keyboard-only
 // movement between panels; private research and the publishable draft told apart for screen
 // readers; unsaved source and draft edits kept while switching panels, asked about before they

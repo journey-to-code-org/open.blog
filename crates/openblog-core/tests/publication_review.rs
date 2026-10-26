@@ -1,4 +1,4 @@
-//! The research review before publication (#62, ADR 0135, ADR 0136): the
+//! The research review before publication (#62, ADR 0123, ADR 0124): the
 //! adapter onto the research-completeness contract groups findings by what
 //! blocks the build and by outcome, keeps the contract's order and codes,
 //! never scores anything, lets only advisory findings be acknowledged, and

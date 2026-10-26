@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// What will be public in the real Admin Studio (A8.4, ADR 0137): the Research workspace previews,
+// What will be public in the real Admin Studio (A8.4, ADR 0125): the Research workspace previews,
 // for the whole site, exactly which research each projection publishes and why the rest is
 // withheld, from the build's own projection; Evidence Studio previews one post from its unsaved
 // draft; every withheld item opens where it is changed; both reflow at 320 pixels; nothing is

@@ -1,4 +1,4 @@
-# ADR 0132: The research workspace is one Admin destination with one route namespace
+# ADR 0120: The research workspace is one Admin destination with one route namespace
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -66,7 +66,7 @@ to hang from.
   (marked `aria-current="true"` inside the workspace, since the panel link is the current page);
   the panels are listed only in the workspace's own navigation, which is always shown on research
   panels and shown beside a draft when the preset includes the workspace or a panel holds kept
-  work (ADR 0133). Every layout still reaches it: Advanced tools lists it under "Check quality and
+  work (ADR 0121). Every layout still reaches it: Advanced tools lists it under "Check quality and
   research", and the command palette has Research workspace, every panel and **Back to draft**.
 - **Landmarks, headings and focus.** Every Admin page starts with a "Skip to main content" link
   that moves focus to `main#oba-main` itself (the hash is the router's, so it never navigates).

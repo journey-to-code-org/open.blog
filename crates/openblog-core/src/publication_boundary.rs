@@ -1,4 +1,4 @@
-//! The private-to-public research boundary (#63, ADR 0137).
+//! The private-to-public research boundary (#63, ADR 0125).
 //!
 //! Research is private until a projection publishes it: citations publish
 //! the public description of the sources a published post cites (ADR 0048),
@@ -280,7 +280,7 @@ pub struct BoundaryManifest {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub unavailable: Vec<Unavailable>,
     /// Public files that hold text a private research file also holds, as the
-    /// `boundary:` warnings a build prints (ADR 0137). Filled by the caller
+    /// `boundary:` warnings a build prints (ADR 0125). Filled by the caller
     /// that scanned the output; empty for a site without private research.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub text_matches: Vec<String>,

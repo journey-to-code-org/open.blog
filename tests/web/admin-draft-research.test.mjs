@@ -15,7 +15,7 @@ import {
   quotationMarkdown,
 } from "../../web/admin/admin.js";
 
-// The draft-side research panel (A8.2, ADR 0134): quotations with their citation, citations
+// The draft-side research panel (A8.2, ADR 0122): quotations with their citation, citations
 // from one source selection, context links only to published pages, explicit conversion of
 // private notes, insertion that round-trips in Visual and Markdown modes and never lands in
 // code or links, undo, and failures scoped to the item that failed.

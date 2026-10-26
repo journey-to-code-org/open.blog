@@ -1628,7 +1628,8 @@ ob-comments {
 
 /* A passage revision is one long word; let it wrap at 320px. */
 .ob-feedback code,
-.ob-reader-note code {
+.ob-reader-note code,
+.ob-third-perspective code {
   overflow-wrap: anywhere;
   word-break: break-all;
 }
@@ -1672,6 +1673,72 @@ ob-comments {
 .ob-reader-note-response h4 {
   margin-block: 0 .25rem;
   font-size: 1rem;
+}
+
+/* The author's decision on a published suggestion (ADR 0119): its words name the outcome, so
+   nothing relies on colour; an undecided suggestion has a dashed rule instead of a solid one. */
+.ob-reader-note-outcome,
+.ob-reader-outcome {
+  overflow-wrap: anywhere;
+}
+
+.ob-reader-note-outcome {
+  margin-block-start: .75rem;
+  border-inline-start: 3px solid var(--ob-color-border);
+  padding-inline-start: 1rem;
+}
+
+.ob-reader-note-outcome[data-outcome="unresolved"] {
+  border-inline-start-style: dashed;
+}
+
+.ob-reader-note-outcome h4 {
+  margin-block: 0 .25rem;
+  font-size: 1rem;
+}
+
+.ob-reader-note-outcome p {
+  margin-block: .25rem;
+}
+
+.ob-reader-note-outcome code {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+/* Approved Third Perspectives on a work's canonical page (ADR 0115): readers' reflections, set
+   apart from the authors' text, static and without a script. */
+.ob-third-perspectives {
+  margin-block: var(--ob-space-8, 2rem);
+  border-top: 1px solid var(--ob-color-border);
+  padding-top: var(--ob-space-6, 1.5rem);
+}
+
+.ob-third-perspectives-list {
+  display: grid;
+  gap: var(--ob-space-6, 1.5rem);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-perspective {
+  max-inline-size: 42rem;
+  min-inline-size: 0;
+  border-inline-start: 3px solid var(--ob-color-border);
+  padding-inline-start: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.ob-perspective h3 {
+  margin-block: 0 .5rem;
+  font-size: 1.1rem;
+}
+
+.ob-perspective-meta,
+.ob-perspective-earlier {
+  color: var(--ob-color-subtle, inherit);
+  font-size: .9rem;
 }
 
 ob-passage-feedback {
@@ -1719,6 +1786,19 @@ ob-passage-feedback {
   display: flex;
   gap: .5rem;
   align-items: baseline;
+}
+
+/* Where in an offered source (ADR 0116): side by side when they fit, stacked on a phone. */
+.ob-passage-feedback-locator {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+}
+
+.ob-passage-feedback-locator > .ob-passage-feedback-subfield {
+  flex: 1 1 8rem;
+  min-inline-size: 0;
+  margin-inline-start: 0;
 }
 
 .ob-passage-feedback-form input:not([type="radio"], [type="checkbox"]),
@@ -1822,6 +1902,141 @@ ob-passage-feedback [hidden] {
 .ob-passage-feedback-form :focus-visible,
 .ob-passage-feedback-fallback :focus-visible,
 .ob-passage-feedback-selection:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* Third Perspectives (ADR 0114): one column at every width, native controls, visible focus. */
+
+ob-third-perspective {
+  display: block;
+}
+
+.ob-third-perspective-form {
+  display: grid;
+  gap: 1rem;
+  max-inline-size: 42rem;
+}
+
+.ob-third-perspective-form fieldset {
+  display: grid;
+  gap: .5rem;
+  min-inline-size: 0;
+  margin: 0;
+  padding: .75rem 1rem 1rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: .35rem;
+}
+
+.ob-third-perspective-form legend {
+  padding-inline: .25rem;
+  font-weight: 600;
+}
+
+.ob-third-perspective-field,
+.ob-third-perspective-subfield {
+  display: grid;
+  gap: .25rem;
+}
+
+.ob-third-perspective-subfield {
+  margin-inline-start: 1.75rem;
+}
+
+.ob-third-perspective-field > label,
+.ob-third-perspective-subfield > label,
+.ob-third-perspective-fallback > label {
+  font-weight: 600;
+}
+
+.ob-third-perspective-choice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: .15rem .5rem;
+  align-items: baseline;
+}
+
+.ob-third-perspective-choice > .ob-third-perspective-hint {
+  grid-column: 2;
+}
+
+.ob-third-perspective-form input:not([type="radio"], [type="checkbox"]),
+.ob-third-perspective-form select,
+.ob-third-perspective-form textarea,
+.ob-third-perspective-fallback textarea {
+  box-sizing: border-box;
+  inline-size: 100%;
+  min-inline-size: 0;
+  font: inherit;
+  padding: .65rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: .35rem;
+  background: var(--ob-color-surface);
+  color: inherit;
+}
+
+.ob-third-perspective-form [aria-invalid="true"] {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.ob-third-perspective-hint,
+.ob-third-perspective-error,
+.ob-third-perspective-status,
+.ob-third-perspective-done,
+.ob-third-perspective-fallback-message {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ob-third-perspective-hint {
+  color: var(--ob-color-muted);
+}
+
+.ob-third-perspective-error,
+.ob-third-perspective-alert:not(:empty) {
+  font-weight: 600;
+}
+
+.ob-third-perspective-error::before {
+  content: "Error: ";
+}
+
+.ob-third-perspective-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1rem;
+  align-items: center;
+}
+
+.ob-third-perspective-form button[aria-disabled="true"],
+.ob-third-perspective-fallback button[aria-disabled="true"] {
+  cursor: progress;
+  opacity: .7;
+}
+
+.ob-third-perspective-status:empty {
+  display: none;
+}
+
+.ob-third-perspective-done,
+.ob-third-perspective-fallback {
+  max-inline-size: 42rem;
+  margin-block: 1rem;
+}
+
+.ob-third-perspective-fallback {
+  display: grid;
+  gap: .5rem;
+}
+
+.ob-third-perspective [hidden],
+ob-third-perspective [hidden] {
+  display: none;
+}
+
+.ob-third-perspective-form :focus-visible,
+.ob-third-perspective-fallback :focus-visible {
   outline: 2px solid currentColor;
   outline-offset: 2px;
 }

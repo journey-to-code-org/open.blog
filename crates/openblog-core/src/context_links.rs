@@ -1,4 +1,4 @@
-//! Context links in a post (ADR 0134, ADR 0135): links to an atlas entry's
+//! Context links in a post (ADR 0122, ADR 0123): links to an atlas entry's
 //! page (`/atlas/<id>/`) or a comparison's page (`/comparisons/<id>/`), and
 //! whether the next build publishes the page each one names.
 //!

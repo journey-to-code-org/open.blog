@@ -280,7 +280,7 @@ Ctrl+Z, or the **Undo** button named for what you inserted, to restore the draft
 something cannot be inserted, the item says why and the draft is unchanged; nothing is written to
 your research files. Escape closes the panel. Each item links to its full panel in the research
 workspace, which keeps your unsaved draft. See
-[ADR 0134](adr/0134-the-draft-side-research-panel-inserts-only-checked-and-published-research.md).
+[ADR 0122](adr/0122-the-draft-side-research-panel-inserts-only-checked-and-published-research.md).
 
 ### Move between research and your draft
 
@@ -311,8 +311,8 @@ else discards them. A panel that is saving is not kept; Admin asks first. A kept
 it read, so if the file changed elsewhere meanwhile you get the usual conflict choice instead of
 an overwrite. The earlier addresses `#/sources`, `#/research`, `#/atlas/<id>`, and
 `#/compare/<id>` open the same panels. See
-[ADR 0132](adr/0132-the-research-workspace-is-one-admin-destination-with-one-route-namespace.md)
-and [ADR 0133](adr/0133-workspace-panels-keep-unsaved-changes-while-another-panel-opens.md).
+[ADR 0120](adr/0120-the-research-workspace-is-one-admin-destination-with-one-route-namespace.md)
+and [ADR 0121](adr/0121-workspace-panels-keep-unsaved-changes-while-another-panel-opens.md).
 
 Every Admin page starts with a **Skip to main content** link, and after you move to another page
 keyboard focus starts at its heading.
@@ -340,7 +340,7 @@ file, a portable Markdown export) are only a `boundary:` warning, also shown her
 output, the private file, the record and the field: the text is in a file you placed or wrote, so
 remove it there or keep it. Saving a comparison does not approve it again when a place moved;
 open it in Compare and choose **Checked - approve again** once you have checked the place. See
-[ADR 0137](adr/0137-one-publication-boundary-previewed-from-and-enforced-on-the-builds-own-projections.md).
+[ADR 0125](adr/0125-one-publication-boundary-previewed-from-and-enforced-on-the-builds-own-projections.md).
 
 ### Compare versions of a passage
 

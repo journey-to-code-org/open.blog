@@ -1,4 +1,4 @@
-# ADR 0133: Workspace panels keep unsaved changes while another panel opens
+# ADR 0121: Workspace panels keep unsaved changes while another panel opens
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -6,7 +6,7 @@
 - Parent story: [#24](https://github.com/journey-to-code-org/open.blog/issues/24)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
 - Builds on: [ADR 0019](0019-draft-editor-prompts-and-conflict-recovery.md),
-  [ADR 0132](0132-the-research-workspace-is-one-admin-destination-with-one-route-namespace.md)
+  [ADR 0120](0120-the-research-workspace-is-one-admin-destination-with-one-route-namespace.md)
 
 ## Context
 

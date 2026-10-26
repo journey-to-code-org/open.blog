@@ -1,4 +1,4 @@
-# ADR 0136: Review acknowledgements are a private, revisioned file of keys and fingerprints
+# ADR 0124: Review acknowledgements are a private, revisioned file of keys and fingerprints
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -6,14 +6,14 @@
 - Parent story: [#24](https://github.com/journey-to-code-org/open.blog/issues/24)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
 - Builds on: [ADR 0034](0034-private-passages-and-research-notes.md),
-  [ADR 0135](0135-the-research-review-before-publication-adapts-todays-findings-to-the-completeness-contract.md)
+  [ADR 0123](0123-the-research-review-before-publication-adapts-todays-findings-to-the-completeness-contract.md)
 - Coordinates with: ADR 0145 on `story/rw9-research-completeness`, which defines the
   acknowledgement and its fingerprint and leaves where they are kept to the report that shows
   them, and [#194](https://github.com/journey-to-code-org/open.blog/issues/194)
 
 ## Context
 
-The review before publication (ADR 0135) lets an author acknowledge an advisory finding, so a
+The review before publication (ADR 0123) lets an author acknowledge an advisory finding, so a
 prompt they have considered (a whole-work source that needs no locator, a doubt with no source
 behind it) stops asking for attention without being called resolved. RW9's contract defines what
 an acknowledgement is and when it stops applying, and leaves storage to the report that shows

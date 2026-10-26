@@ -118,6 +118,14 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
         "components/ob-abuse-report.js",
         include_str!("../../../web/components/ob-abuse-report.js"),
     ),
+    (
+        "components/ob-third-perspective.js",
+        include_str!("../../../web/components/ob-third-perspective.js"),
+    ),
+    (
+        "components/third-perspective.js",
+        include_str!("../../../web/components/third-perspective.js"),
+    ),
 ];
 
 /// The admin editor. Served only by `serve --admin`, never copied into the
@@ -226,7 +234,7 @@ pub struct BuildReport {
     pub warnings: Vec<String>,
     pub accessibility: Vec<AccessibilityFinding>,
     pub evidence: Vec<EvidenceFinding>,
-    /// What the research projections published and withheld (ADR 0137).
+    /// What the research projections published and withheld (ADR 0125).
     pub boundary: openblog_core::publication_boundary::BoundaryManifest,
 }
 
@@ -311,6 +319,12 @@ pub fn read_sources_excluding(
     // Approved reader feedback the site publishes (ADR 0083), a versioned
     // file beside the posts.
     sources.reader_feedback = read_reader_feedback(root, config)?;
+    // Approved Third Perspectives the site publishes (ADR 0115), the same way.
+    sources.third_perspectives = read_content_file(
+        root,
+        config,
+        openblog_core::perspective_publication::THIRD_PERSPECTIVES_FILE,
+    )?;
     // Claim evidence is read only while the site publishes it (ADR 0075).
     if config.claim_evidence.publish {
         sources.claim_evidence = Some(crate::claims_store::evidence_for_build(
@@ -327,13 +341,24 @@ pub fn read_reader_feedback(
     root: &Path,
     config: &SiteConfig,
 ) -> Result<Option<SourceFile>, String> {
-    let path = root
-        .join(&config.paths.content)
-        .join(openblog_core::feedback_publication::READER_FEEDBACK_FILE);
+    read_content_file(
+        root,
+        config,
+        openblog_core::feedback_publication::READER_FEEDBACK_FILE,
+    )
+}
+
+/// A versioned file the site publishes from, beside the posts in the content
+/// folder, when it exists. Its contents are checked by the site load.
+pub fn read_content_file(
+    root: &Path,
+    config: &SiteConfig,
+    name: &str,
+) -> Result<Option<SourceFile>, String> {
+    let path = root.join(&config.paths.content).join(name);
     let display = format!(
-        "{}/{}",
-        config.paths.content.trim_end_matches(['/', '\\']),
-        openblog_core::feedback_publication::READER_FEEDBACK_FILE
+        "{}/{name}",
+        config.paths.content.trim_end_matches(['/', '\\'])
     );
     match fs::symlink_metadata(&path) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -806,7 +831,7 @@ pub fn generate_site(
 }
 
 /// [`generate_site`], with the publication boundary manifest the output was
-/// checked against (ADR 0137).
+/// checked against (ADR 0125).
 pub fn generate_site_with_boundary(
     root: &Path,
     site: &mut Site,
@@ -822,7 +847,7 @@ pub fn generate_site_with_boundary(
     // into static/, a copied notebook): refuse before anything is generated.
     crate::private_guard::refuse_private_research_in_public_inputs(root, &site.config)?;
     // The research projections, attached exactly as the Admin preview of the
-    // boundary attaches them (ADR 0137); here a projection that cannot be
+    // boundary attaches them (ADR 0125); here a projection that cannot be
     // built refuses the output.
     let shared = crate::boundary::Shared::read(root, &site.config);
     let blocked = crate::boundary::project_with(root, site, &shared);
@@ -838,6 +863,11 @@ pub fn generate_site_with_boundary(
     // Published reader feedback that cannot be read refuses the output the
     // same way, rather than dropping notes the author published (ADR 0083).
     if let Some(error) = &site.reader_feedback_error {
+        return Err(error.clone());
+    }
+    // And published Third Perspectives, rather than dropping reflections a
+    // moderator approved (ADR 0115).
+    if let Some(error) = &site.third_perspectives_error {
         return Err(error.clone());
     }
     // What the projections publish and withhold; a stale approval or an

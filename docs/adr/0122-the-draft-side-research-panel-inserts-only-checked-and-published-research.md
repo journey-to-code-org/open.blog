@@ -1,4 +1,4 @@
-# ADR 0134: The draft-side research panel inserts only checked and published research
+# ADR 0122: The draft-side research panel inserts only checked and published research
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -13,12 +13,12 @@
   [ADR 0091](0091-copying-from-a-comparison-takes-only-selected-places-with-their-rights.md),
   [ADR 0092](0092-publish-approved-comparisons-as-one-rights-gated-projection.md),
   [ADR 0099](0099-approved-datings-publish-through-the-atlas-projection.md),
-  [ADR 0132](0132-the-research-workspace-is-one-admin-destination-with-one-route-namespace.md),
-  [ADR 0133](0133-workspace-panels-keep-unsaved-changes-while-another-panel-opens.md)
+  [ADR 0120](0120-the-research-workspace-is-one-admin-destination-with-one-route-namespace.md),
+  [ADR 0121](0121-workspace-panels-keep-unsaved-changes-while-another-panel-opens.md)
 
 ## Context
 
-The research workspace (ADR 0132) gathers research in one place, but writing still meant
+The research workspace (ADR 0120) gathers research in one place, but writing still meant
 switching to it, copying a passage by hand, and opening the Cite dialog to cite what was just
 pasted. A hand-copied quotation loses its citation easily, picks up Markdown it never had (an
 asterisk in the source becomes emphasis), and nothing stops a private note, an unapproved atlas
@@ -92,10 +92,10 @@ has to be explicit about what it copies.
   refreshed revision is used), a citation problem (`422`) or an unconfirmed step is reported
   inside the item that failed, with the author's choices kept; the draft is unchanged. Nothing
   is written to research files or browser storage, and an ended session goes to the sign-in that
-  keeps the draft (ADR 0133).
+  keeps the draft (ADR 0121).
 - **Claims stay in Evidence Studio.** The panel links to Evidence Studio and starts a claim from
   the selected words; claims are recorded there (ADR 0073), not inserted. Each item links to its
-  full panel in the research workspace, which keeps the draft while it is open (ADR 0133).
+  full panel in the research workspace, which keeps the draft while it is open (ADR 0121).
 
 ## Consequences
 

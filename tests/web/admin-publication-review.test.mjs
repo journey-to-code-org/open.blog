@@ -14,7 +14,7 @@ import {
   researchReviewApplies,
 } from "../../web/admin/admin.js";
 
-// The research review before publication (A8.3, ADR 0135 and ADR 0136): grouped by what blocks
+// The research review before publication (A8.3, ADR 0123 and ADR 0124): grouped by what blocks
 // the build and by outcome in the server's order and codes, every finding linked to its place
 // and repair, acknowledgement only where the contract allows it and never called resolved,
 // failures scoped to the finding that failed, and no score anywhere.

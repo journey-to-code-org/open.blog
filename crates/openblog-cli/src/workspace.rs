@@ -24,7 +24,7 @@ const ATLAS_PATH: &str = ".openblog/private/research/atlas.json";
 const CLAIMS_PATH: &str = ".openblog/private/research/claims.json";
 /// Private passage alignments share the library limit as well.
 const ALIGNMENTS_PATH: &str = ".openblog/private/research/alignments.json";
-/// The private review acknowledgements (ADR 0136), up to their own limit.
+/// The private review acknowledgements (ADR 0124), up to their own limit.
 const ACKNOWLEDGEMENTS_PATH: &str = crate::research_review::ACKNOWLEDGEMENTS_FILE;
 const MAX_ACKNOWLEDGEMENTS_TEXT: usize = crate::research_review::MAX_ACKNOWLEDGEMENTS_BYTES;
 const MAX_TOTAL: usize = 64 * 1024 * 1024;

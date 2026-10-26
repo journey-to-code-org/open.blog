@@ -16,7 +16,7 @@ pub const OPTIONAL_MODULES: [&str; 11] = [
     "optimize",
     "accessibility",
     "evidence",
-    // The research workspace's place in the main navigation (ADR 0132).
+    // The research workspace's place in the main navigation (ADR 0120).
     "research",
     "assistant",
     "analytics",
@@ -112,7 +112,7 @@ impl Preferences {
     /// are dropped and missing modules are appended, so every tool stays reachable.
     /// Preferences saved before the research workspace existed showed research
     /// only with Evidence Studio, so a layout that hid Evidence Studio keeps the
-    /// research workspace hidden too (ADR 0132).
+    /// research workspace hidden too (ADR 0120).
     fn migrate_modules(mut self) -> Self {
         let knew_research = self.module_order.iter().any(|module| module == "research");
         let mut order: Vec<String> = Vec::with_capacity(OPTIONAL_MODULES.len());

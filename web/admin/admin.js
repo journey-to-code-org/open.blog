@@ -45,7 +45,7 @@ export function normalizeAdminPreferences(value) {
     ? input.hiddenModules.filter((module, index) => ADMIN_OPTIONAL_MODULES.includes(module) && input.hiddenModules.indexOf(module) === index)
     : [];
   // Layouts saved before the research workspace showed research only with Evidence Studio, so a
-  // layout that hid Evidence Studio keeps the workspace hidden too (ADR 0132).
+  // layout that hid Evidence Studio keeps the workspace hidden too (ADR 0120).
   if (!suppliedOrder.includes("research") && hiddenModules.includes("evidence") && !hiddenModules.includes("research")) hiddenModules.push("research");
   return { schemaVersion: 1, preset, density, editorMode, moduleOrder, hiddenModules };
 }
@@ -121,7 +121,7 @@ export function editorPaneLayout(preferences, panes) {
 // ---------------------------------------------------------------- research workspace
 
 /**
- * The research workspace's panels (ADR 0132), in the order research travels: from a source to
+ * The research workspace's panels (ADR 0120), in the order research travels: from a source to
  * a draft. Each research panel is private author research. The draft is the only publishable
  * panel, and research reaches readers only through what a post cites or what the author
  * approves for it. `legacy` is the earlier top-level route that now redirects here.
@@ -207,7 +207,7 @@ export function workspacePanelKey(hash) {
 }
 
 /**
- * What moving from one address to another does to unsaved work (ADR 0133). Switching to
+ * What moving from one address to another does to unsaved work (ADR 0121). Switching to
  * another workspace panel keeps a panel with unsaved changes, instead of discarding it, and a
  * kept panel is reopened exactly as it was left. Asking first is kept for the moves that would
  * replace unsaved work: reloading the same panel, leaving the workspace, or opening another
@@ -429,11 +429,12 @@ export const MODERATION_KINDS = [
   ["source-suggestion", "Suggested sources"],
   ["correction-suggestion", "Suggested corrections"],
   ["alternative-interpretation", "Other interpretations"],
+  ["third-perspective", "Third Perspectives"],
   ["abuse-report", "Abuse reports"],
 ];
 const MODERATION_STATE_NOTES = {
   clarification: "These wait for the reader’s answer through their private receipt. The text asked about can never be approved; you can still reject it.",
-  withdrawn: "Readers took these back through their private receipts, and their text was deleted at once. They are never published and cannot be changed.",
+  withdrawn: "Readers took these back through their private receipts, and the hosted copy of their text was deleted at once. They cannot be changed. A withdrawn reflection that was already published stays on its post until you take it off: the notice above counts them, and each has its own button.",
 };
 
 /** The inbox's address for one state and kind filter. */
@@ -467,7 +468,36 @@ export function moderationRequest(item, action, reason, acknowledged) {
   const request = { source: item.source, id: item.id, action, from: item.status, version: item.version };
   if (reason) request.reason = reason;
   if (action === "approve" && item.passage?.acknowledge && acknowledged) request.acknowledge = item.passage.check;
+  // A Third Perspective's approval binds the text revision and consent record shown (ADR 0111).
+  if (action === "approve" && item.perspective) {
+    request.seenRevision = item.revision;
+    request.seenConsent = item.perspective.consent.number;
+  }
   return request;
+}
+
+/**
+ * What a moderator reads about a Third Perspective beside its text: what it is about, the prompt
+ * the reader chose, the consent in effect (the record an approval binds), and a warning when the
+ * reader's name is one the work credits, which is never shown with it.
+ */
+export function perspectiveLines(item) {
+  const perspective = item?.perspective;
+  if (!perspective) return [];
+  const lines = [];
+  const about = perspective.about === "work" ? "the whole work" : perspective.section ? `the section #${perspective.section}` : "the opening, before the first heading";
+  const check = perspective.check === "stale" ? " That section has changed since the reader read it." : perspective.check === "unknown-work" ? " No post has this address now." : "";
+  lines.push(`About ${about}.${check}`);
+  if (item.details?.categoryLabel) lines.push(`Prompt: ${item.details.categoryLabel} (“${item.details.prompt}”).`);
+  else lines.push("No prompt chosen.");
+  const consent = perspective.consent;
+  const name = consent.showName ? "with their name, if you approve it" : "without their name";
+  const clarify = consent.clarification ? "may be asked to clarify it" : "did not agree to be asked to clarify it";
+  lines.push(consent.publish
+    ? `Consent record ${consent.number}: the reader agrees to publish it ${name}, and ${clarify}. Approving binds this record; if the reader changes it first, you are asked to review again.`
+    : `Consent record ${consent.number}: the reader no longer agrees to publish it.`);
+  if (perspective.nameMatchesCredit) lines.push("The reader’s name matches a name this work credits. It is never shown with the reflection, which always appears as a reader’s.");
+  return lines;
 }
 
 /** What the signed-in account can do with an item, from the role the server resolved. */
@@ -481,13 +511,14 @@ export function moderationRoleLine(role) {
  * Who sent an item, for moderators only. A comment's name is always shown with it; a reader of
  * feedback chose whether to show theirs, and a private name reaches only the site Admin.
  */
-export function moderationReaderLine(reader, source = "feedback") {
+export function moderationReaderLine(reader, source = "feedback", kind = "") {
   if (source === "report") return "Reports are anonymous: nothing about the reader who sent it is kept.";
   if (source === "comment") return reader?.name ? `From ${reader.name}, shown with the comment.` : "From an unnamed commenter.";
   if (reader?.private) return "The reader gave a name that only the site Admin can see.";
   if (!reader?.name) return "From an anonymous reader.";
+  const what = kind === "third-perspective" ? "reflection" : "note";
   return reader.publishName
-    ? `From ${reader.name}, who agreed to show this name if you publish the note.`
+    ? `From ${reader.name}, who agreed to show this name if you publish the ${what}.`
     : `From ${reader.name}. The name stays private: the reader did not agree to show it.`;
 }
 
@@ -496,6 +527,10 @@ export function moderationOutcome(item, action, result) {
   const where = item.post ? `“${item.post.title}”` : item.work;
   if (action === "approve") {
     if (item.source === "comment") return `Approved. The comment is shown on ${where}.`;
+    if (item.perspective) {
+      const approved = `Approved this text under the reader’s consent record ${item.perspective.consent.number}, as a reader’s reflection on ${where}. Nothing was e-mailed.`;
+      return result.published ? `${approved} It is published on the post; rebuild or publish to update the live site.` : `${approved} ${result.publishError || ""}`.trim();
+    }
     return result.published ? `Approved and published on ${where}. Rebuild or publish to update the live site.` : `Approved. ${result.publishError || ""}`.trim();
   }
   if (action === "reject") return "Rejected. Nothing was published.";
@@ -522,11 +557,47 @@ export function moderationOutcome(item, action, result) {
  * unknown.
  */
 export function feedbackPublicationMismatch(item) {
+  if (item.kind === "third-perspective") return perspectivePublicationMismatch(item);
   if (item.status === "approved" && item.published === false) return { notice: "Approved, but not on the site yet.", action: "publish", label: "Publish on the post" };
+  if (item.status === "approved" && item.published === true && item.decisionPublished === false) return { notice: "The decision on the post is not the one you recorded.", action: "publish-decision", label: "Update the published decision" };
   if (item.status === "removed" && item.published === true) return { notice: "Removed, but still on the post.", action: "unpublish", label: "Take it off the post" };
   if (item.status === "rejected" && item.published === true) return { notice: "Rejected, but still on the post.", action: "unpublish", label: "Take it off the post" };
   if (item.status === "withdrawn" && item.published === true) return { notice: "The reader withdrew this note and asked for it to be deleted, but it is still on the post. Take it off now.", action: "unpublish", label: "Take it off the post" };
   return null;
+}
+
+/**
+ * The same for a Third Perspective (ADR 0115): an approved reflection the projection shows that
+ * is not on its post yet, or a published one it no longer shows, most often because the reader
+ * withdrew it through their receipt. `mayBeShown` is whether the hosted copy may be public now.
+ */
+export function perspectivePublicationMismatch(item) {
+  if (item.published === false && item.mayBeShown === true) return { notice: "Approved, but not on the site yet.", action: "publish", label: "Publish on the post" };
+  if (item.published === true && item.mayBeShown === null) return { notice: "It is on the post, but this page cannot tell whether it may stay: the hosted copy cannot say (Third Perspectives are switched off or rolled back). Check it, and take it off if it should not be shown.", action: "unpublish", label: "Take it off the post" };
+  if (item.published !== true || item.mayBeShown !== false) return null;
+  const notice = {
+    withdrawn: "The reader withdrew this reflection through their receipt, and its text and name were deleted, but it is still on the post. Take it off now.",
+    removed: "Removed, but still on the post.",
+    rejected: "Rejected, but still on the post.",
+  }[item.status] || "The reader’s consent or this reflection’s state no longer allows it on the post, but it is still there. Take it off now.";
+  return { notice, action: "unpublish", label: "Take it off the post" };
+}
+
+/**
+ * What the audit of the published Third Perspectives (`engagement/third-perspectives/published`)
+ * says, in words, for the banner shown on every tab (ADR 0115): how many must come off their posts
+ * now, and how many cannot be told because the hosted function does not read their consent.
+ */
+export function perspectiveAuditNotices(audit) {
+  const count = (list) => (Array.isArray(list) ? list.length : 0);
+  const many = (n) => `${n} published reflection${n === 1 ? "" : "s"}`;
+  const notices = [];
+  const off = count(audit?.mustComeOff);
+  const unknown = count(audit?.unknown);
+  if (off) notices.push({ kind: "mustComeOff", text: `${many(off)} must come off ${off === 1 ? "its post" : "their posts"}: the reader withdrew ${off === 1 ? "it" : "them"}, or ${off === 1 ? "its" : "their"} approval or consent no longer allows ${off === 1 ? "it" : "them"}.` });
+  if (unknown) notices.push({ kind: "unknown", text: `${many(unknown)} cannot be checked against the hosted copy, because Third Perspectives are switched off or rolled back there. Look at ${unknown === 1 ? "it" : "each"}, and take off any that should not be shown.` });
+  if (audit?.truncated) notices.push({ kind: "truncated", text: "More reflections are published than one check reads; the first ones were checked." });
+  return notices;
 }
 
 /** The retention dry run's summary, in words: what would expire or be purged, by kind. */
@@ -548,6 +619,98 @@ export function feedbackPreviewText(preview) {
   if (!preview) return "";
   const passage = preview.quote ? `quoting “${preview.quote}”` : preview.stale ? "without a quotation, because the passage has changed" : "without a quotation";
   return `On the post it is shown ${passage}, as from ${preview.name || "a reader"}, received ${preview.received}.`;
+}
+
+// Correction decisions (ADR 0117) and evidence (ADR 0116) in the inbox. The server says how each
+// item stands, what the reader named and whether the post publishes it, the decisions recorded so
+// far, and, where this account may decide, the outcomes and the choices only it can list (the
+// post's revision notes as written, the evidence links in the claims file). These helpers only word
+// and shape what it sent; a suggestion is never called a correction before the author decides.
+
+/** The author's local day, `YYYY-MM-DD`, as a decision is dated. */
+export function localDay(date = new Date()) {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/**
+ * The body of a decision: the item, the text revision and how many decisions on it the author saw, the outcome and only
+ * the fields that outcome takes, the passage check confirmed when the passage moved, and the day.
+ * Nothing says who is deciding: the server knows.
+ */
+export function decisionRequest(item, values) {
+  const offer = item.recordDecision || {};
+  const outcome = offer.outcomes?.find((each) => each.id === values.outcome);
+  const request = { id: item.id, expectedDecisions: offer.expectedDecisions ?? 0, itemRevision: offer.itemRevision ?? 1, outcome: values.outcome, decided: values.decided || localDay() };
+  if (outcome?.accepted && values.extent) request.extent = values.extent;
+  if (values.outcome === "declined" && values.declineReason) request.declineReason = values.declineReason;
+  if (values.rationale && values.rationale.trim()) request.rationale = values.rationale;
+  if (values.outcome !== "declined" && values.revisionNote && offer.post) request.revisionNote = { post: offer.post, note: values.revisionNote };
+  if (values.outcome !== "declined" && values.claimEvidence) {
+    const [claim, link] = values.claimEvidence.split(" ");
+    if (claim && link) request.claimEvidence = { claim, link };
+  }
+  if (values.outcome === "already-addressed" && values.addressedBy && values.addressedBy.trim()) request.addressedBy = values.addressedBy.trim();
+  if (offer.confirmCheck && values.confirmed) request.confirmCheck = offer.confirmCheck;
+  return request;
+}
+
+/** What is missing before a decision can be sent, as { field, message }, or null. */
+export function decisionProblem(item, values) {
+  const offer = item.recordDecision || {};
+  const outcome = offer.outcomes?.find((each) => each.id === values.outcome);
+  if (!outcome) return { field: "outcome", message: "Choose what you decided." };
+  if (outcome.accepted && !values.extent) return { field: "extent", message: "Say whether you applied all of it or part of it." };
+  if (values.outcome === "declined" && !values.declineReason) return { field: "declineReason", message: "Choose your reason for declining." };
+  const needsRationale = values.outcome === "declined" || values.extent === "partial";
+  if (needsRationale && !(values.rationale || "").trim()) return { field: "rationale", message: values.outcome === "declined" ? "Say why, in your own words." : "Say which part you applied, and why not the rest." };
+  if (outcome.accepted && !values.revisionNote) return { field: "revisionNote", message: "Choose the post’s revision note that says what changed. Add it to the post first if it is not listed." };
+  if (values.outcome === "accepted-as-evidence" && !values.claimEvidence) return { field: "claimEvidence", message: "Choose the evidence link you recorded in Evidence Studio." };
+  if (values.outcome === "already-addressed" && !values.revisionNote && !(values.addressedBy || "").trim()) {
+    return { field: "revisionNote", message: "Choose the revision note that addressed it, or give the item that did." };
+  }
+  if (offer.confirmCheck && !values.confirmed) return { field: "confirmed", message: "Confirm that you read the passage as it is published now." };
+  return null;
+}
+
+/** One recorded decision in words, for the item's history. Who decided is shown to moderators only. */
+export function decisionLine(decision) {
+  const extent = decision.extent === "partial" ? " (in part)" : decision.extent === "full" ? " (in full)" : "";
+  const reason = decision.declineReasonLabel ? `: ${decision.declineReasonLabel}` : "";
+  const who = decision.decidedBy?.account && decision.decidedBy.account !== "@moderation-token" ? ` by ${decision.decidedBy.account}` : "";
+  const role = decision.decidedBy?.role === "coordinator" ? " as coordinator" : "";
+  return `${decision.label}${extent}${reason}, ${decision.decided}${who}${role}${decision.inForce ? "" : " (superseded or about earlier text)"}`;
+}
+
+/** What a recorded decision did, for the status line after the list reloads. */
+export function decisionOutcome(result) {
+  const label = result?.decision?.label || "Decision";
+  const base = `Decision recorded: ${label}. The post, its citations and the Source Library were not changed, the reader’s note was neither published nor hidden, and nothing was e-mailed.`;
+  // A note that is already on its post shows the new outcome there (ADR 0119); one that is not
+  // stays off the post until the author approves it.
+  if (result?.outcomePublished) return `${base} The outcome now shows on the published note. Rebuild or publish to update the live site.`;
+  if (result?.publishError) return `${base} The published note could not be updated: ${result.publishError}`;
+  return base;
+}
+
+const LOCATOR_TEXT = (locator) => `${locator.kind} ${locator.value}${locator.to ? `–${locator.to}` : ""}`;
+
+/** The reader's evidence block as lines for the card: each reference, published or not. */
+export function evidenceReviewLines(evidence) {
+  if (!evidence) return [];
+  const named = (what, entry, label) => {
+    if (!entry) return null;
+    if (!entry.published) return `${what}: “${entry.id}”, which this post does not publish now.`;
+    return `${what}: ${label ?? entry.label ?? entry.id}.`;
+  };
+  return [
+    named("Claim", evidence.claim, evidence.claim?.label && evidence.claim?.statement ? `${evidence.claim.label}, “${evidence.claim.statement}”` : undefined),
+    named("Evidence for it the reader questions", evidence.evidenceLink),
+    named("Cited source the reader questions", evidence.citation),
+    evidence.source
+      ? `${evidence.source.published ? `Source the reader offers: ${evidence.source.label ?? evidence.source.id}` : `Source the reader offers: “${evidence.source.id}”, which this site does not publish now`}${evidence.locators?.length ? `, at ${evidence.locators.map(LOCATOR_TEXT).join(", ")}` : ""}.`
+      : null,
+    evidence.stanceLabel ? `${evidence.stanceLabel}.` : null,
+  ].filter(Boolean);
 }
 
 const FEEDBACK_CHECK_LABELS = { current: "Current", reanchored: "Re-anchored", stale: "Stale", "unknown-work": "Post not found" };
@@ -1653,7 +1816,7 @@ export function createCitationForm({ api, state, initial = null, idPrefix = "oba
   };
 }
 
-// ---------------------------------------------------------------- draft-side research panel (A8.2, ADR 0134)
+// ---------------------------------------------------------------- draft-side research panel (A8.2, ADR 0122)
 
 /** Characters a line may not start with, or Markdown reads a block marker, written as references. */
 const LINE_START_REFERENCES = Object.freeze({ "#": "&#35;", ">": "&gt;", "-": "&#45;", "+": "&#43;", "=": "&#61;" });
@@ -1851,7 +2014,7 @@ const DRAFT_RESEARCH_FILTERS = Object.freeze([
 const DRAFT_RESEARCH_TYPE = Object.freeze({ passage: "Passage", source: "Source", atlas: "Atlas entry", comparison: "Comparison", interpretation: "Interpretation", note: "Private note" });
 
 /**
- * The draft-side research panel (A8.2, ADR 0134): one narrow, non-modal region beside the
+ * The draft-side research panel (A8.2, ADR 0122): one narrow, non-modal region beside the
  * writing surface that searches the author's research and inserts from it. A quotation from a
  * passage goes in with its citation, checked by the server like the Cite dialog; a source gives
  * a citation with optional locators and nothing else; an atlas entry, a dating or a comparison
@@ -6869,7 +7032,7 @@ export function evidenceReview(findings) {
 // ---------------------------------------------------------------- research review before publication
 
 /**
- * Whether publishing or scheduling a post is preceded by the research review (#62, ADR 0135):
+ * Whether publishing or scheduling a post is preceded by the research review (#62, ADR 0123):
  * a post on the Research profile or one that publishes citations, as Evidence Studio decides.
  * Every other post publishes exactly as before.
  */
@@ -6979,7 +7142,7 @@ export function publicationReviewAcknowledgementText(state) {
   return "";
 }
 
-// ---------------------------------------------------------------- what will be public (#63, ADR 0137)
+// ---------------------------------------------------------------- what will be public (#63, ADR 0125)
 
 /** How each research projection is named in the preview. */
 export const BOUNDARY_PROJECTIONS = Object.freeze({
@@ -7066,7 +7229,7 @@ export function boundaryCountsText(manifest) {
 }
 
 /**
- * The preview of what the research projections publish (#63, ADR 0137): one section per
+ * The preview of what the research projections publish (#63, ADR 0125): one section per
  * projection with its switch, what it publishes and the fields it copies, and what it withholds
  * and why, then what is never published. `level` is the heading level of each projection.
  * Read-only: nothing here saves or publishes anything.
@@ -7187,7 +7350,7 @@ export function createBoundaryPreview({ manifest, idPrefix = "oba-boundary", lev
 }
 
 /**
- * The research review's content (#62, ADR 0135): findings grouped by what blocks the build and
+ * The research review's content (#62, ADR 0123): findings grouped by what blocks the build and
  * by outcome, each with its place, its validator's message and repair, a link to where it is
  * repaired, and an acknowledgement toggle for advisory findings only. `mode` is "publish",
  * "schedule" or "check" (review only). `onDone` receives "confirm", "cancel" or a target to go to.
@@ -8372,7 +8535,7 @@ export class ObAdmin extends AdminElement {
   dirty = false;
   editVersion = 0;
   viewVersion = 0;
-  // Every mount takes the next serial; a kept view returns with the version it had (ADR 0133).
+  // Every mount takes the next serial; a kept view returns with the version it had (ADR 0121).
   viewSerial = 0;
   // The open view's own unsaved-changes test, for views whose forms keep their own state.
   viewDirty = null;
@@ -8712,7 +8875,7 @@ export class ObAdmin extends AdminElement {
   }
 
   /**
-   * A session that ended without signing out (ADR 0133): the open workspace panel is kept if it
+   * A session that ended without signing out (ADR 0121): the open workspace panel is kept if it
    * has unsaved changes, and every kept panel stays in this page's memory for the user who was
    * signed in. Signing in again as that user returns to them; anyone else discards them.
    */
@@ -8915,7 +9078,7 @@ export class ObAdmin extends AdminElement {
   }
 
   /**
-   * The research workspace's navigation (ADR 0132): private research panels in one labelled
+   * The research workspace's navigation (ADR 0120): private research panels in one labelled
    * group, the publishable draft in another, and a note on every panel that holds kept unsaved
    * changes. `followsPreset` lets the layout preference hide it beside a draft.
    */
@@ -10208,7 +10371,7 @@ export class ObAdmin extends AdminElement {
     );
 
 
-    // An address that names a source opens it, as a review finding's link does (ADR 0135).
+    // An address that names a source opens it, as a review finding's link does (ADR 0123).
     const focused = focus ? sources.find((source) => source.id === focus) : null;
     if (focused) {
       selected = focused.id;
@@ -10236,7 +10399,7 @@ export class ObAdmin extends AdminElement {
     );
     if (focused) panel.querySelector("#oba-source-heading")?.focus();
     // The research workspace keeps this panel, instead of losing it, while another one is open,
-    // but never while a save is running: its result has to land on this view (ADR 0133).
+    // but never while a save is running: its result has to land on this view (ADR 0121).
     this.viewDirty = () => dirty;
     this.viewBusy = () => busy;
   }
@@ -10244,7 +10407,7 @@ export class ObAdmin extends AdminElement {
   // ---- research workspace
 
   /**
-   * The research workspace's first panel (ADR 0132): the source-to-draft workflow and where
+   * The research workspace's first panel (ADR 0120): the source-to-draft workflow and where
    * each step stands. The library and the notebook are read separately, so one that cannot be
    * read is reported in its own step while the others still show. Nothing here writes.
    */
@@ -10327,7 +10490,7 @@ export class ObAdmin extends AdminElement {
     );
   }
 
-  // ---- what will be public (#63, ADR 0137)
+  // ---- what will be public (#63, ADR 0125)
 
   /** The saved path of each post by slug, so a claim can link to its post. Empty when the list cannot be read. */
   async savedPostPaths() {
@@ -14263,6 +14426,8 @@ export class ObAdmin extends AdminElement {
     const stateNote = MODERATION_STATE_NOTES[state] ? h("p", { class: "oba-small" }, MODERATION_STATE_NOTES[state]) : null;
     const queue = h("ol", { class: "oba-feedback-list oba-moderation-list", "aria-labelledby": "oba-moderation-queue-title" });
     const more = h("button", { class: "oba-btn", type: "button", hidden: true }, "Show more");
+    // Published reflections that must come off, seen on every tab (ADR 0115).
+    const perspectiveBanner = h("div", { class: "oba-perspective-banner", "data-perspective-banner": "" });
     const publishedStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite", tabindex: "-1" }, "Loading published feedback…");
     const published = h("ol", { class: "oba-feedback-list", "aria-labelledby": "oba-feedback-published-title" });
     const stateTabs = h(
@@ -14304,6 +14469,33 @@ export class ObAdmin extends AdminElement {
       }
     };
 
+    const loadPerspectiveAudit = async () => {
+      let audit;
+      try {
+        audit = await this.api.call("GET", "engagement/third-perspectives/published");
+      } catch (error) {
+        perspectiveBanner.replaceChildren(h("p", { class: "oba-notice", role: "status" }, `Published reflections could not be checked against the hosted copy. ${error.message}`));
+        return;
+      }
+      const notices = perspectiveAuditNotices(audit);
+      const entry = (item, label) => h("li", {}, `${item.post}: `, h("button", { class: "oba-btn", type: "button", "data-perspective-id": item.id, onClick: async (event) => {
+        event.currentTarget.disabled = true;
+        try {
+          await this.api.call("POST", "engagement/third-perspectives/unpublish", { json: { id: item.id } });
+          await reloadAll("Taken off its post. Rebuild or publish to update the live site.", "ok");
+        } catch (error) {
+          event.currentTarget.disabled = false;
+          announce(queueStatus, error.message, "error");
+          queueStatus.focus();
+        }
+      } }, label));
+      perspectiveBanner.replaceChildren(...notices.map((notice) => h("div", { class: notice.kind === "mustComeOff" ? "oba-notice oba-perspective-must-come-off" : "oba-notice", role: notice.kind === "mustComeOff" ? "alert" : "status", "data-perspective-notice": notice.kind },
+        h("p", {}, h("strong", {}, notice.text)),
+        notice.kind === "mustComeOff" ? h("ul", {}, audit.mustComeOff.map((item) => entry(item, "Take it off the post"))) : null,
+        notice.kind === "unknown" ? h("ul", {}, audit.unknown.map((item) => entry(item, "Take it off the post"))) : null,
+      )));
+    };
+
     // One page of the inbox; `append` keeps what is shown and moves focus to the first new item.
     const loadQueue = async (append = false) => {
       const query = new URLSearchParams({ state });
@@ -14334,11 +14526,171 @@ export class ObAdmin extends AdminElement {
     more.addEventListener("click", () => loadQueue(true));
 
     const reloadAll = async (message, kind_) => {
-      await Promise.all([loadQueue(), loadPublished()]);
+      await Promise.all([loadQueue(), loadPublished(), loadPerspectiveAudit()]);
       if (message) {
         announce(queueStatus, message, kind_);
         queueStatus.focus();
       }
+    };
+
+    // What the reader named, and what the author decided (ADRs 0116 and 0117).
+    const evidenceSection = (item) => {
+      if (!item.evidence) return null;
+      const claim = item.evidence.claim;
+      return h(
+        "div",
+        { class: "oba-feedback-passage oba-feedback-evidence" },
+        h("h4", {}, "What the reader names"),
+        h("p", { class: "oba-small" }, "The reader’s own statement, from what the site publishes. Nothing checked it, and nothing counts it."),
+        item.evidence.stale ? h("p", { class: "oba-notice" }, "Something the reader named is no longer published on this post.") : null,
+        h("ul", {}, evidenceReviewLines(item.evidence).map((text) => h("li", {}, text))),
+        claim?.published && claim.links?.length
+          ? h("details", {}, h("summary", {}, `Compare with the evidence published for ${claim.label}`),
+            h("ul", {}, claim.links.map((link) => h("li", {}, link.label))))
+          : null,
+      );
+    };
+    const similarSection = (item) => {
+      if (!item.similar?.length) return null;
+      return h(
+        "div",
+        { class: "oba-feedback-similar" },
+        h("p", { class: "oba-small" }, "Possibly about the same thing, on this page (each is decided on its own):"),
+        h("ul", {}, item.similar.map((other) => h("li", {}, h("a", { href: `#oba-moderation-${other.source}-${other.id}-title`, onClick: (event) => {
+          event.preventDefault();
+          document.getElementById(`oba-moderation-${other.source}-${other.id}-title`)?.focus();
+        } }, `${other.kindLabel} received ${formatWhen(other.receivedAt)}`), ` (${other.reason})`))),
+      );
+    };
+    const decisionsSection = (item) => {
+      if (!Array.isArray(item.decisions) || !item.decisions.length) return null;
+      return h(
+        "details",
+        { class: "oba-feedback-decisions" },
+        h("summary", {}, `Your decisions (${item.decisions.length})`),
+        h("ol", {}, item.decisions.map((decision) => h("li", {},
+          h("p", {}, decisionLine(decision)),
+          decision.rationale ? h("p", { class: "oba-feedback-body" }, decision.rationale) : null,
+          decision.revisionNote ? h("p", { class: "oba-small" }, `Revision note: ${decision.revisionNote.note}`) : null,
+          decision.claimEvidence ? h("p", { class: "oba-small" }, `Evidence link: ${decision.claimEvidence.claim} → ${decision.claimEvidence.link}`) : null,
+          decision.addressedBy ? h("p", { class: "oba-small" }, `Addressed by item ${decision.addressedBy}`) : null,
+        ))),
+      );
+    };
+
+    /**
+     * "Record decision": the author's conclusion about the work, beside moderation and never instead
+     * of it. The revision note and the evidence link are recorded first with their own tools; the
+     * form only points at them.
+     */
+    const decisionForm = (item, key, line, busy) => {
+      const offer = item.recordDecision;
+      if (!offer) return null;
+      const id = (name) => `oba-decision-${key}-${name}`;
+      const error = h("p", { class: "oba-error", id: id("error"), role: "alert" });
+      const radios = (name, options, legend, hint) => {
+        const hintId = hint ? id(`${name}-hint`) : null;
+        const inputs = options.map((option) => h("input", { type: "radio", name: id(name), id: id(`${name}-${option.id}`), value: option.id, "aria-describedby": option.guidance ? id(`${name}-${option.id}-guidance`) : null }));
+        const fieldset = h("fieldset", { class: "oba-decision-choices", "aria-describedby": hintId },
+          h("legend", {}, legend),
+          hint ? h("p", { class: "oba-small", id: hintId }, hint) : null,
+          options.map((option, index) => h("div", { class: "oba-decision-choice" },
+            inputs[index], " ", h("label", { for: id(`${name}-${option.id}`) }, option.label),
+            option.guidance ? h("p", { class: "oba-small", id: id(`${name}-${option.id}-guidance`) }, option.guidance) : null)));
+        return { fieldset, inputs, value: () => inputs.find((input) => input.checked)?.value || "" };
+      };
+      const outcome = radios("outcome", offer.outcomes, "What did you decide?", "This records your conclusion about the post. It never edits the post, a citation or the Source Library, and it does not publish or hide the reader’s note.");
+      const extent = radios("extent", offer.extents, "How much of it?");
+      const reason = h("select", { id: id("reason") }, h("option", { value: "" }, "Choose a reason"), offer.declineReasons.map((each) => h("option", { value: each.id }, each.label)));
+      const reasonField = h("div", { class: "oba-field" }, h("label", { for: id("reason") }, "Your reason for declining"), reason);
+      const rationale = h("textarea", { id: id("rationale"), rows: "3", maxlength: "2000", "aria-describedby": id("rationale-hint") });
+      const rationaleField = h("div", { class: "oba-field" }, h("label", { for: id("rationale") }, "Your rationale"),
+        h("p", { class: "oba-small", id: id("rationale-hint") }, "Public with the outcome once the reader’s note is published. Needed to decline or to accept in part; don’t name or quote the reader."), rationale);
+      const note = h("select", { id: id("note"), "aria-describedby": id("note-hint") }, h("option", { value: "" }, "No revision note"), (offer.revisionNotes || []).map((text) => h("option", { value: text }, text)));
+      const noteHint = h("p", { class: "oba-small", id: id("note-hint") }, offer.revisionNotes?.length
+        ? "The post’s note that says what changed. If it is not listed, add it to the post below first."
+        : "This post has no revision notes yet. Add one below first, after you change the post.");
+      const newNoteDate = h("input", { type: "date", id: id("new-note-date"), value: localDay() });
+      const newNoteClaim = h("input", { type: "text", id: id("new-note-claim"), pattern: "[a-z0-9-]*" });
+      const newNoteText = h("input", { type: "text", id: id("new-note-text"), maxlength: "200" });
+      const addNote = offer.post ? h("details", { class: "oba-feedback-revision" },
+        h("summary", {}, "Add a revision note to the post"),
+        h("p", { class: "oba-small" }, "A separate step: it adds a public note to the post’s revision notes and does not change the post’s text. Edit the post itself first."),
+        h("div", { class: "oba-field" }, h("label", { for: id("new-note-date") }, "Date of the change"), newNoteDate),
+        h("div", { class: "oba-field" }, h("label", { for: id("new-note-claim") }, "Claim id (optional)"), newNoteClaim),
+        h("div", { class: "oba-field" }, h("label", { for: id("new-note-text") }, "What changed"), newNoteText),
+        h("button", { class: "oba-btn", type: "button", onClick: async () => {
+          if (!newNoteText.value.trim()) {
+            announce(line, "Say what changed first.", "error");
+            newNoteText.focus();
+            return;
+          }
+          announce(line, "Adding the revision note…");
+          try {
+            await this.api.call("POST", "engagement/feedback/revision-note", { json: { post: offer.post, date: newNoteDate.value, claim: newNoteClaim.value, note: newNoteText.value } });
+            await reloadAll("Revision note added to the post’s front matter. Choose it in Record decision. Rebuild or publish to update the live site.", "ok");
+          } catch (failure) {
+            announce(line, failure.data?.problems ? `${failure.message} ${failure.data.problems.join(" ")}` : failure.message, "error");
+          }
+        } }, "Add revision note")) : null;
+      const noteField = h("div", { class: "oba-field" }, h("label", { for: id("note") }, "The post’s revision note"), noteHint, note, addNote);
+      const evidence = h("select", { id: id("evidence"), "aria-describedby": id("evidence-hint") }, h("option", { value: "" }, "No evidence link"),
+        (offer.claimEvidence || []).map((each) => h("option", { value: `${each.claim} ${each.link}` }, each.label)));
+      const evidenceField = h("div", { class: "oba-field" }, h("label", { for: id("evidence") }, "The evidence link you recorded"),
+        h("p", { class: "oba-small", id: id("evidence-hint") }, offer.claimEvidence?.length ? "Recorded in Evidence Studio on one of this post’s claims." : "None is recorded on this post’s claims yet: record it in Evidence Studio first."), evidence);
+      const addressed = h("input", { type: "text", id: id("addressed"), spellcheck: "false", "aria-describedby": id("addressed-hint") });
+      const addressedField = h("div", { class: "oba-field" }, h("label", { for: id("addressed") }, "Or the item that already addressed it"),
+        h("p", { class: "oba-small", id: id("addressed-hint") }, "The id of another reader’s item on this post that you accepted, shown on its card."), addressed);
+      const confirm = offer.confirmCheck ? h("input", { type: "checkbox", id: id("confirm") }) : null;
+      const confirmField = confirm ? h("p", { class: "oba-feedback-acknowledge" }, confirm, " ", h("label", { for: id("confirm") }, "I have read the passage as it is published now, and decide knowing it changed.")) : null;
+      const decided = h("input", { type: "date", id: id("decided"), value: localDay() });
+      const decidedField = h("div", { class: "oba-field" }, h("label", { for: id("decided") }, "Date of the decision"), decided);
+      const sync = () => {
+        const chosen = offer.outcomes.find((each) => each.id === outcome.value());
+        extent.fieldset.hidden = !chosen?.accepted;
+        reasonField.hidden = outcome.value() !== "declined";
+        noteField.hidden = !chosen || outcome.value() === "declined";
+        evidenceField.hidden = !chosen || outcome.value() === "declined";
+        addressedField.hidden = outcome.value() !== "already-addressed";
+      };
+      for (const input of outcome.inputs) input.addEventListener("change", sync);
+      sync();
+      const values = () => ({
+        outcome: outcome.value(), extent: extent.value(), declineReason: reason.value, rationale: rationale.value, revisionNote: note.value,
+        claimEvidence: evidence.value, addressedBy: addressed.value, confirmed: confirm?.checked, decided: decided.value,
+      });
+      const focusOf = { outcome: outcome.inputs[0], extent: extent.inputs[0], declineReason: reason, rationale, revisionNote: note, claimEvidence: evidence, confirmed: confirm };
+      const submit = h("button", { class: "oba-btn oba-btn-primary", type: "button", "aria-describedby": id("error") }, "Record decision");
+      submit.addEventListener("click", async () => {
+        const problem = decisionProblem(item, values());
+        error.textContent = "";
+        if (problem) {
+          error.textContent = problem.message;
+          announce(line, problem.message, "error");
+          focusOf[problem.field]?.focus();
+          return;
+        }
+        busy(true);
+        announce(line, "Recording your decision…");
+        try {
+          const result = await this.api.call("POST", "engagement/moderation/decision", { json: decisionRequest(item, values()) });
+          await reloadAll(decisionOutcome(result), "ok");
+        } catch (failure) {
+          busy(false);
+          error.textContent = failure.message;
+          announce(line, failure.message, "error");
+          if (failure.status === 409) await reloadAll(`${failure.message} The list was reloaded.`, "error");
+          else submit.focus();
+        }
+      });
+      return h(
+        "details",
+        { class: "oba-decision", id: id("details") },
+        h("summary", {}, offer.label),
+        h("p", { class: "oba-small" }, offer.guidance),
+        outcome.fieldset, extent.fieldset, reasonField, rationaleField, noteField, evidenceField, addressedField, confirmField, decidedField,
+        error, submit,
+      );
     };
 
     const queueCard = (item) => {
@@ -14353,17 +14705,24 @@ export class ObAdmin extends AdminElement {
         h("p", { class: "oba-small" }, `Received ${formatWhen(item.receivedAt)} · ${item.statusLabel}${item.reasonLabel ? ` (${item.reasonLabel})` : ""}${item.public ? " · shown on the post now" : ""}`),
         item.post ? null : h("p", { class: "oba-notice" }, "No post has this address now: it may have moved, been renamed or been unpublished."),
         h("p", { class: "oba-small" }, moderationRoleLine(item.role)),
+        item.standing ? h("p", { class: "oba-small oba-feedback-standing" }, "Stands as: ", h("strong", {}, item.standing.label), item.standing.decided ? " (your decision)" : " (the reader’s suggestion; you have not decided)") : null,
+        item.source === "feedback" && item.recordDecision ? h("p", { class: "oba-small" }, `Item id: ${item.id}`) : null,
         item.clarification?.askedAboutThisText ? h("p", { class: "oba-notice" }, "A clarification was asked about this text. It can never be approved; only the reader’s answer can.") : null,
         feedbackPassage(item.passage),
         item.purged ? h("p", { class: "oba-notice" }, "Its text, details and any name were deleted. Only the private record of decisions remains.") : null,
         item.report ? h("p", {}, h("strong", {}, "Ground: "), item.report.groundLabel) : null,
-        item.purged || (item.source === "report" && !item.body) ? null : h("h4", {}, item.source === "comment" ? "The comment" : item.source === "report" ? "What the reader wrote" : "The reader’s note"),
+        item.purged || (item.source === "report" && !item.body) ? null : h("h4", {}, item.source === "comment" ? "The comment" : item.source === "report" ? "What the reader wrote" : item.perspective ? "The reader’s reflection" : "The reader’s note"),
         item.purged || (item.source === "report" && !item.body) ? null : h("p", { class: "oba-feedback-body" }, item.body),
         item.source === "report" ? reportedItem(item.target) : null,
         item.details?.sourceUrl ? h("p", {}, "Suggested source: ", h("a", { href: item.details.sourceUrl, target: "_blank", rel: "noopener noreferrer nofollow" }, item.details.sourceUrl)) : null,
         item.details?.suggestedText ? h("div", {}, h("p", {}, "Suggested wording:"), h("blockquote", { class: "oba-feedback-body" }, item.details.suggestedText)) : null,
-        h("p", { class: "oba-small" }, moderationReaderLine(item.reader, item.source)),
+        item.perspective && !item.purged ? h("div", { class: "oba-feedback-passage" }, h("h4", {}, "About this reflection"), perspectiveLines(item).map((line) => h("p", {}, line))) : null,
+        h("p", { class: "oba-small" }, moderationReaderLine(item.reader, item.source, item.kind)),
         feedbackPreview(item.publicPreview),
+        evidenceSection(item),
+        similarSection(item),
+        decisionsSection(item),
+        item.perspectivePreview ? h("p", { class: "oba-small oba-feedback-preview" }, `If approved, it is shown as “${item.perspectivePreview.heading}”, received ${item.perspectivePreview.received}.`) : null,
       );
       const actions = h("div", { class: "oba-moderation-actions" });
       let acknowledge = null;
@@ -14440,21 +14799,24 @@ export class ObAdmin extends AdminElement {
         actions.append(h("button", { class: "oba-btn", type: "button", onClick: async () => {
           busy(true);
           try {
-            await this.api.call("POST", `engagement/feedback/${mismatch.action}`, { json: { id: item.id } });
-            await reloadAll(mismatch.action === "publish" ? `Published on ${where}.` : `Taken off ${where}. Rebuild or publish to update the live site.`, "ok");
+            await this.api.call("POST", `engagement/${item.kind === "third-perspective" ? "third-perspectives" : "feedback"}/${mismatch.action}`, { json: { id: item.id } });
+            await reloadAll(mismatch.action === "publish" ? `Published on ${where}.` : mismatch.action === "publish-decision" ? `Decision updated on ${where}. Rebuild or publish to update the live site.` : `Taken off ${where}. Rebuild or publish to update the live site.`, "ok");
           } catch (error) {
             busy(false);
             announce(line, error.message, "error");
           }
         } }, mismatch.label));
         card.append(h("p", { class: "oba-notice" }, mismatch.notice));
+      } else if (item.kind === "third-perspective" && item.status === "approved" && item.published === true) {
+        card.append(h("p", { class: "oba-small" }, "Published on the post as a reader’s reflection."));
       } else if (item.source === "feedback" && item.status === "approved" && item.published === true) {
         card.append(h("p", { class: "oba-small" }, "Published on the post. ", h("a", { href: `#oba-published-${item.id}`, onClick: (event) => {
           event.preventDefault();
           document.getElementById(`oba-published-${item.id}-response`)?.focus();
         } }, "Respond or record a revision note")));
       }
-      card.append(actions, line);
+      const decision = decisionForm(item, key, line, busy);
+      card.append(actions, ...(decision ? [decision] : []), line);
       return card;
     };
 
@@ -14601,7 +14963,8 @@ export class ObAdmin extends AdminElement {
     this.mount(
       this.shell(
         "moderation",
-        h("p", {}, "Comments, the questions, suggested sources, suggested corrections and other interpretations readers sent about passages, and abuse reports, in one list. Nothing is published until it is approved, approving never changes your post, and a suggested correction stays a suggestion until you decide to edit the post. Nothing here e-mails anyone."),
+        h("p", {}, "Comments, the questions, suggested sources, suggested corrections and other interpretations readers sent about passages, and abuse reports, in one list. Nothing is published until it is approved, approving never changes your post, and a suggested source or correction stays a suggestion until you record your decision on it. Nothing here e-mails anyone."),
+        perspectiveBanner,
         h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-moderation-queue-title" }, h("h2", { id: "oba-moderation-queue-title" }, "Moderation queue"), stateTabs, kindFilter, stateNote, queueStatus, queue, more),
         h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-feedback-published-title" }, h("h2", { id: "oba-feedback-published-title" }, "Published on your posts"), publishedStatus, published),
         h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-retention-title" },
@@ -14610,7 +14973,7 @@ export class ObAdmin extends AdminElement {
           checkRetention, retentionStatus, retentionReport),
       ),
     );
-    await Promise.all([loadQueue(), loadPublished()]);
+    await Promise.all([loadQueue(), loadPublished(), loadPerspectiveAudit()]);
   }
 
   // ---- editor
@@ -15247,7 +15610,7 @@ export class Editor {
     ui.citationStatus = h("span", { class: "oba-small", role: "status", "aria-live": "polite" });
     ui.citationUndo = h("button", { class: "oba-btn", type: "button", hidden: true, "data-citation-undo": "true", onClick: () => this.undoCitation() }, "Undo citation");
     ui.citationBar = kind === "posts" ? h("div", { class: "oba-toolbar oba-citation-bar" }, ui.citationStatus, ui.citationUndo) : null;
-    // The draft-side research panel (ADR 0134) sits beside the writing surface once opened.
+    // The draft-side research panel (ADR 0122) sits beside the writing surface once opened.
     ui.draftResearchSlot = kind === "posts" ? h("div", { class: "oba-draft-research-slot", id: "oba-draft-research-slot", hidden: true }) : null;
     ui.writeLayout = h("div", { class: "oba-write-layout", "data-research": "closed" }, h("div", { class: "oba-write-surface" }, ui.richBody, ui.body, ui.assistantAutocomplete), ui.draftResearchSlot);
     ui.assistantStatus = h("p", { class: "oba-assistant-status-copy", role: "status", "aria-live": "polite" }, "Loading assistant configuration…");
@@ -18053,7 +18416,7 @@ export class Editor {
   }
 
   /**
-   * Open or close the draft-side research panel (ADR 0134). It is not modal: the draft stays
+   * Open or close the draft-side research panel (ADR 0122). It is not modal: the draft stays
    * editable beside it. Opening reads the research fresh and moves focus to its search; closing
    * returns focus to the Research button.
    */
@@ -18488,7 +18851,7 @@ export class Editor {
 
   /**
    * Whether this save publishes or schedules a post that the research review covers (#62,
-   * ADR 0135): the status moves to Published or Scheduled, and the post is on the Research
+   * ADR 0123): the status moves to Published or Scheduled, and the post is on the Research
    * profile or publishes citations. Saving an already published post again, and every other
    * post, works exactly as before.
    */
@@ -18501,7 +18864,7 @@ export class Editor {
 
   /**
    * Show what this post publishes of the research, read from the draft as it stands through the
-   * build's own projection (#63, ADR 0137). Read-only: nothing is saved, published or changed.
+   * build's own projection (#63, ADR 0125). Read-only: nothing is saved, published or changed.
    */
   async previewBoundary() {
     const ui = this.ui;
@@ -18619,7 +18982,7 @@ export class Editor {
             finish(false);
             this.app.showSessionEnded("Your session ended. Sign in again to return to your unsaved draft.");
           } else if (outcome?.navigate) {
-            // The link navigates by itself; the workspace keeps this unsaved draft (ADR 0133).
+            // The link navigates by itself; the workspace keeps this unsaved draft (ADR 0121).
             finished = true;
             dialog.close();
             dialog.remove();
@@ -18748,7 +19111,7 @@ export class Editor {
       this.reportSaved(res, savedState.messageIsCurrent);
     } catch (err) {
       if (err.status === 401) {
-        // The save is over, so the draft is kept for the same user's next sign-in (ADR 0133).
+        // The save is over, so the draft is kept for the same user's next sign-in (ADR 0121).
         this.saving = false;
         this.app.showSessionEnded("Your session ended. Sign in again to return to your unsaved draft.");
       } else if (err.status === 409) {

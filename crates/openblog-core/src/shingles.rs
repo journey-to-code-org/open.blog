@@ -1,5 +1,5 @@
 //! Word shingles of text, for the publication boundary's text guard (#63,
-//! ADR 0137).
+//! ADR 0125).
 //!
 //! Private text and every generated output are normalised the same way and
 //! compared as hashes of [`SHINGLE_WORDS`] consecutive words. The same

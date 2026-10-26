@@ -168,3 +168,75 @@ To undo it, remove `OPENBLOG_PROTECTION_ENABLED` and redeploy, optionally export
 and run [`supabase/protection-rollback.sql`](../../supabase/protection-rollback.sql) (before
 `moderation-rollback.sql` if you undo that too). It drops exactly what the steps above added and
 leaves every comment and note in its state; text already purged cannot be restored.
+
+## Evidence and correction decisions (optional)
+
+A suggested source or correction may carry the reader's evidence block, and the author can record
+a correction decision on it in the Moderation inbox (ADRs 0116 and 0117). Both need the moderation
+inbox's schema above, then:
+
+1. Run [`supabase/feedback.sql`](../../supabase/feedback.sql) again. It adds two nullable columns
+   to `openblog_feedback`: `evidence` (the reader's block, only on a version 2 row, at most 4 KiB)
+   and `decisions` (the author's append-only decision log), a check that evidence is only stored
+   with format version 2, a trigger (`openblog_feedback_purge_evidence`) that deletes the evidence
+   block whenever a note's text is purged, and the function `openblog_record_feedback_decision`,
+   which appends one decision with a `decide` audit event in `openblog_feedback_events` only while
+   the item is a pending or approved suggestion, not the text a clarification asked about, at the
+   text revision and with the number of decisions the author saw. Nothing already stored changes.
+2. Set `OPENBLOG_CORRECTIONS_ENABLED` to `true` (with `OPENBLOG_FEEDBACK_ENABLED` and
+   `OPENBLOG_MODERATION_ENABLED`) and redeploy. Set `"evidence": true` inside `engagement` in
+   `openblog.json` so the form offers the evidence fields.
+
+The function then takes version 2 submissions at `POST /feedback`, checked by the shared validator
+before the quota and stored pending, lists the evidence block and the decision log in the inbox,
+and records decisions at `POST /admin/decisions` (token only). Without the variable a version 2
+submission is refused with `unsupportedVersion`, as B5 refuses it, and the reader can copy the note
+instead. A decision never changes an item's state, version or approval, never edits a post, a
+citation or the Source Library, and nothing is e-mailed to anyone.
+
+To undo it, remove `OPENBLOG_CORRECTIONS_ENABLED` and redeploy, optionally export the two columns,
+and run [`supabase/corrections-rollback.sql`](../../supabase/corrections-rollback.sql). It drops
+exactly what step 1 added; a note sent with evidence keeps its text and state and is read as the
+version 1 note it then is, and the `decide` audit events stay.
+## Third Perspectives (optional)
+
+A Third Perspective (ADRs 0109 to 0114) is a reader's own reflection on a work, stored as one
+`openblog_feedback` row of kind `third-perspective`. Every hosted copy gets a receipt, so the reader
+can always take it back; Third Perspectives therefore need passage feedback's table and the
+engagement protection above, then:
+
+1. Run [`supabase/feedback.sql`](../../supabase/feedback.sql) again. It adds one nullable column,
+   `approved_consent` (the reader's consent record an approval covers), and the function
+   `openblog_moderate_third_perspective`, which takes every inbox decision on a Third Perspective
+   and refuses an approval whose consent record is no longer the one in effect or no longer agrees
+   to publish. Nothing already stored changes.
+2. Set `OPENBLOG_THIRD_PERSPECTIVES_ENABLED` to `true` (with `OPENBLOG_FEEDBACK_ENABLED`,
+   `OPENBLOG_MODERATION_ENABLED` and `OPENBLOG_PROTECTION_ENABLED`) and redeploy, and set
+   `"third-perspective": "open"` in `participation.kinds` and `"receipts": true` in `engagement`.
+
+`POST /feedback` then takes a Third Perspective (`kind: "third-perspective"`) by its own contract
+(`web/components/third-perspective.js`): always pending, with its prompt category, the receipt's
+digest and the reader's numbered consent records in `details`, and the same quotas and replay bound
+as passage feedback. Through `POST /receipt` the reader reads it (the category, never their consent
+records), agrees or declines to be asked (a new consent record, and a new version, so an approval
+made on the earlier consent is refused), answers a clarification (the text is replaced; the
+details stay) or withdraws it, which deletes its text and name at once. The inbox lists it with
+`approvedConsent`, and an approval names the text revision and consent record the moderator saw
+(`seenRevision`, `seenConsent`). B5's own `/admin/feedback` view lists only passage feedback and
+never decides a Third Perspective, even with the variable unset. A receipt says a reflection is
+published only while its approval and the reader's consent in effect both allow it; Admin writes
+approved reflections to `content/third-perspectives.json`, which the site builds from, so pages
+never read these rows. Nothing is e-mailed to anyone.
+
+Before undoing it, take the published reflections off the site: empty `content/third-perspectives.json`
+(or set `"third-perspective": "hidden"` in `participation.kinds`) and rebuild. Without the consent
+column the function cannot tell whether an approved reflection may still be shown, so a receipt says
+it cannot tell, Admin says the state is unknown instead of "must come off", and abuse reports fall
+back to plain approval at the current text. Withdrawals made afterwards are not checked against the
+consent, so nothing a reader withdrew would be flagged for removal.
+
+To undo it, remove `OPENBLOG_THIRD_PERSPECTIVES_ENABLED` and redeploy, optionally export the rows
+(`where kind = 'third-perspective'`), and run
+[`supabase/third-perspective-rollback.sql`](../../supabase/third-perspective-rollback.sql) before
+any other rollback. It drops exactly the column and function above and leaves every row in its
+state.

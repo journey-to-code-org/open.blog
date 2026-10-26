@@ -425,6 +425,7 @@ test("the inbox's schema is additive, private and opt-in, and its rollback drops
     "alter table public.openblog_comments drop column if exists moderation_reason;",
     "alter table public.openblog_comments drop column if exists moderation_state;",
     "alter table public.openblog_comments drop column if exists version;",
+    "drop function if exists public.openblog_record_feedback_decision(text, uuid, integer, integer, jsonb, text, text, timestamptz);",
     "drop function if exists public.openblog_moderate_feedback_item(text, uuid, integer, text, text, text, text, text, text, timestamptz, text, jsonb);",
     "alter table if exists public.openblog_feedback_events drop column if exists actor_role;",
     "alter table if exists public.openblog_feedback_events drop column if exists item_revision;",
