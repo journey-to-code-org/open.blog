@@ -64,6 +64,11 @@ pub enum AssemblyError {
     /// unsafe link, a heading outside the item outline, or a reserved anchor). Distinct from
     /// [`Self::UnsafeMarkup`] so the refusal names the item rather than a section.
     UnsafeConversationItem(ItemRule, ItemRef),
+    /// A media moment proposed for the piece no longer resolves against the record: its source
+    /// is gone, or its locators no longer fit the source's kind (ADR 0072). Reported only once
+    /// the approvals are met, like [`Self::ArrangementMismatch`], and it names no moment, so it
+    /// tells nothing to someone who may not read the moments. Its owner edits or withdraws it.
+    UnresolvedMoment,
 }
 
 /// Which continuing-conversation item a refusal is about: its category and its place among the
@@ -327,7 +332,8 @@ pub fn conversation_markdown(record: &SharedPublication, synthesis: &SynthesisSe
 /// (ADR 0031), and credits are one per participant at their first appearance (ADR 0030); without
 /// one the sections are the participants' drafts in participant order. Part marker lines never
 /// reach the Post either way. The approved conversation block follows the sections. `moments`
-/// bind into the approvals the gate evaluates (ADR 0073); nothing here renders them yet (#177).
+/// bind into the approvals the gate evaluates (ADR 0073), and a moment proposed for the piece that
+/// no longer fits its source refuses it; nothing here renders them yet (#177).
 #[allow(clippy::too_many_arguments)]
 pub fn assemble(
     record: &SharedPublication,
@@ -372,6 +378,9 @@ pub fn assemble(
         return Err(AssemblyError::Blocked {
             missing: display_names(record, awaited.iter().map(String::as_str)),
         });
+    }
+    if !moments.unresolved(&record.sources).is_empty() {
+        return Err(AssemblyError::UnresolvedMoment);
     }
     let title = record
         .title

@@ -285,6 +285,27 @@ pub fn timestamp_value(text: &str) -> Option<TimestampValue> {
     })
 }
 
+/// A moment's locators as plain words, in order: "at 1:02", "from 1:02 to 1:10", "page 3",
+/// "pages 3 to 5", "chapter 2". The values are the participant's checked locator text (no
+/// control, bidirectional or bracket characters), so callers escape it like any other text.
+pub fn location_text(locators: &[Locator]) -> String {
+    locators
+        .iter()
+        .map(|locator| {
+            let value = &locator.value;
+            match (&locator.kind, locator.to.as_deref()) {
+                (LocatorKind::Timestamp, None) => format!("at {value}"),
+                (LocatorKind::Timestamp, Some(to)) => format!("from {value} to {to}"),
+                (LocatorKind::Page, None) => format!("page {value}"),
+                (LocatorKind::Page, Some(to)) => format!("pages {value} to {to}"),
+                (kind, None) => format!("{} {value}", kind.as_str()),
+                (kind, Some(to)) => format!("{} {value} to {to}", kind.as_str()),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 impl Moment {
     pub fn id(&self) -> &str {
         &self.id

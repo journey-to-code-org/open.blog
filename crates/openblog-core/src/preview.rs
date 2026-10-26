@@ -29,7 +29,7 @@ use crate::collaboration::SharedPublication;
 use crate::draft::DraftSet;
 use crate::escape;
 use crate::markdown::{self, RenderOptions};
-use crate::media_moment::MomentSet;
+use crate::media_moment::{location_text, Moment, MomentSet};
 use crate::reflection::{compose, strip_part_markers, ComposedTurn, ReflectionStructure};
 use crate::shared_source::SharedAttribution;
 use crate::synthesis::{SynthesisKind, SynthesisSet};
@@ -239,12 +239,37 @@ pub fn build(
         |subject| {
             let mut sections = Vec::new();
             let mut rendered = Vec::new();
+            // Moments proposed for the piece are part of their owner's contribution (ADR 0073,
+            // 0074): another author sees them only sealed to the owner's latest revision that
+            // author may read. Until then the owner's whole part is withheld, so nobody can be
+            // handed an approval token for moments they have not seen.
+            let mut withheld = false;
+            let mut shown_moments = Vec::new();
             for (author, stamp) in authors.iter().zip(&stamps) {
                 let entitled = stamp.as_ref().and_then(|stamp| {
                     let view = drafts.view(requester, &author.id, active).ok()?;
                     (view.stamp.number == stamp.number && view.stamp.digest == stamp.digest)
                         .then_some(view)
                 });
+                let readable = entitled.as_ref().map(|view| view.stamp.number);
+                let proposed = moments
+                    .publication_moments()
+                    .iter()
+                    .any(|moment| moment.participant() == author.id);
+                let moments_shown = !proposed
+                    || author.id == requester
+                    || readable.is_some_and(|revision| moments.is_sealed(&author.id, revision));
+                if !moments_shown {
+                    withheld = true;
+                } else if proposed {
+                    let visible = moments
+                        .revealed(requester, active, &author.id, readable)
+                        .unwrap_or_default();
+                    if !visible.is_empty() {
+                        shown_moments.push((author.display_name.as_str(), visible));
+                    }
+                }
+                let entitled = entitled.filter(|_| moments_shown);
                 let prose = entitled
                     .as_ref()
                     .map(|view| render_section(&strip_part_markers(&view.markdown), options));
@@ -273,6 +298,7 @@ pub fn build(
                 )
             });
             let complete = !subject_sections.is_empty()
+                && !withheld
                 && arranged.as_ref().is_none_or(|arranged| arranged.is_ok())
                 && sections
                     .iter()
@@ -297,6 +323,7 @@ pub fn build(
                 &sections,
                 &rendered,
                 arranged.as_ref(),
+                &moments_html(record, &shown_moments, options),
                 &conversation_html(record, &items, synthesis, options),
                 complete,
                 ready,
@@ -312,6 +339,61 @@ pub fn build(
             })
         },
     )
+}
+
+/// The moments proposed for the piece that the requester may read, grouped by owner: where in
+/// which source, the quotation with its speaker, and the observation through the production
+/// renderer. Plainly labelled as covered by approval and not yet published. Empty when there are
+/// none, so a piece without moments previews exactly as before.
+fn moments_html(
+    record: &SharedPublication,
+    shown: &[(&str, Vec<&Moment>)],
+    options: RenderOptions<'_>,
+) -> String {
+    if shown.is_empty() {
+        return String::new();
+    }
+    let mut html = String::from(
+        "<section class=\"ob-preview-section\" aria-labelledby=\"ob-preview-moments\">\n<h2 id=\"ob-preview-moments\">Moments in the sources</h2>\n<p class=\"ob-preview-status\">Proposed for the piece. Every approval covers them exactly as shown; nothing here is published yet.</p>\n",
+    );
+    for (name, moments) in shown {
+        html.push_str(&format!(
+            "<h3>{}</h3>\n<ol class=\"ob-preview-moments\">\n",
+            escape::text(name)
+        ));
+        for moment in moments {
+            let source = record
+                .sources
+                .iter()
+                .find(|source| source.id == moment.source())
+                .map(|source| source.title.as_str())
+                .unwrap_or("A source that is no longer listed");
+            html.push_str(&format!(
+                "<li>\n<p class=\"ob-preview-status\">{}, {}</p>\n",
+                escape::text(source),
+                escape::text(&location_text(moment.locators()))
+            ));
+            if let Some(quotation) = moment.quotation() {
+                html.push_str(&format!(
+                    "<blockquote class=\"ob-preview-quotation\"><p>{}</p>",
+                    escape::text(&quotation.text)
+                ));
+                if let Some(speaker) = &quotation.speaker {
+                    html.push_str(&format!("<footer>{}</footer>", escape::text(speaker)));
+                }
+                html.push_str("</blockquote>\n");
+            }
+            if let Some(observation) = moment.observation() {
+                html.push_str("<div class=\"ob-preview-prose\">\n");
+                html.push_str(&render_section(observation, options).html);
+                html.push_str("</div>\n");
+            }
+            html.push_str("</li>\n");
+        }
+        html.push_str("</ol>\n");
+    }
+    html.push_str("</section>\n");
+    html
 }
 
 /// The conversation as the preview shows it. Approved items come first as the very Markdown the
@@ -424,6 +506,7 @@ fn document(
     sections: &[PreviewSection],
     rendered: &[Option<String>],
     arranged: Option<&Result<String, ()>>,
+    moments: &str,
     conversation: &str,
     complete: bool,
     ready: bool,
@@ -553,6 +636,7 @@ fn document(
         }
         }
     }
+    html.push_str(moments);
     html.push_str(conversation);
     html.push_str("</body>\n</html>\n");
     html
@@ -586,5 +670,7 @@ body { margin: 0 auto; max-width: 42rem; padding: 1rem; font: 1rem/1.6 system-ui
 .ob-preview-section { border-top: 1px solid var(--line); margin-top: 1.5rem; padding-top: .5rem; }\n\
 .ob-preview-status { font-size: .875rem; font-weight: 600; }\n\
 .ob-preview-hidden { font-style: italic; }\n\
+.ob-preview-quotation { margin: .5rem 0; padding-left: .75rem; border-left: 3px solid var(--line); }\n\
+.ob-preview-quotation p { white-space: pre-wrap; margin: 0; }\n\
 img { max-width: 100%; }\n\
 </style>\n";

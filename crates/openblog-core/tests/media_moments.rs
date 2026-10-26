@@ -7,17 +7,19 @@ use std::collections::BTreeMap;
 use openblog_core::approval::{
     ApprovalPolicy, ApprovalRequirement, ApprovalScope, ApprovalSet, ApprovalState, Readiness,
 };
-use openblog_core::assembly::with_subject;
+use openblog_core::assembly::{assemble, with_subject, AssemblyError};
 use openblog_core::collaboration::{
     AuthorizationRole, IdentityBinding, NewParticipant, NewSharedPublication, NewSourceReference,
     Participant, SharedPublication, SourceKind,
 };
-use openblog_core::draft::DraftSet;
+use openblog_core::config::SiteConfig;
+use openblog_core::draft::{DraftSet, RevealPolicy};
 use openblog_core::media_moment::{
-    timestamp_value, MomentError, MomentField, MomentInput, MomentIntent, MomentRule, MomentSet,
-    Quotation, QuotationProvenance, QuotationRights, MAX_MOMENTS, MAX_MOMENT_SET_BYTES,
-    MAX_QUOTATION_CHARS,
+    location_text, timestamp_value, MomentError, MomentField, MomentInput, MomentIntent,
+    MomentRule, MomentSet, Quotation, QuotationProvenance, QuotationRights, MAX_MOMENTS,
+    MAX_MOMENT_SET_BYTES, MAX_QUOTATION_CHARS,
 };
+use openblog_core::preview::CombinedPreview;
 use openblog_core::research_notes::{Locator, LocatorKind};
 use openblog_core::synthesis::SynthesisSet;
 
@@ -1057,4 +1059,155 @@ fn a_publication_moment_whose_source_no_longer_fits_is_reported_unresolved() {
     assert_eq!(moments.unresolved(&record.sources), vec![id.as_str()]);
     record.sources.truncate(4);
     assert_eq!(moments.unresolved(&record.sources), vec![id.as_str()]);
+}
+
+/// Ann and Bo each wrote revision 1 and offered it under the voluntary policy, so each reads the
+/// other's latest revision.
+fn revealed_drafts() -> DraftSet {
+    let mut set = drafts(&[("ann", "Ann words"), ("bo", "Bo words")]);
+    set.set_policy(RevealPolicy::Voluntary);
+    set.mark_ready("ann", 1, &ALL).unwrap();
+    set.mark_ready("bo", 1, &ALL).unwrap();
+    set
+}
+
+fn preview_for(
+    record: &SharedPublication,
+    drafts: &DraftSet,
+    moments: &MomentSet,
+    approvals: &ApprovalSet,
+    who: &str,
+) -> CombinedPreview {
+    let config = SiteConfig::default();
+    openblog_core::preview::build(
+        record,
+        None,
+        drafts,
+        &SynthesisSet::new(),
+        moments,
+        approvals,
+        who,
+        &ALL,
+        true,
+        config.render_options(),
+    )
+    .unwrap()
+}
+
+#[test]
+fn the_preview_withholds_an_owner_s_part_until_their_moments_are_sealed_to_the_readable_revision() {
+    let record = record();
+    let drafts = revealed_drafts();
+    let approvals = ApprovalSet::new();
+    let mut moments = MomentSet::new();
+    let base = preview_for(&record, &drafts, &moments, &approvals, "bo");
+    assert!(base.complete && base.seen.is_some());
+    assert!(!base.document.contains("Moments in the sources"));
+
+    let mut proposed = publish(observe(
+        VIDEO,
+        vec![span("1:02", "1:10")],
+        "ANN-OBSERVATION",
+    ));
+    let mut words = quote("ANN-QUOTED <words>", QuotationRights::BriefQuotation);
+    words.speaker = Some("The host".into());
+    proposed.quotation = Some(words);
+    let shared = add(&mut moments, "ann", proposed.clone()).unwrap();
+    add(
+        &mut moments,
+        "bo",
+        observe(PODCAST, vec![at("5")], "BO-PRIVATE"),
+    )
+    .unwrap();
+
+    // Not sealed: Bo is handed no approval token, and nothing of Ann's part shows.
+    let bo = preview_for(&record, &drafts, &moments, &approvals, "bo");
+    assert!(!bo.complete && bo.seen.is_none());
+    assert!(!bo.sections[0].shown);
+    for secret in ["ANN-OBSERVATION", "ANN-QUOTED", "Ann words", "BO-PRIVATE"] {
+        assert!(!bo.document.contains(secret), "{secret}");
+    }
+    // The owner always reviews their own moments, and never anyone's private ones.
+    let ann = preview_for(&record, &drafts, &moments, &approvals, "ann");
+    assert!(ann.complete && ann.seen.is_some());
+    assert!(ann.document.contains("ANN-OBSERVATION"));
+    assert!(ann.document.contains("ANN-QUOTED &lt;words&gt;"));
+    assert!(!ann.document.contains("BO-PRIVATE"));
+
+    // Sealed to the revision Bo reads: the part and its moments show, labelled, and Bo may approve.
+    assert_eq!(moments.seal("ann", &ALL, 1), Ok(true));
+    let bo = preview_for(&record, &drafts, &moments, &approvals, "bo");
+    assert!(bo.complete && bo.seen.is_some());
+    assert!(bo.sections[0].shown);
+    assert!(bo.document.contains("Moments in the sources"));
+    assert!(bo
+        .document
+        .contains("The Art of Noticing, from 1:02 to 1:10"));
+    assert!(bo.document.contains("<footer>The host</footer>"));
+    assert!(bo.document.contains("ANN-OBSERVATION"));
+    assert!(!bo.document.contains("BO-PRIVATE"));
+
+    // An edit after the reveal withholds the part again until a newer revision is shared.
+    let revision = moments.revision();
+    let mut edited = proposed;
+    edited.observation = Some("ANN-EDITED".into());
+    moments
+        .edit("ann", &ALL, revision, &record.sources, &shared, edited)
+        .unwrap();
+    let bo = preview_for(&record, &drafts, &moments, &approvals, "bo");
+    assert!(!bo.complete && bo.seen.is_none());
+    assert!(!bo.document.contains("ANN-EDITED") && !bo.document.contains("ANN-OBSERVATION"));
+}
+
+#[test]
+fn the_gate_refuses_a_publication_moment_that_no_longer_fits_its_source_once_approvals_are_met() {
+    let mut record = record();
+    let drafts = revealed_drafts();
+    let mut moments = MomentSet::new();
+    add(
+        &mut moments,
+        "ann",
+        publish(observe(OTHER, vec![at("3:00")], "at the talk")),
+    )
+    .unwrap();
+    record.sources[4].kind = SourceKind::Book;
+    let mut approvals = ApprovalSet::new();
+    let gate = |approvals: &ApprovalSet| {
+        assemble(
+            &record,
+            None,
+            &drafts,
+            &SynthesisSet::new(),
+            &moments,
+            approvals,
+            &ALL,
+            "2027-01-01T00:00:00Z",
+        )
+    };
+    // Before the approvals are met the refusal is about approvals, never about the moment.
+    assert!(matches!(
+        gate(&approvals),
+        Err(AssemblyError::Blocked { .. })
+    ));
+    for who in ALL {
+        approve(&record, &drafts, &moments, &mut approvals, who);
+    }
+    assert_eq!(gate(&approvals), Err(AssemblyError::UnresolvedMoment));
+}
+
+#[test]
+fn a_location_reads_as_plain_words_in_order() {
+    assert_eq!(location_text(&[at("62")]), "at 62");
+    assert_eq!(
+        location_text(&[span("1:02", "1:10.5")]),
+        "from 1:02 to 1:10.5"
+    );
+    assert_eq!(
+        location_text(&[
+            locator(LocatorKind::Chapter, "2", None),
+            locator(LocatorKind::Page, "3", Some("5")),
+            locator(LocatorKind::Page, "9", None),
+        ]),
+        "chapter 2, pages 3 to 5, page 9"
+    );
 }
