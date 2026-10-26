@@ -847,6 +847,13 @@ The site Admin, or a coordinator for the works of their publications. Contributi
 and respond but do not moderate; readers act only on their own items as submitters.
 _Avoid_: Admin user when a publication coordinator is meant, editor, owner
 
+**Site Admin (moderation)**:
+The hosted moderation token, or an Admin session acting on a work outside every shared publication
+in which that account holds a binding. On a shared work a bound co-writer is that publication's
+coordinator (site owners included) or contributing author instead. Only the site Admin and the
+submitter see a reader's private name.
+_Avoid_: Admin user, site owner (a publication role), owner
+
 **Reason code**:
 The ground for a moderation decision, such as spam, abusive, personal data, off topic, duplicate,
 rights, unclear or needs source. Never a verdict on whether a reader was right.

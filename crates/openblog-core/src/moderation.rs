@@ -10,19 +10,22 @@
 //! private states, and every change carries an [`AuditEvent`] that names who
 //! acted, when, why and on which revision, never what anyone wrote.
 //!
-//! The policy is pure: callers build [`ItemFacts`] and the [`Actor`] from
-//! server-side state (the stored item, the authenticated session or the
-//! hosted moderation token, the publication authorization policy), apply the
-//! returned [`Transition`] and its audit event in one write, and treat any
-//! error as "nothing changed". Every combination the rules do not list is
-//! denied.
+//! The policy is pure: callers build [`ItemFacts`] from the stored item and
+//! resolve the [`Actor`] with [`SharedWorks::actor`] from the authenticated
+//! session or the hosted moderation token, the shared-publication records and
+//! the loaded site, then apply the returned [`Transition`] and its audit
+//! event in one write, and treat any error as "nothing changed". Every
+//! combination the rules do not list is denied.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::collaboration::SharedPublication;
+use crate::collaboration::{
+    AuthorizationAction, AuthorizationRole, AuthorizationTarget, SharedPublication,
+};
 use crate::config::SiteConfig;
 use crate::date::DateTime;
+use crate::invitation::Identities;
 use crate::model::Site;
 use crate::participation::{Origin, ParticipationKind, ParticipationMode, TargetShape};
 
@@ -284,23 +287,35 @@ pub fn allowed_reasons(action: ModerationAction, kind: ParticipationKind) -> &'s
 
 /// Who is asking, as established by the server. Identifiers name Admin
 /// accounts for the private audit trail; readers are never identified.
+///
+/// Admin users have no site roles (ADR 0006: every Admin user edits
+/// everything), so an Admin session's actor depends on the work it acts on:
+/// [`SharedWorks::actor`] is the one resolver, and callers never build an
+/// Admin actor from a request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Actor<'a> {
-    /// Anyone, through the public submission path.
+    /// Anyone, through the public submission path. Also an Admin session on a
+    /// shared work where its binding grants nothing here (editor or reader
+    /// only, or a binding that no longer resolves): it sees what readers see
+    /// and moderates nothing.
     Public,
     /// The item's own submitter, proven by the server (a reader's private
     /// receipt, or the author's session for an author response).
     Submitter,
-    /// The site's Admin: an Admin session or the hosted moderation token.
+    /// The site's Admin: the hosted moderation token, or an Admin session
+    /// acting on a work that is not part of any shared publication in which
+    /// that account holds a binding. The only actor besides the submitter
+    /// that sees a reader's private identity.
     SiteAdmin { admin_user: &'a str },
-    /// A publication coordinator, for the works of the publications whose
-    /// authorization policy binds them as coordinator.
+    /// An Admin session bound as coordinator or site owner in a shared
+    /// publication, acting on that publication's works, which are `works`.
+    /// A publication's site owner is a coordinator here, never the site Admin.
     Coordinator {
         admin_user: &'a str,
         works: &'a [&'a str],
     },
-    /// A contributing author, for the works of the publications whose
-    /// authorization policy binds them as contributor.
+    /// An Admin session bound as contributor (and not coordinator or site
+    /// owner) in a shared publication, acting on that publication's works.
     ContributingAuthor {
         admin_user: &'a str,
         works: &'a [&'a str],
@@ -370,7 +385,22 @@ impl Actor<'_> {
 #[derive(Clone, Debug)]
 pub struct SharedWorks<'a> {
     publications: Vec<(&'a SharedPublication, Option<&'a str>)>,
+    /// Every loaded post's path, to tell a work from a path nothing loads.
+    posts: Vec<&'a str>,
 }
+
+/// Who the server authenticated for a moderation request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Principal<'a> {
+    /// The hosted moderation token (`OPENBLOG_ADMIN_API_KEY`).
+    ModerationToken,
+    /// A signed-in Admin session.
+    AdminSession { admin_user: &'a str },
+}
+
+/// The audit trail's account name for the hosted moderation token. It is not
+/// a valid Admin username, so it never names an Admin account.
+pub const MODERATION_TOKEN_ACTOR: &str = "@moderation-token";
 
 impl<'a> SharedWorks<'a> {
     pub fn new(records: &'a [SharedPublication], site: &'a Site) -> Self {
@@ -386,7 +416,11 @@ impl<'a> SharedWorks<'a> {
                 (record, work)
             })
             .collect();
-        Self { publications }
+        let posts = site.posts.iter().map(|post| post.url.as_str()).collect();
+        Self {
+            publications,
+            posts,
+        }
     }
 
     /// The works of one shared publication: its post's path, or none when the
@@ -397,6 +431,87 @@ impl<'a> SharedWorks<'a> {
             .iter()
             .find(|(record, _)| record.publication_id == publication_id)
             .map_or(&[], |(_, work)| work.as_slice())
+    }
+
+    /// The actor a principal is when acting on an item about `work` (ADR
+    /// 0102). Deny by default:
+    ///
+    /// - The moderation token is the site Admin.
+    /// - An Admin session acting on a work of a shared publication in which
+    ///   it holds a binding has that binding's publication roles for that
+    ///   publication's works: site owner or coordinator is
+    ///   [`Actor::Coordinator`], contributor is [`Actor::ContributingAuthor`],
+    ///   and anything else, or a binding whose account, registry key or
+    ///   participant no longer resolves, is [`Actor::Public`].
+    /// - An Admin session holding a binding anywhere, acting on a path that is
+    ///   no loaded post (a deleted post, or a slug since renamed), is
+    ///   [`Actor::Public`]: whether it is a shared work cannot be told, so it
+    ///   fails closed, and the moderation token still reaches it.
+    /// - Otherwise, including an item with no work, an Admin session is the
+    ///   site Admin, as every Admin user edits everything (ADR 0006).
+    pub fn actor<'s>(
+        &'s self,
+        principal: Principal<'a>,
+        work: Option<&str>,
+        identities: &Identities<'_>,
+    ) -> Actor<'s> {
+        let admin_user = match principal {
+            Principal::ModerationToken => {
+                return Actor::SiteAdmin {
+                    admin_user: MODERATION_TOKEN_ACTOR,
+                }
+            }
+            Principal::AdminSession { admin_user } => admin_user,
+        };
+        let Some(work) = work else {
+            return Actor::SiteAdmin { admin_user };
+        };
+        let bound = |record: &SharedPublication| {
+            record
+                .authorization
+                .bindings
+                .iter()
+                .any(|binding| binding.admin_user == admin_user)
+        };
+        if let Some((record, works)) = self
+            .publications
+            .iter()
+            .find(|(record, works)| *works == Some(work) && bound(record))
+        {
+            return publication_actor(admin_user, record, works.as_slice(), identities);
+        }
+        if !self.posts.contains(&work) && self.publications.iter().any(|(record, _)| bound(record))
+        {
+            return Actor::Public;
+        }
+        Actor::SiteAdmin { admin_user }
+    }
+}
+
+/// An Admin session's actor on one shared publication's works, from its
+/// current binding there. Every role holds `ViewPublication`, so authorizing
+/// it is the existing check that the binding still resolves.
+fn publication_actor<'s>(
+    admin_user: &'s str,
+    record: &SharedPublication,
+    works: &'s [&'s str],
+    identities: &Identities<'_>,
+) -> Actor<'s> {
+    let Ok(binding) = record.authorize(
+        admin_user,
+        identities,
+        AuthorizationAction::ViewPublication,
+        AuthorizationTarget::Publication,
+    ) else {
+        return Actor::Public;
+    };
+    let holds = |role| binding.roles.contains(&role);
+    if holds(AuthorizationRole::SiteOwner) || holds(AuthorizationRole::Coordinator) {
+        Actor::Coordinator { admin_user, works }
+    } else if holds(AuthorizationRole::Contributor) {
+        Actor::ContributingAuthor { admin_user, works }
+    } else {
+        Actor::Public
     }
 }
 
@@ -948,7 +1063,8 @@ pub fn is_public(item: &ItemFacts<'_>, mode: ParticipationMode) -> bool {
 
 /// Whether `actor` may see part of a stored item. Out of scope, a
 /// coordinator or contributing author sees only what the public sees. Only
-/// the site Admin and the submitter see a reader's private identity, and
+/// the site Admin and the submitter see a reader's private identity, never a
+/// coordinator, contributing author or publication site owner, and
 /// contributing authors never see abuse reports.
 pub fn may_view(
     actor: &Actor<'_>,

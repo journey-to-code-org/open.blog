@@ -14,7 +14,9 @@
 Today one secret moderates hosted comments: the Admin's `OPENBLOG_ADMIN_API_KEY`. Collaborative
 works add publication coordinators and contributing authors bound to a shared publication by its
 authorization policy (ADR 0006), and #203 asks that role checks distinguish the site Admin, a
-publication coordinator and a contributing author. Readers have no accounts, yet RD10 and RD14
+publication coordinator and a contributing author. Admin users themselves have no roles: ADR 0006
+lets every Admin user edit everything, so a co-writer signed in to Admin is indistinguishable from
+the site's owner unless moderation looks at the work being moderated. Readers have no accounts, yet RD10 and RD14
 need a reader to answer a clarification or withdraw their own submission.
 
 ## Decision
@@ -24,15 +26,27 @@ need a reader to answer a clarification or withdraw their own submission.
   - *Public*: anyone using the public submission path.
   - *Submitter*: the item's own submitter, proven by the server (a reader's private receipt, which
     a transport adds with #226, or the author's session for an author response).
-  - *Site Admin*: an Admin session or the hosted moderation token.
-  - *Coordinator*: an Admin account bound as coordinator in a shared publication's authorization
-    policy, for that publication's works.
-  - *Contributing author*: an Admin account bound as contributor there, for those works.
+  - *Site Admin*: the hosted moderation token, or an Admin session acting on a work that is not
+    part of any shared publication in which that account holds a binding (consistent with ADR
+    0006), including an item without a work.
+  - *Coordinator*: an Admin session acting on a work of a shared publication in which it is bound
+    as coordinator or site owner, for that publication's works only.
+  - *Contributing author*: an Admin session acting on a work of a shared publication in which it
+    is bound as contributor (and neither coordinator nor site owner), for that publication's works.
   - *System*: the retention job.
 
-  Site owners in a publication policy act as the site Admin. Editors and the publication
-  `reader` role get nothing here. A coordinator or contributing author whose binding is removed has
-  no works, so every grant lapses with it; an item without a work is the site Admin's alone.
+  An Admin session's actor therefore depends on the work it acts on, and one resolver decides it
+  per item: `moderation::SharedWorks::actor(principal, work, identities)`, built from the
+  shared-publication records and the loaded site. A publication's site owner is that
+  publication's coordinator, never the site Admin. A binding that holds only `editor` or `reader`,
+  or whose account, registry key or participant no longer resolves (the existing
+  `ViewPublication` check), resolves to the public actor on that publication's works: it sees what
+  readers see and never falls back to the site Admin. An account bound in any shared publication
+  that acts on a path no loaded post has (a deleted post, or a slug since renamed) also resolves to
+  the public actor, because whether that path was a shared work cannot be told; the moderation
+  token still reaches such items. A binding that is removed takes its works with it, so every
+  grant lapses. The token records `@moderation-token` as its account in the audit trail, a name no
+  Admin account can have.
 - **A shared publication's works** are the `Post.url` of the post loaded from
   `posts/{publication_id}.md` (the path `assembly::post_path` writes), resolved at request time
   from the loaded site (`moderation::SharedWorks`), never stored with the record. A renamed slug
@@ -57,7 +71,8 @@ need a reader to answer a clarification or withdraw their own submission.
   visible to the site Admin, in-scope coordinators, in-scope contributing authors (except abuse
   reports, which may name or accuse others) and the submitter. A reader's private identity (a name
   they did not agree to publish, any contact detail a later kind adds) is visible only to the site
-  Admin and the submitter. Everyone else, including coordinators and authors out of scope, sees
+  Admin and the submitter: never to a coordinator, a publication site owner or a contributing
+  author, so a co-writer on a shared work cannot learn the private names of that work's readers. Everyone else, including coordinators and authors out of scope, sees
   only what `is_public` allows. Purged text is visible to nobody.
 - **Decisions are not authorship or approval of prose.** Approving a Third Perspective or a
   question publishes the reader's words as the reader's, never as an author's contribution, and
@@ -76,7 +91,10 @@ need a reader to answer a clarification or withdraw their own submission.
 
 ## Consequences
 
-- The inbox (#225) builds the actor from the session and the stored authorization policies, never
-  from the request, and filters each list through `may_view`.
+- The inbox (#225) resolves the actor for each item with `SharedWorks::actor`, from the session or
+  token, the stored shared-publication records and the site as Admin loads it, never from the
+  request, and filters each list through `may_view`.
+- Co-writers who also run the site see their own shared works as coordinators or authors, not as
+  the site Admin; the moderation token stays the way to act on those works with full authority.
 - A reader receipt (#226) is the only way a reader becomes a submitter; without it a reader can
   submit but cannot clarify or withdraw, and the copy fallback still lets them ask the author.
