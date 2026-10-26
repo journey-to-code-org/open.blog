@@ -1165,3 +1165,196 @@ fn serialization_is_compatible_and_versioned() {
     extra["resolved"] = json!(true);
     assert!(serde_json::from_str::<Acknowledgement>(&extra.to_string()).is_err());
 }
+
+/// The fixture library, with `burnet` archived when asked.
+fn revised_library(burnet_archived: bool) -> SourceLibrary {
+    let mut value: Value = serde_json::from_str(&library().to_json()).expect("library json");
+    if burnet_archived {
+        value["sources"][1]["archived"] = json!(true);
+    }
+    SourceLibrary::parse(&value.to_string(), &BTreeMap::new()).expect("library")
+}
+
+/// The fixture notebook with `p-burnet` captured at `place`, and an extra
+/// passage when asked (an unrelated notebook edit).
+fn revised_notebook(library: &SourceLibrary, place: &str, extra: bool) -> Notebook {
+    let mut passages = vec![
+        json!({"id": "p-burnet", "source": "burnet", "excerpt": {"text": "greek"},
+               "locators": [{"kind": "canonical", "value": place}]}),
+        json!({"id": "p-grube", "source": "grube", "excerpt": {"text": "reserved"},
+               "locators": [{"kind": "page", "value": "186"}]}),
+    ];
+    if extra {
+        passages.push(
+            json!({"id": "p-more", "source": "grube", "excerpt": {"text": "more"},
+                             "locators": [{"kind": "page", "value": "190"}]}),
+        );
+    }
+    Notebook::parse(
+        &json!({"version": 1, "passages": passages, "notes": []}).to_string(),
+        library,
+    )
+    .expect("notebook")
+}
+
+fn alignment_notices(library: &SourceLibrary, notebook: &Notebook) -> Vec<CompletenessFinding> {
+    let links = Links { library, notebook };
+    AlignmentSet::parse(&alignments_value().to_string(), links)
+        .expect("alignments")
+        .notices(links)
+        .iter()
+        .map(CompletenessFinding::from_atlas_diagnostic)
+        .collect()
+}
+
+fn located_claim_findings(
+    library: &SourceLibrary,
+    notebook: &Notebook,
+) -> Vec<CompletenessFinding> {
+    let value = json!({"version": 1,
+        "claims": [{"id": "c1", "post": "cave", "statement": "S",
+                    "anchor": {"start": 4, "end": 8, "text": "cave"}}],
+        "links": [{"id": "l1", "claim": "c1", "relation": "supports",
+                   "evidence": {"source": "burnet", "passage": "p-burnet"},
+                   "rationale": "R"}]});
+    let set = ClaimSet::parse(&value.to_string(), Links { library, notebook }).expect("claims");
+    let drafts = BTreeMap::from([("cave".to_string(), DRAFT.to_string())]);
+    let paths = BTreeMap::from([("cave".to_string(), "posts/cave.md".to_string())]);
+    review_claims(
+        &set,
+        &ReviewContext {
+            drafts: &drafts,
+            paths: &paths,
+            claims_file: ".openblog/private/research/claims.json",
+            library,
+            notebook,
+        },
+    )
+    .iter()
+    .map(CompletenessFinding::from_evidence)
+    .collect()
+}
+
+fn state_of(report: &CompletenessReport, code: &str) -> Option<AcknowledgementState> {
+    report
+        .findings
+        .iter()
+        .find(|e| e.finding.code == code)
+        .unwrap_or_else(|| panic!("{code} listed"))
+        .acknowledgement
+}
+
+#[test]
+fn revising_the_source_or_notebook_record_stales_exactly_the_acknowledgements_it_changes() {
+    let library = revised_library(false);
+
+    // An alignment member's place no longer matches its passage, and the
+    // author acknowledges it.
+    let notebook = revised_notebook(&library, "514a", false);
+    let notices = alignment_notices(&library, &notebook);
+    let stale = notices
+        .iter()
+        .find(|f| f.code == "stale-locator")
+        .expect("stale locator");
+    let ack = Acknowledgement::of(stale).expect("advisory");
+
+    // An unrelated notebook edit leaves it current.
+    let report = CompletenessReport::new(
+        alignment_notices(&library, &revised_notebook(&library, "514a", true)),
+        std::slice::from_ref(&ack),
+    );
+    assert_eq!(
+        state_of(&report, "stale-locator"),
+        Some(AcknowledgementState::Current)
+    );
+
+    // Re-locating the passage changes what the notice is about: stale, and
+    // still listed and counted.
+    let report = CompletenessReport::new(
+        alignment_notices(&library, &revised_notebook(&library, "514c", false)),
+        std::slice::from_ref(&ack),
+    );
+    assert_eq!(
+        state_of(&report, "stale-locator"),
+        Some(AcknowledgementState::Stale)
+    );
+    assert_eq!(report.counts.needs_review.acknowledged, 0);
+
+    // Re-locating it to the member's place: the notice is gone and the
+    // acknowledgement matches nothing.
+    let report = CompletenessReport::new(
+        alignment_notices(&library, &revised_notebook(&library, "514b", false)),
+        std::slice::from_ref(&ack),
+    );
+    assert!(report
+        .findings
+        .iter()
+        .all(|e| e.finding.code != "stale-locator"));
+    assert_eq!(report.unmatched_acknowledgements, 1);
+
+    // A claim-review prompt: nobody has checked the link's location.
+    let unreviewed = located_claim_findings(&library, &notebook)
+        .into_iter()
+        .find(|f| f.code == "claim-location-unreviewed")
+        .expect("unreviewed location");
+    let ack = Acknowledgement::of(&unreviewed).expect("advisory");
+
+    // Archiving the source adds its own prompt, unacknowledged, and leaves
+    // the location acknowledgement current: the location did not change.
+    let archived = revised_library(true);
+    let notebook_after = revised_notebook(&archived, "514a", false);
+    let report = CompletenessReport::new(
+        located_claim_findings(&archived, &notebook_after),
+        std::slice::from_ref(&ack),
+    );
+    assert_eq!(
+        state_of(&report, "claim-location-unreviewed"),
+        Some(AcknowledgementState::Current)
+    );
+    assert_eq!(state_of(&report, "claim-source-archived"), None);
+
+    // Re-locating the passage the link points to is a new location to check.
+    let report = CompletenessReport::new(
+        located_claim_findings(&library, &revised_notebook(&library, "515a", false)),
+        std::slice::from_ref(&ack),
+    );
+    assert_eq!(
+        state_of(&report, "claim-location-unreviewed"),
+        Some(AcknowledgementState::Stale)
+    );
+
+    // An acknowledged archived-member prompt about the passage: archiving
+    // the source too leaves that acknowledgement current and adds the
+    // source's own prompt, unacknowledged.
+    let mut archived_passage: Value =
+        serde_json::from_str(&notebook.to_json()).expect("notebook json");
+    archived_passage["passages"][0]["archived"] = json!(true);
+    let notebook_archived =
+        Notebook::parse(&archived_passage.to_string(), &library).expect("notebook");
+    let passage_notice = alignment_notices(&library, &notebook_archived)
+        .into_iter()
+        .find(|f| f.code == "archived-member")
+        .expect("archived passage");
+    let ack = Acknowledgement::of(&passage_notice).expect("advisory");
+    let both = alignment_notices(
+        &archived,
+        &Notebook::parse(&archived_passage.to_string(), &archived).expect("notebook"),
+    );
+    let report = CompletenessReport::new(both, std::slice::from_ref(&ack));
+    let states: Vec<(Option<&str>, Option<AcknowledgementState>)> = report
+        .findings
+        .iter()
+        .filter(|e| e.finding.code == "archived-member")
+        .map(|e| (e.finding.scope.field.as_deref(), e.acknowledgement))
+        .collect();
+    assert_eq!(
+        states,
+        [
+            (
+                Some("members[0].passage"),
+                Some(AcknowledgementState::Current)
+            ),
+            (Some("members[0].source"), None),
+        ]
+    );
+}
