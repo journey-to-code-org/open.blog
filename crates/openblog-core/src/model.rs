@@ -1097,8 +1097,6 @@ pub fn uncitable_line(source: &str, library: &SourceLibrary) -> Option<usize> {
         .map(|found| file_line(found.line))
 }
 
-/// A post's revision notes as written: each item of the list, or one note
-/// written as a single value (which is never split at its commas).
 /// Give each post the approved reader notes its canonical page shows (ADR
 /// 0095), or say why the file cannot be read. A post that hides its
 /// discussion shows none; a note about a post that no longer exists is a
@@ -1150,6 +1148,8 @@ fn attach_reader_feedback(
     None
 }
 
+/// A post's revision notes as written: each item of the list, or one note
+/// written as a single value (which is never split at its commas).
 fn revision_items(fm: &FrontMatter) -> Vec<String> {
     match fm.fields.get(crate::claim_publication::REVISIONS_FIELD) {
         Some(frontmatter::Value::List(items)) => items.clone(),
