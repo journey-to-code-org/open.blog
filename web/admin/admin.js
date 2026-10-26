@@ -1793,7 +1793,7 @@ export function atlasDiagnosticControl(field, type = "entry") {
   const path = String(field || "");
   const name = path.replace(/\[\d+\].*$/, "").split(".")[0];
   if (type === "entry") {
-    if (name === "bounds") return path.endsWith("until") ? "until-year" : "from-year";
+    if (name === "dates") return "dates";
     return { id: "id", kind: "kind", label: "label", aliases: "aliases", summary: "summary", source: "source", visibility: "approved" }[name] || "";
   }
   const evidenceControl = (prefix, rest) => {
@@ -1877,9 +1877,15 @@ function atlasEvidencePayload(draft) {
   return record;
 }
 
+/** What the entry form says about an entry's datings, which it keeps unchanged. */
+export function atlasDatesText(count) {
+  const n = Number.isInteger(count) && count > 0 ? count : 0;
+  const kept = n ? `${plural(n, "attributed dating")}, kept unchanged when you save. ` : "No datings. ";
+  return `${kept}Datings record who dates what, on which evidence, at the precision they state; competing datings stay side by side. Edit them in the atlas file for now.`;
+}
+
 export function atlasEntryDraft(record = null, prefill = {}) {
   const entry = record && typeof record === "object" ? record : {};
-  const year = (value) => (Number.isInteger(value) ? String(value) : "");
   return {
     original: record ? structuredClone(record) : null,
     id: typeof entry.id === "string" ? entry.id : String(prefill.id || ""),
@@ -1888,17 +1894,16 @@ export function atlasEntryDraft(record = null, prefill = {}) {
     aliases: (Array.isArray(entry.aliases) ? entry.aliases : []).join("\n"),
     summary: typeof entry.summary === "string" ? entry.summary : "",
     source: typeof entry.source === "string" ? entry.source : "",
-    fromYear: year(entry.bounds?.from),
-    untilYear: year(entry.bounds?.until),
+    dates: Array.isArray(entry.dates) ? entry.dates.length : 0,
     approved: entry.visibility === "approved",
   };
 }
 
-/** The full entry to send. Unknown stored fields, including those inside `bounds`, are carried over. */
+/** The full entry to send. Unknown stored fields and the entry's datings are carried over unchanged. */
 export function atlasEntryPayload(draft) {
   const original = draft.original || {};
   const record = { ...original };
-  for (const field of ["aliases", "summary", "source", "bounds"]) delete record[field];
+  for (const field of ["aliases", "summary", "source"]) delete record[field];
   record.id = String(draft.id || "").trim();
   record.kind = draft.kind;
   record.label = String(draft.label ?? "").trim();
@@ -1906,22 +1911,9 @@ export function atlasEntryPayload(draft) {
   if (aliases.length) record.aliases = aliases;
   if (String(draft.summary ?? "").trim()) record.summary = draft.summary;
   if (draft.kind === "work" && draft.source) record.source = draft.source;
-  const bounds = { ...(original.bounds || {}) };
-  delete bounds.from;
-  delete bounds.until;
-  if (String(draft.fromYear ?? "").trim()) bounds.from = Number(String(draft.fromYear).trim());
-  if (String(draft.untilYear ?? "").trim()) bounds.until = Number(String(draft.untilYear).trim());
-  if (Object.keys(bounds).length) record.bounds = bounds;
   record.visibility = draft.approved ? "approved" : "private";
   return record;
 }
-
-const atlasYearProblem = (value, field, label) => {
-  const text = String(value ?? "").trim();
-  if (!text) return null;
-  const year = /^-?\d{1,6}$/.test(text) ? Number(text) : NaN;
-  return Number.isInteger(year) && year !== 0 && Math.abs(year) <= 100000 ? null : { field, message: `${label} must be a whole year between -100000 and 100000; negative is BCE and there is no year 0.` };
-};
 
 /** A quick, advisory check; the server's validation stays authoritative. */
 export function validateAtlasEntryDraft(draft, { sources = [], used = [], creating = false } = {}) {
@@ -1938,9 +1930,6 @@ export function validateAtlasEntryDraft(draft, { sources = [], used = [], creati
   if (new Set(aliases).size !== aliases.length) return { field: "aliases", message: "Each other name may appear only once." };
   if (codePoints(draft.summary) > MAX_ATLAS_SUMMARY_CHARS) return { field: "summary", message: `A summary is limited to ${MAX_ATLAS_SUMMARY_CHARS} characters.` };
   if (draft.kind === "work" && draft.source && !sources.some((source) => source.id === draft.source && source.kind === "work")) return { field: "source", message: "Choose a work from your source library, or none." };
-  const year = atlasYearProblem(draft.fromYear, "from-year", "The start year") || atlasYearProblem(draft.untilYear, "until-year", "The end year");
-  if (year) return year;
-  if (String(draft.fromYear).trim() && String(draft.untilYear).trim() && Number(draft.fromYear) > Number(draft.untilYear)) return { field: "until-year", message: "The end year must not be earlier than the start year." };
   return null;
 }
 
@@ -2295,12 +2284,10 @@ export function createAtlasForm({ api, state, type = "entry", item = null, prefi
       h(
         "fieldset",
         { class: "oba-atlas-dates" },
-        h("legend", {}, "Dates (optional)"),
-        h("p", { class: "oba-small", id: `${idPrefix}-dates-hint` }, "Whole years; negative is BCE and there is no year 0. Dates are context only: nothing is ordered or related by them."),
-        field("from-year", "From year", h("input", { type: "text", inputmode: "numeric", value: draft.fromYear, autocomplete: "off", onInput: (event) => { draft.fromYear = event.target.value; } })),
-        field("until-year", "Until year", h("input", { type: "text", inputmode: "numeric", value: draft.untilYear, autocomplete: "off", onInput: (event) => { draft.untilYear = event.target.value; } })),
+        h("legend", {}, "Dates"),
+        h("p", { class: "oba-small", id: `${idPrefix}-dates`, tabindex: "-1" }, atlasDatesText(draft.dates)),
       ),
-      check("approved", "Approved for the publication projection", draft.approved, (on) => { draft.approved = on; }, "Your consent to publish this entry on the site's Knowledge Atlas pages and atlas.json, once the site turns on knowledgeAtlas.publish. Only its label, other names, summary, years and work source are published. Clearing it removes the entry from the next build."),
+      check("approved", "Approved for the publication projection", draft.approved, (on) => { draft.approved = on; }, "Your consent to publish this entry on the site's Knowledge Atlas pages and atlas.json, once the site turns on knowledgeAtlas.publish. Only its label, other names, summary and work source are published; its datings are not published yet. Clearing it removes the entry from the next build."),
     );
     return fields;
   };

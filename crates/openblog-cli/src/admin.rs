@@ -13426,7 +13426,7 @@ mod tests {
     // Every atlas field holds its own sentinel, including approved items: the site
     // does not publish its atlas, so approval alone must not open any surface.
 
-    const ATLAS_SENTINELS: [(&str, &str); 14] = [
+    const ATLAS_SENTINELS: [(&str, &str); 18] = [
         ("entry id", "ob-atlas-entry-id-5309"),
         ("label", "ob-atlas-label-5309"),
         ("alias", "ob-atlas-alias-5309"),
@@ -13444,6 +13444,10 @@ mod tests {
         ),
         ("evidence unknown field", "ob-atlas-evidence-extra-5309"),
         ("top-level unknown field", "ob-atlas-top-extra-5309"),
+        ("dating id", "ob-atlas-dating-id-5309"),
+        ("dating note", "ob-atlas-dating-note-5309"),
+        ("dating party", "ob-atlas-dating-party-5309"),
+        ("dating unknown field", "ob-atlas-dating-extra-5309"),
     ];
 
     fn atlas_leaked(bytes: &[u8]) -> Vec<&'static str> {
@@ -13475,7 +13479,13 @@ mod tests {
         let person = Entry::from_json(json!({
             "id": ATLAS_SENTINELS[0].1, "kind": "person", "label": ATLAS_SENTINELS[1].1,
             "aliases": [ATLAS_SENTINELS[2].1], "summary": ATLAS_SENTINELS[3].1,
-            "visibility": "approved", "shelf": ATLAS_SENTINELS[8].1}))
+            "visibility": "approved", "shelf": ATLAS_SENTINELS[8].1,
+            // An approved, cited dating: no surface publishes datings yet.
+            "dates": [{"id": ATLAS_SENTINELS[14].1, "aspect": "birth",
+                "date": {"notBefore": {"year": -428, "circa": true}, "notAfter": {"century": -5}},
+                "assertedBy": {"kind": "named", "name": ATLAS_SENTINELS[16].1},
+                "evidence": [{"source": "slings"}], "note": ATLAS_SENTINELS[15].1,
+                "visibility": "approved", "shelf": ATLAS_SENTINELS[17].1}]}))
         .unwrap();
         let work = Entry::from_json(json!({"id": "politeia", "kind": "work",
             "label": "Politeia", "source": "plato", "visibility": "approved"}))
@@ -14811,7 +14821,7 @@ mod tests {
         f.state.rebuild().unwrap();
         let dist = f.dir.join("dist");
         let never = |text: &str| -> Vec<&'static str> {
-            let mut found: Vec<&'static str> = [8, 11, 12, 13]
+            let mut found: Vec<&'static str> = [8, 11, 12, 13, 14, 15, 16, 17]
                 .iter()
                 .filter(|&&index| text.contains(ATLAS_SENTINELS[index].1))
                 .map(|&index| ATLAS_SENTINELS[index].0)

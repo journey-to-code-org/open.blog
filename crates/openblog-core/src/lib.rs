@@ -22,6 +22,7 @@
 //! - [`claims`]: private claims in draft posts and the author's evidence links to sources and passages
 //! - [`claim_publication`]: the one public projection of approved claims and evidence, with revision notes
 //! - [`knowledge_atlas`]: the private Knowledge Atlas of entries and attributed relationships
+//! - [`chronology`]: uncertain, attributed and cited datings of atlas entries and relationships
 //! - [`atlas_publication`]: the one public projection of its approved items, for pages and `atlas.json`
 
 pub mod accessibility;
@@ -32,6 +33,7 @@ pub mod assistant_guide;
 pub mod atlas_publication;
 pub mod bibliography;
 pub mod capability;
+pub mod chronology;
 pub mod citation_review;
 pub mod citations;
 pub mod claim_publication;

@@ -6,6 +6,7 @@ import {
   ObAdmin,
   atlasBuildText,
   atlasConfidenceText,
+  atlasDatesText,
   atlasDiagnosticControl,
   atlasDissentDraft,
   atlasEndpointChoices,
@@ -222,7 +223,7 @@ const SOURCES = () => [
 const PASSAGES = () => [{ id: "passage-1", source: "slings-2003", locators: [{ kind: "page", value: "514" }], preview: "the cave" }];
 const ENTRIES = () => [
   { id: "plato", kind: "person", label: HOSTILE, aliases: ["Aristocles"], visibility: "private", shelf: 1 },
-  { id: "politeia", kind: "work", label: "Politeia", source: "plato-republic", bounds: { from: -380, circa: true }, visibility: "approved" },
+  { id: "politeia", kind: "work", label: "Politeia", source: "plato-republic", dates: [{ id: "politeia-composed", aspect: "composition", date: { notBefore: { year: -380, circa: true } }, assertedBy: { kind: "author" }, unsourced: true, confidence: "tentative", visibility: "private", shelf: 2 }], visibility: "approved" },
   { id: "allegory", kind: "concept", label: "Allegory", visibility: "private" },
   { id: "academy", kind: "movement", label: "The Academy", visibility: "private" },
 ];
@@ -352,7 +353,7 @@ test("standing is asserted or contested by named parties, and never consensus", 
 });
 
 test("server diagnostics map to the control that fixes them", () => {
-  assert.equal(atlasDiagnosticControl("bounds.until", "entry"), "until-year");
+  assert.equal(atlasDiagnosticControl("dates[0].date.at.year", "entry"), "dates");
   assert.equal(atlasDiagnosticControl("visibility", "entry"), "approved");
   assert.equal(atlasDiagnosticControl("evidence[1].locators[0].kind", "relationship"), "evidence-1-locators");
   assert.equal(atlasDiagnosticControl("evidence", "relationship"), "evidence");
@@ -368,9 +369,9 @@ test("server diagnostics map to the control that fixes them", () => {
 test("payloads keep unknown fields at every level the form edits", () => {
   const entry = atlasEntryDraft(ENTRIES()[1]);
   entry.label = "  Republic ";
-  entry.untilYear = "-370";
   const sent = atlasEntryPayload(entry);
-  assert.deepEqual(sent.bounds, { circa: true, from: -380, until: -370 });
+  assert.deepEqual(sent.dates, ENTRIES()[1].dates, "datings, precision and unknown fields are carried over unchanged");
+  assert.equal(sent.bounds, undefined);
   assert.equal(sent.label, "Republic");
   assert.equal(sent.source, "plato-republic");
   const person = atlasEntryDraft(ENTRIES()[0]);
@@ -434,13 +435,17 @@ test("advisory checks name the first problem and the control for it", () => {
   entry.id = "socrates";
   assert.equal(validateAtlasEntryDraft(entry, { creating: true }).field, "label");
   entry.label = "Socrates";
-  entry.fromYear = "0";
-  assert.equal(validateAtlasEntryDraft(entry, { creating: true }).field, "from-year");
-  entry.fromYear = "-399";
-  entry.untilYear = "-470";
-  assert.equal(validateAtlasEntryDraft(entry, { creating: true }).field, "until-year");
-  entry.untilYear = "";
   assert.equal(validateAtlasEntryDraft(entry, { creating: true }), null);
+});
+
+test("the entry form names an entry's datings and keeps them, never flattening them to years", () => {
+  assert.match(atlasDatesText(0), /^No datings\. /);
+  assert.match(atlasDatesText(1), /^1 attributed dating, kept unchanged when you save\. /);
+  assert.match(atlasDatesText(3), /^3 attributed datings, /);
+  assert.match(atlasDatesText(2), /competing datings stay side by side/);
+  assert.equal(atlasEntryDraft(ENTRIES()[1]).dates, 1);
+  assert.equal(atlasEntryDraft(ENTRIES()[0]).dates, 0);
+  assert.equal(atlasEntryPayload(atlasEntryDraft(ENTRIES()[0])).dates, undefined);
 });
 
 // ---------------------------------------------------------------- the atlas view
@@ -514,10 +519,11 @@ test("creating an entry suggests an id, sends the revision, and focuses the save
   await choose(byId(root, "oba-atlas-entry-kind"), "person");
   await type(byId(root, "oba-atlas-entry-label"), "Socrates of Athens");
   assert.equal(byId(root, "oba-atlas-entry-id").value, "socrates-of-athens");
-  await type(byId(root, "oba-atlas-entry-from-year"), "-470");
+  assert.equal(byId(root, "oba-atlas-entry-from-year"), null, "years are no longer edited as bounds");
+  assert.match(byId(root, "oba-atlas-entry-dates").textContent, /^No datings\./);
   await submit(root);
   assert.deepEqual(api.calls.map((call) => [call.method, call.path, call.body.revision]), [["POST", "research/atlas/entries", "r1"]]);
-  assert.deepEqual(api.calls[0].body.entry, { id: "socrates-of-athens", kind: "person", label: "Socrates of Athens", bounds: { from: -470 }, visibility: "private" });
+  assert.deepEqual(api.calls[0].body.entry, { id: "socrates-of-athens", kind: "person", label: "Socrates of Athens", visibility: "private" });
   await tick();
   assert.ok(entryIds(root).includes("socrates-of-athens"));
   assert.equal(globalThis.document.activeElement.id, "oba-atlas-heading");

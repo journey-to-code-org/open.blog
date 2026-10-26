@@ -2071,13 +2071,6 @@ impl<'a> Renderer<'a> {
                 aliases.join(", ")
             ));
         }
-        if let Some(years) = entry
-            .bounds
-            .as_ref()
-            .and_then(atlas_publication::bounds_text)
-        {
-            body.push_str(&format!("<p class=\"ob-meta\">{}</p>\n", text(&years)));
-        }
         body.push_str("<div class=\"ob-prose\">\n");
         if let Some(summary) = &entry.summary {
             for paragraph in summary

@@ -63,18 +63,8 @@ pub struct PublicEntry {
     /// Only on a work: the source-library work it stands for.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub bounds: Option<PublicBounds>,
     /// The entry's canonical page, root-relative.
     pub url: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct PublicBounds {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub from: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub until: Option<i32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -306,23 +296,6 @@ pub fn kind_label(kind: EntryKind) -> &'static str {
     }
 }
 
-/// A coarse year range as text: negative years are BCE.
-pub fn bounds_text(bounds: &PublicBounds) -> Option<String> {
-    let year = |value: i32| {
-        if value < 0 {
-            format!("{} BCE", value.unsigned_abs())
-        } else {
-            value.to_string()
-        }
-    };
-    match (bounds.from, bounds.until) {
-        (Some(from), Some(until)) => Some(format!("{} to {}", year(from), year(until))),
-        (Some(from), None) => Some(format!("From {}", year(from))),
-        (None, Some(until)) => Some(format!("Until {}", year(until))),
-        (None, None) => None,
-    }
-}
-
 /// Confidence as a reader-facing word. It is how firmly the asserting party
 /// holds the claim, never how widely it is accepted.
 pub fn confidence_text(confidence: Confidence) -> &'static str {
@@ -341,14 +314,6 @@ fn public_entry(entry: &Entry) -> PublicEntry {
         aliases: entry.aliases.clone(),
         summary: entry.summary.clone(),
         source: entry.source.clone(),
-        bounds: entry
-            .bounds
-            .as_ref()
-            .map(|bounds| PublicBounds {
-                from: bounds.from,
-                until: bounds.until,
-            })
-            .filter(|bounds| bounds.from.is_some() || bounds.until.is_some()),
         url: entry_url(&entry.id),
     }
 }

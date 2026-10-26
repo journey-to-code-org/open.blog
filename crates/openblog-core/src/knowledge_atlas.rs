@@ -6,13 +6,16 @@
 //! structural. Nothing in this module claims that a relationship is true,
 //! that scholars agree on it, or that a source is authoritative: a
 //! relationship is always one named party's assertion, resting on cited
-//! source evidence, and it is never inferred from dates or order.
+//! source evidence, and it is never inferred from dates or order. Dates are
+//! attributed, cited datings owned by [`crate::chronology`]; competing datings
+//! stand side by side and nothing resolves them.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use serde_json::{Map, Value};
 
+use crate::chronology::{parse_dates, Dating, Owner};
 use crate::research_notes::{
     bidi_override, locator_ambiguity, resolved_kind, Locator, LocatorKind, Notebook,
 };
@@ -20,8 +23,12 @@ use crate::source_library::{
     valid_source_id, valid_timestamp, ResearchSourceKind, SourceLibrary, LOCATION_SCHEMES,
 };
 
-/// The only atlas file version this release reads and writes.
-pub const ATLAS_VERSION: u64 = 1;
+/// The atlas file version this release writes. Version 2 replaced version 1's
+/// coarse `bounds` with attributed `dates`; a version 1 file is still read,
+/// upgraded in memory, and written as version 2 by the next change.
+pub const ATLAS_VERSION: u64 = 2;
+/// The oldest atlas file version this release can read and upgrade.
+pub const OLDEST_ATLAS_VERSION: u64 = 1;
 /// Upper bound on a serialized atlas, checked before JSON parsing and again on
 /// the canonical written form.
 pub const MAX_ATLAS_BYTES: usize = 4 * 1024 * 1024;
@@ -400,19 +407,6 @@ pub struct Dissent {
     pub extra: BTreeMap<String, Value>,
 }
 
-/// A coarse range of astronomical-free calendar years (negative is BCE, there
-/// is no year 0). Authored context only: nothing here orders or relates
-/// entries, and richer, cited and uncertain dates are a separate contract.
-#[derive(Clone, Debug, PartialEq, serde::Serialize)]
-pub struct Bounds {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub from: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub until: Option<i32>,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
-}
-
 /// A contextual entry: one person, work, concept, movement, or event.
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct Entry {
@@ -429,8 +423,10 @@ pub struct Entry {
     /// Only on a work: the source-library work record it stands for.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub bounds: Option<Bounds>,
+    /// Attributed datings of the entry's aspects, in file order. Competing
+    /// datings of one aspect stand side by side; none is preferred.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub dates: Vec<Dating>,
     pub visibility: Visibility,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
@@ -458,6 +454,10 @@ pub struct Relationship {
     pub uncertainty: Option<String>,
     #[serde(rename = "contestedBy", skip_serializing_if = "Vec::is_empty")]
     pub contested_by: Vec<Dissent>,
+    /// Attributed datings of when the relationship held. They date the
+    /// assertion's subject; they never make or support the relationship.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub dates: Vec<Dating>,
     pub visibility: Visibility,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
@@ -549,6 +549,9 @@ pub enum AtlasDiagnosticCode {
     StaleAnchor,
     AmbiguousAnchor,
     UnknownPost,
+    InvalidDate,
+    AspectKind,
+    DuplicateDating,
 }
 
 /// Which private file a diagnostic is about, so a message names the right
@@ -887,6 +890,7 @@ impl Obj {
     }
 
     pub(crate) fn visibility(&mut self, ctx: &mut Ctx<'_>) -> Visibility {
+        let field = self.field("visibility");
         match self.map.remove("visibility") {
             None => Visibility::Private,
             Some(Value::String(v)) if v == "private" => Visibility::Private,
@@ -894,7 +898,7 @@ impl Obj {
             Some(_) => {
                 ctx.report(
                     AtlasDiagnosticCode::InvalidVisibility,
-                    "visibility",
+                    &field,
                     "use `private` (the default) or `approved`",
                 );
                 Visibility::Private
@@ -1018,45 +1022,14 @@ fn parse_entry(
             "only a work entry may stand for a source-library work",
         );
     }
-    let bounds = obj.object(&mut ctx, "bounds", false).map(|mut b| {
-        let mut year = |ctx: &mut Ctx<'_>, key: &str| -> Option<i32> {
-            let field = b.field(key);
-            match b.map.remove(key) {
-                None => None,
-                Some(Value::Number(n)) => match n.as_i64().and_then(|y| i32::try_from(y).ok()) {
-                    Some(y) if y != 0 && (-100_000..=100_000).contains(&y) => Some(y),
-                    _ => {
-                        ctx.report(
-                            AtlasDiagnosticCode::InvalidField,
-                            &field,
-                            "must be a whole year between -100000 and 100000; negative is BCE and there is no year 0",
-                        );
-                        None
-                    }
-                },
-                Some(_) => {
-                    ctx.report(AtlasDiagnosticCode::InvalidField, &field, "must be a whole year");
-                    None
-                }
-            }
-        };
-        let from = year(&mut ctx, "from");
-        let until = year(&mut ctx, "until");
-        if let (Some(f), Some(u)) = (from, until) {
-            if f > u {
-                ctx.report(
-                    AtlasDiagnosticCode::InvalidField,
-                    "bounds",
-                    "`from` must not be later than `until`",
-                );
-            }
-        }
-        Bounds {
-            from,
-            until,
-            extra: b.rest(),
-        }
-    });
+    if obj.map.remove("bounds").is_some() {
+        ctx.report(
+            AtlasDiagnosticCode::InvalidField,
+            "bounds",
+            "atlas version 2 replaced `bounds` with attributed `dates`; record the years as a dating",
+        );
+    }
+    let dates = parse_dates(&mut ctx, &mut obj, Owner::Entry(kind));
     let failed = ctx.failed;
     let extra = obj.rest();
     match (id, kind, label, failed) {
@@ -1069,7 +1042,7 @@ fn parse_entry(
                 aliases,
                 summary,
                 source,
-                bounds,
+                dates,
                 visibility,
                 extra,
             }),
@@ -1358,6 +1331,7 @@ fn parse_relationship(
             });
         }
     }
+    let dates = parse_dates(&mut ctx, &mut obj, Owner::Relationship);
     let failed = ctx.failed;
     let extra = obj.rest();
     match (id, kind, from, to, asserted_by, confidence, failed) {
@@ -1382,6 +1356,7 @@ fn parse_relationship(
                 unsourced,
                 uncertainty,
                 contested_by,
+                dates,
                 visibility,
                 extra,
             }),
@@ -1563,8 +1538,13 @@ impl Atlas {
                 "the atlas must be a JSON object".into(),
             );
         };
-        match root.remove("version") {
-            Some(Value::Number(n)) if n.as_u64() == Some(ATLAS_VERSION) => {}
+        let version = match root.remove("version") {
+            Some(Value::Number(n))
+                if n.as_u64()
+                    .is_some_and(|v| (OLDEST_ATLAS_VERSION..=ATLAS_VERSION).contains(&v)) =>
+            {
+                n.as_u64().unwrap_or(ATLAS_VERSION)
+            }
             Some(Value::Number(n)) if n.as_u64().is_some_and(|v| v > ATLAS_VERSION) => {
                 return fail(
                     AtlasDiagnosticCode::UnsupportedVersion,
@@ -1576,7 +1556,9 @@ impl Atlas {
                 return fail(
                     AtlasDiagnosticCode::UnsupportedVersion,
                     "version",
-                    format!("version must be {ATLAS_VERSION}"),
+                    format!(
+                        "version must be {ATLAS_VERSION}, or {OLDEST_ATLAS_VERSION} to be upgraded"
+                    ),
                 )
             }
             None => {
@@ -1586,7 +1568,7 @@ impl Atlas {
                     format!("add `\"version\": {ATLAS_VERSION}`"),
                 )
             }
-        }
+        };
         let mut take_array = |key: &str, max: usize| match root.remove(key) {
             Some(Value::Array(items)) if items.len() > max => Err(vec![atlas_diagnostic(
                 AtlasDiagnosticCode::TooLarge,
@@ -1615,12 +1597,35 @@ impl Atlas {
         let mut entries = Vec::new();
         let mut relationships = Vec::new();
         let mut identities: Vec<(&'static str, usize, String)> = Vec::new();
-        for (index, raw) in raw_entries.into_iter().enumerate() {
+        let legacy = version < ATLAS_VERSION;
+        let mut taken: BTreeSet<String> = if legacy {
+            raw_entries
+                .iter()
+                .chain(&raw_relationships)
+                .filter_map(|item| item.get("id").and_then(Value::as_str))
+                .map(str::to_string)
+                .collect()
+        } else {
+            BTreeSet::new()
+        };
+        for (index, mut raw) in raw_entries.into_iter().enumerate() {
+            if legacy {
+                upgrade_v1_item("entries", index, &mut raw, &mut taken, &mut diagnostics);
+            }
             let (id, entry) = parse_entry(index, raw, &mut diagnostics);
             identities.extend(id.map(|id| ("entries", index, id)));
             entries.extend(entry.map(|e| (index, e)));
         }
-        for (index, raw) in raw_relationships.into_iter().enumerate() {
+        for (index, mut raw) in raw_relationships.into_iter().enumerate() {
+            if legacy {
+                upgrade_v1_item(
+                    "relationships",
+                    index,
+                    &mut raw,
+                    &mut taken,
+                    &mut diagnostics,
+                );
+            }
             let (id, relationship) = parse_relationship(index, raw, &mut diagnostics);
             identities.extend(id.map(|id| ("relationships", index, id)));
             relationships.extend(relationship.map(|r| (index, r)));
@@ -1732,25 +1737,39 @@ impl Atlas {
         let mut ids: Vec<String> = self
             .entries
             .iter()
-            .filter(|e| e.source.as_deref() == Some(source))
+            .filter(|e| entry_sources(e).any(|s| s == source))
             .map(|e| e.id.clone())
             .collect();
         ids.extend(
             self.relationships
                 .iter()
-                .filter(|r| relationship_sources(r).any(|s| s == source))
+                .filter(|r| relationship_uses(r).any(|s| s == source))
                 .map(|r| r.id.clone()),
         );
         ids
     }
 
-    /// Relationships whose evidence points into this notebook passage.
+    /// Entries and relationships whose evidence, or whose datings' evidence,
+    /// points into this notebook passage.
     pub fn uses_of_passage(&self, passage: &str) -> Vec<String> {
-        self.relationships
+        let cites = |e: &Evidence| e.passage.as_deref() == Some(passage);
+        let mut ids: Vec<String> = self
+            .entries
             .iter()
-            .filter(|r| relationship_evidence(r).any(|e| e.passage.as_deref() == Some(passage)))
-            .map(|r| r.id.clone())
-            .collect()
+            .filter(|e| dates_evidence(&e.dates).any(cites))
+            .map(|e| e.id.clone())
+            .collect();
+        ids.extend(
+            self.relationships
+                .iter()
+                .filter(|r| {
+                    relationship_evidence(r)
+                        .chain(dates_evidence(&r.dates))
+                        .any(cites)
+                })
+                .map(|r| r.id.clone()),
+        );
+        ids
     }
 
     /// Deterministic lookup tables over the atlas as it is, for storage guards
@@ -1764,10 +1783,20 @@ impl Atlas {
                 .entry(entry.kind)
                 .or_default()
                 .push(entry.id.clone());
-            if let Some(source) = &entry.source {
+            for source in entry_sources(entry).collect::<BTreeSet<_>>() {
                 index
                     .by_source
-                    .entry(source.clone())
+                    .entry(source.to_string())
+                    .or_default()
+                    .push(entry.id.clone());
+            }
+            let passages: BTreeSet<&str> = dates_evidence(&entry.dates)
+                .filter_map(|e| e.passage.as_deref())
+                .collect();
+            for passage in passages {
+                index
+                    .by_passage
+                    .entry(passage.to_string())
                     .or_default()
                     .push(entry.id.clone());
             }
@@ -1784,7 +1813,7 @@ impl Atlas {
                     .or_default()
                     .push(r.id.clone());
             }
-            for source in relationship_sources(r).collect::<BTreeSet<_>>() {
+            for source in relationship_uses(r).collect::<BTreeSet<_>>() {
                 index
                     .by_source
                     .entry(source.to_string())
@@ -1792,6 +1821,7 @@ impl Atlas {
                     .push(r.id.clone());
             }
             let passages: BTreeSet<&str> = relationship_evidence(r)
+                .chain(dates_evidence(&r.dates))
                 .filter_map(|e| e.passage.as_deref())
                 .collect();
             for passage in passages {
@@ -1837,11 +1867,126 @@ impl Atlas {
         )
     }
 
-    /// Non-blocking notices about a valid atlas: approved relationships the
-    /// projection leaves out because an entry they join is private. They never
-    /// make the atlas invalid, and they repeat no authored text.
+    /// Whether the publication projection may copy a dating of the entry or
+    /// relationship `owner`: the dating is approved and sourced with no
+    /// notebook passage, its owner is published (an approved entry, or a
+    /// projected relationship), and the entry a relative dating points at is
+    /// approved too. Like a relationship, a dating is consent for itself only,
+    /// so withdrawing its owner or its relative target withdraws it.
+    pub fn is_dating_projected(&self, owner: &str, dating: &Dating) -> bool {
+        let approved = |id: &str| {
+            self.entry(id)
+                .is_some_and(|e| e.visibility == Visibility::Approved)
+        };
+        let owner_published = approved(owner)
+            || self
+                .relationship(owner)
+                .is_some_and(|r| self.is_projected(r));
+        dating.visibility == Visibility::Approved
+            && !dating.unsourced
+            && !dating.evidence.iter().any(|e| e.passage.is_some())
+            && owner_published
+            && dating.relative_target().is_none_or(|t| approved(&t.entry))
+    }
+
+    /// The datings the publication projection may copy, each with the id of
+    /// the entry or relationship it dates, in file order (entries first). No
+    /// surface publishes them yet; the chronology publication slice reads
+    /// them from here.
+    pub fn projected_datings(&self) -> Vec<(&str, &Dating)> {
+        self.all_datings()
+            .into_iter()
+            .filter(|(owner, dating)| self.is_dating_projected(owner, dating))
+            .collect()
+    }
+
+    /// Every dating with the id of the entry or relationship it dates, in
+    /// file order (entries first).
+    pub fn all_datings(&self) -> Vec<(&str, &Dating)> {
+        let entries = self
+            .entries
+            .iter()
+            .flat_map(|e| e.dates.iter().map(move |d| (e.id.as_str(), d)));
+        let relationships = self
+            .relationships
+            .iter()
+            .flat_map(|r| r.dates.iter().map(move |d| (r.id.as_str(), d)));
+        entries.chain(relationships).collect()
+    }
+
+    /// Every dating that names an entry, in file order: its own datings, then
+    /// relative datings elsewhere that point at it. Read-only; nothing here
+    /// orders, merges or chooses among them.
+    pub fn datings_of<'a>(&'a self, id: &str) -> Vec<(&'a str, &'a Dating)> {
+        let all = self.all_datings();
+        let owned = all.iter().filter(|(owner, _)| *owner == id);
+        let pointing = all.iter().filter(|(owner, d)| {
+            *owner != id && d.relative_target().is_some_and(|t| t.entry == id)
+        });
+        owned.chain(pointing).copied().collect()
+    }
+
+    /// Non-blocking notices about a valid atlas: approved relationships and
+    /// datings the projection leaves out because something they depend on is
+    /// private. They never make the atlas invalid, and they repeat no authored
+    /// text.
     pub fn notices(&self) -> Vec<AtlasDiagnostic> {
         let mut notices = Vec::new();
+        let private_entry = |id: &str| {
+            self.entry(id)
+                .is_some_and(|e| e.visibility != Visibility::Approved)
+        };
+        let owners = self
+            .entries
+            .iter()
+            .enumerate()
+            .map(|(index, e)| {
+                let published = e.visibility == Visibility::Approved;
+                (
+                    "entries",
+                    index,
+                    e.id.as_str(),
+                    published,
+                    e.dates.as_slice(),
+                )
+            })
+            .chain(self.relationships.iter().enumerate().map(|(index, r)| {
+                let published = self.is_projected(r);
+                (
+                    "relationships",
+                    index,
+                    r.id.as_str(),
+                    published,
+                    r.dates.as_slice(),
+                )
+            }));
+        for (collection, index, owner, published, dates) in owners {
+            for (position, d) in dates.iter().enumerate() {
+                if d.visibility != Visibility::Approved {
+                    continue;
+                }
+                if !published {
+                    notices.push(item_diagnostic(
+                        AtlasDiagnosticCode::PrivateEndpoint,
+                        collection,
+                        index,
+                        owner,
+                        &format!("dates[{position}]"),
+                        format!("`{owner}` is not published, so its approved dating `{}` stays out of public output until it is", d.id),
+                    ));
+                }
+                if let Some(target) = d.relative_target().filter(|t| private_entry(&t.entry)) {
+                    notices.push(item_diagnostic(
+                        AtlasDiagnosticCode::PrivateEndpoint,
+                        collection,
+                        index,
+                        owner,
+                        &format!("dates[{position}].date.relative.entry"),
+                        format!("the entry `{}` is private, so the approved dating `{}` relative to it stays out of public output until the entry is approved", target.entry, d.id),
+                    ));
+                }
+            }
+        }
         for (index, r) in self.relationships.iter().enumerate() {
             if r.visibility != Visibility::Approved {
                 continue;
@@ -2061,6 +2206,185 @@ fn relationship_evidence(r: &Relationship) -> impl Iterator<Item = &Evidence> {
     r.evidence
         .iter()
         .chain(r.contested_by.iter().flat_map(|d| d.evidence.iter()))
+}
+
+fn dates_evidence(dates: &[Dating]) -> impl Iterator<Item = &Evidence> {
+    dates.iter().flat_map(|d| d.evidence.iter())
+}
+
+fn dates_sources(dates: &[Dating]) -> impl Iterator<Item = &str> {
+    dates_evidence(dates)
+        .map(|e| e.source.as_str())
+        .chain(dates.iter().filter_map(|d| d.asserted_by.source.as_deref()))
+}
+
+/// Every source-library record an entry uses: the work it stands for and
+/// its datings' evidence and attributions.
+fn entry_sources(e: &Entry) -> impl Iterator<Item = &str> {
+    e.source
+        .as_deref()
+        .into_iter()
+        .chain(dates_sources(&e.dates))
+}
+
+/// Every source-library record a relationship uses, its datings included.
+fn relationship_uses(r: &Relationship) -> impl Iterator<Item = &str> {
+    relationship_sources(r).chain(dates_sources(&r.dates))
+}
+
+/// Longest atlas identifier, as the library's slug rule allows.
+const MAX_ID_BYTES: usize = 64;
+
+/// A dating id for a migrated `bounds`, derived from its entry's id and
+/// unused anywhere in the file.
+fn fresh_dating_id(stem: &str, taken: &mut BTreeSet<String>) -> String {
+    let mut n = 1usize;
+    loop {
+        let suffix = if n == 1 {
+            "-span".to_string()
+        } else {
+            format!("-span-{n}")
+        };
+        let room = MAX_ID_BYTES.saturating_sub(suffix.len());
+        let prefix = stem[..stem.len().min(room)].trim_end_matches('-');
+        let candidate = format!("{prefix}{suffix}");
+        if valid_source_id(&candidate) && taken.insert(candidate.clone()) {
+            return candidate;
+        }
+        n += 1;
+    }
+}
+
+/// Upgrade one raw version 1 item to version 2 before it is read. An entry's
+/// `bounds` becomes one dating of its `span`: the author's own unsourced,
+/// private draft, since version 1 recorded neither who dated it nor on what
+/// evidence. Its years are kept exactly; unknown fields inside it are kept
+/// under `boundsExtra` on that dating (or on the entry, when it stated no
+/// year). A version 1 item that already uses the name `dates` is refused
+/// rather than reinterpreted. Invalid `bounds` are reported with version 1's
+/// rules and field names, and the file is never changed here.
+fn upgrade_v1_item(
+    collection: &'static str,
+    index: usize,
+    raw: &mut Value,
+    taken: &mut BTreeSet<String>,
+    diagnostics: &mut Vec<AtlasDiagnostic>,
+) {
+    let Value::Object(map) = raw else {
+        return;
+    };
+    let id = map
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|id| valid_source_id(id))
+        .map(str::to_string);
+    let report = |diagnostics: &mut Vec<AtlasDiagnostic>, field: &str, message: &str| {
+        diagnostics.push(AtlasDiagnostic {
+            subject: Default::default(),
+            code: AtlasDiagnosticCode::InvalidField,
+            collection: Some(collection),
+            index: Some(index),
+            id: id.clone(),
+            field: Some(field.into()),
+            message: message.into(),
+        });
+    };
+    if map.contains_key("dates") {
+        report(
+            diagnostics,
+            "dates",
+            "atlas version 2 defines `dates` as attributed datings; rename this version 1 field so the atlas can be upgraded without misreading it",
+        );
+        return;
+    }
+    if collection != "entries" {
+        return;
+    }
+    let Some(bounds) = map.remove("bounds") else {
+        return;
+    };
+    let Value::Object(mut bounds) = bounds else {
+        report(diagnostics, "bounds", "must be an object");
+        return;
+    };
+    let mut failed = false;
+    let mut year = |diagnostics: &mut Vec<AtlasDiagnostic>, key: &str| -> Option<i32> {
+        let field = format!("bounds.{key}");
+        match bounds.remove(key) {
+            None => None,
+            Some(Value::Number(n)) => match n.as_i64().and_then(|y| i32::try_from(y).ok()) {
+                Some(y) if y != 0 && (-100_000..=100_000).contains(&y) => Some(y),
+                _ => {
+                    failed = true;
+                    report(
+                        diagnostics,
+                        &field,
+                        "must be a whole year between -100000 and 100000; negative is BCE and there is no year 0",
+                    );
+                    None
+                }
+            },
+            Some(_) => {
+                failed = true;
+                report(diagnostics, &field, "must be a whole year");
+                None
+            }
+        }
+    };
+    let from = year(diagnostics, "from");
+    let until = year(diagnostics, "until");
+    if let (Some(f), Some(u)) = (from, until) {
+        if f > u {
+            failed = true;
+            report(
+                diagnostics,
+                "bounds",
+                "`from` must not be later than `until`",
+            );
+        }
+    }
+    if failed {
+        return;
+    }
+    let has_extra = !bounds.is_empty();
+    let extra = Value::Object(bounds);
+    if from.is_none() && until.is_none() {
+        if has_extra {
+            if map.contains_key("boundsExtra") {
+                report(
+                    diagnostics,
+                    "boundsExtra",
+                    "this name keeps the unknown fields of a version 1 `bounds`; rename it so the atlas can be upgraded",
+                );
+                return;
+            }
+            map.insert("boundsExtra".into(), extra);
+        }
+        return;
+    }
+    // An entry whose id cannot be read fails on its id; there is nothing to date.
+    let Some(id) = id.as_deref() else {
+        return;
+    };
+    let mut date = Map::new();
+    if let Some(from) = from {
+        date.insert("from".into(), serde_json::json!({ "year": from }));
+    }
+    if let Some(until) = until {
+        date.insert("to".into(), serde_json::json!({ "year": until }));
+    }
+    let mut dating = serde_json::json!({
+        "id": fresh_dating_id(id, taken),
+        "aspect": "span",
+        "date": date,
+        "assertedBy": {"kind": "author"},
+        "unsourced": true,
+        "visibility": "private",
+    });
+    if has_extra {
+        dating["boundsExtra"] = extra;
+    }
+    map.insert("dates".into(), Value::Array(vec![dating]));
 }
 
 fn relationship_sources(r: &Relationship) -> impl Iterator<Item = &str> {
@@ -2300,6 +2624,8 @@ fn check_graph(
         }
     }
 
+    check_datings(&first, &kinds, entries, relationships, links, diagnostics);
+
     for (kind, list) in edges {
         for index in cyclic_edges(&list) {
             if let Some((_, r)) = relationships.iter().find(|(i, _)| *i == index) {
@@ -2314,6 +2640,121 @@ fn check_graph(
                         kind.as_str()
                     ),
                 ));
+            }
+        }
+    }
+}
+
+/// Check every dating against the atlas: its id is unique across entries,
+/// relationships and datings, its sources and passages exist, and a relative
+/// dating points at an entry that can have the aspect it names. Nothing here
+/// compares one dating with another: competing and even contradictory datings
+/// by different parties are valid, and structural warnings about them belong
+/// to the chronology index.
+fn check_datings(
+    first: &BTreeMap<&str, (&'static str, usize)>,
+    kinds: &BTreeMap<&str, EntryKind>,
+    entries: &[(usize, Entry)],
+    relationships: &[(usize, Relationship)],
+    links: Links<'_>,
+    diagnostics: &mut Vec<AtlasDiagnostic>,
+) {
+    let owners = entries
+        .iter()
+        .filter(|(i, e)| first.get(e.id.as_str()) == Some(&("entries", *i)))
+        .map(|(i, e)| ("entries", *i, e.id.as_str(), true, e.dates.as_slice()))
+        .chain(
+            relationships
+                .iter()
+                .filter(|(i, r)| first.get(r.id.as_str()) == Some(&("relationships", *i)))
+                .map(|(i, r)| {
+                    (
+                        "relationships",
+                        *i,
+                        r.id.as_str(),
+                        false,
+                        r.dates.as_slice(),
+                    )
+                }),
+        );
+    let mut seen: BTreeMap<&str, &str> = BTreeMap::new();
+    for (collection, index, owner, is_entry, dates) in owners {
+        let report = |code, field: &str, message: String| {
+            item_diagnostic(code, collection, index, owner, field, message)
+        };
+        for (position, dating) in dates.iter().enumerate() {
+            let path = format!("dates[{position}]");
+            if let Some((other, at)) = first.get(dating.id.as_str()) {
+                diagnostics.push(report(
+                    AtlasDiagnosticCode::DuplicateId,
+                    &format!("{path}.id"),
+                    format!("`{}` is already used by {other}[{at}]; entries, relationships and datings share one identifier space", dating.id),
+                ));
+            } else if let Some(other) = seen.insert(dating.id.as_str(), owner) {
+                diagnostics.push(report(
+                    AtlasDiagnosticCode::DuplicateId,
+                    &format!("{path}.id"),
+                    format!("`{}` is already used by a dating of `{other}`; entries, relationships and datings share one identifier space", dating.id),
+                ));
+            }
+            check_attribution(
+                &dating.asserted_by,
+                &format!("{path}.assertedBy"),
+                links,
+                &report,
+                diagnostics,
+            );
+            for (inner, e) in dating.evidence.iter().enumerate() {
+                check_evidence(
+                    e,
+                    &format!("{path}.evidence[{inner}]"),
+                    links,
+                    &report,
+                    diagnostics,
+                );
+            }
+            let Some(target) = dating.relative_target() else {
+                continue;
+            };
+            let field = format!("{path}.date.relative.entry");
+            match kinds.get(target.entry.as_str()) {
+                // An entry that failed to read has already said why.
+                None if first
+                    .get(target.entry.as_str())
+                    .is_some_and(|(c, _)| *c == "entries") => {}
+                None if first.contains_key(target.entry.as_str()) => diagnostics.push(report(
+                    AtlasDiagnosticCode::UnknownEntry,
+                    &field,
+                    format!(
+                        "`{}` is a relationship; a relative dating points at an entry",
+                        target.entry
+                    ),
+                )),
+                None => diagnostics.push(report(
+                    AtlasDiagnosticCode::UnknownEntry,
+                    &field,
+                    format!("no entry has the id `{}`", target.entry),
+                )),
+                Some(kind) => {
+                    if !target.aspect.applies_to(*kind) {
+                        diagnostics.push(report(
+                            AtlasDiagnosticCode::AspectKind,
+                            &format!("{path}.date.relative.aspect"),
+                            format!(
+                                "`{}` is a {}, which has no {}",
+                                target.entry,
+                                kind.as_str(),
+                                target.aspect.as_str()
+                            ),
+                        ));
+                    } else if is_entry && target.entry == owner && target.aspect == dating.aspect {
+                        diagnostics.push(report(
+                            AtlasDiagnosticCode::InvalidDate,
+                            &field,
+                            "a dating cannot be relative to the aspect it dates".into(),
+                        ));
+                    }
+                }
             }
         }
     }
@@ -3268,7 +3709,7 @@ mod tests {
         assert_eq!(found[0].field.as_deref(), Some("label"));
 
         assert_eq!(
-            codes(parse(json!({"version": 2}))),
+            codes(parse(json!({"version": 3}))),
             vec![AtlasDiagnosticCode::UnsupportedVersion]
         );
         assert_eq!(

@@ -190,7 +190,8 @@ fn only_approved_items_and_allowlisted_fields_are_published() {
         value["entries"][1],
         json!({"id": "plato", "kind": "person", "label": "Plato", "aliases": ["Aristocles"],
             "summary": "An Athenian philosopher.\n\nHe wrote dialogues.",
-            "bounds": {"from": -428, "until": -348}, "url": "/atlas/plato/"})
+            "url": "/atlas/plato/"}),
+        "a version 1 `bounds` is now a private, unsourced dating and is not published"
     );
     assert_eq!(
         value["relationships"][1],
@@ -254,7 +255,10 @@ fn a_contested_relationship_keeps_provenance_direction_and_every_dissenting_part
     assert!(plato.contains("<cite>Platonis Rempublicam. 2003, pp. 514–520</cite>"));
     assert!(plato.contains("<dt>Uncertain</dt><dd>The dating is unsettled.</dd>"));
     assert!(plato.contains("Also known as Aristocles"));
-    assert!(plato.contains("428 BCE to 348 BCE"));
+    assert!(
+        !plato.contains("BCE") && !plato.contains("348"),
+        "migrated years are the author's private, unsourced draft"
+    );
     let republic = &files["atlas/republic/index.html"];
     assert!(republic.contains("<strong>Contested:</strong> <a href=\"/atlas/plato/\">Plato</a> authored <strong>Republic</strong>."));
     assert!(republic.contains("data-standing=\"asserted\""));
@@ -460,4 +464,68 @@ fn an_empty_projection_publishes_an_empty_atlas_and_urls_follow_the_base_path() 
     ));
     assert!(files["atlas.json"].contains(r#""url":"/blog/atlas/plato/""#));
     assert!(files["atlas/index.html"].contains("href=\"/blog/atlas/plato/\""));
+}
+
+#[test]
+fn approved_datings_are_not_published_until_the_chronology_projection_exists() {
+    let mut value = atlas_value();
+    value["version"] = json!(2);
+    value["entries"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("bounds");
+    value["entries"][0]["dates"] = json!([
+        {"id": "plato-dating-marker", "aspect": "birth",
+         "date": {"notBefore": {"year": -428, "circa": true}, "notAfter": {"year": -427}},
+         "assertedBy": {"kind": "source", "source": "scholar-book"},
+         "evidence": [{"source": "republic-slings",
+             "locators": [{"kind": "page", "value": "9"}]}],
+         "note": format!("{PRIVATE} dating note"), "visibility": "approved",
+         "shelf": format!("{PRIVATE} dating extra")},
+        {"id": "plato-death-marker", "aspect": "death",
+         "date": {"relative": {"order": "after", "entry": "republic", "aspect": "composition"}},
+         "assertedBy": {"kind": "named", "name": format!("{PRIVATE} dating party")},
+         "unsourced": true}
+    ]);
+    value["relationships"][0]["dates"] = json!([
+        {"id": "r-authored-dating-marker", "aspect": "span",
+         "date": {"from": {"decade": -380}, "to": {"century": -4}},
+         "assertedBy": {"kind": "author"}, "evidence": [{"source": "scholar-book"}],
+         "visibility": "approved"}
+    ]);
+    let library = library();
+    let notebook = notebook(&library);
+    let private = Atlas::parse(
+        &value.to_string(),
+        Links {
+            library: &library,
+            notebook: &notebook,
+        },
+    )
+    .expect("a valid version 2 atlas");
+    assert_eq!(
+        private
+            .projected_datings()
+            .iter()
+            .map(|(owner, d)| (*owner, d.id.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            ("plato", "plato-dating-marker"),
+            ("r-authored", "r-authored-dating-marker")
+        ],
+        "approval is recorded for the later chronology projection"
+    );
+    let atlas = project(&value);
+    let text = atlas.to_json();
+    for private in [PRIVATE, "marker", "\"dates\"", "\"aspect\""] {
+        assert!(!text.contains(private), "atlas.json carries {private}");
+    }
+    let files = build(&site(config("https://example.test"), vec![], Some(atlas)));
+    for (path, contents) in &files {
+        assert!(
+            !contents.contains(PRIVATE),
+            "{path} carries a private value"
+        );
+        assert!(!contents.contains("marker"), "{path} carries a dating");
+    }
 }
