@@ -62,8 +62,11 @@ decisions that close them. The reader control (#69) is ADR 0173.
   opts in with that default, `false`/`no`/`off` opt out, and anything else is off with a warning. A
   map never switches the post off, and an unknown default is reported and read as standard. The
   front matter reader has no block maps, so the map is written inline. The mode the post opens in
-  is the reader's saved choice, else this default, else standard. There is no site-wide default in
-  this release: a site that wants one writes it per post.
+  is the reader's saved choice, else this default, else the site's default, else standard. The site
+  default is the optional key `readingModes.default` in `openblog.json` (a mode name, or the bare
+  name), read tolerantly: anything unreadable is standard and never fails the configuration. It
+  decides only where an opted-in post that wrote no default of its own opens, and never opts a post
+  in. A post that writes a default, including an unreadable one (read as standard), keeps it.
 - **Warnings are never hidden.** A `[!WARNING]` or `[!CAUTION]` callout inside a supplement (at any
   depth) makes that supplement, and the supplements holding it, `data-ob-always`: shown in every
   mode, labelled "shown in every mode", and reported as a finding so the author knows their standard

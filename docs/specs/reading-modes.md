@@ -8,8 +8,10 @@ Code: `openblog_core::reading_depth`.
 ## Writing a supplement
 
 Opt in per post with `readingModes: true` in the front matter, or with `readingModes: {default:
-guided}` to also choose the mode the post opens in (`standard`, `guided` or `deep-dive`; standard
-if absent). `true`, `yes` and `on` and any map opt in, `false`, `no` and `off` opt out, and
+guided}` to also choose the mode the post opens in (`standard`, `guided` or `deep-dive`). When the
+post writes no default, the site's `readingModes.default` in `openblog.json` applies (an optional,
+tolerant key; unreadable reads as standard), and standard if that is absent too. The order is the
+post, the site, standard; a reader's saved choice beats all three and never opts a post in. `true`, `yes` and `on` and any map opt in, `false`, `no` and `off` opt out, and
 anything else is off with a warning. A map opts in unless it says `enabled: false`; a key other
 than `default` and `enabled` is reported and ignored. Then write a block quote whose first
 line is a marker:

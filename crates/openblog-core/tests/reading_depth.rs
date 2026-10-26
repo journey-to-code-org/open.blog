@@ -1090,3 +1090,78 @@ fn a_caveat_at_any_depth_makes_every_supplement_around_it_always_shown() {
     assert!(html.contains("Do not skip this."), "{html}");
     assert!(!html.contains(" hidden"), "{html}");
 }
+
+fn page_with_site_default(site_json: &str, front: &str) -> String {
+    use openblog_core::{generate, LoadOptions, Site, Sources, ThemeSet};
+    let config = SiteConfig::from_json(&format!(
+        r#"{{"title": "T", "url": "https://example.test", "author": {{"name": "A"}}{site_json}}}"#
+    ))
+    .unwrap();
+    let site = Site::load(
+        config,
+        Sources {
+            posts: vec![post_source(front, ARTICLE)],
+            ..Default::default()
+        },
+        LoadOptions::default(),
+    )
+    .unwrap();
+    generate(&site, &ThemeSet::new())
+        .unwrap()
+        .into_iter()
+        .find(|file| file.path.ends_with("p/index.html"))
+        .unwrap()
+        .contents
+}
+
+#[test]
+fn the_site_default_applies_only_when_the_post_opts_in_and_names_no_default() {
+    let site = r#", "readingModes": {"default": "guided"}"#;
+    // Opted in with no default of its own: the site's.
+    assert!(page_with_site_default(site, "readingModes: true\n")
+        .contains("<ob-reading-modes default=\"guided\">"));
+    // The post's own default wins, including an explicit standard.
+    assert!(
+        page_with_site_default(site, "readingModes: {default: deep-dive}\n")
+            .contains("<ob-reading-modes default=\"deep-dive\">")
+    );
+    assert!(
+        page_with_site_default(site, "readingModes: {default: standard}\n")
+            .contains("<ob-reading-modes default=\"standard\">")
+    );
+    // A bad post default is read as standard, not as the site's (the author wrote one).
+    assert!(
+        page_with_site_default(site, "readingModes: {enabled: true}\n")
+            .contains("<ob-reading-modes default=\"guided\">")
+    );
+    // The site default never opts a post in.
+    assert!(!page_with_site_default(site, "").contains("ob-reading-modes"));
+    // No site key: standard, as before.
+    assert!(page_with_site_default("", "readingModes: true\n")
+        .contains("<ob-reading-modes default=\"standard\">"));
+}
+
+#[test]
+fn the_site_default_is_read_tolerantly_and_never_fails_the_configuration() {
+    for (json, expected) in [
+        (r#", "readingModes": {"default": "deep-dive"}"#, "deep-dive"),
+        (r#", "readingModes": "Guided""#, "guided"),
+        (r#", "readingModes": {"default": "nonsense"}"#, "standard"),
+        (r#", "readingModes": {"default": 3}"#, "standard"),
+        (r#", "readingModes": 7"#, "standard"),
+        (r#", "readingModes": null"#, "standard"),
+        (r#", "readingModes": {"later": "key"}"#, "standard"),
+    ] {
+        let page = page_with_site_default(json, "readingModes: true\n");
+        assert!(
+            page.contains(&format!("<ob-reading-modes default=\"{expected}\">")),
+            "{json}"
+        );
+    }
+    // Written back only while it says something, so existing configurations are unchanged.
+    let plain = SiteConfig::from_json(r#"{"title": "T"}"#).unwrap();
+    assert!(!plain.to_json().contains("readingModes"));
+    let set =
+        SiteConfig::from_json(r#"{"title": "T", "readingModes": {"default": "guided"}}"#).unwrap();
+    assert!(set.to_json().contains("\"default\": \"guided\""));
+}

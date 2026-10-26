@@ -5,6 +5,13 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- A site can choose the reading mode its posts open in. Set `readingModes.default` in
+  `openblog.json` to `guided` or `deep-dive`: a post that opts in with `readingModes: true` and
+  names no default of its own opens in that mode. A post's own `readingModes: {default: ...}` still
+  wins, a reader's saved choice beats both, and a site that does not set it keeps opening in
+  standard.
+- Printing a post says what it left out: one line, "Printed in Standard mode; 3 supplements not
+  shown.", appears only on paper.
 - Reading modes are safer to read and easier to style. The control says in a visible note that the
   article is the same in every mode and that everything outside the labelled supplement boxes is the
   article. Each shown supplement has a "Skip this ... supplement" link, seen when it has focus, that

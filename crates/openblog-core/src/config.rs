@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::contributor::{self, Contributor};
 use crate::participation::ParticipationConfig;
+use crate::reading_depth::ReadingMode;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
@@ -91,6 +92,48 @@ pub struct SiteConfig {
     /// written file while it is off.
     #[serde(skip_serializing_if = "ComparisonsConfig::is_off")]
     pub comparisons: ComparisonsConfig,
+    /// The reading mode a post with supplements opens in when the post does
+    /// not say (ADR 0172). Omitted from the written file while it is standard.
+    #[serde(
+        deserialize_with = "ReadingModesConfig::tolerant",
+        skip_serializing_if = "ReadingModesConfig::is_default"
+    )]
+    pub reading_modes: ReadingModesConfig,
+}
+
+/// The site-wide default reading mode (ADR 0172). It only decides where a
+/// post that opted in with `readingModes` opens; it never opts a post in. A
+/// post's own `readingModes.default` wins, then this, then standard. Read
+/// tolerantly: `"readingModes": {"default": "guided"}` or the bare mode
+/// name; anything unreadable leaves the default at standard instead of
+/// failing the whole configuration.
+#[derive(Clone, Debug, Default, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadingModesConfig {
+    pub default: ReadingMode,
+}
+
+impl ReadingModesConfig {
+    fn is_default(&self) -> bool {
+        self.default == ReadingMode::Standard
+    }
+
+    fn tolerant<'de, D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let name = match &value {
+            serde_json::Value::String(name) => Some(name.as_str()),
+            serde_json::Value::Object(map) => map.get("default").and_then(|v| v.as_str()),
+            _ => None,
+        };
+        Ok(Self {
+            default: name
+                .and_then(|name| ReadingMode::parse(&name.trim().to_ascii_lowercase()))
+                .unwrap_or_default(),
+        })
+    }
 }
 
 /// Whether builds publish approved passage comparisons (ADR 0092). Off by
@@ -409,6 +452,7 @@ impl Default for SiteConfig {
             participation: ParticipationConfig::default(),
             claim_evidence: ClaimEvidenceConfig::default(),
             comparisons: ComparisonsConfig::default(),
+            reading_modes: ReadingModesConfig::default(),
         }
     }
 }

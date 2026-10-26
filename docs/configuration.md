@@ -46,7 +46,8 @@ default, so you can edit values in place and delete the ones you do not need.
   "publish": { "remote": "origin", "branch": "main", "auto": false, "includeDrafts": false, "paths": ["content", "static", "openblog.json", "themes", ".github"], "pullFirst": true },
   "knowledgeAtlas": { "publish": false },
   "claimEvidence": { "publish": false },
-  "comparisons": { "publish": false }
+  "comparisons": { "publish": false },
+  "readingModes": { "default": "standard" }
 }
 ```
 
@@ -302,6 +303,15 @@ the alignments file; clearing an approval removes the comparison from the next b
 atlas, the alignments file is private and Git-ignored, so only a build that can read it publishes
 comparisons, and `build` and `check` warn when it cannot. See the
 [passage alignments format](specs/passage-alignments.md#publication).
+
+## Reading modes
+
+`readingModes.default` (`standard` by default; `guided` or `deep-dive`) is the mode a post opens in
+when it has [supplements](specs/reading-modes.md) and opts in with `readingModes: true` but names no
+default of its own. It never opts a post in. The order is the post's own
+`readingModes: {default: ...}`, then this site default, then standard, and a reader's saved choice
+beats all three. The key is optional and read tolerantly: a bare mode name works, and anything
+else is read as standard instead of failing the configuration.
 
 ## Claim evidence
 

@@ -853,6 +853,9 @@ fn close_tag(supplement: &Supplement) -> String {
 pub struct Setting {
     pub enabled: bool,
     pub default_mode: ReadingMode,
+    /// Whether the post wrote a readable default mode itself. When it did
+    /// not, the site's default applies (ADR 0172).
+    pub default_written: bool,
     /// What to tell the author when the value was not understood.
     pub warning: Option<String>,
 }
@@ -868,11 +871,13 @@ pub fn setting(raw: Option<&str>) -> Setting {
     let off = |warning: Option<String>| Setting {
         enabled: false,
         default_mode: ReadingMode::Standard,
+        default_written: false,
         warning,
     };
-    let on = |default_mode, warning| Setting {
+    let on = |default_mode, default_written, warning| Setting {
         enabled: true,
         default_mode,
+        default_written,
         warning,
     };
     let Some(raw) = raw else {
@@ -880,12 +885,12 @@ pub fn setting(raw: Option<&str>) -> Setting {
     };
     let value = raw.trim().to_ascii_lowercase();
     match value.as_str() {
-        "true" | "yes" | "on" => return on(ReadingMode::Standard, None),
+        "true" | "yes" | "on" => return on(ReadingMode::Standard, false, None),
         "false" | "no" | "off" => return off(None),
         _ => {}
     }
     if let Some(mode) = ReadingMode::parse(&value) {
-        return on(mode, None);
+        return on(mode, true, None);
     }
     if let Some(inner) = value
         .strip_prefix('{')
@@ -893,6 +898,7 @@ pub fn setting(raw: Option<&str>) -> Setting {
     {
         let mut default_mode = ReadingMode::Standard;
         let mut enabled = true;
+        let mut written = false;
         let mut warnings: Vec<String> = Vec::new();
         for pair in inner.split(',') {
             let Some((key, wanted)) = pair.split_once(':') else {
@@ -902,11 +908,20 @@ pub fn setting(raw: Option<&str>) -> Setting {
             let wanted = wanted.trim().trim_matches(['"', char::from(39u8)]);
             match key {
                 "default" => match ReadingMode::parse(wanted) {
-                    Some(mode) => default_mode = mode,
-                    None => warnings.push(format!(
+                    Some(mode) => {
+                        default_mode = mode;
+                        written = true;
+                    }
+                    None => {
+                        // The author wrote a default: the post opens in standard,
+                        // not in the site's.
+                        default_mode = ReadingMode::Standard;
+                        written = true;
+                        warnings.push(format!(
                         "readingModes default `{}` is not standard, guided or deep-dive; the post opens in standard",
                         wanted.chars().take(40).collect::<String>()
-                    )),
+                    ));
+                    }
                 },
                 // `{enabled: false}` is the same as `readingModes: false`.
                 "enabled" => match wanted {
@@ -927,7 +942,7 @@ pub fn setting(raw: Option<&str>) -> Setting {
         if !enabled {
             return off(warning);
         }
-        return on(default_mode, warning);
+        return on(default_mode, written, warning);
     }
     off(Some(format!(
         "readingModes `{}` is not true, false or {{default: standard|guided|deep-dive}}; reading modes are off",

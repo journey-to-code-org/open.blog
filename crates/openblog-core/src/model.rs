@@ -1506,7 +1506,12 @@ fn load_post_in(
         return Err(rendered.errors.join("; "));
     }
     if let Some(depth) = rendered.reading_depth.as_mut() {
-        depth.default_mode = reading_setting.default_mode;
+        // The post's own default, else the site's, else standard (ADR 0172).
+        depth.default_mode = if reading_setting.default_written {
+            reading_setting.default_mode
+        } else {
+            config.reading_modes.default
+        };
         // Each unread marker, and each adjustment, is the author's to see in
         // the build, `check` and Admin warnings (ADR 0172).
         for finding in &depth.findings {

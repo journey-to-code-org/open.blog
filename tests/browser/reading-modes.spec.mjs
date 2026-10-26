@@ -271,6 +271,64 @@ test("the author's default opens the post and reset returns to it; a saved choic
   expect(await stored(page)).toBeNull();
 });
 
+// A second site whose openblog.json names a default reading mode: the site default applies to a post
+// that opts in and writes none, the post's own default wins, and a post that does not opt in is untouched.
+test("the site's default reading mode opens a post that names none; the post's own default wins", async ({ page }) => {
+  const other = mkdtempSync(join(tmpdir(), "openblog-reading-site-default-"));
+  let child;
+  try {
+    cpSync(join(repository, "examples", "portable-publishing"), other, { recursive: true });
+    const configPath = join(other, "openblog.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    config.readingModes = { default: "guided" };
+    writeFileSync(configPath, JSON.stringify(config, null, 2));
+    for (const [name, front] of [["site", "readingModes: true
+"], ["own", "readingModes: {default: deep-dive}
+"], ["standard", "readingModes: {default: standard}
+"]]) {
+      writeFileSync(join(other, "content", "posts", `${name}.md`), post(`Site default ${name}`, front).replace("citations: notes
+", ""));
+    }
+    const listener = createServer();
+    listener.listen(0, "127.0.0.1");
+    await once(listener, "listening");
+    const port = listener.address().port;
+    await new Promise((done) => listener.close(done));
+    child = spawn(binary, ["serve", "--root", other, "--port", String(port)], { cwd: repository, stdio: "pipe" });
+    let output = "";
+    child.stdout.on("data", (data) => { output += data; });
+    child.stderr.on("data", (data) => { output += data; });
+    const base = `http://127.0.0.1:${port}`;
+    await expect(async () => {
+      if (child.exitCode !== null) throw new Error(`Test server exited: ${output}`);
+      expect((await fetch(`${base}/site/`)).ok).toBe(true);
+    }).toPass({ timeout: 30000 });
+    const opens = async (slug, mode, shown) => {
+      await page.goto(`${base}/${slug}/`);
+      await expect(control(page)).toBeVisible();
+      await expect(radio(page, mode)).toBeChecked();
+      expect(await visibleSupplements(page)).toEqual(shown);
+    };
+    await opens("site", "Guided", ["ob-supplement-1", "ob-supplement-4"]);
+    await opens("own", "Deep dive", ["ob-supplement-1", "ob-supplement-2", "ob-supplement-3", "ob-supplement-4"]);
+    await opens("standard", "Standard", ["ob-supplement-4"]);
+    // The reader's saved choice still wins over the site default, and reset returns to it.
+    await page.goto(`${base}/site/`);
+    await radio(page, "Deep dive").check();
+    await page.reload();
+    await expect(radio(page, "Deep dive")).toBeChecked();
+    await page.getByRole("button", { name: "Use the author’s default" }).click();
+    await expect(radio(page, "Guided")).toBeChecked();
+  } finally {
+    if (child && child.exitCode === null) {
+      const stopped = once(child, "exit");
+      child.kill();
+      await stopped;
+    }
+    rmSync(other, { recursive: true, force: true });
+  }
+});
+
 test("blocked storage never breaks the page and the announcement says the choice was not saved", async ({ page }) => {
   await page.addInitScript(() => {
     const deny = () => { throw new DOMException("denied", "SecurityError"); };
