@@ -236,6 +236,9 @@ test("the panel works from the keyboard and closes with Escape back to its butto
   await page.keyboard.press("Enter");
   await expect(page.getByLabel("Search research")).toBeFocused();
   await page.keyboard.type("platonis");
+  // Refresh is disabled, and so skipped by Tab, until the research has loaded.
+  await expect(panel(page).getByRole("button", { name: "Refresh", exact: true })).toBeEnabled();
+  await expect(item(page, "passage:cave")).toBeVisible();
   await page.keyboard.press("Tab");
   await page.keyboard.press("Tab");
   await page.keyboard.press("Tab");
