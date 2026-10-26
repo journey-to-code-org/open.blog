@@ -295,7 +295,7 @@ function fakeApi({ number = 0, markdown = "", reveal = {}, failures = {} } = {})
           return { preview: state.preview };
         case "PUT collaboration/reveal/ready":
           state.reveal = { ...state.reveal, ready: options.json.revision !== null };
-          return { ready: state.reveal.ready, revealed: false, ...(state.momentsShared === undefined ? {} : { momentsShared: state.momentsShared }) };
+          return { ready: state.reveal.ready, revealed: false, ...(state.momentsShared === undefined ? {} : { momentsShared: state.momentsShared }), ...(state.momentsNote === undefined ? {} : { momentsNote: state.momentsNote }) };
         case "PUT collaboration/reveal/policy":
           if (options.json.expectedPolicy !== state.reveal.policy) throw new FakeApiError("changed", 409, { error: "The sharing rule changed since you loaded it. Reload to see the current rule; nothing was changed." });
           if (options.json.policy === state.reveal.policy) return { policy: options.json.policy, changed: false };
@@ -1539,6 +1539,18 @@ test("offering a revision says when later moment edits stay private", withDom(as
   await button(panel.querySelector(".oba-confirm"), "Share revision 2").click();
   await settle();
   assert.match(textOf(panel), /Your moments changed after you first offered this revision/);
+}));
+
+test("offering a revision whose moments could not be stored says so, apart from the write-once advice", withDom(async () => {
+  const api = fakeApi({ number: 2, markdown: "mine", reveal: { slots: SLOTS.slice(0, 2).map((slot) => ({ ...slot, ready: false })) } });
+  api.state.momentsShared = null;
+  api.state.momentsNote = "Your moments could not be shared with this revision, so they stay private. Take back your offer if it still stands, then offer this revision again to share them.";
+  const { panel } = await openDraft(api);
+  await button(panel, "Offer revision 2 to the group").click();
+  await button(panel.querySelector(".oba-confirm"), "Share revision 2").click();
+  await settle();
+  assert.match(textOf(panel), /Your moments could not be shared with this revision/);
+  assert.doesNotMatch(textOf(panel), /Your moments changed after you first offered/);
 }));
 
 test("a successful offer reloads the moments panel, keeping what was typed", withDom(async () => {

@@ -7886,17 +7886,33 @@ fn change_moments(state: &AppState, req: &Request, session: &auth::Session) -> R
     }
 }
 
+/// What became of the requester's proposed moments when they offered a revision.
+#[derive(Debug, PartialEq, Eq)]
+enum OfferedMoments {
+    /// The moments as they are now go with the offered revision.
+    Shared,
+    /// That revision (or a newer one) was already sealed with other moments: a seal is write-once,
+    /// so later changes stay private until a newer revision is offered.
+    Changed,
+    /// The moments could not be read or stored. Nothing about them changed and they stay private;
+    /// offering the revision again seals them.
+    Failed,
+}
+
+/// The sentence an offer's response carries when the moments could not be stored. It names no
+/// moment and holds no author text.
+const MOMENTS_NOT_SHARED: &str = "Your moments could not be shared with this revision, so they stay private. Take back your offer if it still stands, then offer this revision again to share them.";
+
 /// Seal the requester's proposed moments to the draft revision they just offered (ADR 0073,
-/// 0074), after the offer was stored. Returns whether the moments as they are now are the ones
-/// that go with that revision; `None` when the requester holds no moments. A failure is logged
-/// without content and leaves the moments unsealed, so it fails closed: they stay private.
+/// 0074), after the offer was stored. `None` when the requester holds no moments. A failure is
+/// logged without content and leaves the moments unsealed, so it fails closed: they stay private.
 fn seal_offered_moments(
     state: &AppState,
     transaction: &InvitationTransaction<'_>,
     record: &SharedPublication,
     own: &str,
     revision: u64,
-) -> Option<bool> {
+) -> Option<OfferedMoments> {
     let id = &record.publication_id;
     let authors = moment_authors(transaction, record);
     let authors = authors.iter().map(String::as_str).collect::<Vec<_>>();
@@ -7907,23 +7923,30 @@ fn seal_offered_moments(
         Ok(stored) => stored,
         Err(error) => {
             eprintln!("admin: moments not sealed for {id}: {error}");
-            return Some(false);
+            return Some(OfferedMoments::Failed);
         }
     };
     let mut next = stored.set.clone();
     let sealed = match next.seal(own, &authors, revision) {
         Ok(sealed) => sealed,
-        Err(_) => return Some(false),
+        Err(error) => {
+            eprintln!("admin: moments not sealed for {id}: {error}");
+            return Some(OfferedMoments::Failed);
+        }
     };
     if next != stored.set {
         if let Err(error) =
             crate::shared_publications::replace_moments(&state.root, id, &stored, &next)
         {
             eprintln!("admin: moments not sealed for {id}: {error:?}");
-            return Some(false);
+            return Some(OfferedMoments::Failed);
         }
     }
-    Some(sealed)
+    Some(if sealed {
+        OfferedMoments::Shared
+    } else {
+        OfferedMoments::Changed
+    })
 }
 
 /// Drop approvals that no longer match after a change to the author set or the prose, in the
@@ -8905,7 +8928,14 @@ fn set_reveal_ready(state: &AppState, req: &Request, session: &auth::Session) ->
     if let Some(revision) = body.revision {
         let sealed = seal_offered_moments(state, &transaction, record, &own, revision);
         if let (Some(sealed), Some(object)) = (sealed, success.as_object_mut()) {
-            object.insert("momentsShared".into(), json!(sealed));
+            match sealed {
+                OfferedMoments::Shared => object.insert("momentsShared".into(), json!(true)),
+                OfferedMoments::Changed => object.insert("momentsShared".into(), json!(false)),
+                OfferedMoments::Failed => {
+                    object.insert("momentsShared".into(), Json::Null);
+                    object.insert("momentsNote".into(), json!(MOMENTS_NOT_SHARED))
+                }
+            };
         }
     }
     Response::json(200, &success)
@@ -23512,6 +23542,67 @@ series: letters
             json!({ "action": "add", "moment": video_moment("2", "late", "private") }),
         );
         assert_eq!(late.status, 409);
+    }
+
+    #[test]
+    fn an_offer_keeps_the_moments_revision_and_tells_a_storage_failure_apart() {
+        let (f, mikey, _grace, _ada, id) = approval_fixture("moments-offer-revision");
+        assert_eq!(
+            add_moment(
+                &f,
+                &mikey,
+                &id,
+                video_moment("1:02", "MOMENT-PROSE", "publication")
+            )
+            .status,
+            200
+        );
+        assert_eq!(
+            draft_call(&f, &mikey, &id, 1, "MIKEY-SECRET v2").status,
+            200
+        );
+        // The panel holds this revision while its writer offers a draft revision.
+        let held = moments_revision(&f, &mikey, &id);
+        let offered = reveal_call(&f, &mikey, "ready", ready_body(&id, json!(2)));
+        assert_eq!(offered.status, 200);
+        let offered = body_json(&offered);
+        assert_eq!(offered["momentsShared"], true);
+        assert!(offered.get("momentsNote").is_none());
+        // Sealing is not an edit: the revision is unchanged and the panel's next change applies.
+        assert_eq!(moments_revision(&f, &mikey, &id), held);
+        let next = moments_change(
+            &f,
+            &mikey,
+            &id,
+            held,
+            json!({ "action": "add", "moment": video_moment("2", "another", "private") }),
+        );
+        assert_eq!(next.status, 200);
+
+        // Re-offering a sealed revision after a change is the write-once case, not a failure.
+        let again = body_json(&reveal_call(&f, &mikey, "ready", ready_body(&id, json!(2))));
+        assert_eq!(
+            again["momentsShared"], true,
+            "a private add leaves the seal"
+        );
+
+        // Moments that cannot be read or stored are a failure, told apart from the write-once
+        // case and naming nothing the writer wrote.
+        let file = f
+            .dir
+            .join(crate::shared_publications::MOMENTS_DIRECTORY)
+            .join(format!("{id}.json"));
+        fs::write(&file, "not a moment set").unwrap();
+        let failed = reveal_call(&f, &mikey, "ready", ready_body(&id, json!(2)));
+        assert_eq!(failed.status, 200, "the offer itself is stored");
+        assert!(!String::from_utf8_lossy(&failed.body).contains("MOMENT"));
+        let failed = body_json(&failed);
+        assert!(failed.get("momentsShared").is_some_and(Json::is_null));
+        assert!(failed["momentsNote"]
+            .as_str()
+            .unwrap()
+            .contains("offer this revision again"));
+        assert_eq!(fs::read_to_string(&file).unwrap(), "not a moment set");
     }
 
     #[test]

@@ -50,7 +50,9 @@ working link even when an embed is missing, and without exposing anyone's words 
   rule, so it fixes what goes with the revision even when the reveal completes later. The seal is
   written once per revision, as ADR 0073 says: an offer of a revision that was already sealed
   shares no later moment edit, and the response says so (`momentsShared: false`). Sealing after the
-  offer fails closed: if it cannot be written, the moments stay private.
+  offer fails closed: if it cannot be written, the moments stay private, and the response says that
+  instead (`momentsShared: null` with a `momentsNote` asking the writer to offer the revision
+  again), so a storage failure is never mistaken for the write-once case.
   - A seal does not raise the set's revision. Seals are not something a participant edits or sends
     back, so an offer never makes the revision the writer's panel holds stale; the file's
     compare-and-swap still refuses a seal written over a concurrent change.

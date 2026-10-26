@@ -2972,6 +2972,17 @@ export function momentLinkText(moment) {
   return moment.link.atTime && start ? `Open the source at ${start}` : "Open the source (find the location yourself)";
 }
 
+/**
+ * What an offer's response says about the writer's proposed moments: nothing when they were shared
+ * or the writer has none, the write-once advice when that revision was already sealed with other
+ * moments, and the server's note when they could not be stored (they stay private).
+ */
+export function offeredMomentsText(result) {
+  if (result?.momentsShared === false) return " Your moments changed after you first offered this revision, so those changes stay private until you save and offer a newer revision.";
+  if (result && "momentsShared" in result && result.momentsShared === null) return ` ${result.momentsNote || "Your moments could not be shared with this revision, so they stay private. Offer this revision again to share them."}`;
+  return "";
+}
+
 /** Sort a failed moments request into what to tell the person. What they typed is never lost. */
 export function momentsFailure(error) {
   const status = error?.status;
@@ -8278,7 +8289,7 @@ export class ObAdmin extends AdminElement {
             });
             yes.addEventListener("click", () =>
               runSharing("PUT", "collaboration/reveal/ready", { publicationId: id, revision }, (result) =>
-                `${result?.revealed ? "Revealed. Everyone who offered can now read the offered revisions." : "Offered. Nothing is shared until the rule is met."}${result?.momentsShared === false ? " Your moments changed after you first offered this revision, so those changes stay private until you save and offer a newer revision." : ""}`,
+                `${result?.revealed ? "Revealed. Everyone who offered can now read the offered revisions." : "Offered. Nothing is shared until the rule is met."}${offeredMomentsText(result)}`,
               ),
             );
           });
