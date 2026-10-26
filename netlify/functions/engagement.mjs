@@ -35,10 +35,12 @@ const publicComment = (row) => ({
 
 // A stored feedback row as the moderation item Admin reads (ADRs 0081 and
 // 0083): the ADR 0079 record with its provenance, plus the row id, its
-// moderation state, the version every change must name, and the last reason;
-// with the inbox's schema (ADR 0105), also the facts the state machine
-// decides on. The reader's name is shown to moderators only, with their
-// publication choice; Admin decides who among them may see it (ADR 0102).
+// moderation state, the version every change must name, and the last reason.
+// This is B5's /admin/feedback shape, kept exactly as v0.33.0 sent it so an
+// older Admin, which refuses unknown fields, still reads every item; only the
+// inbox's items add the facts the state machine decides on (ADR 0105). The
+// reader's name is shown to moderators only, with their publication choice;
+// Admin decides who among them may see it (ADR 0102).
 const moderationFacts = (row) => (row.item_revision === undefined ? {} : {
   itemRevision: row.item_revision,
   approvedRevision: row.approved_revision ?? null,
@@ -59,7 +61,6 @@ const hostedFeedback = (row) => {
     moderatedAt: row.moderated_at ? canonicalTime(row.moderated_at) : null,
     reason: row.moderation_reason ?? null,
     feedback: { version: row.format_version, kind: row.kind, body: row.body, details: row.details || {}, provenance },
-    ...moderationFacts(row),
   };
 };
 
@@ -83,7 +84,7 @@ const inboxComment = (row) => ({
   reason: row.moderation_reason ?? null,
   comment: { path: row.path, authorName: row.author_name, body: row.body, createdAt: canonicalTime(row.created_at) },
 });
-const inboxFeedback = (row) => ({ source: "feedback", ...hostedFeedback(row) });
+const inboxFeedback = (row) => ({ source: "feedback", ...hostedFeedback(row), ...moderationFacts(row) });
 const inboxItem = (source, row) => (source === "comment" ? inboxComment(row) : inboxFeedback(row));
 
 // The inbox's keyset cursor: a row's own time, to the microsecond, in UTC,
@@ -162,7 +163,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
     return MODES.includes(policy) ? policy : "hidden";
   };
   const feedbackRows = (settings, filters) => {
-    const params = new URLSearchParams({ site_id: `eq.${settings.siteId}`, ...filters, select: settings.moderation ? FEEDBACK_INBOX_COLUMNS : FEEDBACK_COLUMNS, order: "received_at.asc", limit: "200" });
+    const params = new URLSearchParams({ site_id: `eq.${settings.siteId}`, ...filters, select: FEEDBACK_COLUMNS, order: "received_at.asc", limit: "200" });
     return database(settings, `/rest/v1/openblog_feedback?${params}`);
   };
 

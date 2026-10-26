@@ -69,7 +69,9 @@ private public.
   `openblog_moderate_feedback`; asking to clarify and reopening feedback answer that the schema is
   needed. With it, the older bare comment `PATCH /admin/comments` is refused, because it would
   skip the version, the state and the audit event; B5's `PATCH /admin/feedback` goes through the
-  new function.
+  new function. B5's `/admin/feedback` answers keep v0.33.0's shape exactly, with or without the
+  variable, because an Admin of that version refuses any field it does not know; only the
+  inbox's `/admin/moderation` items carry the revisions and the reader's consent.
 - **Rollback drops exactly what was added.** `supabase/moderation-rollback.sql` drops the comment
   function, `openblog_comment_events`, the three comment columns, the feedback function and the
   feedback columns this task added, leaving every comment and feedback item and its state; a

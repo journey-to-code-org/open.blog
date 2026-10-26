@@ -368,6 +368,38 @@ test("a moderation change names the state and version seen and is applied with i
   assert.equal(database.requests.length, before);
 });
 
+test("with the inbox's schema switched on, B5's /admin/feedback answers exactly as v0.33.0 did", async () => {
+  // A v0.33.0 Admin refuses any field it does not know, so the inbox's facts never reach this route.
+  const facts = { item_revision: 2, approved_revision: 2, clarification_asked: 1, clarification_consent: true };
+  const stored = { ...fixture.storedRow, ...facts };
+  const database = fakeDatabase({ rows: [stored], moderated: [{ ...stored, status: "approved", version: 2, moderated_at: "2026-10-26T10:00:00+00:00" }] });
+  const handler = createHandler({ env: { ...enabled, OPENBLOG_MODERATION_ENABLED: "true" }, fetchImpl: database.fetchImpl, siteFetchImpl: noFetch, now: () => NOW });
+  const admin = { authorization: "Bearer admin-secret" };
+  const keys = Object.keys(fixture.hostedItem).sort();
+  const listed = await handler(event("admin/feedback", "GET", undefined, { headers: admin, query: { status: "pending" } }));
+  assert.deepEqual(JSON.parse(listed.body), { feedback: [fixture.hostedItem] });
+  assert.equal(new URL(database.requests.at(-1).url).searchParams.get("select").includes("item_revision"), false);
+  const one = JSON.parse((await handler(event("admin/feedback", "GET", undefined, { headers: admin, query: { id: fixture.storedRow.id } }))).body);
+  assert.deepEqual(Object.keys(one.feedback[0]).sort(), keys);
+  const changed = await handler(event("admin/feedback", "PATCH", JSON.stringify({ id: fixture.storedRow.id, action: "approve", from: "pending", expectedVersion: 1 }), { headers: admin }));
+  assert.equal(changed.statusCode, 200, changed.body);
+  assert.match(database.requests.at(-1).url, /openblog_moderate_feedback_item$/);
+  const { item } = JSON.parse(changed.body);
+  assert.deepEqual(Object.keys(item).sort(), keys);
+  assert.deepEqual(Object.keys(item.feedback).sort(), Object.keys(fixture.hostedItem.feedback).sort());
+  // A conflict carries the item in the same shape.
+  const moved = createHandler({ env: { ...enabled, OPENBLOG_MODERATION_ENABLED: "true" }, fetchImpl: fakeDatabase({ rows: [stored], moderated: [] }).fetchImpl, siteFetchImpl: noFetch, now: () => NOW });
+  const conflict = JSON.parse((await moved(event("admin/feedback", "PATCH", JSON.stringify({ id: fixture.storedRow.id, action: "approve", from: "pending", expectedVersion: 1 }), { headers: admin }))).body);
+  assert.equal(conflict.code, "conflict");
+  assert.deepEqual(Object.keys(conflict.item).sort(), keys);
+  // The inbox reads the same row with its facts.
+  const inbox = JSON.parse((await handler({ ...event("admin/moderation", "GET", undefined, { headers: admin, query: { id: fixture.storedRow.id, source: "feedback" } }) })).body);
+  assert.deepEqual(
+    [inbox.items[0].itemRevision, inbox.items[0].approvedRevision, inbox.items[0].clarificationAsked, inbox.items[0].clarificationConsent],
+    [2, 2, 1, true],
+  );
+});
+
 test("a change to an item that moved meanwhile is a conflict carrying the item as it is now", async () => {
   const current = { ...fixture.storedRow, status: "rejected", version: 2, moderation_reason: "spam", moderated_at: "2026-10-26T09:59:00+00:00" };
   const database = fakeDatabase({ moderated: [], rows: [current] });
