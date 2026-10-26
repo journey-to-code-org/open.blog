@@ -198,3 +198,32 @@ test("visual insertion makes an atomic chip that round-trips with hand-written c
   await mode(page, "Markdown").click();
   await expect(markdown(page)).toHaveValue(written.replace("canonical 514a", "canonical 514b"));
 });
+
+test("undo after a Visual insertion restores the exact Markdown and caret", async ({ page }) => {
+  await openNewPost(page);
+  const draft = "First claim here.\n\nSecond paragraph.\n";
+  await useMarkdown(page, draft, [0, 0]);
+  await mode(page, "Visual").click();
+  await expect(visual(page).locator("p")).toHaveCount(2);
+  await visual(page).locator("p").first().click({ position: { x: 2, y: 8 } });
+  await page.keyboard.press("End");
+  const caret = () => page.evaluate(() => {
+    const selection = getSelection();
+    return { text: selection.anchorNode?.textContent, offset: selection.anchorOffset, collapsed: selection.isCollapsed };
+  });
+  const before = await caret();
+  expect(before.collapsed).toBe(true);
+  await page.getByRole("button", { name: "Cite a source" }).click();
+  await page.getByLabel("Source", { exact: true }).selectOption("slings-2003");
+  await page.getByRole("button", { name: "Insert citation" }).click();
+  await expect(citeDialog(page)).toBeHidden();
+  await expect(visual(page).locator(".oba-citation")).toHaveCount(1);
+  await expect(visual(page)).toBeFocused();
+  await page.keyboard.press("Control+z");
+  await expect(visual(page).locator(".oba-citation")).toHaveCount(0);
+  await expect(page.locator("[data-citation-undo]")).toBeHidden();
+  await expect(visual(page)).toBeFocused();
+  expect(await caret()).toEqual(before);
+  await mode(page, "Markdown").click();
+  await expect(markdown(page)).toHaveValue(draft);
+});
