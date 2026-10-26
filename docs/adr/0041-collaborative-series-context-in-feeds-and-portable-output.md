@@ -21,14 +21,18 @@ series context at all, so adding it everywhere would change every existing feed 
   place in a collaborative series: the series name, its canonical page, its position and the
   number of published parts, the part's named authors in credit order, and the
   series' named contributors (`series_contributors`, so one person is named once). It exists only
-  when the post is a published part of a collaborative series (ADR 0040). Drafts are not parts,
-  even on a site loaded with them, so they never count towards a position, a total or the
-  contributors, and a draft has no context. Every value is already public on the series page; it
+  when the post is a published part of a collaborative series (ADR 0040). Drafts and scheduled
+  posts (dated after the time the site was loaded for) are not parts, even on a site that holds
+  them because it was loaded with drafts or to preview one, so they never count towards a
+  position, a total or the contributors, and neither has a context. Any site loaded at the same
+  time therefore gives a post the same context. Every value is already public on the series page; it
   reads approved work credits and the series model, never collaboration state, so membership,
   approvals, accounts and publication ids cannot reach it.
 - **The projection carries it.** `PortableProjection::for_site` is `from_post` plus the post's
   context; feeds, `openblog export`, syndication and the Admin portable preview use it, so every
-  external copy of a part states the same context. Without a context the projection is exactly
+  external copy of a part states the same context. The Admin portable preview and a portability
+  acknowledgement build their projection through one helper, so the source revision a preview
+  hands out is the one the acknowledgement recomputes, for a published, draft or scheduled part. Without a context the projection is exactly
   `from_post`'s, byte for byte.
 - **Each format states it its own way, and only for a part of a collaborative series:**
   - portable HTML: one paragraph after the work's Contributions list and before the body,

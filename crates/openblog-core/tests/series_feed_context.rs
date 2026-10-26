@@ -498,25 +498,41 @@ fn drafts_scheduled_works_and_their_authors_never_appear() {
             "{slug}: {all}"
         );
     }
-    // A site loaded with drafts still counts only the parts that are not drafts, and a draft has
-    // no public context of its own.
-    let mut drafts = sources(true);
-    drafts
-        .posts
-        .retain(|source| source.path != "posts/l-later.md");
-    drafts
-        .credits
-        .retain(|source| source.path != "posts/l-later.credits.json");
-    let with_drafts = load_with(drafts, true);
-    assert!(with_drafts.posts.iter().any(|post| post.slug == "l-draft"));
+    // A site loaded with drafts and scheduled works still counts only the public parts, and a
+    // draft or a scheduled work has no public context of its own.
+    let with_drafts = load_with(sources(true), true);
+    for slug in ["l-draft", "l-later"] {
+        assert!(with_drafts.posts.iter().any(|post| post.slug == slug));
+        assert_eq!(
+            with_drafts.series_context(post_of(&with_drafts, slug)),
+            None,
+            "{slug}"
+        );
+    }
     let context = with_drafts
         .series_context(post_of(&with_drafts, "l2"))
         .unwrap();
+    assert_eq!(
+        Some(context.clone()),
+        site.series_context(post_of(&site, "l2"))
+    );
     assert_eq!((context.part, context.parts), (2, 4));
     assert!(!context.contributors.iter().any(|name| name.contains("Eve")));
+    // So does a site previewing the scheduled work, which holds it as a post.
+    let preview = Site::load(
+        config(),
+        sources(true),
+        LoadOptions {
+            now: DateTime::parse("2030-01-01T00:00:00Z"),
+            preview_source: Some("posts/l-later.md".into()),
+            ..LoadOptions::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(preview.series_context(post_of(&preview, "l-later")), None);
     assert_eq!(
-        with_drafts.series_context(post_of(&with_drafts, "l-draft")),
-        None
+        preview.series_context(post_of(&preview, "l2")),
+        Some(context)
     );
     // When the series loses its last collaborative work, its parts' feeds return to the plain
     // output, byte for byte.

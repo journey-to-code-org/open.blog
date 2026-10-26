@@ -1758,6 +1758,22 @@ fn resolve_credit_path(root: &Path, config: &SiteConfig, rel: &str) -> Result<Pa
     Ok(full)
 }
 
+/// The portable projection of `post` that the Admin previews and that an acknowledgement checks,
+/// with the post's series context taken from `site` (ADR 0041). The portability preview and the
+/// acknowledgement both build it here, so the source revision a preview hands out is the one the
+/// acknowledgement recomputes: `Site::series_context` counts only published parts whether `site`
+/// holds drafts or scheduled posts or not, so a draft or scheduled part has no context in either.
+fn admin_portable_projection<'a>(
+    site: &Site,
+    post: &'a openblog_core::Post,
+    config: &SiteConfig,
+) -> Result<openblog_core::portability::PortableProjection<'a>, String> {
+    Ok(
+        openblog_core::portability::PortableProjection::for_authenticated_preview(post, config)?
+            .with_series(site.series_context(post)),
+    )
+}
+
 fn resolve_portability_acknowledgement_path(
     root: &Path,
     config: &SiteConfig,
@@ -9022,19 +9038,8 @@ fn acknowledge_portability(state: &AppState, req: &Request) -> Response {
     let Some(post) = preview_site.posts.iter().find(|post| post.source == path) else {
         return Response::error(404, "Post was not found");
     };
-    // The series context comes from the public site, as in the preview that handed out the
-    // revision: drafts and scheduled posts are not parts of a series (ADR 0041).
-    let series = site::load_site(&state.root, false, Some(clock::now()))
-        .ok()
-        .and_then(|(public_site, _)| {
-            let post = public_site.posts.iter().find(|post| post.source == path)?;
-            public_site.series_context(post)
-        });
-    let projection = match openblog_core::portability::PortableProjection::for_authenticated_preview(
-        post,
-        &preview_site.config,
-    ) {
-        Ok(projection) => projection.with_series(series),
+    let projection = match admin_portable_projection(&preview_site, post, &preview_site.config) {
+        Ok(projection) => projection,
         Err(error) => return Response::error(422, &error),
     };
     let revision = match projection.source_revision() {
@@ -9248,16 +9253,12 @@ fn preview(state: &AppState, req: &Request) -> Response {
         let Some(post) = preview_site.posts.iter().find(|post| post.source == rel) else {
             return Response::error(422, "Preview post was not found in the site model");
         };
-        // The preview site is the public site plus this source, so a published part of a
-        // collaborative series previews the series context its external copies carry (ADR 0041).
-        let projection =
-            match openblog_core::portability::PortableProjection::for_authenticated_preview(
-                post,
-                &portable_config,
-            ) {
-                Ok(projection) => projection.with_series(preview_site.series_context(post)),
-                Err(error) => return Response::error(422, &error),
-            };
+        // A published part of a collaborative series previews the series context its external
+        // copies carry, exactly as an acknowledgement recomputes it (ADR 0041).
+        let projection = match admin_portable_projection(&preview_site, post, &portable_config) {
+            Ok(projection) => projection,
+            Err(error) => return Response::error(422, &error),
+        };
         let mut portable_html = match projection.portable_html() {
             Ok(output) => output,
             Err(error) => return Response::error(422, &error),
@@ -16380,6 +16381,122 @@ mod tests {
     fn portability_acknowledgements_are_tracked_scoped_and_stale_on_source_changes() {
         for representation in ["portable-html", "portable-markdown", "portable-text"] {
             assert_portability_acknowledgement(representation);
+        }
+    }
+
+    #[test]
+    fn a_previewed_part_of_a_collaborative_series_can_be_acknowledged() {
+        let f = fixture("portability-series-ack");
+        let config_path = f.dir.join("openblog.json");
+        let mut config: Json =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        config["contributors"] = json!({ "ann": { "name": "Ann" }, "bo": { "name": "Bo" } });
+        fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
+        let content = f.dir.join("content");
+        fs::create_dir_all(content.join("series")).unwrap();
+        fs::write(
+            content.join("series/letters.md"),
+            "---
+name: Letters
+---
+A recurring premise.
+",
+        )
+        .unwrap();
+        let quiz = "```quiz
+What is portable?
+- [ ] A second source
+- [x] A derived view
+```
+";
+        let parts = [
+            ("posts/letters-one.md", "One", "2020-01-01"),
+            ("posts/letters-two.md", "Two", "2020-02-01"),
+            // Scheduled: previewing it holds it as a post, but it is not a part yet.
+            ("posts/letters-later.md", "Later", "2999-01-01"),
+        ];
+        for (path, title, date) in parts {
+            fs::write(
+                content.join(path),
+                format!(
+                    "---
+title: {title}
+date: {date}
+series: letters
+---
+
+{quiz}"
+                ),
+            )
+            .unwrap();
+        }
+        fs::write(
+            content.join("posts/letters-one.credits.json"),
+            r#"{"version":1,"credits":[{"contributor":"ann","roles":[{"vocabulary":"crossref","role":"author"}]},{"contributor":"bo","roles":[{"vocabulary":"crossref","role":"author"}]}]}"#,
+        )
+        .unwrap();
+        f.state.rebuild().unwrap();
+        let session = login_ok(&f);
+
+        for (path, title, date) in parts {
+            let preview = handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "POST",
+                        "/admin/api/preview",
+                        json!({
+                            "kind": "posts",
+                            "path": path,
+                            "fields": { "title": title, "date": date, "series": "letters" },
+                            "body": quiz,
+                        }),
+                    ),
+                    &session,
+                    true,
+                ),
+            );
+            assert_eq!(
+                preview.status,
+                200,
+                "{path}: {}",
+                String::from_utf8_lossy(&preview.body)
+            );
+            let portable = body_json(&preview)["portablePreview"].clone();
+            let markdown = portable["markdown"].as_str().unwrap();
+            if path == "posts/letters-later.md" {
+                assert!(!markdown.contains("## Series"), "{path}: {markdown}");
+            } else {
+                assert!(
+                    markdown.contains("in the series [Letters]("),
+                    "{path}: {markdown}"
+                );
+            }
+            let acknowledged = handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "POST",
+                        "/admin/api/portability/acknowledge",
+                        json!({
+                            "path": path,
+                            "sourceRevision": portable["sourceRevision"],
+                            "capabilityId": "knowledge-check",
+                            "representation": "portable-markdown",
+                            "destination": "portable-export",
+                            "expectedEtag": portable["acknowledgementEtag"],
+                        }),
+                    ),
+                    &session,
+                    true,
+                ),
+            );
+            assert_eq!(
+                acknowledged.status,
+                200,
+                "{path}: {}",
+                String::from_utf8_lossy(&acknowledged.body)
+            );
         }
     }
 

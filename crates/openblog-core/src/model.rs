@@ -336,6 +336,9 @@ pub struct Site {
     /// Known view totals per page path, supplied by the caller (for example from
     /// the analytics backup) so static builds can show counts.
     pub view_counts: BTreeMap<String, u64>,
+    /// The time the site was loaded for (`LoadOptions::now`). A post dated after it is scheduled,
+    /// even when a preview or the admin editor loaded it, so it is never a series part.
+    now: Option<DateTime>,
 }
 
 impl Site {
@@ -574,6 +577,7 @@ impl Site {
             accessibility,
             evidence,
             view_counts: BTreeMap::new(),
+            now: options.now,
         })
     }
 
@@ -673,14 +677,16 @@ impl Site {
 
     /// The public series context feeds and portable copies carry for `post` (ADR 0041): only
     /// when the post is a published part of a collaborative series, and `None` otherwise, so
-    /// every other post's feed items and portable copies stay exactly as they were. Drafts are
-    /// not parts here even on a site loaded with them, so a draft neither gets a context nor
-    /// counts towards another part's position, total or contributors. Everything in it is
-    /// already public on the series page: the series name and URL, the part's place in the
+    /// every other post's feed items and portable copies stay exactly as they were. Drafts and
+    /// scheduled posts (dated after the time the site was loaded for) are not parts here, even
+    /// on a site that holds them because it was loaded with drafts or to preview one, so they
+    /// neither get a context nor count towards another part's position, total or contributors.
+    /// Any site loaded at the same time therefore gives a post the same context. Everything in it
+    /// is already public on the series page: the series name and URL, the part's place in the
     /// reading order, and author names from approved work credits. It reads no collaboration
     /// state.
     pub fn series_context(&self, post: &Post) -> Option<SeriesContext> {
-        if post.draft {
+        if !self.is_public_part(post) {
             return None;
         }
         let series = self.series_by_slug(post.series.as_deref()?)?;
@@ -688,7 +694,7 @@ impl Site {
             .posts
             .iter()
             .copied()
-            .filter(|&index| !self.posts[index].draft)
+            .filter(|&index| self.is_public_part(&self.posts[index]))
             .collect();
         let position = parts
             .iter()
@@ -714,6 +720,12 @@ impl Site {
             part_authors: names(self.posts[parts[position]].authors().collect()),
             contributors: names(self.contributors_among(parts.iter().copied())),
         })
+    }
+
+    /// Whether `post` is public on this site's production pages: neither a draft nor dated after
+    /// the time the site was loaded for.
+    fn is_public_part(&self, post: &Post) -> bool {
+        !post.draft && self.now.is_none_or(|now| post.date <= now)
     }
 
     /// Whether the series names its parts' authors on its page and in its navigation: only when
