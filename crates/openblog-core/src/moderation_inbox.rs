@@ -1678,7 +1678,7 @@ pub fn guidance(policy: &ModerationPolicy, item: &InboxItem, action: ModerationA
             "Shows the comment on its post.".into()
         }
         ModerationAction::Approve if item.kind == ParticipationKind::AuthorResponse => {
-            "Approves exactly this answer, to be shown as the section author’s own words under the reader’s reflection it answers. It does not mean you agree, and it can never be approved by the account that wrote it. If the reflection it answers is taken down, the answer is hidden with it.".into()
+            "Approves exactly this answer and publishes it on the post, after that author’s section and under the reader’s reflection it answers, labelled as the author’s response. It does not mean you agree, and it can never be approved by the account that wrote it. If the reflection it answers is taken down, the answer is hidden with it.".into()
         }
         ModerationAction::Approve if item.kind == ParticipationKind::ThirdPerspective => {
             "Approves exactly this text under the consent the reader gives now, to be shown on the post as a reader’s reflection, never as yours. It does not mean you agree. If the reader later hides their name or withdraws it, the page follows their choice.".into()

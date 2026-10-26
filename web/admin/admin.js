@@ -391,7 +391,7 @@ export function answerLines(item) {
     ? (response.standing.reason === "author-absent" ? "no section by that author is published now" : response.standing.reason === "ambiguous" ? "the author has identical sections, so which was meant cannot be told" : "the section has changed or been removed since the reader read it")
     : response.standing?.moved ? "the section is still published, in another place" : "the section is still published as the reader read it";
   lines.push(`Written by ${response.author}, the author of the section the reader’s reflection is about; ${standing}.`);
-  lines.push("Approving shows it under that reflection as the author’s own words. It is never approved by the account that wrote it, and it is hidden whenever the reflection is.");
+  lines.push("Approving publishes it on the post, after that author’s section and under the reader’s reflection, labelled as the author’s response. It is never approved by the account that wrote it, and it comes off the post whenever the reflection does or the author withdraws it.");
   if (response.account) lines.push(`Written by the account ${response.account}.`);
   if (response.mine) lines.push("This is your own answer.");
   return lines;
@@ -415,8 +415,8 @@ export function answerOffer(item) {
   return {
     heading: `Answer as ${offer.author}`,
     hint: stale
-      ? "That section has changed or been removed since the reader read it; your answer says so. It is shown under the reader’s reflection as your own words once a coordinator approves it. You cannot approve it yourself, and nothing is e-mailed."
-      : "It is shown under the reader’s reflection as your own words once a coordinator approves it. You cannot approve it yourself, and nothing is e-mailed.",
+      ? "That section has changed or been removed since the reader read it; your answer says so. It is published on the post, after your section and under the reader’s reflection, labelled as your response, once a coordinator approves it. You cannot approve it yourself, and nothing is e-mailed."
+      : "It is published on the post, after your section and under the reader’s reflection, labelled as your response, once a coordinator approves it. You cannot approve it yourself, and nothing is e-mailed.",
     button: "Send my answer for review",
   };
 }
@@ -480,6 +480,7 @@ export function moderationOutcome(item, action, result) {
  */
 export function feedbackPublicationMismatch(item) {
   if (item.kind === "third-perspective") return perspectivePublicationMismatch(item);
+  if (item.kind === "author-response") return answerPublicationMismatch(item);
   if (item.status === "approved" && item.published === false) return { notice: "Approved, but not on the site yet.", action: "publish", label: "Publish on the post" };
   if (item.status === "approved" && item.published === true && item.decisionPublished === false) return { notice: "The decision on the post is not the one you recorded.", action: "publish-decision", label: "Update the published decision" };
   if (item.status === "removed" && item.published === true) return { notice: "Removed, but still on the post.", action: "unpublish", label: "Take it off the post" };
@@ -506,6 +507,22 @@ export function perspectivePublicationMismatch(item) {
 }
 
 /**
+ * The same for an author's answer (ADR 0177): an approved answer that is not on its post yet, or
+ * a published one the hosted copy no longer allows, most often because its author withdrew it.
+ * It is published under its reflection, so the notice says so.
+ */
+export function answerPublicationMismatch(item) {
+  if (item.published === false && item.mayBeShown === true && item.status === "approved") return { notice: "Approved, but not on the post yet.", action: "publish", label: "Publish the answer on the post" };
+  if (item.published !== true || item.mayBeShown !== false) return null;
+  const notice = {
+    withdrawn: "The author withdrew this answer, but it is still on the post under the reader’s reflection. Take it off now.",
+    removed: "Removed, but still on the post under the reader’s reflection.",
+    rejected: "Rejected, but still on the post under the reader’s reflection.",
+  }[item.status] || "This answer is no longer approved, but it is still on the post. Take it off now.";
+  return { notice, action: "unpublish", label: "Take it off the post" };
+}
+
+/**
  * What the audit of the published Third Perspectives (`engagement/third-perspectives/published`)
  * says, in words, for the banner shown on every tab (ADR 0115): how many must come off their posts
  * now, and how many cannot be told because the hosted function does not read their consent.
@@ -516,6 +533,8 @@ export function perspectiveAuditNotices(audit) {
   const notices = [];
   const off = count(audit?.mustComeOff);
   const unknown = count(audit?.unknown);
+  const answers = count(audit?.answersMustComeOff);
+  if (answers) notices.push({ kind: "answersMustComeOff", text: `${answers} published author response${answers === 1 ? "" : "s"} must come off ${answers === 1 ? "its" : "their"} post${answers === 1 ? "" : "s"}: the author withdrew ${answers === 1 ? "it" : "them"}, or ${answers === 1 ? "its" : "their"} approval no longer allows ${answers === 1 ? "it" : "them"}. The reader’s reflection stays.` });
   if (off) notices.push({ kind: "mustComeOff", text: `${many(off)} must come off ${off === 1 ? "its post" : "their posts"}: the reader withdrew ${off === 1 ? "it" : "them"}, or ${off === 1 ? "its" : "their"} approval or consent no longer allows ${off === 1 ? "it" : "them"}.` });
   if (unknown) notices.push({ kind: "unknown", text: `${many(unknown)} cannot be checked against the hosted copy, because Third Perspectives are switched off or rolled back there. Look at ${unknown === 1 ? "it" : "each"}, and take off any that should not be shown.` });
   if (audit?.truncated) notices.push({ kind: "truncated", text: "More reflections are published than one check reads; the first ones were checked." });
@@ -12820,10 +12839,10 @@ export class ObAdmin extends AdminElement {
         return;
       }
       const notices = perspectiveAuditNotices(audit);
-      const entry = (item, label) => h("li", {}, `${item.post}: `, h("button", { class: "oba-btn", type: "button", "data-perspective-id": item.id, onClick: async (event) => {
+      const entry = (item, label, route = "third-perspectives") => h("li", {}, `${item.post}: `, h("button", { class: "oba-btn", type: "button", "data-perspective-id": item.id, onClick: async (event) => {
         event.currentTarget.disabled = true;
         try {
-          await this.api.call("POST", "engagement/third-perspectives/unpublish", { json: { id: item.id } });
+          await this.api.call("POST", `engagement/${route}/unpublish`, { json: { id: item.id } });
           await reloadAll("Taken off its post. Rebuild or publish to update the live site.", "ok");
         } catch (error) {
           event.currentTarget.disabled = false;
@@ -12831,8 +12850,10 @@ export class ObAdmin extends AdminElement {
           queueStatus.focus();
         }
       } }, label));
-      perspectiveBanner.replaceChildren(...notices.map((notice) => h("div", { class: notice.kind === "mustComeOff" ? "oba-notice oba-perspective-must-come-off" : "oba-notice", role: notice.kind === "mustComeOff" ? "alert" : "status", "data-perspective-notice": notice.kind },
+      const urgent = (kind) => kind === "mustComeOff" || kind === "answersMustComeOff";
+      perspectiveBanner.replaceChildren(...notices.map((notice) => h("div", { class: urgent(notice.kind) ? "oba-notice oba-perspective-must-come-off" : "oba-notice", role: urgent(notice.kind) ? "alert" : "status", "data-perspective-notice": notice.kind },
         h("p", {}, h("strong", {}, notice.text)),
+        notice.kind === "answersMustComeOff" ? h("ul", {}, audit.answersMustComeOff.map((item) => entry(item, "Take the answer off the post", "author-responses"))) : null,
         notice.kind === "mustComeOff" ? h("ul", {}, audit.mustComeOff.map((item) => entry(item, "Take it off the post"))) : null,
         notice.kind === "unknown" ? h("ul", {}, audit.unknown.map((item) => entry(item, "Take it off the post"))) : null,
       )));
@@ -13142,7 +13163,7 @@ export class ObAdmin extends AdminElement {
         actions.append(h("button", { class: "oba-btn", type: "button", onClick: async () => {
           busy(true);
           try {
-            await this.api.call("POST", `engagement/${item.kind === "third-perspective" ? "third-perspectives" : "feedback"}/${mismatch.action}`, { json: { id: item.id } });
+            await this.api.call("POST", `engagement/${item.kind === "third-perspective" ? "third-perspectives" : item.kind === "author-response" ? "author-responses" : "feedback"}/${mismatch.action}`, { json: { id: item.id } });
             await reloadAll(mismatch.action === "publish" ? `Published on ${where}.` : mismatch.action === "publish-decision" ? `Decision updated on ${where}. Rebuild or publish to update the live site.` : `Taken off ${where}. Rebuild or publish to update the live site.`, "ok");
           } catch (error) {
             busy(false);
@@ -13152,6 +13173,8 @@ export class ObAdmin extends AdminElement {
         card.append(h("p", { class: "oba-notice" }, mismatch.notice));
       } else if (item.kind === "third-perspective" && item.status === "approved" && item.published === true) {
         card.append(h("p", { class: "oba-small" }, "Published on the post as a reader’s reflection."));
+      } else if (item.kind === "author-response" && item.status === "approved" && item.published === true) {
+        card.append(h("p", { class: "oba-small" }, "Published on the post after the author’s section, under the reader’s reflection, labelled as the author’s response."));
       } else if (item.source === "feedback" && item.status === "approved" && item.published === true) {
         card.append(h("p", { class: "oba-small" }, "Published on the post. ", h("a", { href: `#oba-published-${item.id}`, onClick: (event) => {
           event.preventDefault();

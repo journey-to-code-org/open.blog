@@ -695,6 +695,12 @@ fn authenticated_api(
         ("GET", "engagement/third-perspectives/published") => {
             published_perspectives_audit(state, session)
         }
+        ("POST", "engagement/author-responses/publish") => {
+            sync_published_answer(state, req, session, true)
+        }
+        ("POST", "engagement/author-responses/unpublish") => {
+            sync_published_answer(state, req, session, false)
+        }
         ("GET", "engagement/feedback/published") => published_feedback(state),
         ("PUT", "engagement/feedback/response") => respond_to_feedback(state, req),
         ("POST", "engagement/feedback/revision-note") => record_revision_note(state, req),
@@ -4980,6 +4986,64 @@ fn unpublish_perspective(path: &Path, id: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Put one approved author response under the reflection it answers on the
+/// site, or say why not. The reflection is published first when it is not on
+/// the file yet. The caller holds the content lock and has checked the answer
+/// against its parent (`check_answer_approval`).
+fn publish_approved_answer(
+    path: &Path,
+    site: &Site,
+    parent: &moderation_inbox::InboxItem,
+    answer: &author_response::HostedAuthorResponse,
+) -> Result<(), String> {
+    let published = perspective_publication::PublishedAnswer::from_hosted(
+        answer,
+        answer.moderated_at.unwrap_or_else(clock::now),
+    )?;
+    let hosted = parent.perspective().ok_or_else(|| {
+        "The reflection this answers has no text left, so the answer is not on the site".to_string()
+    })?;
+    let on_file = load_third_perspectives(path)
+        .map_err(|_| "third-perspectives.json cannot be read; fix it in source mode".to_string())?
+        .get(&parent.id)
+        .is_some();
+    if !on_file {
+        publish_approved_perspective(path, site, hosted)?;
+    }
+    let mut file = load_third_perspectives(path)
+        .map_err(|_| "third-perspectives.json cannot be read; fix it in source mode".to_string())?;
+    file.set_answer(&parent.id, published)?;
+    write_atomic_bytes(path, file.to_json().as_bytes())
+        .map_err(|_| "third-perspectives.json could not be written".to_string())
+}
+
+/// Take one published author response off its reflection (the reflection stays).
+/// The caller holds the content lock.
+fn unpublish_published_answer(path: &Path, answer: &str) -> Result<(), String> {
+    let mut file = load_third_perspectives(path).map_err(|_| {
+        "third-perspectives.json cannot be read; remove the answer from it in source mode"
+            .to_string()
+    })?;
+    if file.unpublish_answer(answer) {
+        write_atomic_bytes(path, file.to_json().as_bytes())
+            .map_err(|_| "third-perspectives.json could not be written".to_string())?;
+    }
+    Ok(())
+}
+
+/// Whether a published author response must come off now: its hosted row is
+/// no longer approved at its current text (withdrawn, removed, rejected,
+/// reopened, purged). A purged answer keeps no text, so none may stay public.
+fn answer_must_come_off(item: &moderation_inbox::InboxItem) -> bool {
+    match item.author_response() {
+        Some(hosted) => {
+            hosted.state != ModerationState::Approved
+                || hosted.approved_revision != Some(hosted.item_revision)
+        }
+        None => true,
+    }
+}
+
 /// Whether a published Third Perspective must come off its post now: the
 /// hosted copy is no longer one the one projection shows (withdrawn,
 /// removed, rejected, purged, reopened, under a consent that no longer allows
@@ -5098,6 +5162,107 @@ fn apply_perspective_sync(
     Response::json(200, &json!({ "published": publish, "build": build }))
 }
 
+/// `POST engagement/author-responses/publish` or `/unpublish`: put an
+/// approved author response under its published reflection again, after a
+/// failed write, or take one off that may no longer be shown (the author
+/// withdrew it). Only the site Admin of the answer's work may, and only as the
+/// hosted copy and its parent say now (ADR 0177).
+fn sync_published_answer(
+    state: &AppState,
+    req: &Request,
+    session: &auth::Session,
+    publish: bool,
+) -> Response {
+    let body = match feedback_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let id = match feedback_id(&body["id"]) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let (protocol, third_perspectives, item) =
+        match hosted_inbox_item(state, moderation_inbox::Source::Feedback, &id) {
+            Ok(found) => found,
+            Err(response) => return response,
+        };
+    if item.kind != ParticipationKind::AuthorResponse {
+        return Response::error(404, "No such author response");
+    }
+    let sources = match inbox_sources(state) {
+        Ok(sources) => sources,
+        Err(response) => return response,
+    };
+    let role = sources.inbox(session, protocol, third_perspectives, |inbox| {
+        inbox.actor(&item).role()
+    });
+    if role != moderation::ActorRole::SiteAdmin {
+        return Response::json(
+            403,
+            &json!({ "error": "Only the site Admin can change what the site publishes.", "code": "denied" }),
+        );
+    }
+    // A publish checks the answer under its parent as an approval does.
+    let parent = if publish {
+        let Some(answer) = item.author_response() else {
+            return Response::error(409, "Its text was deleted, so it cannot be published");
+        };
+        match hosted_inbox_lookup(state, moderation_inbox::Source::Feedback, &answer.parent) {
+            Ok(Some((parent_protocol, parent_perspectives, parent))) => {
+                let checked =
+                    sources.inbox(session, parent_protocol, parent_perspectives, |inbox| {
+                        inbox.check_answer_approval(&item, &parent)
+                    });
+                if let Err(code) = checked {
+                    return Response::json(
+                        409,
+                        &json!({ "error": "The reflection this answers is not shown to readers now, or is not about this author’s section, so the answer cannot be published.", "code": code }),
+                    );
+                }
+                Some(parent)
+            }
+            Ok(None) => {
+                return Response::error(409, "The reflection this answers is not on the site")
+            }
+            Err(response) => return response,
+        }
+    } else {
+        None
+    };
+    let site = match feedback_site(state) {
+        Ok(site) => site,
+        Err(response) => return response,
+    };
+    let mut status = lock(&state.build);
+    let _transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let path = match third_perspectives_path(state) {
+        Ok(path) => path,
+        Err(response) => return response,
+    };
+    let outcome = if publish {
+        match (item.author_response(), &parent) {
+            (Some(answer), Some(parent)) => publish_approved_answer(&path, &site, parent, answer),
+            _ => Err("Its text was deleted, so it cannot be published".into()),
+        }
+    } else if answer_must_come_off(&item) {
+        unpublish_published_answer(&path, &id)
+    } else {
+        Err("This answer is approved, so it stays on the post. Remove it in the inbox to take it off.".into())
+    };
+    if let Err(error) = outcome {
+        return Response::error(409, &error);
+    }
+    let build = feedback_build_json(&state.rebuild_locked(&mut status));
+    eprintln!(
+        "admin: author response {id} {}",
+        if publish { "published" } else { "unpublished" }
+    );
+    Response::json(200, &json!({ "published": publish, "build": build }))
+}
+
 /// The most published reflections one audit reads from the hosted copy.
 const PERSPECTIVE_AUDIT_LIMIT: usize = 200;
 
@@ -5123,6 +5288,7 @@ fn published_perspectives_audit(state: &AppState, session: &auth::Session) -> Re
     };
     let mut must_come_off = Vec::new();
     let mut unknown = Vec::new();
+    let mut answers_off = Vec::new();
     for record in file.items.iter().take(PERSPECTIVE_AUDIT_LIMIT) {
         let entry = json!({ "id": record.id, "post": record.post });
         match hosted_inbox_lookup(state, moderation_inbox::Source::Feedback, &record.id) {
@@ -5136,6 +5302,19 @@ fn published_perspectives_audit(state: &AppState, session: &auth::Session) -> Re
                     });
                 if role != moderation::ActorRole::SiteAdmin {
                     continue;
+                }
+                // An answer under a reflection that stays is checked on its own:
+                // its hosted row must still be approved (ADR 0177).
+                if let (Some(answer), Some(false) | None) = (&record.answer, state_now) {
+                    match hosted_inbox_lookup(state, moderation_inbox::Source::Feedback, &answer.id)
+                    {
+                        Ok(Some((_, _, hosted_answer)))
+                            if !answer_must_come_off(&hosted_answer) => {}
+                        Ok(_) => answers_off.push(json!({
+                            "id": answer.id, "post": record.post, "parent": record.id,
+                        })),
+                        Err(response) => return response,
+                    }
                 }
                 match state_now {
                     Some(true) => must_come_off.push(entry),
@@ -5159,6 +5338,7 @@ fn published_perspectives_audit(state: &AppState, session: &auth::Session) -> Re
             "truncated": file.items.len() > PERSPECTIVE_AUDIT_LIMIT,
             "mustComeOff": must_come_off,
             "unknown": unknown,
+            "answersMustComeOff": answers_off,
         }),
     )
 }
@@ -5475,7 +5655,7 @@ fn withdraw_author_answer(state: &AppState, req: &Request, session: &auth::Sessi
         Ok(sources) => sources,
         Err(response) => return response,
     };
-    withdraw_answer_with(
+    let response = withdraw_answer_with(
         &sources,
         session,
         protocol,
@@ -5491,7 +5671,37 @@ fn withdraw_author_answer(state: &AppState, req: &Request, session: &auth::Sessi
             )
             .and_then(|(status, value)| hosted_author_answer(status, value))
         },
-    )
+    );
+    // A withdrawn answer is never public again: take it off its reflection.
+    // A failure here is not hidden: the inbox's audit lists the answer until
+    // it is off (ADR 0177).
+    if response.status == 200 {
+        take_answer_off(state, &id);
+    }
+    response
+}
+
+/// Take an answer off the published file when it is on it, then rebuild.
+/// Best effort: the audit and the card say when it stayed.
+fn take_answer_off(state: &AppState, answer: &str) -> bool {
+    let mut status = lock(&state.build);
+    let Ok(_transaction) = content_transaction(state) else {
+        return false;
+    };
+    let Ok(path) = third_perspectives_path(state) else {
+        return false;
+    };
+    let Ok(file) = load_third_perspectives(&path) else {
+        return false;
+    };
+    if file.parent_of_answer(answer).is_none() {
+        return true;
+    }
+    if unpublish_published_answer(&path, answer).is_err() {
+        return false;
+    }
+    let _ = state.rebuild_locked(&mut status);
+    true
 }
 
 fn withdraw_answer_with(
@@ -5789,6 +5999,15 @@ fn inbox_view(
                     Some(must) => json!(!must),
                     None => Json::Null,
                 };
+        } else if item.kind == ParticipationKind::AuthorResponse {
+            // An author response is published under its reflection in the same
+            // file (ADR 0177); the card says whether it is, and whether the
+            // hosted copy may be shown now.
+            view["published"] = match perspectives {
+                Some(file) => json!(file.parent_of_answer(&item.id).is_some()),
+                None => Json::Null,
+            };
+            view["mayBeShown"] = json!(!answer_must_come_off(item));
         } else {
             view["published"] = match published {
                 Some(file) => json!(file.get(&item.id).is_some()),
@@ -6417,6 +6636,7 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
     // from the hosted store now, shown to readers and about the answering
     // contributor's own section (ADR 0166); the hosted function checks the
     // same again.
+    let mut answer_parent: Option<moderation_inbox::InboxItem> = None;
     if action == Some(moderation::ModerationAction::Approve) {
         if let Some(answer) = item.author_response() {
             let parent = match hosted_inbox_lookup(
@@ -6435,6 +6655,10 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
                 }
                 None => Err(author_response::PARENT_UNAVAILABLE),
             };
+            let parent_item = parent.map(|(_, _, parent)| parent);
+            if checked.is_ok() {
+                answer_parent = parent_item;
+            }
             if let Err(code) = checked {
                 return Response::json(
                     if code == author_response::PARENT_UNAVAILABLE {
@@ -6586,7 +6810,24 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
     let mut build = None;
     let approved_note = changed.feedback().filter(|_| approve);
     let approved_perspective = changed.perspective().filter(|_| approve);
-    if approved_note.is_some() || approved_perspective.is_some() || unpublish.is_some() {
+    // An approved author response is published under its reflection; any
+    // other decision on one that is on the site takes it off (ADR 0177).
+    let approved_answer = changed
+        .author_response()
+        .filter(|_| approve)
+        .zip(answer_parent.as_ref());
+    let answer_off = (changed.kind == ParticipationKind::AuthorResponse
+        && !approve
+        && perspectives
+            .as_ref()
+            .is_some_and(|file| file.parent_of_answer(&id).is_some()))
+    .then(|| id.clone());
+    if approved_note.is_some()
+        || approved_perspective.is_some()
+        || unpublish.is_some()
+        || approved_answer.is_some()
+        || answer_off.is_some()
+    {
         let mut status = lock(&state.build);
         let _transaction = match content_transaction(state) {
             Ok(lock) => lock,
@@ -6601,6 +6842,15 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
                 .map_err(|_| "third-perspectives.json cannot be written".to_string())
         };
         let outcome = match (approved_note, approved_perspective, &unpublish) {
+            _ if approved_answer.is_some() || answer_off.is_some() => {
+                perspectives_path().and_then(|path| match (&approved_answer, &answer_off) {
+                    (Some((answer, parent)), _) => {
+                        publish_approved_answer(&path, &sources.published, parent, answer)
+                    }
+                    (None, Some(answer)) => unpublish_published_answer(&path, answer),
+                    (None, None) => Ok(()),
+                })
+            }
             (Some(hosted), _, _) => feedback_path().and_then(|path| {
                 publish_approved_feedback(
                     &path,
@@ -6638,7 +6888,13 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
                             .and_then(|path| load_reader_feedback(&path))
                             .is_ok_and(|(file, _)| file.get(target).is_some());
                     }
-                    None => {}
+                    None => {
+                        if let Some(answer) = &answer_off {
+                            published_now = third_perspectives_path(state)
+                                .and_then(|path| load_third_perspectives(&path))
+                                .is_ok_and(|file| file.parent_of_answer(answer).is_some());
+                        }
+                    }
                 }
                 publish_error = Some(error)
             }
@@ -20462,8 +20718,10 @@ mod tests {
         fs::write(&path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
     }
 
-    fn feedback_routes() -> [(&'static str, &'static str); 16] {
+    fn feedback_routes() -> [(&'static str, &'static str); 18] {
         [
+            ("POST", "/admin/api/engagement/author-responses/publish"),
+            ("POST", "/admin/api/engagement/author-responses/unpublish"),
             ("POST", "/admin/api/engagement/author-response"),
             ("PATCH", "/admin/api/engagement/author-response"),
             ("GET", "/admin/api/engagement/third-perspectives/published"),
@@ -21425,6 +21683,114 @@ mod tests {
             let value = body_json(&hostile);
             assert_eq!(value["error"], "The hosted function refused the answer");
             assert_eq!(value["code"], Json::Null);
+        }
+
+        #[test]
+        fn an_approved_answer_is_published_under_its_reflection_and_comes_off_with_it() {
+            let site = site(SITE_JSON, &TURNS, true);
+            let parent = parent_of(&site, 0, "approved", 3);
+            let dir =
+                std::env::temp_dir().join(format!("ob-answer-publication-{}", std::process::id()));
+            let _ = fs::remove_dir_all(&dir);
+            let path = dir.join("third-perspectives.json");
+            let approved = answer_item("approved", 2, "mina-admin");
+            let answer = approved.author_response().unwrap();
+            // Publishing the answer publishes its reflection first, and the
+            // file is version 2 with the answer's public fields only.
+            publish_approved_answer(&path, &site, &parent, answer).unwrap();
+            let text = fs::read_to_string(&path).unwrap();
+            assert!(text.contains("\"version\": 2"), "{text}");
+            for private in ["mina-admin", "p-mina", "participant", "account"] {
+                assert!(!text.contains(private), "{private} in {text}");
+            }
+            let file = load_third_perspectives(&path).unwrap();
+            let record = file.get(PARENT).expect("the reflection is published");
+            let published = record.answer.as_ref().expect("the answer is published");
+            assert_eq!(published.id, ANSWER);
+            assert_eq!(published.contributor, "mina");
+            assert_eq!(published.body, "I meant the harbour.");
+            assert_eq!(
+                file.parent_of_answer(ANSWER)
+                    .map(|record| record.id.as_str()),
+                Some(PARENT)
+            );
+            // Publishing again changes nothing.
+            publish_approved_answer(&path, &site, &parent, answer).unwrap();
+            assert_eq!(fs::read_to_string(&path).unwrap(), text);
+            // Only an approved answer is published.
+            for status in ["pending", "rejected", "removed", "withdrawn"] {
+                let other = answer_item(status, 2, "mina-admin");
+                assert!(
+                    publish_approved_answer(
+                        &path,
+                        &site,
+                        &parent,
+                        other.author_response().unwrap()
+                    )
+                    .is_err(),
+                    "{status}"
+                );
+                assert!(answer_must_come_off(&other), "{status}");
+            }
+            assert!(!answer_must_come_off(&approved));
+            // The answer to another contributor's section is refused.
+            let about_joe = parent_of(&site, 1, "approved", 3);
+            let elsewhere = dir.join("elsewhere.json");
+            assert!(publish_approved_answer(&elsewhere, &site, &about_joe, answer).is_err());
+            // Taking the answer off leaves the reflection, and the file returns to
+            // version 1.
+            unpublish_published_answer(&path, ANSWER).unwrap();
+            let after = fs::read_to_string(&path).unwrap();
+            assert!(
+                after.contains("\"version\": 1") && !after.contains("answer"),
+                "{after}"
+            );
+            assert!(load_third_perspectives(&path)
+                .unwrap()
+                .get(PARENT)
+                .is_some());
+            // Unpublishing what is not there is not an error.
+            unpublish_published_answer(&path, ANSWER).unwrap();
+            // Taking the reflection off takes its answer with it.
+            publish_approved_answer(&path, &site, &parent, answer).unwrap();
+            unpublish_perspective(&path, PARENT).unwrap();
+            assert!(load_third_perspectives(&path).unwrap().items.is_empty());
+            let _ = fs::remove_dir_all(&dir);
+        }
+
+        #[test]
+        fn the_card_says_whether_an_answer_is_on_the_post_and_may_stay() {
+            let site = site(SITE_JSON, &TURNS, true);
+            let sources = sources(site.clone(), record());
+            let parent = parent_of(&site, 0, "approved", 3);
+            let dir = std::env::temp_dir().join(format!("ob-answer-card-{}", std::process::id()));
+            let _ = fs::remove_dir_all(&dir);
+            let path = dir.join("third-perspectives.json");
+            let approved = answer_item("approved", 2, "mina-admin");
+            publish_approved_answer(&path, &site, &parent, approved.author_response().unwrap())
+                .unwrap();
+            let file = load_third_perspectives(&path).unwrap();
+            let view = |item: &moderation_inbox::InboxItem, file: Option<&_>| {
+                sources.inbox(
+                    &session("owner-admin"),
+                    moderation_inbox::Protocol::Protected,
+                    true,
+                    |inbox| inbox_view(inbox, item, None, file),
+                )
+            };
+            let shown = view(&approved, Some(&file)).unwrap();
+            assert_eq!(shown["published"], true);
+            assert_eq!(shown["mayBeShown"], true);
+            // A withdrawn answer that is still on the post must come off.
+            let withdrawn = answer_item("withdrawn", 3, "mina-admin");
+            let stale = view(&withdrawn, Some(&file)).unwrap();
+            assert_eq!(
+                (&stale["published"], &stale["mayBeShown"]),
+                (&json!(true), &json!(false))
+            );
+            // An unreadable file claims neither.
+            assert_eq!(view(&approved, None).unwrap()["published"], Json::Null);
+            let _ = fs::remove_dir_all(&dir);
         }
 
         fn answer_item(status: &str, version: u64, account: &str) -> moderation_inbox::InboxItem {

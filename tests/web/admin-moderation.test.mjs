@@ -14,6 +14,8 @@ import {
   localDay,
   MODERATION_KINDS,
   answerLines,
+  answerPublicationMismatch,
+  perspectiveAuditNotices,
   answerOffer,
   answerRequest,
   withdrawAnswerRequest,
@@ -323,4 +325,32 @@ test("the inbox draws the answer form and the withdrawal as native, labelled con
   assert.match(admin, /answerRequest\(item, body\)/);
   assert.match(admin, /else text\.focus\(\)/, "a refused answer keeps its text and focus");
   assert.match(admin, /I understand that my answer is taken off the post for good/);
+});
+
+test("an answer's card and the audit say when it is on the post and when it must come off (ADR 0177)", () => {
+  // Approved but not on the post yet: the site Admin may publish it.
+  assert.deepEqual(answerPublicationMismatch({ status: "approved", published: false, mayBeShown: true }), { notice: "Approved, but not on the post yet.", action: "publish", label: "Publish the answer on the post" });
+  assert.equal(answerPublicationMismatch({ status: "approved", published: true, mayBeShown: true }), null);
+  assert.equal(answerPublicationMismatch({ status: "pending", published: false, mayBeShown: true }), null, "only an approved answer is offered for publication");
+  // A withdrawn, removed or rejected answer that is still on the post must come off.
+  for (const status of ["withdrawn", "removed", "rejected"]) {
+    const mismatch = answerPublicationMismatch({ status, published: true, mayBeShown: false });
+    assert.equal(mismatch.action, "unpublish", status);
+    assert.match(mismatch.notice, /still on the post under the reader’s reflection/);
+  }
+  assert.equal(feedbackPublicationMismatch({ kind: "author-response", status: "withdrawn", published: true, mayBeShown: false }).action, "unpublish");
+  assert.equal(answerPublicationMismatch({ status: "withdrawn", published: false, mayBeShown: false }), null);
+  // The banner counts answers apart from reflections, and says the reflection stays.
+  const notices = perspectiveAuditNotices({ mustComeOff: [], unknown: [], answersMustComeOff: [{ id: "a" }, { id: "b" }] });
+  assert.equal(notices.length, 1);
+  assert.equal(notices[0].kind, "answersMustComeOff");
+  assert.match(notices[0].text, /^2 published author responses must come off their posts: the author withdrew them/);
+  assert.match(notices[0].text, /The reader’s reflection stays\./);
+  assert.match(perspectiveAuditNotices({ answersMustComeOff: [{ id: "a" }] })[0].text, /^1 published author response must come off its post/);
+  assert.deepEqual(perspectiveAuditNotices({ mustComeOff: [], unknown: [], answersMustComeOff: [] }), []);
+  // The wording promises only what publication now does.
+  const lines = answerLines({ kind: "author-response", response: { author: "MINA", standing: { state: "current", moved: false } } });
+  assert.match(lines[1], /^Approving publishes it on the post, after that author’s section and under the reader’s reflection, labelled as the author’s response\./);
+  assert.match(lines[1], /comes off the post whenever the reflection does or the author withdraws it/);
+  assert.match(admin, /author-responses/);
 });
