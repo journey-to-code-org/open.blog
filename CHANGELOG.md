@@ -5,6 +5,12 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- The research checks now have author documentation, [Research checks](docs/research-checks.md),
+  explaining every finding in plain language, how to fix it, and what acknowledging one does and
+  does not mean, and a regression corpus of invented works, editions, translations, witnesses,
+  lecture claims, quotations, interpretations and contradictions keeps every check producing its
+  finding, each distinction failing on its own, and no private research reaching a public file.
+
 - `openblog check` and `openblog build` now review the sources your opted-in posts cite: a
   quotation (a block quotation or quoted words with a citation) that gives no location, or only
   a chapter or section; a page in an edition recorded in several volumes that names no volume;

@@ -170,7 +170,7 @@ test("What will be public lists the report the command line prints, with the sam
   );
   // The report names the post and its line, and opens where it is repaired.
   const context = codeOf(site(page), "context-link-unpublished");
-  await expect(context.locator("[data-review-place]")).toHaveText(/^posts\/cave\.md, line \d+$/);
+  await expect(context.locator("[data-review-place]")).toHaveText(/^posts\/cave\.md:\d+(:\d+)?$/);
   await expect(context.getByRole("link", { name: "Open the post posts/cave.md" })).toHaveAttribute("href", "#/edit/posts%2Fcave.md");
   await expect(context.getByRole("link", { name: "Open the atlas entry the-good" })).toHaveAttribute("href", "#/research/atlas/the-good");
   // Nothing private, nothing scored, nothing written.
