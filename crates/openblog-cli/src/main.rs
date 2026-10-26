@@ -381,9 +381,8 @@ fn run(raw: &[String]) -> Result<(), String> {
         }
         "analytics" => analytics_command(&root, &args),
         "check" => {
-            let (site, themes) = site::load_site(&root, true, None)?;
-            private_guard::refuse_private_research_in_public_inputs(&root, &site.config)?;
-            let files = openblog_core::generate(&site, &themes)?;
+            let (mut site, themes) = site::load_site(&root, true, None)?;
+            let files = site::generate_site(&root, &mut site, &themes)?;
             println!(
                 "OK: {} posts, {} series, {} tags, {} pages; would write {} generated files.",
                 site.posts.len(),
@@ -409,9 +408,11 @@ fn run(raw: &[String]) -> Result<(), String> {
             if let Some(summary) = check_research_notebook(&root, &site.config.contributors)? {
                 println!("{summary}");
             }
-            if let Some((summary, notices)) =
-                check_knowledge_atlas(&root, &site.config.contributors)?
-            {
+            if let Some((summary, notices)) = check_knowledge_atlas(
+                &root,
+                &site.config.contributors,
+                site.config.knowledge_atlas.publish,
+            )? {
                 for notice in notices {
                     eprintln!("notice: {notice}");
                 }
@@ -841,12 +842,14 @@ fn check_research_notebook(
 }
 
 /// Validate the private Knowledge Atlas when one is stored, against the stored
-/// library and notebook. Like them it is never built, so a missing atlas is
-/// not mentioned. Approved relationships the publication projection would
-/// leave out are non-blocking notices that name ids, never authored text.
+/// library and notebook. A missing atlas is not mentioned. The summary says
+/// whether builds publish its approved part (ADR 0063). Approved relationships
+/// the publication projection would leave out are non-blocking notices that
+/// name ids, never authored text.
 fn check_knowledge_atlas(
     root: &std::path::Path,
     contributors: &std::collections::BTreeMap<String, openblog_core::contributor::Contributor>,
+    publish: bool,
 ) -> Result<Option<(String, Vec<String>)>, String> {
     let snapshot = atlas_store::load(root, contributors).map_err(|error| error.to_string())?;
     if !snapshot.stored {
@@ -858,12 +861,27 @@ fn check_knowledge_atlas(
         .iter()
         .map(|notice| format!("{}: {notice}", atlas_store::ATLAS_FILE))
         .collect();
+    let publication = if publish {
+        let (entries, relationships) = snapshot.atlas.projected();
+        format!(
+            "builds publish its approved part: {} entr{} and {} relationship(s)",
+            entries.len(),
+            if entries.len() == 1 { "y" } else { "ies" },
+            relationships.len()
+        )
+    } else {
+        "builds never read or publish it".to_string()
+    };
     Ok(Some((
         format!(
-            "OK: private Knowledge Atlas {} has {} entr{} and {} relationship(s); builds never read or publish it.",
+            "OK: private Knowledge Atlas {} has {} entr{} and {} relationship(s); {publication}.",
             atlas_store::ATLAS_FILE,
             snapshot.atlas.entries.len(),
-            if snapshot.atlas.entries.len() == 1 { "y" } else { "ies" },
+            if snapshot.atlas.entries.len() == 1 {
+                "y"
+            } else {
+                "ies"
+            },
             snapshot.atlas.relationships.len()
         ),
         notices,
@@ -948,7 +966,7 @@ mod tests {
         ));
         std::fs::create_dir_all(&root).unwrap();
         let contributors = std::collections::BTreeMap::new();
-        assert_eq!(check_knowledge_atlas(&root, &contributors), Ok(None));
+        assert_eq!(check_knowledge_atlas(&root, &contributors, false), Ok(None));
         assert!(!root.join(".openblog").exists());
 
         let library = root.join(source_store::LIBRARY_FILE);
@@ -964,12 +982,19 @@ mod tests {
             r#"{"version":1,"entries":[{"id":"a","kind":"person","label":"ob-secret-label"},{"id":"b","kind":"work","label":"B","source":"w","visibility":"approved"}],"relationships":[{"id":"r","kind":"authored","from":"a","to":"b","assertedBy":{"kind":"author"},"evidence":[{"source":"w"}],"visibility":"approved"}]}"#,
         )
         .unwrap();
-        let (summary, notices) = check_knowledge_atlas(&root, &contributors)
+        let (summary, notices) = check_knowledge_atlas(&root, &contributors, false)
             .unwrap()
             .unwrap();
         assert!(
-            summary.contains("2 entries and 1 relationship(s)"),
+            summary.contains("2 entries and 1 relationship(s); builds never read or publish it."),
             "{summary}"
+        );
+        let (published, _) = check_knowledge_atlas(&root, &contributors, true)
+            .unwrap()
+            .unwrap();
+        assert!(
+            published.contains("builds publish its approved part: 1 entry and 0 relationship(s)."),
+            "{published}"
         );
         assert_eq!(notices.len(), 1, "{notices:?}");
         assert!(
@@ -984,7 +1009,7 @@ mod tests {
             r#"{"version":1,"entries":[{"id":"b","kind":"work","label":"B","source":"gone"}]}"#,
         )
         .unwrap();
-        let error = check_knowledge_atlas(&root, &contributors).unwrap_err();
+        let error = check_knowledge_atlas(&root, &contributors, false).unwrap_err();
         assert!(
             error.contains(".openblog/private/research/atlas.json: entries[0] `b` source")
                 && error.contains("(unknown-source)"),

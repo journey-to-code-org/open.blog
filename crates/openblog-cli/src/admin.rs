@@ -12069,8 +12069,8 @@ mod tests {
 
     // ---- Knowledge Atlas leak regressions (A5.2, ADR 0060) ----------------------
     //
-    // Every atlas field holds its own sentinel, including approved items: there is
-    // no publication projection yet, so approval must not open any surface either.
+    // Every atlas field holds its own sentinel, including approved items: the site
+    // does not publish its atlas, so approval alone must not open any surface.
 
     const ATLAS_SENTINELS: [(&str, &str); 14] = [
         ("entry id", "ob-atlas-entry-id-5309"),
@@ -12785,6 +12785,155 @@ mod tests {
         );
     }
 
+    // ---- Knowledge Atlas publication (A5.4, ADR 0063) ---------------------------
+    //
+    // With publication turned on, the approved sentinels above may appear, but only
+    // in the atlas pages, `atlas.json` and the sitemap. Unknown fields at every
+    // level, private entries, private relationships and relationships to a private
+    // entry never appear anywhere, and withdrawing approval removes them all.
+
+    const PUBLISHABLE: [usize; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 9, 10];
+    const NEVER_PUBLIC: [(&str, &str); 3] = [
+        ("private entry", "ob-atlas-private-entry-5309"),
+        ("private relationship", "ob-atlas-private-relationship-5309"),
+        ("private endpoint", "ob-atlas-private-endpoint-5309"),
+    ];
+
+    fn atlas_surface(name: &str) -> bool {
+        name == "atlas.json" || name == "sitemap.xml" || name.starts_with("atlas/")
+    }
+
+    #[test]
+    fn knowledge_atlas_publication_projects_only_approved_fields_and_withdrawal_removes_them() {
+        use openblog_core::knowledge_atlas::{Entry, Relationship};
+        let f = fixture_with_sources("atlas-publication-corpus");
+        seeded_atlas(&f);
+        let none = BTreeMap::new();
+        let seeded = crate::atlas_store::load(&f.dir, &none).unwrap();
+        let hidden = Entry::from_json(json!({"id": "hidden", "kind": "concept",
+            "label": NEVER_PUBLIC[0].1, "summary": NEVER_PUBLIC[0].1, "visibility": "private"}))
+        .unwrap();
+        let one =
+            crate::atlas_store::create_entry(&f.dir, &seeded.revision, hidden, &none).unwrap();
+        let private = Relationship::from_json(json!({"id": "r-private", "kind": "influenced",
+            "from": ATLAS_SENTINELS[0].1, "to": "politeia", "assertedBy": {"kind": "author"},
+            "evidence": [{"source": "plato"}], "uncertainty": NEVER_PUBLIC[1].1,
+            "visibility": "private"}))
+        .unwrap();
+        let two =
+            crate::atlas_store::create_relationship(&f.dir, &one.revision, private, &none).unwrap();
+        let endpoint = Relationship::from_json(json!({"id": "r-endpoint", "kind": "discusses",
+            "from": "politeia", "to": "hidden", "assertedBy": {"kind": "author"},
+            "evidence": [{"source": "plato"}], "uncertainty": NEVER_PUBLIC[2].1,
+            "visibility": "approved"}))
+        .unwrap();
+        let three = crate::atlas_store::create_relationship(&f.dir, &two.revision, endpoint, &none)
+            .unwrap();
+        let config_path = f.dir.join(site::CONFIG_FILE);
+        let mut config: Json = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+        config["knowledgeAtlas"] = json!({"publish": true});
+        fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+
+        f.state.rebuild().unwrap();
+        let dist = f.dir.join("dist");
+        let never = |text: &str| -> Vec<&'static str> {
+            let mut found: Vec<&'static str> = [8, 11, 12, 13]
+                .iter()
+                .filter(|&&index| text.contains(ATLAS_SENTINELS[index].1))
+                .map(|&index| ATLAS_SENTINELS[index].0)
+                .collect();
+            found.extend(
+                NEVER_PUBLIC
+                    .iter()
+                    .filter(|(_, sentinel)| text.contains(sentinel))
+                    .map(|(name, _)| *name),
+            );
+            found
+        };
+        for file in crate::fsutil::walk(&dist) {
+            let name = crate::fsutil::relative(&dist, &file);
+            let bytes = fs::read(&file).unwrap();
+            let text = String::from_utf8_lossy(&bytes);
+            let found = never(&text);
+            assert!(found.is_empty(), "dist/{name} exposes {}", found.join(", "));
+            assert!(
+                !openblog_core::research_bundle::looks_like_private_research(&bytes),
+                "dist/{name} carries a copy of private research"
+            );
+            if !atlas_surface(&name) {
+                assert!(
+                    atlas_leaked(&bytes).is_empty(),
+                    "dist/{name} carries atlas data outside the atlas pages"
+                );
+            }
+        }
+        assert!(!dist.join("atlas/hidden/index.html").exists());
+        let published = fs::read_to_string(dist.join("atlas.json")).unwrap();
+        for index in PUBLISHABLE {
+            let (name, sentinel) = ATLAS_SENTINELS[index];
+            assert!(
+                published.contains(sentinel),
+                "the projection publishes the {name}"
+            );
+        }
+        let page =
+            fs::read_to_string(dist.join(format!("atlas/{}/index.html", ATLAS_SENTINELS[0].1)))
+                .unwrap();
+        assert!(page.contains("<strong>Contested:</strong>"));
+        assert!(page.contains(ATLAS_SENTINELS[10].1) && page.contains(ATLAS_SENTINELS[9].1));
+
+        // The public server serves the projection, and still never the private file.
+        let response = crate::serve::route(&f.state, &req("GET", "/atlas.json"), &dist);
+        assert_eq!(response.status, 200);
+        assert!(never(&String::from_utf8_lossy(&response.body)).is_empty());
+        let response = crate::serve::route(
+            &f.state,
+            &req("GET", "/.openblog/private/research/atlas.json"),
+            &dist,
+        );
+        assert_atlas_clean("the private atlas path", &response.body);
+
+        // Portable exports and feeds do not carry the atlas.
+        let (site, _) = crate::site::load_site(&f.dir, false, None).unwrap();
+        for post in &site.posts {
+            let projection =
+                openblog_core::portability::PortableProjection::from_post(post, &site.config)
+                    .unwrap();
+            assert_atlas_clean(
+                &format!("portable markdown of {}", post.slug),
+                projection.portable_markdown().unwrap().as_bytes(),
+            );
+        }
+
+        // Withdrawing the person's approval is one ordinary edit; the next build
+        // drops the person, the relationship and every sentinel with them.
+        let mut person = three.atlas.entry(ATLAS_SENTINELS[0].1).unwrap().clone();
+        person.visibility = openblog_core::knowledge_atlas::Visibility::Private;
+        let withdrawn =
+            crate::atlas_store::update_entry(&f.dir, &three.revision, person, &none).unwrap();
+        let before = fs::read(f.dir.join(crate::atlas_store::ATLAS_FILE)).unwrap();
+        f.state.rebuild().unwrap();
+        for file in crate::fsutil::walk(&dist) {
+            let name = crate::fsutil::relative(&dist, &file);
+            let bytes = fs::read(&file).unwrap();
+            assert!(
+                atlas_leaked(&bytes).is_empty(),
+                "dist/{name} after withdrawal"
+            );
+            assert!(never(&String::from_utf8_lossy(&bytes)).is_empty());
+        }
+        assert!(dist.join("atlas/politeia/index.html").exists());
+        assert_eq!(
+            fs::read(f.dir.join(crate::atlas_store::ATLAS_FILE)).unwrap(),
+            before,
+            "building never touches the private atlas"
+        );
+        assert_eq!(
+            crate::atlas_store::load(&f.dir, &none).unwrap().revision,
+            withdrawn.revision
+        );
+    }
+
     #[test]
     fn notebook_code_has_no_logging_path_for_private_text() {
         // Nothing that handles research text prints, logs or debug-dumps it, so
@@ -12818,6 +12967,10 @@ mod tests {
             (
                 "knowledge_atlas.rs",
                 include_str!("../../openblog-core/src/knowledge_atlas.rs"),
+            ),
+            (
+                "atlas_publication.rs",
+                include_str!("../../openblog-core/src/atlas_publication.rs"),
             ),
         ];
         let banned = [

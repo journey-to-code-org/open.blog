@@ -109,6 +109,34 @@ pub fn refuse_private_research_in_public_inputs(
     ))
 }
 
+/// The last check before a build writes anything: no generated file may be
+/// shaped like private research. The public Knowledge Atlas artifact has its
+/// own shape, so this holds by construction; the guard makes a regression
+/// stop the build instead of publishing.
+pub fn refuse_private_research_in_output(
+    files: &[openblog_core::OutputFile],
+) -> Result<(), String> {
+    let found: Vec<&str> = files
+        .iter()
+        .filter(|file| {
+            starts_like_json_object(file.contents.as_bytes())
+                && looks_like_private_research(file.contents.as_bytes())
+        })
+        .map(|file| file.path.as_str())
+        .collect();
+    if found.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "refusing to build: the generated {} would carry private research; nothing was written",
+        found
+            .iter()
+            .map(|path| format!("`{path}`"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -174,6 +202,32 @@ mod tests {
         let error = refuse_private_research_in_public_inputs(&root, &config).unwrap_err();
         assert!(error.contains("content/posts/backup.txt") && !error.contains("observation"));
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn generated_output_shaped_like_private_research_is_refused_before_writing() {
+        let file = |path: &str, contents: &str| openblog_core::OutputFile {
+            path: path.into(),
+            contents: contents.into(),
+        };
+        let public = file(
+            "atlas.json",
+            r#"{"format":"openblog-atlas-projection","formatVersion":1,"entries":[{"id":"c","kind":"concept","label":"C","url":"/atlas/c/"}],"relationships":[],"sources":[]}"#,
+        );
+        let page = file("index.html", "<!doctype html><p>Hello</p>");
+        assert_eq!(
+            refuse_private_research_in_output(&[public.clone(), page.clone()]),
+            Ok(())
+        );
+        let leaked = file(
+            "api/copy.json",
+            r#"{"version":1,"entries":[{"id":"c","kind":"concept","label":"secret words"}]}"#,
+        );
+        let error = refuse_private_research_in_output(&[public, leaked, page]).unwrap_err();
+        assert!(error.contains("`api/copy.json`"), "{error}");
+        assert!(!error.contains("secret words"), "{error}");
+        let notebook = file("feed.json", NOTEBOOK);
+        assert!(refuse_private_research_in_output(&[notebook]).is_err());
     }
 
     #[test]

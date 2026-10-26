@@ -443,7 +443,8 @@ pub struct Relationship {
 /// How a relationship stands. There is no value for agreement or consensus:
 /// the most a relationship can be is asserted by someone, and it is contested
 /// as soon as anyone is recorded as disagreeing.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Standing {
     Asserted,
     Contested,

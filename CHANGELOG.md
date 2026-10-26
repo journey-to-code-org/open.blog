@@ -27,6 +27,15 @@ All notable changes to open.blog are recorded here. Releases follow
   from the keyboard, and a disputed relationship is always shown as contested, never as
   agreed. A note's concepts in the notebook link to their atlas entries. Everything stays
   private.
+- You can now publish the approved part of your Knowledge Atlas by setting
+  `"knowledgeAtlas": {"publish": true}` in `openblog.json`. The build writes `/atlas/`, a page
+  for each approved entry with its relationships from and to it, and the same data as
+  `/atlas.json`, built from one projection with a fixed list of public fields. A relationship
+  appears only when it and both its entries are approved, always in its stored direction with
+  who asserts it, its sources, confidence and doubt, and a disputed one is shown as contested
+  with everyone who disagrees. Private entries, notebook passages, unknown fields and anything
+  unapproved never appear, clearing an approval removes the item from the next build, and
+  sites that leave publication off build exactly as before without reading the atlas.
 
 ## [0.27.0] - 2026-10-25
 

@@ -417,6 +417,10 @@ pub struct Site {
     /// Known view totals per page path, supplied by the caller (for example from
     /// the analytics backup) so static builds can show counts.
     pub view_counts: BTreeMap<String, u64>,
+    /// The public Knowledge Atlas projection, supplied by the caller only when
+    /// the site opts in to publishing it (ADR 0063). `None` writes no atlas
+    /// output at all.
+    pub atlas: Option<crate::atlas_publication::PublicAtlas>,
     /// The time the site was loaded for (`LoadOptions::now`). A post dated after it is scheduled,
     /// even when a preview or the admin editor loaded it, so it is never a series part.
     now: Option<DateTime>,
@@ -692,6 +696,7 @@ impl Site {
             accessibility,
             evidence,
             view_counts: BTreeMap::new(),
+            atlas: None,
             now: options.now,
         })
     }
