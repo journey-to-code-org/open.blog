@@ -1232,3 +1232,38 @@ test("the combined preview names the rule it is reviewed under", withDom(async (
   await settle();
   assert.match(textOf(panel), /Approval rule: Everyone who wrote a section must approve\./);
 }));
+
+// ---------------------------------------------------------------- a roundtable at the cap (#188)
+
+test("a roundtable of a hundred writers stays a labelled list in sharing, preview and arrangement", withDom(async () => {
+  const people = Array.from({ length: 100 }, (_, n) => ({ id: `p${n}`, displayName: n === 7 ? "<b>Bold</b> [x](javascript:alert(1))" : `Writer ${n}` }));
+  const slots = people.map((person, n) => (n === 0
+    ? { participantId: person.id, displayName: person.displayName, kind: "own", ready: true, stamp: stampOf(1), markdown: "my text" }
+    : { participantId: person.id, displayName: person.displayName, kind: n % 2 ? "revealed" : "private", ready: true, stamp: n % 2 ? { number: 1 } : null, markdown: n % 2 ? `TEXT-${n} <img src=x>` : null }));
+  const api = fakeApi({ number: 1, markdown: "my text", reveal: { canSetPolicy: true, slots } });
+  api.state.canArrange = true;
+  api.state.structure = { revision: 1, layout: "roundtable", rounds: [{ id: "round-1", turns: people.map((person) => ({ draft: person.id, part: 0 })) }] };
+  api.state.preview = { ...PREVIEW, complete: true, sections: people.map((person) => ({ participantId: person.id, displayName: person.displayName, shown: true, revision: 1, approval: "awaiting", required: true })) };
+  const { panel } = await openDraft(api, ["coordinator", "contributor"]);
+  const list = panel.querySelectorAll("ul").find((node) => node.attributes["aria-label"] === "Everyone's drafts");
+  assert.equal(list.children.length, 100);
+  // Private drafts stay private; revealed ones are text in a labelled block, never markup.
+  const blocks = panel.querySelectorAll("pre").filter((node) => /^Text from /.test(node.attributes["aria-label"] || ""));
+  assert.equal(blocks.length, 51, "the fifty revealed drafts and the writer's own");
+  assert.equal(blocks.some((node) => /Writer 2$/.test(node.attributes["aria-label"])), false);
+  assert.equal(panel.querySelectorAll("img").length, 0);
+  assert.equal(panel.querySelectorAll("b").length, 0);
+  assert.match(textOf(panel), /<b>Bold<\/b> \[x\]\(javascript:alert\(1\)\)/);
+  // The combined preview lists every author in order.
+  await button(panel, "Review the combined piece").click();
+  await settle();
+  const authors = panel.querySelectorAll("ul").find((node) => node.attributes["aria-label"] === "Authors in the combined piece");
+  const lines = authors.children.map((item) => item.textContent).filter((line) => !line.startsWith("Approval rule"));
+  assert.equal(lines.length, 100);
+  assert.match(lines[0], /^Writer 0: revision 1; awaiting approval/);
+  assert.match(lines[99], /^Writer 99:/);
+  // Every turn of the arrangement has its own labelled controls.
+  const controls = panel.querySelectorAll("select").filter((node) => /-turn-\d+-who$/.test(node.attributes.id || ""));
+  assert.equal(controls.length, 100);
+  for (const control of controls) assert.ok(panel.querySelectorAll("label").some((label) => label.attributes.for === control.attributes.id), control.attributes.id);
+}));
