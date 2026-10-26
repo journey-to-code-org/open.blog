@@ -1,4 +1,4 @@
--- Optional: engagement protection (ADRs 0130 and 0131): reader receipts,
+-- Optional: engagement protection (ADRs 0107 and 0108): reader receipts,
 -- abuse reports, deletion requests and the retention job. Run once in the
 -- Supabase SQL editor, after openblog.sql and moderation.sql. If the site
 -- takes passage feedback, run feedback.sql again first, which adds the
@@ -44,7 +44,7 @@ begin
   end if;
 end $$;
 
--- Abuse reports (ADR 0130): a reader's report that a public comment or
+-- Abuse reports (ADR 0107): a reader's report that a public comment or
 -- passage feedback item is abusive. Never public, never counted, and never
 -- changes its target by itself. It holds the item reported, the reader's
 -- ground (a reason code) and up to 1,000 characters they wrote; never a
@@ -101,17 +101,17 @@ revoke all on public.openblog_abuse_report_events from public, anon, authenticat
 grant select, insert, delete on public.openblog_abuse_report_events to service_role;
 
 -- The abuse report an upheld-report removal came from, so the comment's
--- audit event and the report's name each other (ADR 0103). Null on every
+-- audit event and the report's name each other (ADR 0104). Null on every
 -- other event, and on every event recorded before the column existed.
 alter table public.openblog_comment_events
   add column if not exists related uuid;
 
 -- The retention job deletes audit events older than the site's audit
--- period (ADR 0103); nothing else deletes them. The service role may
+-- period (ADR 0104); nothing else deletes them. The service role may
 -- delete rows, so a trigger on each audit table refuses to delete any event
 -- recorded in the last day, whatever a caller sends: no run, mistaken or
 -- not, can erase today's record. The function runs with its caller's
--- rights (ADR 0131).
+-- rights (ADR 0108).
 create or replace function public.openblog_keep_recent_audit_events()
 returns trigger
 language plpgsql
@@ -186,7 +186,7 @@ as $$
   select * from changed;
 $$;
 
--- Upholding a report (ADR 0103), in one transaction: the report becomes
+-- Upholding a report (ADR 0104), in one transaction: the report becomes
 -- upheld and, while the item it names is still approved, that item is
 -- removed with reason upheld-report, each audit event naming the other. It
 -- changes nothing unless the report has the version Admin saw and the item

@@ -1,4 +1,4 @@
--- Roll back the moderation inbox's full schema (ADR 0105). Run in the
+-- Roll back the moderation inbox's full schema (ADR 0106). Run in the
 -- Supabase SQL editor.
 --
 -- First remove OPENBLOG_MODERATION_ENABLED from the Netlify environment and

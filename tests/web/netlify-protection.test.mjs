@@ -1,4 +1,4 @@
-// Engagement protection (#226, ADRs 0130 and 0131), exercised through HTTP-shaped events with a
+// Engagement protection (#226, ADRs 0107 and 0108), exercised through HTTP-shaped events with a
 // fake Supabase and site: the shared protection fixture, reader receipts (read, agree to be asked,
 // clarify, withdraw and delete), abuse reports that fail closed, upholding a report with the item
 // it names, deletion requests by the site Admin, the retention job's dry run and run, hourly quota
@@ -581,7 +581,7 @@ test("the retention dry run lists exactly what is due and how many audit events 
   const feedbackQuery = database.requests.find((request) => request.path.endsWith("/openblog_feedback"));
   assert.match(feedbackQuery.params.or, /and\(status\.eq\.withdrawn,purged_at\.is\.null\)/);
   // Cutoffs newer than a day, malformed or missing are refused, whatever Admin sends.
-  // So is an audit cutoff later than the closed-item cutoff: audit events outlive closed items (ADR 0103).
+  // So is an audit cutoff later than the closed-item cutoff: audit events outlive closed items (ADR 0104).
   for (const bad of [{ ...cutoffs, closedUntil: "2026-10-27T00:00:00Z" }, { ...cutoffs, pendingUntil: "2026-07-29" }, { auditUntil: cutoffs.auditUntil }, { ...cutoffs, auditUntil: "2026-09-27T10:00:01Z" }]) {
     assert.equal((await handlerFor(protectedEnv, database)(event("admin/retention", "GET", { headers: ADMIN, query: bad }))).statusCode, 422);
   }

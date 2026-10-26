@@ -261,7 +261,7 @@ fn received(
         .unwrap()
 }
 
-/// The item as the site Admin sees it in the moderation inbox (ADR 0104).
+/// The item as the site Admin sees it in the moderation inbox (ADR 0105).
 fn moderation_view(item: &HostedFeedback, site: &Site) -> Value {
     let value = json!({
         "source": "feedback", "id": item.id, "status": item.status.id(), "version": item.version,
@@ -835,7 +835,7 @@ fn a_feedback_site_publishes_the_authors_revision_notes_through_the_evidence_sec
     assert!(!build(&plain)["tides/index.html"].contains("Corrected how often"));
 }
 
-/// ADR 0100: each published note is shown only where its own kind's mode on
+/// ADR 0101: each published note is shown only where its own kind's mode on
 /// the post shows approved items, whatever the other kinds do.
 #[test]
 fn a_published_note_follows_its_own_kinds_mode_on_the_post() {
@@ -855,7 +855,7 @@ fn a_published_note_follows_its_own_kinds_mode_on_the_post() {
     assert!(!pages["tides/index.html"].contains("<ob-passage-feedback"));
 }
 
-/// ADR 0100 and ADR 0083: a site that turns hosted engagement off, or leaves
+/// ADR 0101 and ADR 0083: a site that turns hosted engagement off, or leaves
 /// its hosted service, keeps every note it published, while a kind it
 /// switches off or hides still shows none. Nothing is offered without a
 /// transport.
@@ -898,7 +898,7 @@ fn published_notes_stay_on_the_pages_of_a_site_without_hosted_engagement() {
     assert!(!pages["tides/index.html"].contains("It was three times."));
 }
 
-/// ADR 0130: while abuse reports are open, every published note and the
+/// ADR 0107: while abuse reports are open, every published note and the
 /// comments carry a report form whose static text works without a script;
 /// a site that offers receipts lets readers use them in the form. No
 /// service credential reaches any page.

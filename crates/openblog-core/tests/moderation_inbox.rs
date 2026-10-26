@@ -1,4 +1,4 @@
-//! The one participation moderation inbox (#225, ADRs 0104 and 0105): the
+//! The one participation moderation inbox (#225, ADRs 0105 and 0106): the
 //! transitions every store shares with the hosted function, hosted items read
 //! strictly, each viewer's actor and view per item, the clarification rule,
 //! what an older hosted schema can store, and missing or hostile items.
@@ -199,7 +199,7 @@ fn fixture_text() -> String {
         .map(|case| serde_json::to_string(case).unwrap())
         .collect();
     format!(
-        "{{\n  \"about\": \"Every moderation decision the inbox can ask for (ADRs 0101, 0102 and 0104), generated from openblog_core::moderation and checked by crates/openblog-core/tests/moderation_inbox.rs; netlify/lib/participation-moderation.mjs must agree with every case. Each case starts at version 3; facts: plain (revision 1, nobody asked, no consent), consented (revision 1, consent), asked (revision 1 asked about), answered (revision 2, revision 1 asked about). Regenerate with OPENBLOG_BLESS=1.\",\n  \"cases\": [\n    {}\n  ]\n}}\n",
+        "{{\n  \"about\": \"Every moderation decision the inbox can ask for (ADRs 0102, 0103 and 0105), generated from openblog_core::moderation and checked by crates/openblog-core/tests/moderation_inbox.rs; netlify/lib/participation-moderation.mjs must agree with every case. Each case starts at version 3; facts: plain (revision 1, nobody asked, no consent), consented (revision 1, consent), asked (revision 1 asked about), answered (revision 2, revision 1 asked about). Regenerate with OPENBLOG_BLESS=1.\",\n  \"cases\": [\n    {}\n  ]\n}}\n",
         cases.join(",\n    ")
     )
 }

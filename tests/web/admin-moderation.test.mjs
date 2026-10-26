@@ -1,4 +1,4 @@
-// The moderation inbox in Admin (#225, ADR 0104): its addresses and filters, the request a
+// The moderation inbox in Admin (#225, ADR 0105): its addresses and filters, the request a
 // decision sends (what the moderator saw, never who they are), the wording of roles, readers and
 // outcomes, counts that never reveal what a viewer may not see, and the published-file mismatch
 // B5's view offered.
@@ -104,7 +104,7 @@ test("the view builds every control as text with its own label, and never as mar
   assert.match(view, /cards\[0\]\?\.querySelector\("h3"\)\?\.focus\(\)/);
 });
 
-// ---- Engagement protection (#226, ADRs 0130 and 0131)
+// ---- Engagement protection (#226, ADRs 0107 and 0108)
 
 test("abuse reports, upheld reports and deletions are worded without naming any reader", () => {
   assert.equal(moderationReaderLine({ publishName: false }, "report"), "Reports are anonymous: nothing about the reader who sent it is kept.");

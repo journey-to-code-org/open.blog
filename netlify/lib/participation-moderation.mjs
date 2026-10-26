@@ -1,4 +1,4 @@
-// The one moderation state machine for every participation kind (ADRs 0101 to 0104), as the
+// The one moderation state machine for every participation kind (ADRs 0102 to 0105), as the
 // hosted function applies it: the same rules as `openblog_core::moderation`, held together by
 // tests/fixtures/participation-transitions.json, which the Rust policy generates and this module
 // must agree with case by case. Reasons are moderation grounds, never a verdict on facts.
@@ -11,10 +11,10 @@ export const MODERATION_STATES = Object.freeze(["pending", "clarification", "app
 export const MODERATION_ACTIONS = Object.freeze(["approve", "reject", "request-clarification", "clarify", "remove", "reopen", "withdraw", "expire", "uphold-report"]);
 // What the inbox asks the function to store; the rest belong to readers, retention and reports.
 export const INBOX_ACTIONS = Object.freeze(["approve", "request-clarification", "reject", "remove", "reopen"]);
-// The roles Admin may name for an inbox decision (ADR 0102). The token itself is the site Admin.
+// The roles Admin may name for an inbox decision (ADR 0103). The token itself is the site Admin.
 export const MODERATOR_ROLES = Object.freeze(["site-admin", "coordinator"]);
 
-// The fixed rules of each kind (ADR 0100): whether an approved item may be shown, and whether a
+// The fixed rules of each kind (ADR 0101): whether an approved item may be shown, and whether a
 // moderator may ask its submitter to clarify.
 const KIND_RULES = Object.freeze({
   comment: { publishable: true, clarification: false },
@@ -88,7 +88,7 @@ export function planTransition(item, request) {
   if (request.expectedVersion !== item.version) return refuse("stale");
   let to = nextState(action, item.state);
   if (!to) return refuse("notAllowed");
-  // The text a clarification asked about is never approved, whatever happened since (ADR 0101).
+  // The text a clarification asked about is never approved, whatever happened since (ADR 0102).
   const asked = item.clarificationAsked != null && item.clarificationAsked === item.revision;
   if (action === "approve" && asked) return refuse("notAllowed");
   if (action === "reopen" && asked) to = "clarification";
@@ -114,19 +114,19 @@ export function planTransition(item, request) {
   };
 }
 
-/** The value the existing `openblog_comments.status` column can hold for a state (ADR 0101). */
+/** The value the existing `openblog_comments.status` column can hold for a state (ADR 0102). */
 export function legacyCommentStatus(state) {
   if (state === "pending" || state === "clarification") return "pending";
   if (state === "approved") return "approved";
   return "rejected";
 }
 
-// The four states a comment can be in (ADR 0105): it never waits for clarification and is never
+// The four states a comment can be in (ADR 0106): it never waits for clarification and is never
 // withdrawn.
 export const COMMENT_STATES = Object.freeze(["pending", "approved", "rejected", "removed"]);
 
 /**
- * A comment's state from its two columns (ADR 0105). `moderation_state` is trusted only while
+ * A comment's state from its two columns (ADR 0106). `moderation_state` is trusted only while
  * `status` still holds its legacy value: a write made while OPENBLOG_MODERATION_ENABLED was off
  * changes `status` alone, and the state it left behind is then out of date, so `status` decides.
  */
@@ -150,7 +150,7 @@ export function commentStateFilter(state) {
 }
 
 /**
- * Whether an older hosted schema can store `action` on `kind` (ADR 0105): comments can be approved,
+ * Whether an older hosted schema can store `action` on `kind` (ADR 0106): comments can be approved,
  * rejected, removed (stored as rejected) and reopened; passage feedback approved, rejected and
  * removed (ADR 0083).
  */
@@ -160,7 +160,7 @@ export function legacySupports(kind, action) {
     && ["approve", "reject", "remove"].includes(action);
 }
 
-// ---- Engagement protection (ADRs 0130 and 0131)
+// ---- Engagement protection (ADRs 0107 and 0108)
 
 /** The grounds a reader may give for an abuse report: the reasons a moderator may uphold one for. */
 export const REPORT_GROUNDS = UPHOLD;
@@ -181,7 +181,7 @@ export function timeKey(value) {
 }
 
 /**
- * The step one retention run owes an item, or null (ADR 0103): `item` is `{kind, state, since,
+ * The step one retention run owes an item, or null (ADR 0104): `item` is `{kind, state, since,
  * retained}`, `cutoffs` the run's `{pendingUntil, clarificationUntil, closedUntil, comments}`. An
  * item is due when its state began at or before its step's time. Comments are covered only when
  * the site set retention itself; an approved item is kept while it can be published.
@@ -201,7 +201,7 @@ export function retentionStep(item, cutoffs) {
 }
 
 /**
- * A deletion request (ADR 0130), as `ModerationPolicy::erase` decides it: the submitter, by their
+ * A deletion request (ADR 0107), as `ModerationPolicy::erase` decides it: the submitter, by their
  * receipt, for any of their items (one still open or approved is withdrawn first); the site
  * Admin only for an item already closed or an upheld report. `item` is `{kind, state, version,
  * retained}`. On success it says whether a withdrawal comes first, the state afterwards and the
@@ -224,7 +224,7 @@ export function planErasure(item, role, expectedVersion) {
 }
 
 /**
- * Upholding an abuse report (ADR 0103), in the policy's order, with the item the report names as
+ * Upholding an abuse report (ADR 0104), in the policy's order, with the item the report names as
  * the hosted function read it: `report` is `{kind, state, version, parent, retained}`, `target`
  * `{id, state, version}` or null. The upholding needs the grant to remove the target; while the
  * target is approved the same decision removes it with `upheld-report`, otherwise only the report

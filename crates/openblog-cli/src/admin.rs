@@ -4788,13 +4788,13 @@ fn unpublish_moderated_feedback(path: &Path, item: &HostedFeedback) -> Result<()
     unpublish_feedback(path, &item.id)
 }
 
-// ---- The moderation inbox (ADR 0104)
+// ---- The moderation inbox (ADR 0105)
 //
 // One list for hosted comments and passage feedback, driven by the one state
 // machine. The hosted function holds the items; Admin reaches it only
 // through this server, which keeps the token. Each item is read again with a
 // strict validator, given the actor the signed-in account is on that item's
-// work (`SharedWorks::actor`, ADR 0102), shown only as far as that actor may
+// work (`SharedWorks::actor`, ADR 0103), shown only as far as that actor may
 // see it, and offered only the decisions the policy accepts now. A decision
 // re-reads the item and decides again before the hosted function, which
 // decides a third time, writes it conditionally with its audit event.
@@ -4929,7 +4929,7 @@ fn hosted_moderation_answer(status: u16, value: Json) -> Result<(u16, Json), Res
 
 /// What deciding who a viewer is needs: the site as readers see it now (for
 /// passage checks and modes), the site as Admin loads it, drafts included
-/// (for shared works, ADR 0102), the shared-publication records and the
+/// (for shared works, ADR 0103), the shared-publication records and the
 /// accounts and contributor keys their bindings must still resolve to.
 struct InboxSources {
     config: SiteConfig,
@@ -5177,7 +5177,7 @@ fn hosted_inbox_item(
 
 const INBOX_CHANGED: &str = "This item changed since you loaded it. Review it again before acting.";
 
-// ---- The retention job (ADRs 0103 and 0131)
+// ---- The retention job (ADRs 0104 and 0108)
 //
 // Retention never runs on its own. The site Admin asks for a dry run, which
 // lists what is due under the site's periods without changing anything,
@@ -5445,7 +5445,7 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
         Err(response) => return response,
     };
     // A deletion request is not a moderation transition: it purges the
-    // item's text and name and leaves its state as it is (ADR 0130).
+    // item's text and name and leaves its state as it is (ADR 0107).
     let erase = body["action"].as_str() == Some(moderation_inbox::ERASE_ACTION);
     let action = if erase {
         None
@@ -5574,7 +5574,7 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
     });
     if action == Some(moderation::ModerationAction::UpholdReport) {
         // The hosted function upholds only while the reported item is
-        // exactly as this decision saw it (ADR 0103).
+        // exactly as this decision saw it (ADR 0104).
         request["targetVersion"] = json!(item.target.as_ref().map(|target| target.version));
     }
     let reread = |value: &Json| moderation_inbox::InboxItem::from_value(&value["item"]).ok();
@@ -5691,7 +5691,7 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
 }
 
 /// Whether the hosted function stored `to`: exactly, or, for a comment
-/// under the older schema, as the `status` value ADR 0101 maps it to (a
+/// under the older schema, as the `status` value ADR 0102 maps it to (a
 /// removed comment is stored as rejected).
 fn stored_as(
     protocol: moderation_inbox::Protocol,
@@ -18967,7 +18967,7 @@ mod tests {
     const FEEDBACK_ITEM_ID: &str = "00000000-0000-4000-8000-0000000000a1";
 
     /// Switch passage feedback on in a fixture's openblog.json, with a hosted
-    /// endpoint nothing in the test calls, so its kinds are shown (ADR 0100).
+    /// endpoint nothing in the test calls, so its kinds are shown (ADR 0101).
     fn enable_passage_feedback(dir: &Path) {
         let path = dir.join(site::CONFIG_FILE);
         let mut config: Json = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
@@ -19826,7 +19826,7 @@ mod tests {
         assert!(
             validate_hosted_engagement_response("GET", "admin/analytics", &unsafe_path).is_err()
         );
-        // Comments are moderated in the inbox now (ADR 0104); this path no
+        // Comments are moderated in the inbox now (ADR 0105); this path no
         // longer passes any comment answer on.
         assert!(validate_hosted_engagement_response(
             "GET",

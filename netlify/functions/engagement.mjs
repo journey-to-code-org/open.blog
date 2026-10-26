@@ -41,9 +41,9 @@ const publicComment = (row) => ({
 // moderation state, the version every change must name, and the last reason.
 // This is B5's /admin/feedback shape, kept exactly as v0.33.0 sent it so an
 // older Admin, which refuses unknown fields, still reads every item; only the
-// inbox's items add the facts the state machine decides on (ADR 0105). The
+// inbox's items add the facts the state machine decides on (ADR 0106). The
 // reader's name is shown to moderators only, with their publication choice;
-// Admin decides who among them may see it (ADR 0102).
+// Admin decides who among them may see it (ADR 0103).
 const moderationFacts = (row) => (row.item_revision === undefined ? {} : {
   itemRevision: row.item_revision,
   approvedRevision: row.approved_revision ?? null,
@@ -68,17 +68,17 @@ const hostedFeedback = (row) => {
 };
 
 const FEEDBACK_COLUMNS = "id,status,version,moderated_at,moderation_reason,format_version,kind,work,revision,target,body,details,seen_at,received_at,channel,reader_name,publish_name";
-// What supabase/feedback.sql adds for the moderation inbox (ADR 0105).
+// What supabase/feedback.sql adds for the moderation inbox (ADR 0106).
 const FEEDBACK_INBOX_COLUMNS = `${FEEDBACK_COLUMNS},item_revision,approved_revision,clarification_asked,clarification_consent`;
 const COMMENT_COLUMNS = "id,path,author_name,body,status,created_at,moderated_at";
-// What supabase/moderation.sql adds to comments (ADR 0105).
+// What supabase/moderation.sql adds to comments (ADR 0106).
 const COMMENT_INBOX_COLUMNS = `${COMMENT_COLUMNS},version,moderation_state,moderation_reason`;
-// What engagement protection adds (ADR 0131). A receipt's digest is never read back out.
+// What engagement protection adds (ADR 0108). A receipt's digest is never read back out.
 const FEEDBACK_PROTECTED_COLUMNS = `${FEEDBACK_INBOX_COLUMNS},purged_at`;
 const COMMENT_PROTECTED_COLUMNS = `${COMMENT_INBOX_COLUMNS},purged_at`;
 const REPORT_COLUMNS = "id,target_source,target_id,work,ground,body,status,version,received_at,moderated_at,moderation_reason,purged_at";
 
-// An item whose text, details and name were purged (ADR 0103): its facts only.
+// An item whose text, details and name were purged (ADR 0104): its facts only.
 const purgedItem = (source, row) => ({
   source,
   id: row.id,
@@ -107,10 +107,10 @@ const reportedTarget = (source, row) => {
   return { source, id: row.id, kind: row.kind, status: row.status, version: row.version, revision: row.item_revision ?? 1, body: purged ? null : row.body };
 };
 
-// A comment row as an inbox item (ADR 0104). Without the inbox's schema a
+// A comment row as an inbox item (ADR 0105). Without the inbox's schema a
 // comment has only its three statuses and is always at version 1; with it,
 // its full state, unless a write made without the schema has since changed
-// its status (ADR 0105).
+// its status (ADR 0106).
 const inboxComment = (row) => ({
   source: "comment",
   id: row.id,
@@ -140,7 +140,7 @@ const inboxItem = (source, row, targets) => {
   return inboxFeedback(row);
 };
 
-// What a reader sees of their own note by its receipt (ADR 0130): its kind,
+// What a reader sees of their own note by its receipt (ADR 0107): its kind,
 // state and version, their own words until they are purged, whether the
 // author asked them to clarify it and why, and whether they agreed to be
 // asked. Never anything about a moderator.
@@ -169,7 +169,7 @@ const INBOX_PAGE = 50;
 const INBOX_UNAVAILABLE = "Run supabase/moderation.sql (and supabase/feedback.sql again if you use passage feedback), then set OPENBLOG_MODERATION_ENABLED=true, to take this decision.";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const FEEDBACK_UNAVAILABLE = "Passage feedback is not available on this site. The page itself is unchanged; you can copy your note and send it to the author instead.";
-// Engagement protection (ADRs 0130 and 0131).
+// Engagement protection (ADRs 0107 and 0108).
 const PROTECTION_UNAVAILABLE = "This site does not offer receipts or reports through the form. You can write to the author instead.";
 const RECEIPT = /^[A-Za-z0-9_-]{43}$/;
 const receiptDigest = (receipt) => createHash("sha256").update(receipt).digest("hex");
@@ -194,12 +194,12 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
       // Typed passage feedback is off unless the deployer ran
       // supabase/feedback.sql and set this explicitly (ADR 0081).
       feedback: String(env.OPENBLOG_FEEDBACK_ENABLED || "").trim() === "true",
-      // The moderation inbox's full schema (ADR 0105): set only after
+      // The moderation inbox's full schema (ADR 0106): set only after
       // running supabase/moderation.sql, and feedback.sql again if feedback
       // is on. Without it the inbox stores what the older schema can.
       moderation: String(env.OPENBLOG_MODERATION_ENABLED || "").trim() === "true",
     };
-    // Receipts, abuse reports, deletion and retention (ADR 0131): set only
+    // Receipts, abuse reports, deletion and retention (ADR 0108): set only
     // after running supabase/protection.sql, on top of the inbox's schema.
     values.protection = values.moderation && String(env.OPENBLOG_PROTECTION_ENABLED || "").trim() === "true";
     const required = [values.url, values.key, values.siteId, values.origin, values.adminKey, values.salt];
@@ -248,7 +248,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
     return database(settings, `/rest/v1/openblog_feedback?${params}`);
   };
 
-  // ---- The moderation inbox (ADRs 0104 and 0105)
+  // ---- The moderation inbox (ADRs 0105 and 0106)
 
   const inboxTable = (source) => (source === "comment" ? "openblog_comments" : source === "report" ? "openblog_abuse_reports" : "openblog_feedback");
   const inboxColumns = (settings, source) => {
@@ -270,11 +270,11 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
     }
     return targets;
   };
-  // A retention run's cutoffs as Admin sent them (ADR 0131): canonical UTC
+  // A retention run's cutoffs as Admin sent them (ADR 0108): canonical UTC
   // times, each at least a day before this function's own clock, so no run
   // can reach anything newer whatever it is sent, and an audit cutoff no
   // later than the closed-item cutoff, since audit events are kept at least
-  // as long as closed items (ADR 0103); null when any is not.
+  // as long as closed items (ADR 0104); null when any is not.
   const UTC_SECOND = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/;
   const retentionCutoffs = (input) => {
     const latest = now().getTime() - DAY_MS;
@@ -425,7 +425,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
     });
   };
   const commentPolicy = (settings, path) => publishedPolicy(settings, "openblog-comments.json", path);
-  // One passage feedback kind's mode on one post (ADR 0100), from the
+  // One passage feedback kind's mode on one post (ADR 0101), from the
   // participation manifest; a missing post or kind is "hidden". A site built
   // before that manifest existed still publishes B5's openblog-feedback.json,
   // which is read only when the participation manifest is not published,
@@ -442,7 +442,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
   // The existing Supabase-backed hourly quota, per client (or per `subject`,
   // such as a reported item or a repeated submission) and per site. The
   // stored digest mixes in the hour, so no row links one hour's requests to
-  // another's, and the address itself is never stored (ADR 0131).
+  // another's, and the address itself is never stored (ADR 0108).
   const quotaWindow = (settings, bucket, subject) => {
     const hour = now().toISOString().slice(0, 13) + ":00:00Z";
     return { bucket, hour, digest: createHash("sha256").update(`${settings.salt}\0${bucket}\0${hour}\0${subject}`).digest("hex") };
@@ -458,7 +458,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
     const address = String(event.headers?.["x-nf-client-connection-ip"] || "").trim();
     return consumeWindow(settings, quotaWindow(settings, bucket, subject ?? address), subjectLimit, siteLimit);
   };
-  // A replay bound (ADR 0131): the same submission from the same client is
+  // A replay bound (ADR 0108): the same submission from the same client is
   // taken once an hour. Only a digest of it is kept, for the hour. It
   // answers null when the submission was already taken this hour, or else
   // the claim on it, which `storedOnce` releases when storing the submission
@@ -586,7 +586,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         // The receiver stamps the time; the reader's clock is only seenAt.
         const record = receiveFeedback(submission, canonicalTime(now()), "hosted");
         const { provenance } = record;
-        // A private receipt (ADR 0130): returned to the reader once, kept
+        // A private receipt (ADR 0107): returned to the reader once, kept
         // only as its digest.
         const receipt = settings.protection && issuesReceipts(record.kind) ? randomBytes(32).toString("base64url") : null;
         const rows = await storedOnce(settings, claim, () => database(settings, "/rest/v1/openblog_feedback?select=id,status,received_at", {
@@ -618,7 +618,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
       }
       if (operation === "receipt") {
         // A reader acting on their own note by its private receipt (ADR
-        // 0130): read it, answer a clarification request, agree to be asked,
+        // 0107): read it, answer a clarification request, agree to be asked,
         // or withdraw and delete it. The receipt is the only proof; nothing
         // identifies the reader, and nothing is e-mailed.
         const receipt = typeof body.receipt === "string" ? body.receipt : "";
@@ -680,7 +680,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         return json(422, { error: "Choose to read, clarify, agree to be asked, or withdraw your note.", code: "invalid" }, corsOrigin);
       }
       if (operation === "reports") {
-        // An abuse report (ADR 0130): accepted only for an item that is
+        // An abuse report (ADR 0107): accepted only for an item that is
         // public now, answering `unavailable` exactly as for one that does
         // not exist. It never changes the item, is never public and never
         // counted, and names nobody.
@@ -743,7 +743,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         const { change } = plan;
         // With the inbox's schema the change goes through its function, so
         // the item's revisions and the audit event's kind, revision and role
-        // are kept as the inbox keeps them (ADR 0105).
+        // are kept as the inbox keeps them (ADR 0106).
         const rows = await applyInboxChange(settings, "feedback", id, change, version, auditActor(body.actor), "site-admin");
         if (Array.isArray(rows) && rows.length === 1) return json(200, { ok: true, item: hostedFeedback(rows[0]) }, corsOrigin);
         const current = await feedbackRows(settings, { id: `eq.${id}` });
@@ -751,10 +751,10 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         return json(409, { error: "This item changed since you loaded it. Review it again before acting.", code: "conflict", item: hostedFeedback(current[0]) }, corsOrigin);
       }
       if (operation === "admin/moderation") {
-        // The one moderation inbox (ADR 0104): comments and passage feedback
+        // The one moderation inbox (ADR 0105): comments and passage feedback
         // in one list, decided by the one state machine. Admin calls it with
         // the token, which is the site Admin, naming the role its viewer has
-        // on the item's work (ADR 0102); nothing here is public.
+        // on the item's work (ADR 0103); nothing here is public.
         if (!admin) return json(401, { error: "Admin authorization is required." }, corsOrigin);
         const protocol = settings.protection ? "protected" : settings.moderation ? "full" : "legacy";
         const sourceOf = (value) => (value === "comment" || (value === "feedback" && settings.feedback) || (value === "report" && settings.protection) ? value : "");
@@ -816,7 +816,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
             return conflict(current);
           };
           if (body.action === "erase") {
-            // A deletion request taken by the site Admin (ADR 0130).
+            // A deletion request taken by the site Admin (ADR 0107).
             const plan = planErasure(facts, role, version);
             if (!plan.ok) return plan.code === "stale" ? conflict(row) : refused(plan.code);
             const at = canonicalTime(now());
@@ -834,7 +834,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
           }
           if (body.action === "uphold-report") {
             // Upheld with the item the report names, exactly as Admin saw it
-            // (ADR 0103): removed in the same transaction while approved.
+            // (ADR 0104): removed in the same transaction while approved.
             const targetSource = row.target_source;
             const target = targetSource === "comment" || (targetSource === "feedback" && settings.feedback) ? await inboxRow(settings, targetSource, String(row.target_id).toLowerCase()) : null;
             const targetFacts = target ? inboxFacts(targetSource, target) : null;
@@ -868,7 +868,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         }
       }
       if (operation === "admin/retention") {
-        // The retention job (ADRs 0103 and 0131), run by the site Admin from
+        // The retention job (ADRs 0104 and 0108), run by the site Admin from
         // Admin: GET is its dry run, the items due and the audit events old
         // enough to delete; POST applies exactly the items Admin confirmed,
         // each only while it is still as it was and still due. Nothing runs
@@ -948,7 +948,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
       if (operation === "admin/comments" && event.httpMethod === "PATCH") {
         if (!admin) return json(401, { error: "Admin authorization is required." }, corsOrigin);
         // With the inbox's schema, a bare status change would skip the
-        // comment's version, its full state and its audit event (ADR 0105).
+        // comment's version, its full state and its audit event (ADR 0106).
         if (settings.moderation) return json(409, { error: "Comments are moderated through /admin/moderation on this site.", code: "useModerationInbox" }, corsOrigin);
         const id = String(body.id || "");
         const status = String(body.status || "");

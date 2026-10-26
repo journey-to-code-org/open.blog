@@ -182,7 +182,7 @@ fn locked_and_hidden_posts_and_every_other_file_are_unchanged() {
         }
     }
     // Only the open post's page, and the policies the hosted function reads:
-    // the participation manifest the opt-in folds into (ADR 0100) and B5's
+    // the participation manifest the opt-in folds into (ADR 0101) and B5's
     // own file for a function deployed before it (ADR 0081).
     assert_eq!(
         changed,

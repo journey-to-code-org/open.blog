@@ -1,4 +1,4 @@
-# ADR 0102: The site Admin and in-scope coordinators moderate; contributing authors read and respond; readers act only on their own items
+# ADR 0103: The site Admin and in-scope coordinators moderate; contributing authors read and respond; readers act only on their own items
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -7,7 +7,7 @@
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
 - Builds on: [ADR 0006](0006-collaborator-identity-binding.md),
   [ADR 0014](0014-record-level-authorization-and-publish-gate.md),
-  [ADR 0101](0101-one-moderation-state-machine-where-everything-starts-pending.md)
+  [ADR 0102](0102-one-moderation-state-machine-where-everything-starts-pending.md)
 
 ## Context
 
@@ -66,7 +66,7 @@ need a reader to answer a clarification or withdraw their own submission.
   | create an author response | yes | yes | yes (in scope) | no | no | no |
 
   Reopening undoes a moderator's decision, so it stays with the site Admin. Upholding a report also
-  needs the grant to remove the reported item (ADR 0103).
+  needs the grant to remove the reported item (ADR 0104).
 - **Viewing** (`moderation::may_view`): the text and details of an item that is not public are
   visible to the site Admin, in-scope coordinators, in-scope contributing authors (except abuse
   reports, which may name or accuse others) and the submitter. A reader's private identity (a name

@@ -1,4 +1,4 @@
-// What readers are told by the receipt and abuse report components (#226, ADR 0130): receipts are
+// What readers are told by the receipt and abuse report components (#226, ADR 0107): receipts are
 // recognised by shape alone, every state and failure is worded without naming a moderator, and a
 // report's outcome never promises more than the service does. Interaction is covered in
 // tests/browser/reader-protection.spec.mjs.

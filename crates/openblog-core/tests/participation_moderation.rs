@@ -1,4 +1,4 @@
-//! The one moderation policy (ADRs 0101 to 0103): every kind, state, action
+//! The one moderation policy (ADRs 0102 to 0104): every kind, state, action
 //! and role, pending by default, clarification, removal, abuse reports,
 //! replay, role scope and retention.
 //!
@@ -171,12 +171,12 @@ fn every_kind_state_action_and_role_matches_the_reviewed_matrix() {
     let reported = approved_comment("parent-1");
     let roles = roles();
     let mut text = String::from(
-        "# Outcome of every kind/state/action/role combination (ADRs 0101 and 0102).\n\
+        "# Outcome of every kind/state/action/role combination (ADRs 0102 and 0103).\n\
          # `->state` is the state reached; anything else is the refusal code.\n\
          # Each request names the stored version, the first allowed reason, and for\n\
          # uphold-report an approved reported item on the same work. Items have\n\
          # clarification consent, kept text and a retention period that has ended,\n\
-         # under the default retention, which leaves comments out (ADR 0103).\n#\n# kind state action |",
+         # under the default retention, which leaves comments out (ADR 0104).\n#\n# kind state action |",
     );
     for (name, _) in &roles {
         text.push(' ');

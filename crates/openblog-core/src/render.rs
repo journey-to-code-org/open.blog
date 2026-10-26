@@ -459,7 +459,7 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
         c.apply_base_path(&feeds::search_index(site)),
     )?;
     // Comments keep their own manifest, unchanged; it is the comment row of
-    // the one participation policy (ADR 0100).
+    // the one participation policy (ADR 0101).
     let comment_policies: BTreeMap<&str, &str> = site
         .posts
         .iter()
@@ -479,7 +479,7 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
     }
     // B5's passage feedback manifest (ADR 0081), kept for a hosted function
     // deployed before the participation manifest: derived from the policy,
-    // never more open than any of B5's four kinds (ADR 0100).
+    // never more open than any of B5's four kinds (ADR 0101).
     if let Some(manifest) = participation::legacy_feedback_manifest(site) {
         out.add("openblog-feedback.json".into(), manifest)?;
     }
@@ -803,7 +803,7 @@ impl<'a> Renderer<'a> {
     /// Passage feedback on one post (ADR 0082): the feedback region, whose
     /// static text is the no-JavaScript path, and the post's passage text as
     /// page data for the form. Only a post where at least one of B5's kinds
-    /// is `open` has them (ADR 0100), and the form offers exactly those; every
+    /// is `open` has them (ADR 0101), and the form offers exactly those; every
     /// other page is unchanged.
     fn passage_feedback(&self, post: &Post) -> Option<(String, String)> {
         let c = &self.site.config;
@@ -850,7 +850,7 @@ impl<'a> Renderer<'a> {
             )
         };
         // Readers can use their receipts on the page once the site says the
-        // hosted service issues them (ADR 0130).
+        // hosted service issues them (ADR 0107).
         let receipts_attr = if c.engagement.receipts {
             " receipts"
         } else {
@@ -1419,7 +1419,7 @@ impl<'a> Renderer<'a> {
         // Approved reader notes, with the author's responses, are shown on
         // the canonical page only (ADR 0083), before the form that asks for
         // more.
-        // Abuse reports (ADR 0130): offered under each public comment and
+        // Abuse reports (ADR 0107): offered under each public comment and
         // published note while the site has them open.
         let reports_endpoint =
             (participation::effective_mode(c, post, ParticipationKind::AbuseReport)

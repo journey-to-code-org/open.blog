@@ -1,4 +1,4 @@
-# ADR 0104: One moderation inbox, where every item is shown and decided by the one policy for the viewer's role on its work
+# ADR 0105: One moderation inbox, where every item is shown and decided by the one policy for the viewer's role on its work
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -6,9 +6,9 @@
 - Parent story: [#203](https://github.com/journey-to-code-org/open.blog/issues/203)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
 - Builds on: [ADR 0083](0083-feedback-moderation-is-version-checked-and-approved-notes-publish-from-a-versioned-file.md),
-  [ADR 0101](0101-one-moderation-state-machine-where-everything-starts-pending.md),
-  [ADR 0102](0102-who-may-moderate-reader-participation.md),
-  [ADR 0103](0103-retention-audit-events-and-abuse-reports-fail-closed.md)
+  [ADR 0102](0102-one-moderation-state-machine-where-everything-starts-pending.md),
+  [ADR 0103](0103-who-may-moderate-reader-participation.md),
+  [ADR 0104](0104-retention-audit-events-and-abuse-reports-fail-closed.md)
 - Amends: ADR 0083 (Admin's Reader feedback view and its `engagement/feedback` moderation routes
   are absorbed here)
 - Coordinates with: [#226](https://github.com/journey-to-code-org/open.blog/issues/226)
@@ -18,7 +18,7 @@
 
 Admin moderated hosted comments in a section of Analytics (three statuses, approve or reject from
 any of them, no version) and passage feedback in B5's Reader feedback view (approve, reject and
-remove, version-checked). ADRs 0101 to 0103 define one state machine, one role model and one
+remove, version-checked). ADRs 0102 to 0104 define one state machine, one role model and one
 retention policy for every participation kind; #225 asks for one accessible inbox driven by them,
 with server authorization and the current revision on every action, nothing pending leaking
 through counts or previews, and clarification and removal distinct from approval and rejection.
@@ -31,7 +31,7 @@ through counts or previews, and clarification and removal distinct from approval
   engagement/feedback` routes are gone. B5's publishing routes (`engagement/feedback/publish`,
   `unpublish`, `published`, `response`, `revision-note`) stay, and the inbox page keeps B5's
   "Published on your posts" section for responses and revision notes.
-- **One list, filtered by state and kind.** The six states of ADR 0101 are the inbox's tabs,
+- **One list, filtered by state and kind.** The six states of ADR 0102 are the inbox's tabs,
   pending first; a kind filter narrows it to one participation kind. Comments and passage feedback
   are merged oldest first. Every kind that later gains a store joins the same list.
 - **Paged by a keyset cursor.** The hosted function returns at most 50 items after an opaque
@@ -50,7 +50,7 @@ through counts or previews, and clarification and removal distinct from approval
   stored before the inbox reads as revision 1, nobody asked, no consent; one approved then reads as
   approved at its only revision.
 - **Each item has its own actor.** For every item, `Inbox::actor` resolves the signed-in account
-  with `SharedWorks::actor` on that item's work (ADR 0102): the site Admin, a coordinator, a
+  with `SharedWorks::actor` on that item's work (ADR 0103): the site Admin, a coordinator, a
   contributing author, or nobody. Nothing about who is acting comes from the request. An item the
   account may not see (no moderation role on the work, a binding that grants nothing, a path no
   loaded post has for a bound co-writer, an abuse report for a contributing author) is left out of
@@ -59,11 +59,11 @@ through counts or previews, and clarification and removal distinct from approval
 - **The policy decides what is offered.** The inbox's actions are approve, ask to clarify, reject,
   remove and reopen. An item is offered exactly those `ModerationPolicy::decide` accepts now for
   that actor (with a reason the action takes), intersected with what the hosted schema can store
-  (ADR 0105): so a coordinator never sees reopen, a contributing author sees no decision, the text
+  (ADR 0106): so a coordinator never sees reopen, a contributing author sees no decision, the text
   a clarification asked about is never offered for approval and reopens to clarification, asking
   to clarify needs the reader's consent, and removal is offered only for approved items. Each
-  action lists its reasons (ADR 0101; there is no "incorrect") and a line of guidance: what it
-  does and, for a decision that closes the item, how long its text is kept (ADR 0103).
+  action lists its reasons (ADR 0102; there is no "incorrect") and a line of guidance: what it
+  does and, for a decision that closes the item, how long its text is kept (ADR 0104).
 - **A private name stays with the site Admin.** A comment's name is always shown with it. A
   feedback reader's name is shown when they agreed to publish it; otherwise only to the site
   Admin, and a coordinator or contributing author reads "The reader gave a name that only the site
@@ -76,7 +76,7 @@ through counts or previews, and clarification and removal distinct from approval
   policy's code), confirms the passage, and sends the hosted function the decision with the actor's
   account and role. The function decides again from the stored row with the same rules
   (`netlify/lib/participation-moderation.mjs`) and writes the change and its audit event in one
-  conditional statement (ADR 0105). An approved or removed feedback item then updates
+  conditional statement (ADR 0106). An approved or removed feedback item then updates
   `reader-feedback.json` as ADR 0083 says.
 - **One shared fixture.** `tests/fixtures/participation-transitions.json` holds every inbox
   decision for every moderator role, for comments, a passage kind, author responses and abuse
@@ -105,10 +105,10 @@ through counts or previews, and clarification and removal distinct from approval
 ## Consequences
 
 - Comments gain removal and reopening as states of their own, versions and an audit trail once the
-  hosted schema allows (ADR 0105); until then the inbox offers what the older schema can store.
+  hosted schema allows (ADR 0106); until then the inbox offers what the older schema can store.
 - Third Perspectives, author responses and abuse reports join the list as their stores arrive;
   upholding a report is decided by the same policy once reports are stored (#226). Abuse reports
   joined with their item's snapshot, and the site Admin's deletion request is an inbox action on
-  closed items ([ADR 0130](0130-reader-receipts-deletion-requests-and-anonymous-abuse-reports.md)).
+  closed items ([ADR 0107](0107-reader-receipts-deletion-requests-and-anonymous-abuse-reports.md)).
 - Reader receipts (#226) are what lets a reader answer a clarification or withdraw; the inbox
   already shows those states and never offers the reader's own actions to a moderator.

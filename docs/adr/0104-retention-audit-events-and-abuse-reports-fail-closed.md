@@ -1,12 +1,12 @@
-# ADR 0103: Retention purges what is not published, audit events outlive it, and removal and abuse reports fail closed
+# ADR 0104: Retention purges what is not published, audit events outlive it, and removal and abuse reports fail closed
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#211](https://github.com/journey-to-code-org/open.blog/issues/211)
 - Parent story: [#203](https://github.com/journey-to-code-org/open.blog/issues/203)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0101](0101-one-moderation-state-machine-where-everything-starts-pending.md),
-  [ADR 0102](0102-who-may-moderate-reader-participation.md)
+- Builds on: [ADR 0102](0102-one-moderation-state-machine-where-everything-starts-pending.md),
+  [ADR 0103](0103-who-may-moderate-reader-participation.md)
 - Coordinates with: [#226](https://github.com/journey-to-code-org/open.blog/issues/226)
 
 ## Context
@@ -60,7 +60,7 @@ tables and the function's adoption to #226.
   and approved afresh. Anything the public test does not recognise as approved at its current
   revision is private.
 - **Abuse reports fail closed.**
-  - A report is accepted only for an item that is public now (ADR 0101), and answers
+  - A report is accepted only for an item that is public now (ADR 0102), and answers
     `unavailable` otherwise, exactly as for an item that does not exist.
   - A report is never public, not counted publicly, and never changes its target by itself, so
     reporting cannot be used to take content down.
@@ -87,7 +87,7 @@ tables and the function's adoption to #226.
 
 - #226 adds the retention job, the private audit table (additive, like [ADR 0080](0080-hosted-feedback-is-one-additive-private-table.md)) and reader
   receipts, applying these rules; #225 shows reasons and audit history to moderators. (Done in
-  [ADR 0130](0130-reader-receipts-deletion-requests-and-anonymous-abuse-reports.md) and
-  [ADR 0131](0131-retention-runs-from-a-dry-run-and-quotas-keep-only-hourly-digests.md): a purge
+  [ADR 0107](0107-reader-receipts-deletion-requests-and-anonymous-abuse-reports.md) and
+  [ADR 0108](0108-retention-runs-from-a-dry-run-and-quotas-keep-only-hourly-digests.md): a purge
   also raises the item's version, so no earlier view can act on it.)
 - Shorter periods are a configuration change, not a code change, and are validated at load.

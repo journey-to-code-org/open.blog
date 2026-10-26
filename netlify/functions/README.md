@@ -61,7 +61,7 @@ To opt in:
    without touching Supabase.
 3. In `openblog.json`, set `"feedback": true` inside `engagement` (hosted engagement must be
    enabled with an endpoint). That switches on the four passage feedback kinds as
-   `follow-comments` (ADR 0100): each post's mode for them is its `comments:` setting (`open`,
+   `follow-comments` (ADR 0101): each post's mode for them is its `comments:` setting (`open`,
    `locked` or `hidden`). To set a kind on its own, name it in `participation.kinds` instead; see
    [Configuration](../../docs/configuration.md#reader-participation). The build then publishes
    `openblog-participation.json`, each post's mode for each kind; the function reads it from
@@ -106,7 +106,7 @@ never serves them to readers.
 ## Moderation inbox
 
 Admin moderates comments and passage feedback in one list, **Admin → Moderation inbox** (ADR
-0104), through `GET` and `PATCH /api/admin/moderation` with the saved moderation token, which never
+0105), through `GET` and `PATCH /api/admin/moderation` with the saved moderation token, which never
 reaches the browser. Admin works out, for every item, the role the signed-in account has on that
 item's post (site Admin, coordinator or contributing author of a shared reflection) and shows only
 what that role may see and decide; the function decides every change again from the stored row
@@ -115,7 +115,7 @@ before writing it.
 Out of the box the inbox works with the tables you already have and offers what they can store:
 comments can be approved, rejected, removed (stored as rejected) and reopened; feedback can be
 approved, rejected and removed. To offer every decision, including asking a reader to clarify and
-reopening feedback, with a version and an audit event for each comment (ADR 0105):
+reopening feedback, with a version and an audit event for each comment (ADR 0106):
 
 1. Run [`supabase/moderation.sql`](../../supabase/moderation.sql) in the Supabase SQL editor. It
    only adds three columns to `openblog_comments` (`version`, `moderation_state`,
@@ -137,7 +137,7 @@ state in place. Nothing in the inbox e-mails anyone.
 
 ## Engagement protection (optional)
 
-Reader receipts, abuse reports, deletion requests and the retention run (ADRs 0130 and 0131) need
+Reader receipts, abuse reports, deletion requests and the retention run (ADRs 0107 and 0108) need
 the moderation inbox's schema above, then:
 
 1. If you use passage feedback, run [`supabase/feedback.sql`](../../supabase/feedback.sql) again.

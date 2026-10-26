@@ -1,4 +1,4 @@
-//! Who an Admin session is in moderation (ADR 0102). A shared publication's
+//! Who an Admin session is in moderation (ADR 0103). A shared publication's
 //! works are the path of the post loaded from `posts/{publication_id}.md`,
 //! resolved from the loaded site at request time; on them a bound co-writer
 //! has their publication roles, and elsewhere every Admin user is the site

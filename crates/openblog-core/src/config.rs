@@ -78,7 +78,7 @@ pub struct SiteConfig {
     #[serde(skip_serializing_if = "KnowledgeAtlasConfig::is_off")]
     pub knowledge_atlas: KnowledgeAtlasConfig,
     /// Which participation kinds beyond comments the site accepts, and how
-    /// long moderation keeps what it does not publish (ADRs 0100 and 0103).
+    /// long moderation keeps what it does not publish (ADRs 0101 and 0104).
     /// Every kind is off by default, and the object is omitted from the
     /// written file while it has its defaults.
     #[serde(skip_serializing_if = "ParticipationConfig::is_default")]
@@ -593,7 +593,7 @@ pub struct EngagementConfig {
     pub feedback_contact: String,
     /// Offer readers of passage feedback a way to use their private receipt
     /// on the page: check on a note, answer a clarification request, or
-    /// withdraw it and have it deleted (ADR 0130). Off by default, and left
+    /// withdraw it and have it deleted (ADR 0107). Off by default, and left
     /// out of the written file while off; the deployer must also run
     /// `supabase/protection.sql` and set `OPENBLOG_PROTECTION_ENABLED`.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
@@ -905,7 +905,7 @@ impl SiteConfig {
         }
         self.participation.validate()?;
         // B5's opt-in becomes the policy's settings before anything reads
-        // them (ADR 0100).
+        // them (ADR 0101).
         self.participation.fold_feedback(self.engagement.feedback);
         while self.code_runner.endpoint.ends_with('/') {
             self.code_runner.endpoint.pop();

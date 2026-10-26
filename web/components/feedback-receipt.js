@@ -1,4 +1,4 @@
-// Reader receipts (ADR 0130). When the hosted service takes a note, it returns a private receipt
+// Reader receipts (ADR 0107). When the hosted service takes a note, it returns a private receipt
 // once: a random secret only the reader holds, kept by the service only as its digest. With it the
 // reader can check on the note, agree to be asked to clarify it, answer a clarification request, or
 // withdraw the note and have its text and their name deleted. Nothing is e-mailed, no account is

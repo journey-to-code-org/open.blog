@@ -7,7 +7,7 @@
 //! records an audit event for each one (`openblog_feedback_events`).
 //!
 //! The states, actions, reasons and refusal codes are the participation and
-//! moderation policy's ([`crate::moderation`], ADR 0101), re-exported here:
+//! moderation policy's ([`crate::moderation`], ADR 0102), re-exported here:
 //! there is one set. This module uses the subset B5 needs: it reads every
 //! state, so an item another tool moved is shown rather than misread, but
 //! offers only approve, reject and remove. The unified moderation inbox
@@ -68,7 +68,7 @@ pub struct ModerationChange {
 }
 
 /// Check one requested change against the item's current state, with the
-/// policy's codes (ADR 0101): an action outside B5's subset, or one that
+/// policy's codes (ADR 0102): an action outside B5's subset, or one that
 /// does not apply from this state, is `notAllowed`; a reason the action does
 /// not take, including one no version defines, is `reasonNotAllowed`.
 pub fn plan(
@@ -282,7 +282,7 @@ pub fn post_for_work<'a>(site: &'a Site, work: &str) -> Option<&'a Post> {
 /// What a moderator sees of one feedback record beside its moderation state
 /// (ADR 0083): the passage check with both revisions and the reader's own
 /// quotation, the kind's details, and the public form approving would give
-/// it. Who sent it is the caller's to show, by the viewer's role (ADR 0102);
+/// it. Who sent it is the caller's to show, by the viewer's role (ADR 0103);
 /// the reader's own clock is never shown.
 pub fn feedback_review(feedback: &ScholarlyFeedback, site: &Site) -> Value {
     let provenance = &feedback.provenance;

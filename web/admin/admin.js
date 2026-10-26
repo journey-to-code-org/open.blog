@@ -286,8 +286,8 @@ export function normalizeStatusFilter(value) {
   return ["published", "scheduled", "draft", "error"].includes(value) ? value : "all";
 }
 
-// The moderation inbox (ADR 0104): comments and reader feedback in one list, in the participation
-// policy's states (ADR 0101). The server decides who the signed-in account is on each item's work
+// The moderation inbox (ADR 0105): comments and reader feedback in one list, in the participation
+// policy's states (ADR 0102). The server decides who the signed-in account is on each item's work
 // and sends only what that account may see, with the decisions it may take; these helpers only
 // word and shape what it sent.
 export const MODERATION_STATES = ["pending", "clarification", "approved", "rejected", "removed", "withdrawn"];
@@ -12539,7 +12539,7 @@ export class ObAdmin extends AdminElement {
     );
   }
 
-  // ---- moderation inbox (ADR 0104)
+  // ---- moderation inbox (ADR 0105)
 
   /**
    * One inbox for comments and reader feedback, moderated through this server, which alone holds
@@ -12833,7 +12833,7 @@ export class ObAdmin extends AdminElement {
       );
     };
 
-    // Retention (ADRs 0103 and 0131): a dry run first, then a run of exactly what it listed.
+    // Retention (ADRs 0104 and 0108): a dry run first, then a run of exactly what it listed.
     const retentionStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite", tabindex: "-1" }, "");
     const retentionReport = h("div", { class: "oba-retention-report" });
     const checkRetention = h("button", { class: "oba-btn", type: "button" }, "Check what retention would do");

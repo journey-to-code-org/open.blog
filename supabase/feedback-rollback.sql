@@ -9,8 +9,8 @@
 --
 -- This drops only what feedback.sql created: the moderation and deletion
 -- functions, the audit table and the feedback table, with their indexes and
--- the moderation inbox's and protection's columns on them (ADRs 0105 and
--- 0131). Comments, analytics, rate
+-- the moderation inbox's and protection's columns on them (ADRs 0106 and
+-- 0108). Comments, analytics, rate
 -- limits and every other table are untouched. Feedback rows are deleted with
 -- it and cannot be recovered without your export. To keep feedback and undo
 -- only the moderation inbox, run moderation-rollback.sql instead.

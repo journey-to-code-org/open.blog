@@ -3,8 +3,8 @@
 -- site that does not opt in never needs it.
 --
 -- Additive only: it creates the feedback table, its moderation audit table,
--- their indexes, two moderation functions (ADRs 0083 and 0105) and the
--- deletion function engagement protection uses (ADR 0131), and adds the
+-- their indexes, two moderation functions (ADRs 0083 and 0106) and the
+-- deletion function engagement protection uses (ADR 0108), and adds the
 -- moderation inbox's and protection's columns to those two tables of its
 -- own. It does not
 -- rename, drop or rewrite any existing table, column, function or row, so
@@ -81,7 +81,7 @@ grant select, insert, update on public.openblog_feedback to service_role;
 -- The moderation audit trail (ADR 0083): who changed which item, from which
 -- state to which, why (a reason code), when, and the version it produced.
 -- Never what anyone wrote. Rows are only ever inserted, except that with
--- engagement protection (protection.sql, ADR 0131) the retention run may
+-- engagement protection (protection.sql, ADR 0108) the retention run may
 -- delete events older than the site's audit period, and never one recorded
 -- in the last day.
 create table if not exists public.openblog_feedback_events (
@@ -146,13 +146,13 @@ $$;
 revoke all on function public.openblog_moderate_feedback(text, uuid, integer, text, text, text, text, text, timestamptz) from public, anon, authenticated;
 grant execute on function public.openblog_moderate_feedback(text, uuid, integer, text, text, text, text, text, timestamptz) to service_role;
 
--- The moderation inbox (ADR 0105). Run this file again to add these to a
+-- The moderation inbox (ADR 0106). Run this file again to add these to a
 -- table an earlier copy created; on a fresh install they are added here.
 -- Each column is new, with a default or nullable, so every row already
 -- stored reads as revision 1, never asked to clarify, without the reader's
 -- consent to be asked, and nothing it held changes.
 --
--- The facts the one state machine decides on (ADR 0101): the text's
+-- The facts the one state machine decides on (ADR 0102): the text's
 -- revision, the revision an approval covers, the revision a clarification
 -- request asked about, and whether the reader agreed to be asked.
 alter table public.openblog_feedback
@@ -165,7 +165,7 @@ alter table public.openblog_feedback
   add column if not exists clarification_consent boolean not null default false;
 -- The audit fields ADR 0083 left for the inbox: the item's kind, the
 -- revision the decision was about, and the role the actor had on the item's
--- work (ADR 0102). Older events have none.
+-- work (ADR 0103). Older events have none.
 alter table public.openblog_feedback_events
   add column if not exists kind text check (kind ~ '^[a-z][a-z0-9-]{0,39}$');
 alter table public.openblog_feedback_events
@@ -231,7 +231,7 @@ $$;
 revoke all on function public.openblog_moderate_feedback_item(text, uuid, integer, text, text, text, text, text, text, timestamptz, text, jsonb) from public, anon, authenticated;
 grant execute on function public.openblog_moderate_feedback_item(text, uuid, integer, text, text, text, text, text, text, timestamptz, text, jsonb) to service_role;
 
--- Engagement protection (ADRs 0130 and 0131), used only once protection.sql
+-- Engagement protection (ADRs 0107 and 0108), used only once protection.sql
 -- has run and OPENBLOG_PROTECTION_ENABLED is set. Each column is new and
 -- nullable, so every row already stored reads as before: no receipt, never
 -- purged.
@@ -257,7 +257,7 @@ begin
   end if;
 end $$;
 -- The abuse report an upheld-report removal came from, so the note's audit
--- event and the report's name each other (ADR 0103). Null on every other
+-- event and the report's name each other (ADR 0104). Null on every other
 -- event, and on every event recorded before the column existed.
 alter table public.openblog_feedback_events
   add column if not exists related uuid;
@@ -265,7 +265,7 @@ alter table public.openblog_feedback_events
 -- A deletion request or a retention purge, in one statement, only while the
 -- note is at the version both Admin (or the reader's receipt) and the
 -- function saw and not yet purged. With p_withdraw (the reader's own
--- request, ADR 0130) a pending, waiting or approved note is withdrawn
+-- request, ADR 0107) a pending, waiting or approved note is withdrawn
 -- first, so it is never public again; without it only a rejected, removed
 -- or withdrawn note is purged. The text, details and reader name are
 -- deleted, and each step is recorded without them. It returns the row, or

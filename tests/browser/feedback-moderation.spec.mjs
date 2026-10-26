@@ -10,7 +10,7 @@ import { randomBytes } from "node:crypto";
 
 // Publishing what was approved of passage feedback (#83, ADR 0083): responses, revision notes and
 // the canonical page are the real server's. Deciding on feedback is the moderation inbox's
-// (moderation-inbox.spec.mjs, ADR 0104). Covers the author's response and revision note, a
+// (moderation-inbox.spec.mjs, ADR 0105). Covers the author's response and revision note, a
 // conflicting file, escaping, no JavaScript and 320px.
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -124,7 +124,7 @@ test("the author's response and revision note are saved to the site's files and 
   const dialogs = [];
   page.on("dialog", (dialog) => { dialogs.push(dialog.message()); dialog.dismiss(); });
   await signIn(page);
-  // B5's address opens the one moderation inbox (ADR 0104).
+  // B5's address opens the one moderation inbox (ADR 0105).
   await page.goto(`${origin}/admin/#/feedback`);
   await expect(page.getByRole("link", { name: "Moderation inbox", exact: true })).toHaveAttribute("aria-current", "page");
   // No hosted token is saved, so the inbox explains itself; what the site publishes still works.

@@ -517,7 +517,7 @@ fn paragraphs(value: &str) -> String {
 /// The section of a post's canonical page that lists its approved notes:
 /// static, semantic HTML that needs no script. Every value is escaped; a
 /// suggested source is a plain link marked as reader-supplied. With
-/// `reports`, the hosted endpoint while abuse reports are open (ADR 0130),
+/// `reports`, the hosted endpoint while abuse reports are open (ADR 0107),
 /// each note carries a progressive report form whose static text works
 /// without it.
 pub fn render_section(items: &[PublicFeedback], reports: Option<&str>) -> String {

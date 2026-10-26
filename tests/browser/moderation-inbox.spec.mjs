@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 
-// The one moderation inbox (#225, ADR 0104). The hosted inbox is mocked at the Admin API (the real
+// The one moderation inbox (#225, ADR 0105). The hosted inbox is mocked at the Admin API (the real
 // Admin keeps the hosted token, resolves each item's actor and sends only what that actor may
 // see); everything else is the real Admin. Covers keyboard-only decisions on comments and passage
 // feedback, a moved passage confirmed before approval, clarification and removal as their own

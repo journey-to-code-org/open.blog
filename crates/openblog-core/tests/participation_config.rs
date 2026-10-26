@@ -1,5 +1,5 @@
 //! The participation registry, its site and post settings, and how comments
-//! and B5's interim feedback rule map onto it (ADR 0100).
+//! and B5's interim feedback rule map onto it (ADR 0101).
 
 use openblog_core::model::CommentsPolicy;
 use openblog_core::participation::{
@@ -167,7 +167,7 @@ fn site_settings_parse_by_kind_id_and_round_trip() {
 }
 
 /// Retention left unset keeps comments out of it; naming it, even as `{}`,
-/// opts comments in and is written back (ADR 0103).
+/// opts comments in and is written back (ADR 0104).
 #[test]
 fn retention_is_unset_by_default_and_naming_it_opts_comments_in() {
     use openblog_core::moderation::{ModerationPolicy, RetentionPolicy};
@@ -597,7 +597,7 @@ fn the_participation_manifest_is_published_only_once_a_new_kind_is_switched_on()
     assert_eq!(output(&files, "openblog-participation.json"), None);
 }
 
-/// ADR 0100: B5's `FeedbackKind` is the registry of its submission format,
+/// ADR 0101: B5's `FeedbackKind` is the registry of its submission format,
 /// and every one of its ids is the participation kind it maps to.
 #[test]
 fn every_feedback_kind_id_is_its_participation_kind_id() {
@@ -617,7 +617,7 @@ fn every_feedback_kind_id_is_its_participation_kind_id() {
     }
 }
 
-/// ADR 0100: `engagement.feedback` folds into `participation.kinds` at load,
+/// ADR 0101: `engagement.feedback` folds into `participation.kinds` at load,
 /// as `follow-comments` for B5's kinds the site does not name, before
 /// anything reads the policy, and is never written back as the owner's.
 #[test]
@@ -681,7 +681,7 @@ fn feedback_form(page: &str) -> Option<&str> {
     Some(&page[start..end])
 }
 
-/// ADR 0100: a site that only set `engagement.feedback` publishes what B5
+/// ADR 0101: a site that only set `engagement.feedback` publishes what B5
 /// published, byte for byte, plus the participation manifest; the form is
 /// shown where a kind is open and offers exactly the open kinds.
 #[test]

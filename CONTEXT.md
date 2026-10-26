@@ -1084,8 +1084,8 @@ _Avoid_: Changelog entry, correction notice from a reader; storing the note in p
 ## Reader participation
 
 These terms describe how readers point at published text, where their feedback came from, and
-the one policy that governs everything readers and authors add to a published post (ADRs 0100 to
-0103).
+the one policy that governs everything readers and authors add to a published post (ADRs 0101 to
+0104).
 Reader data is never research: a notebook **Passage** is an author's excerpt of a source, while a
 **Passage target** points into a published post.
 
@@ -1180,7 +1180,7 @@ A moderator's decision about one feedback item, taken in the moderation inbox: a
 clarify, reject or remove with a reason, or reopen, in the participation policy's state names
 (pending, clarification, approved, rejected, removed, withdrawn). Each change names the state and
 version the moderator saw and is recorded as an audit event; approval never edits the post (ADRs
-0083, 0104).
+0083, 0105).
 _Avoid_: Accepting a correction, verdict, review when a moderation decision is meant
 
 **Passage check**:
@@ -1294,26 +1294,26 @@ _Avoid_: Archive, backup, analytics retention
 Admin's one list of every hosted participation item, comments and passage feedback today, by
 state and kind, oldest first. Each item is shown, and offered the decisions the one policy accepts
 now, for the role the signed-in account has on that item's work; an item it may not see is left
-out and never counted (ADR 0104).
+out and never counted (ADR 0105).
 _Avoid_: Comment moderation, Reader feedback view, queue when the whole inbox is meant
 
 **Inbox decision**:
 Approve, ask to clarify, reject, remove or reopen one item, naming the state and version the
 moderator loaded. Admin and the hosted function each decide it with the same rules before one
-conditional write records it with its audit event (ADR 0104).
+conditional write records it with its audit event (ADR 0105).
 _Avoid_: Status change, bulk action, verdict
 
 **Reader receipt**:
 A random secret the hosted function returns once when it takes a reader's note, kept only as its
 digest. Holding it is the only proof of submission: with it the reader reads the note, agrees to
 be asked to clarify, answers a clarification request, or withdraws the note. Comments and abuse
-reports get none (ADR 0130).
+reports get none (ADR 0107).
 _Avoid_: Account, login, confirmation e-mail, ticket number
 
 **Deletion request**:
 A request that an item's text, details and name be deleted now, by its submitter's receipt (which
 withdraws an open or approved note first) or by the site Admin on an item already closed. Only the
-state and an audit trail without text remain (ADR 0130).
+state and an audit trail without text remain (ADR 0107).
 _Avoid_: Delete row, unpublish, removal
 
 **Purge**:
@@ -1326,20 +1326,20 @@ _Avoid_: Delete, archive, redact when the text is kept
 The site Admin's confirmed application of `participation.retention`: a dry run lists what would
 expire or be purged and how many audit events are old enough, then the run applies exactly the
 items still due as they were. Never scheduled, and never touches comments unless the site set
-retention itself (ADR 0131).
+retention itself (ADR 0108).
 _Avoid_: Cron job, cleanup script, automatic purge
 
 **Engagement protection**:
 The opt-in hosted schema and switch (`supabase/protection.sql`, `OPENBLOG_PROTECTION_ENABLED`) that
 add receipts, stored abuse reports, purging and the retention run, with replay bounds, all
-additive and rolled back by `protection-rollback.sql` (ADR 0131).
+additive and rolled back by `protection-rollback.sql` (ADR 0108).
 _Avoid_: Security mode, hardening flag
 
 **Inbox schema**:
 The hosted columns, comment audit table and conditional moderation functions every inbox decision
 needs, added by `supabase/moderation.sql` and `supabase/feedback.sql` and switched on with
 `OPENBLOG_MODERATION_ENABLED`. Without it the inbox offers only what the older schema can store
-(ADR 0105).
+(ADR 0106).
 _Avoid_: Migration (it is additive and optional), new comment system
 
 ## Admin workspace

@@ -3501,7 +3501,7 @@ a.oba-btn-primary {
   cursor: pointer;
 }
 
-/* The moderation inbox (ADR 0104): one decision per row, its guidance under it, wrapping at any
+/* The moderation inbox (ADR 0105): one decision per row, its guidance under it, wrapping at any
    width or zoom. */
 /* Six states wrap rather than scroll, so the list reflows at any zoom. */
 .oba-moderation-states {

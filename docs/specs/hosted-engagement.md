@@ -61,7 +61,7 @@ function. Admin stores the public endpoint in `openblog.json` and a write-only m
 ## Participation policy
 
 Comments are the first kind in the one participation and moderation policy
-(`openblog_core::participation` and `openblog_core::moderation`, ADRs 0100 to 0103). The comment
+(`openblog_core::participation` and `openblog_core::moderation`, ADRs 0101 to 0104). The comment
 manifest and `<ob-comments>` come from the policy's comment row, which keeps the rule above
 unchanged. Further kinds (passage feedback, Third Perspectives, author responses, abuse reports)
 are off until `participation.kinds` switches them on, then share this function, its quotas and its
@@ -70,22 +70,22 @@ moderation token, read their modes from `openblog-participation.json`, and start
 ## Moderation inbox
 
 Comments and passage feedback are moderated in one Admin inbox through `GET` and `PATCH
-/admin/moderation` (ADR 0104): a keyset-paged list by state and kind, each item offered the
+/admin/moderation` (ADR 0105): a keyset-paged list by state and kind, each item offered the
 decisions the one policy accepts for the signed-in account's role on its work, every decision
 decided again by the function from the stored row (`netlify/lib/participation-moderation.mjs`,
 checked against `tests/fixtures/participation-transitions.json`) and written once, conditionally,
-with its audit event. The hosted schema for every decision is opt in (ADR 0105): `moderation.sql`
+with its audit event. The hosted schema for every decision is opt in (ADR 0106): `moderation.sql`
 adds a version, the full state and a reason beside the comment `status` column, which keeps its
 three values for public reads, and a comment audit table; `feedback.sql` adds the item's
 revisions and the audit fields ADR 0083 left. Without `OPENBLOG_MODERATION_ENABLED` the inbox offers
-what the older schema can store. With engagement protection (ADRs 0130 and 0131) the inbox also
+what the older schema can store. With engagement protection (ADRs 0107 and 0108) the inbox also
 lists abuse reports with the item each names, upholds them in one transaction, deletes a closed
 item's text for the site Admin, and runs retention from a confirmed dry run.
 
 ## Engagement protection
 
-Reader receipts, anonymous abuse reports, deletion requests and the retention run (ADRs 0130 and
-0131) are opt in behind `supabase/protection.sql` and `OPENBLOG_PROTECTION_ENABLED`. Quotas store
+Reader receipts, anonymous abuse reports, deletion requests and the retention run (ADRs 0107 and
+0108) are opt in behind `supabase/protection.sql` and `OPENBLOG_PROTECTION_ENABLED`. Quotas store
 only hourly digests of the client, receipts only their digest, and reports no reporter identity;
 purging overwrites text and keeps state and audit events without it. The rules the function
 applies (`retentionStep`, `planErasure`, `planUphold`) are checked against

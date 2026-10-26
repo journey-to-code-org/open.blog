@@ -230,7 +230,7 @@ pub struct Post {
     pub draft: bool,
     pub comments: CommentsPolicy,
     /// This post's own modes for participation kinds beyond comments, from
-    /// its `participation:` front matter (ADR 0100). A kind the site has
+    /// its `participation:` front matter (ADR 0101). A kind the site has
     /// switched off stays off whatever this says.
     pub participation: crate::participation::PostParticipation,
     /// `<link rel="canonical">` override, for cross-posted articles.
@@ -1107,7 +1107,7 @@ pub fn uncitable_line(source: &str, library: &SourceLibrary) -> Option<usize> {
 
 /// Give each post the approved reader notes its canonical page shows (ADR
 /// 0083), or say why the file cannot be read. A note is shown only where its
-/// kind's site and post mode shows approved items (ADR 0100), so a post that
+/// kind's site and post mode shows approved items (ADR 0101), so a post that
 /// hides a kind shows none of it, while a site without its hosted service
 /// keeps showing what it published; a note about a post that no longer exists
 /// is a warning, and one about a draft or scheduled post waits for it.

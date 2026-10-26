@@ -488,7 +488,7 @@ test("each kind asks for its own details", () => {
   assert.match(ui.control("kind-hint").textContent, /suggestion until the author decides/);
 });
 
-test("the form offers only the kinds the post has open, and none leaves the static text (ADR 0100)", () => {
+test("the form offers only the kinds the post has open, and none leaves the static text (ADR 0101)", () => {
   const view = page({ kinds: "correction-suggestion question" });
   // The registry's order, whatever order the attribute names them in.
   assert.deepEqual(parts(view.host).control("kind").options.map((option) => option.value), ["question", "correction-suggestion"]);

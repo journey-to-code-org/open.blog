@@ -88,7 +88,7 @@ impl FeedbackKind {
         Self::ALL.into_iter().find(|kind| kind.id() == id)
     }
 
-    /// The participation kind this is (ADR 0100): the same id, in the one
+    /// The participation kind this is (ADR 0101): the same id, in the one
     /// registry whose site and post modes govern it.
     pub fn participation_kind(self) -> crate::participation::ParticipationKind {
         use crate::participation::ParticipationKind;
@@ -640,8 +640,8 @@ pub struct HostedFeedback {
     /// Why the item was last rejected or removed, if it was.
     pub reason: Option<crate::moderation::ReasonCode>,
     pub feedback: ScholarlyFeedback,
-    /// The text's revision (ADR 0101), raised only when a clarification
-    /// replaces it; 1 for an item stored before the inbox (ADR 0105).
+    /// The text's revision (ADR 0102), raised only when a clarification
+    /// replaces it; 1 for an item stored before the inbox (ADR 0106).
     pub revision: u32,
     /// The revision an approval covers. An item approved before the inbox
     /// stored none, and was approved at its only revision.

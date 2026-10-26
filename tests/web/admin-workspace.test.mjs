@@ -176,7 +176,7 @@ test("site tools expose a contributor registry workspace with manual identity pr
 test("Analytics configures hosted Supabase engagement without exposing service credentials", () => {
   assert.match(admin, /engagement\/settings/);
   assert.match(admin, /engagement\/analytics/);
-  // Comments are moderated with reader feedback in the one inbox (ADR 0104).
+  // Comments are moderated with reader feedback in the one inbox (ADR 0105).
   assert.match(admin, /engagement\/moderation\?\$\{query\}/);
   assert.doesNotMatch(admin, /engagement\/comments/);
   assert.match(admin, /Moderate comments, with reader feedback, in the /);

@@ -1,4 +1,4 @@
-//! Engagement protection (#226, ADRs 0130 and 0131): retention due dates as
+//! Engagement protection (#226, ADRs 0107 and 0108): retention due dates as
 //! one run sees them, deletion requests by a submitter's receipt or the site
 //! Admin, abuse reports read strictly and upheld only with the item they
 //! name, purged items that only keep their facts, and the shared fixture the
@@ -265,7 +265,7 @@ fn fixture_text() -> String {
     };
     let cutoffs = |comments| policy(comments).cutoffs(now()).to_json();
     format!(
-        "{{\n  \"about\": \"Retention steps, deletion requests and upheld abuse reports (ADRs 0103, 0130 and 0131), generated from openblog_core::moderation and checked by crates/openblog-core/tests/participation_protection.rs; netlify/lib/participation-moderation.mjs must agree with every case. One run at {NOW} with the default periods; `cutoffs` are what Admin sends for it, without and with comments opted in. Items start at version 3; reported items at version 5. Regenerate with OPENBLOG_BLESS=1.\",\n  \"now\": \"{NOW}\",\n  \"cutoffs\": {{\"withoutComments\": {}, \"withComments\": {}}},\n  \"retention\": [\n    {}\n  ],\n  \"erasure\": [\n    {}\n  ],\n  \"uphold\": [\n    {}\n  ]\n}}\n",
+        "{{\n  \"about\": \"Retention steps, deletion requests and upheld abuse reports (ADRs 0104, 0107 and 0108), generated from openblog_core::moderation and checked by crates/openblog-core/tests/participation_protection.rs; netlify/lib/participation-moderation.mjs must agree with every case. One run at {NOW} with the default periods; `cutoffs` are what Admin sends for it, without and with comments opted in. Items start at version 3; reported items at version 5. Regenerate with OPENBLOG_BLESS=1.\",\n  \"now\": \"{NOW}\",\n  \"cutoffs\": {{\"withoutComments\": {}, \"withComments\": {}}},\n  \"retention\": [\n    {}\n  ],\n  \"erasure\": [\n    {}\n  ],\n  \"uphold\": [\n    {}\n  ]\n}}\n",
         cutoffs(false),
         cutoffs(true),
         join(retention_cases()),

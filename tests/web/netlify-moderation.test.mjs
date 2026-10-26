@@ -1,4 +1,4 @@
-// The hosted side of the one moderation inbox (#225, ADRs 0104 and 0105), exercised through
+// The hosted side of the one moderation inbox (#225, ADRs 0105 and 0106), exercised through
 // HTTP-shaped events with a fake Supabase: the shared transitions fixture, the token as the only
 // way in, comments and passage feedback merged in one keyset-paged list, every decision checked
 // again from the stored row before one conditional write, what an older schema can store, stale
@@ -403,7 +403,7 @@ test("the inbox's schema is additive, private and opt-in, and its rollback drops
   assert.match(added, /revoke all on public\.openblog_comment_events from public, anon, authenticated, service_role;\s*grant select, insert on public\.openblog_comment_events to service_role;/);
   // Public reads keep `status`, and nothing not public is ever stored there as approved.
   assert.match(added, /status = case p_to when 'pending' then 'pending' when 'approved' then 'approved' else 'rejected' end/);
-  // The full state counts only while `status` still holds its legacy value (ADR 0105).
+  // The full state counts only while `status` still holds its legacy value (ADR 0106).
   assert.match(added, /when moderation_state is not null\s+and status = case moderation_state\s+when 'pending' then 'pending'\s+when 'clarification' then 'pending'\s+when 'approved' then 'approved'\s+else 'rejected'\s+end\s+then moderation_state\s+else status\s+end\) = p_from\s+and version = p_expected_version/);
   assert.doesNotMatch(baseSchema, /moderation_state|openblog_comment_events/);
 

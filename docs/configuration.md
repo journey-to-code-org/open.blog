@@ -345,15 +345,15 @@ other way to take part is a participation kind, off until you switch it on in `p
 - Once a kind beyond comments is switched on, builds also write `openblog-participation.json`,
   the public map of each post's open and locked kinds that the hosted function checks.
 
-The rules are recorded in ADRs [0100](adr/0100-one-registry-of-participation-kinds-enabled-per-site-and-post.md)
-to [0103](adr/0103-retention-audit-events-and-abuse-reports-fail-closed.md).
+The rules are recorded in ADRs [0101](adr/0101-one-registry-of-participation-kinds-enabled-per-site-and-post.md)
+to [0104](adr/0104-retention-audit-events-and-abuse-reports-fail-closed.md).
 
 ### Privacy, retention and deletion
 
 What the hosted service keeps, and how it goes, once you run the optional
 [engagement protection](../netlify/functions/README.md#engagement-protection-optional) schema
-(ADRs [0130](adr/0130-reader-receipts-deletion-requests-and-anonymous-abuse-reports.md) and
-[0131](adr/0131-retention-runs-from-a-dry-run-and-quotas-keep-only-hourly-digests.md)):
+(ADRs [0107](adr/0107-reader-receipts-deletion-requests-and-anonymous-abuse-reports.md) and
+[0108](adr/0108-retention-runs-from-a-dry-run-and-quotas-keep-only-hourly-digests.md)):
 
 - **Never stored:** a reader's IP address, user agent, e-mail address or any identifier that
   lasts beyond an hour. Rate limits keep a salted digest of the client for the hour only; page

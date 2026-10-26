@@ -1,17 +1,17 @@
-# ADR 0131: Retention runs from a dry run the site Admin confirms, quotas keep only hourly digests, and protection's schema is additive and opt in
+# ADR 0108: Retention runs from a dry run the site Admin confirms, quotas keep only hourly digests, and protection's schema is additive and opt in
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#226](https://github.com/journey-to-code-org/open.blog/issues/226)
 - Parent story: [#203](https://github.com/journey-to-code-org/open.blog/issues/203)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0103](0103-retention-audit-events-and-abuse-reports-fail-closed.md),
-  [ADR 0105](0105-the-inbox-adds-columns-an-audit-table-and-conditional-functions-opt-in.md),
-  [ADR 0130](0130-reader-receipts-deletion-requests-and-anonymous-abuse-reports.md)
+- Builds on: [ADR 0104](0104-retention-audit-events-and-abuse-reports-fail-closed.md),
+  [ADR 0106](0106-the-inbox-adds-columns-an-audit-table-and-conditional-functions-opt-in.md),
+  [ADR 0107](0107-reader-receipts-deletion-requests-and-anonymous-abuse-reports.md)
 
 ## Context
 
-ADR 0103 defines when text expires or is purged and leaves the job, tables and the function's
+ADR 0104 defines when text expires or is purged and leaves the job, tables and the function's
 adoption to #226. Purging is irreversible, so it must never surprise an owner and never reach
 comments a site did not opt in. #226 also requires that no raw IP address, user agent or
 cross-day identifier be stored: the existing hourly quota stores a salted digest of the client
@@ -33,11 +33,11 @@ address that is the same every hour and day, kept for 48 hours. Hosted storage i
     Admin recomputes the plan for that time and sends the function at most 200 items with the
     version each was seen at; the function re-reads each, applies its step only while it is still
     at that version and still due, with the System actor (`@retention`, role `system`): expire
-    through the moderation functions, purge through the deletion functions of ADR 0130. An
+    through the moderation functions, purge through the deletion functions of ADR 0107. An
     unchecked box keeps old audit events; otherwise those at or before the audit cutoff are
     deleted. It reports what was expired, purged and skipped, and whether more is due.
   - The function refuses cutoffs that are not canonical UTC times at least a day before its own
-    clock, and an audit cutoff later than the closed-item cutoff (ADR 0103's `auditDays` is at
+    clock, and an audit cutoff later than the closed-item cutoff (ADR 0104's `auditDays` is at
     least `closedDays`), whatever it is sent, and touches comments only when told the site opted
     them in.
   - No scheduled job is added: #226 asks for retention jobs or manual cleanup, and an explicit,

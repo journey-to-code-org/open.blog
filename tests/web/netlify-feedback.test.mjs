@@ -38,7 +38,7 @@ const event = (path, method = "GET", body, extra = {}) => ({
   body,
 });
 
-// The participation manifest (ADR 0100) with `policy` as every passage kind's mode on the post.
+// The participation manifest (ADR 0101) with `policy` as every passage kind's mode on the post.
 const sitePolicy = (policy) => async (url) => {
   assert.equal(url, "https://blog.example/openblog-participation.json");
   const modes = Object.fromEntries(["question", "source-suggestion", "correction-suggestion", "alternative-interpretation"].map((kind) => [kind, policy]));
@@ -473,7 +473,7 @@ test("the migration is additive, private, and matches what the function writes a
     assert.doesNotMatch(statements, forbidden);
   }
   // The only updates are the moderation functions', of the feedback table
-  // (ADR 0083, and the inbox's, ADR 0105), and the deletion function's (ADR 0131).
+  // (ADR 0083, and the inbox's, ADR 0106), and the deletion function's (ADR 0108).
   assert.deepEqual(statements.match(/\bupdate\s+public\.[a-z_]+/g), ["update public.openblog_feedback", "update public.openblog_feedback", "update public.openblog_feedback"]);
   assert.match(statements, /create table if not exists public\.openblog_feedback/);
   assert.match(statements, /alter table public\.openblog_feedback enable row level security/);

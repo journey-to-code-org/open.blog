@@ -1,4 +1,4 @@
-//! Which kinds of reader participation a site and a post accept (ADR 0100).
+//! Which kinds of reader participation a site and a post accept (ADR 0101).
 //!
 //! Every way a reader or an author can add to a published post (a comment, a
 //! passage question, a suggested source or correction, another interpretation,
@@ -113,7 +113,7 @@ impl ParticipationKind {
     }
 
     /// B5's four passage feedback kinds (ADR 0079), in the order its form
-    /// offers them. `engagement.feedback` folds into these (ADR 0100).
+    /// offers them. `engagement.feedback` folds into these (ADR 0101).
     pub const PASSAGE_FEEDBACK: [ParticipationKind; 4] = [
         ParticipationKind::Question,
         ParticipationKind::SourceSuggestion,
@@ -289,12 +289,12 @@ pub enum SiteSetting {
 pub struct ParticipationConfig {
     /// Site settings by kind id. A kind not named is `off`.
     pub kinds: BTreeMap<ParticipationKind, SiteSetting>,
-    /// Settings derived at load from `engagement.feedback` (ADR 0100): B5's
+    /// Settings derived at load from `engagement.feedback` (ADR 0101): B5's
     /// four kinds as `follow-comments` where `kinds` does not name them.
     /// Never written back, so the owner's file keeps what the owner wrote.
     #[serde(skip)]
     folded: BTreeMap<ParticipationKind, SiteSetting>,
-    /// How long moderation keeps what it does not publish (ADR 0103). Unset,
+    /// How long moderation keeps what it does not publish (ADR 0104). Unset,
     /// the default periods apply to every kind except comments, so a site
     /// that never mentions retention keeps its comments as before; set (even
     /// as `{}`), the periods apply to comments too.
@@ -336,7 +336,7 @@ impl ParticipationConfig {
             .any(|kind| self.setting(kind) != SiteSetting::Off)
     }
 
-    /// Fold B5's `engagement.feedback` into the policy (ADR 0100): `true`
+    /// Fold B5's `engagement.feedback` into the policy (ADR 0101): `true`
     /// makes each of its four kinds that `kinds` does not name
     /// `follow-comments`; `false` adds nothing. Run at load, before anything
     /// reads the policy; running it again gives the same result.
@@ -445,7 +445,7 @@ pub fn effective_mode(
     configured_mode(config, post, kind)
 }
 
-/// Where a kind's already published notes show (ADR 0100, ADR 0083): the
+/// Where a kind's already published notes show (ADR 0101, ADR 0083): the
 /// kind's site and post mode as [`effective_mode`] resolves it, but without
 /// the transport step, so a site that leaves its hosted service keeps its
 /// published notes on its pages. Without a transport nothing is accepted, so
@@ -539,7 +539,7 @@ pub fn legacy_feedback_manifest(site: &Site) -> Option<String> {
 }
 
 /// The passage feedback kinds a post's form offers: those of B5's four that
-/// are `open` there, in the form's order (ADR 0100). Empty means no form.
+/// are `open` there, in the form's order (ADR 0101). Empty means no form.
 pub fn offered_passage_kinds(config: &SiteConfig, post: &Post) -> Vec<ParticipationKind> {
     ParticipationKind::PASSAGE_FEEDBACK
         .into_iter()

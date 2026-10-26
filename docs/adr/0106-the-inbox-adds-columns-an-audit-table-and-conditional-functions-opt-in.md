@@ -1,4 +1,4 @@
-# ADR 0105: The inbox's hosted schema adds columns, a comment audit table and conditional moderation functions, opt in
+# ADR 0106: The inbox's hosted schema adds columns, a comment audit table and conditional moderation functions, opt in
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -7,9 +7,9 @@
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
 - Builds on: [ADR 0080](0080-hosted-feedback-is-one-additive-private-table.md),
   [ADR 0083](0083-feedback-moderation-is-version-checked-and-approved-notes-publish-from-a-versioned-file.md),
-  [ADR 0101](0101-one-moderation-state-machine-where-everything-starts-pending.md),
-  [ADR 0104](0104-one-moderation-inbox-decided-per-item-by-the-one-policy.md)
-- Amends: ADR 0101 (comments keep their `status` column and gain the full state beside it now,
+  [ADR 0102](0102-one-moderation-state-machine-where-everything-starts-pending.md),
+  [ADR 0105](0105-one-moderation-inbox-decided-per-item-by-the-one-policy.md)
+- Amends: ADR 0102 (comments keep their `status` column and gain the full state beside it now,
   not with #226), ADR 0083 (the audit fields it left for #225)
 - Coordinates with: [#226](https://github.com/journey-to-code-org/open.blog/issues/226)
 
@@ -32,13 +32,13 @@ private public.
     (nullable: a comment no inbox decision touched has the state its `status` says) and
     `moderation_reason text` (a reason code, never free text).
   - `status` keeps its three values and stays what public reads use. Every decision writes the
-    full state to `moderation_state` and its ADR 0101 legacy value to `status` in the same
+    full state to `moderation_state` and its ADR 0102 legacy value to `status` in the same
     statement: removed is stored as `rejected`, so nothing that is not public is ever stored as
     approved.
   - The `openblog_comment_events` audit table (comment, action, states, reason, actor, actor
     role, time, version; never text or a name), private like ADR 0080's tables. Its rows are only
     inserted here; engagement protection
-    ([ADR 0131](0131-retention-runs-from-a-dry-run-and-quotas-keep-only-hourly-digests.md)) later
+    ([ADR 0108](0108-retention-runs-from-a-dry-run-and-quotas-keep-only-hourly-digests.md)) later
     lets the retention run delete events older than the site's audit period, and a trigger
     refuses to delete any recorded in the last day.
   - `openblog_moderate_comment(...)` applies one decision only while the comment still has the

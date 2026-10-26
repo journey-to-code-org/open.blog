@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 
-// Engagement protection (#226, ADRs 0130 and 0131), in the real site and the real Admin, with the
+// Engagement protection (#226, ADRs 0107 and 0108), in the real site and the real Admin, with the
 // hosted function mocked at its routes (the reader's pages) and at the Admin API (the inbox).
 // Covers the receipt shown once after a note is taken, agreeing to be asked, answering a
 // clarification request and withdrawing a note by receipt, anonymous abuse reports under a

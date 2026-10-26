@@ -1,11 +1,11 @@
-# ADR 0101: One moderation state machine, where every submission starts pending and only an approved revision is public
+# ADR 0102: One moderation state machine, where every submission starts pending and only an approved revision is public
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#211](https://github.com/journey-to-code-org/open.blog/issues/211)
 - Parent story: [#203](https://github.com/journey-to-code-org/open.blog/issues/203)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0100](0100-one-registry-of-participation-kinds-enabled-per-site-and-post.md)
+- Builds on: [ADR 0101](0101-one-registry-of-participation-kinds-enabled-per-site-and-post.md)
 - Coordinates with: [#225](https://github.com/journey-to-code-org/open.blog/issues/225) (inbox),
   [#226](https://github.com/journey-to-code-org/open.blog/issues/226) (abuse, retention),
   [#214](https://github.com/journey-to-code-org/open.blog/issues/214) (RD14 consent and withdrawal),
@@ -43,8 +43,8 @@ pending, that clarification never publishes the original, and that removal fails
   | `remove` | approved | removed | required |
   | `reopen` | rejected, removed (text still kept) | pending, or clarification when its current revision was asked about | none |
   | `withdraw` | pending, clarification, approved | withdrawn | none |
-  | `expire` (retention, ADR 0103) | pending, clarification | rejected (`expired`) | set by policy |
-  | `uphold-report` (ADR 0103) | pending (abuse report) | approved (never public) | required |
+  | `expire` (retention, ADR 0104) | pending, clarification | rejected (`expired`) | set by policy |
+  | `uphold-report` (ADR 0104) | pending (abuse report) | approved (never public) | required |
 
   Approving an abuse report directly, removing one, and asking an author or a reporter to clarify
   do not apply to those kinds. A rejected, removed or withdrawn item never goes straight back to
@@ -87,13 +87,13 @@ pending, that clarification never publishes the original, and that removal fails
   withdrawal. Widening the column, if wanted, is an additive migration for #226. The hosted
   function adopts these rules (no straight rejected-to-approved change, versions, reasons) with
   the inbox (#225); until then its existing behaviour is unchanged. (Amended by
-  [ADR 0105](0105-the-inbox-adds-columns-an-audit-table-and-conditional-functions-opt-in.md):
+  [ADR 0106](0106-the-inbox-adds-columns-an-audit-table-and-conditional-functions-opt-in.md):
   the column is not widened; comments gain the full state in a new `moderation_state` column
   beside it, with a version and an audit table, opt in, and the inbox adopts the rules.)
 - **Errors change nothing and say nothing.** `PolicyError` codes (`denied`, `unavailable`,
   `closed`, `stale`, `notAllowed`, `reasonRequired`, `reasonNotAllowed`, `consentRequired`,
   `contentPurged`, `notDue`, `reportMismatch`, `invalidTarget`) carry fixed messages that name no
-  item text, identity or stored value. Checks run in a fixed order, grant first (ADR 0102), so an
+  item text, identity or stored value. Checks run in a fixed order, grant first (ADR 0103), so an
   actor without a grant learns nothing about an item's state.
 
 ## Considered options
@@ -103,7 +103,7 @@ pending, that clarification never publishes the original, and that removal fails
 - **Approve the clarified text in place.** Rejected: a moderator could approve what they saw
   before the answer, publishing the original the reader was asked to change.
 - **Let reports hide their target automatically.** Rejected: anyone could take approved content
-  down by reporting it. An upheld report removes its target (ADR 0103); a report alone changes
+  down by reporting it. An upheld report removes its target (ADR 0104); a report alone changes
   nothing public.
 
 ## Consequences

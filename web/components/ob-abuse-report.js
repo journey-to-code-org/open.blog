@@ -1,4 +1,4 @@
-// Abuse reports (ADR 0130): a small, progressive form a reader opens under a public comment or a
+// Abuse reports (ADR 0107): a small, progressive form a reader opens under a public comment or a
 // published reader note to tell the author it is abusive. A report is private and anonymous: it is
 // never published or counted, it changes nothing by itself, and nothing about the reader is sent
 // beyond the ground they choose and what they write. The page is complete without this script:

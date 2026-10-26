@@ -1,6 +1,6 @@
-//! The one participation moderation inbox (ADR 0104).
+//! The one participation moderation inbox (ADR 0105).
 //!
-//! Hosted comments, passage feedback and abuse reports (ADR 0130), and every
+//! Hosted comments, passage feedback and abuse reports (ADR 0107), and every
 //! later participation kind once it has a store, are moderated in one list driven by the one state
 //! machine ([`crate::moderation`]). Each item the hosted service returns is
 //! read again here with a strict validator, given the actor its viewer is on
@@ -44,11 +44,11 @@ const MAX_PAGE_ITEMS: usize = 200;
 const MAX_COMMENT_CHARS: usize = 4_000;
 const MAX_NAME_CHARS: usize = 80;
 const MAX_TARGET_CHARS: usize = 20_000;
-/// The longest abuse report a reader may write (ADR 0130).
+/// The longest abuse report a reader may write (ADR 0107).
 pub const MAX_REPORT_CHARS: usize = 1_000;
 
 /// The grounds a reader may give for an abuse report: the reasons a
-/// moderator may uphold one for (ADR 0101), never a verdict on facts.
+/// moderator may uphold one for (ADR 0102), never a verdict on facts.
 pub fn report_grounds() -> &'static [ReasonCode] {
     allowed_reasons(
         ModerationAction::UpholdReport,
@@ -60,7 +60,7 @@ pub fn report_grounds() -> &'static [ReasonCode] {
 /// reader's request ([`ModerationPolicy::erase`]).
 pub const ERASE_ACTION: &str = "erase";
 
-/// What the hosted service can store for moderation (ADR 0105).
+/// What the hosted service can store for moderation (ADR 0106).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Protocol {
     /// `supabase/moderation.sql` was run and `OPENBLOG_MODERATION_ENABLED`
@@ -71,7 +71,7 @@ pub enum Protocol {
     /// approved, rejected and removed (ADR 0083). Nothing else is offered.
     Legacy,
     /// The inbox's schema with `supabase/protection.sql` run and
-    /// `OPENBLOG_PROTECTION_ENABLED` set (ADR 0131): everything [`Full`]
+    /// `OPENBLOG_PROTECTION_ENABLED` set (ADR 0108): everything [`Full`]
     /// stores, plus abuse reports, purged text and deletion requests.
     ///
     /// [`Full`]: Protocol::Full
@@ -120,7 +120,7 @@ pub enum Source {
     Comment,
     /// `openblog_feedback` (ADR 0080).
     Feedback,
-    /// `openblog_abuse_reports` (ADR 0130).
+    /// `openblog_abuse_reports` (ADR 0107).
     Report,
 }
 
@@ -166,7 +166,7 @@ pub enum Content {
         body: Option<String>,
     },
     /// Retention or a deletion request purged the text, details and name;
-    /// only the state and the audit trail remain (ADR 0103).
+    /// only the state and the audit trail remain (ADR 0104).
     Purged,
 }
 
@@ -697,7 +697,7 @@ pub struct Inbox<'a> {
 }
 
 impl<'a> Inbox<'a> {
-    /// The viewer's actor on this item's work (ADR 0102): never from the
+    /// The viewer's actor on this item's work (ADR 0103): never from the
     /// request, always from the session or token and the stored records.
     pub fn actor(&self, item: &InboxItem) -> Actor<'a> {
         self.works
@@ -723,7 +723,7 @@ impl<'a> Inbox<'a> {
         reason: Option<ReasonCode>,
     ) -> Result<Decision, PolicyError> {
         // Upholding a report is decided with the item it names, as the
-        // hosted service read it with the report (ADR 0103).
+        // hosted service read it with the report (ADR 0104).
         let target = item.target_facts();
         let reported_item = if action == ModerationAction::UpholdReport {
             target.as_ref()
@@ -763,7 +763,7 @@ impl<'a> Inbox<'a> {
             .collect()
     }
 
-    /// A deletion request taken by this viewer (ADR 0130): only the site
+    /// A deletion request taken by this viewer (ADR 0107): only the site
     /// Admin, only on a closed item or an upheld report, and only where the
     /// hosted service can purge ([`Protocol::Protected`]).
     pub fn erase(&self, item: &InboxItem, expected_version: u64) -> Result<Erasure, PolicyError> {
@@ -776,7 +776,7 @@ impl<'a> Inbox<'a> {
         Ok(erasure)
     }
 
-    /// The step retention owes the item now, if any (ADR 0103).
+    /// The step retention owes the item now, if any (ADR 0104).
     pub fn retention_due(&self, item: &InboxItem) -> Option<RetentionStep> {
         self.policy.retention_due(&item.facts(), self.now)
     }

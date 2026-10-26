@@ -1,5 +1,5 @@
 // The moderation rules for passage feedback (ADR 0083): B5's subset of the one state machine
-// (participation-moderation.mjs, ADR 0101), the same table as `openblog_core::feedback_moderation`,
+// (participation-moderation.mjs, ADR 0102), the same table as `openblog_core::feedback_moderation`,
 // held together by tests/fixtures/feedback-moderation.json. The states, reasons and refusal codes
 // are the policy's; B5's route offers only approve, reject and remove, as the site Admin. Reasons
 // are moderation grounds, never a verdict on facts.

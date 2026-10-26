@@ -1,4 +1,4 @@
--- Roll back engagement protection (ADRs 0130 and 0131). Run in the Supabase
+-- Roll back engagement protection (ADRs 0107 and 0108). Run in the Supabase
 -- SQL editor, before moderation-rollback.sql if you are undoing that too.
 --
 -- First remove OPENBLOG_PROTECTION_ENABLED from the Netlify environment and

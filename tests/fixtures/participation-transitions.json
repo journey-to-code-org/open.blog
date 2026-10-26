@@ -1,5 +1,5 @@
 {
-  "about": "Every moderation decision the inbox can ask for (ADRs 0101, 0102 and 0104), generated from openblog_core::moderation and checked by crates/openblog-core/tests/moderation_inbox.rs; netlify/lib/participation-moderation.mjs must agree with every case. Each case starts at version 3; facts: plain (revision 1, nobody asked, no consent), consented (revision 1, consent), asked (revision 1 asked about), answered (revision 2, revision 1 asked about). Regenerate with OPENBLOG_BLESS=1.",
+  "about": "Every moderation decision the inbox can ask for (ADRs 0102, 0103 and 0105), generated from openblog_core::moderation and checked by crates/openblog-core/tests/moderation_inbox.rs; netlify/lib/participation-moderation.mjs must agree with every case. Each case starts at version 3; facts: plain (revision 1, nobody asked, no consent), consented (revision 1, consent), asked (revision 1 asked about), answered (revision 2, revision 1 asked about). Regenerate with OPENBLOG_BLESS=1.",
   "cases": [
     {"action":"approve","approvedRevision":1,"clarificationAsked":null,"facts":"plain","kind":"comment","reason":null,"revision":1,"role":"site-admin","state":"pending","to":"approved","version":4},
     {"action":"request-clarification","facts":"plain","kind":"comment","reason":"unclear","refused":"notAllowed","role":"site-admin","state":"pending"},

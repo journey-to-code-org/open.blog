@@ -1,4 +1,4 @@
-# ADR 0100: One closed registry of participation kinds, each off until the site and the post turn it on
+# ADR 0101: One closed registry of participation kinds, each off until the site and the post turn it on
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -150,5 +150,5 @@ setting, whatever `engagement.comments` says, when `engagement.feedback` is on",
 - Third Perspectives (#221), author responses (#83), passage feedback (B5) and abuse reports (#226)
   plug into the same resolver and manifest; the hosted function adopting the manifest is part of
   those tasks.
-- Moderation of what each kind receives is one state machine (ADR 0101), with one role model
-  (ADR 0102) and one retention and audit policy (ADR 0103).
+- Moderation of what each kind receives is one state machine (ADR 0102), with one role model
+  (ADR 0103) and one retention and audit policy (ADR 0104).

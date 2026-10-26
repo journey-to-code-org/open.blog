@@ -1,5 +1,5 @@
-//! One moderation state machine for every participation kind (ADRs 0101 to
-//! 0103).
+//! One moderation state machine for every participation kind (ADRs 0102 to
+//! 0104).
 //!
 //! Every item a reader or an author adds (see [`crate::participation`])
 //! starts [`ModerationState::Pending`], whoever sent it. Only an approval of
@@ -434,7 +434,7 @@ impl Actor<'_> {
     }
 }
 
-/// The published work of each shared publication (ADR 0102): the
+/// The published work of each shared publication (ADR 0103): the
 /// [`Post::url`](crate::model::Post::url) of the post loaded from
 /// `posts/{publication_id}.md` ([`crate::assembly::post_path`]). It is
 /// resolved at request time from the loaded site, never stored, so a renamed
@@ -492,7 +492,7 @@ impl<'a> SharedWorks<'a> {
     }
 
     /// The actor a principal is when acting on an item about `work` (ADR
-    /// 0102). Deny by default:
+    /// 0103). Deny by default:
     ///
     /// - The moderation token is the site Admin.
     /// - An Admin session acting on a work of a shared publication in which
@@ -911,7 +911,7 @@ pub struct Erasure {
     pub version: u64,
 }
 
-/// Whether a kind's submitters get a private receipt (ADR 0130): the reader
+/// Whether a kind's submitters get a private receipt (ADR 0107): the reader
 /// kinds that may be asked to clarify. Comments predate receipts, abuse
 /// reports are anonymous, and authors act through Admin.
 pub fn issues_receipts(kind: ParticipationKind) -> bool {
@@ -940,7 +940,7 @@ pub enum View {
 ///
 /// The default is a site that never set `participation.retention`: the
 /// default periods, applied to every kind except comments, which predate
-/// this policy and are kept as before (ADR 0103).
+/// this policy and are kept as before (ADR 0104).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ModerationPolicy {
     pub retention: RetentionPolicy,
@@ -1057,7 +1057,7 @@ impl ModerationPolicy {
         let to = match (action, next_state(action, item.state)) {
             (_, None) => return Err(PolicyError::NotAllowed),
             // The text a clarification request asked about is never
-            // approved, whatever happened to the item since (ADR 0101).
+            // approved, whatever happened to the item since (ADR 0102).
             (ModerationAction::Approve, Some(_)) if item.current_revision_asked() => {
                 return Err(PolicyError::NotAllowed)
             }
@@ -1186,7 +1186,7 @@ impl ModerationPolicy {
     }
 
     /// The times at or before which each retention step is due now (ADR
-    /// 0131): an item whose state began at or before its step's time owes
+    /// 0108): an item whose state began at or before its step's time owes
     /// that step, and an audit event recorded at or before `audit_until` may
     /// be deleted. `comments` says whether comments are covered at all.
     pub fn cutoffs(&self, now: DateTime) -> RetentionCutoffs {
@@ -1202,7 +1202,7 @@ impl ModerationPolicy {
         }
     }
 
-    /// A deletion request (ADR 0130): the text, details and reader name of
+    /// A deletion request (ADR 0107): the text, details and reader name of
     /// one item are deleted now, and only its state and audit trail remain.
     ///
     /// - The submitter, proven by their private receipt, may ask for any of

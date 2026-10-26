@@ -1,9 +1,9 @@
-# Outcome of every kind/state/action/role combination (ADRs 0101 and 0102).
+# Outcome of every kind/state/action/role combination (ADRs 0102 and 0103).
 # `->state` is the state reached; anything else is the refusal code.
 # Each request names the stored version, the first allowed reason, and for
 # uphold-report an approved reported item on the same work. Items have
 # clarification consent, kept text and a retention period that has ended,
-# under the default retention, which leaves comments out (ADR 0103).
+# under the default retention, which leaves comments out (ADR 0104).
 #
 # kind state action | public submitter site-admin coordinator coordinator-elsewhere contributor contributor-elsewhere system
 comment pending approve | denied denied ->approved ->approved denied denied denied denied

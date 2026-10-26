@@ -1,6 +1,6 @@
 // Progressive comments for a hosted open.blog engagement endpoint. Untrusted
 // comment content is assigned only through textContent. With the `reports`
-// attribute (abuse reports open on the post, ADR 0130), each comment offers a
+// attribute (abuse reports open on the post, ADR 0107), each comment offers a
 // private, anonymous report form.
 
 import { reportForm } from "./ob-abuse-report.js";

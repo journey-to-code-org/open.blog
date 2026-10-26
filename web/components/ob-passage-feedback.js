@@ -48,7 +48,7 @@ const isText = (value) => typeof value === "string";
 
 /**
  * The kinds a post's form offers, from its `kinds` attribute (the ids the participation policy has
- * open on the post, ADR 0100), in the registry's order. No attribute offers every kind; an
+ * open on the post, ADR 0101), in the registry's order. No attribute offers every kind; an
  * attribute naming no kind this version knows offers none, so the static text stays.
  */
 export function offeredKinds(attribute) {
@@ -261,7 +261,7 @@ export class ObPassageFeedback extends HTMLElement {
       this.#ui = this.#build(`ob-passage-feedback-${instances}`);
       this.querySelector(".ob-passage-feedback-static")?.remove();
       this.append(this.#ui.done, this.#ui.form, this.#ui.status, this.#ui.fallback, this.#ui.selectionButton);
-      // A reader's receipt (ADR 0130) is usable here once the site says the
+      // A reader's receipt (ADR 0107) is usable here once the site says the
       // hosted service issues receipts.
       if (this.hasAttribute("receipts")) this.append(receiptManager({ endpoint }));
       this.#kindChanged();
@@ -715,7 +715,7 @@ export class ObPassageFeedback extends HTMLElement {
       ui.status.textContent = "Feedback on this post is closed, so your note was not sent.";
       return;
     }
-    // The same note from here within the hour (ADR 0131): it is already with the author, so there
+    // The same note from here within the hour (ADR 0108): it is already with the author, so there
     // is nothing to copy and send again.
     if (outcome.status === 409 && outcome.code === "duplicate") {
       ui.status.textContent = "This note was already sent and is waiting for review.";
