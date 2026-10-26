@@ -1429,3 +1429,41 @@ An author's record that they have considered an advisory finding. It names the f
 fingerprint, never makes the finding resolved, is counted apart from what was found, and goes
 stale when what the finding says changes.
 _Avoid_: Dismissal, resolution, waiver; acknowledging an integrity or privacy failure
+
+**Publication boundary**:
+The line between private research and what the public site carries. Nothing crosses it because it
+exists: only what a projection publishes, and only the fields that projection copies, are public
+(ADR 0137). The build checks its output against it before writing anything.
+_Avoid_: Visibility filter, export rules, privacy setting
+
+**What will be public**:
+The preview of the publication boundary, for the whole site or one post: what each research
+projection publishes, with the fields it copies, what it withholds and why, and what is never
+published. It is built from the same projection values the build writes (ADR 0137).
+_Avoid_: Publication report, readiness, manifest score
+
+**Withheld reason**:
+The rule of a projection that keeps an item, or one field of a published item, private: the
+projection is off, the item is not approved, an unsourced draft, a notebook passage, an unpublished
+dependency, private contradiction, an unpublished post, a stale approval, an unsafe web address, a
+private identifier, the version's rights, length, moved anchor words, or an unpublished page. It is
+never a judgement of the research.
+_Avoid_: Rejection, error, failed check
+
+**Stale approval**:
+An approval that no longer holds because what it rests on changed after it was given: today, an
+approved comparison whose place no longer matches the notebook passage it aligns. The item alone is
+withheld and named until the author checks it (ADR 0137).
+_Avoid_: Expired approval, invalid comparison
+
+**Unsafe web address**:
+A source's web address the boundary never publishes: not plain `http` or `https`, carrying
+credentials, naming a private or local network host, or carrying a query parameter named like a
+key, token or signature. Only the address is withheld; the rest of the reference is published.
+_Avoid_: Broken link, invalid URL
+
+**Private text guard**:
+The build's last check that no generated file carries text from a private research file that no
+public input or approved projection also holds. A refusal names the output, the file, the record
+and the field, never the text (ADR 0137).
+_Avoid_: Leak scanner, content filter

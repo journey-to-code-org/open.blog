@@ -42,6 +42,19 @@ All notable changes to open.blog are recorded here. Releases follow
   other posts publish exactly as before. Acknowledgements are kept privately in
   `.openblog/private/research/acknowledgements.json`. Sources now opens a source by its address,
   `#/research/sources/<id>`.
+- The Research workspace gains **What will be public**, and Evidence Studio **What this post makes
+  public**: exactly which research each projection publishes (cited sources, claims and evidence,
+  atlas entries, relationships and datings, comparisons, and the research pages a post links to),
+  with the fields it copies, and why everything else stays private, from the same projection the
+  build writes. Every withheld item opens where it is changed. Builds now check their output against
+  it before writing anything: a page or JSON artifact naming an item no projection publishes, or any
+  text from a private research file that no public file or approved projection holds, refuses the
+  build, naming the file, record and field but never the text; `openblog export` checks the same.
+  A source's web address on a private network or carrying a key, token or signature is no longer
+  published (the rest of its reference is), and an approved comparison whose passage was
+  re-located after approval is withheld until you check it; both are printed as `boundary:`
+  warnings. `openblog build` adds one line saying how much research it published and withheld.
+  Sites that publish no research build byte for byte as before.
 - In Visual mode, backslash-escaped `*`, `_`, backticks, `[` and `]` are now read as the
   characters themselves. Before, `\*word\*` showed as emphasis and `\[x\](y)` as a link, and
   switching modes could add backslashes to the draft.

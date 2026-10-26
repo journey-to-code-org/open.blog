@@ -317,6 +317,25 @@ and [ADR 0133](adr/0133-workspace-panels-keep-unsaved-changes-while-another-pane
 Every Admin page starts with a **Skip to main content** link, and after you move to another page
 keyboard focus starts at its heading.
 
+### See what will be public
+
+**Research workspace → What will be public** (`#/research/public`) shows exactly what the next
+build publishes of your research, from the same projection the build writes: per projection
+(citations, claims and evidence, the Knowledge Atlas, datings, comparisons), whether its switch is
+on, every item it publishes with the fields it copies, and every item it withholds with the reason
+in words (not approved, an unsourced draft, depends on something private, its post is not
+published, approved before what it rests on changed, and so on). A field of a published item that
+stays private is listed under it, such as a web address on a private network. Each withheld item
+links to where you change it, and **Never published** lists what no projection ever copies.
+**Evidence Studio → What this post makes public** shows the same for the post you are editing,
+unsaved changes included: its cited sources, its claims and evidence links, and the atlas and
+comparison pages it links to. Neither changes any file.
+
+Builds check their output against the same boundary before writing: a page for an item no
+projection publishes, or text from a private research file that no public file or approved
+projection holds, refuses the build with the file, record and field it came from. See
+[ADR 0137](adr/0137-one-publication-boundary-previewed-from-and-enforced-on-the-builds-own-projections.md).
+
 ### Compare versions of a passage
 
 **Research workspace → Compare** lists your private passage alignments. Open one to read its places in
