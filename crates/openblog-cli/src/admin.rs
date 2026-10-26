@@ -4113,12 +4113,12 @@ fn hosted_feedback_call(
 ) -> Result<(u16, Json), Response> {
     let config = site::load_config(&state.root).map_err(|error| Response::error(500, &error))?;
     if !config.engagement.enabled
-        || !config.engagement.feedback
+        || !config.participation.passage_feedback_enabled()
         || !valid_engagement_endpoint(&config.engagement.endpoint)
     {
         return Err(Response::error(
             404,
-            "Passage feedback is not turned on: enable hosted engagement with an endpoint and set engagement.feedback in openblog.json.",
+            "Passage feedback is not turned on: enable hosted engagement with an endpoint and set engagement.feedback (or a passage feedback kind in participation.kinds) in openblog.json.",
         ));
     }
     let credential = match engagement_credential(&state.root, &config.engagement.endpoint) {
@@ -4448,7 +4448,7 @@ fn moderate_feedback(state: &AppState, req: &Request, session: &auth::Session) -
         body["reason"].as_str(),
     ) {
         Ok(change) => change,
-        Err(error) => return Response::error(422, &error.message),
+        Err(error) => return Response::error(422, &error.to_string()),
     };
     let item = match hosted_feedback_item(state, &id) {
         Ok(item) => item,
@@ -17005,6 +17005,19 @@ mod tests {
 
     const FEEDBACK_ITEM_ID: &str = "00000000-0000-4000-8000-0000000000a1";
 
+    /// Switch passage feedback on in a fixture's openblog.json, with a hosted
+    /// endpoint nothing in the test calls, so its kinds are shown (ADR 0100).
+    fn enable_passage_feedback(dir: &Path) {
+        let path = dir.join(site::CONFIG_FILE);
+        let mut config: Json = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        config["engagement"] = json!({
+            "enabled": true,
+            "feedback": true,
+            "endpoint": "https://engagement.invalid/api",
+        });
+        fs::write(&path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
+    }
+
     fn feedback_routes() -> [(&'static str, &'static str); 7] {
         [
             ("GET", "/admin/api/engagement/feedback"),
@@ -17119,6 +17132,7 @@ mod tests {
     #[test]
     fn author_responses_are_conflict_safe_and_failures_leave_the_file_unchanged() {
         let f = fixture("feedback-responses");
+        enable_passage_feedback(&f.dir);
         let (site, _) = site::load_site(&f.dir, false, None).unwrap();
         let post = site.posts[0].clone();
         let record = feedback_record(&site, &post, None, "work");

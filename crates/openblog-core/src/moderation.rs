@@ -77,6 +77,18 @@ impl ModerationState {
         Self::ALL.into_iter().find(|state| state.id() == id)
     }
 
+    /// A label for moderators.
+    pub fn label(self) -> &'static str {
+        match self {
+            ModerationState::Pending => "Pending",
+            ModerationState::Clarification => "Waiting for clarification",
+            ModerationState::Approved => "Approved",
+            ModerationState::Rejected => "Rejected",
+            ModerationState::Removed => "Removed",
+            ModerationState::Withdrawn => "Withdrawn",
+        }
+    }
+
     /// Whether moderation is over for the item.
     pub fn is_closed(self) -> bool {
         matches!(
@@ -175,6 +187,34 @@ impl ModerationAction {
     pub fn from_id(id: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|action| action.id() == id)
     }
+
+    /// A label for moderators.
+    pub fn label(self) -> &'static str {
+        match self {
+            ModerationAction::Approve => "Approve",
+            ModerationAction::Reject => "Reject",
+            ModerationAction::RequestClarification => "Ask to clarify",
+            ModerationAction::Clarify => "Clarify",
+            ModerationAction::Remove => "Remove from the post",
+            ModerationAction::Reopen => "Reopen",
+            ModerationAction::Withdraw => "Withdraw",
+            ModerationAction::Expire => "Expire",
+            ModerationAction::UpholdReport => "Uphold the report",
+        }
+    }
+}
+
+impl Serialize for ModerationState {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.id())
+    }
+}
+
+impl<'de> Deserialize<'de> for ModerationState {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let id = String::deserialize(deserializer)?;
+        Self::from_id(&id).ok_or_else(|| serde::de::Error::custom("unknown moderation state"))
+    }
 }
 
 /// Why a moderator acted. Reasons describe moderation grounds, never a
@@ -234,6 +274,24 @@ impl ReasonCode {
 
     pub fn from_id(id: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|reason| reason.id() == id)
+    }
+
+    /// A label for moderators. It names a ground, never a verdict.
+    pub fn label(self) -> &'static str {
+        match self {
+            ReasonCode::Spam => "Spam",
+            ReasonCode::Abusive => "Abusive",
+            ReasonCode::PersonalData => "Contains personal data",
+            ReasonCode::OffTopic => "Off topic",
+            ReasonCode::Duplicate => "Duplicate",
+            ReasonCode::Rights => "Rights or permission problem",
+            ReasonCode::Unclear => "Unclear",
+            ReasonCode::NeedsSource => "Needs a source",
+            ReasonCode::NoAction => "No action needed",
+            ReasonCode::Other => "Other",
+            ReasonCode::UpheldReport => "An abuse report was upheld",
+            ReasonCode::Expired => "Expired without a decision",
+        }
     }
 }
 

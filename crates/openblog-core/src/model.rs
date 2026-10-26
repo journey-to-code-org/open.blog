@@ -510,9 +510,8 @@ impl Site {
         // A site that takes passage feedback publishes the author's revision
         // notes too, without reading any claims file (ADR 0083): a note
         // recorded after a reader's suggestion led to a change.
-        let feedback_notes = config.engagement.enabled
-            && config.engagement.feedback
-            && !config.engagement.endpoint.trim().is_empty();
+        let feedback_notes = crate::participation::transport_available(&config)
+            && config.participation.passage_feedback_enabled();
         let claim_mode = if config.claim_evidence.publish {
             match &sources.claim_evidence {
                 Some(ClaimEvidenceSource::Stored(projection)) => {
@@ -1102,9 +1101,10 @@ pub fn uncitable_line(source: &str, library: &SourceLibrary) -> Option<usize> {
 }
 
 /// Give each post the approved reader notes its canonical page shows (ADR
-/// 0083), or say why the file cannot be read. A post that hides its
-/// discussion shows none; a note about a post that no longer exists is a
-/// warning, and one about a draft or scheduled post waits for it.
+/// 0083), or say why the file cannot be read. A note is shown only where its
+/// kind's mode on the post shows approved items (ADR 0100), so a post that
+/// hides a kind shows none of it; a note about a post that no longer exists
+/// is a warning, and one about a draft or scheduled post waits for it.
 fn attach_reader_feedback(
     posts: &mut [Post],
     sources: &Sources,
@@ -1133,10 +1133,11 @@ fn attach_reader_feedback(
         }
     }
     for post in posts.iter_mut() {
-        if post.comments == CommentsPolicy::Hidden {
-            continue;
-        }
-        let items = published.for_post(&post.source.replace('\\', "/"));
+        let mut items = published.for_post(&post.source.replace('\\', "/"));
+        items.retain(|item| {
+            crate::participation::effective_mode(config, post, item.kind.participation_kind())
+                .shows_approved()
+        });
         if items.is_empty() {
             continue;
         }

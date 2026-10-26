@@ -44,6 +44,18 @@ const GUTTER = 8;
 const GAP = 8;
 
 const isText = (value) => typeof value === "string";
+
+/**
+ * The kinds a post's form offers, from its `kinds` attribute (the ids the participation policy has
+ * open on the post, ADR 0100), in the registry's order. No attribute offers every kind; an
+ * attribute naming no kind this version knows offers none, so the static text stays.
+ */
+export function offeredKinds(attribute) {
+  const all = Object.keys(FEEDBACK_KINDS);
+  if (attribute === null || attribute === undefined) return all;
+  const named = new Set(String(attribute).split(/\s+/).filter(Boolean));
+  return all.filter((kind) => named.has(kind));
+}
 const isDigest = (value) => isText(value) && /^[0-9a-f]{32}$/.test(value);
 
 /**
@@ -221,6 +233,7 @@ export class ObPassageFeedback extends HTMLElement {
   #endpoint = "";
   #page = "";
   #contact = null;
+  #kinds = [];
   #seenAt = undefined;
   #ui = null;
   #quote = null;
@@ -232,8 +245,10 @@ export class ObPassageFeedback extends HTMLElement {
     if (!this.#ui) {
       const passages = readPassages(document.getElementById(DATA_ELEMENT_ID)?.textContent);
       const endpoint = safeEndpoint(this.getAttribute("endpoint"));
-      // Without its data or an endpoint the static text stays, as without JavaScript.
-      if (!passages || !endpoint) return;
+      const kinds = offeredKinds(this.getAttribute("kinds"));
+      // Without its data, an endpoint or a kind to offer the static text stays, as without JavaScript.
+      if (!passages || !endpoint || !kinds.length) return;
+      this.#kinds = kinds;
       this.#passages = passages;
       this.#endpoint = endpoint;
       this.#page = this.getAttribute("page") || "";
@@ -357,7 +372,8 @@ export class ObPassageFeedback extends HTMLElement {
       return wrapper;
     };
     const kind = make("select");
-    for (const [value, rules] of Object.entries(FEEDBACK_KINDS)) {
+    for (const value of this.#kinds) {
+      const rules = FEEDBACK_KINDS[value];
       const option = make("option", undefined, rules.label);
       option.value = value;
       kind.append(option);

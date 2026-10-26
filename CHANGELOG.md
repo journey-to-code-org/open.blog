@@ -13,7 +13,10 @@ All notable changes to open.blog are recorded here. Releases follow
   text it asks about, removals and dismissed or upheld abuse reports always need a reason, and
   `participation.retention` sets how long unpublished text and the private moderation record are
   kept; comments stay out of retention unless you set it yourself. Nothing is e-mailed to readers.
-  Sites that switch nothing on build exactly as before.
+  Sites that switch nothing on build exactly as before. Passage feedback's `engagement.feedback` is
+  now the same as setting its four kinds to `follow-comments`, so each kind can also be set on its
+  own: the "Questions and corrections" form offers only the kinds open on a post, and a locked
+  kind keeps its published notes on show without taking new ones.
 
 ## [0.33.0] - 2026-10-26
 

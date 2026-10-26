@@ -112,6 +112,15 @@ impl ParticipationKind {
         }
     }
 
+    /// B5's four passage feedback kinds (ADR 0079), in the order its form
+    /// offers them. `engagement.feedback` folds into these (ADR 0100).
+    pub const PASSAGE_FEEDBACK: [ParticipationKind; 4] = [
+        ParticipationKind::Question,
+        ParticipationKind::SourceSuggestion,
+        ParticipationKind::CorrectionSuggestion,
+        ParticipationKind::AlternativeInterpretation,
+    ];
+
     pub fn from_id(id: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|kind| kind.id() == id)
     }
@@ -280,6 +289,11 @@ pub enum SiteSetting {
 pub struct ParticipationConfig {
     /// Site settings by kind id. A kind not named is `off`.
     pub kinds: BTreeMap<ParticipationKind, SiteSetting>,
+    /// Settings derived at load from `engagement.feedback` (ADR 0100): B5's
+    /// four kinds as `follow-comments` where `kinds` does not name them.
+    /// Never written back, so the owner's file keeps what the owner wrote.
+    #[serde(skip)]
+    folded: BTreeMap<ParticipationKind, SiteSetting>,
     /// How long moderation keeps what it does not publish (ADR 0103). Unset,
     /// the default periods apply to every kind except comments, so a site
     /// that never mentions retention keeps its comments as before; set (even
@@ -289,20 +303,52 @@ pub struct ParticipationConfig {
 }
 
 impl ParticipationConfig {
+    /// Whether the owner's settings are the defaults, so the object is left
+    /// out of the written file. Settings folded from `engagement.feedback`
+    /// are not the owner's and do not count.
     pub fn is_default(&self) -> bool {
-        self == &Self::default()
+        self.kinds.is_empty() && self.retention.is_none()
     }
 
-    /// The site setting of a kind other than comments; `off` unless named.
+    /// The site setting of a kind other than comments: what
+    /// `participation.kinds` names, else what `engagement.feedback` folded in,
+    /// else `off`.
     pub fn setting(&self, kind: ParticipationKind) -> SiteSetting {
-        self.kinds.get(&kind).copied().unwrap_or_default()
+        self.kinds
+            .get(&kind)
+            .or_else(|| self.folded.get(&kind))
+            .copied()
+            .unwrap_or_default()
     }
 
-    /// Whether any kind beyond comments is switched on.
+    /// Whether any kind beyond comments is switched on, folded settings
+    /// included.
     pub fn any_enabled(&self) -> bool {
-        self.kinds
-            .values()
-            .any(|setting| *setting != SiteSetting::Off)
+        ParticipationKind::ALL
+            .into_iter()
+            .any(|kind| self.setting(kind) != SiteSetting::Off)
+    }
+
+    /// Whether any of B5's passage feedback kinds is switched on.
+    pub fn passage_feedback_enabled(&self) -> bool {
+        ParticipationKind::PASSAGE_FEEDBACK
+            .into_iter()
+            .any(|kind| self.setting(kind) != SiteSetting::Off)
+    }
+
+    /// Fold B5's `engagement.feedback` into the policy (ADR 0100): `true`
+    /// makes each of its four kinds that `kinds` does not name
+    /// `follow-comments`; `false` adds nothing. Run at load, before anything
+    /// reads the policy; running it again gives the same result.
+    pub(crate) fn fold_feedback(&mut self, feedback: bool) {
+        self.folded.clear();
+        if feedback {
+            for kind in ParticipationKind::PASSAGE_FEEDBACK {
+                if !self.kinds.contains_key(&kind) {
+                    self.folded.insert(kind, SiteSetting::FollowComments);
+                }
+            }
+        }
     }
 
     pub(crate) fn validate(&self) -> Result<(), String> {
@@ -439,4 +485,39 @@ pub fn manifest(site: &Site) -> Option<String> {
         }
     }
     Some(serde_json::to_string(&posts).expect("participation manifest is serializable"))
+}
+
+/// B5's `openblog-feedback.json` (ADR 0081), kept for a hosted function
+/// deployed before it read `openblog-participation.json`: each post's path
+/// and the most restrictive mode of B5's four kinds there, so an older
+/// function never accepts a kind the policy keeps hidden or locked. `None`
+/// unless the site has a transport and switched on one of the four. A site
+/// that only set `engagement.feedback` gets the file B5 wrote, byte for byte.
+pub fn legacy_feedback_manifest(site: &Site) -> Option<String> {
+    let config = &site.config;
+    if !transport_available(config) || !config.participation.passage_feedback_enabled() {
+        return None;
+    }
+    let policies: BTreeMap<&str, &str> = site
+        .posts
+        .iter()
+        .map(|post| {
+            let mode = ParticipationKind::PASSAGE_FEEDBACK
+                .into_iter()
+                .map(|kind| effective_mode(config, post, kind))
+                .min()
+                .unwrap_or(ParticipationMode::Hidden);
+            (post.url.as_str(), mode.id())
+        })
+        .collect();
+    Some(serde_json::to_string(&policies).expect("feedback policy map is serializable"))
+}
+
+/// The passage feedback kinds a post's form offers: those of B5's four that
+/// are `open` there, in the form's order (ADR 0100). Empty means no form.
+pub fn offered_passage_kinds(config: &SiteConfig, post: &Post) -> Vec<ParticipationKind> {
+    ParticipationKind::PASSAGE_FEEDBACK
+        .into_iter()
+        .filter(|kind| effective_mode(config, post, *kind) == ParticipationMode::Open)
+        .collect()
 }

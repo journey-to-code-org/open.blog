@@ -874,6 +874,9 @@ impl SiteConfig {
             return Err("engagement.feedbackContact must be a mailto: address without a query, or an HTTPS URL without credentials".into());
         }
         self.participation.validate()?;
+        // B5's opt-in becomes the policy's settings before anything reads
+        // them (ADR 0100).
+        self.participation.fold_feedback(self.engagement.feedback);
         while self.code_runner.endpoint.ends_with('/') {
             self.code_runner.endpoint.pop();
         }

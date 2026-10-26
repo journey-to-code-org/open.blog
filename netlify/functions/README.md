@@ -59,10 +59,15 @@ To opt in:
    value, keeps the feature off, and the feedback routes then answer `404` with a short explanation
    without touching Supabase.
 3. In `openblog.json`, set `"feedback": true` inside `engagement` (hosted engagement must be
-   enabled with an endpoint). The build then publishes `openblog-feedback.json`, which gives each
-   post's feedback policy from its `comments:` setting (`open`, `locked` or `hidden`). The function
-   reads it from `OPENBLOG_SITE_ORIGIN` and accepts feedback only for posts marked `open`. Each
-   open post also gets a "Questions and corrections" form (ADR 0082). Optionally set
+   enabled with an endpoint). That switches on the four passage feedback kinds as
+   `follow-comments` (ADR 0100): each post's mode for them is its `comments:` setting (`open`,
+   `locked` or `hidden`). To set a kind on its own, name it in `participation.kinds` instead; see
+   [Configuration](../../docs/configuration.md#reader-participation). The build then publishes
+   `openblog-participation.json`, each post's mode for each kind; the function reads it from
+   `OPENBLOG_SITE_ORIGIN` and accepts a note only where its kind is `open`. (It also writes B5's
+   older `openblog-feedback.json`, read only by a site built before the participation manifest.)
+   Each post with an open kind also gets a "Questions and corrections" form offering those kinds
+   (ADR 0082). Optionally set
    `"feedbackContact"` inside `engagement` to a `mailto:` address or an `https:` contact page, which
    the form offers when a note cannot be sent.
 
@@ -92,8 +97,9 @@ never serves them to readers.
 
 1. Remove `OPENBLOG_FEEDBACK_ENABLED` in Netlify (or set it to anything but `true`) and redeploy.
    Feedback routes stop at once; comments and analytics are unaffected.
-2. Optionally set `"feedback": false` in `openblog.json` and rebuild, which stops publishing
-   `openblog-feedback.json` and removes the forms from posts.
+2. Optionally set `"feedback": false` in `openblog.json` (and switch off any passage kind named in
+   `participation.kinds`) and rebuild, which stops offering the kinds in the manifests and removes
+   the forms from posts.
 3. To remove the stored feedback too, export it if you want to keep it, then run
    [`supabase/feedback-rollback.sql`](../../supabase/feedback-rollback.sql). It drops only the
    moderation function, `openblog_feedback_events` and `openblog_feedback`. Without this step the

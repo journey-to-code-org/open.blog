@@ -38,9 +38,11 @@ const event = (path, method = "GET", body, extra = {}) => ({
   body,
 });
 
+// The participation manifest (ADR 0100) with `policy` as every passage kind's mode on the post.
 const sitePolicy = (policy) => async (url) => {
-  assert.equal(url, "https://blog.example/openblog-feedback.json");
-  return { ok: true, status: 200, json: async () => ({ "/posts/tides/": policy }) };
+  assert.equal(url, "https://blog.example/openblog-participation.json");
+  const modes = Object.fromEntries(["question", "source-suggestion", "correction-suggestion", "alternative-interpretation"].map((kind) => [kind, policy]));
+  return { ok: true, status: 200, json: async () => ({ "/posts/tides/": modes }) };
 };
 
 /** A fake Supabase that records requests and answers like PostgREST. */
@@ -197,9 +199,36 @@ test("the published feedback policy is enforced on the server", async () => {
     assert.equal(response.statusCode, status, policy);
     assert.equal(JSON.parse(response.body).code, code, policy);
   }
-  // A site that does not publish the manifest (feedback off in openblog.json) accepts nothing.
+  // A site that publishes neither manifest (feedback off in openblog.json) accepts nothing.
   const missing = createHandler({ env: enabled, fetchImpl: noFetch, siteFetchImpl: async () => ({ ok: false, status: 404, json: async () => ({}) }) });
   assert.equal((await missing(event("feedback", "POST", submission()))).statusCode, 403);
+  // Each kind has its own mode: a post open for questions only refuses a suggested source.
+  const kind = JSON.parse(submission()).kind;
+  const perKind = createHandler({
+    env: enabled,
+    fetchImpl: noFetch,
+    siteFetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ "/posts/tides/": { [kind === "question" ? "source-suggestion" : "question"]: "open", [kind]: "locked" } }) }),
+  });
+  assert.equal(JSON.parse((await perKind(event("feedback", "POST", submission()))).body).code, "closed");
+  // A site built before the participation manifest still has B5's file, read only then.
+  const older = [];
+  const legacy = createHandler({
+    env: enabled,
+    fetchImpl: noFetch,
+    siteFetchImpl: async (url) => {
+      older.push(url);
+      if (url.endsWith("openblog-participation.json")) return { ok: false, status: 404, json: async () => ({}) };
+      return { ok: true, status: 200, json: async () => ({ "/posts/tides/": "locked" }) };
+    },
+  });
+  assert.equal(JSON.parse((await legacy(event("feedback", "POST", submission()))).body).code, "closed");
+  assert.deepEqual(older, ["https://blog.example/openblog-participation.json", "https://blog.example/openblog-feedback.json"]);
+  // A participation manifest that cannot be read is not a reason to read the older file.
+  const failing = createHandler({ env: enabled, fetchImpl: noFetch, siteFetchImpl: async (url) => {
+    assert.ok(url.endsWith("openblog-participation.json"));
+    return { ok: false, status: 500, json: async () => ({}) };
+  } });
+  assert.equal(JSON.parse((await failing(event("feedback", "POST", submission()))).body).code, "unavailable");
   // Another post is not open just because one is.
   const other = createHandler({ env: enabled, fetchImpl: noFetch, siteFetchImpl: sitePolicy("open") });
   const elsewhere = JSON.stringify({ ...JSON.parse(submission()), work: "/posts/other/" });
@@ -215,7 +244,7 @@ test("the published feedback policy is enforced on the server", async () => {
     },
   });
   await based(event("feedback", "POST", submission()));
-  assert.equal(requested, "https://blog.example/journal/openblog-feedback.json");
+  assert.equal(requested, "https://blog.example/journal/openblog-participation.json");
 });
 
 test("the existing quota stops a submission before it is stored, and a replay counts again", async () => {

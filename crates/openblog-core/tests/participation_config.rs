@@ -412,7 +412,7 @@ fn generated_comment_output_is_byte_for_byte_what_it_was() {
         ),
         (
             format!(
-                r#"{hosted},"participation":{{"kinds":{{"question":"open","third-perspective":"follow-comments","abuse-report":"open"}},"retention":{{"pendingDays":7}}}}"#
+                r#"{hosted},"participation":{{"kinds":{{"third-perspective":"follow-comments","abuse-report":"open"}},"retention":{{"pendingDays":7}}}}"#
             ),
             by_post,
             [Some(open_a), Some(locked_b), None, None],
@@ -435,8 +435,9 @@ fn generated_comment_output_is_byte_for_byte_what_it_was() {
         }
         pages_by_case.push(pages);
     }
-    // The hosted site with new kinds and retention renders every post page
-    // exactly as the same site without them.
+    // The hosted site with kinds that have no page element yet, and
+    // retention, renders every post page exactly as the same site without
+    // them. (B5's kinds add their own form; see the B5 mapping tests.)
     assert_eq!(pages_by_case[4], pages_by_case[3]);
 }
 
@@ -592,4 +593,135 @@ fn the_participation_manifest_is_published_only_once_a_new_kind_is_switched_on()
     };
     let files = generate(&site(offline, &posts).unwrap(), &ThemeSet::new()).unwrap();
     assert_eq!(output(&files, "openblog-participation.json"), None);
+}
+
+/// ADR 0100: B5's `FeedbackKind` is the registry of its submission format,
+/// and every one of its ids is the participation kind it maps to.
+#[test]
+fn every_feedback_kind_id_is_its_participation_kind_id() {
+    use openblog_core::scholarly_feedback::FeedbackKind;
+    let mapped: Vec<ParticipationKind> = FeedbackKind::ALL
+        .iter()
+        .map(|kind| kind.participation_kind())
+        .collect();
+    assert_eq!(mapped, ParticipationKind::PASSAGE_FEEDBACK);
+    for kind in FeedbackKind::ALL {
+        assert_eq!(
+            ParticipationKind::from_id(kind.id()),
+            Some(kind.participation_kind())
+        );
+        assert_eq!(kind.participation_kind().id(), kind.id());
+        assert_eq!(kind.participation_kind().label(), kind.label());
+    }
+}
+
+/// ADR 0100: `engagement.feedback` folds into `participation.kinds` at load,
+/// as `follow-comments` for B5's kinds the site does not name, before
+/// anything reads the policy, and is never written back as the owner's.
+#[test]
+fn engagement_feedback_folds_into_the_policy_at_load_and_is_never_written_back() {
+    let folded =
+        config(r#""engagement":{"enabled":true,"feedback":true,"endpoint":"https://t.dev/api"}"#);
+    for kind in ParticipationKind::PASSAGE_FEEDBACK {
+        assert_eq!(
+            folded.participation.setting(kind),
+            SiteSetting::FollowComments
+        );
+    }
+    assert_eq!(
+        folded
+            .participation
+            .setting(ParticipationKind::ThirdPerspective),
+        SiteSetting::Off
+    );
+    assert!(folded.participation.any_enabled());
+    assert!(folded.participation.is_default());
+    let written = folded.to_json();
+    assert!(!written.contains("participation"), "{written}");
+    assert!(written.contains("\"feedback\": true"), "{written}");
+    // Reading it back gives the same policy.
+    assert_eq!(SiteConfig::from_json(&written).unwrap(), folded);
+
+    // A kind the site names wins over the fold.
+    let named = config(
+        r#""engagement":{"enabled":true,"feedback":true,"endpoint":"https://t.dev/api"},"participation":{"kinds":{"question":"locked","correction-suggestion":"off"}}"#,
+    );
+    assert_eq!(
+        named.participation.setting(ParticipationKind::Question),
+        SiteSetting::Locked
+    );
+    assert_eq!(
+        named
+            .participation
+            .setting(ParticipationKind::CorrectionSuggestion),
+        SiteSetting::Off
+    );
+    assert_eq!(
+        named
+            .participation
+            .setting(ParticipationKind::SourceSuggestion),
+        SiteSetting::FollowComments
+    );
+    let written = named.to_json();
+    assert!(!written.contains("source-suggestion"), "{written}");
+
+    // Off adds nothing.
+    let off = config(HOSTED);
+    for kind in ParticipationKind::PASSAGE_FEEDBACK {
+        assert_eq!(off.participation.setting(kind), SiteSetting::Off);
+    }
+    assert!(!off.participation.any_enabled());
+}
+
+fn feedback_form(page: &str) -> Option<&str> {
+    let start = page.find("<ob-passage-feedback")?;
+    let end = start + page[start..].find('>').unwrap() + 1;
+    Some(&page[start..end])
+}
+
+/// ADR 0100: a site that only set `engagement.feedback` publishes what B5
+/// published, byte for byte, plus the participation manifest; the form is
+/// shown where a kind is open and offers exactly the open kinds.
+#[test]
+fn b5s_form_and_manifests_come_from_the_policy() {
+    let posts = [
+        ("posts/open.md", post("")),
+        ("posts/locked.md", post("comments: locked\n")),
+        ("posts/hidden.md", post("comments: hidden\n")),
+    ];
+    let b5 = config(
+        r#""engagement":{"enabled":true,"comments":false,"feedback":true,"endpoint":"https://t.dev/api"}"#,
+    );
+    let files = generate(&site(b5, &posts).unwrap(), &ThemeSet::new()).unwrap();
+    assert_eq!(
+        output(&files, "openblog-feedback.json"),
+        Some(r#"{"/hidden/":"hidden","/locked/":"locked","/open/":"open"}"#)
+    );
+    let manifest: serde_json::Value =
+        serde_json::from_str(output(&files, "openblog-participation.json").unwrap()).unwrap();
+    assert_eq!(manifest["/open/"]["question"], "open");
+    assert_eq!(manifest["/locked/"]["correction-suggestion"], "locked");
+    assert!(manifest.get("/hidden/").is_none());
+    let open = output(&files, "open/index.html").unwrap();
+    assert!(!feedback_form(open).unwrap().contains("kinds="));
+    assert!(feedback_form(output(&files, "locked/index.html").unwrap()).is_none());
+
+    // Per kind: questions open, suggested sources locked, the rest off.
+    let per_kind = config(&format!(
+        r#"{HOSTED},"participation":{{"kinds":{{"question":"open","source-suggestion":"locked"}}}}"#
+    ));
+    let files = generate(&site(per_kind, &posts).unwrap(), &ThemeSet::new()).unwrap();
+    let form = feedback_form(output(&files, "hidden/index.html").unwrap()).unwrap();
+    assert!(form.contains(r#"kinds="question""#), "{form}");
+    // An older function reads B5's file, which is never more open than any
+    // of the four kinds: two are off, so nothing is open there.
+    assert_eq!(
+        output(&files, "openblog-feedback.json"),
+        Some(r#"{"/hidden/":"hidden","/locked/":"hidden","/open/":"hidden"}"#)
+    );
+
+    // No passage kind on: neither file, and no form.
+    let files = generate(&site(config(HOSTED), &posts).unwrap(), &ThemeSet::new()).unwrap();
+    assert_eq!(output(&files, "openblog-feedback.json"), None);
+    assert!(feedback_form(output(&files, "open/index.html").unwrap()).is_none());
 }

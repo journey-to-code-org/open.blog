@@ -91,8 +91,10 @@ These are described in [Sharing, views, analytics, and embeds](features.md).
   (off by default) lets the hosted function accept typed passage feedback: questions, suggested
   sources and corrections, and other interpretations. It needs its own database table and server
   switch; see the [function setup guide](../netlify/functions/README.md#passage-feedback-optional).
-  With it on, each open post gets a "Questions and corrections" form after its navigation (locked
-  and hidden posts get none). A reader picks the whole post, a section or words they selected,
+  It is the same as setting those four kinds to `follow-comments` in
+  [`participation.kinds`](#reader-participation), where a kind you name takes precedence. With it
+  on, each open post gets a "Questions and corrections" form after its navigation (locked and
+  hidden posts get none); a post where only some kinds are open offers only those. A reader picks the whole post, a section or words they selected,
   the kind and their note; their name is optional and shown only if they agree. Without
   JavaScript, or when the service cannot take the note, the reader gets instructions or a copy of
   the note to send to the author. `engagement.feedbackContact` (optional) is where that copy can

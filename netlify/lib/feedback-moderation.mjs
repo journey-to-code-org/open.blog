@@ -1,8 +1,9 @@
 // The moderation rules for passage feedback (ADR 0083): the same table as
 // `openblog_core::feedback_moderation`, held together by
-// tests/fixtures/feedback-moderation.json. The state names are those of the
-// participation and moderation policy (RD12, #211); B5 offers only approve,
-// reject and remove. Reasons are moderation grounds, never a verdict on facts.
+// tests/fixtures/feedback-moderation.json. The states, reasons and refusal
+// codes are those of the participation and moderation policy (ADR 0101); B5
+// offers only approve, reject and remove. Reasons are moderation grounds,
+// never a verdict on facts.
 
 export const MODERATION_STATES = Object.freeze(["pending", "clarification", "approved", "rejected", "removed", "withdrawn"]);
 
@@ -30,7 +31,7 @@ export const auditActor = (value) => {
  */
 export function planModeration(current, action, reason) {
   const rule = Object.hasOwn(MODERATION_ACTIONS, action) ? MODERATION_ACTIONS[action] : null;
-  if (!rule) return { ok: false, code: "unknownAction", message: "Choose approve, reject or remove." };
+  if (!rule) return { ok: false, code: "notAllowed", message: "Choose approve, reject or remove." };
   if (!rule.from.includes(current)) return { ok: false, code: "notAllowed", message: `An item that is ${current} cannot be changed with ${action}.` };
   const given = reason === undefined || reason === null || reason === "" ? null : reason;
   if (!rule.reasons.length) {
@@ -38,6 +39,6 @@ export function planModeration(current, action, reason) {
     return { ok: true, change: { action, from: current, to: rule.to, reason: null } };
   }
   if (given === null) return { ok: false, code: "reasonRequired", message: `Choose a reason to ${action}.` };
-  if (typeof given !== "string" || !rule.reasons.includes(given)) return { ok: false, code: "unknownReason", message: "Choose one of the listed reasons." };
+  if (typeof given !== "string" || !rule.reasons.includes(given)) return { ok: false, code: "reasonNotAllowed", message: "Choose one of the listed reasons." };
   return { ok: true, change: { action, from: current, to: rule.to, reason: given } };
 }

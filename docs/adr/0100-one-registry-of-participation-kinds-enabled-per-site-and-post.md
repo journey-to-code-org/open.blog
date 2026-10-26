@@ -89,7 +89,7 @@ build exactly as before.
 
 B5's four kinds use the same ids here. Its interim rule, "feedback follows each post's `comments:`
 setting, whatever `engagement.comments` says, when `engagement.feedback` is on", is the
-`follow-comments` site setting. When B5 merges with this policy:
+`follow-comments` site setting. With B5 merged into this policy:
 
 - **The fold happens at config load.** When `SiteConfig` loads (where it already validates and
   normalizes `engagement`), the merge folds `engagement.feedback: true` into
@@ -101,19 +101,30 @@ setting, whatever `engagement.comments` says, when `engagement.feedback` is on",
   are derived, not the owner's: writing the configuration back keeps `engagement.feedback` as the
   owner set it and does not add them to `participation.kinds`.
 - **B5's form gate and offered kinds come from the resolver.** Whether a post shows B5's passage
-  feedback form ([ADR 0082](0082-passage-feedback-forms-are-one-progressive-region-over-the-build-passage-text.md)), and which kinds it offers, are read from
-  `effective_mode(config, post, kind)` for each of the four kinds, never from
-  `engagement.feedback` or `comments:` directly: the form is shown when at least one kind is
-  `open`, it offers exactly the kinds that are `open`, a `locked` kind shows its approved items but
-  is not offered, and a `hidden` kind does neither. The hosted function applies the same per-kind
-  modes from the manifest.
+  feedback form
+  ([ADR 0082](0082-passage-feedback-forms-are-one-progressive-region-over-the-build-passage-text.md)),
+  and which kinds it offers, are read from `effective_mode(config, post, kind)` for each of the
+  four kinds, never from `engagement.feedback` or `comments:` directly: the form is shown when at
+  least one kind is `open`, it offers exactly the kinds that are `open` (named in the element's
+  `kinds` attribute only when it offers some of the four, so a page offering all four is
+  unchanged), a `locked` kind shows its approved items but is not offered, and a `hidden` kind
+  does neither. Each published note in `reader-feedback.json` is shown only where its own kind
+  shows approved items, so switching a kind off, or hosted engagement off, takes its notes off the
+  pages until it is switched back on; the file keeps them. The hosted function applies the same
+  per-kind modes from the manifest.
 - **`engagement.feedbackContact` stays under `engagement`.** It is a transport setting, not a kind
   setting, so it is not moved into `participation`. It is where the copy-and-send fallback points
   (a `mailto:` address or an HTTPS page) for every reader kind, not only B5's four: Third
   Perspectives, abuse reports and any later reader kind use the same contact.
 - B5's `openblog-feedback.json` (path to mode) is the per-kind column of this manifest; the hosted
   function reads the kind's mode from `openblog-participation.json` instead, with a missing entry
-  meaning hidden, as B5 already treats a missing manifest.
+  meaning hidden, as B5 already treats a missing manifest. For a function deployed before this
+  change, builds keep writing `openblog-feedback.json` while one of the four kinds is on, now
+  derived from the policy: each post's most restrictive mode of the four, so an older function
+  never accepts a kind the policy keeps hidden or locked (a site that only sets
+  `engagement.feedback` gets B5's file byte for byte). The current function reads it only when
+  the site publishes no `openblog-participation.json`, a site built before the policy; a
+  participation manifest it cannot read is "hidden", never a reason to read the older file.
 - B5's `FeedbackKind` stays the registry of its submission format
   ([ADR 0079](0079-typed-scholarly-feedback-kinds-and-one-submission-format.md)); every
   `FeedbackKind` id must be a `ParticipationKind` id, and the merge adds a test that asserts it.

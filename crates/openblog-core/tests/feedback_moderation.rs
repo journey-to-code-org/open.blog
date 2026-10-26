@@ -8,8 +8,8 @@ use std::collections::BTreeMap;
 
 use openblog_core::date::DateTime;
 use openblog_core::feedback_moderation::{
-    moderation_view, plan, review_passage, rules, ModerationAction, ModerationErrorCode,
-    ModerationState, PassageCheck, ReasonCode,
+    available, moderation_view, plan, reasons, review_passage, rules, ModerationAction,
+    ModerationState, PassageCheck, PolicyError, ReasonCode,
 };
 use openblog_core::feedback_provenance::FeedbackChannel;
 use openblog_core::feedback_publication::{
@@ -45,7 +45,7 @@ fn the_rules_are_the_shared_fixture_and_every_case_agrees() {
         match case["refused"].as_str() {
             Some(code) => {
                 let error = outcome.expect_err(&case.to_string());
-                assert_eq!(serde_json::to_value(error.code).unwrap(), code, "{case}");
+                assert_eq!(error.code(), code, "{case}");
             }
             None => {
                 let change = outcome.unwrap_or_else(|error| panic!("{case}: {error}"));
@@ -96,11 +96,11 @@ fn states_are_the_participation_policys_and_reasons_never_judge_facts() {
     }
     // Only an approval publishes, and nothing reopens or deletes.
     assert_eq!(
-        ModerationAction::available(ModerationState::Pending),
+        available(ModerationState::Pending),
         [ModerationAction::Approve, ModerationAction::Reject]
     );
     assert_eq!(
-        ModerationAction::available(ModerationState::Approved),
+        available(ModerationState::Approved),
         [ModerationAction::Remove]
     );
     for closed in [
@@ -108,13 +108,11 @@ fn states_are_the_participation_policys_and_reasons_never_judge_facts() {
         ModerationState::Removed,
         ModerationState::Withdrawn,
     ] {
-        assert!(ModerationAction::available(closed).is_empty());
+        assert!(available(closed).is_empty());
     }
     assert_eq!(
-        plan(ModerationState::Pending, "reject", None)
-            .unwrap_err()
-            .code,
-        ModerationErrorCode::ReasonRequired
+        plan(ModerationState::Pending, "reject", None).unwrap_err(),
+        PolicyError::ReasonRequired
     );
 }
 
@@ -348,7 +346,7 @@ fn a_moderator_sees_whether_the_passage_is_current_reanchored_or_stale() {
     assert_eq!(current["actions"][0]["action"], "remove");
     assert_eq!(
         current["actions"][0]["reasons"].as_array().unwrap().len(),
-        ReasonCode::ALL.len()
+        reasons(ModerationAction::Remove).len()
     );
 }
 
@@ -807,4 +805,24 @@ fn a_feedback_site_publishes_the_authors_revision_notes_through_the_evidence_sec
     // notes are published and the post is as before.
     let plain = load(PLAIN_SITE, WITH_NOTE, None);
     assert!(!build(&plain)["tides/index.html"].contains("Corrected how often"));
+}
+
+/// ADR 0100: each published note is shown only where its own kind's mode on
+/// the post shows approved items, whatever the other kinds do.
+#[test]
+fn a_published_note_follows_its_own_kinds_mode_on_the_post() {
+    let site = load(FEEDBACK_SITE, TIDES, None);
+    let file = published_file(&site).to_json();
+    let per_kind = r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","author":{"name":"A"},
+  "engagement":{"enabled":true,"endpoint":"https://t.dev/api"},
+  "participation":{"kinds":{"question":"locked","correction-suggestion":"hidden"}}}"#;
+    let site = load(per_kind, TIDES, Some(file));
+    let pages = build(&site);
+    let tides = section(&pages["tides/index.html"]);
+    // The question is locked: still shown. The suggested correction is
+    // hidden on every post: never shown.
+    assert!(tides.contains("Why the sun?"), "{tides}");
+    assert!(!tides.contains("It was three times."), "{tides}");
+    // Nothing is open, so no post asks for more.
+    assert!(!pages["tides/index.html"].contains("<ob-passage-feedback"));
 }

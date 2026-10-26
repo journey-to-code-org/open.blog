@@ -91,26 +91,43 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
     return value;
   };
 
-  // The policy the deployed site publishes for one post, from one of its
-  // generated manifests; anything missing or unexpected is "hidden".
-  const publishedPolicy = async (settings, manifest, path) => {
+  // One of the deployed site's generated manifests, or null when it is not
+  // published (`missing`) or cannot be read.
+  const MODES = ["open", "locked", "hidden"];
+  const siteManifest = async (settings, manifest) => {
     const target = new URL(`${settings.basePath}${manifest}`, `${settings.origin}/`);
-    if (target.origin !== new URL(settings.origin).origin) return "hidden";
+    if (target.origin !== new URL(settings.origin).origin) return { value: null };
     const response = await siteFetchImpl(target.href, {
       headers: { Accept: "application/json" },
       redirect: "error",
     });
-    if (!response.ok) return "hidden";
-    const policies = await response.json();
-    const policy = policies && typeof policies === "object" ? policies[path] : "";
-    return ["open", "locked", "hidden"].includes(policy) ? policy : "hidden";
+    if (!response.ok) return { value: null, missing: response.status === 404 };
+    const value = await response.json();
+    return { value: value && typeof value === "object" && !Array.isArray(value) ? value : null };
+  };
+  // The policy the deployed site publishes for one post, from a path-to-mode
+  // manifest; anything missing or unexpected is "hidden".
+  const publishedPolicy = async (settings, manifest, path) => {
+    const { value } = await siteManifest(settings, manifest);
+    const policy = value && Object.hasOwn(value, path) ? value[path] : "";
+    return MODES.includes(policy) ? policy : "hidden";
   };
   const feedbackRows = (settings, filters) => {
     const params = new URLSearchParams({ site_id: `eq.${settings.siteId}`, ...filters, select: FEEDBACK_COLUMNS, order: "received_at.asc", limit: "200" });
     return database(settings, `/rest/v1/openblog_feedback?${params}`);
   };
   const commentPolicy = (settings, path) => publishedPolicy(settings, "openblog-comments.json", path);
-  const feedbackPolicy = (settings, path) => publishedPolicy(settings, "openblog-feedback.json", path);
+  // One passage feedback kind's mode on one post (ADR 0100), from the
+  // participation manifest; a missing post or kind is "hidden". A site built
+  // before that manifest existed still publishes B5's openblog-feedback.json,
+  // which is read only when the participation manifest is not published.
+  const feedbackPolicy = async (settings, path, kind) => {
+    const { value, missing } = await siteManifest(settings, "openblog-participation.json");
+    if (missing) return publishedPolicy(settings, "openblog-feedback.json", path);
+    const modes = value && Object.hasOwn(value, path) ? value[path] : null;
+    const mode = modes && typeof modes === "object" && Object.hasOwn(modes, kind) ? modes[kind] : "";
+    return MODES.includes(mode) ? mode : "hidden";
+  };
 
   // The existing Supabase-backed hourly quota, per client and per site.
   const consumeQuota = async (settings, event, bucket, subjectLimit, siteLimit) => {
@@ -210,7 +227,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
           return json(code === "tooLarge" ? 413 : 422, { error: message, code, ...(target ? { target } : {}) }, corsOrigin);
         }
         const submission = read.submission;
-        const policy = await feedbackPolicy(settings, submission.work);
+        const policy = await feedbackPolicy(settings, submission.work, submission.kind);
         if (policy !== "open") {
           return json(403, policy === "locked"
             ? { error: "Feedback on this post is closed.", code: "closed" }

@@ -88,6 +88,18 @@ impl FeedbackKind {
         Self::ALL.into_iter().find(|kind| kind.id() == id)
     }
 
+    /// The participation kind this is (ADR 0100): the same id, in the one
+    /// registry whose site and post modes govern it.
+    pub fn participation_kind(self) -> crate::participation::ParticipationKind {
+        use crate::participation::ParticipationKind;
+        match self {
+            FeedbackKind::Question => ParticipationKind::Question,
+            FeedbackKind::SourceSuggestion => ParticipationKind::SourceSuggestion,
+            FeedbackKind::CorrectionSuggestion => ParticipationKind::CorrectionSuggestion,
+            FeedbackKind::AlternativeInterpretation => ParticipationKind::AlternativeInterpretation,
+        }
+    }
+
     /// A label for moderators and forms. It names the reader's intent.
     pub fn label(self) -> &'static str {
         match self {
@@ -613,7 +625,7 @@ impl ScholarlyFeedback {
 /// (RD12, #211), read by [`crate::feedback_moderation`] (ADR 0083). Public
 /// submissions always start [`FeedbackStatus::Pending`]; an id no version
 /// defines is refused rather than misread.
-pub type FeedbackStatus = crate::feedback_moderation::ModerationState;
+pub type FeedbackStatus = crate::moderation::ModerationState;
 
 /// One item of the hosted moderation list (`GET /admin/feedback`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -626,7 +638,7 @@ pub struct HostedFeedback {
     pub version: u64,
     pub moderated_at: Option<DateTime>,
     /// Why the item was last rejected or removed, if it was.
-    pub reason: Option<crate::feedback_moderation::ReasonCode>,
+    pub reason: Option<crate::moderation::ReasonCode>,
     pub feedback: ScholarlyFeedback,
 }
 
@@ -678,7 +690,7 @@ impl HostedFeedback {
         let reason = wire
             .reason
             .map(|reason| {
-                crate::feedback_moderation::ReasonCode::from_id(&reason).ok_or_else(|| {
+                crate::moderation::ReasonCode::from_id(&reason).ok_or_else(|| {
                     invalid("a hosted feedback item has a reason this version does not know")
                 })
             })
