@@ -239,7 +239,7 @@ fn the_terminal_lists_the_json_groups_in_order_and_acknowledgement_never_resolve
     // The counts sentence is the one Admin shows.
     assert_eq!(
         review.counts_text(),
-        "1 must be fixed before publishing. Detected: 4. Potential: 1 (1 acknowledged). Needs review: 2."
+        "1 must be fixed before the next build. Detected: 4. Potential: 1 (1 acknowledged). Needs review: 2."
     );
 }
 
@@ -272,4 +272,21 @@ fn the_text_names_places_and_repairs_but_never_a_statement_or_a_score() {
     assert!(text.contains("posts/cave.md:12:1"));
     assert!(text.contains("claim c1"));
     assert!(text.contains("comparison cave-places"));
+}
+
+#[test]
+fn a_blocking_sentence_names_what_it_holds_up_in_each_scope() {
+    let report = || CompletenessReport::new(findings(), &acknowledgements());
+    let post = PublicationReview::scoped(report(), ReviewScope::Post);
+    let site = PublicationReview::scoped(report(), ReviewScope::Site);
+    assert!(post
+        .counts_text()
+        .contains("must be fixed before publishing."));
+    assert!(site
+        .counts_text()
+        .contains("must be fixed before the next build."));
+    assert_eq!(
+        serde_json::to_value(&site).unwrap()["scope"],
+        serde_json::json!("site")
+    );
 }

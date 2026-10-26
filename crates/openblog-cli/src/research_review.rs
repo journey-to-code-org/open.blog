@@ -147,7 +147,7 @@ pub fn gather(root: &Path, config: &SiteConfig, post: &DraftPost<'_>) -> Gathere
             .iter()
             .map(ReviewFinding::from_source_review),
     );
-    let published = read_published(root, config, &mut gathered);
+    let published = read_published(root, config, &mut gathered, false);
     if published.ready && published.claims_stored {
         claims(root, config, post, &mut gathered);
     }
@@ -164,7 +164,19 @@ pub(crate) fn read_published(
     root: &Path,
     config: &SiteConfig,
     gathered: &mut Gathered,
+    site_wide: bool,
 ) -> Published {
+    // The wording follows what is reviewed: one post, or the whole site.
+    let claims_of = if site_wide {
+        "The claims"
+    } else {
+        "This post's claims"
+    };
+    let and_claims = if site_wide {
+        "the claims"
+    } else {
+        "this post's claims"
+    };
     let contributors = &config.contributors;
     let claims_stored = claims_store::claims_file_stored(root);
     let reads_research = config.knowledge_atlas.publish
@@ -184,7 +196,7 @@ pub(crate) fn read_published(
                     } else {
                         gathered.skip(
                             "claims",
-                            format!("This post's claims were not reviewed because the research notebook cannot be read. Repair {}.", notebook_store::NOTEBOOK_FILE),
+                            format!("{claims_of} were not reviewed because the research notebook cannot be read. Repair {}.", notebook_store::NOTEBOOK_FILE),
                         );
                     }
                 }
@@ -195,7 +207,7 @@ pub(crate) fn read_published(
                 } else {
                     gathered.skip(
                         "claims",
-                        format!("This post's claims were not reviewed because the source library cannot be read. Repair {}.", source_store::LIBRARY_FILE),
+                        format!("{claims_of} were not reviewed because the source library cannot be read. Repair {}.", source_store::LIBRARY_FILE),
                     );
                 }
             }
@@ -206,7 +218,7 @@ pub(crate) fn read_published(
         // that depends on them is blamed for it.
         gathered.skip(
             "published-research",
-            "The atlas, comparisons and claim evidence the build publishes, and this post's claims, were not reviewed while the source library or the notebook cannot be read.".into(),
+            format!("The atlas, comparisons and claim evidence the build publishes, and {and_claims}, were not reviewed while the source library or the notebook cannot be read."),
         );
     }
 

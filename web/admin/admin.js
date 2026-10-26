@@ -7198,7 +7198,7 @@ export function publicationReviewCountsText(review) {
   const counts = review?.counts || {};
   const part = (label, count) => `${label}: ${Number(count?.found) || 0}${Number(count?.acknowledged) ? ` (${Number(count.acknowledged)} acknowledged)` : ""}`;
   const blocking = (review?.groups || []).find((group) => group.name === "blocking")?.findings?.length || 0;
-  return `${blocking ? `${blocking} must be fixed before publishing. ` : ""}${[part("Detected", counts.detected), part("Potential", counts.potential), part("Needs review", counts.needsReview)].join(". ")}.`;
+  return `${blocking ? `${blocking} must be fixed ${review?.scope === "site" ? "before the next build" : "before publishing"}. ` : ""}${[part("Detected", counts.detected), part("Potential", counts.potential), part("Needs review", counts.needsReview)].join(". ")}.`;
 }
 
 /** What an acknowledgement says about its finding, in words that never call it resolved. */

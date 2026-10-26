@@ -80,3 +80,8 @@ test("the fixture carries no statement, note or excerpt, only ids, fields and th
     assert.match(finding.fingerprint, /^[0-9a-f]{32}$/);
   }
 });
+
+test("the site report says the next build, and a post's review says publishing", () => {
+  assert.match(publicationReviewCountsText(report), /^1 must be fixed before the next build\./);
+  assert.match(publicationReviewCountsText({ ...report, scope: "post" }), /^1 must be fixed before publishing\./);
+});

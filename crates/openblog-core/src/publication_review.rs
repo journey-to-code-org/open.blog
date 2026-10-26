@@ -62,11 +62,15 @@ pub struct PublicationReview {
     pub counts: OutcomeCounts,
     /// Acknowledgements that name no advisory finding in this review.
     pub unmatched_acknowledgements: usize,
+    /// What the review is of, so its sentences say what blocks: publishing
+    /// this post, or the next build of the site.
+    pub scope: ReviewScope,
 }
 
 /// What a review is of: one post about to be published, or the whole site as
 /// the next build would publish it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum ReviewScope {
     /// A post being published or scheduled: a citation the build refuses once
     /// published blocks it.
@@ -131,11 +135,20 @@ impl PublicationReview {
             groups,
             counts: report.counts,
             unmatched_acknowledgements: report.unmatched_acknowledgements,
+            scope,
         }
     }
 }
 
 impl PublicationReview {
+    /// What a blocking finding holds up, in words, for this scope.
+    pub fn blocks_until(&self) -> &'static str {
+        match self.scope {
+            ReviewScope::Post => "before publishing",
+            ReviewScope::Site => "before the next build",
+        }
+    }
+
     /// How many findings block, in either scope.
     pub fn blocking(&self) -> usize {
         self.groups
@@ -161,7 +174,7 @@ impl PublicationReview {
         format!(
             "{}{}.",
             if blocking > 0 {
-                format!("{blocking} must be fixed before publishing. ")
+                format!("{blocking} must be fixed {}. ", self.blocks_until())
             } else {
                 String::new()
             },

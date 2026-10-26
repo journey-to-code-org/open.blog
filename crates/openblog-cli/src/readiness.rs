@@ -175,7 +175,7 @@ pub fn gather(root: &Path, site: &Site) -> Gathered {
 
     // What the build reads, once and on its own: the finding of a file it
     // cannot read is scoped to that file and blocks the build.
-    let published = research_review::read_published(root, config, &mut gathered);
+    let published = research_review::read_published(root, config, &mut gathered, true);
     let reads_atlas = config.knowledge_atlas.publish;
     let reads_comparisons = config.comparisons.publish;
     let reads_claims = config.claim_evidence.publish;
