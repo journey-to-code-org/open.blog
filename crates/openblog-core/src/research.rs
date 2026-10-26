@@ -138,6 +138,25 @@ pub struct EvidenceFinding {
     /// it beside that claim. Absent for findings about a post's own text.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub object: Option<EvidenceObject>,
+    /// The position-free facts the finding states: the keys, locators,
+    /// identifiers and stated values it is about, never a line, byte offset
+    /// or sentence. They identify what the finding says for an author's
+    /// acknowledgement (ADR 0145) and are never serialized, so the finding's
+    /// JSON is unchanged.
+    #[serde(skip)]
+    pub facts: Vec<String>,
+}
+
+impl EvidenceFinding {
+    /// The finding with its position-free facts, in the validator's order.
+    pub fn with_facts<I, S>(mut self, facts: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.facts = facts.into_iter().map(Into::into).collect();
+        self
+    }
 }
 
 /// The claim, and optionally the evidence link on it, a finding is about.
@@ -455,26 +474,32 @@ pub fn audit_document(
     let mut findings = Vec::new();
     if let Some(doi) = front_matter.get("doi") {
         if normalize_doi_url(doi).is_none() {
-            findings.push(field_finding(
-                path,
-                "doi",
-                EvidenceCode::DoiInvalid,
-                EvidenceOutcome::Detected,
-                "The DOI does not have a valid prefix, separator, and suffix.",
-                "Use a DOI name such as `10.1234/example` or its `https://doi.org/` URL.",
-            ));
+            findings.push(
+                field_finding(
+                    path,
+                    "doi",
+                    EvidenceCode::DoiInvalid,
+                    EvidenceOutcome::Detected,
+                    "The DOI does not have a valid prefix, separator, and suffix.",
+                    "Use a DOI name such as `10.1234/example` or its `https://doi.org/` URL.",
+                )
+                .with_facts([doi]),
+            );
         }
     }
     if let Some(license) = front_matter.get("license") {
         if !absolute_http_url(license) {
-            findings.push(field_finding(
-                path,
-                "license",
-                EvidenceCode::LicenseUrlInvalid,
-                EvidenceOutcome::Detected,
-                "The work license is not an absolute HTTP or HTTPS URL.",
-                "Link to the license document with its complete `https://` URL.",
-            ));
+            findings.push(
+                field_finding(
+                    path,
+                    "license",
+                    EvidenceCode::LicenseUrlInvalid,
+                    EvidenceOutcome::Detected,
+                    "The work license is not an absolute HTTP or HTTPS URL.",
+                    "Link to the license document with its complete `https://` URL.",
+                )
+                .with_facts([license]),
+            );
         }
     }
 
@@ -532,7 +557,8 @@ pub fn audit_document(
                             EvidenceOutcome::NeedsReview,
                             "This reference has no resolvable HTTP or HTTPS link.".into(),
                             "Add a DOI resolver URL or another stable URL when one exists, or review the print-only reference manually.".into(),
-                        ));
+                        )
+                        .with_facts([markdown[range.clone()].trim()]));
                     }
                 }
             }
@@ -555,7 +581,8 @@ pub fn audit_document(
                             EvidenceOutcome::NeedsReview,
                             "This reference has no resolvable HTTP or HTTPS link.".into(),
                             "Add a DOI resolver URL or another stable URL when one exists, or review the print-only reference manually.".into(),
-                        ));
+                        )
+                        .with_facts([markdown[range.clone()].trim()]));
                     }
                 }
             }
@@ -569,18 +596,22 @@ pub fn audit_document(
                     }
                 }
                 if non_preferred_doi_link(url) {
-                    section_findings.push(offset_finding(
-                        SourceOffset {
-                            path,
-                            markdown,
-                            body_line,
-                            offset: range.start,
-                        },
-                        EvidenceCode::DoiLinkNonPreferred,
-                        EvidenceOutcome::Potential,
-                        "This DOI link does not use the preferred HTTPS resolver form.".into(),
-                        "Use `https://doi.org/<doi-name>` while keeping the same DOI name.".into(),
-                    ));
+                    section_findings.push(
+                        offset_finding(
+                            SourceOffset {
+                                path,
+                                markdown,
+                                body_line,
+                                offset: range.start,
+                            },
+                            EvidenceCode::DoiLinkNonPreferred,
+                            EvidenceOutcome::Potential,
+                            "This DOI link does not use the preferred HTTPS resolver form.".into(),
+                            "Use `https://doi.org/<doi-name>` while keeping the same DOI name."
+                                .into(),
+                        )
+                        .with_facts([url]),
+                    );
                 }
             }
             Event::Text(text) | Event::Code(text) => {
@@ -616,21 +647,24 @@ pub fn audit_document(
     }
     findings.extend(section_findings);
     for (name, offset) in unresolved_footnotes(markdown) {
-        findings.push(offset_finding(
-            SourceOffset {
-                path,
-                markdown,
-                body_line,
-                offset,
-            },
-            EvidenceCode::FootnoteUnresolved,
-            EvidenceOutcome::Detected,
-            format!("Footnote `[^{}]` has no definition.", name),
-            format!(
-                "Add a `[^{}]: ...` definition or remove the footnote reference.",
-                name
-            ),
-        ));
+        findings.push(
+            offset_finding(
+                SourceOffset {
+                    path,
+                    markdown,
+                    body_line,
+                    offset,
+                },
+                EvidenceCode::FootnoteUnresolved,
+                EvidenceOutcome::Detected,
+                format!("Footnote `[^{}]` has no definition.", name),
+                format!(
+                    "Add a `[^{}]: ...` definition or remove the footnote reference.",
+                    name
+                ),
+            )
+            .with_facts([name.as_str()]),
+        );
     }
     findings
 }
@@ -743,6 +777,7 @@ fn field_finding(
         message: message.to_string(),
         repair: repair.to_string(),
         object: None,
+        facts: Vec::new(),
     }
 }
 
@@ -779,6 +814,7 @@ fn offset_finding(
         message,
         repair,
         object: None,
+        facts: Vec::new(),
     }
 }
 

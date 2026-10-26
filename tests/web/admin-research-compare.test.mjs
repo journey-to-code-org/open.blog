@@ -23,6 +23,8 @@ import {
   textDirection,
   validateAlignmentDraft,
   versionMakerText,
+  canonicalAdminHash,
+  researchHref,
 } from "../../web/admin/admin.js";
 
 // The comparison workspace (A6.3, ADR 0090 and ADR 0091): aligned places across versions side by
@@ -865,6 +867,33 @@ test("a conflict offers the stored copy or the draft, and keeping the draft rest
   assert.equal(sent.alignment.shelf, "newer", "the kept draft carries the newer copy's other fields");
 }));
 
+test("saving a stale approval keeps it stale, and only Checked - approve again sends reapprove", withDom(async () => {
+  const stale = { second: "members: passage `p-long` has moved since the approval." };
+  const api = compareApi({
+    "GET research/alignments": () => view({ staleApprovals: stale }),
+    "PUT research/alignments": (body) => ({ ...view({ revision: "r2", staleApprovals: stale }), alignment: body.alignment }),
+  });
+  const { app, root } = mountCompare(api);
+  await app.showCompare("second");
+  await root.querySelector("[data-compare-edit]").click();
+  const notice = root.querySelector("[data-alignment-stale]");
+  assert.match(notice.textContent, /members: passage `p-long` has moved since the approval\./);
+  assert.match(notice.textContent, /stays out of the next build until you have checked the places it names and approve it again/);
+  await type(byId(root, "oba-alignment-label"), "An ordinary edit");
+  await submit(root);
+  assert.equal("reapprove" in api.calls[0].body, false, "an ordinary save never re-approves");
+  await root.querySelector("[data-compare-edit]").click();
+  assert.equal(root.querySelector("[data-alignment-reapprove]").textContent, "Checked — approve again");
+  await root.querySelector("[data-alignment-reapprove]").click();
+  await tick();
+  assert.equal(api.calls[1].body.reapprove, true);
+  // An alignment that is not stale offers no such control.
+  const plain = mountCompare(compareApi());
+  await plain.app.showCompare("second");
+  await plain.root.querySelector("[data-compare-edit]").click();
+  assert.equal(plain.root.querySelector("[data-alignment-reapprove]"), null);
+}));
+
 test("using the stored copy replaces the draft", withDom(async () => {
   const newer = { ...SECOND(), label: "Renamed elsewhere" };
   const api = compareApi({ "PUT research/alignments": () => { throw new ApiError("conflict", 409, { conflict: true, revision: "r2", current: newer }); } });
@@ -996,11 +1025,11 @@ test("an empty workspace explains what an alignment is", withDom(async () => {
 
 // ---------------------------------------------------------------- wiring and styles
 
-test("the workspace is reachable from the research tools, the palette and the router", () => {
-  assert.match(admin, /href: "#\/compare" \}, "Compare"\)/);
-  assert.match(admin, /head === "compare"\) await this\.showCompare\(safeDecodeURIComponent\(tail\)\)/);
+test("the workspace is reachable from the research workspace, the palette and the router", () => {
+  assert.equal(researchHref("compare", "opening"), "#/research/compare/opening");
+  assert.equal(canonicalAdminHash("#/compare/opening"), "#/research/compare/opening", "the earlier address redirects");
+  assert.match(admin, /panel === "compare"\) await this\.showCompare\(id\)/);
   assert.match(admin, /label: "Compare versions", category: "Research"/);
-  assert.match(admin, /\["sources", "research", "atlas", "compare"\]\.includes\(this\.activeRoute\)/);
 });
 
 test("the comparison never parses stored text as markup and stores nothing in the browser", () => {

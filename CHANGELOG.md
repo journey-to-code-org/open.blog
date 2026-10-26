@@ -3,7 +3,80 @@
 All notable changes to open.blog are recorded here. Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.39.0] - 2026-10-26
+
+- Admin Studio gathers Sources, the research notebook, the Knowledge Atlas, Compare and claims
+  into one **Research workspace** under `#/research/`, with its own navigation that labels every
+  research panel as private research and the draft as publishable, in words that screen readers
+  announce. Its first panel, Workflow, leads from a first source to a cited draft and says how far
+  your research has come. Switching between the draft and research panels now keeps unsaved
+  changes in each, and returns to them exactly as you left them; leaving the workspace, opening
+  another document, signing out or closing the page still asks first, naming where the unsaved
+  work is. If your session expires, the unsaved panels wait in the page until you sign in again
+  as the same user; nothing kept is shown while signed out, or to another account signed in from
+  another tab. Notebook, atlas and comparison forms are now protected like the editor. The earlier
+  `#/sources`, `#/research`, `#/atlas` and `#/compare` addresses redirect to the same panels.
+  Guided and Advanced show the workspace in the main navigation, Simple reaches it from Advanced
+  tools and `Ctrl+K`, and Custom lets you choose. Every Admin page gains a skip link, and focus moves
+  to the new page's heading after navigation.
+- A post's Write toolbar gains **Research**, which opens your research beside the draft:
+  search passages, sources, atlas entries, comparisons and interpretations, and insert from them
+  without leaving the draft. A quotation goes in exactly as stored, as a block quote with its
+  citation checked by the server, and never with its notes; a version whose rights you have not
+  stated, or state are reserved, asks you to confirm first. A source gives a citation with
+  locators. Links to atlas entries, their datings and comparisons are offered only once the next
+  build publishes those pages, and otherwise say what is missing. Private notes are listed only
+  on request and go in only through an explicit conversion. Insertions work in Visual and
+  Markdown modes, never land in code, HTML or a link, and Ctrl+Z undoes them. Nothing is written
+  to your research files.
+- Publishing or scheduling a post on the Research profile, or one that publishes citations, now
+  opens a **research review** first. It gathers what your research checks already say about the
+  post: the research-profile and citation checks, the post's claims, links to atlas entries and
+  comparisons the next build will not publish, what a linked atlas entry or comparison leaves out
+  or asks you to check, and any private research file the build cannot read. Findings are grouped
+  by what the build would refuse, then as detected, potential or needs review, and each one goes
+  to its line, field, claim or research object. Only a citation the build would refuse or a
+  research file it cannot read stops publishing; everything else is yours to decide, and you can
+  acknowledge it. An acknowledged finding stays listed and counted, and asks again once what it
+  is about changes. There is no score. Evidence Studio can run the same review at any time, and
+  other posts publish exactly as before. Acknowledgements are kept privately in
+  `.openblog/private/research/acknowledgements.json`. Sources now opens a source by its address,
+  `#/research/sources/<id>`.
+- The Research workspace gains **What will be public**, and Evidence Studio **What this post makes
+  public**: exactly which research each projection publishes (cited sources, claims and evidence,
+  atlas entries, relationships and datings, comparisons, and the research pages a post links to),
+  with the fields it copies, and why everything else stays private, from the same projection the
+  build writes. Every withheld item opens where it is changed (a claim or evidence link opens its
+  post's Evidence Studio once the post is saved). Builds now check their output against it before
+  writing anything. A page or JSON artifact naming an item no projection publishes, a damaged
+  private file and a private file copied into a public folder refuse the build. A check for text
+  from a private research file reads text as runs of six words, so a quote that is hard-wrapped,
+  emphasised, linked or joined into the search index matches whatever its markup, and a note
+  with punctuation or tags is covered. It refuses only when that text appears in the data the
+  build generates from your approved research (the atlas, comparisons and claim-evidence JSON,
+  and a post's citation data), read field by field. Anywhere else (pages, feeds, the search index,
+  `llms.txt`, static, theme and front-end files, a portable Markdown export) it only warns, with a
+  `boundary:` line naming the output, the private file, the record and the field but never the
+  text, because the text is in a file you placed or wrote and only you can say whether it is meant
+  to be public. A note that lists a post's own headings, your series titles or the address of a
+  generated page no longer warns. Every copied text file is checked whatever its extension,
+  `paths.web` assets included, and a text file too large to check is named. Private notes shorter
+  than six words are not checked by text. A source's web address on a private network (including
+  `.corp`, `.test`, `.home`, benchmarking, multicast and reserved ranges, and numeric, mapped,
+  compatible, 6to4 and NAT64 forms) or carrying a key, token, signature, secret or password in
+  its query or in a `name=value` fragment is no longer published (the rest of its reference is;
+  OpenURL `sid`, `#Authorship`, `?author=`, `?sortKey=` and `?design=` are). A source with an
+  IPv6 address no longer stops the build. An approved comparison is withheld, and cannot be
+  acknowledged, when a passage it aligns was re-located after you saved it approved: saving it
+  again does not approve it again, and Compare offers **Checked - approve again** once you have
+  checked the place; comparisons approved before this change are not withheld until you save
+  them again. Both are printed as `boundary:` warnings.
+  `openblog build` adds one line saying how much research it published and withheld, and reads
+  your research once instead of several times. Sites that publish no research build byte for
+  byte as before.
+- In Visual mode, backslash-escaped `*`, `_`, backticks, `[` and `]` are now read as the
+  characters themselves. Before, `\*word\*` showed as emphasis and `\[x\](y)` as a link, and
+  switching modes could add backslashes to the draft.
 
 ## [0.38.1] - 2026-10-26
 

@@ -321,15 +321,59 @@ pub struct ComparisonInputs<'a> {
     pub contributors: &'a BTreeMap<String, Contributor>,
 }
 
+/// Approved alignments whose approval has gone stale (#63, ADR 0125): a
+/// passage the alignment names was re-located after the alignment was last
+/// saved approved, which the alignments file records as a fingerprint of the
+/// passage's locators. Each is withheld from the projection, and only it,
+/// until the author checks the place and saves the alignment again. An
+/// approval with no record (made before the record existed) is never
+/// withheld. By alignment id, the field and the validator's own sentence,
+/// naming ids only.
+pub fn stale_approvals(
+    set: &AlignmentSet,
+    inputs: ComparisonInputs<'_>,
+) -> BTreeMap<String, String> {
+    let links = crate::knowledge_atlas::Links {
+        library: inputs.library,
+        notebook: inputs.notebook,
+    };
+    let mut stale = BTreeMap::new();
+    for notice in set.notices(links) {
+        if notice.code != crate::knowledge_atlas::AtlasDiagnosticCode::StaleApproval {
+            continue;
+        }
+        let Some(id) = notice.id.clone() else {
+            continue;
+        };
+        if !set.alignments.iter().any(|a| a.id == id && a.is_approved()) {
+            continue;
+        }
+        stale.entry(id).or_insert_with(|| {
+            format!(
+                "{}: {}",
+                notice.field.as_deref().unwrap_or("members"),
+                notice.message
+            )
+        });
+    }
+    stale
+}
+
 impl PublicComparisons {
     /// Project the approved alignments of a validated alignments file. The
     /// library and notebook supply identification and wording; the
-    /// contributor registry supplies interpreters' public names. Fails,
-    /// naming ids only, if an approved alignment points at something the
-    /// inputs do not hold.
+    /// contributor registry supplies interpreters' public names. An approved
+    /// alignment whose approval went stale ([`stale_approvals`]) is left out.
+    /// Fails, naming ids only, if an approved alignment points at something
+    /// the inputs do not hold.
     pub fn project(set: &AlignmentSet, inputs: ComparisonInputs<'_>) -> Result<Self, String> {
+        let stale = stale_approvals(set, inputs);
         let mut comparisons = Vec::new();
-        for alignment in set.alignments.iter().filter(|a| a.is_approved()) {
+        for alignment in set
+            .alignments
+            .iter()
+            .filter(|a| a.is_approved() && !stale.contains_key(&a.id))
+        {
             comparisons.push(PublicComparison::project(alignment, inputs)?);
         }
         comparisons.sort_by(|a, b| a.id.cmp(&b.id));
