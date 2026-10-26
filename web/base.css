@@ -1704,6 +1704,8 @@ ob-comments {
 .ob-reader-note-outcome code {
   overflow-wrap: anywhere;
   word-break: break-all;
+}
+
 /* Approved Third Perspectives on a work's canonical page (ADR 0115): readers' reflections, set
    apart from the authors' text, static and without a script. */
 .ob-third-perspectives {
