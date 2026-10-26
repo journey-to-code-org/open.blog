@@ -229,6 +229,18 @@ pub fn read_sources(root: &Path, config: &SiteConfig) -> Result<Sources, String>
     read_sources_excluding(root, config, None)
 }
 
+/// Whether a file under the content folder (its `/`-separated path relative
+/// to that folder) is left out of the build whatever its kind: a README
+/// anywhere, and any file or folder whose name starts with `_`. Everything
+/// that must agree with the build about which posts exist uses this together
+/// with [`openblog_core::classify_source`].
+pub fn not_content(rel: &str) -> bool {
+    let lower = rel.to_ascii_lowercase();
+    lower == "readme.md"
+        || lower.ends_with("/readme.md")
+        || rel.split('/').any(|part| part.starts_with('_'))
+}
+
 /// Read content while optionally replacing one source in memory. Admin uses
 /// this to validate a repair for a malformed credit sidecar without first
 /// having to parse the broken file from disk.
@@ -244,12 +256,7 @@ pub fn read_sources_excluding(
         if excluded.is_some_and(|excluded| excluded == rel) {
             continue;
         }
-        let lower = rel.to_ascii_lowercase();
-        // A README anywhere, and any file or folder whose name starts with `_`, is not content.
-        if lower == "readme.md"
-            || lower.ends_with("/readme.md")
-            || rel.split('/').any(|part| part.starts_with('_'))
-        {
+        if not_content(&rel) {
             continue;
         }
         let Some(source_kind) = openblog_core::classify_source(&rel) else {
@@ -281,7 +288,7 @@ pub fn read_sources_excluding(
 /// Walk content deterministically without descending through an unchecked
 /// directory symlink. Canonical directories are remembered so symlink cycles
 /// fail instead of recursing forever.
-fn content_files(content_dir: &Path) -> Result<Vec<PathBuf>, String> {
+pub(crate) fn content_files(content_dir: &Path) -> Result<Vec<PathBuf>, String> {
     let canonical_content = match fs::canonicalize(content_dir) {
         Ok(path) => path,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),

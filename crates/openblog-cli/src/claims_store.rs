@@ -184,16 +184,24 @@ pub fn check_against_library(root: &Path, library: &SourceLibrary) -> Result<(),
         .map_err(|error| error.to_string())
 }
 
-/// The anchor text of every post under `content/posts`, by slug, read from
-/// the saved files with [`claims::anchor_text`]. A post that cannot be read,
-/// a symlink, an oversized file, and two posts claiming one slug are left out,
+/// The anchor text of every post the build reads, by slug, from the saved
+/// files with [`claims::anchor_text`]. Posts are decided as the build decides
+/// them ([`crate::site::not_content`] and [`openblog_core::classify_source`]),
+/// so a README or a copy under a `_`-prefixed folder such as `posts/_drafts/`
+/// never shares a slug with the real post. A post that cannot be read, a
+/// symlink, an oversized file, and two posts claiming one slug are left out,
 /// so an anchor in them cannot be verified.
 pub fn read_drafts(root: &Path, content_dir: &str) -> Drafts {
-    let posts = root.join(content_dir).join("posts");
+    let content = root.join(content_dir);
     let mut drafts = Drafts::new();
     let mut seen: BTreeMap<String, usize> = BTreeMap::new();
-    for file in crate::fsutil::walk(&posts) {
-        if file.extension().and_then(|e| e.to_str()) != Some("md") {
+    // The build's own walk: a directory symlink that leaves the content
+    // folder or loops stops the build, and leaves no draft to verify here.
+    for file in crate::site::content_files(&content).unwrap_or_default() {
+        let path = crate::fsutil::relative(&content, &file);
+        if crate::site::not_content(&path)
+            || openblog_core::classify_source(&path) != Some(openblog_core::SourceKind::Post)
+        {
             continue;
         }
         let Ok(metadata) = fs::symlink_metadata(&file) else {
@@ -205,7 +213,6 @@ pub fn read_drafts(root: &Path, content_dir: &str) -> Drafts {
         let Ok(source) = fs::read_to_string(&file) else {
             continue;
         };
-        let path = crate::fsutil::relative(&posts, &file);
         let (Some(slug), Ok(text)) = (
             claims::post_slug(&path, &source),
             claims::anchor_text(&source),
@@ -1053,6 +1060,44 @@ mod tests {
             "a slug two posts claim is never trusted"
         );
         assert_eq!(drafts.len(), 2);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn drafts_skip_what_the_build_skips_so_a_drafts_copy_never_shadows_a_post() {
+        let root = temp_root("drafts-excluded");
+        let posts = root.join("content/posts");
+        fs::create_dir_all(posts.join("_drafts")).unwrap();
+        fs::create_dir_all(root.join("content/pages")).unwrap();
+        let post = "---\ntitle: Caves\n---\nThe cave is dark.\n";
+        fs::write(posts.join("2026-01-07-on-caves.md"), post).unwrap();
+        // A working copy under a `_` folder, a `_`-prefixed file and a README
+        // are not content: none of them may duplicate the real slug.
+        fs::write(posts.join("_drafts/2026-01-07-on-caves.md"), "Older words.").unwrap();
+        fs::write(posts.join("_on-caves.md"), "---\nslug: on-caves\n---\nOld").unwrap();
+        fs::write(posts.join("README.md"), "---\nslug: on-caves\n---\nHow to").unwrap();
+        // Pages are not posts; a loose Markdown file at the content root is,
+        // as the build reads it.
+        fs::write(
+            root.join("content/pages/about.md"),
+            "---\nslug: on-caves\n---\nAbout",
+        )
+        .unwrap();
+        fs::write(
+            root.join("content/loose.md"),
+            "---\ntitle: Loose\n---\nLoose words.",
+        )
+        .unwrap();
+        let drafts = read_drafts(&root, "content");
+        assert_eq!(
+            drafts.get("on-caves").map(String::as_str),
+            Some("The cave is dark.")
+        );
+        assert_eq!(
+            drafts.get("loose").map(String::as_str),
+            Some("Loose words.")
+        );
+        assert_eq!(drafts.len(), 2, "{drafts:?}");
         fs::remove_dir_all(root).unwrap();
     }
 
