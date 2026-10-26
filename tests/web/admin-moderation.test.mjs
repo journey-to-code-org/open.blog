@@ -108,7 +108,7 @@ test("the public preview never quotes a changed passage, and a mismatch with the
 });
 
 test("repairing the published decision is posted to its own route and announced", () => {
-  assert.match(admin, /`engagement\/feedback\/\$\{mismatch\.action\}`/);
+  assert.match(admin, /"feedback"\}\/\$\{mismatch\.action\}`/);
   assert.match(admin, /mismatch\.action === "publish-decision"/);
 });
 
@@ -240,6 +240,8 @@ test("decisions and evidence are worded as the author's and the reader's stateme
   // The inbox never calls a suggestion a correction on its own: that label comes only from the
   // server's standing, which only the author's decision sets.
   assert.doesNotMatch(admin, /"Correction"|label: "Correction/);
+});
+
 test("a Third Perspective's approval names the text revision and consent record shown, and its card says what binds", () => {
   const item = {
     source: "feedback", id: "00000000-0000-4000-8000-000000000001", kind: "third-perspective", status: "pending", version: 3, revision: 2,

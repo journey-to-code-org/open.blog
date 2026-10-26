@@ -384,7 +384,7 @@ test("B5's own feedback view lists only its kinds and never decides a Third Pers
 // ---- The SQL
 
 test("Third Perspectives add one nullable column and one function, and their rollback drops exactly those", () => {
-  const section = feedbackSql.slice(feedbackSql.indexOf("-- Third Perspectives (ADR 0113)")).replace(/--[^\n]*/g, "").toLowerCase();
+  const section = feedbackSql.slice(feedbackSql.indexOf("-- Third Perspectives (ADR 0113)"), feedbackSql.indexOf("-- Evidence submissions and correction decisions")).replace(/--[^\n]*/g, "").toLowerCase();
   assert.deepEqual(section.match(/alter table[^;]*;/g).map((statement) => statement.replace(/\s+/g, " ")), [
     "alter table public.openblog_feedback add column if not exists approved_consent integer check (approved_consent >= 1);",
   ]);
