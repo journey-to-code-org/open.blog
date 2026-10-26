@@ -320,7 +320,7 @@ fn a_stale_or_unsupported_arrangement_publishes_nothing() {
             &ALL,
             DATE
         ),
-        Err(AssemblyError::Invalid)
+        Err(AssemblyError::ArrangementMismatch)
     );
 }
 

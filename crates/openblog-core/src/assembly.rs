@@ -45,6 +45,10 @@ pub enum AssemblyError {
     },
     /// The record cannot make a Post: no title, no section, or an author without a profile.
     Invalid,
+    /// The arrangement names a part or draft the current drafts no longer have (an author
+    /// removed a part after it was arranged). Distinct from [`Self::Invalid`] because the fix is
+    /// a coordinator's: arrange the piece again (#188).
+    ArrangementMismatch,
     /// A section contains raw HTML or a link or image with an active address (`javascript:`,
     /// `data:`). Native pages pass these through, which is right for the site owner's own posts
     /// but not for a co-author's prose, and the approved text must not be altered, so the piece
@@ -319,6 +323,16 @@ pub fn assemble(
     active: &[&str],
     date: &str,
 ) -> Result<Assembly, AssemblyError> {
+    // An arrangement that no longer matches the drafts is named first: nobody can approve such a
+    // piece, so reporting the missing approvals instead would send people to a step they cannot
+    // take. Only a coordinator's new arrangement resolves it.
+    if structure.is_some_and(|structure| {
+        structure
+            .reading_order(&record.collaboration, drafts)
+            .is_err()
+    }) {
+        return Err(AssemblyError::ArrangementMismatch);
+    }
     match with_subject(record, structure, drafts, synthesis, active, |subject| {
         approvals.evaluate(subject)
     }) {
@@ -369,7 +383,7 @@ pub fn assemble(
         // The same latest revisions the approval's binding covers, in the one reading order.
         let order = structure
             .reading_order(&record.collaboration, drafts)
-            .map_err(|_| AssemblyError::Invalid)?;
+            .map_err(|_| AssemblyError::ArrangementMismatch)?;
         let order: Vec<_> = order
             .into_iter()
             .filter(|entry| active.contains(&entry.participant_id) && entry.markdown.is_some())

@@ -6452,6 +6452,12 @@ fn prepare_post(
                 "This reflection cannot be published yet: it needs a title and at least one written section. Nothing was changed.",
             ))
         }
+        Err(AssemblyError::ArrangementMismatch) => {
+            return Err(shared_problem(
+                "",
+                "The arrangement no longer matches the drafts: a turn names a part an author has since removed. Ask a coordinator to arrange the piece again; the combined preview shows where. Nothing was changed.",
+            ))
+        }
         Err(AssemblyError::RuleUnmet { named, roles }) => {
             return Err(Response::json(
                 409,
@@ -22487,5 +22493,59 @@ series: letters
     #[test]
     fn a_roundtable_of_ten_survives_edits_removal_and_restore_end_to_end() {
         roundtable_end_to_end("roundtable-ten", 9);
+    }
+
+    #[test]
+    fn a_part_removed_after_arranging_is_named_as_an_arrangement_problem_and_publishes_nothing() {
+        let (f, mikey, grace, ada, id) = approval_fixture("arrangement-mismatch");
+        for (n, who) in [&mikey, &grace].into_iter().enumerate() {
+            let draft = draft_call(&f, who, &id, 1, &two_parts(n, "M"));
+            assert_eq!(draft.status, 200);
+            let offer = reveal_call(&f, who, "ready", ready_body(&id, json!(2)));
+            assert_eq!(offer.status, 200);
+        }
+        let order = participant_ids(&f, &mikey, &id);
+        let arranged = arrangement_write(&f, &ada, true, &id, 0, roundtable_arrangement(1, &order));
+        assert_eq!(arranged.status, 200);
+        for who in [&mikey, &grace] {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        // Mikey then folds his two parts into one: the second round names a part that is gone.
+        let folded = draft_call(&f, &mikey, &id, 2, "M-00-ONLY MIKEY-SECRET");
+        assert_eq!(folded.status, 200);
+        assert_eq!(
+            reveal_call(&f, &mikey, "ready", ready_body(&id, json!(3))).status,
+            200
+        );
+        let preview = body_json(&preview_call(&f, &grace, &id));
+        assert!(preview_document_text(&f, &grace, &preview)
+            .contains("arrangement of this piece does not match the drafts"));
+        // Nobody can approve a piece that cannot be read in order, so the refusal names the
+        // arrangement, which a coordinator can fix, rather than the approval Mikey cannot give.
+        assert!(approval_body(&f, &mikey, &id)["seen"].is_null());
+        let before = state_trees(&f);
+        let refused = publish_as(&f, &ada, &id);
+        assert_eq!(refused.status, 422);
+        assert_no_prose(&refused);
+        assert!(body_json(&refused)["error"]
+            .as_str()
+            .unwrap()
+            .contains("arrangement no longer matches the drafts"));
+        assert_eq!(state_trees(&f), before);
+        // Arranging the piece again resolves it.
+        let single = json!({
+            "version": 1,
+            "revision": 2,
+            "layout": "roundtable",
+            "rounds": [{ "id": "round-1", "turns": order.iter().map(|p| json!({ "draft": p, "part": 0 })).collect::<Vec<_>>() }],
+        });
+        assert_eq!(
+            arrangement_write(&f, &ada, true, &id, 1, single).status,
+            200
+        );
+        for who in [&mikey, &grace] {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        assert_eq!(publish_as(&f, &ada, &id).status, 200);
     }
 }

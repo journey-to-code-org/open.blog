@@ -446,7 +446,11 @@ fn check_every_representation(made: &Assembly, ids: &[usize], label: &str) {
     let site = site(made, ids);
     let needles = reading(ids);
     // The generated arrangement frame is not reported as custom markup to review.
-    assert!(site.accessibility.is_empty(), "{label}: {:?}", site.accessibility);
+    assert!(
+        site.accessibility.is_empty(),
+        "{label}: {:?}",
+        site.accessibility
+    );
     let files = render::generate(&site, &ThemeSet::new()).unwrap();
     let page = &files
         .iter()
@@ -796,5 +800,5 @@ CLOSE-004"
         .unwrap();
     group.reconcile();
     group.approve(&id(6));
-    assert_eq!(group.assemble(), Err(AssemblyError::Invalid));
+    assert_eq!(group.assemble(), Err(AssemblyError::ArrangementMismatch));
 }
