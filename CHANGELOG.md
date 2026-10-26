@@ -31,6 +31,11 @@ All notable changes to open.blog are recorded here. Releases follow
   `supabase/moderation.sql` (and `feedback.sql` again if you use feedback) and set
   `OPENBLOG_MODERATION_ENABLED=true`; `supabase/moderation-rollback.sql` undoes it. Nothing is
   e-mailed to anyone.
+- Published reader notes now follow their own kind: switching a kind `off` in
+  `participation.kinds` (or leaving `engagement.feedback` unset), or making it `hidden` for the
+  site or a post, takes its published notes off those pages until you switch it back on;
+  `reader-feedback.json` keeps them. Turning hosted engagement off, or leaving the hosted service,
+  still keeps every published note on your pages.
 
 ## [0.33.0] - 2026-10-26
 

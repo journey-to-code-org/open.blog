@@ -442,6 +442,31 @@ pub fn effective_mode(
     if !transport_available(config) {
         return ParticipationMode::Hidden;
     }
+    configured_mode(config, post, kind)
+}
+
+/// Where a kind's already published notes show (ADR 0100, ADR 0083): the
+/// kind's site and post mode as [`effective_mode`] resolves it, but without
+/// the transport step, so a site that leaves its hosted service keeps its
+/// published notes on its pages. Without a transport nothing is accepted, so
+/// `open` counts as `locked`; a kind switched `off` or `hidden` still shows
+/// nothing.
+pub fn published_mode(
+    config: &SiteConfig,
+    post: &Post,
+    kind: ParticipationKind,
+) -> ParticipationMode {
+    let mode = configured_mode(config, post, kind);
+    if transport_available(config) {
+        mode
+    } else {
+        mode.min(ParticipationMode::Locked)
+    }
+}
+
+/// Steps 2 and 3 of [`effective_mode`]: the kind's mode from the site and
+/// post settings alone.
+fn configured_mode(config: &SiteConfig, post: &Post, kind: ParticipationKind) -> ParticipationMode {
     if kind == ParticipationKind::Comment {
         return if config.engagement.comments {
             post.comments.into()

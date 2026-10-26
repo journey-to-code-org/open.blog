@@ -854,3 +854,46 @@ fn a_published_note_follows_its_own_kinds_mode_on_the_post() {
     // Nothing is open, so no post asks for more.
     assert!(!pages["tides/index.html"].contains("<ob-passage-feedback"));
 }
+
+/// ADR 0100 and ADR 0083: a site that turns hosted engagement off, or leaves
+/// its hosted service, keeps every note it published, while a kind it
+/// switches off or hides still shows none. Nothing is offered without a
+/// transport.
+#[test]
+fn published_notes_stay_on_the_pages_of_a_site_without_hosted_engagement() {
+    let site = load(FEEDBACK_SITE, TIDES, None);
+    let file = published_file(&site).to_json();
+    for config in [
+        r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","author":{"name":"A"},
+  "engagement":{"enabled":false,"feedback":true,"endpoint":"https://t.dev/api"}}"#,
+        r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","author":{"name":"A"},
+  "engagement":{"feedback":true}}"#,
+        r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","author":{"name":"A"},
+  "participation":{"kinds":{"question":"follow-comments","correction-suggestion":"open",
+    "alternative-interpretation":"locked"}}}"#,
+    ] {
+        let site = load(config, TIDES, Some(file.clone()));
+        let pages = build(&site);
+        let tides = section(&pages["tides/index.html"]);
+        assert!(tides.contains("Why the sun?"), "{config}: {tides}");
+        assert!(tides.contains("It was three times."), "{config}: {tides}");
+        assert!(
+            section(&pages["locked/index.html"]).contains("Another reading of all of it."),
+            "{config}"
+        );
+        // A post that hides comments, which the kinds follow, still shows none.
+        assert!(
+            !pages["hidden/index.html"].contains("A question on a hidden post"),
+            "{config}"
+        );
+        // Without a transport nothing is accepted.
+        assert!(!pages["tides/index.html"].contains("<ob-passage-feedback"));
+    }
+    // Switching a kind off, or hiding it, takes its notes off the pages.
+    let off = r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","author":{"name":"A"},
+  "participation":{"kinds":{"question":"hidden"}}}"#;
+    let site = load(off, TIDES, Some(file));
+    let pages = build(&site);
+    assert!(!pages["tides/index.html"].contains("Why the sun?"));
+    assert!(!pages["tides/index.html"].contains("It was three times."));
+}

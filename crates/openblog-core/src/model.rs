@@ -1102,8 +1102,9 @@ pub fn uncitable_line(source: &str, library: &SourceLibrary) -> Option<usize> {
 
 /// Give each post the approved reader notes its canonical page shows (ADR
 /// 0083), or say why the file cannot be read. A note is shown only where its
-/// kind's mode on the post shows approved items (ADR 0100), so a post that
-/// hides a kind shows none of it; a note about a post that no longer exists
+/// kind's site and post mode shows approved items (ADR 0100), so a post that
+/// hides a kind shows none of it, while a site without its hosted service
+/// keeps showing what it published; a note about a post that no longer exists
 /// is a warning, and one about a draft or scheduled post waits for it.
 fn attach_reader_feedback(
     posts: &mut [Post],
@@ -1135,7 +1136,7 @@ fn attach_reader_feedback(
     for post in posts.iter_mut() {
         let mut items = published.for_post(&post.source.replace('\\', "/"));
         items.retain(|item| {
-            crate::participation::effective_mode(config, post, item.kind.participation_kind())
+            crate::participation::published_mode(config, post, item.kind.participation_kind())
                 .shows_approved()
         });
         if items.is_empty() {

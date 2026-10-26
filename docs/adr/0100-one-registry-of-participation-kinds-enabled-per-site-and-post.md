@@ -109,8 +109,12 @@ setting, whatever `engagement.comments` says, when `engagement.feedback` is on",
   `kinds` attribute only when it offers some of the four, so a page offering all four is
   unchanged), a `locked` kind shows its approved items but is not offered, and a `hidden` kind
   does neither. Each published note in `reader-feedback.json` is shown only where its own kind
-  shows approved items, so switching a kind off, or hosted engagement off, takes its notes off the
-  pages until it is switched back on; the file keeps them. The hosted function applies the same
+  shows approved items, read by `participation::published_mode`: the kind's site and post mode as
+  the resolver's steps 2 and 3 give it, without step 1, with `open` counting as `locked` while
+  there is no transport. So switching a kind `off`, or `hidden` site-wide or on a post, takes its
+  notes off those pages until it is switched back on (the file keeps them), while a site that
+  turns hosted engagement off, or leaves its hosted service, keeps showing every note it
+  published, as ADR 0083 and static reading require. The hosted function applies the same
   per-kind modes from the manifest.
 - **`engagement.feedbackContact` stays under `engagement`.** It is a transport setting, not a kind
   setting, so it is not moved into `participation`. It is where the copy-and-send fallback points
