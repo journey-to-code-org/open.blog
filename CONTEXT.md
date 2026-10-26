@@ -443,6 +443,31 @@ The citation style that publishes each cited reference once, numbered in order o
 citation, under References, with locators kept next to the marker in the text.
 _Avoid_: References section when the research profile's hand-written list is meant
 
+**Reader references**:
+The versioned data a citation preview reads: each cited reference once under its citation key,
+and each citation with its marker and note ids and its locators, projected from the published
+citations and holding only their public description. It lives inline in the page and is never
+needed to read it. Only the reference id is stable; marker and note ids are positional for one
+revision and are never stored.
+_Avoid_: Bibliography data, citation metadata
+
+**Citation endnotes**:
+The region at the end of a native post page that holds its generated citation notes under their
+heading, announced as endnotes and named by that heading. Following a marker moves focus to its
+note, and each note links back to every marker citing it. It never holds the author's own
+footnotes.
+_Avoid_: Footnotes section, bibliography block
+
+**Citation preview**:
+The small panel that opens beside a citation marker, on focus, hover or a first tap, showing the
+cited reference's formatted text, the citation's locators and at most one checked outside link
+plus the way to the note, all taken from the page's reader references as text. It enhances the
+marker, which stays the link to its note, and is never needed to read the post. It repeats what
+the author's library says and verifies nothing: not that the source exists or is described
+correctly, that its link resolves, that the passage supports the claim, or that the source is
+authoritative or may be reused.
+_Avoid_: Tooltip, popup, source card
+
 **Citation check**:
 An offline finding about a post's citations, in one of four separate classes: syntax (the
 citation cannot be read), resolution (its key or locator does not resolve, or an identifier is
