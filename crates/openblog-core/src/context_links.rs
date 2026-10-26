@@ -64,10 +64,9 @@ pub fn parse_context_href(href: &str) -> Option<(ContextKind, String)> {
     let path = href.split(['#', '?']).next().unwrap_or_default();
     let (kind, rest) = if let Some(rest) = path.strip_prefix(ATLAS_URL) {
         (ContextKind::AtlasEntry, rest)
-    } else if let Some(rest) = path.strip_prefix(COMPARISONS_URL) {
-        (ContextKind::Comparison, rest)
     } else {
-        return None;
+        let rest = path.strip_prefix(COMPARISONS_URL)?;
+        (ContextKind::Comparison, rest)
     };
     let id = rest.strip_suffix('/').unwrap_or(rest);
     let valid = !id.is_empty()
