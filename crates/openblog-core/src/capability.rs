@@ -13,6 +13,7 @@ const PORTABLE_FALLBACKS: &[&str] = &[
     "raw-html",
     "citations",
     "claim-evidence",
+    "guided-reading-supplements",
 ];
 
 /// Planned capabilities registered in `docs/portability/planned-capability-contracts.json`,
@@ -139,6 +140,11 @@ impl CapabilityDescriptor {
             "claim-evidence" => (
                 "The author's approved claims with their supporting and contradicting evidence side by side, and revision notes.",
                 Some("markdown-section"),
+                PortabilityLevel::FullyPortable,
+            ),
+            "guided-reading-supplements" => (
+                "Author-approved supplements, each labelled with its kind and the least reading mode that shows it; a mode only hides or shows them.",
+                Some("labeled-static-group"),
                 PortabilityLevel::FullyPortable,
             ),
             planned if matches!(planned_entry(planned), Some(Some(_))) => (
@@ -284,6 +290,14 @@ mod tests {
             ids
         );
         for id in ids {
+            // Defined and implemented by B2 (ADR 0170): it has its own
+            // fallback, tested in `reading_depth`.
+            if id == "guided-reading-supplements" {
+                let descriptor = CapabilityDescriptor::describe(id, None);
+                assert!(descriptor.has_portable_fallback());
+                assert!(descriptor.diagnostics.is_empty());
+                continue;
+            }
             let descriptor = CapabilityDescriptor::describe(id, None);
             assert_eq!(descriptor.id, id);
             assert!(descriptor.diagnostics.is_empty(), "{id}");

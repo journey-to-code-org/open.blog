@@ -87,6 +87,7 @@ pub mod profile;
 pub mod published_moment;
 mod raw_html;
 pub mod reader_references;
+pub mod reading_depth;
 pub mod recipe;
 pub mod reflection;
 pub mod render;

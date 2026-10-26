@@ -257,6 +257,9 @@ pub struct Post {
     /// What the published citations made public, for a post that publishes
     /// them; portable bibliography exports read it (ADR 0050).
     pub(crate) citations: Option<CitationSummary>,
+    /// The supplements of a post that opts in to reading modes with
+    /// `readingModes: true` (ADR 0170); `None` for every other post.
+    pub(crate) reading_depth: Option<crate::reading_depth::ReadingDepth>,
     /// What the post publishes of its approved claims and its revision notes,
     /// for a site that publishes claim evidence (ADR 0075).
     pub(crate) claim_evidence: Option<PostEvidence>,
@@ -319,6 +322,12 @@ impl Post {
         self.published_markdown
             .as_deref()
             .unwrap_or(&self.authored_markdown)
+    }
+
+    /// The supplements this post publishes for its reading modes, or `None`
+    /// when it has not opted in (ADR 0170).
+    pub fn reading_depth(&self) -> Option<&crate::reading_depth::ReadingDepth> {
+        self.reading_depth.as_ref()
     }
 
     /// What this post's published citations made public, or `None` when it
@@ -1473,6 +1482,12 @@ fn load_post_in(
                     locale: *locale,
                 }),
             claim_evidence_section: with_evidence.is_some(),
+            // Reading modes are opt-in (ADR 0170): without the key every
+            // block quote renders exactly as before.
+            supplements: fm
+                .get_bool("readingModes")
+                .or_else(|| fm.get_bool("reading_modes"))
+                == Some(true),
             ..options
         },
     );
@@ -1668,6 +1683,7 @@ fn load_post_in(
         evidence_error,
         reader_feedback: Vec::new(),
         third_perspectives: Vec::new(),
+        reading_depth: rendered.reading_depth.clone(),
         html: rendered.html,
         text: rendered.text,
         headings: rendered.headings,

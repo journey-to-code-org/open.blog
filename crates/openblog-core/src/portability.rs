@@ -695,6 +695,7 @@ impl<'a> PortableProjection<'a> {
                 citation_notes: None,
                 // The section is ordinary content in a portable copy.
                 claim_evidence_section: false,
+                supplements: post.reading_depth.is_some(),
             },
             runner_languages: (!config.code_runner.endpoint.is_empty())
                 .then(|| config.code_runner.languages.clone()),
@@ -4362,6 +4363,11 @@ A[^a b].
         let native = post.html.clone();
         for contract in registry["contracts"].as_array().unwrap() {
             let id = contract["id"].as_str().unwrap();
+            // Implemented by B2 with its own portable fallback instead of a
+            // canonical-only label (ADR 0171); `reading_depth` tests cover it.
+            if id == "guided-reading-supplements" {
+                continue;
+            }
             let registered = [CapabilityDescriptor::describe(id, None)];
             let mut projection = PortableProjection::from_post(post, &config).unwrap();
             projection.capabilities = &registered;

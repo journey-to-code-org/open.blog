@@ -5,6 +5,15 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Defined author-approved supplements and reading modes, ahead of the reader controls. A post that
+  opts in with `readingModes: true` can mark a block quote `[!supplement kind=definition
+  level=guided]` as extra context (definition, context, evidence, relationship, comparison, further
+  reading, or any other kind). A reading mode only shows or hides supplements: standard shows none,
+  guided shows guided ones, deep-dive shows both. Nothing about the article changes in any mode, a
+  supplement's words are not counted in the post's word count or reading time, and without script
+  every supplement is shown, labelled, in the page, feeds and portable copies. Posts that do not
+  opt in are unchanged.
+
 ## [0.38.0] - 2026-10-26
 
 - Defined how readers' evidence and the author's correction decisions work, ahead of the forms

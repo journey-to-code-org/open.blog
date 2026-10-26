@@ -51,6 +51,9 @@ pub struct Rendered {
     pub recipe_ingredients: Vec<String>,
     pub recipe_steps: Vec<String>,
     pub recipe_anchor: Option<String>,
+    /// With [`RenderOptions::supplements`]: the supplements read and what was
+    /// reported about their markers.
+    pub reading_depth: Option<crate::reading_depth::ReadingDepth>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -84,6 +87,10 @@ pub struct RenderOptions<'a> {
     /// section (ADR 0075): its prose (description, word count, reading time)
     /// ends at that section's heading, as it ends at generated citation notes.
     pub claim_evidence_section: bool,
+    /// Set for a post that opts in to reading modes (ADR 0170): marked
+    /// supplements are wrapped in labelled groups and kept out of the post's
+    /// own prose. `false` renders every block quote as before.
+    pub supplements: bool,
 }
 
 impl Default for RenderOptions<'_> {
@@ -98,6 +105,7 @@ impl Default for RenderOptions<'_> {
             web_libraries: None,
             citation_notes: None,
             claim_evidence_section: false,
+            supplements: false,
         }
     }
 }
@@ -1856,7 +1864,12 @@ pub(crate) fn portable_semantic_facts(
 ) -> Result<Vec<crate::portability::SemanticFact>, String> {
     use crate::portability::SemanticFact;
     let events = Parser::new_ext(markdown, parser_options(options.smart_punctuation));
-    let sanitized = crate::raw_html::sanitize(events.collect(), projection)?;
+    let mut sanitized = crate::raw_html::sanitize(events.collect(), projection)?;
+    if options.supplements {
+        // The marker line is replaced by a label in the HTML and kept as
+        // written in Markdown, so it is not a fact either must carry.
+        sanitized.events = crate::reading_depth::transform(sanitized.events, false).events;
+    }
     let mut facts = Vec::new();
     let mut semantic_events = Vec::new();
     let mut index = 0;
@@ -2076,6 +2089,17 @@ fn render_events<'a>(
     options: RenderOptions<'_>,
     portable: Option<PortableContext<'_>>,
 ) -> Rendered {
+    let (parsed_events, inside_supplement, reading_depth) = if options.supplements {
+        let transformed = crate::reading_depth::transform(parsed_events, true);
+        (
+            transformed.events,
+            transformed.inside,
+            Some(transformed.depth),
+        )
+    } else {
+        (parsed_events, Vec::new(), None)
+    };
+    let mut supplement_cuts: Vec<(usize, usize)> = Vec::new();
     let mut events: Vec<Event> = Vec::new();
     let mut headings = Vec::new();
     let mut text = String::new();
@@ -2104,6 +2128,7 @@ fn render_events<'a>(
             prose_end.get_or_insert(text.len());
         }
         let followed_marker = std::mem::take(&mut after_marker);
+        let text_before = text.len();
         match &event {
             Event::FootnoteReference(name)
                 if options
@@ -2184,6 +2209,9 @@ fn render_events<'a>(
             }
         }
 
+        if inside_supplement.get(index).copied().unwrap_or(false) && text.len() > text_before {
+            supplement_cuts.push((text_before, text.len()));
+        }
         events.push(event);
     }
 
@@ -2216,15 +2244,45 @@ fn render_events<'a>(
         html = html.replace("<img src=", "<img loading=\"lazy\" decoding=\"async\" src=");
     }
 
-    let prose = collapse_whitespace(&text[..prose_end.unwrap_or(text.len())]);
+    let prose_limit = prose_end.unwrap_or(text.len());
+    let prose = if supplement_cuts.is_empty() {
+        collapse_whitespace(&text[..prose_limit])
+    } else {
+        // Supplements are not the post's own words: they stay in the search
+        // text but not in the description, word count or reading time.
+        let mut own = String::new();
+        let mut from = 0;
+        for (start, end) in &supplement_cuts {
+            if *start >= prose_limit {
+                break;
+            }
+            own.push_str(&text[from..*start]);
+            own.push(' ');
+            from = (*end).min(prose_limit);
+        }
+        if from < prose_limit {
+            own.push_str(&text[from..prose_limit]);
+        }
+        collapse_whitespace(&own)
+    };
     let text = collapse_whitespace(&text);
+    let mut capabilities = blocks.capabilities;
+    if reading_depth
+        .as_ref()
+        .is_some_and(|depth| !depth.is_empty())
+    {
+        capabilities.push(CapabilityDescriptor::describe(
+            crate::reading_depth::CAPABILITY_ID,
+            None,
+        ));
+    }
     let word_count = prose.split_whitespace().count();
     Rendered {
         html,
         portable_images: Vec::new(),
         portable_has_raw_html: false,
         portable_video_ids,
-        capabilities: blocks.capabilities,
+        capabilities,
         errors: blocks.errors,
         headings,
         text,
@@ -2235,6 +2293,7 @@ fn render_events<'a>(
         recipe_ingredients: blocks.ingredients,
         recipe_steps: blocks.steps,
         recipe_anchor: blocks.recipe_anchor,
+        reading_depth,
     }
 }
 
