@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-10-26
+
 - The private Knowledge Atlas can now record uncertain chronology. Entries and relationships
   carry datings: each says who dates what (a birth, a composition, a span), on which cited
   evidence and how firmly, at the precision given (a day, month, year, decade or century,
