@@ -42,7 +42,7 @@ without destructive normalization, and without inventing any detail.
   | identifier-compatibility | `identifier-shared` | identifier | needs-review | source | two records have the same `doi`, `isbn`, `pmid` or `pmcid`; the later record is scoped and every earlier one related |
   | identifier-compatibility | `identifier-on-work` | identifier | needs-review | source | a work whose editions, translations or witnesses are recorded carries an ISBN |
   | version-identity | `volume-missing` | locator | detected | post or passage | a page or folio in a version recorded in more than one volume names no `x-csl-volume` |
-  | version-identity | `volume-unknown` | locator | detected | post or passage | an `x-csl-volume` the version does not have |
+  | version-identity | `volume-unknown` | locator | detected | post or passage | an `x-csl-volume` the version does not have, or that differs from the volume the cited reference records |
   | version-identity | `translator-missing` | version | potential | source | a translation names no creator with the role `translator` and is not anonymous |
   | version-identity | `witness-unidentified` | version | potential | source | a witness has no repository or no shelfmark |
   | version-identity | `version-unspecified` | version | needs-review | post | a quotation cites a work whose versions are recorded |
@@ -63,13 +63,14 @@ without destructive normalization, and without inventing any detail.
   `canonical`, `timestamp` and extension kinds are narrow enough; `chapter` and `section` alone
   are prompted as broad; an `x-csl-volume` alone is no location; and a reference record that
   gives its own location locates the quotation. Nothing compares the quoted words with any text,
-  and the messages say that open.blog checks only that a location is given.
+  and the messages say that open.blog checks only that a location is given. An inline quotation is identified by its quoted span alone, from the opening mark to the closing mark, so other prose on the line and rewrapping keep an acknowledgement current.
 - **Identifiers are compared, never rewritten.** Two identifiers meet through a comparison key:
   a DOI in any form `normalize_doi_url` accepts, case-folded; an ISBN-10 as its ISBN-13; a PMCID
   with its prefix upper-cased. The record keeps what was written. ISSN names a serial that many
   records share and other schemes are free-form author data, so neither is compared. A
   reference and a record on its realization chain may share an ISBN (a chapter carries its
-  book's ISBN), so that pair is not reported; a shared DOI always is. When two records disagree,
+  book's ISBN), and so may two records that read the same version or share any other
+  non-reference ancestor (two chapters of one edition), so those pairs are not reported; a shared DOI always is. When two records disagree,
   the finding is scoped to one and relates the other; neither is changed or merged.
 - **Versions follow the A6 model.** The version a citation reads is the first edition,
   translation or witness on its realization chain, and the work is the record of kind work at

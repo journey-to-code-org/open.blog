@@ -319,6 +319,23 @@ impl<'a> Lookup<'a> {
             || self.chain(b).iter().any(|record| record.id == a)
     }
 
+    /// Whether two records are parts of one thing for an ISBN: one is on the
+    /// other's chain, or both read the same version or share any other
+    /// non-reference ancestor, as two chapters of one edition do.
+    fn related_for_isbn(&self, a: &str, b: &str) -> bool {
+        if self.related_by_chain(a, b) {
+            return true;
+        }
+        let ancestors = |id: &str| -> BTreeSet<&'a str> {
+            self.chain(id)
+                .into_iter()
+                .filter(|record| record.kind != ResearchSourceKind::Reference)
+                .map(|record| record.id.as_str())
+                .collect()
+        };
+        !ancestors(a).is_disjoint(&ancestors(b))
+    }
+
     /// The location a reference record on the chain gives itself.
     fn own_location(&self, id: &str) -> Option<&'a crate::source_library::SourceLocation> {
         self.chain(id)
@@ -404,6 +421,12 @@ enum VolumeGap<'a> {
         count: u64,
         volume: String,
     },
+    /// The citation names a volume other than the one its reference gives.
+    Differs {
+        version: &'a SourceRecord,
+        own: String,
+        volume: String,
+    },
 }
 
 fn volume_gap<'a>(
@@ -411,17 +434,23 @@ fn volume_gap<'a>(
     source: &str,
     locators: &[Locator],
 ) -> Option<VolumeGap<'a>> {
-    if lookup
+    let own = lookup
         .own_location(source)
-        .is_some_and(|location| location.volume.is_some())
-    {
-        return None;
-    }
+        .and_then(|location| location.volume.as_deref());
     let version = lookup.version_of(source)?;
-    let count = version.volumes?;
     let volume = locators
         .iter()
         .find(|locator| locator.kind.as_str() == VOLUME_LOCATOR);
+    if let (Some(own), Some(volume)) = (own, volume) {
+        if own.trim() != volume.value.trim() {
+            return Some(VolumeGap::Differs {
+                version,
+                own: own.to_string(),
+                volume: volume.value.clone(),
+            });
+        }
+    }
+    let count = version.volumes?;
     match volume {
         Some(volume) => volume
             .value
@@ -432,19 +461,21 @@ fn volume_gap<'a>(
                 count,
                 volume: volume.value.clone(),
             }),
-        None if count > 1 => locators.iter().find_map(|locator| match locator.kind {
-            LocatorKind::Page => Some(VolumeGap::Missing {
-                version,
-                count,
-                kind: "page",
-            }),
-            LocatorKind::Folio => Some(VolumeGap::Missing {
-                version,
-                count,
-                kind: "folio",
-            }),
-            _ => None,
-        }),
+        None if count > 1 && own.is_none() => {
+            locators.iter().find_map(|locator| match locator.kind {
+                LocatorKind::Page => Some(VolumeGap::Missing {
+                    version,
+                    count,
+                    kind: "page",
+                }),
+                LocatorKind::Folio => Some(VolumeGap::Missing {
+                    version,
+                    count,
+                    kind: "folio",
+                }),
+                _ => None,
+            })
+        }
         None => None,
     }
 }
@@ -489,6 +520,21 @@ fn volume_finding(
                 version,
             )
         }
+        VolumeGap::Differs {
+            version,
+            own,
+            volume,
+        } => {
+            facts.push(format!("volume {own}"));
+            (
+                SourceReviewCode::VolumeUnknown,
+                format!(
+                    "{subject} names volume {volume} of `{}`, but the reference it cites records volume {own}.",
+                    version.id
+                ),
+                version,
+            )
+        }
     };
     let repair = if code == SourceReviewCode::VolumeUnknown {
         "Compare the volume with the source, and with the volume count recorded in the source library.".to_string()
@@ -528,6 +574,32 @@ const CLOSING_QUOTES: [char; 9] = [
     '"', '\u{201d}', '\u{201c}', '\u{bb}', '\u{ab}', '\u{203a}', '\u{2039}', '\u{300d}', '\u{300f}',
 ];
 
+/// The quoted words at the end of `line`, from the opening mark to the
+/// closing mark, so other prose on the line and its wrapping do not count.
+/// A line with no opening mark before the closing one gives the whole line.
+fn quoted_span(line: &str) -> &str {
+    let line = line.trim();
+    let Some(close) = line.chars().next_back() else {
+        return line;
+    };
+    let opens: &[char] = match close {
+        '\u{201d}' => &['\u{201c}'],
+        '\u{bb}' => &['\u{ab}'],
+        '\u{ab}' => &['\u{bb}'],
+        '\u{203a}' => &['\u{2039}'],
+        '\u{2039}' => &['\u{203a}'],
+        '\u{300d}' => &['\u{300c}'],
+        '\u{300f}' => &['\u{300e}'],
+        '\u{201c}' => &['\u{201d}'],
+        _ => &['"'],
+    };
+    let inner = &line[..line.len() - close.len_utf8()];
+    match inner.rfind(opens) {
+        Some(at) => &line[at..],
+        None => line,
+    }
+}
+
 /// The quotation a citation attributes, if it attributes one: a block
 /// quotation it sits in, or that it directly follows (after a dash), or
 /// quoted words it directly follows (`"..." [@key]`, `«...» [@key]`). The
@@ -555,7 +627,7 @@ fn quotation_of<'m>(
         markdown[..start].trim_end_matches(|c: char| c.is_whitespace() || c == '*' || c == '_');
     if before.ends_with(CLOSING_QUOTES) {
         let line_start = before.rfind('\n').map_or(0, |at| at + 1);
-        return Some(before[line_start..].trim());
+        return Some(quoted_span(&before[line_start..]));
     }
     None
 }
@@ -629,7 +701,7 @@ pub fn review_post<'l>(
                     SourceReviewCode::QuotationLocatorMissing,
                     ReviewObject::Post,
                     format!("A quotation cites `{key}` without a location in it. open.blog checks only that a location is given, never that the quoted words are there."),
-                    format!("Add where the words are, such as `[@{key}, page 514]`."),
+                    format!("Add where the words are, such as `[@{key}, page 514]`, a line or a timestamp, if the source has one; a source with no locations needs no change."),
                 )
                 .about([key.to_string()], facts.clone()),
                 mention.line,
@@ -702,7 +774,7 @@ pub fn review_post<'l>(
             };
             let common: Vec<(&str, String)> = identities(other)
                 .intersection(&mine)
-                .filter(|(scheme, _)| *scheme != "isbn" || !lookup.related_by_chain(key, earlier))
+                .filter(|(scheme, _)| *scheme != "isbn" || !lookup.related_for_isbn(key, earlier))
                 .cloned()
                 .collect();
             if common.is_empty() {
@@ -855,7 +927,7 @@ pub fn review_library(library: &SourceLibrary, notebook: &Notebook) -> Vec<Sourc
             let earlier: Vec<&str> = group[..position]
                 .iter()
                 .copied()
-                .filter(|other| key.0 != "isbn" || !lookup.related_by_chain(id, other))
+                .filter(|other| key.0 != "isbn" || !lookup.related_for_isbn(id, other))
                 .collect();
             if earlier.is_empty() {
                 continue;

@@ -581,6 +581,118 @@ fn an_acknowledged_prompt_goes_stale_only_when_what_it_states_changes() {
     );
 }
 
+fn own_library(sources: Value) -> SourceLibrary {
+    SourceLibrary::parse(
+        &json!({"version": 1, "sources": sources}).to_string(),
+        &BTreeMap::new(),
+    )
+    .unwrap_or_else(|d| panic!("valid library: {d:?}"))
+}
+
+fn siblings() -> SourceLibrary {
+    own_library(json!([
+        {"id": "text", "kind": "work", "title": "Text"},
+        {"id": "book", "kind": "edition", "of": "text", "title": "Book", "volumes": 3,
+         "identifiers": [{"scheme": "isbn", "value": "9780199248490"}]},
+        {"id": "chap-a", "kind": "reference", "of": "book",
+         "identifiers": [{"scheme": "isbn", "value": "9780199248490"}]},
+        {"id": "chap-b", "kind": "reference", "of": "book",
+         "identifiers": [{"scheme": "isbn", "value": "978-0-19-924849-0"}]},
+        {"id": "other", "kind": "work", "title": "Other",
+         "identifiers": [{"scheme": "isbn", "value": "9780199248490"}]}
+    ]))
+}
+
+#[test]
+fn sibling_chapters_of_one_edition_share_its_isbn_by_design() {
+    let library = siblings();
+    let cited = review_post(
+        "posts/p.md",
+        "A [@chap-a, canonical 1]. B [@chap-b, canonical 2].\n",
+        1,
+        || Ok(Some(&library)),
+    );
+    assert_eq!(cited, []);
+    let findings = review_library(&library, &Notebook::default());
+    let shared: Vec<&str> = findings
+        .iter()
+        .filter(|f| f.code == Code::IdentifierShared)
+        .filter_map(|f| f.id.as_deref())
+        .collect();
+    // Only the unrelated work is told it shares the ISBN, never a chapter.
+    assert_eq!(shared, ["other"]);
+    let other = find(&findings, Code::IdentifierShared, "other");
+    assert_eq!(other.related, ["book", "chap-a", "chap-b"]);
+    // An unrelated record with the same ISBN is still reported in a post.
+    let mixed = review_post(
+        "posts/p.md",
+        "A [@chap-a, canonical 1]. B [@other, canonical 2].\n",
+        1,
+        || Ok(Some(&library)),
+    );
+    assert_eq!(codes(&mixed), [Code::CitationSameIdentifier]);
+}
+
+#[test]
+fn a_cited_volume_is_checked_against_the_reference_and_the_edition() {
+    // The reference gives volume 2: the same volume agrees, another differs.
+    assert_eq!(post("See [@burnet-vol2, x-csl-volume 2; page 42].\n"), []);
+    let differs = post("See [@burnet-vol2, x-csl-volume 3; page 42].\n");
+    assert_eq!(codes(&differs), [Code::VolumeUnknown]);
+    assert!(differs[0].message.contains("volume 3") && differs[0].message.contains("volume 2"));
+    assert_eq!(differs[0].related, ["burnet"]);
+    // The library refuses a reference volume the edition lacks, so a cited
+    // volume past the count is checked against the count alone.
+    let library = own_library(json!([
+        {"id": "w", "kind": "work", "title": "W"},
+        {"id": "ed", "kind": "edition", "of": "w", "title": "Ed", "volumes": 2},
+        {"id": "ref2", "kind": "reference", "of": "ed",
+         "location": {"scheme": "page", "value": "1", "volume": "2"}}
+    ]));
+    let unknown = review_post(
+        "posts/p.md",
+        "See [@ref2, x-csl-volume 9; page 1].\n",
+        1,
+        || Ok(Some(&library)),
+    );
+    assert_eq!(codes(&unknown), [Code::VolumeUnknown]);
+    let agrees = review_post("posts/p.md", "See [@ref2, page 1].\n", 1, || {
+        Ok(Some(&library))
+    });
+    assert_eq!(agrees, []);
+}
+
+#[test]
+fn an_inline_quotations_fingerprint_is_its_quoted_span_only() {
+    let quoted = |body: &str| {
+        post(body)
+            .iter()
+            .map(CompletenessFinding::from_source_review)
+            .collect::<Vec<_>>()
+    };
+    let before = quoted("As he put it, \u{201c}the cave.\u{201d} [@grube, chapter 7]\n");
+    assert_eq!(before.len(), 1);
+    let ack = Acknowledgement::of(&before[0]).expect("advisory");
+    for body in [
+        "Other words entirely, and then \u{201c}the cave.\u{201d} [@grube, chapter 7]\n",
+        "Intro.\n\nAs he\nput it, \u{201c}the cave.\u{201d}\n[@grube, chapter 7]\n",
+    ] {
+        let found = quoted(body);
+        let report = CompletenessReport::new(found, std::slice::from_ref(&ack));
+        assert_eq!(
+            report.findings[0].acknowledgement,
+            Some(AcknowledgementState::Current),
+            "{body}"
+        );
+    }
+    let changed = quoted("As he put it, \u{201c}the sun.\u{201d} [@grube, chapter 7]\n");
+    let report = CompletenessReport::new(changed, std::slice::from_ref(&ack));
+    assert_eq!(
+        report.findings[0].acknowledgement,
+        Some(AcknowledgementState::Stale)
+    );
+}
+
 fn site(body: &str) -> Site {
     let config = SiteConfig::from_json(
         r#"{"title": "T", "url": "https://example.test", "language": "en",
