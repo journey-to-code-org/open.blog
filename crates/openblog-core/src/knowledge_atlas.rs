@@ -2444,6 +2444,61 @@ mod tests {
     }
 
     #[test]
+    fn every_endpoint_pair_is_accepted_or_refused_by_the_kind_table() {
+        // Two entries of every kind, so same-kind pairs have distinct ends.
+        let entries: Vec<Value> = EntryKind::ALL
+            .iter()
+            .flat_map(|k| {
+                ["a", "b"].map(|end| {
+                    json!({"id": format!("{end}-{}", k.as_str()), "kind": k.as_str(), "label": "x"})
+                })
+            })
+            .collect();
+        let atlas_with = |relationships: Vec<Value>| json!({"version": 1, "entries": entries.clone(), "relationships": relationships});
+        let mut accepted = 0;
+        for kind in RelationshipKind::ALL {
+            let spec = kind.spec();
+            for from in EntryKind::ALL {
+                for to in EntryKind::ALL {
+                    let (a, b) = (format!("a-{}", from.as_str()), format!("b-{}", to.as_str()));
+                    let one = edge("r", kind.as_str(), &a, &b);
+                    let allowed = kind.from_kinds().contains(&from)
+                        && kind.to_kinds().contains(&to)
+                        && (!spec.same_kind || from == to);
+                    let case = format!("{} {} -> {}", kind.as_str(), from.as_str(), to.as_str());
+                    if allowed {
+                        accepted += 1;
+                        assert!(parse(atlas_with(vec![one.clone()])).is_ok(), "{case}");
+                        // Containment kinds also refuse the reverse edge as a cycle.
+                        if kind.is_acyclic() {
+                            let back = edge("r2", kind.as_str(), &b, &a);
+                            assert_eq!(
+                                codes(parse(atlas_with(vec![one, back]))),
+                                vec![AtlasDiagnosticCode::Cycle; 2],
+                                "{case}"
+                            );
+                        }
+                    } else {
+                        let found = codes(parse(atlas_with(vec![one])));
+                        assert!(
+                            !found.is_empty()
+                                && found
+                                    .iter()
+                                    .all(|c| *c == AtlasDiagnosticCode::EndpointKind),
+                            "{case}: {found:?}"
+                        );
+                    }
+                }
+            }
+        }
+        assert!(accepted > 0);
+        assert!(RelationshipKind::PartOf.spec().same_kind);
+        assert!(
+            RelationshipKind::PartOf.is_acyclic() && RelationshipKind::Specializes.is_acyclic()
+        );
+    }
+
+    #[test]
     fn relationships_need_evidence_or_an_explicit_unsourced_draft() {
         let mut none = edge("r-x", "related-to", "plato", "allegory");
         none.as_object_mut().unwrap().remove("unsourced");
