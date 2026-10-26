@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 
 import {
   EVIDENCE_KINDS,
+  MAX_EVIDENCE_STORED_BYTES,
   MAX_SUBMISSION_JSON_BYTES,
   evidenceLines,
   feedbackCopyText,
@@ -123,4 +124,34 @@ test("only the two evidence kinds offer evidence, and no label calls a suggestio
   assert.deepEqual(EVIDENCE_KINDS, ["source-suggestion", "correction-suggestion"]);
   const lines = evidenceLines({ claim: "a", citation: "b", source: "c", stance: "supports" }).join(" ");
   assert.doesNotMatch(lines, /\bcorrection\b|verified|true|false/i);
+});
+
+// jsonb::text, written independently of the reader's own count: ", " and ": " as separators.
+const jsonbText = (value) => {
+  if (Array.isArray(value)) return `[${value.map(jsonbText).join(", ")}]`;
+  if (value !== null && typeof value === "object") return `{${Object.entries(value).map(([key, item]) => `${JSON.stringify(key)}: ${jsonbText(item)}`).join(", ")}}`;
+  return JSON.stringify(value);
+};
+
+test("every accepted block fits the hosted store's check, as Postgres writes jsonb as text", () => {
+  // supabase/feedback.sql checks octet_length(evidence::text) <= 4096.
+  const id = "a".repeat(64);
+  let largestAccepted = 0;
+  let refused = 0;
+  for (const width of [1, 16, 32, 48, 64]) {
+    for (const count of [1, 4, 8]) {
+      for (const text of ["é".repeat(width), "\u{1D49C}".repeat(width)]) {
+        const locators = Array.from({ length: count }, () => ({ kind: "x-" + "b".repeat(62), value: text, to: text }));
+        const submission = { version: 2, kind: "source-suggestion", work: "/posts/x/", revision: "p1:" + "0".repeat(32), target: { version: 1, kind: "work" }, body: "hi", details: { sourceUrl: "https://example.org/" }, evidence: { claim: id, evidenceLink: id, citation: id, source: id, locators, stance: "supports" } };
+        const read = readEvidenceSubmissionJson(JSON.stringify(submission));
+        if (read.ok) largestAccepted = Math.max(largestAccepted, Buffer.byteLength(jsonbText(read.submission.evidence)));
+        else {
+          assert.equal(read.error.code, "evidenceTooLarge", `${width}x${count}`);
+          refused += 1;
+        }
+      }
+    }
+  }
+  assert.ok(refused > 0, "some are too large");
+  assert.ok(largestAccepted > 2000 && largestAccepted <= MAX_EVIDENCE_STORED_BYTES, `largest accepted ${largestAccepted}`);
 });

@@ -42,6 +42,11 @@ pub const EVIDENCE_SUBMISSION_VERSION: u64 = 2;
 pub const MAX_OFFERED_LOCATORS: usize = 8;
 /// The longest locator value or range end a reader may give.
 pub const MAX_LOCATOR_VALUE_CHARS: usize = 64;
+/// The most octets a stored evidence block takes, as Postgres writes a `jsonb`
+/// value as text: the bound `supabase/feedback.sql` checks. Every block either
+/// reader accepts fits it, so a stored block can never be refused after the
+/// quota and the replay claim were spent.
+pub const MAX_EVIDENCE_STORED_BYTES: usize = 4096;
 
 /// The kinds that make an evidence submission: the reader offers a source,
 /// or says the passage is wrong. They are the participation registry's own
@@ -160,6 +165,8 @@ pub enum EvidenceErrorCode {
     InvalidLocator,
     /// A stance with nothing offered for it to describe.
     StanceWithoutEvidence,
+    /// A block whose canonical form is larger than the hosted store keeps.
+    EvidenceTooLarge,
 }
 
 /// Why an evidence submission or record was refused. Messages name the
@@ -331,7 +338,34 @@ fn read_offer(value: &Value, has_source_url: bool) -> Result<EvidenceOffer, Evid
             "`evidence` must name a claim, an evidence link, a citation, a source or a stance",
         ));
     }
+    if stored_size(&offer.to_value()) > MAX_EVIDENCE_STORED_BYTES {
+        return Err(EvidenceError::new(
+            EvidenceErrorCode::EvidenceTooLarge,
+            format!("`evidence` is larger than {MAX_EVIDENCE_STORED_BYTES} bytes once written out"),
+        ));
+    }
     Ok(offer)
+}
+
+/// The octets `value` takes as Postgres writes a `jsonb` value as text, which
+/// puts a space after every `:` and `,`; strings are counted as UTF-8 with
+/// JSON's escapes, as both readers canonically write them.
+fn stored_size(value: &Value) -> usize {
+    match value {
+        Value::Object(object) => {
+            2 + object
+                .iter()
+                .map(|(key, value)| {
+                    stored_size(&Value::String(key.clone())) + 2 + stored_size(value)
+                })
+                .sum::<usize>()
+                + 2 * object.len().saturating_sub(1)
+        }
+        Value::Array(items) => {
+            2 + items.iter().map(stored_size).sum::<usize>() + 2 * items.len().saturating_sub(1)
+        }
+        other => other.to_string().len(),
+    }
 }
 
 /// The version of a document, 1 or 2, or the error B5 would report.
@@ -737,6 +771,61 @@ pub fn published_source_label(site: &crate::model::Site, id: &str) -> Option<Str
         })
 }
 
+/// What a whole site publishes about sources, read once: the ids of the sources its published
+/// posts publish and their public labels. Each lookup is then a map read, so a render lists every
+/// post's choices in time linear in the posts and their sources, not their square.
+#[derive(Clone, Debug, Default)]
+pub struct SiteReferenceIndex {
+    sources: SitePublishedSources,
+    labels: std::collections::BTreeMap<String, String>,
+}
+
+impl SiteReferenceIndex {
+    /// Read the site's published posts once, in order: a source is labelled by the first post that
+    /// publishes it, from its published evidence link (the citation text) before its published
+    /// citation (title and year), exactly as [`published_source_label`] finds it.
+    pub fn of_site(site: &crate::model::Site) -> Self {
+        let mut labels = std::collections::BTreeMap::new();
+        let mut posts = Vec::new();
+        for post in site.posts.iter().filter(|post| !post.draft) {
+            let mut here: std::collections::BTreeMap<&str, String> =
+                std::collections::BTreeMap::new();
+            if let Some(summary) = post.citations() {
+                for reference in &summary.references {
+                    here.entry(reference.key.as_str())
+                        .or_insert_with(|| reference_label(reference));
+                }
+            }
+            if let Some(evidence) = post.claim_evidence() {
+                let mut first_of_evidence = std::collections::BTreeSet::new();
+                for source in &evidence.sources {
+                    if first_of_evidence.insert(source.reference.key.as_str()) {
+                        here.insert(source.reference.key.as_str(), source.text.clone());
+                    }
+                }
+            }
+            for (id, label) in here {
+                labels.entry(id.to_string()).or_insert(label);
+            }
+            posts.push(PublishedReferences::of_post(post));
+        }
+        Self {
+            sources: SitePublishedSources::from_posts(&posts),
+            labels,
+        }
+    }
+
+    /// The sources the site publishes.
+    pub fn sources(&self) -> &SitePublishedSources {
+        &self.sources
+    }
+
+    /// The public label of a source the site publishes, if any post does.
+    pub fn label(&self, id: &str) -> Option<&str> {
+        self.labels.get(id).map(String::as_str)
+    }
+}
+
 /// How a published evidence link's relation reads before its source.
 fn relation_words(relation: Relation) -> &'static str {
     match relation {
@@ -771,11 +860,13 @@ fn claim_links(
 }
 
 fn link_label(
-    site: &crate::model::Site,
+    index: &SiteReferenceIndex,
     relation: Relation,
     link: &crate::claim_publication::PublicEvidenceLink,
 ) -> String {
-    let source = published_source_label(site, &link.source).unwrap_or_else(|| link.source.clone());
+    let source = index
+        .label(&link.source)
+        .map_or_else(|| link.source.clone(), str::to_string);
     format!("{} {source}", relation_words(relation))
 }
 
@@ -785,7 +876,7 @@ fn link_label(
 /// and the sources the whole site publishes (to offer one). Each is `{id,
 /// label}`; a claim also lists its links. The form offers only these, so a
 /// reader never has to guess an id and nothing private is ever listed.
-pub fn reference_choices(post: &crate::model::Post, site: &crate::model::Site) -> Value {
+pub fn reference_choices(post: &crate::model::Post, index: &SiteReferenceIndex) -> Value {
     let claims: Vec<Value> = post
         .claim_evidence()
         .map(|evidence| {
@@ -796,7 +887,7 @@ pub fn reference_choices(post: &crate::model::Post, site: &crate::model::Site) -
                 .map(|claim| {
                     let links: Vec<Value> = claim_links(claim)
                         .map(|(relation, link)| {
-                            serde_json::json!({"id": link.id, "label": link_label(site, relation, link)})
+                            serde_json::json!({"id": link.id, "label": link_label(index, relation, link)})
                         })
                         .collect();
                     serde_json::json!({
@@ -808,13 +899,18 @@ pub fn reference_choices(post: &crate::model::Post, site: &crate::model::Site) -
                 .collect()
         })
         .unwrap_or_default();
-    let label = |id: &str| published_source_label(site, id).unwrap_or_else(|| id.to_string());
+    let label = |id: &str| {
+        index
+            .label(id)
+            .map_or_else(|| id.to_string(), str::to_string)
+    };
     let cited: Vec<Value> = PublishedReferences::of_post(post)
         .sources()
         .take(MAX_CHOICES)
         .map(|id| serde_json::json!({"id": id, "label": label(id)}))
         .collect();
-    let mut site_sources: Vec<(String, String)> = SitePublishedSources::of_site(site)
+    let mut site_sources: Vec<(String, String)> = index
+        .sources()
         .sources
         .iter()
         .map(|id| (label(id), id.clone()))
@@ -840,8 +936,9 @@ pub fn evidence_review(
     post: Option<&crate::model::Post>,
     site: &crate::model::Site,
 ) -> Value {
+    let index = SiteReferenceIndex::of_site(site);
     let published = post.map(PublishedReferences::of_post).unwrap_or_default();
-    let report = published.check(offer, &SitePublishedSources::of_site(site));
+    let report = published.check(offer, index.sources());
     let public = |status: Option<ReferenceStatus>| status == Some(ReferenceStatus::Published);
     let mut view = serde_json::json!({ "stale": report.any_unpublished() });
     let claim = post
@@ -864,7 +961,7 @@ pub fn evidence_review(
                         serde_json::json!({
                             "id": link.id,
                             "relation": relation.as_str(),
-                            "label": link_label(site, relation, link),
+                            "label": link_label(&index, relation, link),
                         })
                     })
                     .collect(),
@@ -878,7 +975,7 @@ pub fn evidence_review(
             .filter(|_| public(report.evidence_link))
             .and_then(|claim| claim_links(claim).find(|(_, link)| &link.id == id));
         if let Some((relation, link)) = link {
-            entry["label"] = serde_json::json!(link_label(site, relation, link));
+            entry["label"] = serde_json::json!(link_label(&index, relation, link));
         }
         view["evidenceLink"] = entry;
     }
@@ -888,7 +985,7 @@ pub fn evidence_review(
     ] {
         if let Some(id) = id {
             let mut entry = serde_json::json!({"id": id, "published": public(status)});
-            if let Some(label) = published_source_label(site, id).filter(|_| public(status)) {
+            if let Some(label) = index.label(id).filter(|_| public(status)) {
                 entry["label"] = serde_json::json!(label);
             }
             view[key] = entry;

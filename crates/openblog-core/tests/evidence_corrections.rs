@@ -27,7 +27,7 @@ use openblog_core::moderation::{
 };
 use openblog_core::participation::ParticipationKind;
 use openblog_core::research_notes::Notebook;
-use openblog_core::scholarly_feedback::{FeedbackKind, FeedbackSubmission};
+use openblog_core::scholarly_feedback::{FeedbackKind, FeedbackSubmission, HostedFeedback};
 use openblog_core::source_library::SourceLibrary;
 use serde_json::{json, Value};
 
@@ -99,6 +99,32 @@ fn refused_submissions_report_the_shared_codes() {
         // Messages name fields, never what the reader wrote.
         assert!(!error.message.contains("The height is wrong"), "{name}");
     }
+}
+
+#[test]
+fn a_hosted_version_2_item_without_its_block_still_reads_as_its_version_1_record() {
+    // What a hosted function with evidence switched off sends for a stored
+    // evidence submission: the record, without the column it did not read.
+    let fixture = fixture();
+    let record = fixture["submissions"]["accepted"][1]["record"].clone();
+    let item = |feedback: &Value| {
+        HostedFeedback::from_value(&json!({
+            "id": "00000000-0000-4000-8000-0000000000a1", "status": "pending", "version": 1,
+            "feedback": feedback,
+        }))
+    };
+    let with = item(&record).unwrap();
+    assert!(with.evidence.is_some());
+    let mut without = record.clone();
+    without.as_object_mut().unwrap().remove("evidence");
+    let plain =
+        item(&without).expect("a version 2 item without evidence is moderated as version 1");
+    assert!(plain.evidence.is_none());
+    assert_eq!(plain.feedback.body, with.feedback.body);
+    // A block in a version 1 record is still refused: nothing is guessed there.
+    let mut mixed = record;
+    mixed["version"] = json!(1);
+    assert!(item(&mixed).is_err());
 }
 
 #[test]
@@ -830,4 +856,61 @@ fn kinds_and_roles_are_the_participation_policys() {
         ]
         .contains(&reason.id()));
     }
+}
+
+/// `jsonb::text`, written here and not borrowed from the reader: a space
+/// after every `:` and `,`.
+fn jsonb_text(value: &Value) -> String {
+    match value {
+        Value::Array(items) => format!(
+            "[{}]",
+            items.iter().map(jsonb_text).collect::<Vec<_>>().join(", ")
+        ),
+        Value::Object(object) => format!(
+            "{{{}}}",
+            object
+                .iter()
+                .map(|(key, item)| format!("{}: {}", Value::String(key.clone()), jsonb_text(item)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        other => other.to_string(),
+    }
+}
+
+#[test]
+fn every_accepted_block_fits_the_hosted_stores_check() {
+    // supabase/feedback.sql checks octet_length(evidence::text) <= 4096.
+    let id = "a".repeat(64);
+    let (mut largest, mut refused) = (0, 0);
+    for width in [1, 16, 32, 48, 64] {
+        for count in [1, 4, 8] {
+            for text in ["é".repeat(width), "\u{1D49C}".repeat(width)] {
+                let locators: Vec<Value> = (0..count)
+                    .map(|_| json!({"kind": format!("x-{}", "b".repeat(62)), "value": text, "to": text}))
+                    .collect();
+                let submission = json!({
+                    "version": 2, "kind": "source-suggestion", "work": "/posts/x/",
+                    "revision": format!("p1:{}", "0".repeat(32)),
+                    "target": {"version": 1, "kind": "work"}, "body": "hi",
+                    "details": {"sourceUrl": "https://example.org/"},
+                    "evidence": {"claim": id, "evidenceLink": id, "citation": id, "source": id, "locators": locators, "stance": "supports"},
+                });
+                match EvidenceSubmission::from_value(&submission) {
+                    Ok(read) => {
+                        largest = largest.max(jsonb_text(&read.evidence.unwrap().to_value()).len());
+                    }
+                    Err(error) => {
+                        assert_eq!(code_name(error.code), "evidenceTooLarge", "{width}x{count}");
+                        refused += 1;
+                    }
+                }
+            }
+        }
+    }
+    assert!(refused > 0);
+    assert!(
+        largest > 2000 && largest <= 4096,
+        "largest accepted block is {largest} octets"
+    );
 }

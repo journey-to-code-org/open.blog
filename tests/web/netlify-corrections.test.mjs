@@ -15,6 +15,7 @@ const fixture = JSON.parse(read("../fixtures/evidence-corrections.json"));
 const scholarly = JSON.parse(read("../fixtures/scholarly-feedback.json"));
 const feedbackSql = read("../../supabase/feedback.sql");
 const rollbackSql = read("../../supabase/corrections-rollback.sql");
+const moderationRollbackSql = read("../../supabase/moderation-rollback.sql");
 
 const environment = {
   SUPABASE_URL: "https://database.example",
@@ -96,9 +97,11 @@ test("the function's decision checks agree with every case of the shared decisio
   const decision = { version: 1, item: ID, sequence: 2, outcome: "declined", itemRevision: 2, passageCheck: "current", decided: "2026-10-27", decidedBy: { role: "site-admin" } };
   const plan = (changes, request = {}) => planDecision(facts, { role: "site-admin", expectedDecisions: 1, decision: { ...decision, ...changes }, ...request }).code;
   assert.equal(plan({}), undefined);
-  for (const changes of [{ sequence: 1 }, { item: "b1111111-1111-4111-8111-11111111111b" }, { itemRevision: 1 }, { decidedBy: { role: "coordinator" } }, { upvotes: 3 }, { outcome: "verified" }, { decided: "27/10/2026" }, { rationale: "x".repeat(9000) }]) {
+  for (const changes of [{ sequence: 1 }, { item: "b1111111-1111-4111-8111-11111111111b" }, { decidedBy: { role: "coordinator" } }, { upvotes: 3 }, { outcome: "verified" }, { decided: "27/10/2026" }, { rationale: "x".repeat(9000) }]) {
     assert.equal(plan(changes), "malformed", JSON.stringify(changes).slice(0, 60));
   }
+  // Text that changed since the author looked is stale, not malformed: they review it again.
+  assert.equal(plan({ itemRevision: 1 }), "stale");
   assert.equal(plan({}, { role: "contributing-author" }), "denied");
   assert.equal(planDecision({ ...facts, decisions: 100 }, { role: "site-admin", expectedDecisions: 100, decision: { ...decision, sequence: 101 } }).code, "tooManyDecisions");
   assert.deepEqual(emptyLog(ID.toUpperCase()), { version: 1, item: ID, decisions: [] });
@@ -198,6 +201,35 @@ test("the inbox carries the evidence block and the decision log only with the op
   assert.doesNotMatch(off.requests.find((request) => request.path.endsWith("/openblog_feedback")).params.select, /evidence|decisions/);
 });
 
+test("a block too large for the store is refused before the quota or the replay claim is spent", async () => {
+  const large = fixture.submissions.refused.find((item) => item.code === "evidenceTooLarge");
+  assert.ok(large);
+  const database = fakeDatabase();
+  const response = await handlerFor(corrections, database)(event("feedback", "POST", JSON.stringify(large.submission)));
+  assert.equal(response.statusCode, 422);
+  assert.equal(JSON.parse(response.body).code, "evidenceTooLarge");
+  assert.equal(database.requests.length, 0);
+});
+
+test("with the opt-in off, a stored version 2 row reads as its version 1 record so it can still be moderated", async () => {
+  const row = stored();
+  assert.equal(row.format_version, 2);
+  // Like the database: a column that was not selected is not returned.
+  const database = fakeDatabase((request) => {
+    if (!(request.path.endsWith("/openblog_feedback") && request.method === "GET")) return undefined;
+    const { evidence, decisions, ...plain } = row;
+    return [{ ...(request.params.select.includes("evidence") ? row : plain), received_at: "2026-10-26T10:00:00.5+00:00" }];
+  });
+  const listed = JSON.parse((await handlerFor(environment, database)(event("admin/moderation", "GET", undefined, ADMIN, { state: "pending" }))).body);
+  const [item] = listed.items;
+  assert.equal(item.feedback.version, 1);
+  assert.equal("evidence" in item.feedback, false, "the block was not read, so none is claimed");
+  assert.equal(item.decisions, undefined);
+  // The same row with the opt-in on keeps version 2 and its block.
+  const on = JSON.parse((await handlerFor(corrections, database)(event("admin/moderation", "GET", undefined, ADMIN, { state: "pending" }))).body);
+  assert.equal(on.items[0].feedback.version, 2);
+});
+
 test("a decision needs the token and the opt-in, and is checked from the stored row before one conditional write", async () => {
   const noDatabase = fakeDatabase(() => assert.fail("must not reach Supabase"));
   for (const headers of [{}, ORIGIN, { authorization: "Bearer wrong" }]) {
@@ -234,7 +266,7 @@ test("a stale, refused or malformed decision writes nothing", async () => {
     [{}, stored({ status: "clarification", clarification_asked: 1 }), 422, "awaitingClarification"],
     [{}, stored({ purged_at: "2026-10-27T09:00:00+00:00", status: "withdrawn" }), 422, "itemClosed"],
     [{ decision: decision({ sequence: 2 }) }, stored(), 422, "malformed"],
-    [{ decision: decision({ itemRevision: 2 }) }, stored(), 422, "malformed"],
+    [{ decision: decision({ itemRevision: 2 }) }, stored(), 409, "conflict"],
     [{ id: "not-a-uuid" }, stored(), 422, "invalid"],
   ];
   for (const [body, row, status, code] of cases) {
@@ -297,6 +329,8 @@ test("the schema is additive and opt in, refuses in SQL what must never happen, 
     "drop column if exists evidence;",
     "drop column if exists decisions;",
   ]);
+  // Undoing the inbox alone must not leave the decision function behind, reading a column it drops.
+  assert.match(moderationRollbackSql.replace(/--[^\n]*/g, ""), /drop function if exists public\.openblog_record_feedback_decision\(text, uuid, integer, integer, jsonb, text, text, timestamptz\);/);
   assert.match(undo, /update public\.openblog_feedback set format_version = 1 where format_version = 2;/);
   assert.doesNotMatch(undo, /drop table|openblog_feedback_events|openblog_comments|delete from/);
 });

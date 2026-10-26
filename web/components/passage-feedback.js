@@ -420,7 +420,25 @@ function readEvidence(block, hasSourceUrl) {
   if (Object.keys(evidence).length === 0) {
     return evidenceFailure("emptyEvidence", "`evidence` must name a claim, an evidence link, a citation, a source or a stance");
   }
+  if (storedSize(evidence) > MAX_EVIDENCE_STORED_BYTES) {
+    return evidenceFailure("evidenceTooLarge", `\`evidence\` is larger than ${MAX_EVIDENCE_STORED_BYTES} bytes once written out`);
+  }
   return { ok: true, evidence: Object.freeze(evidence) };
+}
+
+/**
+ * The most octets a stored evidence block takes, as Postgres writes a `jsonb` value as text: the
+ * bound supabase/feedback.sql checks. Every block either reader accepts fits it.
+ */
+export const MAX_EVIDENCE_STORED_BYTES = 4096;
+/** The octets `value` takes as jsonb text, which puts a space after every `:` and `,`. */
+function storedSize(value) {
+  if (Array.isArray(value)) return 2 + value.reduce((total, item) => total + storedSize(item), 0) + 2 * Math.max(0, value.length - 1);
+  if (isObject(value)) {
+    const entries = Object.entries(value);
+    return 2 + entries.reduce((total, [key, item]) => total + utf8Length(JSON.stringify(key)) + 2 + storedSize(item), 0) + 2 * Math.max(0, entries.length - 1);
+  }
+  return utf8Length(JSON.stringify(value));
 }
 
 /**

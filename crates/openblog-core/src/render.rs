@@ -90,6 +90,9 @@ struct Meta<'a> {
 struct Renderer<'a> {
     site: &'a Site,
     themes: &'a HashMap<String, Theme>,
+    /// What the site publishes about sources, read once on first use, for every post's evidence
+    /// choices (ADR 0138).
+    site_references: std::cell::OnceCell<crate::evidence_submission::SiteReferenceIndex>,
 }
 
 struct Output {
@@ -311,6 +314,7 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
     let r = Renderer {
         site,
         themes: &resolved,
+        site_references: Default::default(),
     };
     let c = &site.config;
     let mut out = Output {
@@ -512,6 +516,7 @@ pub fn generate_document(
     let renderer = Renderer {
         site,
         themes: &resolved,
+        site_references: Default::default(),
     };
     let (url, contents) = if let Some((index, post)) = site
         .posts
@@ -884,7 +889,10 @@ impl<'a> Renderer<'a> {
         );
         let mut data = passage_data_element(post, &document);
         if evidence {
-            let choices = crate::evidence_submission::reference_choices(post, self.site);
+            let index = self
+                .site_references
+                .get_or_init(|| crate::evidence_submission::SiteReferenceIndex::of_site(self.site));
+            let choices = crate::evidence_submission::reference_choices(post, index);
             data.push_str(&format!(
                 "\n<script type=\"application/json\" id=\"{EVIDENCE_DATA_ELEMENT_ID}\">{}</script>",
                 script_json(&choices)
