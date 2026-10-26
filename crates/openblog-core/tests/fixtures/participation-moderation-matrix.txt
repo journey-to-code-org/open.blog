@@ -2,7 +2,8 @@
 # `->state` is the state reached; anything else is the refusal code.
 # Each request names the stored version, the first allowed reason, and for
 # uphold-report an approved reported item on the same work. Items have
-# clarification consent, kept text and a retention period that has ended.
+# clarification consent, kept text and a retention period that has ended,
+# under the default retention, which leaves comments out (ADR 0103).
 #
 # kind state action | public submitter site-admin coordinator coordinator-elsewhere contributor contributor-elsewhere system
 comment pending approve | denied denied ->approved ->approved denied denied denied denied
@@ -12,7 +13,7 @@ comment pending clarify | denied notAllowed denied denied denied denied denied d
 comment pending remove | denied denied notAllowed notAllowed denied denied denied denied
 comment pending reopen | denied denied notAllowed denied denied denied denied denied
 comment pending withdraw | denied ->withdrawn denied denied denied denied denied denied
-comment pending expire | denied denied denied denied denied denied denied ->rejected
+comment pending expire | denied denied denied denied denied denied denied notDue
 comment pending uphold-report | denied denied notAllowed notAllowed denied denied denied denied
 comment clarification approve | denied denied notAllowed notAllowed denied denied denied denied
 comment clarification reject | denied denied ->rejected ->rejected denied denied denied denied
@@ -21,7 +22,7 @@ comment clarification clarify | denied notAllowed denied denied denied denied de
 comment clarification remove | denied denied notAllowed notAllowed denied denied denied denied
 comment clarification reopen | denied denied notAllowed denied denied denied denied denied
 comment clarification withdraw | denied ->withdrawn denied denied denied denied denied denied
-comment clarification expire | denied denied denied denied denied denied denied ->rejected
+comment clarification expire | denied denied denied denied denied denied denied notDue
 comment clarification uphold-report | denied denied notAllowed notAllowed denied denied denied denied
 comment approved approve | denied denied notAllowed notAllowed denied denied denied denied
 comment approved reject | denied denied notAllowed notAllowed denied denied denied denied

@@ -280,8 +280,12 @@ pub enum SiteSetting {
 pub struct ParticipationConfig {
     /// Site settings by kind id. A kind not named is `off`.
     pub kinds: BTreeMap<ParticipationKind, SiteSetting>,
-    /// How long moderation keeps what it does not publish (ADR 0103).
-    pub retention: RetentionPolicy,
+    /// How long moderation keeps what it does not publish (ADR 0103). Unset,
+    /// the default periods apply to every kind except comments, so a site
+    /// that never mentions retention keeps its comments as before; set (even
+    /// as `{}`), the periods apply to comments too.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retention: Option<RetentionPolicy>,
 }
 
 impl ParticipationConfig {
@@ -305,7 +309,9 @@ impl ParticipationConfig {
         for (kind, setting) in &self.kinds {
             kind.accepts_site_setting(*setting)?;
         }
-        self.retention.validate()
+        self.retention
+            .as_ref()
+            .map_or(Ok(()), RetentionPolicy::validate)
     }
 }
 

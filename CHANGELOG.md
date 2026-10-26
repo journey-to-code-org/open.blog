@@ -12,7 +12,8 @@ All notable changes to open.blog are recorded here. Releases follow
   matter. Everything submitted starts pending; a request for clarification never publishes the
   text it asks about, removals and dismissed or upheld abuse reports always need a reason, and
   `participation.retention` sets how long unpublished text and the private moderation record are
-  kept. Nothing is e-mailed to readers. Sites that switch nothing on build exactly as before.
+  kept; comments stay out of retention unless you set it yourself. Nothing is e-mailed to readers.
+  Sites that switch nothing on build exactly as before.
 
 ## [0.31.0] - 2026-10-26
 

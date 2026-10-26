@@ -266,6 +266,7 @@ other way to take part is a participation kind, off until you switch it on in `p
 ```jsonc
 "participation": {
   "kinds": { "question": "hidden", "third-perspective": "open", "abuse-report": "open" },
+  // Optional. Leave it out to keep comments as they are; see below.
   "retention": { "pendingDays": 90, "clarificationDays": 30, "closedDays": 30, "auditDays": 365 }
 }
 ```
@@ -281,7 +282,9 @@ other way to take part is a participation kind, off until you switch it on in `p
 - `retention` (days, 1 to 3650): unmoderated items expire after `pendingDays`, unanswered
   clarification requests after `clarificationDays`, the text of rejected and removed items is
   purged after `closedDays`, and the private moderation record after `auditDays`, which must be
-  at least `closedDays`.
+  at least `closedDays`. Without `retention` these defaults apply to every kind except comments:
+  hosted comments are kept as they always were, never expired or purged. Writing `retention`
+  yourself, even as `"retention": {}` for the defaults, applies it to comments too.
 - Once a kind beyond comments is switched on, builds also write `openblog-participation.json`,
   the public map of each post's open and locked kinds that the hosted function checks.
 

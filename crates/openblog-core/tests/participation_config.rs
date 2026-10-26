@@ -159,10 +159,43 @@ fn site_settings_parse_by_kind_id_and_round_trip() {
         kinds.setting(ParticipationKind::CorrectionSuggestion),
         SiteSetting::Off
     );
-    assert_eq!(kinds.retention.pending_days, 60);
-    assert_eq!(kinds.retention.audit_days, 365);
+    let retention = kinds.retention.expect("retention was set");
+    assert_eq!(retention.pending_days, 60);
+    assert_eq!(retention.audit_days, 365);
     let again = SiteConfig::from_json(&parsed.to_json()).unwrap();
     assert_eq!(again.participation, parsed.participation);
+}
+
+/// Retention left unset keeps comments out of it; naming it, even as `{}`,
+/// opts comments in and is written back (ADR 0103).
+#[test]
+fn retention_is_unset_by_default_and_naming_it_opts_comments_in() {
+    use openblog_core::moderation::{ModerationPolicy, RetentionPolicy};
+
+    let unchanged = config(HOSTED);
+    assert_eq!(unchanged.participation.retention, None);
+    let policy = ModerationPolicy::from_config(&unchanged);
+    assert_eq!(policy, ModerationPolicy::default());
+    assert_eq!(policy.retention, RetentionPolicy::default());
+    assert!(!policy.comment_retention);
+
+    // Switching a kind on does not opt comments in either.
+    let kinds = config(&format!(
+        r#"{HOSTED},"participation":{{"kinds":{{"question":"open"}}}}"#
+    ));
+    assert!(!ModerationPolicy::from_config(&kinds).comment_retention);
+
+    let explicit = config(&format!(r#"{HOSTED},"participation":{{"retention":{{}}}}"#));
+    assert_eq!(
+        explicit.participation.retention,
+        Some(RetentionPolicy::default())
+    );
+    let policy = ModerationPolicy::from_config(&explicit);
+    assert!(policy.comment_retention);
+    assert_eq!(policy.retention, RetentionPolicy::default());
+    assert!(explicit.to_json().contains(r#""retention""#));
+    let again = SiteConfig::from_json(&explicit.to_json()).unwrap();
+    assert_eq!(again.participation, explicit.participation);
 }
 
 #[test]

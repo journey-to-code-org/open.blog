@@ -868,7 +868,8 @@ _Avoid_: Feedback provenance, log line, history of the text
 **Participation retention**:
 How long moderation keeps what it does not publish: pending and clarification items expire,
 rejected and removed text is purged after a period, withdrawn text at once, and audit events last
-longer than any text.
+longer than any text. Comments are covered only once the site sets `participation.retention`
+itself.
 _Avoid_: Archive, backup, analytics retention
 
 ## Admin workspace

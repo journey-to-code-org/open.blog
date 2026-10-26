@@ -175,7 +175,8 @@ fn every_kind_state_action_and_role_matches_the_reviewed_matrix() {
          # `->state` is the state reached; anything else is the refusal code.\n\
          # Each request names the stored version, the first allowed reason, and for\n\
          # uphold-report an approved reported item on the same work. Items have\n\
-         # clarification consent, kept text and a retention period that has ended.\n#\n# kind state action |",
+         # clarification consent, kept text and a retention period that has ended,\n\
+         # under the default retention, which leaves comments out (ADR 0103).\n#\n# kind state action |",
     );
     for (name, _) in &roles {
         text.push(' ');
@@ -1027,10 +1028,12 @@ fn withdrawal_belongs_to_the_submitter_and_cannot_be_reopened() {
 
 #[test]
 fn retention_expires_unmoderated_items_and_purges_closed_text_on_schedule() {
-    let policy = ModerationPolicy::new(RetentionPolicy::default());
+    // A site that never set retention: the default periods, for every kind
+    // but comments.
+    let policy = policy();
     let pending = ItemFacts {
         state_since: day(0),
-        ..item(ParticipationKind::Comment, ModerationState::Pending)
+        ..item(ParticipationKind::Question, ModerationState::Pending)
     };
     assert_eq!(policy.retention_due(&pending, day(89)), None);
     assert_eq!(
@@ -1111,7 +1114,7 @@ fn retention_expires_unmoderated_items_and_purges_closed_text_on_schedule() {
     );
 
     // Published items are kept while they are published.
-    let approved = item(ParticipationKind::Comment, ModerationState::Approved);
+    let approved = item(ParticipationKind::Question, ModerationState::Approved);
     assert_eq!(policy.retention_due(&approved, day(10_000)), None);
 
     // The audit trail outlives the text by default.
@@ -1126,6 +1129,65 @@ fn retention_expires_unmoderated_items_and_purges_closed_text_on_schedule() {
     assert_eq!(
         brisk.retention_due(&pending, day(7)),
         Some(RetentionStep::Expire)
+    );
+}
+
+/// Comments predate this policy. A site that never sets
+/// `participation.retention` keeps every comment as before: nothing expires a
+/// pending comment or purges a rejected one. Setting it opts them in.
+#[test]
+fn comments_are_kept_out_of_retention_until_the_site_sets_it() {
+    let unchanged = policy();
+    let pending = ItemFacts {
+        state_since: day(0),
+        ..item(ParticipationKind::Comment, ModerationState::Pending)
+    };
+    let rejected = ItemFacts {
+        state: ModerationState::Rejected,
+        ..pending
+    };
+    let removed = ItemFacts {
+        state: ModerationState::Removed,
+        ..pending
+    };
+    for facts in [pending, rejected, removed] {
+        assert_eq!(
+            unchanged.retention_due(&facts, day(10_000)),
+            None,
+            "{}",
+            facts.state.id()
+        );
+        assert_eq!(unchanged.purge_event(&facts, day(10_000)), None);
+    }
+    let expire = Request {
+        at: day(10_000),
+        ..request(Actor::System, ModerationAction::Expire, &pending, None)
+    };
+    assert_eq!(
+        unchanged.decide(&pending, &expire),
+        Err(PolicyError::NotDue)
+    );
+
+    // Retention the site set explicitly, even with the default periods,
+    // covers comments too.
+    let opted_in = ModerationPolicy::new(RetentionPolicy::default());
+    assert!(opted_in.comment_retention);
+    assert_eq!(opted_in.retention_due(&pending, day(89)), None);
+    assert_eq!(
+        opted_in.retention_due(&pending, day(90)),
+        Some(RetentionStep::Expire)
+    );
+    let due = Request {
+        at: day(90),
+        ..expire
+    };
+    assert_eq!(
+        opted_in.decide(&pending, &due).unwrap().item.to,
+        ModerationState::Rejected
+    );
+    assert_eq!(
+        opted_in.retention_due(&rejected, day(30)),
+        Some(RetentionStep::PurgeContent)
     );
 }
 

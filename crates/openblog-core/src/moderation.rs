@@ -826,18 +826,38 @@ pub enum View {
 }
 
 /// The one moderation policy, with the site's retention periods.
+///
+/// The default is a site that never set `participation.retention`: the
+/// default periods, applied to every kind except comments, which predate
+/// this policy and are kept as before (ADR 0103).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ModerationPolicy {
     pub retention: RetentionPolicy,
+    /// Whether retention also expires and purges comments. Only a site that
+    /// sets `participation.retention` itself opts its comments in.
+    pub comment_retention: bool,
 }
 
 impl ModerationPolicy {
+    /// Retention the site set explicitly: it applies to every kind,
+    /// comments included.
     pub fn new(retention: RetentionPolicy) -> Self {
-        Self { retention }
+        Self {
+            retention,
+            comment_retention: true,
+        }
     }
 
     pub fn from_config(config: &SiteConfig) -> Self {
-        Self::new(config.participation.retention)
+        config
+            .participation
+            .retention
+            .map_or_else(Self::default, Self::new)
+    }
+
+    /// Whether retention covers this kind at all.
+    fn retains(&self, kind: ParticipationKind) -> bool {
+        kind != ParticipationKind::Comment || self.comment_retention
     }
 
     /// Create an item. It is always [`ModerationState::Pending`]: no actor,
@@ -995,6 +1015,9 @@ impl ModerationPolicy {
     }
 
     fn expiry_due(&self, item: &ItemFacts<'_>, now: DateTime) -> bool {
+        if !self.retains(item.kind) {
+            return false;
+        }
         match item.state {
             ModerationState::Pending => {
                 RetentionPolicy::ended(item.state_since, self.retention.pending_days, now)
@@ -1007,8 +1030,12 @@ impl ModerationPolicy {
     }
 
     /// The step retention owes an item now, if any. Approved items are kept
-    /// while they are published.
+    /// while they are published, and comments are never due unless the site
+    /// set retention itself.
     pub fn retention_due(&self, item: &ItemFacts<'_>, now: DateTime) -> Option<RetentionStep> {
+        if !self.retains(item.kind) {
+            return None;
+        }
         match item.state {
             ModerationState::Pending | ModerationState::Clarification => {
                 self.expiry_due(item, now).then_some(RetentionStep::Expire)
@@ -1042,6 +1069,8 @@ impl ModerationPolicy {
     }
 
     /// Whether an audit event recorded at `event_at` may now be deleted.
+    /// Audit events are this policy's own records, never the comments
+    /// themselves, so `auditDays` applies to them for every kind.
     pub fn audit_due(&self, event_at: DateTime, now: DateTime) -> bool {
         RetentionPolicy::ended(event_at, self.retention.audit_days, now)
     }

@@ -30,6 +30,17 @@ tables and the function's adoption to #226.
   | `auditDays` | 365 | audit events are deleted; must be at least `closedDays` |
 
   A withdrawn item's text is due for purging at once. Approved items are kept while published.
+- **Comments are opted in, never swept in.** Hosted comments predate this policy, and today they
+  are kept until a moderator acts. While `participation.retention` is absent from `openblog.json`,
+  the default periods above apply to every other kind and to no comment: a pending comment never
+  expires and a rejected comment's text is never purged, so a site that changes nothing keeps its
+  comments exactly as before once the retention job (#226) runs. A site that sets
+  `participation.retention` itself, even as `{}` (the default periods), opts its comments in, and
+  every period then applies to every kind. Switching a kind on in `participation.kinds` does not
+  opt comments in. Audit events are this policy's own new records, not the comments, so
+  `auditDays` applies to them for every kind. In code, `ModerationPolicy::default()` is the site
+  that never set retention, `ModerationPolicy::new(periods)` one that did, and `from_config` picks
+  between them.
   `ModerationPolicy::retention_due` says which step an item owes (`expire` or `purge-content`),
   `expire` is a transition only the System actor may take and only once due, and
   `purge_event` records the purge without changing the state. Purged items cannot be reopened or
