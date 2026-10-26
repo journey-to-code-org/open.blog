@@ -36,6 +36,11 @@ pub struct Rendered {
     pub headings: Vec<Heading>,
     /// Body text with markup removed; code blocks are excluded.
     pub text: String,
+    /// The post's own prose: [`Rendered::text`] without the generated
+    /// citation notes region. Descriptions, word counts and reading time
+    /// come from it; search keeps the full text.
+    pub prose: String,
+    /// Words of [`Rendered::prose`].
     pub word_count: usize,
     /// Languages of fenced code blocks, in order of first appearance.
     pub code_languages: Vec<String>,
@@ -1277,29 +1282,61 @@ fn apply_portable_footnotes<'a>(
 /// Give generated citation notes accessible anchors on the native page: each
 /// marker is a `doc-noteref` link with a visually hidden "Citation" before its
 /// number and an id of its own, and each note ends with a `doc-backlink` to
-/// every place it is cited. The author's own footnotes are written exactly as
-/// the HTML writer writes them, with the same numbers (first use), because
-/// every footnote in the post shares one numbering.
+/// every place it is cited. The generated heading and notes, which always
+/// close the post, are one `doc-endnotes` region named by that heading, and
+/// each note can take focus, so following a marker without JavaScript lands
+/// keyboard and screen-reader focus on the note it names. The author's own
+/// footnotes are written exactly as the HTML writer writes them, with the same
+/// numbers (first use), because every footnote in the post shares one
+/// numbering.
 fn apply_citation_notes<'a>(
     events: Vec<Event<'a>>,
     labels: crate::bibliography::CitationNoteLabels<'_>,
 ) -> Vec<Event<'a>> {
     let mut uses: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-    for event in &events {
-        if let Event::FootnoteReference(name) = event {
-            if labels.number(name).is_some() {
+    let mut first_note = None;
+    let mut generated_notes = 0;
+    for (index, event) in events.iter().enumerate() {
+        match event {
+            Event::FootnoteReference(name) if labels.number(name).is_some() => {
                 *uses.entry(name.to_string()).or_default() += 1;
             }
+            Event::Start(Tag::FootnoteDefinition(name)) if labels.number(name).is_some() => {
+                first_note.get_or_insert(index);
+                generated_notes += 1;
+            }
+            _ => {}
         }
     }
+    let region = first_note.and_then(|first| notes_heading(&events, first));
+    let mut notes_closed = 0;
+    let mut in_generated_note = false;
     let mut numbers: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let mut open_note: Option<(String, usize)> = None;
     let mut out = Vec::with_capacity(events.len());
-    for event in events {
+    for (index, event) in events.into_iter().enumerate() {
+        if let Some((start, id)) = &region {
+            if index == *start {
+                out.push(Event::Html(CowStr::from(format!(
+                    "<section class=\"ob-citation-notes\" role=\"doc-endnotes\" aria-labelledby=\"{}\">\n",
+                    escape::attr(id)
+                ))));
+            }
+        }
         let (name, reference) = match &event {
             Event::FootnoteReference(name) => (name.to_string(), true),
             Event::Start(Tag::FootnoteDefinition(name)) => (name.to_string(), false),
+            Event::End(TagEnd::FootnoteDefinition) => {
+                out.push(event);
+                if std::mem::take(&mut in_generated_note) {
+                    notes_closed += 1;
+                    if region.is_some() && notes_closed == generated_notes {
+                        out.push(Event::Html(CowStr::from("</section>\n")));
+                    }
+                }
+                continue;
+            }
             Event::End(TagEnd::Paragraph) => {
                 // The note's text is one paragraph; its links back close it.
                 if let Some((name, number)) = open_note.take() {
@@ -1345,17 +1382,38 @@ fn apply_citation_notes<'a>(
             (false, generated) => {
                 if generated {
                     open_note = Some((name.clone(), number));
+                    in_generated_note = true;
                 }
                 format!(
-                    "<div class=\"footnote-definition{}\" id=\"{}\"><sup class=\"footnote-definition-label\">{number}</sup>",
+                    "<div class=\"footnote-definition{}\" id=\"{}\"{}><sup class=\"footnote-definition-label\">{number}</sup>",
                     if generated { " ob-citation-note" } else { "" },
-                    escape::attr(&name)
+                    escape::attr(&name),
+                    if generated { " tabindex=\"-1\"" } else { "" },
                 )
             }
         };
         out.push(Event::Html(CowStr::from(html)));
     }
     out
+}
+
+/// Where the generated notes' region starts and the id of the heading that
+/// names it: the heading that ends straight before the first generated note.
+/// `None` (and no region) if the events are not in that shape.
+fn notes_heading(events: &[Event<'_>], first_note: usize) -> Option<(usize, String)> {
+    if !matches!(
+        events.get(first_note.checked_sub(1)?),
+        Some(Event::End(TagEnd::Heading(_)))
+    ) {
+        return None;
+    }
+    events[..first_note]
+        .iter()
+        .rposition(|event| matches!(event, Event::Start(Tag::Heading { .. })))
+        .and_then(|start| match &events[start] {
+            Event::Start(Tag::Heading { id: Some(id), .. }) => Some((start, id.to_string())),
+            _ => None,
+        })
 }
 
 /// A chapter list for a tight bulleted list whose items are all timestamp
@@ -1504,7 +1562,7 @@ pub(crate) fn parser_options(smart_punctuation: bool) -> Options {
 pub fn render(markdown: &str, options: RenderOptions<'_>) -> Rendered {
     let mut parsed_events =
         Parser::new_ext(markdown, parser_options(options.smart_punctuation)).collect::<Vec<_>>();
-    assign_heading_ids(&mut parsed_events);
+    assign_heading_ids(&mut parsed_events, options.citation_notes.as_ref());
     render_events(parsed_events, markdown.len(), options, None)
 }
 
@@ -1513,7 +1571,23 @@ pub fn render(markdown: &str, options: RenderOptions<'_>) -> Rendered {
 /// existing native anchors keep their targets; the portable projection makes
 /// its own copy's ids unique. Done before rendering so the portable projection
 /// knows every heading anchor before it checks raw HTML ids.
-fn assign_heading_ids(events: &mut [Event<'_>]) {
+///
+/// The author's headings get exactly these ids whether or not the post
+/// publishes citations, so turning citations on never moves an inbound link.
+/// Only the generated notes heading (`notes`), which always closes the post
+/// and names the notes' region, must be the only element with its id: it
+/// alone also avoids the ids the post's own markup writes ([`written_ids`]:
+/// `{#id}` values, footnote labels and raw HTML `id`s).
+fn assign_heading_ids(
+    events: &mut [Event<'_>],
+    notes: Option<&crate::bibliography::CitationNoteLabels<'_>>,
+) {
+    let notes_start = notes.and_then(|labels| generated_notes_heading(events, labels));
+    let written = if notes_start.is_some() {
+        written_ids(events)
+    } else {
+        std::collections::HashSet::new()
+    };
     let mut used_ids = std::collections::HashSet::new();
     let mut heading: Option<(usize, String)> = None;
     for index in 0..events.len() {
@@ -1537,21 +1611,96 @@ fn assign_heading_ids(events: &mut [Event<'_>]) {
                 if id.is_empty() {
                     id = "section".to_string();
                 }
+                let Event::Start(Tag::Heading { id: existing, .. }) = &mut events[start] else {
+                    continue;
+                };
+                // A heading with a written id still takes its slug, as it
+                // always has, so the slugs after it keep their values.
+                let generated = existing.is_none();
+                let avoid_written = generated && notes_start == Some(start);
                 let base = id.clone();
                 let mut n = 2;
-                while !used_ids.insert(id.clone()) {
+                while (avoid_written && written.contains(&id)) || !used_ids.insert(id.clone()) {
                     id = format!("{base}-{n}");
                     n += 1;
                 }
-                if let Event::Start(Tag::Heading { id: existing, .. }) = &mut events[start] {
-                    if existing.is_none() {
-                        *existing = Some(CowStr::from(id));
-                    }
+                if generated {
+                    *existing = Some(CowStr::from(id));
                 }
             }
             _ => {}
         }
     }
+}
+
+/// Where the generated notes heading starts: the heading that ends straight
+/// before the first generated note, as [`notes_heading`] finds it once ids
+/// are assigned.
+fn generated_notes_heading(
+    events: &[Event<'_>],
+    labels: &crate::bibliography::CitationNoteLabels<'_>,
+) -> Option<usize> {
+    let first_note = events.iter().position(|event| {
+        matches!(event, Event::Start(Tag::FootnoteDefinition(name)) if labels.number(name).is_some())
+    })?;
+    if !matches!(
+        events.get(first_note.checked_sub(1)?),
+        Some(Event::End(TagEnd::Heading(_)))
+    ) {
+        return None;
+    }
+    events[..first_note]
+        .iter()
+        .rposition(|event| matches!(event, Event::Start(Tag::Heading { .. })))
+}
+
+/// The element ids a post's own markup writes: each heading's `{#id}`, each
+/// footnote definition's label (its note's id) and each `id` attribute found
+/// in raw HTML, read as a browser reads it ([`crate::raw_html::id_attributes`]).
+/// Consecutive raw HTML fragments are read together, so a tag that spans
+/// lines still counts.
+fn written_ids(events: &[Event<'_>]) -> std::collections::HashSet<String> {
+    let mut ids = std::collections::HashSet::new();
+    let mut raw = String::new();
+    for event in events {
+        match event {
+            Event::Html(html) | Event::InlineHtml(html) => {
+                raw.push_str(html);
+                continue;
+            }
+            Event::Start(Tag::Heading { id: Some(id), .. })
+            | Event::Start(Tag::FootnoteDefinition(id)) => {
+                ids.insert(id.to_string());
+            }
+            _ => {}
+        }
+        ids.extend(
+            crate::raw_html::id_attributes(&std::mem::take(&mut raw))
+                .into_iter()
+                .map(|(_, id)| id),
+        );
+    }
+    ids.extend(
+        crate::raw_html::id_attributes(&raw)
+            .into_iter()
+            .map(|(_, id)| id),
+    );
+    ids
+}
+
+/// Every heading id the author's Markdown gets, as [`render`] assigns them
+/// with or without citations: the author's `{#id}` values and the generated
+/// slugs.
+pub(crate) fn heading_ids(markdown: &str) -> Vec<String> {
+    let mut events = Parser::new_ext(markdown, parser_options(false)).collect::<Vec<_>>();
+    assign_heading_ids(&mut events, None);
+    events
+        .into_iter()
+        .filter_map(|event| match event {
+            Event::Start(Tag::Heading { id: Some(id), .. }) => Some(id.to_string()),
+            _ => None,
+        })
+        .collect()
 }
 
 pub fn render_portable(
@@ -1561,7 +1710,7 @@ pub fn render_portable(
 ) -> Result<Rendered, String> {
     let mut parsed_events =
         Parser::new_ext(markdown, parser_options(options.smart_punctuation)).collect::<Vec<_>>();
-    assign_heading_ids(&mut parsed_events);
+    assign_heading_ids(&mut parsed_events, None);
     for event in &mut parsed_events {
         let destination = match event {
             Event::Start(Tag::Link { dest_url, .. })
@@ -1823,9 +1972,29 @@ fn render_events<'a>(
 
     let mut in_code_block = false;
     let mut heading: Option<(HeadingLevel, usize, String)> = None;
+    // Where the generated notes begin, and the text before them. A marker
+    // removed from the text takes the space before it when punctuation follows.
+    let notes_start = match (portable, options.citation_notes.as_ref()) {
+        (None, Some(labels)) => generated_notes_heading(&parsed_events, labels),
+        _ => None,
+    };
+    let mut prose_end = None;
+    let mut after_marker = false;
 
-    for event in parsed_events {
+    for (index, event) in parsed_events.into_iter().enumerate() {
+        if notes_start == Some(index) {
+            prose_end = Some(text.len());
+        }
+        let followed_marker = std::mem::take(&mut after_marker);
         match &event {
+            Event::FootnoteReference(name)
+                if options
+                    .citation_notes
+                    .as_ref()
+                    .is_some_and(|labels| labels.number(name).is_some()) =>
+            {
+                after_marker = true;
+            }
             Event::Start(Tag::CodeBlock(kind)) => {
                 in_code_block = true;
                 if let CodeBlockKind::Fenced(info) = kind {
@@ -1850,6 +2019,11 @@ fn render_events<'a>(
                     buf.push_str(t);
                 }
                 if !in_code_block {
+                    if followed_marker
+                        && t.starts_with(|c: char| ",.;:!?)]}\u{2019}\u{201d}".contains(c))
+                    {
+                        text.truncate(text.trim_end_matches(' ').len());
+                    }
                     text.push_str(t);
                 }
             }
@@ -1924,8 +2098,9 @@ fn render_events<'a>(
         html = html.replace("<img src=", "<img loading=\"lazy\" decoding=\"async\" src=");
     }
 
+    let prose = collapse_whitespace(&text[..prose_end.unwrap_or(text.len())]);
     let text = collapse_whitespace(&text);
-    let word_count = text.split_whitespace().count();
+    let word_count = prose.split_whitespace().count();
     Rendered {
         html,
         portable_images: Vec::new(),
@@ -1935,6 +2110,7 @@ fn render_events<'a>(
         errors: blocks.errors,
         headings,
         text,
+        prose,
         word_count,
         code_languages,
         first_image,

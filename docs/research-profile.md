@@ -156,6 +156,15 @@ link to each other for keyboard and screen-reader users. Only the key, the locat
 source's public description are published, never notes, private identifiers or anything from
 the research notebook.
 
+On the page, a reader with JavaScript also gets a **citation preview**: focusing or hovering a
+marker, or tapping it once on a touch screen, shows the note's reference, the cited location and
+its DOI or web link right beside the marker, and Escape closes it. The marker is still the link to
+its note, nothing is fetched or stored, and without JavaScript the page reads exactly the same.
+A preview shows only what your library says. It does not check that a source exists or is
+described correctly, that a DOI or web address resolves, that the passage is at that location or
+supports your sentence, or that a source is authoritative or may be reused; see
+[what previews do not verify](specs/citations.md#what-previews-do-not-verify).
+
 A citation the build cannot resolve (an unknown key, a page cited on a whole work, a malformed
 bracket, or no library) stops that post with its file line and a fix; write `\[@` for literal
 text. See [ADR 0048](adr/0048-citations-publish-through-the-one-publication-projection.md) and

@@ -51,6 +51,7 @@ pub mod portability;
 pub mod preview;
 pub mod profile;
 mod raw_html;
+pub mod reader_references;
 pub mod recipe;
 pub mod reflection;
 pub mod render;
