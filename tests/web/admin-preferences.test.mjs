@@ -389,6 +389,8 @@ test("every preset applies its toolbelt modules and the open route always stays 
     [{ preset: "advanced" }, "overview", [...content, "Analytics", "Reader feedback", "Sources", "Notebook", "Atlas", "Contributors"]],
     [{ preset: "custom", hiddenModules: ["contributors"] }, "overview", [...content, "Analytics", "Reader feedback", "Sources", "Notebook", "Atlas"]],
     [{ preset: "simple" }, "analytics", [...content, "Analytics", "Reader feedback"]],
+    [{ preset: "simple" }, "feedback", [...content, "Analytics", "Reader feedback"]],
+    [{ preset: "guided" }, "feedback", [...content, "Analytics", "Reader feedback", "Sources", "Notebook", "Atlas"]],
     [{ preset: "guided" }, "contributors", [...content, "Sources", "Notebook", "Atlas", "Contributors"]],
     [{ preset: "custom", hiddenModules: ["analytics"] }, "analytics", [...content, "Analytics", "Reader feedback", "Sources", "Notebook", "Atlas", "Contributors"]],
   ];

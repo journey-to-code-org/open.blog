@@ -5544,6 +5544,7 @@ export class ObAdmin extends AdminElement {
     const visible = new Set(visibleAdminModules(this.preferences));
     if (["analytics", "contributors"].includes(this.activeRoute)) visible.add(this.activeRoute);
     if (["sources", "research", "atlas"].includes(this.activeRoute)) visible.add("evidence");
+    if (this.activeRoute === "feedback") visible.add("analytics");
     return visible;
   }
 
