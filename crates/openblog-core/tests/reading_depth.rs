@@ -1013,3 +1013,23 @@ fn passage_anchors_equal_the_rendered_heading_ids_for_an_opted_in_post() {
         "{article:?}"
     );
 }
+
+#[test]
+fn a_renamed_id_is_renamed_by_its_value_and_links_to_it_follow() {
+    let markdown = "<div title=\"ob-supplement-1\" data-x='ob-supplement-1' id=\"ob-supplement-1\">raw</div>\n\n\
+<p ID = ob-supplement-2 title=\"ob-supplement-2\">two</p>\n\n\
+## Written {#ob-supplement-x}\n\nSee [the heading](#ob-supplement-x) and [elsewhere](#other).\n\n\
+> [!supplement kind=context]\n> Inside.\n";
+    let html = render(markdown, on()).html;
+    assert!(
+        html.contains(
+            "title=\"ob-supplement-1\" data-x='ob-supplement-1' id=\"section-ob-supplement-1\""
+        ),
+        "{html}"
+    );
+    assert!(html.contains("title=\"ob-supplement-2\""), "{html}");
+    assert!(html.contains("ID = section-ob-supplement-2"), "{html}");
+    assert!(html.contains("id=\"section-ob-supplement-x\""), "{html}");
+    assert!(html.contains("href=\"#section-ob-supplement-x\""), "{html}");
+    assert!(html.contains("href=\"#other\""), "{html}");
+}

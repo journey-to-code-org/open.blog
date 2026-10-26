@@ -463,11 +463,13 @@ pub(crate) fn reserve_ids(events: &mut [Event<'_>]) -> Vec<Finding> {
             });
         }
     };
+    let mut renamed_ids = std::collections::HashSet::new();
     let mut index = 0;
     while index < events.len() {
         match &mut events[index] {
             Event::Start(Tag::Heading { id: Some(id), .. }) if id.starts_with(ID_PREFIX) => {
                 let old = id.to_string();
+                renamed_ids.insert(old.clone());
                 *id = CowStr::from(renamed(&old));
                 note(
                     format!("{{#{old}}}"),
@@ -479,6 +481,7 @@ pub(crate) fn reserve_ids(events: &mut [Event<'_>]) -> Vec<Finding> {
                 if label.starts_with(ID_PREFIX) =>
             {
                 let old = label.to_string();
+                renamed_ids.insert(old.clone());
                 *label = CowStr::from(renamed(&old));
                 // Said once, at the definition.
                 if matches!(events[index], Event::Start(Tag::FootnoteDefinition(_))) {
@@ -503,32 +506,19 @@ pub(crate) fn reserve_ids(events: &mut [Event<'_>]) -> Vec<Finding> {
                         _ => "",
                     })
                     .collect();
-                let mut found = crate::raw_html::id_attributes(&raw);
+                let mut found = crate::raw_html::id_value_ranges(&raw);
                 found.retain(|(_, id)| id.starts_with(ID_PREFIX));
                 if !found.is_empty() {
                     let mut text = raw.clone();
-                    let mut done = Vec::new();
-                    for (range, id) in found.iter().rev() {
-                        let tag = &raw[range.clone()];
-                        // An id written with character references cannot be
-                        // found as written, so it is reported, not renamed.
-                        let at = tag.find(id.as_str());
-                        if let Some(at) = at {
-                            text.replace_range(
-                                range.start + at..range.start + at + id.len(),
-                                &renamed(id),
-                            );
-                        }
-                        done.push(at.is_some());
+                    // The written value is renamed in place, whatever it is
+                    // spelled with, so a `title=` or `data-x=` holding the
+                    // same text is never the one changed.
+                    for (range, _) in found.iter().rev() {
+                        text.insert_str(range.start, "section-");
                     }
-                    done.reverse();
-                    for ((_, id), done) in found.iter().zip(done) {
-                        let how = if done {
-                            "renamed with a section- prefix"
-                        } else {
-                            "it could not be renamed"
-                        };
-                        note(format!("id=\"{id}\""), id, how);
+                    for (_, id) in &found {
+                        renamed_ids.insert(id.clone());
+                        note(format!("id=\"{id}\""), id, "renamed with a section- prefix");
                     }
                     if text != raw {
                         if let Event::Html(html) | Event::InlineHtml(html) = &mut events[start] {
@@ -546,6 +536,19 @@ pub(crate) fn reserve_ids(events: &mut [Event<'_>]) -> Vec<Finding> {
             _ => {}
         }
         index += 1;
+    }
+    // A Markdown link written to a renamed id follows it. Raw HTML `href`s
+    // are left as written (the author's own markup).
+    if !renamed_ids.is_empty() {
+        for event in events.iter_mut() {
+            if let Event::Start(Tag::Link { dest_url, .. }) = event {
+                if let Some(old) = dest_url.strip_prefix('#') {
+                    if renamed_ids.contains(old) {
+                        *dest_url = CowStr::from(format!("#{}", renamed(old)));
+                    }
+                }
+            }
+        }
     }
     findings
 }
