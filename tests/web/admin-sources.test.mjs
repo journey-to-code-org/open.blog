@@ -550,12 +550,13 @@ test("a stale edit shows a conflict, keeps the draft, and only an explicit choic
 
 // ---------------------------------------------------------------- shell, accessibility, and escaping
 
-const sourceView = () => admin.slice(admin.indexOf("async showSources()"), admin.indexOf("// ---- analytics"));
+const sourceView = () => admin.slice(admin.indexOf("async showSources("), admin.indexOf("// ---- analytics"));
 
 test("the sources route is reachable from the research tools, the palette, and the router", () => {
   assert.equal(researchHref("sources"), "#/research/sources");
   assert.equal(canonicalAdminHash("#/sources"), "#/research/sources", "the earlier address redirects");
-  assert.match(admin, /panel === "sources"\) await this\.showSources\(\)/);
+  assert.match(admin, /panel === "sources"\) await this\.showSources\(id\)/, "an address can name the source to open");
+  assert.equal(researchHref("sources", "plato"), "#/research/sources/plato");
   assert.match(admin, /label: "Sources", category: "Research"/);
   assert.match(sourceView(), /"sources\/archive"/);
   assert.doesNotMatch(sourceView(), /innerHTML|insertAdjacentHTML|outerHTML/, "source text is never parsed as markup");

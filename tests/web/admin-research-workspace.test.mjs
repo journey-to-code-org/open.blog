@@ -312,7 +312,8 @@ test("research panels share one route namespace and the earlier routes redirect 
   assert.deepEqual(RESEARCH_PANELS.map((panel) => panel.id), ["overview", "sources", "notebook", "atlas", "compare"]);
   assert.equal(researchHref("overview"), "#/research/overview");
   assert.equal(researchHref("atlas", "the good/2"), "#/research/atlas/the%20good%2F2", "an item id is one encoded segment");
-  assert.equal(researchHref("sources", "plato"), "#/research/sources", "panels that do not open items by id ignore one");
+  assert.equal(researchHref("notebook", "cave"), "#/research/notebook", "panels that do not open items by id ignore one");
+  assert.equal(researchHref("sources", "plato"), "#/research/sources/plato", "Sources opens a source by id");
   assert.equal(researchHref("missing"), "#/research/overview");
 
   assert.equal(canonicalAdminHash("#/sources"), "#/research/sources");

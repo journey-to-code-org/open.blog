@@ -128,7 +128,7 @@ export function editorPaneLayout(preferences, panes) {
  */
 export const RESEARCH_PANELS = Object.freeze([
   Object.freeze({ id: "overview", label: "Workflow", title: "Research workspace", detail: "Go from a source to a cited draft, and see where each part of your research stands." }),
-  Object.freeze({ id: "sources", label: "Sources", title: "Sources", legacy: "sources", detail: "Keep private research sources, editions, translations, and references in one library." }),
+  Object.freeze({ id: "sources", label: "Sources", title: "Sources", legacy: "sources", takesId: true, detail: "Keep private research sources, editions, translations, and references in one library." }),
   Object.freeze({ id: "notebook", label: "Notebook", title: "Research notebook", legacy: "research", detail: "Capture quoted passages and your own notes about them, privately, tied to your sources." }),
   Object.freeze({ id: "atlas", label: "Atlas", title: "Knowledge Atlas", legacy: "atlas", takesId: true, detail: "Relate people, works, concepts, movements and events privately, with who asserts each link and on what evidence." }),
   Object.freeze({ id: "compare", label: "Compare", title: "Compare versions", legacy: "compare", takesId: true, detail: "Read aligned passages across editions, translations, witnesses and interpretations, side by side or in one column." }),
@@ -6753,6 +6753,286 @@ export function evidenceReview(findings) {
   return accessibilityReview(findings);
 }
 
+// ---------------------------------------------------------------- research review before publication
+
+/**
+ * Whether publishing or scheduling a post is preceded by the research review (#62, ADR 0135):
+ * a post on the Research profile or one that publishes citations, as Evidence Studio decides.
+ * Every other post publishes exactly as before.
+ */
+export function researchReviewApplies(fields, profile = "") {
+  const chosen = String(profile || fields?.profile || "").trim().toLowerCase();
+  return chosen === "research" || String(fields?.citations ?? "").trim() !== "";
+}
+
+/** The review's groups, in the order the server sends them, in words. */
+export const PUBLICATION_REVIEW_GROUPS = Object.freeze({
+  blocking: Object.freeze({ label: "Must be fixed before publishing", detail: "The build that publishes this post would refuse these. They cannot be acknowledged; fix them, then review again." }),
+  detected: Object.freeze({ label: "Detected", detail: "Found by a check. Fix them, or acknowledge them if nothing needs to change. Publishing does not wait for them." }),
+  potential: Object.freeze({ label: "Potential", detail: "Might need attention. Publishing does not wait for them." }),
+  "needs-review": Object.freeze({ label: "Needs review", detail: "Only you can check these against your sources. Publishing does not wait for them." }),
+});
+
+const REVIEW_OUTCOME_LABELS = Object.freeze({ detected: "Detected", potential: "Potential", "needs-review": "Needs review" });
+
+/** Whether a post finding sits in the front matter field it names rather than in the body. */
+const reviewFieldFinding = (scope, firstBodyLine) => Boolean(scope.field) && !(Number(scope.line) >= firstBodyLine);
+
+/** Where a finding is, in words: a line of the draft, or the research object it names. */
+export function publicationReviewPlace(finding, { post = "", firstBodyLine = 1 } = {}) {
+  const scope = finding?.scope || {};
+  const id = scope.id ? ` ${scope.id}` : "";
+  switch (scope.object) {
+    case "post": {
+      if (scope.path && post && scope.path !== post) return `the post ${scope.path}`;
+      if (reviewFieldFinding(scope, firstBodyLine)) return `the draft's ${scope.field} field`;
+      if (Number.isInteger(scope.line)) return `line ${Math.max(1, scope.line - firstBodyLine + 1)} of the draft`;
+      return "the draft";
+    }
+    case "claim": return `claim${id}`;
+    case "evidence-link": return `evidence link${id}`;
+    case "source": return `source${id}`;
+    case "interpretation": return `interpretation${id}`;
+    case "passage": return `notebook passage${id}`;
+    case "note": return `notebook note${id}`;
+    case "entry": return `atlas entry${id}`;
+    case "relationship": return `atlas relationship${id}`;
+    case "dating": return `dating${id}`;
+    case "alignment": return `comparison${id}${scope.field ? `, ${scope.field}` : ""}`;
+    case "source-library": return "the source library";
+    case "notebook": return "the research notebook";
+    case "atlas": return "the Knowledge Atlas";
+    case "claims-file": return "the claims file";
+    case "alignments-file": return "the alignments file";
+    default: return "your research";
+  }
+}
+
+/**
+ * Where a finding is repaired: a line or field of this draft, a claim in Evidence Studio, or the
+ * research panel holding the object, by its own address. `null` when there is nowhere to go.
+ */
+export function publicationReviewTarget(finding, { post = "", firstBodyLine = 1 } = {}) {
+  const scope = finding?.scope || {};
+  const id = String(scope.id || "");
+  const related = Array.isArray(finding?.related) ? finding.related : [];
+  const relatedId = (kind) => related.find((item) => item?.kind === kind)?.id || "";
+  switch (scope.object) {
+    case "post": {
+      if (scope.path && post && scope.path !== post) return null;
+      if (reviewFieldFinding(scope, firstBodyLine)) return { kind: "field", field: scope.field, label: `Go to the ${scope.field} field` };
+      if (Number.isInteger(scope.line)) {
+        const line = Math.max(1, scope.line - firstBodyLine + 1);
+        return { kind: "line", line, label: `Go to line ${line} of the draft` };
+      }
+      return { kind: "draft", label: "Go to the draft" };
+    }
+    case "claim": return { kind: "claim", claim: id, link: "", label: `Open the claim ${id} in Evidence Studio` };
+    case "evidence-link": return { kind: "claim", claim: relatedId("claim"), link: id, label: `Open the evidence link ${id} in Evidence Studio` };
+    case "claims-file": return { kind: "claim", claim: "", link: "", label: "Open Evidence Studio" };
+    case "source": return { kind: "panel", href: researchHref("sources", id), label: `Open the source ${id} in Sources` };
+    case "source-library": case "interpretation": return { kind: "panel", href: researchHref("sources"), label: "Open Sources" };
+    case "passage": case "note": case "notebook": return { kind: "panel", href: researchHref("notebook"), label: "Open the research notebook" };
+    case "entry": return { kind: "panel", href: researchHref("atlas", id), label: `Open the atlas entry ${id} in the Knowledge Atlas` };
+    case "relationship": case "dating": case "atlas": return { kind: "panel", href: researchHref("atlas"), label: "Open the Knowledge Atlas" };
+    case "alignment": return { kind: "panel", href: researchHref("compare", id), label: `Open the comparison ${id} in Compare` };
+    case "alignments-file": return { kind: "panel", href: researchHref("compare"), label: "Open Compare" };
+    default: return null;
+  }
+}
+
+/** The page a context-link finding names, when its object has one to open. */
+export function publicationReviewRelatedTarget(finding) {
+  if (finding?.check !== "context-link") return null;
+  const page = (Array.isArray(finding.related) ? finding.related : [])[0];
+  if (page?.kind === "entry") return { kind: "panel", href: researchHref("atlas", page.id), label: `Open the atlas entry ${page.id}` };
+  if (page?.kind === "alignment") return { kind: "panel", href: researchHref("compare", page.id), label: `Open the comparison ${page.id}` };
+  return null;
+}
+
+/** Each outcome counted apart, with how many are acknowledged. Never a total or a score. */
+export function publicationReviewCountsText(review) {
+  const counts = review?.counts || {};
+  const part = (label, count) => `${label}: ${Number(count?.found) || 0}${Number(count?.acknowledged) ? ` (${Number(count.acknowledged)} acknowledged)` : ""}`;
+  const blocking = (review?.groups || []).find((group) => group.name === "blocking")?.findings?.length || 0;
+  return `${blocking ? `${blocking} must be fixed before publishing. ` : ""}${[part("Detected", counts.detected), part("Potential", counts.potential), part("Needs review", counts.needsReview)].join(". ")}.`;
+}
+
+/** What an acknowledgement says about its finding, in words that never call it resolved. */
+export function publicationReviewAcknowledgementText(state) {
+  if (state === "current") return "You acknowledged this. It stays listed and counted until the record itself changes.";
+  if (state === "stale") return "You acknowledged an earlier form of this; it has changed since. Acknowledge it again if it still needs no change.";
+  return "";
+}
+
+/**
+ * The research review's content (#62, ADR 0135): findings grouped by what blocks the build and
+ * by outcome, each with its place, its validator's message and repair, a link to where it is
+ * repaired, and an acknowledgement toggle for advisory findings only. `mode` is "publish",
+ * "schedule" or "check" (review only). `onDone` receives "confirm", "cancel" or a target to go to.
+ * Acknowledging writes only the private acknowledgements file; nothing else is changed here.
+ */
+export function createPublicationReview({ review, mode = "check", api, onDone, idPrefix = "oba-review" }) {
+  const findings = Array.isArray(review?.findings) ? review.findings : [];
+  const groups = Array.isArray(review?.groups) ? review.groups : [];
+  const context = { post: String(review?.post || ""), firstBodyLine: Number(review?.firstBodyLine) || 1 };
+  const acks = review?.acknowledgements || {};
+  let revision = typeof acks.revision === "string" ? acks.revision : null;
+  const blocking = groups.find((group) => group.name === "blocking")?.findings?.length || 0;
+  const verb = mode === "schedule" ? "scheduling" : "publishing";
+  const heading = h("h2", { id: `${idPrefix}-title`, tabindex: "-1" }, mode === "check" ? "Research review" : `Research review before ${verb}`);
+  const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-review-status": "true" }, publicationReviewCountsText(review));
+  const say = (text) => {
+    status.textContent = text;
+  };
+  const counts = review?.counts || {};
+  const countOf = (outcome) => {
+    const key = outcome === "needs-review" ? "needsReview" : outcome;
+    counts[key] ||= { found: 0, acknowledged: 0 };
+    return counts[key];
+  };
+
+  const actionFor = (target) => {
+    if (!target) return null;
+    if (target.kind === "panel") {
+      return h("a", { class: "oba-btn", href: target.href, "data-review-target": "panel", onClick: () => onDone?.({ ...target, navigate: true }) }, target.label);
+    }
+    return h("button", { class: "oba-btn", type: "button", "data-review-target": target.kind, onClick: () => onDone?.(target) }, target.label);
+  };
+
+  const findingView = (entry, position) => {
+    const place = publicationReviewPlace(entry, context);
+    const messageId = `${idPrefix}-message-${position}`;
+    const ackState = h("p", { class: "oba-small", "data-review-acknowledgement": entry.acknowledgement || "none", hidden: !entry.acknowledgement }, publicationReviewAcknowledgementText(entry.acknowledgement));
+    const error = h("p", { class: "oba-error", role: "alert", hidden: true, "data-review-error": "true" });
+    const advisory = entry.gate === "advisory";
+    let toggle = null;
+    if (advisory) {
+      toggle = h(
+        "button",
+        {
+          class: "oba-btn",
+          type: "button",
+          "aria-pressed": String(entry.acknowledgement === "current"),
+          "aria-label": `Acknowledge ${entry.code}, ${place}`,
+          "aria-describedby": messageId,
+          "data-review-acknowledge": entry.code,
+          disabled: !revision,
+        },
+        "Acknowledge",
+      );
+      toggle.addEventListener("click", async () => {
+        const add = entry.acknowledgement !== "current";
+        error.hidden = true;
+        toggle.disabled = true;
+        try {
+          const result = await api.call(add ? "PUT" : "DELETE", "research/review/acknowledgements", {
+            json: {
+              revision,
+              acknowledgement: {
+                validator: entry.validator,
+                code: entry.code,
+                object: entry.scope?.object,
+                ...(entry.scope?.path ? { path: entry.scope.path } : {}),
+                ...(entry.scope?.id ? { id: entry.scope.id } : {}),
+                ...(entry.scope?.field ? { field: entry.scope.field } : {}),
+                fingerprint: entry.fingerprint,
+              },
+            },
+          });
+          revision = result.revision;
+          const count = countOf(entry.outcome);
+          const was = entry.acknowledgement === "current";
+          entry.acknowledgement = add ? "current" : null;
+          if (add && !was) count.acknowledged = (Number(count.acknowledged) || 0) + 1;
+          if (!add && was) count.acknowledged = Math.max(0, (Number(count.acknowledged) || 0) - 1);
+          toggle.setAttribute("aria-pressed", String(add));
+          ackState.dataset.reviewAcknowledgement = entry.acknowledgement || "none";
+          ackState.setAttribute("data-review-acknowledgement", entry.acknowledgement || "none");
+          ackState.textContent = publicationReviewAcknowledgementText(entry.acknowledgement);
+          ackState.hidden = !entry.acknowledgement;
+          say(`${add ? `Acknowledged. It stays listed and counted under ${REVIEW_OUTCOME_LABELS[entry.outcome] || "its outcome"}; it is not resolved.` : "Acknowledgement withdrawn."} ${publicationReviewCountsText(review)}`);
+        } catch (failure) {
+          if (failure?.status === 401) {
+            onDone?.({ kind: "session-ended" });
+            return;
+          }
+          if (typeof failure?.data?.revision === "string") revision = failure.data.revision;
+          error.textContent = `Not saved: ${failure?.data?.error || failure?.message || "the acknowledgement could not be saved."} Nothing was changed.`;
+          error.hidden = false;
+        } finally {
+          toggle.disabled = !revision;
+        }
+      });
+    }
+    return h(
+      "li",
+      {},
+      h(
+        "article",
+        { class: `oba-review-finding is-${entry.outcome}`, "data-review-finding": entry.code, "data-review-gate": entry.gate },
+        h("p", { class: "oba-review-meta oba-small" }, h("code", {}, entry.code), " · ", h("span", { "data-review-place": "true" }, place), " · ", REVIEW_OUTCOME_LABELS[entry.outcome] || entry.outcome),
+        h("p", { id: messageId }, h("bdi", {}, entry.message)),
+        h("p", { class: "oba-accessibility-repair" }, h("strong", {}, "Next: "), h("bdi", {}, entry.repair)),
+        advisory ? null : h("p", { class: "oba-small" }, "This cannot be acknowledged: it is an integrity or privacy failure the build refuses, so it is fixed instead."),
+        h("div", { class: "oba-toolbar" }, actionFor(publicationReviewTarget(entry, context)), actionFor(publicationReviewRelatedTarget(entry)), toggle),
+        ackState,
+        error,
+      ),
+    );
+  };
+
+  const sections = groups
+    .filter((group) => PUBLICATION_REVIEW_GROUPS[group.name] && Array.isArray(group.findings) && group.findings.length)
+    .map((group) => {
+      const info = PUBLICATION_REVIEW_GROUPS[group.name];
+      const headingId = `${idPrefix}-group-${group.name}`;
+      return h(
+        "section",
+        { class: `oba-review-group is-${group.name}`, "aria-labelledby": headingId, "data-review-group": group.name },
+        h("h3", { id: headingId }, `${info.label} (${group.findings.length})`),
+        h("p", { class: "oba-small" }, info.detail),
+        h("ul", { class: "oba-review-list" }, group.findings.map((position) => (findings[position] ? findingView(findings[position], position) : null))),
+      );
+    });
+
+  const notReviewed = (Array.isArray(review?.notReviewed) ? review.notReviewed : []).map((item) =>
+    h("p", { class: "oba-notice", "data-review-not-reviewed": item.part }, `Not reviewed: ${item.message}`),
+  );
+  const ackProblem = acks.error
+    ? h("p", { class: "oba-notice", "data-review-acknowledgements-error": "true" }, `Acknowledgements are unavailable, so none are shown or saved: ${acks.error} Repair ${acks.file || "the acknowledgements file"} by hand.`)
+    : null;
+  const blockedNote = h(
+    "p",
+    { class: "oba-small", id: `${idPrefix}-blocked`, "data-review-blocked": "true", hidden: !blocking || mode === "check" },
+    `${mode === "schedule" ? "Scheduling" : "Publishing"} waits until the findings under “${PUBLICATION_REVIEW_GROUPS.blocking.label}” are fixed. Your draft is unchanged.`,
+  );
+  const cancel = h("button", { class: "oba-btn", type: "button", "data-review-cancel": "true", onClick: () => onDone?.("cancel") }, mode === "check" ? "Close" : "Keep editing");
+  const confirm = mode === "check"
+    ? null
+    : h(
+        "button",
+        { class: "oba-btn oba-btn-primary", type: "button", "data-review-confirm": "true", disabled: Boolean(blocking), "aria-describedby": blocking ? blockedNote.id : null, onClick: () => onDone?.("confirm") },
+        mode === "schedule" ? "Schedule" : "Publish",
+      );
+  const element = h(
+    "section",
+    { class: "oba-review", "aria-labelledby": heading.id, "data-publication-review": mode },
+    heading,
+    h("p", { class: "oba-small", id: `${idPrefix}-intro` }, "These are prompts from your research checks, never verdicts: nothing here says the post is true, complete or ready. Only an integrity or privacy failure the build would refuse stops publishing; everything else is yours to decide. Acknowledging a finding keeps it listed and counted."),
+    status,
+    ackProblem,
+    ...notReviewed,
+    ...(review?.applies === false
+      ? [h("p", { class: "oba-notice", "data-review-not-applicable": "true" }, "The research review covers posts on the Research profile and posts that publish citations. This post is neither, so publishing it works as before.")]
+      : sections.length
+        ? sections
+        : [h("p", { class: "oba-notice", "data-review-empty": "true" }, "The checks that ran raised nothing for this post. That is not a judgement of the post; checks cannot see everything.")]),
+    h("div", { class: "oba-dialog-actions" }, blockedNote, h("span", { class: "oba-spacer" }), cancel, confirm),
+  );
+  return { element, heading, confirm, cancel, status };
+}
+
 export function evidenceStudioState(findings, research, citations = null, citationsOptedIn = false) {
   // A post that opts in to citations (or has any citation finding) keeps the
   // studio even when its citations could not be published, so a draft's broken
@@ -8753,7 +9033,7 @@ export class ObAdmin extends AdminElement {
   async showResearchPanel(tail) {
     const [panel, ...item] = tail.split("/");
     const id = safeDecodeURIComponent(item.join("/"));
-    if (panel === "sources") await this.showSources();
+    if (panel === "sources") await this.showSources(id);
     else if (panel === "notebook") await this.showResearch();
     else if (panel === "atlas") await this.showAtlas(id);
     else if (panel === "compare") await this.showCompare(id);
@@ -9130,7 +9410,7 @@ export class ObAdmin extends AdminElement {
 
   // ---- research source library
 
-  async showSources() {
+  async showSources(focus = "") {
     let library;
     try {
       library = await this.api.call("GET", "sources");
@@ -9597,6 +9877,12 @@ export class ObAdmin extends AdminElement {
     );
 
 
+    // An address that names a source opens it, as a review finding's link does (ADR 0135).
+    const focused = focus ? sources.find((source) => source.id === focus) : null;
+    if (focused) {
+      selected = focused.id;
+      draft = sourceDraft(focused);
+    }
     renderList();
     renderPanel();
     this.mount(
@@ -9617,6 +9903,7 @@ export class ObAdmin extends AdminElement {
         h("div", { class: "oba-source-layout" }, h("nav", { "aria-label": "Sources" }, list), panel),
       ),
     );
+    if (focused) panel.querySelector("#oba-source-heading")?.focus();
     // The research workspace keeps this panel, instead of losing it, while another one is open,
     // but never while a save is running: its result has to land on this view (ADR 0133).
     this.viewDirty = () => dirty;
@@ -14882,6 +15169,9 @@ export class Editor {
                   "Evidence Studio checks portable research structure and metadata. It does not score truth, authority, peer review, or claim support.",
                 ),
                 ui.evidenceCounts,
+                kind === "posts"
+                  ? h("div", { class: "oba-toolbar" }, h("button", { class: "oba-btn", type: "button", "data-review-open": "true", onClick: () => this.reviewResearch("check") }, "Review research before publishing"))
+                  : null,
                 ui.evidenceMetadata,
                 ui.evidenceExports,
                 h("h3", {}, "Author-controlled signals"),
@@ -17708,14 +17998,173 @@ export class Editor {
     return "";
   }
 
-  async save() {
-    if (this.saving) return;
+  /**
+   * Whether this save publishes or schedules a post that the research review covers (#62,
+   * ADR 0135): the status moves to Published or Scheduled, and the post is on the Research
+   * profile or publishes citations. Saving an already published post again, and every other
+   * post, works exactly as before.
+   */
+  needsPublicationReview(fields) {
+    if (this.kind !== "posts") return false;
+    const status = this.currentStatus();
+    if (!["published", "scheduled"].includes(status) || status === this.initialStatus()) return false;
+    return researchReviewApplies(fields, this.ui.profile?.value);
+  }
+
+  /**
+   * Run the research review of the draft as it stands and show it in a modal dialog. Resolves
+   * true only when the author chooses to publish or schedule (`mode` "publish" or "schedule")
+   * and nothing blocks it. Going to a finding's repair closes the review without saving, and
+   * the draft keeps every unsaved change. Nothing here saves, publishes or changes research.
+   */
+  async reviewResearch(mode, fields = this.collect()) {
+    // One review at a time, until its dialog closes: Save and Ctrl+S wait for it.
+    if (this.reviewing) return false;
+    this.reviewing = true;
+    try {
+      return await this.showResearchReview(mode, fields);
+    } finally {
+      this.reviewing = false;
+    }
+  }
+
+  async showResearchReview(mode, fields) {
+    const ui = this.ui;
+    const before = ui.saveState.textContent;
+    ui.saveState.textContent = "Reviewing research…";
+    let review = null;
+    let failure = null;
+    try {
+      review = await this.app.api.call("POST", "research/review", {
+        json: { kind: this.kind, path: this.doc.path, fields, body: ui.body.value, ...this.creditRequestFields() },
+      });
+    } catch (error) {
+      failure = error;
+    } finally {
+      ui.saveState.textContent = before;
+    }
+    if (failure?.status === 401) {
+      this.app.showSessionEnded("Your session ended. Sign in again to return to your unsaved draft.");
+      return false;
+    }
+    if (!failure && review && review.applies === false && mode !== "check") return true;
+    const opener = document.activeElement;
+    return new Promise((resolve) => {
+      const dialog = h("dialog", { class: "oba-dialog oba-review-dialog", "aria-labelledby": "oba-review-title", "aria-describedby": "oba-review-intro", "data-review-dialog": "true" });
+      let finished = false;
+      const finish = (result, target = null) => {
+        if (finished) return;
+        finished = true;
+        dialog.close();
+        dialog.remove();
+        if (target) this.goToReviewTarget(target);
+        else if (opener?.isConnected) opener.focus();
+        resolve(result);
+      };
+      dialog.addEventListener("cancel", (event) => {
+        event.preventDefault();
+        finish(false);
+      });
+      if (failure || !review) {
+        const retry = h("button", { class: "oba-btn", type: "button", onClick: () => {
+          finish(false);
+          // After this review has closed, so the next one can open.
+          setTimeout(() => void this.reviewResearch(mode).then((go) => go && mode !== "check" && this.save({ reviewed: true })), 0);
+        } }, "Review again");
+        const close = h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-review-cancel": "true", onClick: () => finish(false) }, "Keep editing");
+        const heading = h("h2", { id: "oba-review-title", tabindex: "-1" }, "The research review could not run");
+        dialog.append(
+          heading,
+          h("p", { class: "oba-error", role: "alert", id: "oba-review-intro" }, `${failure?.data?.error || failure?.message || "The review could not be read."} Nothing was published or changed.`),
+          h("div", { class: "oba-dialog-actions" }, h("span", { class: "oba-spacer" }), retry, close),
+        );
+        document.body.append(dialog);
+        dialog.showModal();
+        heading.focus();
+        return;
+      }
+      const view = createPublicationReview({
+        review,
+        mode,
+        api: this.app.api,
+        onDone: (outcome) => {
+          if (outcome === "confirm") finish(true);
+          else if (outcome === "cancel") finish(false);
+          else if (outcome?.kind === "session-ended") {
+            finish(false);
+            this.app.showSessionEnded("Your session ended. Sign in again to return to your unsaved draft.");
+          } else if (outcome?.navigate) {
+            // The link navigates by itself; the workspace keeps this unsaved draft (ADR 0133).
+            finished = true;
+            dialog.close();
+            dialog.remove();
+            resolve(false);
+          } else finish(false, outcome);
+        },
+      });
+      dialog.append(view.element);
+      document.body.append(dialog);
+      dialog.showModal();
+      view.heading.focus();
+    });
+  }
+
+  /** Go to where a review finding is repaired: a line or field of this draft, or a claim. */
+  goToReviewTarget(target) {
+    if (target.kind === "line") {
+      this.activatePane?.("write");
+      if (this.editorMode !== "markdown") {
+        // A line of the source is shown where lines exist; the writing mode preference is unchanged.
+        this.setEditorMode("markdown", false);
+      }
+      const area = this.ui.body;
+      const lines = area.value.split("\n");
+      const index = Math.min(Math.max(1, target.line), lines.length) - 1;
+      const start = lines.slice(0, index).reduce((total, line) => total + line.length + 1, 0);
+      area.focus();
+      area.setSelectionRange?.(start, start + (lines[index] || "").length);
+      this.flash("ok", `Line ${index + 1} of the draft is selected in the Markdown source.`);
+      return;
+    }
+    if (target.kind === "field") {
+      this.activatePane?.("settings");
+      const control = this.ui.profileFieldControls?.get(target.field) || this.root?.querySelector?.(`#oba-${target.field}`);
+      if (control) control.focus();
+      else this.flash("ok", `Find the ${target.field} field in Settings.`);
+      return;
+    }
+    if (target.kind === "claim") {
+      this.activatePane?.("evidence");
+      void this.loadClaims().then(() => {
+        const region = this.ui.claimsRegion;
+        const all = (selector) => [...(region?.querySelectorAll?.(selector) || [])];
+        const item = target.link
+          ? all("[data-claims-link]").find((node) => node.dataset.claimsLink === target.link)
+          : all("[data-claims-claim]").find((node) => node.dataset.claimsClaim === target.claim);
+        const focusable = item || region?.querySelector?.("h2, h3");
+        if (focusable) {
+          focusable.setAttribute("tabindex", "-1");
+          focusable.focus();
+        }
+      });
+      return;
+    }
+    this.activatePane?.("write");
+    this.writingSurface().focus();
+  }
+
+  async save({ reviewed = false } = {}) {
+    if (this.saving || this.reviewing) return;
     this.syncRichToMarkdown();
     const fields = this.collect();
     const problem = this.validateClient(fields);
     if (problem) {
       this.flash("error", problem);
       return;
+    }
+    if (!reviewed && this.needsPublicationReview(fields)) {
+      const go = await this.reviewResearch(this.currentStatus() === "scheduled" ? "schedule" : "publish", fields);
+      if (!go) return;
     }
     const ui = this.ui;
     this.saving = true;
