@@ -245,6 +245,18 @@ pub fn remove_passage(
                     if using.len() == 1 { "it" } else { "them" },
                 )));
             }
+            let using = crate::alignment_store::uses_of_passage(root, library, notebook, id)
+                .map_err(blocked)?;
+            if !using.is_empty() {
+                return Err(blocked(format!(
+                    "{} passage alignment{} use{} this passage ({}); change or remove {} first",
+                    using.len(),
+                    if using.len() == 1 { "" } else { "s" },
+                    if using.len() == 1 { "s" } else { "" },
+                    using.join(", "),
+                    if using.len() == 1 { "it" } else { "them" },
+                )));
+            }
             notebook.remove_passage(id, library).map(|_| ())
         },
     )
@@ -423,6 +435,7 @@ fn change_using(
     edit(&mut notebook, &current.library).map_err(StoreError::Invalid)?;
     keep_atlas_valid(root, &current, &notebook)?;
     keep_claims_valid(root, &current, &notebook)?;
+    keep_alignments_valid(root, &current, &notebook)?;
     let text = notebook.to_json();
     commit(&path, text.as_bytes(), rename)?;
     source_store::remove_interrupted_writes(&path);
@@ -459,6 +472,31 @@ fn keep_claims_valid(root: &Path, current: &Snapshot, edited: &Notebook) -> Resu
             field: None,
             message: format!(
                 "the change would leave the claims file invalid, so nothing was saved ({message}); change the evidence links first"
+            ),
+        }])
+    })
+}
+
+/// A notebook change must not leave a valid alignments file invalid. As for
+/// the claims file, one that was already unreadable does not block unrelated
+/// edits.
+fn keep_alignments_valid(
+    root: &Path,
+    current: &Snapshot,
+    edited: &Notebook,
+) -> Result<(), StoreError> {
+    if crate::alignment_store::check_against(root, &current.library, &current.notebook).is_err() {
+        return Ok(());
+    }
+    crate::alignment_store::check_against(root, &current.library, edited).map_err(|message| {
+        StoreError::Invalid(vec![NoteDiagnostic {
+            code: NoteDiagnosticCode::StillLinked,
+            collection: None,
+            index: None,
+            id: None,
+            field: None,
+            message: format!(
+                "the change would leave the alignments file invalid, so nothing was saved ({message}); change the alignments first"
             ),
         }])
     })

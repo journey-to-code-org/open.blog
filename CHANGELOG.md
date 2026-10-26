@@ -20,6 +20,15 @@ All notable changes to open.blog are recorded here. Releases follow
   or manuscript in several volumes now has a Volume field.
 - Building a site no longer fails when an interpretation in the private source library names a
   contributor who was later removed from the registry; `openblog check` and Admin still report it.
+- The private research area can now hold passage alignments: your record of which places in
+  different editions, translations, manuscripts and interpretations correspond, including one
+  place split across several, several merged into one, and a version that lacks the passage.
+  Each alignment says who aligned the places and on what evidence, keeps the original wording
+  apart from your normalized form of it, and never claims the places mean the same thing. They
+  are stored privately in `.openblog/private/research/alignments.json`, checked by `openblog
+  check`, synced by the hosted workspace, available to Admin through
+  `/admin/api/research/alignments`, and never published. A source, interpretation or passage an
+  alignment uses cannot be removed until the alignment stops using it.
 
 ## [0.32.0] - 2026-10-26
 

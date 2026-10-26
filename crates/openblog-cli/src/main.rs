@@ -2,6 +2,7 @@
 
 mod admin;
 mod admin_preferences;
+mod alignment_store;
 mod analytics;
 mod assistant;
 mod assistant_storage;
@@ -426,6 +427,12 @@ fn run(raw: &[String]) -> Result<(), String> {
                     eprintln!("notice: {notice}");
                 }
                 serve::print_evidence_findings(&findings);
+                println!("{summary}");
+            }
+            if let Some((summary, notices)) = check_alignments(&root, &site.config.contributors)? {
+                for notice in notices {
+                    eprintln!("notice: {notice}");
+                }
                 println!("{summary}");
             }
             Ok(())
@@ -971,6 +978,47 @@ fn check_claims(
     )))
 }
 
+/// Validate the private alignments file when one is stored, against the
+/// stored library and notebook. A missing file is not mentioned. Members whose
+/// locators no longer match their passage, or that rest on archived records,
+/// are non-blocking notices naming ids only.
+fn check_alignments(
+    root: &std::path::Path,
+    contributors: &std::collections::BTreeMap<String, openblog_core::contributor::Contributor>,
+) -> Result<Option<(String, Vec<String>)>, String> {
+    let snapshot = alignment_store::load(root, contributors).map_err(|error| error.to_string())?;
+    if !snapshot.stored {
+        return Ok(None);
+    }
+    let set = &snapshot.alignments;
+    let notices: Vec<String> = set
+        .notices(openblog_core::knowledge_atlas::Links {
+            library: &snapshot.library,
+            notebook: &snapshot.notebook,
+        })
+        .iter()
+        .map(|notice| format!("{}: {notice}", alignment_store::ALIGNMENTS_FILE))
+        .collect();
+    let members: usize = set.alignments.iter().map(|a| a.members.len()).sum();
+    let absent = set
+        .alignments
+        .iter()
+        .flat_map(|a| &a.members)
+        .filter(|m| m.absent)
+        .count();
+    Ok(Some((
+        format!(
+            "OK: private alignments file {} has {} alignment(s) of {} place(s), {} of them recorded as absent; builds never publish it. {}",
+            alignment_store::ALIGNMENTS_FILE,
+            set.alignments.len(),
+            members,
+            absent,
+            openblog_core::alignment::ALIGNMENT_NOTICE
+        ),
+        notices,
+    )))
+}
+
 /// Remove an Admin username from every shared publication binding, under the content
 /// transaction lock so a running Admin server cannot interleave a write.
 fn revoke_shared_publication_bindings(root: &std::path::Path, name: &str) -> Result<(), String> {
@@ -1032,6 +1080,54 @@ mod tests {
         assert!(
             error.contains(".openblog/private/research/notebook.json: notes[0] `n`")
                 && error.contains("(unknown-source)"),
+            "{error}"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn check_reports_the_private_alignments_file_only_when_it_is_stored() {
+        let root = std::env::temp_dir().join(format!(
+            "openblog-check-alignments-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let contributors = std::collections::BTreeMap::new();
+        std::fs::create_dir_all(&root).unwrap();
+        assert_eq!(check_alignments(&root, &contributors), Ok(None));
+        let library = root.join(source_store::LIBRARY_FILE);
+        std::fs::create_dir_all(library.parent().unwrap()).unwrap();
+        std::fs::write(
+            &library,
+            r#"{"version":1,"sources":[{"id":"w","kind":"work","title":"W"},{"id":"e","kind":"edition","of":"w","title":"E","archived":true},{"id":"t","kind":"translation","of":"w","language":"en","title":"T"}]}"#,
+        )
+        .unwrap();
+        let path = root.join(alignment_store::ALIGNMENTS_FILE);
+        std::fs::write(
+            &path,
+            r#"{"version":1,"alignments":[{"id":"a1","label":"ob-secret-label","members":[{"source":"e","locators":[{"kind":"page","value":"1"}]},{"source":"t","absent":true}]}]}"#,
+        )
+        .unwrap();
+        let (summary, notices) = check_alignments(&root, &contributors).unwrap().unwrap();
+        assert!(
+            summary.contains("1 alignment(s) of 2 place(s), 1 of them recorded as absent"),
+            "{summary}"
+        );
+        assert!(summary.contains("does not say they mean the same"));
+        assert_eq!(notices.len(), 1);
+        assert!(notices[0].contains("archived-member") && notices[0].contains("a1"));
+        assert!(!summary.contains("ob-secret-label") && !notices[0].contains("ob-secret-label"));
+        std::fs::write(
+            &path,
+            r#"{"version":1,"alignments":[{"id":"a1","members":[{"source":"w"}]}]}"#,
+        )
+        .unwrap();
+        let error = check_alignments(&root, &contributors).unwrap_err();
+        assert!(
+            error.starts_with(alignment_store::ALIGNMENTS_FILE),
             "{error}"
         );
         std::fs::remove_dir_all(root).unwrap();

@@ -58,6 +58,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value as Json};
 
 use crate::admin_preferences::{self, Preferences, SaveError};
+use crate::alignment_store;
 use crate::assistant::{
     parse_skill, AnthropicProvider, AssistantCompletionSource, AssistantConcurrency,
     AssistantDocument, AssistantErrorKind, AssistantProvider, AssistantProviderStatus,
@@ -650,6 +651,10 @@ fn authenticated_api(
         ("POST", "research/claims/links") => save_claim_link(state, req, true),
         ("PUT", "research/claims/links") => save_claim_link(state, req, false),
         ("DELETE", "research/claims/links") => remove_claim_item(state, req, false),
+        ("GET", "research/alignments") => list_alignments(state),
+        ("POST", "research/alignments") => save_alignment(state, req, true),
+        ("PUT", "research/alignments") => save_alignment(state, req, false),
+        ("DELETE", "research/alignments") => remove_alignment_item(state, req),
         ("GET", "assistant/status") => assistant_status(state),
         ("GET", "assistant/settings") => assistant_settings(state),
         ("PUT", "assistant/settings") => save_assistant_settings(state, req),
@@ -2395,6 +2400,151 @@ fn claims_store_error(
         claims_store::StoreError::Storage(message) => Response::json(
             500,
             &json!({ "error": message, "file": claims_store::CLAIMS_FILE }),
+        ),
+    }
+}
+
+// ---- Passage alignments (A6.2, ADR 0116 and ADR 0117) ----------------------
+//
+// Private research like the notebook and the claims file: these routes sit
+// behind the session, CSRF token and deny-by-default router, are `no-store`,
+// cap a change at 256 KiB, need the revision, and never publish anything. The
+// comparison workspace (#54) builds its controls on them.
+
+fn alignments_view(snapshot: &alignment_store::Snapshot) -> Json {
+    let links = openblog_core::knowledge_atlas::Links {
+        library: &snapshot.library,
+        notebook: &snapshot.notebook,
+    };
+    json!({
+        "file": alignment_store::ALIGNMENTS_FILE,
+        "revision": snapshot.revision,
+        "stored": snapshot.stored,
+        "alignments": snapshot.alignments.alignments,
+        "notices": snapshot.alignments.notices(links),
+        "notice": openblog_core::alignment::ALIGNMENT_NOTICE,
+    })
+}
+
+fn list_alignments(state: &AppState) -> Response {
+    match alignment_store::load(&state.root, &source_contributors(state)) {
+        Ok(snapshot) => Response::json(200, &alignments_view(&snapshot)),
+        Err(error) => alignments_store_error(state, error, None),
+    }
+}
+
+fn alignments_request(req: &Request) -> Result<(Json, String), Response> {
+    require_json(req)?;
+    if req.body.len() > MAX_NOTEBOOK_REQUEST_BYTES {
+        return Err(Response::error(
+            413,
+            "An alignments change is limited to 256 KiB",
+        ));
+    }
+    let body: Json =
+        serde_json::from_slice(&req.body).map_err(|_| Response::error(400, "Invalid JSON"))?;
+    let Some(revision) = body["revision"].as_str().map(str::to_string) else {
+        return Err(Response::error(400, "Missing alignments revision"));
+    };
+    Ok((body, revision))
+}
+
+/// Create (`POST`) or update (`PUT`) one alignment from its full JSON form.
+fn save_alignment(state: &AppState, req: &Request, create: bool) -> Response {
+    let (body, revision) = match alignments_request(req) {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+    let alignment = match openblog_core::alignment::Alignment::from_json(body["alignment"].clone())
+    {
+        Ok(alignment) => alignment,
+        Err(diagnostics) => return alignments_diagnostics(diagnostics),
+    };
+    let id = alignment.id.clone();
+    let contributors = source_contributors(state);
+    let saved = if create {
+        alignment_store::create_alignment(&state.root, &revision, alignment, &contributors)
+    } else {
+        alignment_store::update_alignment(&state.root, &revision, alignment, &contributors)
+    };
+    match saved {
+        Ok(snapshot) => {
+            let mut view = alignments_view(&snapshot);
+            view["alignment"] = json!(snapshot.alignments.alignment(&id));
+            Response::json(if create { 201 } else { 200 }, &view)
+        }
+        Err(error) => alignments_store_error(state, error, Some(&id)),
+    }
+}
+
+/// Remove one alignment. The removed alignment travels back so the editor
+/// can offer undo.
+fn remove_alignment_item(state: &AppState, req: &Request) -> Response {
+    let (body, revision) = match alignments_request(req) {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+    // Checked before it is named in any message, so a hostile id is never echoed.
+    let Some(id) = body["id"]
+        .as_str()
+        .filter(|id| knowledge_atlas::valid_id(id))
+    else {
+        return Response::error(400, "Name the id of the alignment to remove");
+    };
+    match alignment_store::remove_alignment(&state.root, &revision, id, &source_contributors(state))
+    {
+        Ok((snapshot, removed)) => {
+            let mut view = alignments_view(&snapshot);
+            view["removed"] = json!(removed);
+            Response::json(200, &view)
+        }
+        Err(error) => alignments_store_error(state, error, Some(id)),
+    }
+}
+
+fn alignments_diagnostics(diagnostics: Vec<AtlasDiagnostic>) -> Response {
+    let error = diagnostics.first().map_or_else(
+        || "The alignments change is invalid".to_string(),
+        |first| first.to_string(),
+    );
+    Response::json(
+        422,
+        &json!({
+            "error": error,
+            "file": alignment_store::ALIGNMENTS_FILE,
+            "diagnostics": diagnostics,
+        }),
+    )
+}
+
+/// A conflict carries the latest revision and the newer copy of the
+/// alignment being changed. Nothing is written either way.
+fn alignments_store_error(
+    state: &AppState,
+    error: alignment_store::StoreError,
+    id: Option<&str>,
+) -> Response {
+    match error {
+        alignment_store::StoreError::Conflict => {
+            let latest = alignment_store::load(&state.root, &source_contributors(state)).ok();
+            let current = latest
+                .as_ref()
+                .zip(id)
+                .and_then(|(snapshot, id)| snapshot.alignments.alignment(id).map(|a| json!(a)));
+            Response::json(
+                409,
+                &json!({
+                    "error": error.to_string(),
+                    "conflict": true,
+                    "revision": latest.as_ref().map(|snapshot| snapshot.revision.as_str()),
+                    "current": current,
+                }),
+            )
+        }
+        alignment_store::StoreError::Invalid(diagnostics) => alignments_diagnostics(diagnostics),
+        alignment_store::StoreError::Storage(message) => Response::json(
+            500,
+            &json!({ "error": message, "file": alignment_store::ALIGNMENTS_FILE }),
         ),
     }
 }
@@ -13803,6 +13953,134 @@ mod tests {
         assert!(error.contains(crate::claims_store::CLAIMS_FILE), "{error}");
         assert!(!f.dir.join("dist/posts/still-saved/index.html").exists());
         assert_eq!(fs::read(&claims).unwrap(), b"{ not json", "never replaced");
+    }
+
+    #[test]
+    fn alignments_api_is_authenticated_revision_checked_and_scoped() {
+        let f = fixture_with_sources("alignments-api");
+        for (method, path) in [
+            ("GET", "/admin/api/research/alignments"),
+            ("POST", "/admin/api/research/alignments"),
+            ("PUT", "/admin/api/research/alignments"),
+            ("DELETE", "/admin/api/research/alignments"),
+        ] {
+            assert_eq!(handle(&f.state, &req(method, path)).status, 401, "{path}");
+        }
+        let library = f.dir.join(crate::source_store::LIBRARY_FILE);
+        fs::create_dir_all(library.parent().unwrap()).unwrap();
+        fs::write(
+            &library,
+            json!({"version": 1, "sources": [
+                {"id": "w", "kind": "work", "title": "W"},
+                {"id": "e", "kind": "edition", "of": "w", "title": "E"},
+                {"id": "t", "kind": "translation", "of": "w", "language": "he", "title": "T"}
+            ]})
+            .to_string(),
+        )
+        .unwrap();
+        let session = login_ok(&f);
+        let list = |session: &(String, String)| {
+            body_json(&handle(
+                &f.state,
+                &authed(req("GET", "/admin/api/research/alignments"), session, false),
+            ))
+        };
+        let empty = list(&session);
+        assert_eq!(empty["stored"], false);
+        assert_eq!(empty["file"], crate::alignment_store::ALIGNMENTS_FILE);
+        assert!(empty["notice"]
+            .as_str()
+            .unwrap()
+            .contains("does not say they mean the same"));
+        let revision = empty["revision"].as_str().unwrap().to_string();
+        let file = f.dir.join(crate::alignment_store::ALIGNMENTS_FILE);
+        let alignment = json!({"id": "a1", "label": "ob-alignment-label", "members": [
+            {"source": "e", "locators": [{"kind": "canonical", "value": "514a"}]},
+            {"source": "t", "absent": true, "note": "מושמט"}
+        ]});
+        let send = |method: &str, body: Json, csrf: bool| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req(method, "/admin/api/research/alignments", body),
+                    &session,
+                    csrf,
+                ),
+            )
+        };
+        // Without the CSRF token nothing is written.
+        let refused = send(
+            "POST",
+            json!({"revision": revision, "alignment": alignment}),
+            false,
+        );
+        assert_eq!(refused.status, 403);
+        assert!(!file.exists());
+        // An invalid alignment is scoped to its field and writes nothing.
+        let mut broken = alignment.clone();
+        broken["members"][0]["source"] = json!("w");
+        let invalid = send(
+            "POST",
+            json!({"revision": revision, "alignment": broken}),
+            true,
+        );
+        assert_eq!(invalid.status, 422);
+        let body = body_json(&invalid);
+        assert_eq!(body["diagnostics"][0]["field"], "members[0].source");
+        assert_eq!(body["diagnostics"][0]["code"], "wrong-source-kind");
+        assert!(!String::from_utf8_lossy(&invalid.body).contains("ob-alignment-label"));
+        assert!(!file.exists());
+        let created = send(
+            "POST",
+            json!({"revision": revision, "alignment": alignment}),
+            true,
+        );
+        assert_eq!(
+            created.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&created.body)
+        );
+        let created = body_json(&created);
+        assert_eq!(created["alignment"]["members"][1]["note"], "מושמט");
+        assert_eq!(created["alignment"]["visibility"], "private");
+        let stored = fs::read(&file).unwrap();
+        // A stale revision is a conflict that carries the stored copy.
+        let mut changed = alignment.clone();
+        changed["correspondence"] = json!("partial");
+        let stale = send(
+            "PUT",
+            json!({"revision": revision, "alignment": changed}),
+            true,
+        );
+        assert_eq!(stale.status, 409);
+        let stale = body_json(&stale);
+        assert_eq!(stale["conflict"], true);
+        assert_eq!(stale["current"]["id"], "a1");
+        assert_eq!(fs::read(&file).unwrap(), stored);
+        let latest = created["revision"].as_str().unwrap().to_string();
+        let updated = send(
+            "PUT",
+            json!({"revision": latest, "alignment": changed}),
+            true,
+        );
+        assert_eq!(updated.status, 200);
+        let latest = body_json(&updated)["revision"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let hostile = send(
+            "DELETE",
+            json!({"revision": latest, "id": "<script>"}),
+            true,
+        );
+        assert_eq!(hostile.status, 400);
+        assert!(!String::from_utf8_lossy(&hostile.body).contains("<script>"));
+        let removed = send("DELETE", json!({"revision": latest, "id": "a1"}), true);
+        assert_eq!(removed.status, 200);
+        assert_eq!(body_json(&removed)["removed"]["id"], "a1");
+        // A site build never reads the alignments file.
+        assert!(list(&session)["alignments"].as_array().unwrap().is_empty());
     }
 
     #[test]

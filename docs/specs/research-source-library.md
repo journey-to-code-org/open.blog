@@ -93,7 +93,8 @@ interpretation never fails a build. An empty array is written as an absent field
 | `uncertainty` | Optional one-line note. |
 
 A source an interpretation uses cannot be removed (`still-used`), and Admin refuses to remove a
-contributor an interpretation names. Interpretation diagnostics have no `index` or `sourceId`;
+contributor an interpretation names. Sources and interpretations that a
+[passage alignment](passage-alignments.md) uses cannot be removed either. Interpretation diagnostics have no `index` or `sourceId`;
 their `field` path starts with `interpretations[n]`.
 
 ## Limits and diagnostics

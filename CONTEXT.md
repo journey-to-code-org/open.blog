@@ -782,6 +782,33 @@ without creating a work credit, or anyone else by a descriptive name, each with 
 attribution certainty. An interpretation with no interpreter is explicitly anonymous (ADR 0115).
 _Avoid_: Credit, author, creator
 
+**Passage alignment**:
+The author's private record that places in two or more versions or interpretations correspond,
+attributed and optionally evidenced. It never says the places mean the same thing and never
+treats a version as authoritative (ADR 0116).
+_Avoid_: Equivalence, parallel text, translation memory, automatic alignment
+
+**Alignment member**:
+One place in a passage alignment: a version and its own locators, optionally the notebook passage
+quoting it, or an interpretation aligned as it is. Several members may come from one version, and
+a place may belong to several alignments.
+_Avoid_: Segment pair, row, one-to-one match
+
+**Absent member**:
+An alignment member recording that a version lacks the passage (an omission, a lost leaf, or a
+gap), so a missing passage is stated rather than inferred from silence.
+_Avoid_: Empty member, null match
+
+**Correspondence**:
+How the author reads an alignment's places: corresponding, corresponding in part, or
+corresponding but differing. There is deliberately no "equivalent".
+_Avoid_: Equivalence, similarity score
+
+**Normalization**:
+The author's normalized form of a member's original wording (for example, composed accents or
+expanded abbreviations), stored beside and never in place of the passage or interpretation text.
+_Avoid_: Correction, the text, cleaned excerpt
+
 **Knowledge Atlas**:
 An author's private, versioned map of contextual entries and the attributed relationships between
 them. It reaches public output only through an explicit publication projection of approved items.

@@ -99,7 +99,15 @@ alike and that never judge whether a claim is true
 ([ADR 0074](adr/0074-evidence-gaps-are-prompts-in-the-shared-finding-contract.md)), and, when a
 site opts in, publishes approved claims with their evidence side by side as a section of the
 post, with revision notes the post itself carries
-([ADR 0075](adr/0075-publish-approved-claim-evidence-in-the-post-with-public-revision-notes.md)).
+([ADR 0075](adr/0075-publish-approved-claim-evidence-in-the-post-with-public-revision-notes.md)),
+and the [passage alignments format](specs/passage-alignments.md), which records where places in
+editions, translations, witnesses, and interpretations correspond, many to many and including
+passages a version lacks, keeps the original wording apart from the author's normalization, and
+never calls aligned places equivalent
+([ADR 0116](adr/0116-passage-alignments-record-correspondence-never-equivalence.md)), stored
+privately with a lock after the claims file and guards on the sources, interpretations, and
+passages it uses
+([ADR 0117](adr/0117-alignments-take-their-lock-after-claims-and-guard-what-they-use.md)).
 
 ## Command reference
 

@@ -13,11 +13,11 @@
 //! replaces the file by atomic rename while holding locks: a refused, failed
 //! or interrupted change leaves the stored file exactly as it was.
 //!
-//! Locks are always taken in one order: atlas, claims, notebook, library
-//! (ADR 0072). A claims write takes claims, notebook and library; it never
-//! holds the atlas lock, and an atlas write never takes the claims lock, so
-//! each writer takes its locks in that one order and no two can wait on each
-//! other. Notebook and library changes take a suffix of the order and only
+//! Locks are always taken in one order: atlas, claims, alignments, notebook,
+//! library (ADR 0072, ADR 0117). A claims write takes claims, notebook and
+//! library; it never holds the atlas or alignments lock, and neither of their
+//! writers takes the claims lock, so each writer takes its locks in that one
+//! order and no two can wait on each other. Notebook and library changes take a suffix of the order and only
 //! *read* the claims file, which is safe because a claims write holds their
 //! locks for its whole critical section.
 //!

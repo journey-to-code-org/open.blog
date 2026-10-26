@@ -148,6 +148,7 @@ pub fn update(
         keep_notebook_valid(root, &before, library, vec![record.id.clone()])?;
         keep_atlas_valid(root, &before, library, std::slice::from_ref(&record.id))?;
         keep_claims_valid(root, &before, library, std::slice::from_ref(&record.id))?;
+        keep_alignments_valid(root, &before, library, std::slice::from_ref(&record.id))?;
         keep_posts_citable(root, &before, library, std::slice::from_ref(&record.id))
     })
     .map(|(snapshot, ())| snapshot)
@@ -200,6 +201,7 @@ pub fn import_csl(
         keep_notebook_valid(root, &before, library, moved.clone())?;
         keep_atlas_valid(root, &before, library, &moved)?;
         keep_claims_valid(root, &before, library, &moved)?;
+        keep_alignments_valid(root, &before, library, &moved)?;
         keep_posts_citable(root, &before, library, &moved)?;
         Ok(plan)
     })
@@ -289,6 +291,33 @@ fn keep_claims_valid(
             field: None,
             message: format!(
                 "the change would leave the claims file invalid, so nothing was saved ({message}); adjust the affected evidence links first"
+            ),
+        }]
+    })
+}
+
+/// A library change must not leave a valid alignments file invalid, for
+/// example by re-pointing a reference so an evidence locator turns ambiguous.
+/// It runs under the library lock, which every alignments write also holds,
+/// and an alignments file that was already unreadable does not block
+/// unrelated library edits.
+fn keep_alignments_valid(
+    root: &Path,
+    before: &SourceLibrary,
+    after: &SourceLibrary,
+    ids: &[String],
+) -> Result<(), Vec<SourceDiagnostic>> {
+    if crate::alignment_store::check_against_library(root, before).is_err() {
+        return Ok(());
+    }
+    crate::alignment_store::check_against_library(root, after).map_err(|message| {
+        vec![SourceDiagnostic {
+            code: SourceDiagnosticCode::StillUsed,
+            index: None,
+            source_id: ids.first().cloned(),
+            field: None,
+            message: format!(
+                "the change would leave the alignments file invalid, so nothing was saved ({message}); adjust the affected alignments first"
             ),
         }]
     })
@@ -424,6 +453,24 @@ pub fn remove(
                 ),
             )]);
         }
+        // Passage alignments name sources as members, evidence, and
+        // attribution; alignments writes hold this lock as well.
+        let using = crate::alignment_store::uses_of_source(root, library, id)
+            .map_err(|message| vec![still_used(id, message)])?;
+        if !using.is_empty() {
+            return Err(vec![still_used(
+                id,
+                format!(
+                    "{} alignment{} in the alignments file still use{} this source ({}); remove {} or change {} members first",
+                    using.len(),
+                    if using.len() == 1 { "" } else { "s" },
+                    if using.len() == 1 { "s" } else { "" },
+                    using.join(", "),
+                    if using.len() == 1 { "it" } else { "them" },
+                    if using.len() == 1 { "its" } else { "their" },
+                ),
+            )]);
+        }
         let before = library.clone();
         let removed = library.remove(id, contributors)?;
         keep_posts_citable(root, &before, library, &[id.to_string()])?;
@@ -508,8 +555,8 @@ pub fn update_interpretation(
     .map(|(snapshot, ())| snapshot)
 }
 
-/// Remove an interpretation. Nothing points at one, so only an unknown
-/// identifier, a stale revision, or a damaged library refuses it.
+/// Remove an interpretation no passage alignment uses. An alignments file
+/// that cannot be read blocks removal, since it cannot be shown to be unused.
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn remove_interpretation(
     root: &Path,
@@ -518,6 +565,28 @@ pub fn remove_interpretation(
     contributors: &BTreeMap<String, Contributor>,
 ) -> Result<(Snapshot, Interpretation), StoreError> {
     change(root, expected_revision, contributors, |library| {
+        if library.interpretation(id).is_some() {
+            let blocked = |message: String| {
+                vec![SourceDiagnostic {
+                    code: SourceDiagnosticCode::StillUsed,
+                    index: None,
+                    source_id: None,
+                    field: Some("interpretations".into()),
+                    message,
+                }]
+            };
+            let using = crate::alignment_store::uses_of_interpretation(root, library, id)
+                .map_err(blocked)?;
+            if !using.is_empty() {
+                return Err(blocked(format!(
+                    "interpretation `{id}` is aligned in {} alignment{} ({}); remove it from {} first",
+                    using.len(),
+                    if using.len() == 1 { "" } else { "s" },
+                    using.join(", "),
+                    if using.len() == 1 { "that alignment" } else { "those alignments" },
+                )));
+            }
+        }
         library.remove_interpretation(id, contributors)
     })
 }
