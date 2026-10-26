@@ -46,15 +46,24 @@ All notable changes to open.blog are recorded here. Releases follow
   public**: exactly which research each projection publishes (cited sources, claims and evidence,
   atlas entries, relationships and datings, comparisons, and the research pages a post links to),
   with the fields it copies, and why everything else stays private, from the same projection the
-  build writes. Every withheld item opens where it is changed. Builds now check their output against
-  it before writing anything: a page or JSON artifact naming an item no projection publishes, or any
-  text from a private research file that no public file or approved projection holds, refuses the
-  build, naming the file, record and field but never the text; `openblog export` checks the same.
-  A source's web address on a private network or carrying a key, token or signature is no longer
-  published (the rest of its reference is), and an approved comparison whose passage was
-  re-located after approval is withheld until you check it; both are printed as `boundary:`
-  warnings. `openblog build` adds one line saying how much research it published and withheld.
-  Sites that publish no research build byte for byte as before.
+  build writes. Every withheld item opens where it is changed (a claim or evidence link opens its
+  post's Evidence Studio once the post is saved). Builds now check their output against it before
+  writing anything: a page or JSON artifact naming an item no projection publishes, or text from a
+  private research file that this build does not publish, refuses the build, naming the file,
+  record and field but never the text, and saying how to fix it. That check reads text as runs of
+  six words, so a quote that is hard-wrapped, emphasised, linked or joined into the search index
+  matches whatever its markup, and a note with punctuation is covered; what counts as published
+  is the text of the posts and pages the build publishes (a draft does not), and the static and
+  theme files it copies are checked too. Private notes shorter than six words are not checked by
+  text. `openblog export` checks the same. A source's web address on a private network (also
+  written as a decimal, octal, hex, mapped or NAT64 address) or carrying a key, token, signature,
+  secret or password in its query or fragment is no longer published (the rest of its reference
+  is; OpenURL `sid` is). An approved comparison is withheld, and cannot be acknowledged, when a
+  passage it aligns was re-located after you saved it approved; comparisons approved before this
+  change are not withheld until you save them again. Both are printed as `boundary:` warnings.
+  `openblog build` adds one line saying how much research it published and withheld, and reads
+  your research once instead of several times. Sites that publish no research build byte for
+  byte as before.
 - In Visual mode, backslash-escaped `*`, `_`, backticks, `[` and `]` are now read as the
   characters themselves. Before, `\*word\*` showed as emphasis and `\[x\](y)` as a link, and
   switching modes could add backslashes to the draft.

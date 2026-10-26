@@ -1452,18 +1452,26 @@ _Avoid_: Rejection, error, failed check
 
 **Stale approval**:
 An approval that no longer holds because what it rests on changed after it was given: today, an
-approved comparison whose place no longer matches the notebook passage it aligns. The item alone is
-withheld and named until the author checks it (ADR 0137).
+approved comparison whose notebook passage was re-located after the alignment was saved approved,
+which the alignments file records as a fingerprint of the passage's locators. Only a recorded
+fingerprint that no longer matches withholds; an approval made before the record existed never
+does. The item alone is withheld and named, and the author checks it and saves it again; the
+finding cannot be acknowledged while it withholds (ADR 0137).
 _Avoid_: Expired approval, invalid comparison
 
 **Unsafe web address**:
 A source's web address the boundary never publishes: not plain `http` or `https`, carrying
-credentials, naming a private or local network host, or carrying a query parameter named like a
-key, token or signature. Only the address is withheld; the rest of the reference is published.
+credentials, naming a private or local network host (including numeric, mapped, NAT64 and
+site-local forms), or carrying a query or fragment parameter named like a key, token or signature.
+Only the address is withheld; the rest of the reference is published.
 _Avoid_: Broken link, invalid URL
 
 **Private text guard**:
-The build's last check that no generated file carries text from a private research file that no
-public input or approved projection also holds. A refusal names the output, the file, the record
-and the field, never the text (ADR 0137).
+The build's last check that no generated file, and no static or theme file it copies, carries text
+from a private research file that this build does not publish. Text is compared as shingles of six
+consecutive normalised words, so wrapping, markup, entities, case and punctuation do not hide it;
+what is allowed is the text of the published posts and pages, the approved projections and the
+site's own configuration, never a draft. Private text of fewer than six words is not guarded by
+text. A refusal names the output, the file, the record and the field, never the text, and says to
+remove the text or publish it through a post (ADR 0137).
 _Avoid_: Leak scanner, content filter
