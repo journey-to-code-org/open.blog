@@ -19,7 +19,7 @@ series context at all, so adding it everywhere would change every existing feed 
 
 - **A series context** (`SeriesContext`, built by `Site::series_context`) is one published part's
   place in a collaborative series: the series name, its canonical page, its position and the
-  number of published parts ("Part 2 of 4"), the part's named authors in credit order, and the
+  number of published parts, the part's named authors in credit order, and the
   series' named contributors (`series_contributors`, so one person is named once). It exists only
   when the post is a published part of a collaborative series (ADR 0040). Drafts are not parts,
   even on a site loaded with them, so they never count towards a position, a total or the
@@ -32,7 +32,7 @@ series context at all, so adding it everywhere would change every existing feed 
   `from_post`'s, byte for byte.
 - **Each format states it its own way, and only for a part of a collaborative series:**
   - portable HTML: one paragraph after the work's Contributions list and before the body,
-    `<p class="ob-series-context">Part 2 of 4 in the series <a href="…/series/letters/">Letters</a>.
+    `<p class="ob-series-context">Part 2 in the series <a href="…/series/letters/">Letters</a>.
     This part is by Ann, Bo, and Cy. Series contributors: Site Owner, Ann, Bo, Cy, and Dee.</p>`;
   - portable Markdown: the same sentence under `## Series`, after `## Contributions`, with the
     series page as its only link; portable text (JSON Feed `content_text`) follows from it;
@@ -42,6 +42,10 @@ series context at all, so adding it everywhere would change every existing feed 
     `authors` and `contributors`, which readers that do not know it ignore;
   - llms-full.txt: `- Series:`, `- Part authors:` and `- Series contributors:` lines among the
     post's facts.
+  Portable HTML, Markdown and text say "Part 2 in the series", never "Part 2 of 4": a copy sent
+  elsewhere (an export, a syndicated post) and its source revision must not change each time the
+  series grows. Only the regenerated whole-feed outputs state the total: JSON Feed's `parts` and
+  llms-full.txt's "Part 2 of 4".
   An ordinary part of a collaborative series gets the same context with its own author, so every
   part reads the same way. A clause with no named author is left out, never shown empty.
 - **Names stay text.** Series and contributor names are escaped for each format (HTML text, XML,
@@ -57,8 +61,11 @@ series context at all, so adding it everywhere would change every existing feed 
 
 ## Consequences
 
-- A feed or copy of a part changes, and its source revision with it, when its series gains or loses
-  a published part or a contributor, since "Part 2 of 4" and the contributors would otherwise be
-  stale. Copies of posts outside a collaborative series never change.
+- Publishing a later part leaves an earlier part's portable copies and source revision unchanged
+  when the new part's authors already contribute to the series. A copy of a part does change when
+  its own position changes (a part is inserted before it or one is unpublished) or when the
+  series gains or loses a contributor, since its place and the contributors would otherwise be
+  stale. JSON Feed and llms-full.txt items also change with the number of parts. Copies of posts
+  outside a collaborative series never change.
 - When a series loses its last collaborative work, its parts' feed items and copies return to their
   earlier output.

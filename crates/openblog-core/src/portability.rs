@@ -1600,9 +1600,10 @@ impl<'a> PortableProjection<'a> {
             .join("; "))
     }
 
-    /// The series context as one paragraph: "Part 2 of 4 in the series <a>Letters</a>. This part
-    /// is by A and B. Series contributors: A, B, and C." Every value is escaped text and the only
-    /// link is the canonical series page (ADR 0041).
+    /// The series context as one paragraph: "Part 2 in the series <a>Letters</a>. This part is by
+    /// A and B. Series contributors: A, B, and C." Every value is escaped text and the only link is
+    /// the canonical series page (ADR 0041). It never states the number of parts, so a growing
+    /// series does not change its earlier parts' copies.
     fn series_context_html(&self, series: &SeriesContext) -> Result<String, String> {
         let names = |names: &[String]| {
             crate::render::human_list(
@@ -1613,7 +1614,7 @@ impl<'a> PortableProjection<'a> {
             )
         };
         Ok(format!(
-            "<p class=\"ob-series-context\">{} in the series <a href=\"{}\">{}</a>.{}{}</p>\n",
+            "<p class=\"ob-series-context\">{} <a href=\"{}\">{}</a>.{}{}</p>\n",
             series_position(series),
             escape::attr(&self.resolve_link(&series.url)?),
             escape::text(&series.name),
@@ -1633,7 +1634,7 @@ impl<'a> PortableProjection<'a> {
             )
         };
         Ok(format!(
-            "{} in the series [{}]({}).{}{}",
+            "{} [{}]({}).{}{}",
             series_position(series),
             markdown_text(&series.name),
             markdown_destination(&self.resolve_link(&series.url)?),
@@ -1937,9 +1938,10 @@ fn markdown_to_text(markdown: &str) -> String {
     compact
 }
 
-/// "Part 2 of 4": a part's place in its series' published reading order.
+/// "Part 2 in the series": a part's place in its series' published reading order, without the
+/// number of parts (ADR 0041), so a later part never changes an earlier part's portable copy.
 fn series_position(series: &SeriesContext) -> String {
-    format!("Part {} of {}", series.part, series.parts)
+    format!("Part {} in the series", series.part)
 }
 
 /// `lead` and an already-escaped list of names as a sentence, or nothing when there are none.

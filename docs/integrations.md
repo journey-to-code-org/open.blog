@@ -62,8 +62,9 @@ uses the same summary as `content_text` to satisfy its required-content contract
 exporting the body. IDs, dates, ordering, credits and cover URLs retain the same policy.
 
 A part of a collaborative series (one that holds a post credited to two or more authors) also
-states its series: the full content says "Part 2 of 4 in the series Letters" with a link to the
-series page, the part's authors and the series' contributors; RSS adds a `category` whose `domain`
+states its series: the full content says "Part 2 in the series Letters" with a link to the
+series page, the part's authors and the series' contributors (never the number of parts, so a
+copy you syndicated does not change each time the series grows); RSS adds a `category` whose `domain`
 is the series page; and JSON Feed adds an `_open_blog.series` object with `title`, `url`, `part`,
 `parts`, `authors` and `contributors`. Every other item is unchanged.
 

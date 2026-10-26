@@ -365,8 +365,8 @@ mod tests {
         )
         .unwrap();
         for (slug, expected) in [
-            ("one", "## Series\n\nPart 1 of 2 in the series [Notes](https://portable.example.org/series/notes/). This part is by Site Owner. Series contributors: Site Owner, Ann, and Bo.\n"),
-            ("two", "## Series\n\nPart 2 of 2 in the series [Notes](https://portable.example.org/series/notes/). This part is by Ann and Bo. Series contributors: Site Owner, Ann, and Bo.\n"),
+            ("one", "## Series\n\nPart 1 in the series [Notes](https://portable.example.org/series/notes/). This part is by Site Owner. Series contributors: Site Owner, Ann, and Bo.\n"),
+            ("two", "## Series\n\nPart 2 in the series [Notes](https://portable.example.org/series/notes/). This part is by Ann and Bo. Series contributors: Site Owner, Ann, and Bo.\n"),
         ] {
             let destination = directory.join(format!("exports/{slug}.md"));
             run(&directory, slug, Some(destination.to_str().unwrap()), true, false).unwrap();

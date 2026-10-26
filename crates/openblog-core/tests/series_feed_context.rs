@@ -216,8 +216,8 @@ fn legacy_fixture(name: &str) -> String {
         .replace("\r\n", "\n")
 }
 
-const CONTEXT_L2: &str = "Part 2 of 4 in the series <a href=\"https://example.test/series/letters/\">Letters</a>. This part is by Ann, Bo, and Cy. Series contributors: Site Owner, Ann, Bo, Cy, and Dee.";
-const CONTEXT_L1: &str = "Part 1 of 4 in the series <a href=\"https://example.test/series/letters/\">Letters</a>. This part is by Site Owner. Series contributors: Site Owner, Ann, Bo, Cy, and Dee.";
+const CONTEXT_L2: &str = "Part 2 in the series <a href=\"https://example.test/series/letters/\">Letters</a>. This part is by Ann, Bo, and Cy. Series contributors: Site Owner, Ann, Bo, Cy, and Dee.";
+const CONTEXT_L1: &str = "Part 1 in the series <a href=\"https://example.test/series/letters/\">Letters</a>. This part is by Site Owner. Series contributors: Site Owner, Ann, Bo, Cy, and Dee.";
 
 #[test]
 fn feeds_without_a_collaborative_series_are_byte_for_byte_what_they_were() {
@@ -321,7 +321,7 @@ fn feed_items_name_their_series_place_link_and_authors() {
         "{l1}"
     );
     // An unordered part takes its place in the reading order.
-    assert!(rss_item(xml, "l4").contains("Part 4 of 4 in the series"));
+    assert!(rss_item(xml, "l4").contains("Part 4 in the series"));
 
     let feed: serde_json::Value = serde_json::from_str(output(&files, "feed.json")).unwrap();
     let item = json_item(&feed, "l2");
@@ -338,7 +338,7 @@ fn feed_items_name_their_series_place_link_and_authors() {
     );
     assert!(item["content_html"].as_str().unwrap().contains(CONTEXT_L2));
     assert!(item["content_text"].as_str().unwrap().contains(
-        "Part 2 of 4 in the series Letters (https://example.test/series/letters/). This part is by Ann, Bo, and Cy. Series contributors: Site Owner, Ann, Bo, Cy, and Dee."
+        "Part 2 in the series Letters (https://example.test/series/letters/). This part is by Ann, Bo, and Cy. Series contributors: Site Owner, Ann, Bo, Cy, and Dee."
     ));
     assert_eq!(
         json_item(&feed, "l3")["_open_blog"]["series"]["authors"],
@@ -384,14 +384,12 @@ fn portable_copies_link_the_canonical_series() {
     let markdown = projection.portable_markdown().unwrap();
     assert!(
         markdown.contains(&format!(
-            "\n## Series\n\nPart 2 of 4 in the series [Letters]({SERIES_URL}). This part is by Ann, Bo, and Cy. Series contributors: Site Owner, Ann, Bo, Cy, and Dee.\n"
+            "\n## Series\n\nPart 2 in the series [Letters]({SERIES_URL}). This part is by Ann, Bo, and Cy. Series contributors: Site Owner, Ann, Bo, Cy, and Dee.\n"
         )),
         "{markdown}"
     );
     let text = projection.portable_text().unwrap();
-    assert!(text.contains(&format!(
-        "Part 2 of 4 in the series Letters ({SERIES_URL})."
-    )));
+    assert!(text.contains(&format!("Part 2 in the series Letters ({SERIES_URL}).")));
     // The external copy is a different artifact from the context-free one, so syndication sees
     // the change, and the canonical page link is untouched.
     let plain = PortableProjection::from_post(post, &site.config).unwrap();
@@ -407,8 +405,37 @@ fn portable_copies_link_the_canonical_series() {
         "<p class=\"ob-series-context\">{CONTEXT_L1}</p>\n<p>Body of l1.</p>"
     )));
     assert!(l1.portable_markdown().unwrap().contains(
-        "Body of l1.\n\n## Series\n\nPart 1 of 4 in the series [Letters](https://example.test/series/letters/). This part is by Site Owner."
+        "Body of l1.\n\n## Series\n\nPart 1 in the series [Letters](https://example.test/series/letters/). This part is by Site Owner."
     ));
+}
+
+#[test]
+fn a_later_part_leaves_earlier_parts_copies_unchanged() {
+    // Portable copies never state the number of parts, so publishing another part by a known
+    // contributor changes neither an earlier part's copy nor its source revision; JSON Feed's
+    // extension object still carries the new total.
+    let copies = |site: &Site, slug: &str| {
+        let projection = PortableProjection::for_site(site, post_of(site, slug)).unwrap();
+        (
+            projection.portable_html().unwrap().html,
+            projection.portable_markdown().unwrap(),
+            projection.portable_text().unwrap(),
+            projection.source_revision().unwrap(),
+        )
+    };
+    let before = load(sources(true));
+    let mut grown = sources(true);
+    grown
+        .posts
+        .push(post("l5", Some("letters"), "2026-08-01", None, ""));
+    grown.credits.push(credits("l5", &["ann"], &[]));
+    let after = load(grown);
+    for slug in ["l1", "l2", "l3", "l4"] {
+        assert_eq!(copies(&before, slug), copies(&after, slug), "{slug}");
+    }
+    assert_eq!(after.series_context(post_of(&after, "l5")).unwrap().part, 5);
+    let feed: serde_json::Value = serde_json::from_str(&feeds::json_feed(&after).unwrap()).unwrap();
+    assert_eq!(json_item(&feed, "l2")["_open_blog"]["series"]["parts"], 5);
 }
 
 #[test]
@@ -430,7 +457,7 @@ fn a_copy_that_loses_the_series_context_fails_closed() {
         // Losing the link, the place, or a name is a missing fact, never a silent loss.
         for (from, to) in [
             (SERIES_URL, "https://example.test/elsewhere/"),
-            ("Part 2 of 4", "Part"),
+            ("Part 2 in the series", "Part in the series"),
             ("Series contributors: Site Owner, ", "Series contributors: "),
         ] {
             let broken = artifact.replace(from, to);

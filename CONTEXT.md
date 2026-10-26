@@ -289,7 +289,8 @@ _Avoid_: Collaborative-series entity, series template
 
 **Series context**:
 What a feed item or portable copy of a published part of a collaborative series states about it:
-the series name and canonical link, its place in the published reading order ("Part 2 of 4"), the
+the series name and canonical link, its place in the published reading order ("Part 2 in the
+series", without the number of parts, so a growing series leaves earlier copies unchanged), the
 part's authors and the series' contributors. Derived from the public series and approved credits
 only; any other post has none and its feeds and copies are unchanged (ADR 0041).
 _Avoid_: Series metadata, series membership

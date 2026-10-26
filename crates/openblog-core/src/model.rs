@@ -281,7 +281,8 @@ pub struct SeriesContext {
     pub url: String,
     /// One-based position in the series' published reading order.
     pub part: usize,
-    /// How many published parts the series has.
+    /// How many published parts the series has. Only the regenerated feeds state it (JSON Feed,
+    /// llms-full.txt); portable copies leave it out so a growing series does not change them.
     pub parts: usize,
     /// This part's named authors, in credit order.
     pub part_authors: Vec<String>,

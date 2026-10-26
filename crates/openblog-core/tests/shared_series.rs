@@ -509,9 +509,9 @@ fn a_shared_reflections_feeds_and_copies_carry_its_series_but_no_collaboration_s
         rss.contains("<category domain=\"https://example.test/series/notes/\">Notes</category>")
     );
     assert!(public[3].contains(
-        "Part 2 of 2 in the series <a href=\"https://example.test/series/notes/\">Notes</a>. This part is by Ann and Bo. Series contributors: Site Owner, Ann, and Bo."
+        "Part 2 in the series <a href=\"https://example.test/series/notes/\">Notes</a>. This part is by Ann and Bo. Series contributors: Site Owner, Ann, and Bo."
     ));
-    assert!(public[6].contains("Part 1 of 2 in the series"));
+    assert!(public[6].contains("Part 1 in the series"));
     // No account, publication id, approval or other collaboration state reaches any of them.
     for text in &public {
         for private in [
