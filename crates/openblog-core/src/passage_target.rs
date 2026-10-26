@@ -268,6 +268,7 @@ impl PassageDocument {
             smart_punctuation,
             false,
             None,
+            false,
         ))
     }
 
@@ -285,6 +286,7 @@ impl PassageDocument {
             config.markdown.smart_punctuation,
             config.markdown.embeds,
             labels.as_ref(),
+            post.reading_depth().is_some(),
         ))
     }
 

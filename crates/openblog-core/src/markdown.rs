@@ -1809,12 +1809,25 @@ fn written_ids(events: &[Event<'_>]) -> std::collections::HashSet<String> {
     ids
 }
 
+/// For a post that opted in to reading modes, the renames [`render`] makes
+/// before it assigns heading ids: ids that belong to the supplements are
+/// freed and supplement headings are named. Everything that reads heading
+/// ids outside the renderer runs the same steps, so its ids are the page's.
+fn reserve_supplement_ids(events: &mut [Event<'_>], supplements: bool) {
+    if supplements {
+        crate::reading_depth::reserve_ids(events);
+        crate::reading_depth::name_headings(events);
+    }
+}
+
 /// Every heading id the author's Markdown gets, as [`render`] assigns them
 /// with or without citations: the author's `{#id}` values and the generated
-/// slugs.
-pub(crate) fn heading_ids(markdown: &str) -> Vec<String> {
-    let mut events = Parser::new_ext(markdown, parser_options(false)).collect::<Vec<_>>();
-    assign_heading_ids(&mut events, None, false);
+/// slugs. `supplements` is whether the post opted in to reading modes.
+pub(crate) fn heading_ids(markdown: &str, supplements: bool) -> Vec<String> {
+    let source = without_nul(markdown, supplements);
+    let mut events = Parser::new_ext(&source, parser_options(false)).collect::<Vec<_>>();
+    reserve_supplement_ids(&mut events, supplements);
+    assign_heading_ids(&mut events, None, supplements);
     events
         .into_iter()
         .filter_map(|event| match event {
@@ -1839,10 +1852,13 @@ pub(crate) fn passage_sections(
     smart_punctuation: bool,
     embeds: bool,
     notes: Option<&crate::bibliography::CitationNoteLabels<'_>>,
+    supplements: bool,
 ) -> Vec<(Option<String>, String)> {
+    let source = without_nul(markdown, supplements);
     let mut events =
-        Parser::new_ext(markdown, parser_options(smart_punctuation)).collect::<Vec<_>>();
-    assign_heading_ids(&mut events, notes, false);
+        Parser::new_ext(&source, parser_options(smart_punctuation)).collect::<Vec<_>>();
+    reserve_supplement_ids(&mut events, supplements);
+    assign_heading_ids(&mut events, notes, supplements);
     let notes_start = notes.and_then(|labels| generated_notes_heading(&events, labels));
     let mut sections: Vec<(Option<String>, String)> = vec![(None, String::new())];
     let mut in_code_block = false;

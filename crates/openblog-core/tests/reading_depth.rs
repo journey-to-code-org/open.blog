@@ -951,3 +951,65 @@ fn a_site_under_a_folder_names_its_base_path_so_its_saved_choice_is_its_own() {
     assert!(root.contains("<ob-reading-modes default=\"standard\">"));
     assert!(!root.contains("data-ob-base"));
 }
+
+fn rendered_heading_ids(html: &str) -> Vec<String> {
+    let mut ids = Vec::new();
+    let mut rest = html;
+    while let Some(at) = rest.find("<h") {
+        rest = &rest[at + 2..];
+        let end = rest.find('>').unwrap();
+        let tag = &rest[..end];
+        if tag.starts_with(|c: char| c.is_ascii_digit()) {
+            if let Some(id) = tag.split("id=\"").nth(1) {
+                ids.push(id.split('"').next().unwrap().to_string());
+            }
+        }
+    }
+    ids
+}
+
+#[test]
+fn passage_anchors_equal_the_rendered_heading_ids_for_an_opted_in_post() {
+    let body = "## OB Supplement notes\n\nFirst.\n\n\
+## Early {#ob-supplement-x}\n\nSecond.\n\n\
+> [!supplement kind=context]\n> ## Notes\n> Inside.\n\n\
+## Notes\n\nThird.\n";
+    let config = config();
+    let post = model::load_post(
+        &post_source("readingModes: true\n", body),
+        &config,
+        config.render_options(),
+    )
+    .unwrap();
+    assert!(post.reading_depth().is_some());
+    let document = openblog_core::passage_target::PassageDocument::of_post(&post, &config);
+    let anchors: Vec<String> = document
+        .sections
+        .iter()
+        .filter_map(|section| section.anchor.clone())
+        .collect();
+    let html = &post.html;
+    // Supplement headings carry the supplement's own ids, which are not the
+    // article's passages; every anchor is a rendered id, in the same order.
+    let rendered = rendered_heading_ids(html);
+    let article: Vec<String> = rendered
+        .iter()
+        .filter(|id| !id.starts_with("ob-supplement-"))
+        .cloned()
+        .collect();
+    let own: Vec<String> = anchors
+        .iter()
+        .filter(|id| !id.starts_with("ob-supplement-"))
+        .cloned()
+        .collect();
+    assert_eq!(own, article, "{html}");
+    assert!(
+        anchors.iter().all(|a| rendered.contains(a)),
+        "{anchors:?} {rendered:?}"
+    );
+    assert!(article.contains(&"notes".to_string()), "{article:?}");
+    assert!(
+        article.contains(&"section-ob-supplement-x".to_string()),
+        "{article:?}"
+    );
+}

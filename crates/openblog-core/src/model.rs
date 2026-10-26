@@ -1392,6 +1392,9 @@ fn load_post_in(
     let fm = &doc.front_matter;
     let mut profile = profile::resolve(fm);
     let is_recipe = profile.behavior == ProfileBehavior::Recipe;
+    // `readingModes: true`, or `{default: guided}` (ADR 0172).
+    let reading_setting =
+        crate::reading_depth::setting(fm.get("readingModes").or_else(|| fm.get("reading_modes")));
     // Citations are opt-in (ADR 0043): a post without `citations` is read
     // exactly as before, and so is one that opts in but cites nothing.
     let citation_style = CitationStyle::from_front_matter(first(fm, &["citations"]))?;
@@ -1431,7 +1434,11 @@ fn load_post_in(
             markdown.push('\n');
         }
         markdown.push_str(section);
-        match crate::claim_publication::check_section(&markdown, post_evidence) {
+        match crate::claim_publication::check_section(
+            &markdown,
+            post_evidence,
+            reading_setting.enabled,
+        ) {
             Ok(()) => Some(markdown),
             Err(error) => {
                 evidence_error = Some(error);
@@ -1459,7 +1466,14 @@ fn load_post_in(
             )?;
             // A failure keeps the citations as text and is left to the site
             // load, which knows whether this post is published now.
-            match bibliography::publish_citations(base, doc.body_line, style, locale, library) {
+            match bibliography::publish_citations(
+                base,
+                doc.body_line,
+                style,
+                locale,
+                reading_setting.enabled,
+                library,
+            ) {
                 Ok(published) => published.map(|published| (published, locale)),
                 Err(error) => {
                     citation_error = Some(error);
@@ -1469,9 +1483,6 @@ fn load_post_in(
         }
         _ => None,
     };
-    // `readingModes: true`, or `{default: guided}` (ADR 0172).
-    let reading_setting =
-        crate::reading_depth::setting(fm.get("readingModes").or_else(|| fm.get("reading_modes")));
     let mut rendered = markdown::render(
         published
             .as_ref()
