@@ -7,10 +7,13 @@ use std::collections::BTreeMap;
 
 use openblog_core::atlas_publication::PublicAtlas;
 use openblog_core::atlas_query::{
-    AtlasQuery, Direction, ATLAS_QUERY_JSON_FILE, MAX_EDGES, MAX_ENTRIES, MAX_LISTED_EDGES,
-    MAX_TEXT_CHARS, MAX_TRAIL_DEPTH, MAX_TRAIL_STEPS,
+    AtlasQuery, Direction, QueryRefusal, RefusalKind, ATLAS_QUERY_JSON_FILE, MAX_BYTES, MAX_EDGES,
+    MAX_ENTRIES, MAX_LISTED_EDGES, MAX_TEXT_CHARS, MAX_TRAIL_DEPTH, MAX_TRAIL_STEPS,
 };
 use openblog_core::knowledge_atlas::{Atlas, Links};
+use openblog_core::publication_boundary::{
+    BoundaryInputs, BoundaryManifest, ItemKind, Projection, ProjectionReport, Reason, Switches,
+};
 use openblog_core::research_notes::Notebook;
 use openblog_core::source_library::SourceLibrary;
 use openblog_core::{generate, LoadOptions, Site, SiteConfig, SourceFile, Sources, ThemeSet};
@@ -103,8 +106,14 @@ fn public(value: &Value) -> PublicAtlas {
     PublicAtlas::project(&atlas, &library).expect("a projection")
 }
 
+const AUTHOR: &str = "Site Author";
+
+fn project(atlas: &PublicAtlas) -> Result<AtlasQuery, QueryRefusal> {
+    AtlasQuery::project(atlas, AUTHOR, "")
+}
+
 fn query(value: &Value) -> AtlasQuery {
-    AtlasQuery::project(&public(value)).expect("a query projection")
+    project(&public(value)).expect("a query projection")
 }
 
 fn edge_ids(q: &AtlasQuery) -> Vec<&str> {
@@ -224,7 +233,7 @@ fn it_is_derived_from_the_public_atlas_alone() {
     let mut atlas = public(&base());
     // A projection that joins an entry it does not publish is refused whole.
     atlas.relationships[0].to = "secret".into();
-    let error = AtlasQuery::project(&atlas).unwrap_err();
+    let error = project(&atlas).unwrap_err().message;
     assert!(
         error.contains("r-authored") && !error.contains(PRIVATE),
         "{error}"
@@ -232,7 +241,7 @@ fn it_is_derived_from_the_public_atlas_alone() {
     // So is one that cites a source the public atlas does not describe.
     let mut atlas = public(&base());
     atlas.sources.retain(|s| s.reference.key != "scholar-book");
-    let error = AtlasQuery::project(&atlas).unwrap_err();
+    let error = project(&atlas).unwrap_err().message;
     assert!(error.contains("scholar-book"), "{error}");
 }
 
@@ -339,7 +348,7 @@ fn counts_and_addresses_are_bounded_and_refused_whole() {
         })
         .collect();
     many.relationships.clear();
-    let error = AtlasQuery::project(&many).unwrap_err();
+    let error = project(&many).unwrap_err().message;
     assert!(
         error.contains("entries") && error.contains("limit"),
         "{error}"
@@ -354,7 +363,7 @@ fn counts_and_addresses_are_bounded_and_refused_whole() {
             r
         })
         .collect();
-    let error = AtlasQuery::project(&many).unwrap_err();
+    let error = project(&many).unwrap_err().message;
     assert!(
         error.contains("relationships") && error.contains("limit"),
         "{error}"
@@ -370,20 +379,20 @@ fn counts_and_addresses_are_bounded_and_refused_whole() {
     ] {
         let mut bad = atlas.clone();
         bad.entries[0].url = url.into();
-        let error = AtlasQuery::project(&bad).unwrap_err();
+        let error = project(&bad).unwrap_err().message;
         assert!(error.contains("address"), "{url}: {error}");
         assert!(!error.contains(url), "the refusal never echoes the address");
     }
     let mut bad = atlas.clone();
     bad.entries[0].id = "../plato".into();
-    assert!(AtlasQuery::project(&bad).is_err());
+    assert!(project(&bad).is_err());
     let mut bad = atlas.clone();
     bad.relationships[0].id = "r?x#y".into();
-    assert!(AtlasQuery::project(&bad).is_err());
+    assert!(project(&bad).is_err());
     let mut bad = atlas.clone();
     let duplicate = bad.entries[0].clone();
     bad.entries.push(duplicate);
-    assert!(AtlasQuery::project(&bad).unwrap_err().contains("twice"));
+    assert!(project(&bad).unwrap_err().message.contains("twice"));
 }
 
 #[test]
@@ -517,4 +526,267 @@ fn an_atlas_over_a_bound_still_builds_without_the_query_file() {
     let out = built(&site(Some(atlas), "https://example.com"));
     assert!(out.contains_key("atlas.json") && out.contains_key("atlas/index.html"));
     assert!(!out.contains_key(ATLAS_QUERY_JSON_FILE));
+}
+
+// ---- review fixes (#72) ----------------------------------------------------
+
+fn manifest_of(site: &Site) -> BoundaryManifest {
+    let base_path = site.config.base_path();
+    BoundaryManifest::site(&BoundaryInputs {
+        switches: Switches::of(&site.config),
+        posts: &site.posts,
+        public_atlas: site.atlas.as_ref(),
+        atlas_blocked: None,
+        public_comparisons: None,
+        comparisons_blocked: None,
+        claims_blocked: None,
+        library: None,
+        notebook: None,
+        atlas: None,
+        claims: None,
+        alignments: None,
+        stale_comparisons: None,
+        acknowledgements: None,
+        unavailable: &[],
+        author: &site.config.author.name,
+        base_path: &base_path,
+    })
+}
+
+fn query_report(manifest: &BoundaryManifest) -> &ProjectionReport {
+    manifest
+        .projections
+        .iter()
+        .find(|report| report.projection == Projection::AtlasQuery)
+        .expect("the query projection is always listed")
+}
+
+#[test]
+fn a_works_own_source_is_kept_cited_and_listed() {
+    // Nothing but the work entry cites `scholar-book`.
+    let mut value = json!({"version": 1, "entries": [
+        entry("plato", "person", "Plato"),
+        {"id": "study", "kind": "work", "label": "The study", "source": "scholar-book",
+         "visibility": "approved"}]});
+    value["relationships"] = json!([]);
+    let q = query(&value);
+    assert_eq!(
+        q.entry("study").unwrap().source.as_deref(),
+        Some("scholar-book")
+    );
+    assert!(q.entry("plato").unwrap().source.is_none());
+    assert_eq!(q.sources.len(), 1);
+    assert!(q.source("scholar-book").unwrap().text.contains("A study"));
+    let parsed: Value = serde_json::from_str(&q.to_json()).unwrap();
+    assert_eq!(parsed["entries"][1]["source"], "scholar-book");
+    assert!(parsed["entries"][0].get("source").is_none());
+    // The manifest lists the field and the source item.
+    let site = site(Some(public(&value)), "https://example.com");
+    let manifest = manifest_of(&site);
+    let report = query_report(&manifest);
+    let study = report.published.iter().find(|i| i.id == "study").unwrap();
+    assert!(
+        study.fields.iter().any(|f| f == "source"),
+        "{:?}",
+        study.fields
+    );
+    assert_eq!(
+        manifest.published_ids(Projection::AtlasQuery, ItemKind::Source),
+        std::collections::BTreeSet::from(["scholar-book"])
+    );
+}
+
+#[test]
+fn display_text_is_precomputed_with_the_pages_wording() {
+    let atlas = public(&base());
+    let q = AtlasQuery::project(&atlas, "Mx Author", "").unwrap();
+    let plato = q.entry("plato").unwrap();
+    assert_eq!(plato.kind_label, "Person");
+    assert_eq!(q.entry("allegory").unwrap().kind_label, "Concept");
+    let authored = q.edge("r-authored").unwrap();
+    assert_eq!(authored.confidence_text, "Plausible");
+    assert_eq!(authored.standing_text, "Contested: 1 recorded dissent.");
+    assert_eq!(
+        authored.asserted_by_text,
+        atlas.party_text(&authored.asserted_by, "Mx Author")
+    );
+    assert!(authored
+        .asserted_by_text
+        .contains("A study of the dialogues"));
+    let stored = atlas.relationship("r-authored").unwrap();
+    assert_eq!(
+        authored.evidence[0].text,
+        atlas.evidence_text(&stored.evidence[0])
+    );
+    assert!(authored.evidence[0].text.contains("Platonis Rempublicam"));
+    assert!(
+        authored.evidence[0].text.contains("514"),
+        "{}",
+        authored.evidence[0].text
+    );
+    // An author-asserted edge names the author, as the page does.
+    let by_author = q.edge("r-discusses").unwrap();
+    assert_eq!(by_author.asserted_by_text, "Mx Author (the site author)");
+    assert!(by_author
+        .standing_text
+        .starts_with("Asserted. No disagreement"));
+    // And it is in the artifact, beside the machine values.
+    let value: Value = serde_json::from_str(&q.to_json()).unwrap();
+    let edge = value["edges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["id"] == "r-discusses")
+        .unwrap();
+    assert_eq!(edge["assertedByText"], "Mx Author (the site author)");
+    assert_eq!(edge["confidenceText"], "Plausible");
+    assert_eq!(edge["evidence"][0]["source"], "plato-republic");
+    assert!(edge["evidence"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("Politeia"));
+    assert_eq!(value["entries"][0]["kindLabel"], "Concept");
+}
+
+#[test]
+fn a_refused_projection_is_a_warning_and_a_reason_of_its_own() {
+    // Over a bound: left out, named in the build, with the over-limit reason.
+    let mut over = public(&base());
+    let template = over.entries[0].clone();
+    over.entries = (0..=MAX_ENTRIES)
+        .map(|i| {
+            let mut e = template.clone();
+            e.id = format!("e{i}");
+            e.url = format!("/atlas/e{i}/");
+            e
+        })
+        .collect();
+    over.relationships.clear();
+    over.datings.clear();
+    over.sources.clear();
+    let mut over_site = site(Some(public(&base())), "https://example.com");
+    over_site.atlas = Some(over);
+    let manifest = manifest_of(&over_site);
+    let report = query_report(&manifest);
+    assert!(report.published.is_empty());
+    assert_eq!(report.withheld.len(), 1);
+    assert_eq!(report.withheld[0].kind, ItemKind::AtlasQuery);
+    assert_eq!(report.withheld[0].reason, Reason::OverLimit);
+    let warnings = manifest.build_warnings();
+    assert!(
+        warnings.iter().any(|w| w
+            .starts_with("boundary: The atlas query file atlas-query.json is not written")
+            && w.contains("limit")),
+        "{warnings:?}"
+    );
+
+    // Not internally consistent: a reason of its own, still a warning.
+    let mut broken = public(&base());
+    broken.relationships[0].to = "secret".into();
+    let mut broken_site = site(Some(public(&base())), "https://example.com");
+    broken_site.atlas = Some(broken);
+    let manifest = manifest_of(&broken_site);
+    let item = &query_report(&manifest).withheld[0];
+    assert_eq!(item.reason, Reason::Inconsistent);
+    assert!(!item.message.contains(PRIVATE));
+    assert_eq!(
+        serde_json::to_value(item.reason).unwrap(),
+        json!("inconsistent")
+    );
+    assert!(manifest
+        .build_warnings()
+        .iter()
+        .any(|w| w.starts_with("boundary:") && w.contains("r-authored")));
+    assert_eq!(
+        AtlasQuery::project(broken_site.atlas.as_ref().unwrap(), AUTHOR, "")
+            .unwrap_err()
+            .kind,
+        RefusalKind::Inconsistent
+    );
+}
+
+/// An atlas of `edges` clones of one heavy relationship between two entries.
+fn heavy(edges: usize) -> PublicAtlas {
+    let mut atlas = public(&base());
+    let template = atlas.relationships[0].clone();
+    atlas.relationships = (0..edges)
+        .map(|i| {
+            let mut r = template.clone();
+            r.id = format!("r{i:05}");
+            r.uncertainty = Some("u".repeat(MAX_TEXT_CHARS));
+            r
+        })
+        .collect();
+    atlas.datings.clear();
+    atlas
+}
+
+#[test]
+fn the_size_bound_is_checked_after_the_base_path_is_added() {
+    let per_edge = AtlasQuery::project(&heavy(1000), AUTHOR, "")
+        .unwrap()
+        .to_json()
+        .len()
+        / 1000;
+    let edges = (MAX_BYTES * 97 / 100 / per_edge).min(MAX_EDGES);
+    assert!(
+        edges < MAX_EDGES,
+        "the bound is reachable below the edge count"
+    );
+    let atlas = heavy(edges);
+    assert!(
+        AtlasQuery::project(&atlas, AUTHOR, "").is_ok(),
+        "under the bound as written"
+    );
+    let base = format!("/{}", "b".repeat(300));
+    let error = AtlasQuery::project(&atlas, AUTHOR, &base).unwrap_err();
+    assert_eq!(error.kind, RefusalKind::OverLimit);
+    assert!(error.message.contains("as published"), "{}", error.message);
+
+    // The build leaves the file out for a site with that base path, and keeps
+    // the pages and atlas.json.
+    let prefixed = built(&site(
+        Some(atlas.clone()),
+        &format!("https://example.com{base}"),
+    ));
+    assert!(prefixed.contains_key("atlas.json"));
+    assert!(!prefixed.contains_key(ATLAS_QUERY_JSON_FILE));
+    let plain = built(&site(Some(atlas), "https://example.com"));
+    assert!(plain[ATLAS_QUERY_JSON_FILE].len() <= MAX_BYTES);
+}
+
+#[test]
+fn a_clip_never_leaves_half_a_cluster_before_the_ellipsis() {
+    let keep = MAX_TEXT_CHARS - 1;
+    for (tail, name) in [
+        ("e\u{301}\u{301}", "combining marks"),
+        ("\u{1F469}\u{200D}\u{1F469}", "a joined sequence"),
+        ("\u{2764}\u{FE0F}", "a variation selector"),
+    ] {
+        // `a` fills up to the cut, or just short of it. In the first case the
+        // cluster straddles the cut, so none of it may be kept; in the second
+        // it ends exactly at the cut and is kept whole, never ending in a
+        // joiner.
+        for (fill, straddles) in [(keep - 1, true), (keep - 2, false)] {
+            let long = format!("{}{tail}{}", "a".repeat(fill), "z".repeat(40));
+            let mut value = base();
+            value["entries"][0]["summary"] = json!(long);
+            let q = query(&value);
+            let preview = q.entry("plato").unwrap().preview.clone().unwrap();
+            let body = preview.strip_suffix('\u{2026}').expect("cut");
+            let last = body.chars().last().unwrap();
+            assert_ne!(last, '\u{200D}', "{name}: {preview:?}");
+            if straddles {
+                assert!(
+                    !matches!(
+                        last,
+                        '\u{301}' | '\u{FE0F}' | '\u{1F469}' | '\u{2764}' | 'e'
+                    ),
+                    "{name}: {preview:?}"
+                );
+                assert!(body.chars().all(|c| c == 'a'), "{name}: {preview:?}");
+            }
+            assert!(preview.chars().count() <= MAX_TEXT_CHARS, "{name}");
+        }
+    }
 }

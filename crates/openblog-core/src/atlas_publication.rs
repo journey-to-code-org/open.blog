@@ -643,6 +643,21 @@ pub fn confidence_text(confidence: Confidence) -> &'static str {
     }
 }
 
+/// Standing as a page words it: no recorded disagreement is never a claim of
+/// agreement.
+pub fn standing_text(standing: Standing, dissents: usize) -> String {
+    match standing {
+        Standing::Asserted => {
+            "Asserted. No disagreement is recorded here; that is not a claim that it is agreed."
+                .to_string()
+        }
+        Standing::Contested => format!(
+            "Contested: {dissents} recorded dissent{}.",
+            if dissents == 1 { "" } else { "s" }
+        ),
+    }
+}
+
 fn public_entry(entry: &Entry) -> PublicEntry {
     PublicEntry {
         id: entry.id.clone(),

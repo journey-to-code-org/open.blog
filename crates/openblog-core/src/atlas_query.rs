@@ -24,7 +24,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use serde::Serialize;
 
 use crate::atlas_publication::{
-    entry_url, escaped_json, PublicAtlas, PublicEvidence, PublicParty, ATLAS_URL,
+    confidence_text, entry_url, escaped_json, kind_label, standing_text, PublicAtlas,
+    PublicEvidence, PublicParty, ATLAS_URL,
 };
 use crate::knowledge_atlas::{valid_id, Confidence, EntryKind, RelationshipKind, Standing};
 
@@ -53,6 +54,31 @@ pub const MAX_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_TRAIL_DEPTH: usize = 3;
 /// Most steps one trail returns.
 pub const MAX_TRAIL_STEPS: usize = 200;
+
+/// Why a projection is not written.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RefusalKind {
+    /// Over a count or size bound.
+    OverLimit,
+    /// The published atlas does not agree with itself (an id that is not a
+    /// slug, an entry twice, a relationship that joins or cites something it
+    /// does not publish).
+    Inconsistent,
+}
+
+/// A refused projection: which kind, and a message naming limits and ids
+/// only, never an item's text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QueryRefusal {
+    pub kind: RefusalKind,
+    pub message: String,
+}
+
+impl std::fmt::Display for QueryRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
 
 /// The bounds a reader of the artifact can rely on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -96,9 +122,15 @@ pub struct AtlasQuery {
 pub struct QueryEntry {
     pub id: String,
     pub kind: EntryKind,
+    /// The kind as a word in running text ("Person"), so a component never
+    /// restates the page's wording.
+    pub kind_label: &'static str,
     pub label: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub aliases: Vec<String>,
+    /// Only on a work: the id of the source it stands for, one of `sources`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
     /// The first paragraph of the published summary, clipped to
     /// [`MAX_TEXT_CHARS`].
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -138,15 +170,24 @@ pub struct QueryEdge {
     pub label: &'static str,
     pub inverse_label: &'static str,
     pub asserted_by: PublicParty,
+    /// Who holds the position, as the page words it: the site author's name,
+    /// a source's title or the named party.
+    pub asserted_by_text: String,
     pub confidence: Confidence,
+    /// How firmly the asserting party holds it ("Plausible"), never how
+    /// widely it is accepted.
+    pub confidence_text: &'static str,
     /// `asserted`, or `contested` when any dissent is published. Never
     /// consensus.
     pub standing: Standing,
+    /// The standing as the page words it, including that nothing recorded is
+    /// not a claim of agreement.
+    pub standing_text: String,
     /// How many dissents the page lists; their text is on the page.
     #[serde(skip_serializing_if = "is_zero")]
     pub dissents: usize,
     /// Never empty: an unsourced relationship is never projected.
-    pub evidence: Vec<PublicEvidence>,
+    pub evidence: Vec<QueryEvidence>,
     /// The author's stated doubt, clipped to [`MAX_TEXT_CHARS`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub uncertainty: Option<String>,
@@ -155,6 +196,15 @@ pub struct QueryEdge {
     /// Where the relationship is shown in full: its anchor on the page of the
     /// entry it starts from.
     pub url: String,
+}
+
+/// One cited source and where in it, with the reference as the page words it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct QueryEvidence {
+    #[serde(flatten)]
+    pub evidence: PublicEvidence,
+    /// The reference, then where ("Politeia, p. 514-520").
+    pub text: String,
 }
 
 /// A source's public plain text.
@@ -201,33 +251,52 @@ pub struct Trail<'a> {
 }
 
 impl AtlasQuery {
-    /// Derive the query projection from the published atlas. Refuses, naming
-    /// the limit or ids only, when the atlas is over a bound or is not
-    /// internally consistent.
-    pub fn project(atlas: &PublicAtlas) -> Result<Self, String> {
+    /// Derive the query projection from the published atlas. `author` is the
+    /// site author's public name, which words an author-asserted position
+    /// exactly as the atlas pages do. Refuses, naming the limit or ids only,
+    /// when the atlas is over a bound ([`RefusalKind::OverLimit`]) or is not
+    /// internally consistent ([`RefusalKind::Inconsistent`]). `base_path` is
+    /// the site's base path (`""` or `"/blog"`), which the build puts in front
+    /// of every root-relative address, so the size bound is checked as
+    /// published.
+    pub fn project(
+        atlas: &PublicAtlas,
+        author: &str,
+        base_path: &str,
+    ) -> Result<Self, QueryRefusal> {
+        let over = |message: String| QueryRefusal {
+            kind: RefusalKind::OverLimit,
+            message,
+        };
+        let inconsistent = |message: String| QueryRefusal {
+            kind: RefusalKind::Inconsistent,
+            message,
+        };
         if atlas.entries.len() > MAX_ENTRIES {
-            return Err(format!(
+            return Err(over(format!(
                 "the published atlas has {} entries, over the query limit of {MAX_ENTRIES}",
                 atlas.entries.len()
-            ));
+            )));
         }
         if atlas.relationships.len() > MAX_EDGES {
-            return Err(format!(
+            return Err(over(format!(
                 "the published atlas has {} relationships, over the query limit of {MAX_EDGES}",
                 atlas.relationships.len()
-            ));
+            )));
         }
         let mut entries: Vec<QueryEntry> = Vec::with_capacity(atlas.entries.len());
         for entry in &atlas.entries {
             if !valid_id(&entry.id) {
-                return Err("a published atlas entry has an id that is not a slug".to_string());
+                return Err(inconsistent(
+                    "a published atlas entry has an id that is not a slug".to_string(),
+                ));
             }
             let url = entry_url(&entry.id);
             if entry.url != url || !safe_atlas_url(&url) {
-                return Err(format!(
+                return Err(inconsistent(format!(
                     "the published atlas entry `{}` has a page address outside {ATLAS_URL}",
                     entry.id
-                ));
+                )));
             }
             let (preview, preview_clipped) = match entry.summary.as_deref() {
                 Some(summary) => {
@@ -242,8 +311,10 @@ impl AtlasQuery {
             entries.push(QueryEntry {
                 id: entry.id.clone(),
                 kind: entry.kind,
+                kind_label: kind_label(entry.kind),
                 label: entry.label.clone(),
                 aliases: entry.aliases.clone(),
+                source: entry.source.clone(),
                 preview,
                 preview_clipped,
                 url,
@@ -255,10 +326,10 @@ impl AtlasQuery {
         }
         entries.sort_by(|a, b| a.id.cmp(&b.id));
         if let Some(pair) = entries.windows(2).find(|pair| pair[0].id == pair[1].id) {
-            return Err(format!(
+            return Err(inconsistent(format!(
                 "the published atlas lists the entry `{}` twice",
                 pair[0].id
-            ));
+            )));
         }
         let index: HashMap<String, usize> = entries
             .iter()
@@ -268,28 +339,36 @@ impl AtlasQuery {
 
         let mut edges: Vec<QueryEdge> = Vec::with_capacity(atlas.relationships.len());
         let mut cited: BTreeSet<&str> = BTreeSet::new();
+        // A work's own provenance is cited too, so its text is in `sources`.
+        for entry in &atlas.entries {
+            if let Some(source) = entry.source.as_deref() {
+                cited.insert(source);
+            }
+        }
         for r in &atlas.relationships {
             if !valid_id(&r.id) {
-                return Err("a published atlas relationship has an id that is not a slug".into());
+                return Err(inconsistent(
+                    "a published atlas relationship has an id that is not a slug".into(),
+                ));
             }
             if !index.contains_key(&r.from) || !index.contains_key(&r.to) {
-                return Err(format!(
+                return Err(inconsistent(format!(
                     "the published atlas relationship `{}` joins an entry that is not published",
                     r.id
-                ));
+                )));
             }
             if r.evidence.is_empty() {
-                return Err(format!(
+                return Err(inconsistent(format!(
                     "the published atlas relationship `{}` cites no source",
                     r.id
-                ));
+                )));
             }
             let url = format!("{}#atlas-r-{}", entry_url(&r.from), r.id);
             if !safe_atlas_url(&url) {
-                return Err(format!(
+                return Err(inconsistent(format!(
                     "the published atlas relationship `{}` has an unsafe page address",
                     r.id
-                ));
+                )));
             }
             let (uncertainty, uncertainty_clipped) = match r.uncertainty.as_deref() {
                 Some(text) => {
@@ -312,10 +391,20 @@ impl AtlasQuery {
                 label: r.label,
                 inverse_label: r.inverse_label,
                 asserted_by: r.asserted_by.clone(),
+                asserted_by_text: atlas.party_text(&r.asserted_by, author),
                 confidence: r.confidence,
+                confidence_text: confidence_text(r.confidence),
                 standing: r.standing,
+                standing_text: standing_text(r.standing, r.contested_by.len()),
                 dissents: r.contested_by.len(),
-                evidence: r.evidence.clone(),
+                evidence: r
+                    .evidence
+                    .iter()
+                    .map(|evidence| QueryEvidence {
+                        evidence: evidence.clone(),
+                        text: atlas.evidence_text(evidence),
+                    })
+                    .collect(),
                 uncertainty,
                 uncertainty_clipped,
                 url,
@@ -323,10 +412,10 @@ impl AtlasQuery {
         }
         edges.sort_by(|a, b| a.id.cmp(&b.id));
         if let Some(pair) = edges.windows(2).find(|pair| pair[0].id == pair[1].id) {
-            return Err(format!(
+            return Err(inconsistent(format!(
                 "the published atlas lists the relationship `{}` twice",
                 pair[0].id
-            ));
+            )));
         }
 
         // Each edge id goes on the entry it starts at and the entry it ends
@@ -349,9 +438,9 @@ impl AtlasQuery {
         let mut sources = Vec::with_capacity(cited.len());
         for id in cited {
             let Some(source) = atlas.source(id) else {
-                return Err(format!(
+                return Err(inconsistent(format!(
                     "a published atlas relationship cites the source `{id}`, which the atlas does not publish"
-                ));
+                )));
             };
             sources.push(QuerySource {
                 id: id.to_string(),
@@ -385,11 +474,14 @@ impl AtlasQuery {
             sources,
             terms,
         };
-        let size = query.to_json().len();
+        // Every entry and edge carries one root-relative address, which the
+        // build writes after the base path.
+        let size =
+            query.to_json().len() + (query.entries.len() + query.edges.len()) * base_path.len();
         if size > MAX_BYTES {
-            return Err(format!(
-                "the atlas query projection is {size} bytes, over the limit of {MAX_BYTES}"
-            ));
+            return Err(over(format!(
+                "the atlas query projection is {size} bytes as published, over the limit of {MAX_BYTES}"
+            )));
         }
         Ok(query)
     }
@@ -524,13 +616,44 @@ pub fn normalize_term(text: &str) -> String {
 
 /// Whitespace collapsed and cut to [`MAX_TEXT_CHARS`] characters on a
 /// character boundary, with an ellipsis when cut. Returns whether it was cut.
+///
+/// The cut never leaves a combining mark or variation selector at the start
+/// of what was dropped, or a zero width joiner at the end of what is kept: the
+/// base character such a mark or joiner belongs to goes with it, so the
+/// ellipsis never follows half a cluster. Only the common extenders are
+/// recognised (see [`is_extender`]); a script whose marks fall outside those
+/// ranges can still be cut between a base and a mark.
 fn clip(text: &str) -> (String, bool) {
     let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if flat.chars().count() <= MAX_TEXT_CHARS {
         return (flat, false);
     }
-    let cut: String = flat.chars().take(MAX_TEXT_CHARS - 1).collect();
+    let chars: Vec<char> = flat.chars().collect();
+    let mut keep = MAX_TEXT_CHARS - 1;
+    while keep > 0 && (is_extender(chars[keep]) || chars[keep - 1] == '\u{200D}') {
+        keep -= 1;
+    }
+    let cut: String = chars[..keep].iter().collect();
     (format!("{}\u{2026}", cut.trim_end()), true)
+}
+
+/// A character that continues the one before it: combining marks, variation
+/// selectors, emoji skin tone modifiers and the zero width joiner and
+/// non-joiner.
+fn is_extender(c: char) -> bool {
+    matches!(c,
+        '\u{0300}'..='\u{036F}'
+        | '\u{0483}'..='\u{0489}'
+        | '\u{0591}'..='\u{05BD}'
+        | '\u{064B}'..='\u{065F}'
+        | '\u{1AB0}'..='\u{1AFF}'
+        | '\u{1DC0}'..='\u{1DFF}'
+        | '\u{200C}'..='\u{200D}'
+        | '\u{20D0}'..='\u{20FF}'
+        | '\u{FE00}'..='\u{FE0F}'
+        | '\u{FE20}'..='\u{FE2F}'
+        | '\u{E0100}'..='\u{E01EF}'
+        | '\u{1F3FB}'..='\u{1F3FF}')
 }
 
 /// A root-relative address under the atlas section: no scheme, authority,

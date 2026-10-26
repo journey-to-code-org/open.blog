@@ -491,13 +491,16 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
             c.apply_base_path(&atlas.to_json()),
         )?;
         // The query projection (ADR 0200), derived from the projection above.
-        // One over a bound is left out and the pages and atlas.json stay the
-        // complete fallback; the build and the boundary preview say so.
-        if let Ok(query) = crate::atlas_query::AtlasQuery::project(atlas) {
-            out.add(
-                crate::atlas_query::ATLAS_QUERY_JSON_FILE.into(),
-                c.apply_base_path(&query.to_json()),
-            )?;
+        // A projection that is refused (over a bound, or not consistent) is
+        // left out and the pages and atlas.json stay the complete fallback;
+        // the build warns (`boundary:`) and the boundary preview says so.
+        if let Ok(query) =
+            crate::atlas_query::AtlasQuery::project(atlas, &c.author.name, &c.base_path())
+        {
+            let json = c.apply_base_path(&query.to_json());
+            if json.len() <= crate::atlas_query::MAX_BYTES {
+                out.add(crate::atlas_query::ATLAS_QUERY_JSON_FILE.into(), json)?;
+            }
         }
     }
     // Passage comparisons, only when the site publishes them (ADR 0092): the
@@ -2944,21 +2947,11 @@ impl<'a> Renderer<'a> {
             list.push_str("</ul>");
             list
         };
-        let (standing, standing_text) = match r.standing {
-            Standing::Asserted => (
-                "asserted",
-                "Asserted. No disagreement is recorded here; that is not a claim that it is agreed."
-                    .to_string(),
-            ),
-            Standing::Contested => (
-                "contested",
-                format!(
-                    "Contested: {} recorded dissent{}.",
-                    r.contested_by.len(),
-                    if r.contested_by.len() == 1 { "" } else { "s" }
-                ),
-            ),
+        let standing = match r.standing {
+            Standing::Asserted => "asserted",
+            Standing::Contested => "contested",
         };
+        let standing_text = atlas_publication::standing_text(r.standing, r.contested_by.len());
         let mut out = format!(
             "<li id=\"atlas-r-{}\" class=\"ob-atlas-relationship\" data-standing=\"{standing}\">\n<p>{}{} {} {}.</p>\n<dl>\n",
             attr(&r.id),

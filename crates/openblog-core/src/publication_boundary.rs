@@ -29,7 +29,7 @@ use serde_json::Value;
 
 use crate::alignment::AlignmentSet;
 use crate::atlas_publication::{aspect_noun, PublicAtlas};
-use crate::atlas_query::{AtlasQuery, ATLAS_QUERY_JSON_FILE};
+use crate::atlas_query::{AtlasQuery, RefusalKind, ATLAS_QUERY_JSON_FILE};
 use crate::citations::{public_identifier, public_url_problem, PublicReference};
 use crate::claims::{ClaimSet, Relation};
 use crate::comparison_publication::{PublicComparisons, Withheld};
@@ -132,6 +132,9 @@ pub enum Reason {
     PageNotPublished,
     /// Over a published size or count bound, so the file is left out whole.
     OverLimit,
+    /// The published projection does not agree with itself, so a file derived
+    /// from it is left out whole rather than written with a gap.
+    Inconsistent,
 }
 
 /// One field of a published item that is left out, and why.
@@ -337,6 +340,12 @@ pub struct BoundaryInputs<'a> {
     pub stale_comparisons: Option<&'a BTreeMap<String, String>>,
     pub acknowledgements: Option<usize>,
     pub unavailable: &'a [Unavailable],
+    /// The site author's public name, which words an author-asserted
+    /// position in the atlas query file as the atlas pages do.
+    pub author: &'a str,
+    /// The site's base path (`""` or `"/blog"`), put in front of every
+    /// root-relative address in a published data file.
+    pub base_path: &'a str,
 }
 
 fn present(fields: &mut Vec<String>, name: &str, present: bool) {
@@ -503,7 +512,10 @@ impl BoundaryManifest {
         let mut warnings = Vec::new();
         for report in &self.projections {
             for item in &report.withheld {
-                if item.reason == Reason::StaleApproval {
+                if matches!(
+                    item.reason,
+                    Reason::StaleApproval | Reason::OverLimit | Reason::Inconsistent
+                ) {
                     warnings.push(format!("boundary: {}", item.message));
                 }
             }
@@ -536,13 +548,14 @@ impl BoundaryManifest {
                     item.kind != ItemKind::Source || report.projection == Projection::Citations
                 })
                 .count();
-            if count > 0 && report.projection != Projection::AtlasQuery {
+            if count > 0 {
                 let name = match report.projection {
                     Projection::Citations => "cited sources",
                     Projection::ClaimEvidence => "claims and evidence links",
                     Projection::Atlas => "atlas entries and relationships",
                     Projection::Datings => "datings",
-                    Projection::AtlasQuery => "atlas query entries",
+                    // The query file repeats what the atlas already counts.
+                    Projection::AtlasQuery => continue,
                     Projection::Comparisons => "comparisons",
                     Projection::ContextLinks => "linked research pages",
                 };
@@ -1044,23 +1057,30 @@ fn atlas_query(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
     let Some(public) = inputs.public_atlas.filter(|_| report.enabled) else {
         return report;
     };
-    let query = match AtlasQuery::project(public) {
+    let query = match AtlasQuery::project(public, inputs.author, inputs.base_path) {
         Ok(query) => query,
-        Err(why) => {
+        Err(refusal) => {
             report.withheld.push(withheld(
                 ItemKind::AtlasQuery,
                 "atlas-query",
-                Reason::OverLimit,
+                match refusal.kind {
+                    RefusalKind::OverLimit => Reason::OverLimit,
+                    RefusalKind::Inconsistent => Reason::Inconsistent,
+                },
                 format!(
-                    "The atlas query file {ATLAS_QUERY_JSON_FILE} is not written: {why}. The atlas pages and atlas.json are unaffected."
+                    "The atlas query file {ATLAS_QUERY_JSON_FILE} is not written: {refusal}. The atlas pages and atlas.json are unaffected."
                 ),
             ));
             return report;
         }
     };
     for entry in &query.entries {
-        let mut fields: Vec<String> = ["kind", "label"].iter().map(|f| f.to_string()).collect();
+        let mut fields: Vec<String> = ["kind", "kindLabel", "label"]
+            .iter()
+            .map(|f| f.to_string())
+            .collect();
         present(&mut fields, "aliases", !entry.aliases.is_empty());
+        present(&mut fields, "source", entry.source.is_some());
         present(&mut fields, "preview", entry.preview.is_some());
         fields.push("url".to_string());
         present(&mut fields, "out", !entry.out.is_empty());
@@ -1080,9 +1100,14 @@ fn atlas_query(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
             "kind",
             "from",
             "to",
+            "label",
+            "inverseLabel",
             "assertedBy",
+            "assertedByText",
             "confidence",
+            "confidenceText",
             "standing",
+            "standingText",
             "evidence",
             "url",
         ]
@@ -1098,6 +1123,18 @@ fn atlas_query(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
             posts: Vec::new(),
             url: Some(edge.url.clone()),
             fields,
+            withheld_fields: Vec::new(),
+        });
+    }
+    // The public text of each source the file cites, as the atlas pages show it.
+    for source in &query.sources {
+        report.published.push(PublishedItem {
+            kind: ItemKind::Source,
+            id: source.id.clone(),
+            label: Some(source.text.clone()),
+            posts: Vec::new(),
+            url: None,
+            fields: vec!["text".to_string()],
             withheld_fields: Vec::new(),
         });
     }

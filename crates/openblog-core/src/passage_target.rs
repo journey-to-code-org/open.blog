@@ -1000,6 +1000,28 @@ impl Resolution {
 mod tests {
     use super::*;
 
+    /// The attributed-section digest is a stored identity: a target written
+    /// by one release must resolve in the next, so its exact bytes (label, NUL
+    /// separator, length prefix, text) are pinned. Changing any of them
+    /// changes every stored value, and so must fail here. The values were
+    /// computed independently with BLAKE2s-256, truncated to 16 bytes.
+    #[test]
+    fn the_attributed_section_digest_is_pinned() {
+        assert_eq!(
+            attributed_section_digest("A section of words."),
+            "ac8d1f6dcb8cf8257736552796f2e483"
+        );
+        assert_eq!(
+            attributed_section_digest(""),
+            "ff6c72bdeffde294efd45914a34b5773"
+        );
+        assert_ne!(
+            attributed_section_digest("A section of words."),
+            section_digest("A section of words."),
+            "a turn is never mistaken for a heading section"
+        );
+    }
+
     #[test]
     fn whitespace_collapses_and_nothing_else_changes() {
         assert_eq!(normalize_passage_text("  a\t\nb\u{00A0} c  "), "a b c");
