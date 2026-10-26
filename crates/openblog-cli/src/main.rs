@@ -385,26 +385,7 @@ fn run(raw: &[String]) -> Result<(), String> {
             Ok(())
         }
         "analytics" => analytics_command(&root, &args),
-        "check" => {
-            let (mut site, themes) = site::load_site(&root, true, None)?;
-            if args.switches.contains("json") {
-                return check_json(&root, &site);
-            }
-            let checked = check_site(&root, &mut site, &themes);
-            // The one research report, after the checks above and whether or
-            // not they stopped early, so the findings behind a refusal are
-            // listed with the same codes and order Admin shows (ADR 0148).
-            let readiness = readiness::report_of_all(&root, &site);
-            eprint!("{}", readiness.text());
-            checked?;
-            if readiness.blocking() > 0 {
-                return Err(format!(
-                    "research readiness: {} finding(s) refuse the next build; see above.",
-                    readiness.blocking()
-                ));
-            }
-            Ok(())
-        }
+        "check" => check_command(&root, args.switches.contains("json")),
         "themes" => {
             let config = site::load_config(&root)?;
             let themes = site::load_themes(&root, &config)?;
@@ -769,9 +750,23 @@ fn check_site(
     root: &std::path::Path,
     site: &mut openblog_core::Site,
     themes: &openblog_core::ThemeSet,
+    reported: bool,
+    quiet: bool,
 ) -> Result<(), String> {
+    // Standard output is the JSON document alone under `--json`.
+    macro_rules! say {
+        ($($arg:tt)*) => {
+            if !quiet {
+                println!($($arg)*);
+            }
+        };
+    }
+    // When the research report applies it lists every evidence and
+    // source-review finding itself, with the same codes, so they are not
+    // printed a second time; a site without research has none to print.
+    let own_lines = !reported;
     let files = site::generate_site(root, site, themes)?;
-    println!(
+    say!(
         "OK: {} posts, {} series, {} tags, {} pages; would write {} generated files.",
         site.posts.len(),
         site.series.len(),
@@ -786,21 +781,25 @@ fn check_site(
         eprintln!("warning: portability: {warning}");
     }
     serve::print_accessibility_findings(&site.accessibility);
-    serve::print_evidence_findings(&site.evidence);
+    if own_lines {
+        serve::print_evidence_findings(&site.evidence);
+    }
     if let Some(summary) = citation_summary(site) {
-        println!("{summary}");
+        say!("{summary}");
     }
     if let Some(summary) = check_source_library(root, &site.config.contributors)? {
-        println!("{summary}");
+        say!("{summary}");
     }
     if let Some(summary) = check_research_notebook(root, &site.config.contributors)? {
-        println!("{summary}");
+        say!("{summary}");
     }
     if let Some((summary, findings)) =
         check_source_review(root, &site.config.contributors, &site.source_review)?
     {
-        serve::print_source_review_findings(&findings);
-        println!("{summary}");
+        if own_lines {
+            serve::print_source_review_findings(&findings);
+        }
+        say!("{summary}");
     }
     if let Some((summary, notices)) = check_knowledge_atlas(
         root,
@@ -810,7 +809,7 @@ fn check_site(
         for notice in notices {
             eprintln!("notice: {notice}");
         }
-        println!("{summary}");
+        say!("{summary}");
     }
     if let Some((summary, notices, findings)) =
         check_claims(root, &site.config.contributors, &site.config.paths.content)?
@@ -818,8 +817,10 @@ fn check_site(
         for notice in notices {
             eprintln!("notice: {notice}");
         }
-        serve::print_evidence_findings(&findings);
-        println!("{summary}");
+        if own_lines {
+            serve::print_evidence_findings(&findings);
+        }
+        say!("{summary}");
     }
     if let Some((summary, notices)) = check_alignments(
         root,
@@ -829,26 +830,75 @@ fn check_site(
         for notice in notices {
             eprintln!("notice: {notice}");
         }
-        println!("{summary}");
+        say!("{summary}");
     }
     Ok(())
 }
 
-/// `openblog check --json`: the research readiness report of the saved site as
-/// deterministic machine-readable JSON, the same document Admin receives, and
-/// nothing else on standard output. Exits with an error, after printing it,
-/// only when a failure of a private file the build reads refuses the next
-/// build. Reads only.
-fn check_json(root: &std::path::Path, site: &openblog_core::Site) -> Result<(), String> {
-    let readiness = readiness::report_of_all(root, site);
-    print!("{}", readiness.json());
-    if readiness.blocking() > 0 {
-        return Err(format!(
-            "research readiness: {} finding(s) refuse the next build.",
-            readiness.blocking()
-        ));
+/// `openblog check` and `openblog check --json`.
+///
+/// Without `--json`, the checks print as they always did, then the one
+/// research report on standard error (ADR 0148). With `--json`, standard
+/// output is one JSON document and nothing else, always: the report Admin
+/// receives plus an `error` field that is `null` when the checks passed and
+/// the message when they did not, or when the site could not be loaded (the
+/// report is then empty). The exit status is `check`'s either way: nonzero
+/// when the site fails its checks or a failure of a private file the build
+/// reads refuses the next build, zero otherwise. Reads only.
+fn check_command(root: &std::path::Path, json: bool) -> Result<(), String> {
+    let (mut site, themes) = match site::load_site(root, true, None) {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            if json {
+                print!("{}", check_envelope(None, Some(&error)));
+            }
+            return Err(error);
+        }
+    };
+    // The report is read before the checks run, so a site that has research
+    // lists each evidence finding once, in the report, with the same codes
+    // and order Admin shows, and a site that has none prints what it always
+    // did.
+    let readiness = readiness::report_of_all(root, &site);
+    let checked = check_site(root, &mut site, &themes, readiness.applies, json);
+    let refused = (readiness.blocking() > 0).then(|| {
+        format!(
+            "research readiness: {} finding(s) refuse the next build{}",
+            readiness.blocking(),
+            if json { "." } else { "; see above." }
+        )
+    });
+    if json {
+        let error = checked.as_ref().err().or(refused.as_ref());
+        print!("{}", check_envelope(Some(&readiness), error));
+    } else {
+        // After the checks above, whether or not they stopped early, so the
+        // findings behind a refusal are listed too.
+        eprint!("{}", readiness.text());
     }
-    Ok(())
+    checked?;
+    refused.map_or(Ok(()), Err)
+}
+
+/// The JSON `check --json` prints: the report's own view, or an empty one
+/// when the site could not be loaded, and the error, if any. Deterministic,
+/// pretty-printed, with a trailing newline.
+fn check_envelope(readiness: Option<&readiness::Readiness>, error: Option<&String>) -> String {
+    let mut view = readiness.map_or_else(
+        || {
+            serde_json::json!({
+                "applies": false,
+                "findings": [],
+                "groups": [],
+                "notReviewed": [],
+            })
+        },
+        readiness::Readiness::view,
+    );
+    view["error"] = error.map_or(serde_json::Value::Null, |error| serde_json::json!(error));
+    let mut json = serde_json::to_string_pretty(&view).unwrap_or_default();
+    json.push('\n');
+    json
 }
 
 /// How many posts publish citations, and a plain statement that their checks

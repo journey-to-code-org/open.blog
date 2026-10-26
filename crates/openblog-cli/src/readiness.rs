@@ -67,6 +67,7 @@ impl Readiness {
     }
 
     /// Deterministic, pretty-printed JSON with a trailing newline.
+    #[cfg(test)]
     pub fn json(&self) -> String {
         let mut json = serde_json::to_string_pretty(&self.view()).unwrap_or_default();
         json.push('\n');
@@ -78,6 +79,13 @@ impl Readiness {
     /// site without research output reads exactly as before.
     pub fn text(&self) -> String {
         let mut text = self.review.text();
+        if text.is_empty() && self.applies && self.not_reviewed.is_empty() {
+            // A research site that raised nothing says so, rather than nothing.
+            text.push_str(
+                "Research checks: nothing to review
+",
+            );
+        }
         for item in &self.not_reviewed {
             text.push_str(&format!("research not reviewed: {}\n", item.message));
         }
@@ -164,7 +172,7 @@ pub fn report_of_all(root: &Path, site: &Site) -> Readiness {
 pub fn alongside(root: &Path, site: &Site, error: String) -> String {
     let report = report(root, site);
     let text = report.text();
-    if !report.applies || text.is_empty() {
+    if !report.applies || (report.review.findings.is_empty() && report.not_reviewed.is_empty()) {
         return error;
     }
     format!(

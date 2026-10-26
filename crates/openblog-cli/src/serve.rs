@@ -233,10 +233,14 @@ pub fn print_report(report: &site::BuildReport) {
         eprintln!("warning: {w}");
     }
     print_accessibility_findings(&report.accessibility);
-    print_evidence_findings(&report.evidence);
-    print_source_review_findings(&report.source_review);
-    if let Some(readiness) = &report.readiness {
-        eprint!("{}", readiness.text());
+    // The research report lists every evidence and source-review finding with
+    // the same codes, so a site that has one prints them there, once.
+    match &report.readiness {
+        Some(readiness) => eprint!("{}", readiness.text()),
+        None => {
+            print_evidence_findings(&report.evidence);
+            print_source_review_findings(&report.source_review);
+        }
     }
 }
 

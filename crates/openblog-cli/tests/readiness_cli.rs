@@ -281,3 +281,138 @@ fn a_site_without_research_prints_exactly_what_it_always_printed() {
     assert_eq!(view["findings"], json!([]));
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn a_research_site_with_nothing_to_report_says_so_and_a_site_without_research_stays_silent() {
+    let root = project("quiet", false);
+    fs::create_dir_all(root.join(".openblog/private/research")).unwrap();
+    fs::write(root.join(LIBRARY_FILE), r#"{"version": 1, "sources": []}"#).unwrap();
+    for args in [&["check"][..], &["build"][..]] {
+        let output = run(&root, args);
+        assert!(output.status.success(), "{}", text(&output.stderr));
+        assert!(
+            text(&output.stderr)
+                .lines()
+                .any(|line| line == "Research checks: nothing to review"),
+            "{args:?}: {}",
+            text(&output.stderr)
+        );
+    }
+    let json = run(&root, &["check", "--json"]);
+    let view: Value = serde_json::from_slice(&json.stdout).unwrap();
+    assert_eq!(view["applies"], true);
+    assert_eq!(view["findings"], json!([]));
+    assert_eq!(view["error"], Value::Null);
+    fs::remove_dir_all(&root).unwrap();
+
+    let plain = project("quiet-plain", false);
+    for args in [&["check"][..], &["build"][..]] {
+        let output = run(&plain, args);
+        assert!(output.status.success());
+        assert!(
+            !text(&output.stderr).contains("Research checks"),
+            "{}",
+            text(&output.stderr)
+        );
+    }
+    fs::remove_dir_all(&plain).unwrap();
+}
+
+#[test]
+fn check_json_always_prints_one_envelope_and_exits_as_check_does() {
+    // A site that cannot be loaded: JSON with an error, nothing else, and a failing exit.
+    let root = project("envelope", true);
+    fs::write(
+        root.join("content/posts/broken.md"),
+        "---\ntitle: [unclosed\n---\n\nbody\n",
+    )
+    .unwrap();
+    let plain = run(&root, &["check"]);
+    assert!(!plain.status.success());
+    let json = run(&root, &["check", "--json"]);
+    assert_eq!(
+        json.status.code(),
+        plain.status.code(),
+        "check's exit status"
+    );
+    let view: Value = serde_json::from_slice(&json.stdout).expect("JSON and nothing else");
+    assert_eq!(view["applies"], false);
+    assert_eq!(view["findings"], json!([]));
+    assert!(
+        view["error"].as_str().unwrap().contains("broken.md"),
+        "{view}"
+    );
+    assert_eq!(
+        run(&root, &["check", "--json"]).stdout,
+        json.stdout,
+        "deterministic"
+    );
+    fs::remove_dir_all(&root).unwrap();
+
+    // A site that loads but whose checks fail: the report and the error together.
+    let root = project("envelope-blocking", true);
+    fs::write(root.join(ATLAS_FILE), "{ not json").unwrap();
+    let plain = run(&root, &["check"]);
+    let json = run(&root, &["check", "--json"]);
+    assert_eq!(json.status.code(), plain.status.code());
+    assert!(!json.status.success());
+    let view: Value = serde_json::from_slice(&json.stdout).unwrap();
+    assert!(view["error"].is_string(), "{view}");
+    assert!(!view["findings"].as_array().unwrap().is_empty());
+    fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn check_and_build_print_each_finding_once_on_a_research_site() {
+    let root = project("once", true);
+    for args in [&["check"][..], &["build"][..]] {
+        let output = run(&root, args);
+        let stderr = text(&output.stderr);
+        assert!(
+            stderr.lines().any(|line| line.starts_with("research ")),
+            "{stderr}"
+        );
+        assert!(
+            !stderr
+                .lines()
+                .any(|line| line.starts_with("evidence ") || line.contains("source-review ")),
+            "{args:?} repeats a finding the report already lists: {stderr}"
+        );
+        let listed: Vec<&str> = stderr
+            .lines()
+            .filter(|line| line.starts_with("research "))
+            .collect();
+        let mut unique = listed.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(listed.len(), unique.len(), "{listed:?}");
+    }
+    fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn a_site_report_names_the_claims_of_the_site_not_of_a_post() {
+    let root = project("scope-wording", true);
+    let config_path = root.join("openblog.json");
+    let mut config: Value =
+        serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+    config["knowledgeAtlas"] = json!({"publish": false});
+    fs::write(&config_path, config.to_string()).unwrap();
+    // Claims are stored, the site does not publish them, and the notebook cannot be read.
+    fs::write(
+        root.join(".openblog/private/research/claims.json"),
+        r#"{"version": 1, "claims": [], "links": []}"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join(".openblog/private/research/notebook.json"),
+        "{ not json",
+    )
+    .unwrap();
+    let json = run(&root, &["check", "--json"]);
+    let view: Value = serde_json::from_slice(&json.stdout).unwrap();
+    let notes = view["notReviewed"].to_string();
+    assert!(!notes.contains("This post's claims"), "{notes}");
+    assert!(notes.contains("The claims were not reviewed"), "{notes}");
+    fs::remove_dir_all(&root).unwrap();
+}
