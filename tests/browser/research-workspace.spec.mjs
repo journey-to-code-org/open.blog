@@ -265,6 +265,18 @@ test("a kept notebook draft saved after the notebook changed elsewhere gets the 
   expect(dialogs).toEqual([]);
 });
 
+test("an address that names a source opens it in Sources", async ({ page }) => {
+  await openAdmin(page, "#/research/sources/plato-republic");
+  await expect(pageHeading(page)).toHaveText("Sources");
+  await expect(page.getByLabel("Title", { exact: true })).toHaveValue("Πολιτεία");
+  await expect(page.locator('[data-source-id="plato-republic"]')).toHaveAttribute("aria-current", "true");
+  await expect(page.locator("#oba-source-heading")).toBeFocused();
+  // An id the library does not have opens the panel with nothing selected.
+  await page.goto(`${origin}/admin/#/research/sources/missing`);
+  await expect(page.getByLabel("Title", { exact: true })).toHaveCount(0);
+  expect(dialogs).toEqual([]);
+});
+
 test("an earlier address of the open panel keeps its unsaved changes", async ({ page }) => {
   await openAdmin(page, "#/research/sources");
   await page.getByRole("button", { name: "New source" }).click();
