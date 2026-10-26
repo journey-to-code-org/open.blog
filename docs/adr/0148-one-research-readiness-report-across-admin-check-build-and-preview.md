@@ -80,6 +80,33 @@ all. #194 asks for one readiness report, built on the unified contract, that Adm
   label or rights note, and no fingerprint input (`facts`) is serialized or printed; the report
   is Admin and terminal output only and reaches no public page, feed, export or log. Tests
   scan the JSON, the terminal text and every public artifact for sentinels.
+- **One fixed set of posts.** The report is about every saved post, whatever a load holds back.
+  `readiness::report` reads the saved site with its drafts and without the clock (kept per
+  project for as long as its saved files are unchanged, so a rebuild of unchanged content, a
+  second reader and `serve` pay for it once), and a caller that already holds every post
+  (`check`) uses `report_of_all`. A draft or a post waiting for its date is warn-only in a site
+  report, so reading it changes no outcome of a build, and Admin, `check`, `check --json`,
+  `build` and `serve` list the same codes in the same order whether or not drafts are included.
+  A post's own review gathers the source-review findings of that post too, so its codes are the
+  site report's codes for that post.
+- **`check --json` is always one envelope.** Standard output is the report plus an `error` field:
+  `null` when the checks passed, the message when they did not or when the site could not be
+  loaded (the report is then empty and `applies` is false). The exit status is `check`'s: nonzero
+  when the site fails its checks or a failure of a private file the build reads refuses the next
+  build.
+- **A refusal carries the report.** A build error from a site with research prints the report
+  beside the error (the build's own refusal usually fires first, on the file it cannot read), so
+  the findings behind it use the contract's codes. The report's own refusal after a successful
+  generation stays as a backstop for a file the build did not itself read.
+- **Each finding is printed once.** When the report applies, `check` and `build` leave out the
+  older `evidence ... [code]` and source-review lines, which the report lists with the same
+  codes. Such lines exist only for a site with research, so a site without research is
+  byte for byte what it was. A research site that raised nothing prints
+  `Research checks: nothing to review`.
+- **Scope-specific words.** A site report says a finding must be fixed "before the next build"
+  and speaks of "the claims", not "this post's claims"; a post's review says "before
+  publishing". The review's JSON names its `scope`. A place is named once, by the contract
+  (`place` on each finding), in the terminal and in Admin's site report.
 - **Accessible.** The embedded report is a labelled section whose heading sits under its
   panel's, groups are labelled lists, counts are in a polite status region, every link and the
   acknowledgement toggle (`aria-pressed`) are keyboard operable, and it reflows at 320 pixels
