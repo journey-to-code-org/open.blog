@@ -2,8 +2,8 @@
 //!
 //! The notebook itself is never read by a build. What can still go wrong is
 //! that its bytes arrive in public input some other way: an exported research
-//! bundle saved into `static/` or `content/`, a copy of the notebook or
-//! Knowledge Atlas file, or a symlink. These guards recognise such files by structure (see
+//! bundle saved into `static/` or `content/`, a copy of the notebook,
+//! Knowledge Atlas or claims file, or a symlink. These guards recognise such files by structure (see
 //! [`openblog_core::research_bundle::looks_like_private_research`]), not by any
 //! particular words, so a post that quotes the same passage is never flagged,
 //! and they report only the file's path, never its contents.
@@ -98,7 +98,7 @@ pub fn refuse_private_research_in_public_inputs(
         return Ok(());
     }
     Err(format!(
-        "refusing to build: {} look{} like private research (a research export, or a copy of the notebook or Knowledge Atlas) inside a public folder, so it would be published. Move {} outside content, static and themes; builds never publish private research.",
+        "refusing to build: {} look{} like private research (a research export, or a copy of the notebook, Knowledge Atlas or claims file) inside a public folder, so it would be published. Move {} outside content, static and themes; builds never publish private research.",
         found
             .iter()
             .map(|path| format!("`{path}`"))
@@ -257,6 +257,37 @@ mod tests {
         );
         let error = refuse_private_research_in_public_inputs(&root, &config).unwrap_err();
         assert!(error.contains("Knowledge Atlas") && !error.contains("ob-atlas-secret"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_claims_file_copy_in_a_public_folder_is_refused_by_structure_alone() {
+        let root = temp_root("claims");
+        let config = SiteConfig::default();
+        fs::create_dir_all(root.join("static/data")).unwrap();
+        fs::create_dir_all(root.join("content/posts")).unwrap();
+        let claims = r#"{"version":1,"claims":[{"id":"c1","post":"p","statement":"ob-claims-secret"}],"links":[{"id":"l1","claim":"c1","relation":"contradicts","evidence":{"source":"s"}}]}"#;
+        fs::write(root.join("static/data/evidence.json"), claims).unwrap();
+        // Public data that merely mentions claims stays publishable.
+        fs::write(
+            root.join("static/data/claims.json"),
+            r#"{"version":1,"claims":[{"id":"x","title":"Not a private claim"}]}"#,
+        )
+        .unwrap();
+        // The private file itself is not public input.
+        fs::create_dir_all(root.join(".openblog/private/research")).unwrap();
+        fs::write(root.join(".openblog/private/research/claims.json"), claims).unwrap();
+        assert_eq!(
+            public_inputs_with_private_research(&root, &config),
+            ["static/data/evidence.json"]
+        );
+        let error = refuse_private_research_in_public_inputs(&root, &config).unwrap_err();
+        assert!(error.contains("claims file") && !error.contains("ob-claims-secret"));
+        let leaked = openblog_core::OutputFile {
+            path: "api/evidence.json".into(),
+            contents: claims.into(),
+        };
+        assert!(refuse_private_research_in_output(&[leaked]).is_err());
         fs::remove_dir_all(root).unwrap();
     }
 

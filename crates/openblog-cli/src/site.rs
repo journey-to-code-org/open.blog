@@ -1072,7 +1072,7 @@ mod tests {
         fs::remove_file(root.join(crate::notebook_store::NOTEBOOK_FILE)).unwrap();
         fs::remove_file(root.join(crate::atlas_store::ATLAS_FILE)).unwrap();
         let post = "---\ntitle: Cave\ndate: 2026-01-07\ncitations: bibliography\n---\n\nThe cave educates [@slings, page 514].\n";
-        let claims_file = root.join(".openblog/private/research/claims.json");
+        let claims_file = root.join(crate::claims_store::CLAIMS_FILE);
         let options = BuildOptions {
             include_drafts: false,
             out_override: None,
