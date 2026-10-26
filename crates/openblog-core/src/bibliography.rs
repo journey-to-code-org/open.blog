@@ -39,15 +39,16 @@ pub enum CitationStyle {
 
 impl CitationStyle {
     /// Read a post's `citations` front matter. `None` (absent, `false`,
-    /// `none` or `off`) means the post has not opted in and is published
-    /// exactly as before.
+    /// `no`, `off` or `none`) means the post has not opted in and is published
+    /// exactly as before; `true`, `yes` and `on` mean `notes`, as every other
+    /// boolean front matter field reads them (`FrontMatter::get_bool`).
     pub fn from_front_matter(value: Option<&str>) -> Result<Option<Self>, String> {
         let Some(value) = value else {
             return Ok(None);
         };
         match value.trim().to_ascii_lowercase().as_str() {
-            "" | "false" | "none" | "off" => Ok(None),
-            "true" | "notes" | "footnotes" => Ok(Some(Self::Notes)),
+            "" | "false" | "no" | "off" | "none" => Ok(None),
+            "true" | "yes" | "on" | "notes" | "footnotes" => Ok(Some(Self::Notes)),
             "bibliography" | "references" => Ok(Some(Self::Bibliography)),
             _ => Err("`citations` must be `notes` or `bibliography` (or `false`)".into()),
         }
@@ -221,9 +222,11 @@ pub struct CitationNoteLabels<'a> {
 
 impl CitationNoteLabels<'_> {
     /// The note number of a generated footnote label, or `None` for any
-    /// other footnote (an author's own notes are never touched).
+    /// other footnote (an author's own notes are never touched). Labels
+    /// compare case-insensitively, as the Markdown parser matches them.
     pub fn number(&self, label: &str) -> Option<usize> {
-        let rest = label.strip_prefix(self.prefix)?;
+        let label = label.to_lowercase();
+        let rest = label.strip_prefix(&self.prefix.to_lowercase())?;
         (!rest.is_empty()
             && rest.bytes().all(|byte| byte.is_ascii_digit())
             && !rest.starts_with('0'))
@@ -408,7 +411,11 @@ fn guidance(diagnostics: &[CitationDiagnostic], file_line: impl Fn(usize) -> usi
 }
 
 /// A footnote label prefix none of the author's footnotes uses with a
-/// number, so generated notes never collide with hand-written ones.
+/// number, so generated notes never collide with hand-written ones. The
+/// author's footnote labels are read with the renderer's parser, and the raw
+/// text is searched too: an undefined `[^cite-1]` is plain text to the parser,
+/// but a generated definition of that label would turn it into a marker.
+/// Both comparisons ignore case, as the parser matches labels.
 fn label_prefix(markdown: &str) -> String {
     let labels: BTreeSet<String> =
         Parser::new_ext(markdown, crate::markdown::parser_options(false))
@@ -419,13 +426,22 @@ fn label_prefix(markdown: &str) -> String {
                 _ => None,
             })
             .collect();
+    let text = markdown.to_lowercase();
+    let numbered = |rest: &str| !rest.is_empty() && rest.bytes().all(|byte| byte.is_ascii_digit());
+    let in_text = |prefix: &str| {
+        let opening = format!("[^{prefix}");
+        text.match_indices(&opening).any(|(at, _)| {
+            let rest = &text[at + opening.len()..];
+            rest.find(']').is_some_and(|close| numbered(&rest[..close]))
+        })
+    };
     let mut prefix = String::from("cite-");
     let mut attempt = 2;
-    while labels.iter().any(|label| {
-        label
-            .strip_prefix(&prefix)
-            .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|byte| byte.is_ascii_digit()))
-    }) {
+    while in_text(&prefix)
+        || labels
+            .iter()
+            .any(|label| label.strip_prefix(&prefix).is_some_and(numbered))
+    {
         prefix = format!("cite{attempt}-");
         attempt += 1;
     }
@@ -668,6 +684,20 @@ mod tests {
             Ok(Some(CitationStyle::Bibliography))
         );
         assert!(CitationStyle::from_front_matter(Some("apa")).is_err());
+        for (value, style) in [
+            ("yes", Some(CitationStyle::Notes)),
+            ("On", Some(CitationStyle::Notes)),
+            ("TRUE", Some(CitationStyle::Notes)),
+            ("no", None),
+            ("off", None),
+            ("none", None),
+        ] {
+            assert_eq!(
+                CitationStyle::from_front_matter(Some(value)),
+                Ok(style),
+                "{value}"
+            );
+        }
         assert_eq!(
             CitationLocale::for_post(None, "de-AT"),
             Ok(CitationLocale::De)
@@ -700,6 +730,7 @@ mod tests {
             locale: CitationLocale::En,
         };
         assert_eq!(labels.number("cite-12"), Some(12));
+        assert_eq!(labels.number("CITE-12"), Some(12));
         assert_eq!(labels.number("cite-01"), None);
         assert_eq!(labels.number("cite-x"), None);
         assert_eq!(labels.number("note"), None);

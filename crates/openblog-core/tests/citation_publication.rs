@@ -507,3 +507,21 @@ fn a_metadata_read_leaves_citations_as_text_and_load_post_cited_publishes_them()
         .iter()
         .any(|capability| capability.id == "citations" && capability.has_portable_fallback()));
 }
+
+#[test]
+fn an_authors_literal_cite_label_moves_the_generated_prefix() {
+    for literal in ["[^cite-1]", "[^CITE-1]"] {
+        let body = format!(
+            "---\ntitle: Literal\ndate: 2026-10-20\ncitations: notes\n---\nText {literal} and [@plato-republic].\n"
+        );
+        let site = cited_site(&body);
+        let published = site.posts[0].publication_markdown();
+        assert!(
+            published.starts_with(&format!("Text {literal} and [^cite2-1].")),
+            "{published}"
+        );
+        assert!(published.contains("\n[^cite2-1]: Plato."), "{published}");
+        // The author's literal stays text instead of turning into a marker.
+        assert!(site.posts[0].html.contains(literal), "{}", site.posts[0].html);
+    }
+}
