@@ -10200,6 +10200,8 @@ export class ObAdmin extends AdminElement {
       FEEDBACK_QUEUE_STATES.map((state) => h("a", { class: "oba-tab", href: `#/feedback/${state}`, "aria-current": state === status ? "page" : null }, FEEDBACK_STATE_LABELS[state])),
     );
     let publishedEtag = "absent";
+    // A message for a published card that outlives the reload replacing it, such as a conflict.
+    const publishedNotices = new Map();
     const announce = (line, message, kind) => {
       line.className = kind ? `oba-${kind}` : "oba-small";
       line.textContent = message;
@@ -10333,7 +10335,11 @@ export class ObAdmin extends AdminElement {
     const publishedCard = (item) => {
       const key = item.id;
       const titleId = `oba-published-${key}-title`;
-      const line = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+      const line = h("p", { class: "oba-small", role: "status", "aria-live": "polite", id: `oba-published-${key}-line`, tabindex: "-1" });
+      if (publishedNotices.has(key)) {
+        announce(line, publishedNotices.get(key), "error");
+        publishedNotices.delete(key);
+      }
       const responseId = `oba-published-${key}-response`;
       const response = h("textarea", { id: responseId, rows: "4", maxlength: "4000", "aria-describedby": `${responseId}-hint` });
       response.value = item.response?.text || "";
@@ -10345,7 +10351,11 @@ export class ObAdmin extends AdminElement {
           announce(line, text === null ? "Response removed. Rebuild or publish to update the live site." : "Response saved. Rebuild or publish to update the live site.", "ok");
         } catch (error) {
           announce(line, error.message, "error");
-          if (error.status === 409) await loadPublished();
+          if (error.status === 409) {
+            publishedNotices.set(key, error.message);
+            await loadPublished();
+            document.getElementById(`oba-published-${key}-line`)?.focus();
+          }
         }
       };
       const noteId = `oba-published-${key}-note`;
