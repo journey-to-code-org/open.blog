@@ -4,8 +4,9 @@ The private Knowledge Atlas holds contextual entries and the attributed relation
 them. It is owned by `openblog_core::knowledge_atlas` and stored by the CLI's `atlas_store`;
 decisions are in [ADR 0058](../adr/0058-knowledge-atlas-entries-keep-their-kind.md),
 [ADR 0059](../adr/0059-attributed-evidence-based-relationships.md),
-[ADR 0060](../adr/0060-private-knowledge-atlas-storage.md) and
-[ADR 0061](../adr/0061-one-lock-order-and-cross-store-research-guards.md). Nothing in it reaches
+[ADR 0060](../adr/0060-private-knowledge-atlas-storage.md),
+[ADR 0061](../adr/0061-one-lock-order-and-cross-store-research-guards.md) and
+[ADR 0062](../adr/0062-accessible-atlas-authoring-and-a-text-first-explorer.md). Nothing in it reaches
 a public page, feed, search index, `llms.txt` or export until an explicit publication
 projection copies approved items.
 
@@ -103,3 +104,32 @@ publish.
 
 `Atlas::index` gives sorted lookup tables computed from file order: entries by kind,
 relationships by entry, users by source and users by passage. Nothing is indexed on disk.
+
+## Admin API and workspace
+
+Defined by [ADR 0062](../adr/0062-accessible-atlas-authoring-and-a-text-first-explorer.md).
+Admin Studio's **Atlas** view (Research tools, next to Notebook, and `#/atlas/<id>`) lists,
+searches and filters entries by kind, edits one entry or relationship, and explores an
+entry's relationships as text. There is no graph drawing.
+
+| Route | Purpose |
+| --- | --- |
+| `GET /admin/api/research/atlas` | `file`, `revision`, `stored`, `entries`, `relationships`, `notices`, `missingConcepts`, `kinds` (each relationship kind's endpoint kinds, `inverse`, `symmetric`, `sameKind`, `acyclic`), the library's `sources`, and notebook `passages` as `id`, `source`, `locators`, `archived` and a short `preview`. |
+| `POST /admin/api/research/atlas/explore` | Body `{ id }`. `entry`, `outgoing` and `incoming`, each item with the relationship, its `label` read from this entry's side, the `other` entry, its derived `standing` (`asserted` or `contested`) and whether it is `projected`; for a concept, the notebook `notes` that link it. Read-only; an unknown id is `404`. |
+| `POST` / `PUT /admin/api/research/atlas/entries` | Body `{ revision, entry }`. Create refuses an id any entry or relationship uses; update refuses an unknown id or a new kind. |
+| `POST` / `PUT /admin/api/research/atlas/relationships` | Body `{ revision, relationship }`. Same rules. |
+| `DELETE /admin/api/research/atlas/entries`, `/relationships` | Body `{ revision, id }`. An entry a relationship joins is refused (`still-linked`); removing a concept returns `unresolvedNotes`. |
+
+All routes need an Admin session and, for changes, the CSRF token; a change is at most
+256 KiB, and responses are `no-store`. Successes return the new revision and the whole view,
+plus the saved `entry` or `relationship`. `409` carries `conflict`, the latest `revision`
+and the stored `current` copy; `422` carries scoped `diagnostics` and the `file`. An id in a
+removal or exploration request that is not an atlas identifier is `400` and is never echoed.
+
+The editor offers only the entries a relationship kind may join, sources from the library
+and passages from the notebook for evidence, the three kinds of attribution, confidence,
+an uncertainty note and recorded dissents. A relationship needs evidence or the explicit
+unsourced draft state. Standing is always written out ("Asserted; no recorded dissent" or
+"Contested: N recorded dissents (by ...)"), never as agreement. A conflict keeps the draft
+until the author uses the stored copy or keeps the draft on top of it. A notebook note's
+concept links open the matching entry, or a new concept with that identifier.

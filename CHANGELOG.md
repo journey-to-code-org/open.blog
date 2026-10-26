@@ -18,6 +18,15 @@ All notable changes to open.blog are recorded here. Releases follow
   until the atlas stops using it, and a copy of the atlas inside `content/`, `static/` or a
   theme stops the build and publishing. Nothing from the atlas reaches your site, feeds,
   search, `llms.txt` or exports.
+- Admin Studio has a new **Atlas** view under Research tools. You can list, search and filter
+  entries by kind, add and edit people, works, concepts, movements and events, and relate them
+  with pickers that offer only the entries a relationship kind may join. Each relationship
+  names who asserts it, rests on sources from your library (optionally a notebook passage) or
+  is marked as an unsourced draft, and records confidence, what is uncertain and who disputes
+  it. Each entry lists its incoming and outgoing relationships as text you can move through
+  from the keyboard, and a disputed relationship is always shown as contested, never as
+  agreed. A note's concepts in the notebook link to their atlas entries. Everything stays
+  private.
 
 ## [0.27.0] - 2026-10-25
 

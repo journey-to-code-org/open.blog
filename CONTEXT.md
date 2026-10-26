@@ -608,6 +608,17 @@ The fingerprint of the Knowledge Atlas as stored, which every change must name s
 based on an older read is refused instead of overwriting newer work.
 _Avoid_: Version, which names the file format
 
+**Relationship explorer**:
+The Admin list of one entry's relationships, outgoing and incoming, each read from that entry's
+side with who asserts it, its confidence, standing, evidence and uncertainty. It is the complete
+interface to the atlas's structure; any drawing could only repeat it.
+_Avoid_: Graph view, network map; a picture as the only way to read relationships
+
+**Incident reading**:
+How a relationship reads from one of its entries: its kind going out (`authored`), its inverse
+label coming in (`authored by`). A label for display, never a second stored assertion.
+_Avoid_: Reverse edge, inferred relationship
+
 ## Admin workspace
 
 **Workspace preferences**:
