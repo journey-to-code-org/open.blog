@@ -36,7 +36,7 @@ use crate::context_links::{find_context_links, ContextKind};
 use crate::knowledge_atlas::{Atlas, Visibility};
 use crate::model::Post;
 use crate::research_notes::Notebook;
-use crate::shingles::{each_shingle, Form};
+use crate::shingles::{each_output_shingle, each_shingle, Cuts, Form};
 use crate::source_library::SourceLibrary;
 
 /// The version of the serialized [`BoundaryManifest`].
@@ -279,6 +279,11 @@ pub struct BoundaryManifest {
     pub never: Vec<NeverPublished>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub unavailable: Vec<Unavailable>,
+    /// Public files that hold text a private research file also holds, as the
+    /// `boundary:` warnings a build prints (ADR 0137). Filled by the caller
+    /// that scanned the output; empty for a site without private research.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub text_matches: Vec<String>,
 }
 
 /// The switches of the projections, as the site configuration sets them.
@@ -455,6 +460,7 @@ impl BoundaryManifest {
             projections,
             never: never(inputs),
             unavailable: inputs.unavailable.to_vec(),
+            text_matches: Vec::new(),
         }
     }
 
@@ -478,6 +484,7 @@ impl BoundaryManifest {
             projections,
             never: never(inputs),
             unavailable: inputs.unavailable.to_vec(),
+            text_matches: Vec::new(),
         }
     }
 
@@ -1292,6 +1299,8 @@ pub struct PrivateText {
     origins: Vec<PrivateOrigin>,
     /// Shingle hash to the origin it first occurs in.
     shingles: HashMap<u64, u32>,
+    /// Known public short strings that generated text is cut at.
+    cuts: Cuts,
 }
 
 impl PrivateText {
@@ -1371,9 +1380,14 @@ impl PrivateText {
     }
 
     /// Allow every shingle of a public file or an approved projection's
-    /// output (HTML, JSON, Markdown, plain text).
+    /// output (HTML, JSON, Markdown, plain text). JSON is read field by field.
     pub fn allow_output(&mut self, text: &str) {
-        self.allow(text, Form::Output);
+        if self.shingles.is_empty() {
+            return;
+        }
+        each_output_shingle(text, None, |hash| {
+            self.shingles.remove(&hash);
+        });
     }
 
     fn allow(&mut self, text: &str, form: Form) {
@@ -1383,6 +1397,16 @@ impl PrivateText {
         each_shingle(text, form, |hash| {
             self.shingles.remove(&hash);
         });
+    }
+
+    /// Cut generated text at the edges of a known public short string (a
+    /// title, a heading, a tag or series name, a navigation label), so the
+    /// theme placing two of them side by side never makes a shingle across
+    /// them.
+    pub fn cut_at(&mut self, text: &str) {
+        if !self.shingles.is_empty() {
+            self.cuts.add(text);
+        }
     }
 
     /// Whether nothing is guarded.
@@ -1397,21 +1421,36 @@ impl PrivateText {
 
     /// The first private text `output` carries, if any.
     pub fn find(&self, path: &str, output: &[u8]) -> Option<Leak> {
-        if self.shingles.is_empty() {
-            return None;
+        self.find_all(path, output, 1).into_iter().next()
+    }
+
+    /// The private texts `output` carries, one per origin, at most `limit`.
+    /// A file that parses as JSON is read field by field.
+    pub fn find_all(&self, path: &str, output: &[u8], limit: usize) -> Vec<Leak> {
+        if self.shingles.is_empty() || limit == 0 {
+            return Vec::new();
         }
-        let mut leak = None;
-        each_shingle(&String::from_utf8_lossy(output), Form::Output, |hash| {
-            if leak.is_none() {
-                if let Some(&origin) = self.shingles.get(&hash) {
-                    leak = Some(Leak {
-                        output: path.to_string(),
-                        origin: self.origins[origin as usize].clone(),
-                    });
+        let mut origins: Vec<u32> = Vec::new();
+        each_output_shingle(
+            &String::from_utf8_lossy(output),
+            Some(&self.cuts),
+            |hash| {
+                if origins.len() < limit {
+                    if let Some(&origin) = self.shingles.get(&hash) {
+                        if !origins.contains(&origin) {
+                            origins.push(origin);
+                        }
+                    }
                 }
-            }
-        });
-        leak
+            },
+        );
+        origins
+            .into_iter()
+            .map(|origin| Leak {
+                output: path.to_string(),
+                origin: self.origins[origin as usize].clone(),
+            })
+            .collect()
     }
 }
 
@@ -1578,6 +1617,49 @@ wall of the cave</p>",
             ("https://example.com/x#section-2", true),
             ("https://example.com/x?passage=3&keyword=ethics", true),
             ("https://example.org/openurl?sid=google&genre=book", true),
+            // A fragment is a pair only when it has an `=`; a heading anchor is not.
+            ("https://en.wikipedia.org/wiki/Plato#Authorship", true),
+            ("https://plato.stanford.edu/entries/plato/#KeyConcepts", true),
+            ("https://example.org/x#Passwords-and-secrets", true),
+            ("https://example.org/x#/route?token=abc", false),
+            ("https://example.org/x#a=1&secret=2", false),
+            // Names are matched by word, not by substring.
+            ("https://example.org/search?author=Plato", true),
+            ("https://example.org/search?authors=Plato", true),
+            ("https://example.org/list?sortKey=title", true),
+            ("https://example.org/list?sort_key=title", true),
+            ("https://example.org/mss?siglum=A", true),
+            ("https://example.org/mss?sigla=A", true),
+            ("https://example.org/map?region=turkey&monkey=1", true),
+            ("https://example.org/page?design=wide", true),
+            ("https://example.org/page?bypass=1&passage=2&keyword=x", true),
+            ("https://books.google.com/books?id=abc&sig=ACfU3U", false),
+            ("https://example.org/x?key=abc", false),
+            ("https://example.org/x?API_KEY=abc", false),
+            ("https://example.org/x?apikey=abc", false),
+            ("https://example.org/x?accesstoken=abc", false),
+            ("https://example.org/x?xamzsignature=abc", false),
+            ("https://example.org/x?userPass=abc", false),
+            ("https://example.org/x?oauth_token=abc", false),
+            ("https://example.org/x?auth=abc", false),
+            // More private names and ranges.
+            ("http://wiki.corp/page", false),
+            ("http://build.test/page", false),
+            ("http://router.home/page", false),
+            ("http://nas.localdomain/page", false),
+            ("http://198.18.0.1/x", false),
+            ("http://198.19.255.254/x", false),
+            ("http://198.20.0.1/x", true),
+            ("http://224.0.0.1/x", false),
+            ("http://239.255.255.250/x", false),
+            ("http://240.0.0.1/x", false),
+            ("http://[::127.0.0.1]/x", false),
+            ("http://[::10.0.0.1]/x", false),
+            ("http://[::8.8.8.8]/x", true),
+            ("http://[2002:7f00:1::]/x", false),
+            ("http://[2002:c0a8:104::1]/x", false),
+            ("http://[2002:808:808::1]/x", true),
+            ("http://[ff02::1]/x", false),
         ] {
             assert_eq!(public_url_problem(url).is_none(), safe, "{url}");
         }

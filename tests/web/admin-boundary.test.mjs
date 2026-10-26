@@ -292,6 +292,16 @@ test("a refused build and one post's preview say so, at the heading level they a
   assert.equal(boundaryCountsText({}), "0 published, 0 withheld.");
 }));
 
+test("a text match is a notice naming the output, the file, the record and the field, not a refusal", withDom(async () => {
+  const warning = "boundary: `static/notes.txt` carries text from the research notebook (`.openblog/private/research/notebook.json`, `n1`, field `text`). Remove it there, or keep it.";
+  const root = createBoundaryPreview({ manifest: { ...MANIFEST(), textMatches: [warning] } });
+  const notice = root.querySelector("[data-boundary-text-match]");
+  assert.equal(notice.textContent, warning);
+  assert.equal(notice.className, "oba-notice");
+  assert.equal(root.querySelector("[data-boundary-refused]"), null);
+  assert.equal(createBoundaryPreview({ manifest: MANIFEST() }).querySelector("[data-boundary-text-match]"), null);
+}));
+
 test("every withheld item links to where it is changed, by its own address", () => {
   assert.equal(boundaryItemHref({ kind: "source", id: "a b" }), "#/research/sources/a%20b");
   assert.equal(boundaryItemHref({ kind: "entry", id: "plato" }), "#/research/atlas/plato");

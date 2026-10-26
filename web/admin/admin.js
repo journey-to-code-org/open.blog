@@ -7071,6 +7071,10 @@ export function createBoundaryPreview({ manifest, idPrefix = "oba-boundary", lev
   for (const missing of Array.isArray(manifest?.unavailable) ? manifest.unavailable : []) {
     root.append(h("p", { class: "oba-notice", "data-boundary-unavailable": missing.store }, `${BOUNDARY_STORES[missing.store] || missing.store} could not be read: ${missing.message} Repair ${missing.file} by hand. Nothing was changed.`));
   }
+  // Text a public file shares with a private research file: a warning, never a refusal.
+  for (const match of Array.isArray(manifest?.textMatches) ? manifest.textMatches : []) {
+    root.append(h("p", { class: "oba-notice", "data-boundary-text-match": "true" }, match));
+  }
   const itemTitle = (item) => h("strong", {}, h("bdi", {}, item.label || item.id));
   const itemKind = (item) => h("span", { class: "oba-small" }, ` ${BOUNDARY_KINDS[item.kind] || item.kind} `, h("code", {}, item.id));
   const repair = (item, text) => {

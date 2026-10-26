@@ -13422,8 +13422,14 @@ fn boundary_site(state: &AppState) -> Response {
     // and building the manifest happen without holding it.
     let guard = lock(&state.build);
     let loaded = site::load_site(&state.root, state.include_drafts, Some(clock::now()));
+    // The public-input check reads the content and static folders, so it runs
+    // under the same lock as the load: a save cannot land between the two.
+    let refused = loaded.as_ref().ok().and_then(|(site, _)| {
+        crate::private_guard::refuse_private_research_in_public_inputs(&state.root, &site.config)
+            .err()
+    });
     drop(guard);
-    let (mut site, _) = match loaded {
+    let (mut site, themes) = match loaded {
         Ok(loaded) => loaded,
         Err(error) => {
             return Response::json(
@@ -13437,11 +13443,12 @@ fn boundary_site(state: &AppState) -> Response {
             )
         }
     };
-    let refused =
-        crate::private_guard::refuse_private_research_in_public_inputs(&state.root, &site.config)
-            .err();
     let shared = crate::boundary::Shared::read(&state.root, &site.config);
-    let manifest = crate::boundary::site_preview(&state.root, &mut site, &shared);
+    let mut manifest = crate::boundary::site_preview(&state.root, &mut site, &shared);
+    // Text of private research found in the output the saved files generate.
+    let (matches, text_refusal) = crate::boundary::preview_text(&state.root, &site, &themes);
+    manifest.text_matches = matches;
+    let refused = refused.or(text_refusal);
     let mut view = serde_json::to_value(&manifest).unwrap_or_else(|_| json!({}));
     view["refused"] = json!(refused);
     Response::json(200, &view)
@@ -15778,6 +15785,34 @@ mod tests {
             ["cave-places"],
             "the build agrees with the panel"
         );
+    }
+
+    #[test]
+    fn a_text_match_is_a_warning_in_the_preview_and_in_the_build_and_never_names_the_text() {
+        let f = boundary_fixture("boundary-text-match");
+        let session = login_ok(&f);
+        let read = || {
+            let response = handle(
+                &f.state,
+                &authed(req("GET", "/admin/api/research/boundary"), &session, false),
+            );
+            assert_eq!(response.status, 200);
+            body_json(&response)
+        };
+        assert!(read().get("textMatches").is_none(), "nothing matches yet");
+        fs::write(f.dir.join("static/notes.txt"), leak("notetext")).unwrap();
+        let preview = read();
+        assert!(preview["refused"].is_null(), "{preview}");
+        let matches = preview["textMatches"].as_array().expect("a text match");
+        assert_eq!(matches.len(), 1, "{preview}");
+        let said = matches[0].as_str().unwrap();
+        for expected in ["boundary: ", "`notes.txt`", "`why`", "field `text`"] {
+            assert!(said.contains(expected), "{expected}: {said}");
+        }
+        assert!(!said.contains("ZqxLeak"), "{said}");
+        let report = production(&f.dir);
+        assert!(report.warnings.iter().any(|warning| warning == said));
+        assert_eq!(report.boundary.text_matches, [said]);
     }
 
     #[test]

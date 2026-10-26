@@ -64,12 +64,15 @@ pub fn run(
         .ok_or_else(|| format!("published post `{slug}` was not found"))?;
     if format != Format::Markdown {
         let export = bibliography_export(post, format)?;
-        crate::boundary::check_export(
+        for warning in crate::boundary::check_export(
             root,
             &site,
             &format!("the {} export of `{slug}`", format.key()),
             &export.content,
-        )?;
+            true,
+        )? {
+            eprintln!("warning: {warning}");
+        }
         return run_bibliography(post, &site, format, destination.as_deref(), write, json);
     }
     let projection = PortableProjection::for_site(&site, post)?;
@@ -77,12 +80,15 @@ pub fn run(
     let portable = projection.portable_html()?;
     // The publication boundary (ADR 0137): no private research text leaves
     // in an export that nothing public holds.
-    crate::boundary::check_export(
+    for warning in crate::boundary::check_export(
         root,
         &site,
         &format!("the portable Markdown of `{slug}`"),
         &markdown,
-    )?;
+        false,
+    )? {
+        eprintln!("warning: {warning}");
+    }
     if json {
         println!(
             "{}",

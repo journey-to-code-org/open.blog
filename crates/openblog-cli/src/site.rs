@@ -597,6 +597,26 @@ pub fn admin_file(root: &Path, config: &SiteConfig, rel: &str) -> Option<Vec<u8>
         .map(|(_, c)| c.as_bytes().to_vec())
 }
 
+/// The front-end assets the site's own `paths.web` folder adds to (or
+/// overrides in) the embedded ones, as paths under `assets/`: stylesheets,
+/// scripts and the WebAssembly build, never the Admin's.
+pub(crate) fn web_dir_assets(root: &Path, config: &SiteConfig) -> Vec<String> {
+    let web_dir = root.join(&config.paths.web);
+    let mut found = Vec::new();
+    for file in fsutil::walk(&web_dir) {
+        let rel = fsutil::relative(&web_dir, &file);
+        if rel.starts_with("admin/") {
+            continue;
+        }
+        let is_asset = rel.ends_with(".css") || rel.ends_with(".js") || rel.ends_with(".mjs");
+        let is_wasm = rel.starts_with("wasm/") && (rel.ends_with(".js") || rel.ends_with(".wasm"));
+        if is_asset || is_wasm {
+            found.push(rel);
+        }
+    }
+    found
+}
+
 pub fn web_file(root: &Path, config: &SiteConfig, rel: &str) -> Option<Vec<u8>> {
     let on_disk = root.join(&config.paths.web).join(rel);
     if let Ok(bytes) = fs::read(&on_disk) {
@@ -823,13 +843,16 @@ pub fn generate_site_with_boundary(
     // What the projections publish and withhold; a stale approval or an
     // unsafe web address withholds only what it affects, and is named.
     let stores = crate::boundary::Stores::read(root, &shared);
-    let manifest = crate::boundary::manifest(site, &stores, &blocked, None);
+    let mut manifest = crate::boundary::manifest(site, &stores, &blocked, None);
     site.warnings.extend(manifest.build_warnings());
     // Required destinations (including full-content feeds) must succeed before
     // generated output or stale files are changed.
     let files = generate(site, themes)?;
     crate::private_guard::refuse_private_research_in_output(&files)?;
-    crate::boundary::check_output(root, site, &manifest, &files)?;
+    // Private text found outside a projection's machine data only warns.
+    let text_matches = crate::boundary::check_output(root, site, &manifest, &files)?;
+    manifest.text_matches.clone_from(&text_matches);
+    site.warnings.extend(text_matches);
     Ok((files, manifest))
 }
 
@@ -903,15 +926,8 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
         .map(|(p, _)| p.to_string())
         .chain(EMBEDDED_WEB_BINARY.iter().map(|(p, _)| p.to_string()))
         .collect();
-    let web_dir = root.join(&config.paths.web);
-    for file in fsutil::walk(&web_dir) {
-        let rel = fsutil::relative(&web_dir, &file);
-        if rel.starts_with("admin/") {
-            continue;
-        }
-        let is_asset = rel.ends_with(".css") || rel.ends_with(".js") || rel.ends_with(".mjs");
-        let is_wasm = rel.starts_with("wasm/") && (rel.ends_with(".js") || rel.ends_with(".wasm"));
-        if (is_asset || is_wasm) && !asset_names.contains(&rel) {
+    for rel in web_dir_assets(root, config) {
+        if !asset_names.contains(&rel) {
             asset_names.push(rel);
         }
     }

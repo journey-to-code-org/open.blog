@@ -21,7 +21,7 @@ use openblog_core::comparison_publication::{stale_approvals, ComparisonInputs};
 use openblog_core::contributor::Contributor;
 use openblog_core::model::Post;
 use openblog_core::publication_boundary::{
-    BoundaryInputs, BoundaryManifest, ItemKind, PrivateText, Projection, Store, Switches,
+    BoundaryInputs, BoundaryManifest, ItemKind, Leak, PrivateText, Projection, Store, Switches,
     Unavailable,
 };
 use openblog_core::research_notes::Notebook;
@@ -311,33 +311,18 @@ fn read_capped(path: &Path, cap: u64) -> Option<Vec<u8>> {
     Some(bytes)
 }
 
-const TEXT_EXTENSIONS: &[&str] = &[
-    "md",
-    "markdown",
-    "txt",
-    "html",
-    "htm",
-    "json",
-    "xml",
-    "svg",
-    "csv",
-    "css",
-    "js",
-    "mjs",
-    "yml",
-    "yaml",
-    "toml",
-    "rss",
-    "atom",
-    "webmanifest",
-];
+/// How much of a file is read to tell text from binary.
+const SNIFF_BYTES: usize = 8 * 1024;
 
-/// Whether a copied static or theme file is text the guard scans: a known
-/// text extension, or none at all (`CNAME`, `_redirects`, `robots`).
-fn scanned_extension(file: &Path) -> bool {
-    match file.extension().and_then(|extension| extension.to_str()) {
-        Some(extension) => TEXT_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str()),
-        None => true,
+/// Whether the start of a file reads as text: no NUL byte and valid UTF-8
+/// (a character the sniff cut in two does not count against it).
+fn looks_like_text(head: &[u8]) -> bool {
+    if head.contains(&0) {
+        return false;
+    }
+    match std::str::from_utf8(head) {
+        Ok(_) => true,
+        Err(error) => error.error_len().is_none() && head.len() >= SNIFF_BYTES,
     }
 }
 
@@ -347,14 +332,68 @@ fn allow_file(guard: &mut PrivateText, path: &Path) {
     }
 }
 
+/// The front-matter fields a build renders as text, whichever name the author
+/// gave them.
+const RENDERED_FIELDS: &[&str] = &[
+    "title",
+    "name",
+    "subtitle",
+    "subheading",
+    "dek",
+    "description",
+    "summary",
+    "brief",
+    "excerpt",
+    "coverAlt",
+    "imageAlt",
+    "cover_alt",
+    "series",
+    "tags",
+    "categories",
+    "canonical",
+    "canonicalUrl",
+    "canonical_url",
+    "sourceUrl",
+    "source_url",
+    "hashnodeUrl",
+    "originalUrl",
+];
+
+/// Allow what a content file publishes: its body and the front-matter fields
+/// the build renders, read as the build reads them. A field the build does
+/// not render (an author's private memo kept in the front matter) is not
+/// public input, and does not make text public that it happens to hold.
+fn allow_source(guard: &mut PrivateText, path: &Path) {
+    let Some(bytes) = read_capped(path, MAX_ALLOWED_FILE) else {
+        return;
+    };
+    let source = String::from_utf8_lossy(&bytes);
+    let Ok(document) = openblog_core::frontmatter::parse(&source) else {
+        return;
+    };
+    guard.allow_text(&document.body);
+    for field in RENDERED_FIELDS {
+        match document.front_matter.fields.get(*field) {
+            Some(openblog_core::frontmatter::Value::Scalar(text)) => guard.allow_text(text),
+            Some(openblog_core::frontmatter::Value::List(items)) => {
+                for item in items {
+                    guard.allow_text(item);
+                }
+            }
+            None => {}
+        }
+    }
+}
+
 /// The guard for this site: every private research file's text, less what
 /// THIS build publishes (ADR 0137): the text of the published posts and
 /// pages, the published reader feedback file, the site's own configuration,
 /// the approved projections and the descriptions of the sources they publish.
 /// Drafts, held-back posts, other content files and the static and theme
 /// files are not public input: the static and theme files are copied out, so
-/// they are scanned like any other output.
-fn guard(root: &Path, site: &Site) -> PrivateText {
+/// they are scanned like any other output. `pages` lists the generated pages,
+/// whose own addresses a note may paste.
+fn guard(root: &Path, site: &Site, pages: &[&str]) -> PrivateText {
     let mut guard = PrivateText::new();
     for store in Store::ALL {
         if let Some(bytes) = read_capped(&root.join(store.file()), MAX_GUARDED_FILE) {
@@ -398,13 +437,25 @@ fn guard(root: &Path, site: &Site) -> PrivateText {
                 guard.allow_text(&source.title);
             }
         }
-        allow_file(&mut guard, &content.join(&post.source));
+        allow_source(&mut guard, &content.join(&post.source));
         // A source's public description is the citation allowlist (ADR 0044),
         // published with the post that cites it.
         if let Some(citations) = post.citations() {
             for reference in &citations.references {
                 allow_reference(&mut guard, reference);
             }
+        }
+        // The theme sets these strings side by side (table of contents,
+        // series list, related posts): cut the output at their edges.
+        guard.cut_at(&post.title);
+        if let Some(subtitle) = &post.subtitle {
+            guard.cut_at(subtitle);
+        }
+        for heading in &post.headings {
+            guard.cut_at(&heading.text);
+        }
+        for tag in &post.tags {
+            guard.cut_at(&tag.name);
         }
     }
     // The site's own addresses, which every page, feed and sitemap repeats:
@@ -420,23 +471,42 @@ fn guard(root: &Path, site: &Site) -> PrivateText {
     {
         guard.allow_text(&format!("{base}{url}"));
     }
+    // And the address of every page the build generates: atlas, comparisons,
+    // archive, feeds, pagination.
+    for path in pages {
+        for url in generated_urls(path) {
+            guard.allow_text(&format!("{base}{url}"));
+        }
+    }
     for page in &site.pages {
         guard.allow_text(&page.title);
         guard.allow_text(&page.description);
         guard.allow_text(&page.text);
         guard.allow_output(&page.html);
-        allow_file(&mut guard, &content.join(&page.source));
+        allow_source(&mut guard, &content.join(&page.source));
+        guard.cut_at(&page.title);
+        for heading in &page.headings {
+            guard.cut_at(&heading.text);
+        }
     }
     for series in &site.series {
         guard.allow_text(&series.name);
         guard.allow_text(&series.description_text);
         guard.allow_output(&series.description_html);
         if let Some(source) = &series.source {
-            allow_file(&mut guard, &content.join(source));
+            allow_source(&mut guard, &content.join(source));
+        }
+        guard.cut_at(&series.name);
+        for heading in openblog_core::shingles::headings(&series.description_html) {
+            guard.cut_at(&heading);
         }
     }
     for tag in &site.tags {
         guard.allow_text(&tag.name);
+        guard.cut_at(&tag.name);
+    }
+    for link in config.nav.iter().chain(&config.social) {
+        guard.cut_at(&link.label);
     }
     // Approved projections, as the build renders them.
     if let Some(atlas) = &site.atlas {
@@ -451,6 +521,19 @@ fn guard(root: &Path, site: &Site) -> PrivateText {
     guard
 }
 
+/// The addresses a generated file is served at: `index.html` is its folder.
+fn generated_urls(path: &str) -> Vec<String> {
+    let mut urls = vec![format!("/{path}")];
+    if let Some(folder) = path.strip_suffix("index.html") {
+        urls.push(format!("/{folder}"));
+        let bare = folder.trim_end_matches('/');
+        if !bare.is_empty() {
+            urls.push(format!("/{bare}"));
+        }
+    }
+    urls
+}
+
 fn allow_reference(guard: &mut PrivateText, reference: &openblog_core::citations::PublicReference) {
     if let Ok(json) = serde_json::to_string(reference) {
         guard.allow_output(&json);
@@ -458,24 +541,66 @@ fn allow_reference(guard: &mut PrivateText, reference: &openblog_core::citations
     guard.allow_text(&openblog_core::citations::format_reference(reference));
 }
 
-/// The static and theme files a build copies out, as `(output path, bytes)`:
-/// the files the guard scans because nothing allows their text.
-fn copied_files(root: &Path, config: &openblog_core::SiteConfig) -> Vec<(String, Vec<u8>)> {
+/// The static, theme and front-end asset files a build copies out, as
+/// `(output path, bytes)`: the files the guard scans because nothing allows
+/// their text, and a notice for each text file too large to scan. A file is
+/// text when its first 8 KiB hold no NUL byte and are valid UTF-8, whatever
+/// its extension (`.bib`, `.ris`, `.vtt`, `.tex`, `CNAME`).
+struct Copied {
+    files: Vec<(String, Vec<u8>)>,
+    notices: Vec<String>,
+}
+
+fn copied_files(root: &Path, config: &openblog_core::SiteConfig) -> Copied {
     let private = fsutil::PrivateState::of(root);
-    let mut copied = Vec::new();
+    let mut copied = Copied {
+        files: Vec::new(),
+        notices: Vec::new(),
+    };
+    let mut take = |output: String, file: &Path| {
+        let Ok(metadata) = fs::symlink_metadata(file) else {
+            return;
+        };
+        if !metadata.is_file() {
+            return;
+        }
+        let mut head = Vec::with_capacity(SNIFF_BYTES);
+        let Ok(opened) = fs::File::open(file) else {
+            return;
+        };
+        if opened
+            .take(SNIFF_BYTES as u64)
+            .read_to_end(&mut head)
+            .is_err()
+            || !looks_like_text(&head)
+        {
+            return;
+        }
+        if metadata.len() > MAX_ALLOWED_FILE {
+            copied.notices.push(format!(
+                "boundary: `{output}` is a text file larger than {} MiB, so it was not scanned for text from private research. Check it yourself, or keep it small enough to scan.",
+                MAX_ALLOWED_FILE / (1024 * 1024)
+            ));
+        } else if let Some(bytes) = read_capped(file, MAX_ALLOWED_FILE) {
+            copied.files.push((output, bytes));
+        }
+    };
     for (dir, prefix) in [
         (&config.paths.static_dir, ""),
         (&config.paths.themes, "themes/"),
     ] {
         let base = root.join(dir);
         for file in fsutil::walk(&base) {
-            if !scanned_extension(&file) || private.contains(&file) {
+            if private.contains(&file) {
                 continue;
             }
-            if let Some(bytes) = read_capped(&file, MAX_ALLOWED_FILE) {
-                copied.push((format!("{prefix}{}", fsutil::relative(&base, &file)), bytes));
-            }
+            take(format!("{prefix}{}", fsutil::relative(&base, &file)), &file);
         }
+    }
+    // The site's own front-end assets, which a build writes under `assets/`.
+    let web = root.join(&config.paths.web);
+    for rel in crate::site::web_dir_assets(root, config) {
+        take(format!("assets/{rel}"), &web.join(&rel));
     }
     copied
 }
@@ -544,15 +669,105 @@ fn unlisted(manifest: &BoundaryManifest, site: &Site, files: &[OutputFile]) -> V
     problems
 }
 
+/// What the text guard found in a build's outputs.
+#[derive(Debug, Default)]
+pub struct TextCheck {
+    /// Private text inside the machine-data outputs the build generates from
+    /// the projections: the build refuses.
+    pub refusals: Vec<Leak>,
+    /// `boundary:` warnings for private text elsewhere, and for text files too
+    /// large to scan: the build goes on.
+    pub warnings: Vec<String>,
+}
+
+/// The generated machine-data outputs of the projections, which carry only
+/// what a projection approved: the atlas, comparison and claim-evidence JSON.
+fn projection_data(path: &str) -> bool {
+    [
+        openblog_core::atlas_publication::ATLAS_JSON_FILE,
+        openblog_core::comparison_publication::COMPARISONS_JSON_FILE,
+        openblog_core::claim_publication::CLAIM_EVIDENCE_JSON_FILE,
+    ]
+    .contains(&path)
+}
+
+/// A page's reader reference data (`<script type="application/json"
+/// id="ob-references">`), when it has any, and the page without it.
+fn split_reference_data(page: &str) -> (Option<&str>, String) {
+    let marker = format!("id=\"{}\">", openblog_core::reader_references::READER_REFERENCES_ELEMENT_ID);
+    let Some(at) = page.find(&marker) else {
+        return (None, page.to_string());
+    };
+    let from = at + marker.len();
+    let Some(length) = page[from..].find("</script>") else {
+        return (None, page.to_string());
+    };
+    let data = &page[from..from + length];
+    let rest = format!("{}{}", &page[..from], &page[from + length..]);
+    (Some(data), rest)
+}
+
+/// Scan generated and copied files (ADR 0137). Private text in a projection's
+/// machine data (the atlas, comparisons and claim-evidence JSON, and a page's
+/// reader reference data), read field by field, is a refusal. Everywhere else
+/// (pages, feeds, search, llms, static, theme and front-end files) a match is
+/// a text comparison against what the author placed or wrote, so it is a
+/// warning naming the output, the file, the record and the field.
+fn scan_text(root: &Path, site: &Site, files: &[OutputFile]) -> TextCheck {
+    let paths: Vec<&str> = files.iter().map(|file| file.path.as_str()).collect();
+    let guard = guard(root, site, &paths);
+    let mut check = TextCheck::default();
+    if guard.is_empty() {
+        return check;
+    }
+    let mut warn = |leaks: Vec<Leak>| {
+        for leak in leaks {
+            check.warnings.push(format!(
+                "boundary: {leak}. The text is in a public file you placed or wrote (a post, a page, a static or theme file, a template or the configuration): remove it there, or keep it if it is meant to be public. The build is not stopped, and a note or passage is never published by itself."
+            ));
+        }
+    };
+    let mut refused = Vec::new();
+    let mut warned = Vec::new();
+    for file in files {
+        let path = file.path.as_str();
+        if projection_data(path) {
+            refused.extend(guard.find_all(path, file.contents.as_bytes(), NAMED_LEAKS));
+            continue;
+        }
+        let (data, rest) = if path.ends_with(".html") {
+            split_reference_data(&file.contents)
+        } else {
+            (None, file.contents.clone())
+        };
+        if let Some(data) = data {
+            refused.extend(guard.find_all(path, data.as_bytes(), NAMED_LEAKS));
+        }
+        warned.extend(guard.find_all(path, rest.as_bytes(), NAMED_LEAKS));
+    }
+    let copied = copied_files(root, &site.config);
+    for (path, bytes) in &copied.files {
+        warned.extend(guard.find_all(path, bytes, NAMED_LEAKS));
+    }
+    warn(warned);
+    check.refusals = refused;
+    check.warnings.extend(copied.notices);
+    check.warnings.sort();
+    check.warnings.dedup();
+    check
+}
+
 /// The build's last boundary check, before anything is written: refuse when
-/// generated output names an item no approved projection publishes, or
-/// carries text from a private research file that nothing public holds.
+/// generated output names an item no approved projection publishes, or a
+/// projection's machine data carries text from a private research file that no
+/// approved projection holds. Returns the `boundary:` warnings for private
+/// text found anywhere else.
 pub fn check_output(
     root: &Path,
     site: &Site,
     manifest: &BoundaryManifest,
     files: &[OutputFile],
-) -> Result<(), String> {
+) -> Result<Vec<String>, String> {
     let problems = unlisted(manifest, site, files);
     if !problems.is_empty() {
         return Err(format!(
@@ -560,41 +775,37 @@ pub fn check_output(
             problems.join("; ")
         ));
     }
-    let guard = guard(root, site);
-    if guard.is_empty() {
-        return Ok(());
+    let check = scan_text(root, site, files);
+    if !check.refusals.is_empty() {
+        return Err(leak_refusal(&check.refusals));
     }
-    let copied = copied_files(root, &site.config);
-    let leaks = guard_files(
-        &guard,
-        files
-            .iter()
-            .map(|file| (file.path.as_str(), file.contents.as_bytes()))
-            .chain(
-                copied
-                    .iter()
-                    .map(|(path, bytes)| (path.as_str(), bytes.as_slice())),
-            ),
-    );
-    if leaks.is_empty() {
-        return Ok(());
-    }
-    Err(leak_refusal(&leaks))
+    Ok(check.warnings)
 }
 
-fn guard_files<'a>(
-    guard: &PrivateText,
-    files: impl Iterator<Item = (&'a str, &'a [u8])>,
-) -> Vec<openblog_core::publication_boundary::Leak> {
-    if guard.is_empty() {
-        return Vec::new();
+/// What the Admin preview adds to the manifest: the `boundary:` warnings a
+/// build of the saved files would print for text matches, and the refusal it
+/// would make, if any. Nothing is generated for a site without private
+/// research.
+pub fn preview_text(
+    root: &Path,
+    site: &Site,
+    themes: &openblog_core::theme::ThemeSet,
+) -> (Vec<String>, Option<String>) {
+    let any_research = Store::ALL
+        .iter()
+        .any(|&store| store != Store::Acknowledgements && stored(root, store));
+    if !any_research {
+        return (Vec::new(), None);
     }
-    files
-        .filter_map(|(path, bytes)| guard.find(path, bytes))
-        .collect()
+    let Ok(files) = openblog_core::render::generate(site, themes) else {
+        return (Vec::new(), None);
+    };
+    let check = scan_text(root, site, &files);
+    let refusal = (!check.refusals.is_empty()).then(|| leak_refusal(&check.refusals));
+    (check.warnings, refusal)
 }
 
-fn leak_refusal(leaks: &[openblog_core::publication_boundary::Leak]) -> String {
+fn leak_refusal(leaks: &[Leak]) -> String {
     let named: Vec<String> = leaks
         .iter()
         .take(NAMED_LEAKS)
@@ -602,7 +813,7 @@ fn leak_refusal(leaks: &[openblog_core::publication_boundary::Leak]) -> String {
         .collect();
     let more = leaks.len().saturating_sub(NAMED_LEAKS);
     format!(
-        "refusing to build: private research would be published: {}{}. That text appears in a public output but not in any post or page this build publishes, and no approved projection holds it, so nothing was written. Remove it from where that output gets it (a static or theme file, a template or the configuration), or publish it deliberately: write it in a post, or approve the item through its projection. A note or passage is never published by itself.",
+        "refusing to build: private research would be published: {}{}. That text appears in machine data a projection generates (the atlas, comparisons or claim-evidence JSON, or a page's reference data) but no approved projection holds it, so nothing was written. Approve the item through its projection, or take the text out of the record that carries it. A note or passage is never published by itself.",
         named.join("; "),
         if more > 0 {
             format!(" and {more} more")
@@ -612,16 +823,34 @@ fn leak_refusal(leaks: &[openblog_core::publication_boundary::Leak]) -> String {
     )
 }
 
-/// The same text guard for a portable export of one post: refuse to hand
-/// out text from a private research file that nothing public holds.
-pub fn check_export(root: &Path, site: &Site, path: &str, text: &str) -> Result<(), String> {
-    let guard = guard(root, site);
-    match guard.find(path, text.as_bytes()) {
-        None => Ok(()),
-        Some(leak) => Err(leak_refusal(&[leak])
-            .replace("refusing to build", "refusing to export")
-            .replace("nothing was written", "no file was written")),
+/// The same text guard for a portable export of one post. A bibliography
+/// export is reference data, so private text in it refuses; any other export
+/// (the post's Markdown or HTML) only warns. Returns the warnings.
+pub fn check_export(
+    root: &Path,
+    site: &Site,
+    path: &str,
+    text: &str,
+    reference_data: bool,
+) -> Result<Vec<String>, String> {
+    let guard = guard(root, site, &[]);
+    let leaks = guard.find_all(path, text.as_bytes(), NAMED_LEAKS);
+    if leaks.is_empty() {
+        return Ok(Vec::new());
     }
+    if reference_data {
+        return Err(leak_refusal(&leaks)
+            .replace("refusing to build", "refusing to export")
+            .replace("nothing was written", "no file was written"));
+    }
+    Ok(leaks
+        .into_iter()
+        .map(|leak| {
+            format!(
+                "boundary: {leak}. The text is in the post you are exporting, which you wrote: remove it there, or keep it if it is meant to be public. The export is not stopped."
+            )
+        })
+        .collect())
 }
 
 #[cfg(test)]
@@ -667,7 +896,7 @@ mod tests {
         root
     }
 
-    fn checked(root: &Path, files: &[OutputFile]) -> Result<(), String> {
+    fn checked(root: &Path, files: &[OutputFile]) -> Result<Vec<String>, String> {
         let (mut site, _) = crate::site::load_site(root, false, None).unwrap();
         let shared = Shared::read(root, &site.config);
         let blocked = project_with(root, &mut site, &shared);
@@ -684,17 +913,18 @@ mod tests {
     }
 
     #[test]
-    fn private_text_in_generated_output_refuses_the_build_naming_where_it_came_from() {
-        let root = project_with_note("leak", "");
+    fn private_text_in_a_projection_data_file_refuses_the_build_naming_where_it_came_from() {
+        let root = project_with_note("leak", r#"{"knowledgeAtlas":{"publish":true}}"#);
         let leaked = page(
-            "about/index.html",
-            "<p>&ldquo;A PRIVATE reading of the allegory that only the author&rdquo;</p>",
+            "atlas.json",
+            &serde_json::json!({"entries":[{"id":"plato-person","label":format!("A PRIVATE reading of the allegory that only the author, {NOTE}")}]})
+                .to_string(),
         );
-        let error =
-            checked(&root, &[page("index.html", "<p>Hello</p>"), leaked.clone()]).unwrap_err();
+        let error = checked(&root, &[page("index.html", "<p>Hello</p>"), leaked.clone()])
+            .unwrap_err();
         for expected in [
             "refusing to build",
-            "`about/index.html`",
+            "`atlas.json`",
             "the research notebook",
             ".openblog/private/research/notebook.json",
             "`n1`",
@@ -704,17 +934,71 @@ mod tests {
             assert!(error.contains(expected), "{expected}: {error}");
         }
         assert!(!error.to_lowercase().contains("allegory"), "{error}");
+        // A reference data block on a page is machine data too.
+        let page_with_data = page(
+            "posts/a/index.html",
+            &format!(
+                "<p>Fine</p><script type=\"application/json\" id=\"ob-references\">{}</script>",
+                serde_json::json!({"references":[{"title":NOTE}]})
+            ),
+        );
+        let error = checked(&root, &[page_with_data]).unwrap_err();
+        assert!(error.contains("`posts/a/index.html`"), "{error}");
 
         // The same words in a post are the author's own public text.
         fs::write(
             root.join("content/posts/2026-01-07-reading.md"),
-            format!("---\ntitle: Reading\ndate: 2026-01-07\n---\n\n{NOTE}.\n"),
+            format!("---
+title: Reading
+date: 2026-01-07
+---
+
+{NOTE}.
+"),
         )
         .unwrap();
-        assert_eq!(checked(&root, &[leaked]), Ok(()));
+        assert_eq!(checked(&root, &[leaked]), Ok(Vec::new()));
         let _ = fs::remove_dir_all(root);
     }
 
+    #[test]
+    fn private_text_in_a_page_warns_naming_the_output_the_file_the_record_and_the_field() {
+        let root = project_with_note("warn", "");
+        let leaked = page(
+            "about/index.html",
+            "<p>&ldquo;A PRIVATE reading of the allegory that only the author&rdquo;</p>",
+        );
+        let warnings = checked(&root, &[page("index.html", "<p>Hello</p>"), leaked.clone()])
+            .expect("a page only warns");
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        let said = &warnings[0];
+        for expected in [
+            "boundary: ",
+            "`about/index.html`",
+            "the research notebook",
+            ".openblog/private/research/notebook.json",
+            "`n1`",
+            "field `text`",
+            "remove it there, or keep it",
+        ] {
+            assert!(said.contains(expected), "{expected}: {said}");
+        }
+        assert!(!said.to_lowercase().contains("allegory"), "{said}");
+        // The same words in a post are the author's own public text.
+        fs::write(
+            root.join("content/posts/2026-01-07-reading.md"),
+            format!("---
+title: Reading
+date: 2026-01-07
+---
+
+{NOTE}.
+"),
+        )
+        .unwrap();
+        assert_eq!(checked(&root, &[leaked]), Ok(Vec::new()));
+        let _ = fs::remove_dir_all(root);
+    }
     #[test]
     fn a_page_or_artifact_for_an_unpublished_item_refuses_the_build() {
         let root = project_with_note("unlisted", r#"{"knowledgeAtlas":{"publish":true}}"#);
@@ -723,7 +1007,7 @@ mod tests {
                 &root,
                 &[page("atlas/plato-person/index.html", "<p>Plato</p>")]
             ),
-            Ok(())
+            Ok(Vec::new())
         );
         let error =
             checked(&root, &[page("atlas/secret/index.html", "<p>Secret</p>")]).unwrap_err();
@@ -846,8 +1130,32 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
+    /// Build `root` into its own `out` folder and return the `boundary:` warnings.
+    fn warnings_of(root: &Path) -> Vec<String> {
+        build_into(root, &root.join("out"))
+            .unwrap_or_else(|error| panic!("the build refused: {error}"))
+            .warnings
+            .into_iter()
+            .filter(|warning| warning.starts_with("boundary:"))
+            .collect()
+    }
+
+    fn put(root: &Path, path: &str, contents: impl AsRef<[u8]>) {
+        let file = root.join(path);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(&file, contents).unwrap();
+    }
+
+    fn set_notes(root: &Path, notes: Value) {
+        let path = root.join(".openblog/private/research/notebook.json");
+        let mut notebook: Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        notebook["notes"] = notes;
+        fs::write(&path, notebook.to_string()).unwrap();
+    }
+
     #[test]
-    fn short_punctuated_notes_leaked_through_static_or_theme_files_refuse_the_build() {
+    fn short_punctuated_notes_in_static_or_theme_files_warn_and_the_build_goes_on() {
         for (tag, path, shown, contents, id) in [
             (
                 "static-note",
@@ -875,28 +1183,161 @@ mod tests {
             ),
         ] {
             let root = research_site(tag);
-            let file = root.join(path);
-            fs::create_dir_all(file.parent().unwrap()).unwrap();
-            fs::write(&file, contents).unwrap();
-            let out = root.join("out");
-            let error = build_into(&root, &out).err().expect(tag);
+            put(&root, path, contents);
+            let warnings = warnings_of(&root);
+            assert_eq!(warnings.len(), 1, "{tag}: {warnings:?}");
             for expected in [
-                "refusing to build",
                 &format!("`{shown}`"),
                 "the research notebook",
                 &format!("`{id}`"),
-                "nothing was written",
-                "write it in a post",
+                "remove it there, or keep it",
             ] {
-                assert!(error.contains(expected), "{tag}: {expected}: {error}");
+                assert!(
+                    warnings[0].contains(expected),
+                    "{tag}: {expected}: {warnings:?}"
+                );
             }
             assert!(
-                !error.contains("Smith") && !error.contains("Dana"),
-                "{error}"
+                !warnings[0].contains("Smith") && !warnings[0].contains("Dana"),
+                "{warnings:?}"
             );
-            assert!(!out.join("index.html").exists(), "{tag}");
+            assert!(
+                root.join("out/index.html").exists(),
+                "{tag}: the build went on"
+            );
             let _ = fs::remove_dir_all(root);
         }
+    }
+
+    #[test]
+    fn a_note_listing_the_posts_own_headings_or_series_titles_or_an_atlas_address_warns_nothing() {
+        // The theme sets headings side by side in its table of contents and
+        // series titles in its series list: windows across them are no leak.
+        let root = research_site("outline");
+        write_post(
+            &root,
+            "plato",
+            "",
+            "Opening words.\n\n## Introduction\n\nText.\n\n## The cave\n\nText.\n\n## The divided line\n\nText.\n\n## The sun\n\nText.\n\n## Conclusion\n\nText.",
+        );
+        for (index, title) in ["The cave", "The divided line", "The sun"]
+            .iter()
+            .enumerate()
+        {
+            let part = index + 1;
+            fs::write(
+                root.join(format!("content/posts/p{part}.md")),
+                format!(
+                    "---\ntitle: {title}\ndate: 2026-01-0{part}\nseries: plato\nseriesOrder: {part}\n---\n\nBody text of part {part} about something else.\n"
+                ),
+            )
+            .unwrap();
+        }
+        set_notes(
+            &root,
+            serde_json::json!([
+                {"id": "n1", "kind": "observation", "text": "Outline: Introduction, The cave, The divided line, The sun, Conclusion"},
+                {"id": "n2", "kind": "observation", "text": "Series plan: The cave; The divided line; The sun."},
+                {"id": "n3", "kind": "observation", "text": "Entry is live at https://example.com/atlas/allegory-of-the-cave/ and https://example.com/archive/ and https://example.com/feed.json"},
+            ]),
+        );
+        let config_path = root.join("openblog.json");
+        let mut config: Value =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        config["knowledgeAtlas"] = serde_json::json!({"publish": true});
+        config["url"] = serde_json::json!("https://example.com");
+        fs::write(&config_path, config.to_string()).unwrap();
+        put(
+            &root,
+            ".openblog/private/research/atlas.json",
+            r#"{"version":2,"entries":[{"id":"allegory-of-the-cave","kind":"concept","label":"Allegory of the cave","visibility":"approved"}],"relationships":[]}"#,
+        );
+        let warnings = warnings_of(&root);
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_note_with_markup_or_backslashes_is_found_as_the_output_writes_it() {
+        let root = research_site("normalise");
+        let tagged = "A <i>reading</i> of the <i>cave</i> that the <i>author</i> keeps <i>private</i> until <i>Dana</i> agrees to it";
+        let tex = r"Set \theta to the new value before the next run, then copy C:\new\tmp\data back";
+        set_notes(
+            &root,
+            serde_json::json!([
+                {"id": "n1", "kind": "observation", "text": tagged},
+                {"id": "n2", "kind": "observation", "text": tex},
+            ]),
+        );
+        put(&root, "static/leak.html", format!("<p>{tagged}</p>"));
+        put(
+            &root,
+            "static/leak.txt",
+            "A reading of the cave that the author keeps private until Dana agrees to it",
+        );
+        put(&root, "static/tex.tex", tex);
+        let warnings = warnings_of(&root);
+        for (file, id) in [("leak.html", "n1"), ("leak.txt", "n1"), ("tex.tex", "n2")] {
+            assert!(
+                warnings
+                    .iter()
+                    .any(|w| w.contains(&format!("`{file}`")) && w.contains(&format!("`{id}`"))),
+                "{file}: {warnings:?}"
+            );
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn every_copied_text_file_is_scanned_whatever_its_extension_and_a_large_one_is_named() {
+        let root = research_site("sniff");
+        let note = SHORT_NOTES[0];
+        for path in [
+            "static/refs.bib",
+            "static/x.ris",
+            "static/talk.vtt",
+            "static/notes.tex",
+            "static/old.json.bak",
+            "web/custom.js",
+            "themes/mine/notes.rst",
+        ] {
+            put(&root, path, format!("// remember\n{note}\n"));
+        }
+        // A binary file that happens to hold the words is not text.
+        let mut binary = vec![0u8, 159, 146, 150];
+        binary.extend_from_slice(note.as_bytes());
+        put(&root, "static/blob.dat", binary);
+        let warnings = warnings_of(&root);
+        for shown in [
+            "refs.bib",
+            "x.ris",
+            "talk.vtt",
+            "notes.tex",
+            "old.json.bak",
+            "assets/custom.js",
+            "themes/mine/notes.rst",
+        ] {
+            assert!(
+                warnings.iter().any(|w| w.contains(&format!("`{shown}`"))),
+                "{shown}: {warnings:?}"
+            );
+        }
+        assert!(
+            !warnings.iter().any(|w| w.contains("blob.dat")),
+            "{warnings:?}"
+        );
+        // A text file too large to scan is named, not skipped in silence.
+        let mut large = "plain words\n".repeat(MAX_ALLOWED_FILE as usize / 12 + 10);
+        large.push_str(note);
+        put(&root, "static/big.csv", large);
+        let warnings = warnings_of(&root);
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("`big.csv`") && w.contains("not scanned")),
+            "{warnings:?}"
+        );
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
@@ -929,16 +1370,42 @@ mod tests {
         // its text is not an input that allows anything.
         write_post(&root, "draft-quote", "draft: true\n", SHORT_NOTES[0]);
         fs::write(root.join("static/notes.txt"), SHORT_NOTES[0]).unwrap();
-        let out = root.join("out");
-        let error = build_into(&root, &out).err().expect("refused");
+        let warnings = warnings_of(&root);
         assert!(
-            error.contains("`notes.txt`") && error.contains("`n1`"),
-            "{error}"
+            warnings.len() == 1 && warnings[0].contains("`notes.txt`") && warnings[0].contains("`n1`"),
+            "{warnings:?}"
         );
         // Published, the same quote is the author's own text.
         write_post(&root, "draft-quote", "", SHORT_NOTES[0]);
-        let built = build_into(&root, &out);
-        assert!(built.is_ok(), "{:?}", built.err());
+        assert_eq!(warnings_of(&root), Vec::<String>::new());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_note_kept_in_a_posts_front_matter_does_not_make_private_text_public() {
+        let root = research_site("memo");
+        // The front-matter field is not one the build renders, so the post
+        // does not publish it, and the same words in a static file still warn.
+        write_post(
+            &root,
+            "memo",
+            &format!("memo: {}\n", SHORT_NOTES[0]),
+            "A post that says something else.",
+        );
+        fs::write(root.join("static/notes.txt"), SHORT_NOTES[0]).unwrap();
+        let warnings = warnings_of(&root);
+        assert!(
+            warnings.iter().any(|w| w.contains("`notes.txt`")),
+            "{warnings:?}"
+        );
+        // A rendered field (the description) is public text.
+        write_post(
+            &root,
+            "memo",
+            &format!("description: {}\n", SHORT_NOTES[0]),
+            "A post that says something else.",
+        );
+        assert_eq!(warnings_of(&root), Vec::<String>::new());
         let _ = fs::remove_dir_all(root);
     }
 
@@ -949,7 +1416,13 @@ mod tests {
         build_into(&root, &out).unwrap();
         let before = tree(&out);
         assert!(!before.is_empty());
-        fs::write(root.join("static/notes.txt"), SHORT_NOTES[1]).unwrap();
+        // A damaged atlas that the site publishes is a structural refusal.
+        let config_path = root.join("openblog.json");
+        let mut config: Value =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        config["knowledgeAtlas"] = serde_json::json!({"publish": true});
+        fs::write(&config_path, config.to_string()).unwrap();
+        fs::write(root.join(".openblog/private/research/atlas.json"), "{ not json").unwrap();
         write_post(
             &root,
             "later",
@@ -962,30 +1435,34 @@ mod tests {
     }
 
     #[test]
-    fn a_portable_export_carrying_private_text_is_refused_and_a_quote_is_not() {
+    fn a_bibliography_export_carrying_private_text_is_refused_and_other_exports_warn() {
         let root = research_site("export");
         write_post(&root, "quote", "", &format!("> {PASSAGE}"));
         let (site, _) = crate::site::load_site(&root, false, None).unwrap();
         assert_eq!(
-            check_export(&root, &site, "quote.md", &format!("> {PASSAGE}")),
-            Ok(())
+            check_export(&root, &site, "quote.md", &format!("> {PASSAGE}"), false),
+            Ok(Vec::new())
         );
-        let error = check_export(
-            &root,
-            &site,
-            "quote.md",
-            &format!("An export that also says: {}", SHORT_NOTES[0]),
-        )
-        .unwrap_err();
+        let said = format!("An export that also says: {}", SHORT_NOTES[0]);
+        // Reference data is machine data: a refusal.
+        let error = check_export(&root, &site, "quote.bib", &said, true).unwrap_err();
         for expected in [
             "refusing to export",
-            "`quote.md`",
+            "`quote.bib`",
             "`n1`",
             "no file was written",
         ] {
             assert!(error.contains(expected), "{expected}: {error}");
         }
         assert!(!error.contains("Smith"), "{error}");
+        // The portable Markdown is the author's own text: a warning.
+        let warnings = check_export(&root, &site, "quote.md", &said, false).unwrap();
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(
+            warnings[0].starts_with("boundary: ") && warnings[0].contains("`n1`"),
+            "{warnings:?}"
+        );
+        assert!(!warnings[0].contains("Smith"), "{warnings:?}");
         let _ = fs::remove_dir_all(root);
     }
 
@@ -1006,7 +1483,7 @@ mod tests {
             None,
             "the build prints what it printed before"
         );
-        assert!(guard(&root, &site).is_empty());
+        assert!(guard(&root, &site, &[]).is_empty());
         let _ = fs::remove_dir_all(root);
     }
 }
