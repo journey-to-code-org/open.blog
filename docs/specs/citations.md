@@ -81,7 +81,7 @@ with no citation in the body, the post publishes exactly as before.
 | Step | Rule |
 | --- | --- |
 | Scan and resolve | The core scanner and resolver. For a post the load publishes, any diagnostic, a missing library or an unreadable library refuses the post with its file line, key, code and a repair hint, before anything is written. A draft, a post held back until its date and, in an Admin preview, every other document get a warning instead and keep their citations as text. |
-| Rewrite | Each citation becomes a footnote reference `[^cite-N]` (`cite2-` and so on when the author already uses `cite-` plus a number as a footnote or as literal `[^cite-N]` text, in any case). `bibliography` adds ` (locators)` after the marker. A following `(`, `[` or `:` is escaped. |
+| Rewrite | Each citation becomes a footnote reference `[^cite-N]` (`cite2-` and so on when the author already uses `cite-` plus a number as a footnote or as literal `[^cite-N]` text, or has a footnote or heading id, written or slugged, of the form `cite-N` or `cite-N-ref-K`, in any case). `bibliography` adds ` (locators)` after the marker. A following `(`, `[` or `:` is escaped. |
 | Notes | Appended under `## Notes` or `## References` (localized) as `[^cite-N]: reference, locators.` in order of first citation: one per distinct citation (`notes`) or per reference (`bibliography`). Text is escaped Markdown from the public reference only. |
 | Check | The result is parsed again; it must hold one generated marker per citation and one note per number, or the post is refused. |
 | Publish | `Post::publication_markdown` feeds the native page and the portable projection (portable HTML, Markdown, text, RSS, JSON Feed, `llms.txt`, destinations). The authored file never changes. |
@@ -121,5 +121,96 @@ format cannot carry.
 
 On the native page a generated marker is
 `<sup class="footnote-reference ob-citation"><a href="#cite-1" id="cite-1-ref-1" role="doc-noteref"><span class="ob-visually-hidden">Citation </span>1</a></sup>`
-and each note ends with one `doc-backlink` per citing marker. Portable copies keep ordinary
-footnotes that link to the note on the canonical article.
+and each note ends with one `doc-backlink` per citing marker. The generated heading and notes
+are one `<section class="ob-citation-notes" role="doc-endnotes" aria-labelledby="…">` named by
+that heading's id, which steps aside from the post's own `{#id}`s, footnote labels and raw HTML
+ids so no other element has it (the author's own headings keep the ids they have without
+citations), and each generated note has `tabindex="-1"`, so following a marker moves focus
+to its note without JavaScript; the author's own footnotes stay outside it, unchanged. The
+reached note or marker is outlined (`:target`), long addresses wrap, and print hides only the
+back links ([ADR 0060](../adr/0060-citation-navigation-is-static-html-checked-at-build.md)).
+Portable copies keep ordinary footnotes that link to the note on the canonical article.
+
+## Reader references
+
+[ADR 0059](../adr/0059-published-reference-data-for-citation-previews.md) defines the data a
+citation preview reads, `openblog_core::reader_references::ReaderReferences`
+(`Post::reader_references`), projected from the published citations and absent for a post that
+publishes none.
+
+| Field | Content |
+| --- | --- |
+| `version`, `style`, `locale` | `1`; `notes` or `bibliography`; the notes' locale |
+| `references[]` | `id` (the citation key, distinct per work, edition, translation and witness), `number` (order of first citation), `preview` (the public description, ADR 0044), `formatted` (plain text), `link` (DOI resolver or plain HTTP(S) address, else absent) |
+| `citations[]` | `marker` (`cite-N-ref-K`), `note` (`cite-N`), `reference` (an id above), `locators` (kind, value, end), `formatted` (the locators as readers see them in the notes' locale, `pp. 514–520, l. 3`; absent without locators) |
+
+Every citation names a listed reference, every reference is cited, and `check_page` confirms the
+page holds each marker and note id, so each citation resolves to a visible reference without
+JavaScript: exactly one element carries each id and the region's label, the marker links to its
+note, and the page links back to the marker. The build runs it on every finished post page and in the Admin preview, and
+stops with `<source path>: the page's citation anchors do not match its reference data: …` when
+they disagree (for example, authored HTML that repeats a generated id, which the message names
+with a request to rename it). Only the reference `id` is
+stable across revisions: `marker` and `note` ids are
+positional (order of first citation, occurrence and the post's label prefix), valid for the one
+revision whose page carries them, and must not be stored. A durable target uses the reference id,
+or the passage and annotation selectors of #80 and #84. The document is written inline as
+`<script type="application/json" id="ob-references">` with `<`, `>`, `&` and U+2028/9 escaped
+(`to_script_element`) in the `<head>` of the post's page, after the JSON-LD, and nowhere else;
+there is no separate file in version 1.
+
+## Citation previews
+
+[ADR 0061](../adr/0061-citation-previews-are-a-progressive-non-modal-component.md) defines
+`<ob-citation-previews>` (`web/components/ob-citation-previews.js`). Only the page of a post that
+publishes citations loads it: its module script follows the `ob-references` element in the
+`<head>`, and one empty `<ob-citation-previews note-label="Go to note">` (`Go to reference` for a
+bibliography, in the citation locale) ends `<main>`.
+
+| Use | Behaviour |
+| --- | --- |
+| Keyboard | Focusing a marker opens its preview straight after the marker, so Tab continues into its links; the marker is `aria-describedby` its text while it is open. Escape closes it and returns focus to the marker. Enter follows the marker's link. |
+| Pointer | Hovering a marker opens it after 250 ms; leaving the marker and preview closes it after 300 ms. A click follows the link. |
+| Touch | A first tap opens the preview; its "Go to note" link or a second tap follows the link. Only a click that ends a touch press on the same marker is a tap: Enter, a script or a screen reader's activation always follows the link. |
+| Anywhere else | Focusing or pressing outside the marker and preview closes it. One preview is open at a time. |
+
+The preview (`role="group"`, named by its marker) shows the reference's `formatted` text, the
+citation's `formatted` locators, the reference's `link` when it is an absolute `http(s)` address
+with no credentials, and the link to the note, all as text. It never fetches, stores or changes
+the marker; data of another version, unreadable data or a marker that no longer links to its
+note leaves the page as it is. It stays inside the viewport, opens above the marker when only
+that fits, fades in only without a reduced-motion preference and is not printed.
+
+### Guarantees
+
+These hold for every release and are pinned by `crates/openblog-core/tests/citation_navigation.rs`,
+`crates/openblog-core/tests/citation_preview_regressions.rs`, `tests/web/citation-previews.test.mjs`
+and the browser specs `tests/browser/citation-navigation.spec.mjs`,
+`tests/browser/citation-previews.spec.mjs` and `tests/browser/citation-preview-regressions.spec.mjs`.
+
+| Area | Guarantee |
+| --- | --- |
+| Links | A web address links only when it is an absolute `http(s)` address with a host and no credentials, and a DOI only to its `https://doi.org/` address. The source library refuses any other `url` or DOI where it enters; the reader data and the browser check each link again, and anything else is dropped while its text is kept. |
+| Escaping | Titles, names and other metadata are text everywhere: escaped in the notes, written into the `ob-references` element with `<`, `>`, `&`, U+2028 and U+2029 as `\u` escapes, and shown by the preview with `textContent`. A page of hostile sources has exactly the elements and attributes of the same page with harmless ones. |
+| Content security policy | The data element is `application/json` and never runs. The component is a same-origin module that needs only `script-src 'self'` and `style-src 'self'`: it adds no inline script, markup style or event handler and positions the preview with custom properties set through the CSS object model. Admin previews serve it under the preview policy. |
+| Requests and storage | The component makes no request of its own (a link in a preview is fetched only if the reader follows it), and reads or writes no storage, cookie or history entry. |
+| Focus and reading position | The marker stays the link: its `href`, role, name and id never change. Focus returns to the marker on Escape. The preview is absolutely positioned and the host element is not displayed, so enhancement never moves the text, and following a citation, its way back and the browser's Back button behave exactly as without JavaScript. |
+| Responsive and print | The preview fits the visible width (the root element's `clientWidth` less 8px on each side) at any zoom; notes wrap long addresses. Print hides the preview and the ways back and keeps every note. |
+| Without JavaScript | Every marker links to its focusable note and every note links back, checked when the page is built. A slow, failing or broken component, or data over its 1 MB budget, leaves exactly that page. |
+| Publication | Only the page of a post that publishes citations carries the data and loads the component. Indexes, feeds, search data, `llms.txt` and portable copies carry the notes and never the data, and pages of posts that publish no citations are byte for byte what they were before previews. Output is deterministic, whatever order the library lists its sources in. |
+
+### What previews do not verify
+
+A preview shows what the author's own source library says about a source, as the notes do. It
+does not check, and must not be read as saying:
+
+- that the source exists, or that its title, authors, date or publisher are right;
+- that a DOI is registered or resolves, or that a web address is reachable, current or the
+  version that was read (nothing is fetched to find out);
+- that the cited passage is at the given location, or that it supports the sentence it is
+  attached to;
+- that a source is authoritative, peer reviewed, reflects scholarly consensus, or may be quoted
+  or reused (copyright permission).
+
+The [offline citation checks](../adr/0050-offline-citation-checks-and-portable-bibliography-exports.md)
+make the same limits explicit to the author.

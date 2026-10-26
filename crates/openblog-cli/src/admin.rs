@@ -17481,6 +17481,98 @@ mod tests {
     }
 
     #[test]
+    fn a_cited_preview_loads_its_citation_previews_from_the_site_under_the_preview_policy() {
+        let f = fixture("citation-preview-csp");
+        let library = f.dir.join(source_store::LIBRARY_FILE);
+        fs::create_dir_all(library.parent().unwrap()).unwrap();
+        fs::write(
+            &library,
+            r#"{"version":1,"sources":[
+              {"id":"hostile","kind":"work","title":"</script><img src=x onerror=alert(1)>"}]}"#,
+        )
+        .unwrap();
+        let session = login_ok(&f);
+        let preview = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/preview",
+                    json!({
+                        "kind": "posts",
+                        "path": "posts/cited.md",
+                        "fields": { "title": "Cited", "date": "2026-10-23", "citations": "notes" },
+                        "body": "A claim [@hostile, canonical 4]."
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(preview.status, 200);
+        let url = body_json(&preview)["previewUrl"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let document = handle(&f.state, &authed(req("GET", &url), &session, false));
+        assert_eq!(document.status, 200);
+        let html = String::from_utf8_lossy(&document.body);
+        // The data is inert and the component comes from the site itself.
+        assert_eq!(html.matches("id=\"ob-references\"").count(), 1);
+        assert!(html.contains(
+            "<script type=\"module\" src=\"/assets/components/ob-citation-previews.js?v="
+        ));
+        assert!(html.contains("<ob-citation-previews note-label=\"Go to note\">"));
+        assert!(!html.contains("<img src=x"), "hostile text stays text");
+        // The preview policy lets that same-origin module run and nothing the
+        // component needs reaches beyond it: no inline handler is required,
+        // no plugin, no other base, no outside frame ancestor.
+        let csp = document
+            .headers
+            .iter()
+            .find(|(name, _)| name == "Content-Security-Policy")
+            .map(|(_, value)| value.clone())
+            .unwrap();
+        let directive = |name: &str| {
+            csp.split(';')
+                .map(str::trim)
+                .find(|directive| directive.split_whitespace().next() == Some(name))
+                .unwrap_or_else(|| panic!("{name} missing from {csp}"))
+                .to_string()
+        };
+        assert!(directive("default-src").ends_with("'none'"), "{csp}");
+        assert!(directive("script-src").contains("'self'"), "{csp}");
+        assert_eq!(directive("object-src"), "object-src 'none'");
+        assert_eq!(directive("base-uri"), "base-uri 'self'");
+        assert_eq!(directive("frame-ancestors"), "frame-ancestors 'self'");
+        // The module is served from the site, readable by the sandboxed
+        // preview frame, and is the bundled component.
+        let module = crate::serve::route(
+            &f.state,
+            &req("GET", "/assets/components/ob-citation-previews.js"),
+            &f.dir.join("dist"),
+        );
+        assert_eq!(module.status, 200);
+        assert!(module
+            .headers
+            .iter()
+            .any(|(name, value)| name == "Content-Type" && value.contains("javascript")));
+        assert!(module
+            .headers
+            .iter()
+            .any(|(name, value)| name == "Access-Control-Allow-Origin" && value == "*"));
+        assert!(String::from_utf8_lossy(&module.body).contains("class ObCitationPreviews"));
+        // The Admin application itself keeps its strict policy.
+        let admin = handle(&f.state, &req("GET", "/admin"));
+        let strict = admin
+            .headers
+            .iter()
+            .find(|(name, _)| name == "Content-Security-Policy")
+            .unwrap();
+        assert!(!strict.1.contains("unsafe-inline"), "{}", strict.1);
+    }
+
+    #[test]
     fn preview_evidence_is_scoped_to_the_current_research_document() {
         let f = fixture("preview-evidence");
         fs::write(

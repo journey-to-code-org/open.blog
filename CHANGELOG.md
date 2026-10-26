@@ -24,6 +24,51 @@ All notable changes to open.blog are recorded here. Releases follow
   search, `llms.txt` or exports. A source or passage an evidence link uses cannot be removed
   until the link stops using it.
 
+## [0.30.0] - 2026-10-26
+
+- Defined the reader-facing reference data behind citation previews: each cited reference has a
+  stable id (its citation key, distinct per edition), each citation names its marker, note and
+  locators, and only the public reference description is included. Posts without published
+  citations are unchanged; the page and its notes read the same without JavaScript.
+- Pages that publish citations now carry that reference data inline and are easier to navigate
+  without JavaScript: the notes are one labelled region, following a citation moves keyboard and
+  screen-reader focus to its note, each way back returns to the exact citation (repeated ones
+  included), the place you arrive is highlighted, long addresses wrap at high zoom, and print keeps
+  every note. If a page's citation links would not match its notes, for example because the post's
+  own HTML reuses a generated id, the build stops and names the post. Other pages are unchanged.
+- Citation markers now open a preview of the cited source right beside them: on keyboard focus,
+  on hover, or on a first tap on touch screens. It shows the formatted reference, the cited
+  location and its DOI or web link, closes with Escape (returning focus to the marker) or by
+  moving elsewhere, stays on screen at any width, respects reduced motion and is not printed. The
+  marker is still the link to its note, nothing is fetched or stored, and only pages with
+  published citations load it; without JavaScript the page is unchanged.
+- The citation documentation now lists what citation previews guarantee in every release (safe
+  links, text-only metadata, the content security policy they need, no requests or storage,
+  unchanged reading position, zoom, print and no-JavaScript behaviour, and which outputs never
+  carry their data) and what they do not verify: that a source exists or is described correctly,
+  that a DOI or address resolves, that a passage supports the claim, or that a source is
+  authoritative or may be reused.
+
+### Fixed
+
+- A post that publishes citations and has no `description` no longer takes its description, JSON-LD
+  `wordCount` and reading time from the generated notes. They now come from the post's own prose,
+  and the space left before a removed citation marker is gone, so "stronger [@plato]." reads
+  "stronger." (introduced in 0.27.0). Site search still includes the notes, as it does an author's
+  footnotes; a written `description` and posts without citations are unchanged.
+- Citation notes now link a DOI stored as `doi:10.x/y` or as a `doi.org` or `dx.doi.org` address
+  to `https://doi.org/10.x/y` and show it as `doi:10.x/y`, instead of producing a broken
+  `https://doi.org/https://doi.org/...` link (introduced in 0.27.0).
+- In a post that publishes citations, a heading named like a generated note or citation id (such
+  as `## Cite 1`), or a footnote such as `[^notes]` named like the notes heading, no longer shares
+  an id with it, so every in-page link reaches the right place (introduced in 0.27.0). Only the
+  generated heading moves aside: the post's own headings keep the ids they have without citations,
+  so links to them still work. A post whose own HTML reuses a citation id is still refused, and the
+  message now names the id to rename.
+- On a site served under a base path (such as `https://example.org/blog/`), text that only reads
+  like a redirect address, such as a title or note containing `; url=/x`, is no longer rewritten
+  to `; url=/blog/x` on pages, in their structured data or in citation preview data.
+
 ## [0.29.0] - 2026-10-26
 
 - Defined the format for a private Knowledge Atlas of people, works, concepts, movements and events,

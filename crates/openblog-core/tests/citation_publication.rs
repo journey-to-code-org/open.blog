@@ -753,3 +753,132 @@ The cave [@republic-slings-2003, page 514].
         );
     }
 }
+
+/// DOIs are stored as a bare name, `doi:10.x/y` or a resolver address; each
+/// is published once as its name, linking to one resolver address.
+const DOI_FORMS_LIBRARY: &str = r#"{
+  "version": 1,
+  "sources": [
+    {"id": "prefixed", "kind": "work", "title": "Prefixed",
+     "identifiers": [{"scheme": "doi", "value": "doi:10.1000/prefixed"}]},
+    {"id": "resolver", "kind": "work", "title": "Resolver",
+     "identifiers": [{"scheme": "doi", "value": "https://doi.org/10.1000/resolver"}]},
+    {"id": "legacy-resolver", "kind": "work", "title": "Legacy resolver",
+     "identifiers": [{"scheme": "doi", "value": "http://dx.doi.org/10.1000/legacy"}]}
+  ]
+}"#;
+
+#[test]
+fn every_stored_doi_form_links_to_one_resolver_address() {
+    let site = load(
+        "en",
+        vec![post(
+            "posts/doi.md",
+            "---\ntitle: DOIs\ndate: 2026-10-20\ncitations: notes\n---\nA [@prefixed], B [@resolver], C [@legacy-resolver].\n",
+        )],
+        Some(DOI_FORMS_LIBRARY),
+    )
+    .unwrap_or_else(|errors| panic!("{errors:?}"));
+    let published = site.posts[0].publication_markdown();
+    for (number, title, name) in [
+        (1, "Prefixed", "10.1000/prefixed"),
+        (2, "Resolver", "10.1000/resolver"),
+        (3, "Legacy resolver", "10.1000/legacy"),
+    ] {
+        let note = format!("[^cite-{number}]: {title}. [doi:{name}](https://doi.org/{name}).\n");
+        assert!(published.contains(&note), "{note}\n{published}");
+    }
+    assert!(!published.contains("doi.org/http"), "{published}");
+    assert!(!published.contains("doi:doi:"), "{published}");
+    assert!(!site.posts[0].html.contains("doi.org/http"));
+}
+
+const STRONGER: &str = "---
+title: Justice
+date: 2026-10-20
+citations: notes
+---
+Justice is the interest of the stronger [@plato-republic, canonical 338c].
+";
+
+#[test]
+fn a_description_and_word_count_come_from_the_posts_own_prose_not_its_generated_notes() {
+    let site = cited_site(STRONGER);
+    let post = &site.posts[0];
+    let expected = "Justice is the interest of the stronger.";
+    assert_eq!(post.description, expected);
+    assert_eq!(post.word_count, 7);
+    assert_eq!(post.reading_minutes, 1);
+    // Search keeps the notes, like an author's footnotes.
+    assert!(
+        post.text.contains("Notes Plato. Πολιτεία, 338c."),
+        "{}",
+        post.text
+    );
+    assert!(post.text.contains("stronger. Notes"), "{}", post.text);
+
+    let files = build(&site);
+    let page = &files[&page(&site)];
+    let meta = format!("<meta name=\"description\" content=\"{expected}\">");
+    let og = format!("<meta property=\"og:description\" content=\"{expected}\">");
+    assert!(page.contains(&meta), "{page}");
+    assert!(page.contains(&og), "{page}");
+    let ld = format!("\"description\": \"{expected}\"");
+    let ld_compact = format!("\"description\":\"{expected}\"");
+    assert!(page.contains(&ld) || page.contains(&ld_compact), "{page}");
+    assert!(
+        page.contains("\"wordCount\": 7") || page.contains("\"wordCount\":7"),
+        "{page}"
+    );
+    let rss = &files["rss.xml"];
+    assert!(
+        rss.contains(&format!("<description>{expected}</description>")),
+        "{rss}"
+    );
+    assert!(!rss.contains("stronger . Notes"), "{rss}");
+}
+
+#[test]
+fn a_bibliography_post_describes_itself_without_its_references() {
+    let site = cited_site(&STRONGER.replace("citations: notes", "citations: bibliography"));
+    let post = &site.posts[0];
+    assert_eq!(
+        post.description,
+        "Justice is the interest of the stronger (338c)."
+    );
+    assert_eq!(post.word_count, 8);
+    assert!(!post.description.contains("References"));
+}
+
+#[test]
+fn an_authored_description_is_kept_as_written() {
+    let site = cited_site(&STRONGER.replace(
+        "citations: notes",
+        "citations: notes\ndescription: My own summary .",
+    ));
+    assert_eq!(site.posts[0].description, "My own summary .");
+    assert_eq!(site.posts[0].word_count, 7);
+}
+
+#[test]
+fn an_opted_in_post_citing_nothing_keeps_its_description_text_and_counts() {
+    let body = "---
+title: Quiet
+date: 2026-10-20
+citations: notes
+---
+A plain sentence , with spacing quirks.
+
+Another paragraph.
+";
+    let quiet = cited_site(body);
+    let plain = cited_site(&body.replace("citations: notes\n", ""));
+    let (quiet, plain) = (&quiet.posts[0], &plain.posts[0]);
+    assert_eq!(quiet.description, plain.description);
+    assert_eq!(quiet.text, plain.text);
+    assert_eq!(quiet.word_count, plain.word_count);
+    assert_eq!(
+        quiet.description,
+        "A plain sentence , with spacing quirks. Another paragraph."
+    );
+}

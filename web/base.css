@@ -761,6 +761,103 @@ h2.ob-title {
   outline-offset: 2px;
 }
 
+/* Following a marker lands on its note, and a way back lands on the marker:
+   clear of the top edge, and marked so the eye finds where it arrived.
+   Long addresses wrap at high zoom instead of widening the page. */
+.ob-citation-note,
+.ob-citation a {
+  scroll-margin-block: 1.5rem;
+}
+
+.ob-citation-note {
+  overflow-wrap: anywhere;
+}
+
+.ob-citation-note:target,
+.ob-citation a:target {
+  outline: 2px solid var(--ob-color-accent);
+  outline-offset: 2px;
+}
+
+.ob-citation-note:focus:not(:focus-visible, :target) {
+  outline: none;
+}
+
+/* <ob-citation-previews>: one preview at a time, placed straight after the
+   marker it describes (so Tab reaches its links next) and moved below or
+   above the marker, inside the viewport, by the offsets the component sets. */
+ob-citation-previews {
+  display: none;
+}
+
+.ob-citation-preview {
+  position: absolute;
+  z-index: 20;
+  display: block;
+  box-sizing: border-box;
+  /* The component sets the viewport's width without its scrollbar, less the
+     gutters; `100vw` would count a classic scrollbar. */
+  inline-size: 28rem;
+  max-inline-size: var(--ob-citation-preview-max-inline-size, calc(100vw - 1rem));
+  max-block-size: min(20rem, 70vh);
+  overflow: auto;
+  padding: 0.75rem 1rem;
+  border: var(--ob-border-width, 1px) solid var(--ob-color-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+  color: var(--ob-color-text);
+  box-shadow: var(--ob-shadow);
+  font-size: 0.9rem;
+  font-style: normal;
+  font-weight: normal;
+  line-height: 1.5;
+  text-align: start;
+  text-indent: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  translate: var(--ob-citation-preview-x, 0) var(--ob-citation-preview-y, 1.5em);
+}
+
+.ob-citation-preview[hidden],
+.ob-citation-preview [hidden] {
+  display: none;
+}
+
+.ob-citation-preview-details,
+.ob-citation-preview-reference,
+.ob-citation-preview-locators {
+  display: block;
+}
+
+.ob-citation-preview-locators {
+  margin-block-start: 0.25rem;
+  color: var(--ob-color-muted);
+}
+
+.ob-citation-preview-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin-block-start: 0.5rem;
+}
+
+.ob-citation-preview a:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ob-citation-preview:not([hidden]) {
+    animation: ob-citation-preview-in var(--ob-motion, 150ms) ease-out;
+  }
+}
+
+@keyframes ob-citation-preview-in {
+  from {
+    opacity: 0;
+  }
+}
+
 /* ---------- Syntax highlighting (tokens painted by <ob-code highlight>) ---------- */
 
 .tok-keyword { color: var(--ob-color-code-keyword); }
@@ -1836,6 +1933,23 @@ ob-back-to-top button:hover {
   .ob-recipe-card {
     background: none;
     color: inherit;
+  }
+
+  /* Citation notes print whole and together with their numbers; the ways
+     back to a marker are for screens only. */
+  .ob-citation-back,
+  .ob-citation-preview {
+    display: none !important;
+  }
+
+  .ob-citation-note {
+    break-inside: avoid;
+    color: inherit;
+  }
+
+  .ob-citation-note:target,
+  .ob-citation a:target {
+    outline: none;
   }
 
   .ob-recipe-facts dt {
