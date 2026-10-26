@@ -429,6 +429,7 @@ export function moderationOutcome(item, action, result) {
 export function feedbackPublicationMismatch(item) {
   if (item.kind === "third-perspective") return perspectivePublicationMismatch(item);
   if (item.status === "approved" && item.published === false) return { notice: "Approved, but not on the site yet.", action: "publish", label: "Publish on the post" };
+  if (item.status === "approved" && item.published === true && item.decisionPublished === false) return { notice: "The decision on the post is not the one you recorded.", action: "publish-decision", label: "Update the published decision" };
   if (item.status === "removed" && item.published === true) return { notice: "Removed, but still on the post.", action: "unpublish", label: "Take it off the post" };
   if (item.status === "rejected" && item.published === true) return { notice: "Rejected, but still on the post.", action: "unpublish", label: "Take it off the post" };
   if (item.status === "withdrawn" && item.published === true) return { notice: "The reader withdrew this note and asked for it to be deleted, but it is still on the post. Take it off now.", action: "unpublish", label: "Take it off the post" };
@@ -488,6 +489,98 @@ export function feedbackPreviewText(preview) {
   if (!preview) return "";
   const passage = preview.quote ? `quoting “${preview.quote}”` : preview.stale ? "without a quotation, because the passage has changed" : "without a quotation";
   return `On the post it is shown ${passage}, as from ${preview.name || "a reader"}, received ${preview.received}.`;
+}
+
+// Correction decisions (ADR 0117) and evidence (ADR 0116) in the inbox. The server says how each
+// item stands, what the reader named and whether the post publishes it, the decisions recorded so
+// far, and, where this account may decide, the outcomes and the choices only it can list (the
+// post's revision notes as written, the evidence links in the claims file). These helpers only word
+// and shape what it sent; a suggestion is never called a correction before the author decides.
+
+/** The author's local day, `YYYY-MM-DD`, as a decision is dated. */
+export function localDay(date = new Date()) {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/**
+ * The body of a decision: the item, the text revision and how many decisions on it the author saw, the outcome and only
+ * the fields that outcome takes, the passage check confirmed when the passage moved, and the day.
+ * Nothing says who is deciding: the server knows.
+ */
+export function decisionRequest(item, values) {
+  const offer = item.recordDecision || {};
+  const outcome = offer.outcomes?.find((each) => each.id === values.outcome);
+  const request = { id: item.id, expectedDecisions: offer.expectedDecisions ?? 0, itemRevision: offer.itemRevision ?? 1, outcome: values.outcome, decided: values.decided || localDay() };
+  if (outcome?.accepted && values.extent) request.extent = values.extent;
+  if (values.outcome === "declined" && values.declineReason) request.declineReason = values.declineReason;
+  if (values.rationale && values.rationale.trim()) request.rationale = values.rationale;
+  if (values.outcome !== "declined" && values.revisionNote && offer.post) request.revisionNote = { post: offer.post, note: values.revisionNote };
+  if (values.outcome !== "declined" && values.claimEvidence) {
+    const [claim, link] = values.claimEvidence.split(" ");
+    if (claim && link) request.claimEvidence = { claim, link };
+  }
+  if (values.outcome === "already-addressed" && values.addressedBy && values.addressedBy.trim()) request.addressedBy = values.addressedBy.trim();
+  if (offer.confirmCheck && values.confirmed) request.confirmCheck = offer.confirmCheck;
+  return request;
+}
+
+/** What is missing before a decision can be sent, as { field, message }, or null. */
+export function decisionProblem(item, values) {
+  const offer = item.recordDecision || {};
+  const outcome = offer.outcomes?.find((each) => each.id === values.outcome);
+  if (!outcome) return { field: "outcome", message: "Choose what you decided." };
+  if (outcome.accepted && !values.extent) return { field: "extent", message: "Say whether you applied all of it or part of it." };
+  if (values.outcome === "declined" && !values.declineReason) return { field: "declineReason", message: "Choose your reason for declining." };
+  const needsRationale = values.outcome === "declined" || values.extent === "partial";
+  if (needsRationale && !(values.rationale || "").trim()) return { field: "rationale", message: values.outcome === "declined" ? "Say why, in your own words." : "Say which part you applied, and why not the rest." };
+  if (outcome.accepted && !values.revisionNote) return { field: "revisionNote", message: "Choose the post’s revision note that says what changed. Add it to the post first if it is not listed." };
+  if (values.outcome === "accepted-as-evidence" && !values.claimEvidence) return { field: "claimEvidence", message: "Choose the evidence link you recorded in Evidence Studio." };
+  if (values.outcome === "already-addressed" && !values.revisionNote && !(values.addressedBy || "").trim()) {
+    return { field: "revisionNote", message: "Choose the revision note that addressed it, or give the item that did." };
+  }
+  if (offer.confirmCheck && !values.confirmed) return { field: "confirmed", message: "Confirm that you read the passage as it is published now." };
+  return null;
+}
+
+/** One recorded decision in words, for the item's history. Who decided is shown to moderators only. */
+export function decisionLine(decision) {
+  const extent = decision.extent === "partial" ? " (in part)" : decision.extent === "full" ? " (in full)" : "";
+  const reason = decision.declineReasonLabel ? `: ${decision.declineReasonLabel}` : "";
+  const who = decision.decidedBy?.account && decision.decidedBy.account !== "@moderation-token" ? ` by ${decision.decidedBy.account}` : "";
+  const role = decision.decidedBy?.role === "coordinator" ? " as coordinator" : "";
+  return `${decision.label}${extent}${reason}, ${decision.decided}${who}${role}${decision.inForce ? "" : " (superseded or about earlier text)"}`;
+}
+
+/** What a recorded decision did, for the status line after the list reloads. */
+export function decisionOutcome(result) {
+  const label = result?.decision?.label || "Decision";
+  const base = `Decision recorded: ${label}. The post, its citations and the Source Library were not changed, the reader’s note was neither published nor hidden, and nothing was e-mailed.`;
+  // A note that is already on its post shows the new outcome there (ADR 0119); one that is not
+  // stays off the post until the author approves it.
+  if (result?.outcomePublished) return `${base} The outcome now shows on the published note. Rebuild or publish to update the live site.`;
+  if (result?.publishError) return `${base} The published note could not be updated: ${result.publishError}`;
+  return base;
+}
+
+const LOCATOR_TEXT = (locator) => `${locator.kind} ${locator.value}${locator.to ? `–${locator.to}` : ""}`;
+
+/** The reader's evidence block as lines for the card: each reference, published or not. */
+export function evidenceReviewLines(evidence) {
+  if (!evidence) return [];
+  const named = (what, entry, label) => {
+    if (!entry) return null;
+    if (!entry.published) return `${what}: “${entry.id}”, which this post does not publish now.`;
+    return `${what}: ${label ?? entry.label ?? entry.id}.`;
+  };
+  return [
+    named("Claim", evidence.claim, evidence.claim?.label && evidence.claim?.statement ? `${evidence.claim.label}, “${evidence.claim.statement}”` : undefined),
+    named("Evidence for it the reader questions", evidence.evidenceLink),
+    named("Cited source the reader questions", evidence.citation),
+    evidence.source
+      ? `${evidence.source.published ? `Source the reader offers: ${evidence.source.label ?? evidence.source.id}` : `Source the reader offers: “${evidence.source.id}”, which this site does not publish now`}${evidence.locators?.length ? `, at ${evidence.locators.map(LOCATOR_TEXT).join(", ")}` : ""}.`
+      : null,
+    evidence.stanceLabel ? `${evidence.stanceLabel}.` : null,
+  ].filter(Boolean);
 }
 
 const FEEDBACK_CHECK_LABELS = { current: "Current", reanchored: "Re-anchored", stale: "Stale", "unknown-work": "Post not found" };
@@ -12730,6 +12823,166 @@ export class ObAdmin extends AdminElement {
       }
     };
 
+    // What the reader named, and what the author decided (ADRs 0116 and 0117).
+    const evidenceSection = (item) => {
+      if (!item.evidence) return null;
+      const claim = item.evidence.claim;
+      return h(
+        "div",
+        { class: "oba-feedback-passage oba-feedback-evidence" },
+        h("h4", {}, "What the reader names"),
+        h("p", { class: "oba-small" }, "The reader’s own statement, from what the site publishes. Nothing checked it, and nothing counts it."),
+        item.evidence.stale ? h("p", { class: "oba-notice" }, "Something the reader named is no longer published on this post.") : null,
+        h("ul", {}, evidenceReviewLines(item.evidence).map((text) => h("li", {}, text))),
+        claim?.published && claim.links?.length
+          ? h("details", {}, h("summary", {}, `Compare with the evidence published for ${claim.label}`),
+            h("ul", {}, claim.links.map((link) => h("li", {}, link.label))))
+          : null,
+      );
+    };
+    const similarSection = (item) => {
+      if (!item.similar?.length) return null;
+      return h(
+        "div",
+        { class: "oba-feedback-similar" },
+        h("p", { class: "oba-small" }, "Possibly about the same thing, on this page (each is decided on its own):"),
+        h("ul", {}, item.similar.map((other) => h("li", {}, h("a", { href: `#oba-moderation-${other.source}-${other.id}-title`, onClick: (event) => {
+          event.preventDefault();
+          document.getElementById(`oba-moderation-${other.source}-${other.id}-title`)?.focus();
+        } }, `${other.kindLabel} received ${formatWhen(other.receivedAt)}`), ` (${other.reason})`))),
+      );
+    };
+    const decisionsSection = (item) => {
+      if (!Array.isArray(item.decisions) || !item.decisions.length) return null;
+      return h(
+        "details",
+        { class: "oba-feedback-decisions" },
+        h("summary", {}, `Your decisions (${item.decisions.length})`),
+        h("ol", {}, item.decisions.map((decision) => h("li", {},
+          h("p", {}, decisionLine(decision)),
+          decision.rationale ? h("p", { class: "oba-feedback-body" }, decision.rationale) : null,
+          decision.revisionNote ? h("p", { class: "oba-small" }, `Revision note: ${decision.revisionNote.note}`) : null,
+          decision.claimEvidence ? h("p", { class: "oba-small" }, `Evidence link: ${decision.claimEvidence.claim} → ${decision.claimEvidence.link}`) : null,
+          decision.addressedBy ? h("p", { class: "oba-small" }, `Addressed by item ${decision.addressedBy}`) : null,
+        ))),
+      );
+    };
+
+    /**
+     * "Record decision": the author's conclusion about the work, beside moderation and never instead
+     * of it. The revision note and the evidence link are recorded first with their own tools; the
+     * form only points at them.
+     */
+    const decisionForm = (item, key, line, busy) => {
+      const offer = item.recordDecision;
+      if (!offer) return null;
+      const id = (name) => `oba-decision-${key}-${name}`;
+      const error = h("p", { class: "oba-error", id: id("error"), role: "alert" });
+      const radios = (name, options, legend, hint) => {
+        const hintId = hint ? id(`${name}-hint`) : null;
+        const inputs = options.map((option) => h("input", { type: "radio", name: id(name), id: id(`${name}-${option.id}`), value: option.id, "aria-describedby": option.guidance ? id(`${name}-${option.id}-guidance`) : null }));
+        const fieldset = h("fieldset", { class: "oba-decision-choices", "aria-describedby": hintId },
+          h("legend", {}, legend),
+          hint ? h("p", { class: "oba-small", id: hintId }, hint) : null,
+          options.map((option, index) => h("div", { class: "oba-decision-choice" },
+            inputs[index], " ", h("label", { for: id(`${name}-${option.id}`) }, option.label),
+            option.guidance ? h("p", { class: "oba-small", id: id(`${name}-${option.id}-guidance`) }, option.guidance) : null)));
+        return { fieldset, inputs, value: () => inputs.find((input) => input.checked)?.value || "" };
+      };
+      const outcome = radios("outcome", offer.outcomes, "What did you decide?", "This records your conclusion about the post. It never edits the post, a citation or the Source Library, and it does not publish or hide the reader’s note.");
+      const extent = radios("extent", offer.extents, "How much of it?");
+      const reason = h("select", { id: id("reason") }, h("option", { value: "" }, "Choose a reason"), offer.declineReasons.map((each) => h("option", { value: each.id }, each.label)));
+      const reasonField = h("div", { class: "oba-field" }, h("label", { for: id("reason") }, "Your reason for declining"), reason);
+      const rationale = h("textarea", { id: id("rationale"), rows: "3", maxlength: "2000", "aria-describedby": id("rationale-hint") });
+      const rationaleField = h("div", { class: "oba-field" }, h("label", { for: id("rationale") }, "Your rationale"),
+        h("p", { class: "oba-small", id: id("rationale-hint") }, "Public with the outcome once the reader’s note is published. Needed to decline or to accept in part; don’t name or quote the reader."), rationale);
+      const note = h("select", { id: id("note"), "aria-describedby": id("note-hint") }, h("option", { value: "" }, "No revision note"), (offer.revisionNotes || []).map((text) => h("option", { value: text }, text)));
+      const noteHint = h("p", { class: "oba-small", id: id("note-hint") }, offer.revisionNotes?.length
+        ? "The post’s note that says what changed. If it is not listed, add it to the post below first."
+        : "This post has no revision notes yet. Add one below first, after you change the post.");
+      const newNoteDate = h("input", { type: "date", id: id("new-note-date"), value: localDay() });
+      const newNoteClaim = h("input", { type: "text", id: id("new-note-claim"), pattern: "[a-z0-9-]*" });
+      const newNoteText = h("input", { type: "text", id: id("new-note-text"), maxlength: "200" });
+      const addNote = offer.post ? h("details", { class: "oba-feedback-revision" },
+        h("summary", {}, "Add a revision note to the post"),
+        h("p", { class: "oba-small" }, "A separate step: it adds a public note to the post’s revision notes and does not change the post’s text. Edit the post itself first."),
+        h("div", { class: "oba-field" }, h("label", { for: id("new-note-date") }, "Date of the change"), newNoteDate),
+        h("div", { class: "oba-field" }, h("label", { for: id("new-note-claim") }, "Claim id (optional)"), newNoteClaim),
+        h("div", { class: "oba-field" }, h("label", { for: id("new-note-text") }, "What changed"), newNoteText),
+        h("button", { class: "oba-btn", type: "button", onClick: async () => {
+          if (!newNoteText.value.trim()) {
+            announce(line, "Say what changed first.", "error");
+            newNoteText.focus();
+            return;
+          }
+          announce(line, "Adding the revision note…");
+          try {
+            await this.api.call("POST", "engagement/feedback/revision-note", { json: { post: offer.post, date: newNoteDate.value, claim: newNoteClaim.value, note: newNoteText.value } });
+            await reloadAll("Revision note added to the post’s front matter. Choose it in Record decision. Rebuild or publish to update the live site.", "ok");
+          } catch (failure) {
+            announce(line, failure.data?.problems ? `${failure.message} ${failure.data.problems.join(" ")}` : failure.message, "error");
+          }
+        } }, "Add revision note")) : null;
+      const noteField = h("div", { class: "oba-field" }, h("label", { for: id("note") }, "The post’s revision note"), noteHint, note, addNote);
+      const evidence = h("select", { id: id("evidence"), "aria-describedby": id("evidence-hint") }, h("option", { value: "" }, "No evidence link"),
+        (offer.claimEvidence || []).map((each) => h("option", { value: `${each.claim} ${each.link}` }, each.label)));
+      const evidenceField = h("div", { class: "oba-field" }, h("label", { for: id("evidence") }, "The evidence link you recorded"),
+        h("p", { class: "oba-small", id: id("evidence-hint") }, offer.claimEvidence?.length ? "Recorded in Evidence Studio on one of this post’s claims." : "None is recorded on this post’s claims yet: record it in Evidence Studio first."), evidence);
+      const addressed = h("input", { type: "text", id: id("addressed"), spellcheck: "false", "aria-describedby": id("addressed-hint") });
+      const addressedField = h("div", { class: "oba-field" }, h("label", { for: id("addressed") }, "Or the item that already addressed it"),
+        h("p", { class: "oba-small", id: id("addressed-hint") }, "The id of another reader’s item on this post that you accepted, shown on its card."), addressed);
+      const confirm = offer.confirmCheck ? h("input", { type: "checkbox", id: id("confirm") }) : null;
+      const confirmField = confirm ? h("p", { class: "oba-feedback-acknowledge" }, confirm, " ", h("label", { for: id("confirm") }, "I have read the passage as it is published now, and decide knowing it changed.")) : null;
+      const decided = h("input", { type: "date", id: id("decided"), value: localDay() });
+      const decidedField = h("div", { class: "oba-field" }, h("label", { for: id("decided") }, "Date of the decision"), decided);
+      const sync = () => {
+        const chosen = offer.outcomes.find((each) => each.id === outcome.value());
+        extent.fieldset.hidden = !chosen?.accepted;
+        reasonField.hidden = outcome.value() !== "declined";
+        noteField.hidden = !chosen || outcome.value() === "declined";
+        evidenceField.hidden = !chosen || outcome.value() === "declined";
+        addressedField.hidden = outcome.value() !== "already-addressed";
+      };
+      for (const input of outcome.inputs) input.addEventListener("change", sync);
+      sync();
+      const values = () => ({
+        outcome: outcome.value(), extent: extent.value(), declineReason: reason.value, rationale: rationale.value, revisionNote: note.value,
+        claimEvidence: evidence.value, addressedBy: addressed.value, confirmed: confirm?.checked, decided: decided.value,
+      });
+      const focusOf = { outcome: outcome.inputs[0], extent: extent.inputs[0], declineReason: reason, rationale, revisionNote: note, claimEvidence: evidence, confirmed: confirm };
+      const submit = h("button", { class: "oba-btn oba-btn-primary", type: "button", "aria-describedby": id("error") }, "Record decision");
+      submit.addEventListener("click", async () => {
+        const problem = decisionProblem(item, values());
+        error.textContent = "";
+        if (problem) {
+          error.textContent = problem.message;
+          announce(line, problem.message, "error");
+          focusOf[problem.field]?.focus();
+          return;
+        }
+        busy(true);
+        announce(line, "Recording your decision…");
+        try {
+          const result = await this.api.call("POST", "engagement/moderation/decision", { json: decisionRequest(item, values()) });
+          await reloadAll(decisionOutcome(result), "ok");
+        } catch (failure) {
+          busy(false);
+          error.textContent = failure.message;
+          announce(line, failure.message, "error");
+          if (failure.status === 409) await reloadAll(`${failure.message} The list was reloaded.`, "error");
+          else submit.focus();
+        }
+      });
+      return h(
+        "details",
+        { class: "oba-decision", id: id("details") },
+        h("summary", {}, offer.label),
+        h("p", { class: "oba-small" }, offer.guidance),
+        outcome.fieldset, extent.fieldset, reasonField, rationaleField, noteField, evidenceField, addressedField, confirmField, decidedField,
+        error, submit,
+      );
+    };
+
     const queueCard = (item) => {
       const key = `${item.source}-${item.id}`;
       const titleId = `oba-moderation-${key}-title`;
@@ -12742,6 +12995,8 @@ export class ObAdmin extends AdminElement {
         h("p", { class: "oba-small" }, `Received ${formatWhen(item.receivedAt)} · ${item.statusLabel}${item.reasonLabel ? ` (${item.reasonLabel})` : ""}${item.public ? " · shown on the post now" : ""}`),
         item.post ? null : h("p", { class: "oba-notice" }, "No post has this address now: it may have moved, been renamed or been unpublished."),
         h("p", { class: "oba-small" }, moderationRoleLine(item.role)),
+        item.standing ? h("p", { class: "oba-small oba-feedback-standing" }, "Stands as: ", h("strong", {}, item.standing.label), item.standing.decided ? " (your decision)" : " (the reader’s suggestion; you have not decided)") : null,
+        item.source === "feedback" && item.recordDecision ? h("p", { class: "oba-small" }, `Item id: ${item.id}`) : null,
         item.clarification?.askedAboutThisText ? h("p", { class: "oba-notice" }, "A clarification was asked about this text. It can never be approved; only the reader’s answer can.") : null,
         feedbackPassage(item.passage),
         item.purged ? h("p", { class: "oba-notice" }, "Its text, details and any name were deleted. Only the private record of decisions remains.") : null,
@@ -12754,6 +13009,9 @@ export class ObAdmin extends AdminElement {
         item.perspective && !item.purged ? h("div", { class: "oba-feedback-passage" }, h("h4", {}, "About this reflection"), perspectiveLines(item).map((line) => h("p", {}, line))) : null,
         h("p", { class: "oba-small" }, moderationReaderLine(item.reader, item.source, item.kind)),
         feedbackPreview(item.publicPreview),
+        evidenceSection(item),
+        similarSection(item),
+        decisionsSection(item),
         item.perspectivePreview ? h("p", { class: "oba-small oba-feedback-preview" }, `If approved, it is shown as “${item.perspectivePreview.heading}”, received ${item.perspectivePreview.received}.`) : null,
       );
       const actions = h("div", { class: "oba-moderation-actions" });
@@ -12832,7 +13090,7 @@ export class ObAdmin extends AdminElement {
           busy(true);
           try {
             await this.api.call("POST", `engagement/${item.kind === "third-perspective" ? "third-perspectives" : "feedback"}/${mismatch.action}`, { json: { id: item.id } });
-            await reloadAll(mismatch.action === "publish" ? `Published on ${where}.` : `Taken off ${where}. Rebuild or publish to update the live site.`, "ok");
+            await reloadAll(mismatch.action === "publish" ? `Published on ${where}.` : mismatch.action === "publish-decision" ? `Decision updated on ${where}. Rebuild or publish to update the live site.` : `Taken off ${where}. Rebuild or publish to update the live site.`, "ok");
           } catch (error) {
             busy(false);
             announce(line, error.message, "error");
@@ -12847,7 +13105,8 @@ export class ObAdmin extends AdminElement {
           document.getElementById(`oba-published-${item.id}-response`)?.focus();
         } }, "Respond or record a revision note")));
       }
-      card.append(actions, line);
+      const decision = decisionForm(item, key, line, busy);
+      card.append(actions, ...(decision ? [decision] : []), line);
       return card;
     };
 
@@ -12994,7 +13253,7 @@ export class ObAdmin extends AdminElement {
     this.mount(
       this.shell(
         "moderation",
-        h("p", {}, "Comments, the questions, suggested sources, suggested corrections and other interpretations readers sent about passages, and abuse reports, in one list. Nothing is published until it is approved, approving never changes your post, and a suggested correction stays a suggestion until you decide to edit the post. Nothing here e-mails anyone."),
+        h("p", {}, "Comments, the questions, suggested sources, suggested corrections and other interpretations readers sent about passages, and abuse reports, in one list. Nothing is published until it is approved, approving never changes your post, and a suggested source or correction stays a suggestion until you record your decision on it. Nothing here e-mails anyone."),
         perspectiveBanner,
         h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-moderation-queue-title" }, h("h2", { id: "oba-moderation-queue-title" }, "Moderation queue"), stateTabs, kindFilter, stateNote, queueStatus, queue, more),
         h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-feedback-published-title" }, h("h2", { id: "oba-feedback-published-title" }, "Published on your posts"), publishedStatus, published),

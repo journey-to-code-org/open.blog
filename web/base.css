@@ -1675,6 +1675,37 @@ ob-comments {
   font-size: 1rem;
 }
 
+/* The author's decision on a published suggestion (ADR 0119): its words name the outcome, so
+   nothing relies on colour; an undecided suggestion has a dashed rule instead of a solid one. */
+.ob-reader-note-outcome,
+.ob-reader-outcome {
+  overflow-wrap: anywhere;
+}
+
+.ob-reader-note-outcome {
+  margin-block-start: .75rem;
+  border-inline-start: 3px solid var(--ob-color-border);
+  padding-inline-start: 1rem;
+}
+
+.ob-reader-note-outcome[data-outcome="unresolved"] {
+  border-inline-start-style: dashed;
+}
+
+.ob-reader-note-outcome h4 {
+  margin-block: 0 .25rem;
+  font-size: 1rem;
+}
+
+.ob-reader-note-outcome p {
+  margin-block: .25rem;
+}
+
+.ob-reader-note-outcome code {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
 /* Approved Third Perspectives on a work's canonical page (ADR 0115): readers' reflections, set
    apart from the authors' text, static and without a script. */
 .ob-third-perspectives {
@@ -1755,6 +1786,19 @@ ob-passage-feedback {
   display: flex;
   gap: .5rem;
   align-items: baseline;
+}
+
+/* Where in an offered source (ADR 0116): side by side when they fit, stacked on a phone. */
+.ob-passage-feedback-locator {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+}
+
+.ob-passage-feedback-locator > .ob-passage-feedback-subfield {
+  flex: 1 1 8rem;
+  min-inline-size: 0;
+  margin-inline-start: 0;
 }
 
 .ob-passage-feedback-form input:not([type="radio"], [type="checkbox"]),

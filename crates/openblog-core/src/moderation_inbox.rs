@@ -13,16 +13,24 @@
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::correction_decision::{
+    decide as decide_correction, decision_in_force, passage_check_id, standing, CorrectionDecision,
+    DecisionContent, DecisionError, DecisionFacts, DecisionLog, DecisionOutcome, DecisionRequest,
+    DeclineReason, Extent,
+};
 use crate::date::DateTime;
+use crate::evidence_submission::{evidence_review, is_evidence_kind};
 use crate::feedback_moderation::{feedback_review, post_for_work};
+use crate::feedback_moderation::{review_passage, PassageCheck};
 use crate::invitation::Identities;
 use crate::model::Site;
 use crate::moderation::{
-    allowed_reasons, is_public, may_view, Actor, ActorRole, Decision, Erasure, ItemFacts,
-    ModerationAction, ModerationPolicy, ModerationState, PolicyError, Principal, ReasonCode,
-    Request, RetentionStep, SharedWorks, View,
+    allowed_reasons, is_public, may_decide, may_view, Actor, ActorRole, Decision, Erasure,
+    ItemFacts, ModerationAction, ModerationPolicy, ModerationState, PolicyError, Principal,
+    ReasonCode, Request, RetentionStep, SharedWorks, View,
 };
 use crate::participation::{effective_mode, ParticipationKind, ParticipationMode};
+use crate::passage_target::PassageDocument;
 use crate::scholarly_feedback::{is_uuid, HostedFeedback};
 use crate::third_perspective::{
     ApprovalBinding, ApprovalRequest, HostedPerspective, LifecycleError, PublishedWork,
@@ -63,6 +71,11 @@ pub fn report_grounds() -> &'static [ReasonCode] {
 /// The action id a site Admin sends to delete an item's text and name on a
 /// reader's request ([`ModerationPolicy::erase`]).
 pub const ERASE_ACTION: &str = "erase";
+
+/// The inbox's action for the author's correction decision (ADR 0117). It is
+/// not a moderation action: it never changes the item's state, version or
+/// approval, and it is offered beside them, never instead of them.
+pub const RECORD_DECISION: &str = "Record decision";
 
 /// What the hosted service can store for moderation (ADR 0106).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -862,6 +875,86 @@ impl<'a> Inbox<'a> {
         Ok(erasure)
     }
 
+    /// Whether this viewer may record the author's correction decision on
+    /// the item now (ADR 0117): a suggested source or correction whose text
+    /// is kept, pending or approved and not the text a clarification asked
+    /// about, stored where the hosted service keeps decisions, and a viewer
+    /// the policy lets decide on its work (the site Admin or a coordinator,
+    /// as for approval). A decision never waits on moderation, and showing
+    /// the reader's note stays moderation's decision.
+    pub fn may_record_decision(&self, item: &InboxItem) -> bool {
+        let facts = item.facts();
+        item.feedback()
+            .is_some_and(|hosted| hosted.decisions.is_some())
+            && is_evidence_kind(item.kind)
+            && matches!(
+                item.state,
+                ModerationState::Pending | ModerationState::Approved
+            )
+            && !facts.current_revision_asked()
+            && may_decide(&self.actor(item), &facts)
+    }
+
+    /// The post with the item's address now, its passage check and passage
+    /// revision, for a feedback item: what a correction decision records
+    /// about the passage the author read.
+    pub fn passage_now(&self, item: &InboxItem) -> Option<PassageNow> {
+        let hosted = item.feedback()?;
+        let post = post_for_work(self.site, &item.work);
+        let document = post.map(|post| PassageDocument::of_post(post, &self.site.config));
+        let review = review_passage(&hosted.feedback, post.zip(document.as_ref()));
+        Some(PassageNow {
+            post: post.map(|post| post.source.replace('\\', "/")),
+            check: review.check,
+            revision: review.revision_now,
+        })
+    }
+
+    /// Record the author's correction decision on a feedback item (ADR 0117),
+    /// decided by the one policy with this viewer's actor on the item's work:
+    /// the grant first, so a viewer who may not decide learns nothing. The
+    /// item's decision log is the one the hosted service returned with it;
+    /// `addressed` is the log and current text revision of the item
+    /// `addressedBy` names, when it names one. Nothing is changed here: the
+    /// caller stores the decision, appended to the log, with its audit event.
+    pub fn record_decision(
+        &self,
+        item: &InboxItem,
+        request: DecisionDraft<'_>,
+        addressed: Option<(&DecisionLog, u32)>,
+    ) -> Result<CorrectionDecision, DecisionError> {
+        let empty = DecisionLog::new(&item.id);
+        let log = item
+            .feedback()
+            .and_then(|hosted| hosted.decisions.as_ref())
+            .unwrap_or(&empty);
+        let passage = self.passage_now(item);
+        let received = item.received_at.ymd();
+        let facts = DecisionFacts {
+            item: item.facts(),
+            received: &received,
+            post: passage.as_ref().and_then(|passage| passage.post.as_deref()),
+            check: passage
+                .as_ref()
+                .map_or(PassageCheck::UnknownWork, |passage| passage.check),
+            passage_revision: passage
+                .as_ref()
+                .and_then(|passage| passage.revision.as_deref()),
+        };
+        decide_correction(
+            &facts,
+            log,
+            addressed,
+            &DecisionRequest {
+                actor: self.actor(item),
+                expected_decisions: request.expected_decisions,
+                content: request.content,
+                confirmed_check: request.confirmed_check,
+                decided: request.decided,
+            },
+        )
+    }
+
     /// The step retention owes the item now, if any (ADR 0104).
     pub fn retention_due(&self, item: &InboxItem) -> Option<RetentionStep> {
         self.policy.retention_due(&item.facts(), self.now)
@@ -910,6 +1003,39 @@ impl<'a> Inbox<'a> {
                 "confirm": "I understand that the text and name are deleted for good.",
             }));
         }
+        let record_decision = self.may_record_decision(item).then(|| {
+            let decisions = item
+                .feedback()
+                .and_then(|hosted| hosted.decisions.as_ref())
+                .map_or(0, DecisionLog::len);
+            let passage = self.passage_now(item);
+            let mut offer = json!({
+                "label": RECORD_DECISION,
+                "guidance": "Records what you concluded about your work: a correction, a clarification, the source added as evidence, declined with your reason, or already addressed. It never edits the post, a citation or the Source Library, and it does not publish the reader’s note.",
+                "expectedDecisions": decisions,
+                "itemRevision": item.revision,
+                "outcomes": DecisionOutcome::ALL.iter().map(|outcome| json!({
+                    "id": outcome.id(),
+                    "label": outcome_choice(*outcome),
+                    "guidance": outcome_guidance(*outcome),
+                    "accepted": outcome.is_accepted(),
+                })).collect::<Vec<_>>(),
+                "extents": Extent::ALL.iter().map(|extent| json!({
+                    "id": extent.id(),
+                    "label": match extent { Extent::Full => "All of it", Extent::Partial => "Part of it (say which in your rationale)" },
+                })).collect::<Vec<_>>(),
+                "declineReasons": DeclineReason::ALL.iter().map(|reason| json!({"id": reason.id(), "label": reason.label()})).collect::<Vec<_>>(),
+                "post": passage.as_ref().and_then(|passage| passage.post.clone()),
+            });
+            if let Some(check) = passage
+                .as_ref()
+                .map(|passage| passage.check)
+                .filter(|check| *check != PassageCheck::Current)
+            {
+                offer["confirmCheck"] = json!(passage_check_id(check));
+            }
+            offer
+        });
         let mut view = json!({
             "id": item.id,
             "source": item.source.id(),
@@ -934,6 +1060,9 @@ impl<'a> Inbox<'a> {
             },
             "actions": actions,
         });
+        if let Some(record_decision) = record_decision {
+            view["recordDecision"] = record_decision;
+        }
         match &item.content {
             Content::Purged => {
                 view["body"] = Value::Null;
@@ -1061,6 +1190,23 @@ impl<'a> Inbox<'a> {
             }
             Content::Feedback(hosted) => {
                 let feedback = &hosted.feedback;
+                // How the item stands (ADR 0117): the reader's intent until
+                // the author decides, never a correction before then.
+                let empty = DecisionLog::new(&item.id);
+                let log = hosted.decisions.as_ref().unwrap_or(&empty);
+                let stands = standing(feedback.kind, hosted.evidence.as_ref(), log, item.revision);
+                view["standing"] = json!({
+                    "id": stands.id(),
+                    "label": stands.label(),
+                    "decided": stands.is_decided(),
+                    "correction": stands.is_correction(),
+                });
+                if let Some(offer) = &hosted.evidence {
+                    view["evidence"] = evidence_review(offer, post, self.site);
+                }
+                if hosted.decisions.is_some() {
+                    view["decisions"] = decisions_view(log, item.revision);
+                }
                 view["body"] = json!(feedback.body);
                 let review = feedback_review(feedback, self.site);
                 view["details"] = review["details"].clone();
@@ -1082,6 +1228,138 @@ impl<'a> Inbox<'a> {
     }
 }
 
+/// What the hosted service and the site say about a feedback item's passage
+/// now, for a correction decision.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PassageNow {
+    /// The source path of the post that has the item's address now.
+    pub post: Option<String>,
+    pub check: PassageCheck,
+    /// That post's passage revision now.
+    pub revision: Option<String>,
+}
+
+/// What an author sends to record a decision; who is deciding comes from the
+/// session, never from here.
+#[derive(Clone, Debug)]
+pub struct DecisionDraft<'a> {
+    /// How many decisions on the item the author saw.
+    pub expected_decisions: u32,
+    pub content: DecisionContent,
+    /// The passage check the author read, when the passage is not current.
+    pub confirmed_check: Option<PassageCheck>,
+    /// `YYYY-MM-DD`, the author's local day.
+    pub decided: &'a str,
+}
+
+/// How each outcome reads where the author chooses it.
+fn outcome_choice(outcome: DecisionOutcome) -> &'static str {
+    match outcome {
+        DecisionOutcome::AcceptedAsCorrection => "Accept as a correction",
+        DecisionOutcome::AcceptedAsClarification => "Accept as a clarification",
+        DecisionOutcome::AcceptedAsEvidence => "Add the source as evidence",
+        DecisionOutcome::Declined => "Decline",
+        DecisionOutcome::AlreadyAddressed => "Already addressed",
+    }
+}
+
+/// What each outcome means and needs, as the decision form says it.
+fn outcome_guidance(outcome: DecisionOutcome) -> &'static str {
+    match outcome {
+        DecisionOutcome::AcceptedAsCorrection => "The post was in error and you changed it. Needs the post’s revision note saying what changed. Only this outcome labels the note a correction.",
+        DecisionOutcome::AcceptedAsClarification => "Not an error, but unclear or incomplete; you reworded it or added context. Needs the post’s revision note.",
+        DecisionOutcome::AcceptedAsEvidence => "You recorded the reader’s source as evidence on a claim in Evidence Studio, without changing the claim’s words. Needs the revision note and that evidence link.",
+        DecisionOutcome::Declined => "You considered it and made no change. Needs your reason and rationale; no reason says the reader is wrong.",
+        DecisionOutcome::AlreadyAddressed => "The post already reflected it. Needs the revision note that addressed it, or another reader’s item you accepted.",
+    }
+}
+
+/// An item's decision log for its editors, oldest first, each with whether
+/// it is in force (a decision about text a clarification has since replaced
+/// is kept but not in force). Who decided is the private record's; it is
+/// shown to moderators only.
+pub fn decisions_view(log: &DecisionLog, item_revision: u32) -> Value {
+    let in_force = decision_in_force(log, item_revision).map(|decision| decision.sequence);
+    Value::Array(
+        log.history()
+            .iter()
+            .map(|decision| {
+                let mut value = decision.to_value();
+                value["label"] = json!(decision.content.outcome.label());
+                if let Some(reason) = decision.content.decline_reason {
+                    value["declineReasonLabel"] = json!(reason.label());
+                }
+                value["inForce"] = json!(in_force == Some(decision.sequence));
+                value
+            })
+            .collect(),
+    )
+}
+
+/// Possible duplicates on one page of the inbox: for each feedback item, the
+/// other items about the same post that point at the same passage, name the
+/// same claim, evidence link, cited or offered source, or link the same
+/// source. A cue for the editor to read them together, never a count, a
+/// ranking or a reason to decide anything: two readers sending the same
+/// suggestion are two items with two decisions (ADR 0117).
+pub fn similar_items(items: &[&InboxItem]) -> std::collections::BTreeMap<String, Vec<Value>> {
+    let keys = |item: &InboxItem| -> Vec<String> {
+        let Some(hosted) = item.feedback() else {
+            return Vec::new();
+        };
+        let mut keys = vec![format!(
+            "target:{}",
+            hosted.feedback.provenance.target.to_value()
+        )];
+        if let Some(url) = &hosted.feedback.details.source_url {
+            keys.push(format!("url:{url}"));
+        }
+        if let Some(offer) = &hosted.evidence {
+            for (what, id) in [
+                ("claim", &offer.claim),
+                ("link", &offer.evidence_link),
+                ("source", &offer.citation),
+                ("source", &offer.source),
+            ] {
+                if let Some(id) = id {
+                    keys.push(format!("{what}:{id}"));
+                }
+            }
+        }
+        keys
+    };
+    let reason = |key: &str| match key.split(':').next() {
+        Some("target") => "the same passage",
+        Some("url") => "the same source link",
+        Some("claim") => "the same claim",
+        Some("link") => "the same evidence link",
+        _ => "the same source",
+    };
+    let mut cues = std::collections::BTreeMap::new();
+    for item in items {
+        let mine = keys(item);
+        let mut similar = Vec::new();
+        for other in items {
+            if other.id == item.id || other.work != item.work {
+                continue;
+            }
+            let theirs = keys(other);
+            if let Some(shared) = mine.iter().find(|key| theirs.contains(key)) {
+                similar.push(json!({
+                    "id": other.id,
+                    "source": other.source.id(),
+                    "kindLabel": other.kind.label(),
+                    "receivedAt": other.received_at.rfc3339(),
+                    "reason": reason(shared),
+                }));
+            }
+        }
+        if !similar.is_empty() {
+            cues.insert(item.id.clone(), similar);
+        }
+    }
+    cues
+}
 /// The moderator a listing's approval check names: the check needs one, and
 /// only a decision's own check names the account that decides.
 const MODERATOR_PREVIEW: &str = "inbox";

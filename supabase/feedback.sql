@@ -4,10 +4,11 @@
 --
 -- Additive only: it creates the feedback table, its moderation audit table,
 -- their indexes, two moderation functions (ADRs 0083 and 0106), the
--- deletion function engagement protection uses (ADR 0108) and the moderation
--- function of Third Perspectives (ADR 0113), and adds the moderation
--- inbox's, protection's and Third Perspectives' columns to those two tables
--- of its own. It does not
+-- deletion function engagement protection uses (ADR 0108), the moderation
+-- function of Third Perspectives (ADR 0113) and the correction decision
+-- function with its evidence purge trigger (ADR 0117), and adds the moderation
+-- inbox's, protection's, Third Perspectives' and evidence's columns to those
+-- two tables of its own. It does not
 -- rename, drop or rewrite any existing table, column, function or row, so
 -- comments and analytics keep working exactly as before. Running it twice
 -- changes nothing; running it again after an upgrade adds only what is new.
@@ -400,5 +401,112 @@ $$;
 
 revoke all on function public.openblog_moderate_third_perspective(text, uuid, integer, text, text, text, text, text, text, timestamptz, integer) from public, anon, authenticated;
 grant execute on function public.openblog_moderate_third_perspective(text, uuid, integer, text, text, text, text, text, text, timestamptz, integer) to service_role;
+
+-- Evidence submissions and correction decisions (ADRs 0116 and 0117), used
+-- only once OPENBLOG_CORRECTIONS_ENABLED is set, on top of the moderation
+-- inbox's schema. Each column is new and nullable, so every row already
+-- stored reads as before: a version 1 submission without evidence, and an
+-- item nobody decided. To undo only this, run corrections-rollback.sql.
+--
+-- The reader's evidence block: the published claim, evidence link,
+-- citation and source a version 2 submission names, by the site's public
+-- ids, with locators and the reader's stance. Reader text, never checked
+-- for truth, never an author's evidence link, and only in a version 2 row.
+alter table public.openblog_feedback
+  add column if not exists evidence jsonb
+    check (evidence is null or (jsonb_typeof(evidence) = 'object' and octet_length(evidence::text) <= 4096));
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'openblog_feedback_evidence_needs_version_2') then
+    alter table public.openblog_feedback
+      add constraint openblog_feedback_evidence_needs_version_2 check (evidence is null or format_version >= 2);
+  end if;
+end $$;
+-- The author's correction decisions on the item, `{version, item,
+-- decisions}`, oldest first. Append-only: a later decision supersedes an
+-- earlier one and keeps it. Private, like the rest of the row; it holds
+-- nothing the reader wrote and nothing about the reader, so a purge leaves
+-- it. Who decided is in each decision and in the audit event.
+alter table public.openblog_feedback
+  add column if not exists decisions jsonb
+    check (decisions is null or (jsonb_typeof(decisions) = 'object' and octet_length(decisions::text) <= 1048576));
+
+-- A purge (a deletion request, a withdrawal or retention) deletes the
+-- reader's evidence block with their text, and the row then reads as a
+-- version 1 record. It reads the row as JSON, so it keeps working whether
+-- or not engagement protection's purged_at column is there.
+create or replace function public.openblog_feedback_purge_evidence()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if (to_jsonb(new) ->> 'purged_at') is not null then
+    new.evidence := null;
+    new.format_version := 1;
+  end if;
+  return new;
+end;
+$$;
+revoke all on function public.openblog_feedback_purge_evidence() from public, anon, authenticated;
+create or replace trigger openblog_feedback_purge_evidence
+  before update on public.openblog_feedback
+  for each row execute function public.openblog_feedback_purge_evidence();
+
+-- One correction decision, appended to the item's log with its audit event
+-- in one statement, only while the item is a suggested source or
+-- correction, pending or approved, not the text a clarification asked
+-- about, still at the text revision the decision is about and holding
+-- exactly the decisions the author saw. It never changes the item's state,
+-- version, approval, text or anything the reader sent. Which decisions are
+-- allowed is the code's decision (ADR 0117); this statement refuses what
+-- must never happen whatever its caller says. It returns the changed row,
+-- or nothing.
+create or replace function public.openblog_record_feedback_decision(
+  p_site_id text,
+  p_id uuid,
+  p_expected_decisions integer,
+  p_item_revision integer,
+  p_decision jsonb,
+  p_actor text,
+  p_actor_role text,
+  p_at timestamptz
+)
+returns setof public.openblog_feedback
+language sql
+set search_path = public
+as $$
+  with changed as (
+    update public.openblog_feedback
+       set decisions = jsonb_build_object(
+             'version', 1,
+             'item', id::text,
+             'decisions', coalesce(decisions -> 'decisions', '[]'::jsonb) || jsonb_build_array(p_decision))
+     where id = p_id
+       and site_id = p_site_id
+       and kind in ('source-suggestion', 'correction-suggestion')
+       and status in ('pending', 'approved')
+       and clarification_asked is distinct from item_revision
+       and item_revision = p_item_revision
+       and coalesce(jsonb_array_length(decisions -> 'decisions'), 0) = p_expected_decisions
+       and p_expected_decisions < 100
+       and p_actor_role in ('site-admin', 'coordinator')
+       and jsonb_typeof(p_decision) = 'object'
+       and p_decision -> 'item' = to_jsonb(id::text)
+       and p_decision -> 'sequence' = to_jsonb(p_expected_decisions + 1)
+       and p_decision -> 'itemRevision' = to_jsonb(item_revision)
+       and p_decision -> 'decidedBy' -> 'role' = to_jsonb(p_actor_role)
+       and octet_length(p_decision::text) <= 8192
+    returning *
+  ), logged as (
+    insert into public.openblog_feedback_events
+      (site_id, feedback_id, action, from_status, to_status, reason, actor, at, version, kind, item_revision, actor_role)
+    select site_id, id, 'decide', status, status, null, p_actor, p_at, version, kind, item_revision, p_actor_role from changed
+  )
+  select * from changed;
+$$;
+
+revoke all on function public.openblog_record_feedback_decision(text, uuid, integer, integer, jsonb, text, text, timestamptz) from public, anon, authenticated;
+grant execute on function public.openblog_record_feedback_decision(text, uuid, integer, integer, jsonb, text, text, timestamptz) to service_role;
 
 commit;

@@ -640,6 +640,10 @@ pub struct HostedFeedback {
     /// Why the item was last rejected or removed, if it was.
     pub reason: Option<crate::moderation::ReasonCode>,
     pub feedback: ScholarlyFeedback,
+    /// The reader's evidence block of a version 2 record (ADR 0116): their
+    /// statement, never checked for truth and never an author's evidence
+    /// link.
+    pub evidence: Option<crate::evidence_submission::EvidenceOffer>,
     /// The text's revision (ADR 0102), raised only when a clarification
     /// replaces it; 1 for an item stored before the inbox (ADR 0106).
     pub revision: u32,
@@ -650,6 +654,10 @@ pub struct HostedFeedback {
     pub clarification_asked: Option<u32>,
     /// The submitter agreed to be asked to clarify.
     pub clarification_consent: bool,
+    /// The author's correction decisions on the item (ADR 0117), oldest
+    /// first, when the hosted service stores them: `None` when it does not
+    /// (the column is not there), an empty log when nobody has decided yet.
+    pub decisions: Option<crate::correction_decision::DecisionLog>,
 }
 
 #[derive(Deserialize)]
@@ -671,6 +679,8 @@ struct WireHosted {
     clarification_asked: Option<u64>,
     #[serde(default)]
     clarification_consent: Option<bool>,
+    #[serde(default)]
+    decisions: Option<Value>,
 }
 
 pub fn is_uuid(value: &str) -> bool {
@@ -750,13 +760,50 @@ impl HostedFeedback {
                 "a hosted feedback item names a revision after its current one",
             ));
         }
+        // A version 2 record is an evidence submission (ADR 0116); every
+        // other version is read by B5's reader, which refuses what it does
+        // not know.
+        // A version 2 record without its block is one the hosted function read with
+        // evidence switched off: it is the version 1 record it also is, so it can still
+        // be moderated and erased.
+        let mut wire_feedback = wire.feedback;
+        if wire_feedback.get("version").and_then(Value::as_u64)
+            == Some(crate::evidence_submission::EVIDENCE_SUBMISSION_VERSION)
+            && wire_feedback.get("evidence").is_none()
+        {
+            wire_feedback["version"] = 1.into();
+        }
+        let (feedback, evidence) = if wire_feedback.get("version").and_then(Value::as_u64)
+            == Some(crate::evidence_submission::EVIDENCE_SUBMISSION_VERSION)
+        {
+            let record = crate::evidence_submission::EvidenceRecord::from_value(&wire_feedback)
+                .map_err(|error| match error.feedback {
+                    Some(code) => FeedbackError::new(code, error.message),
+                    None => invalid("a hosted evidence submission is not valid"),
+                })?;
+            (record.feedback, record.evidence)
+        } else {
+            (ScholarlyFeedback::from_value(&wire_feedback)?, None)
+        };
+        let decisions = wire
+            .decisions
+            .map(|value| {
+                crate::correction_decision::DecisionLog::from_value(&value)
+                    .ok()
+                    .filter(|log| log.item() == wire.id.to_ascii_lowercase())
+                    .ok_or_else(|| {
+                        invalid("a hosted feedback item's `decisions` are not its decision log")
+                    })
+            })
+            .transpose()?;
         Ok(Self {
             id: wire.id,
             status,
             version: wire.version,
             moderated_at,
             reason,
-            feedback: ScholarlyFeedback::from_value(&wire.feedback)?,
+            feedback,
+            evidence,
             revision,
             // Only an approved item has an approval; one approved before the
             // inbox stored none and was approved at its only revision.
@@ -764,6 +811,7 @@ impl HostedFeedback {
                 .then(|| approved_revision.unwrap_or(revision)),
             clarification_asked,
             clarification_consent: wire.clarification_consent.unwrap_or(false),
+            decisions,
         })
     }
 }

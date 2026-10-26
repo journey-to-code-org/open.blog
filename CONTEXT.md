@@ -1342,6 +1342,87 @@ needs, added by `supabase/moderation.sql` and `supabase/feedback.sql` and switch
 (ADR 0106).
 _Avoid_: Migration (it is additive and optional), new comment system
 
+**Evidence submission**:
+A suggested source or suggested correction (the two evidence kinds), optionally with an evidence
+block naming the published claim, evidence link, citation or source it concerns. Reader data and
+the reader's statement, never evaluated and never a correction until the author decides
+(ADR 0116).
+_Avoid_: Correction, evidence link, citation, fact check
+
+**Evidence block**:
+The `evidence` member of a version 2 feedback submission: the claim, evidence link, citation and
+offered source a reader names by the site's public ids, with locators and the reader's stance.
+Never an A4 evidence link and never copied into research.
+_Avoid_: Evidence (for the author's evidence links), vote, endorsement
+
+**Published references**:
+The claims, evidence links and sources one post publishes, the things a reader's evidence block is
+checked against (an offered source is checked against the sources the whole site publishes). A
+reference outside them reads only as not published here, never as private.
+_Avoid_: Claims file, Source Library lookup
+
+**Correction decision**:
+The author's recorded conclusion about one evidence submission: an outcome linked to the item,
+the post's revision note and, where relevant, the claim evidence link the author recorded. Separate
+from moderation; it never edits the post and never changes the reader's record (ADR 0117).
+_Avoid_: Moderation, approval, verdict, fact check
+
+**Decision outcome**:
+Accepted as a correction, accepted as a clarification, accepted as evidence (each in full or in
+part), declined with the author's reason, or already addressed. Only accepted as a correction makes
+anything a correction.
+_Avoid_: Verdict, rating, true or false
+
+**Decision log**:
+Every correction decision about one item, oldest first and numbered from 1. A new decision names
+how many it saw and supersedes the last without removing it.
+_Avoid_: Overwriting a decision, audit trail when moderation events are meant
+
+**Item standing**:
+How a reader's item reads to readers and editors: a question, another interpretation, a proposed source,
+a challenged citation or a possible error until the author decides, then the outcome in force. It
+depends on the kind, the evidence block and the decision only, never on counts.
+_Avoid_: Standing on its own (it collides with claim and relationship standing), status
+(moderation), score, consensus
+
+**Public decision**:
+The public form of an item's decision in force (outcome, extent, reason, rationale, revision note,
+published claim evidence, day), shown only while the reader's item is itself public, and naming
+neither the reader nor who decided.
+_Avoid_: Correction notice for a private submission, decision export
+
+**Evidence choices**:
+What a post's feedback form lets a reader name in an evidence block: the post's published claims
+and their published evidence links, the sources it publishes and the sources the site publishes,
+each by id and public label. Built from public output only, so a reader picks and never types an id
+(ADR 0118).
+_Avoid_: Claim search, source lookup
+
+**Duplicate cue**:
+A link, on an inbox card, to another item on the same page about the same post that points at the
+same passage or names the same claim, evidence link or source. A reason to read them together,
+never a count and never a reason to decide.
+_Avoid_: Vote, tally, merge
+
+**Record decision**:
+The inbox's action for a correction decision, offered beside moderation to the site Admin and the
+work's coordinator where the policy and the hosted store allow. It points at a revision note and an
+evidence link recorded separately and never edits the post (ADR 0118).
+_Avoid_: Approve, publish, correct
+
+**Published outcome**:
+What a published suggested source or correction came to, on the post's canonical page and in its
+portable copies: the author's decision with its day and rationale, the revision the note was about,
+the post's own revision note that records the change and the evidence link the author recorded,
+each linked only while the post still publishes it. Carried in `reader-feedback.json` (version 2)
+beside the note, and never with who decided or the reader's words in a portable copy (ADR 0119).
+_Avoid_: Fact check, verdict, correction notice for a private submission
+
+**Unresolved suggestion**:
+A published suggested source or correction the author has not decided, shown, on a site that takes
+evidence, as a reader's suggestion and not a settled correction.
+_Avoid_: Pending (moderation), disputed, contested
+
 ## Admin workspace
 
 **Workspace preferences**:

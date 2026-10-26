@@ -99,6 +99,11 @@ pub struct PostEvidence {
     /// The sources the claims cite, by id, for the site artifact.
     #[serde(skip)]
     pub(crate) sources: Vec<PublicSource>,
+    /// The fragment of the "Revision notes" heading on the post's page, known once
+    /// [`check_section`] has read the section back: where a published correction links
+    /// to the change it made.
+    #[serde(skip)]
+    pub revisions_fragment: Option<String>,
 }
 
 /// One published claim.
@@ -437,6 +442,7 @@ pub fn compose(
         claims,
         revisions,
         sources,
+        revisions_fragment: None,
     };
     Some((section_markdown(&post, &published), post))
 }
@@ -659,6 +665,16 @@ pub fn check_section(markdown: &str, post: &mut PostEvidence) -> Result<(), Stri
         };
         claim.url = format!("{}#{id}", claim.url.split('#').next().unwrap_or_default());
     }
+    post.revisions_fragment = if post.revisions.is_empty() {
+        None
+    } else {
+        let ordinal = inside
+            .iter()
+            .find(|(_, level, text, _)| *level == 3 && text == REVISIONS_HEADING)
+            .map(|(ordinal, _, _, _)| *ordinal)
+            .ok_or_else(refused)?;
+        Some(ids.get(ordinal).ok_or_else(refused)?.clone())
+    };
     Ok(())
 }
 

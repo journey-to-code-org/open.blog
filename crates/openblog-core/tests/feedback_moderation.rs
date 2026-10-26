@@ -608,7 +608,7 @@ fn a_hostile_or_broken_file_is_refused_naming_the_item_and_never_repeating_it() 
         ),
         (
             "newer version",
-            json!({"version": 2, "items": []}).to_string(),
+            json!({"version": 3, "items": []}).to_string(),
         ),
         (
             "duplicate id",
