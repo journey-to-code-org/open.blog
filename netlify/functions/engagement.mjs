@@ -65,7 +65,10 @@ const hostedFeedback = (row) => {
     moderatedAt: row.moderated_at ? canonicalTime(row.moderated_at) : null,
     reason: row.moderation_reason ?? null,
     feedback: {
-      version: row.format_version,
+      // A version 2 row read without its evidence column (the opt-in is off, as after the
+      // rollback) is the plain version 1 record it also is: nothing is lost, and it can still be
+      // moderated, erased and retained.
+      version: row.format_version === 2 && !row.evidence ? 1 : row.format_version,
       kind: row.kind,
       body: row.body,
       details: row.details || {},

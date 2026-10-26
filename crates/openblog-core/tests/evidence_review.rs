@@ -13,7 +13,8 @@ use openblog_core::correction_decision::{
     DecisionContent, DecisionErrorCode, DecisionOutcome, Extent, RevisionLink,
 };
 use openblog_core::evidence_submission::{
-    evidence_review, reference_choices, EvidenceOffer, EvidenceSubmission,
+    evidence_review, published_source_label, reference_choices, EvidenceOffer, EvidenceSubmission,
+    SitePublishedSources, SiteReferenceIndex,
 };
 use openblog_core::feedback_provenance::FeedbackChannel;
 use openblog_core::invitation::Identities;
@@ -168,7 +169,37 @@ fn the_reader_form_lists_only_what_the_site_publishes() {
         .contents;
     assert!(!html.contains(" evidence>"));
     assert!(!html.contains("ob-evidence-references"));
-    assert_eq!(reference_choices(cave(&site), &site)["version"], 1);
+    assert_eq!(
+        reference_choices(cave(&site), &SiteReferenceIndex::of_site(&site))["version"],
+        1
+    );
+}
+
+#[test]
+fn the_site_index_labels_and_lists_exactly_what_the_one_by_one_lookups_do() {
+    let site = site(true);
+    let index = SiteReferenceIndex::of_site(&site);
+    let direct = SitePublishedSources::of_site(&site);
+    for id in [
+        "critic",
+        "slings",
+        "plato",
+        "unused",
+        "withheld-claim",
+        "nothing",
+    ] {
+        assert_eq!(
+            index.label(id).map(str::to_string),
+            published_source_label(&site, id),
+            "{id}"
+        );
+        assert_eq!(
+            index.sources().has_source(id),
+            direct.has_source(id),
+            "{id}"
+        );
+    }
+    assert!(index.label("critic").is_some());
 }
 
 #[test]
@@ -305,14 +336,16 @@ fn hosted_items_carry_their_evidence_and_log_and_version_2_needs_its_block() {
         Some("cave")
     );
     assert!(hosted.decisions.as_ref().unwrap().is_empty());
-    // A version 2 record without its block, or with a vote in it, is refused
-    // on its own; a version 1 record is B5's.
+    // A version 2 record without its block is what the hosted function sends
+    // with evidence switched off: the version 1 record it also is, still
+    // moderated and erased. One with a vote in its block is refused on its own.
     let mut broken = value.clone();
     broken["feedback"]
         .as_object_mut()
         .unwrap()
         .remove("evidence");
-    assert!(InboxItem::from_value(&broken).is_err());
+    let tolerated = InboxItem::from_value(&broken).unwrap();
+    assert!(tolerated.feedback().unwrap().evidence.is_none());
     let mut voted = value.clone();
     voted["feedback"]["evidence"]["upvotes"] = json!(3);
     assert!(InboxItem::from_value(&voted).is_err());

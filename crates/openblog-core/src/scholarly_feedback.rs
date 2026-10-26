@@ -763,17 +763,27 @@ impl HostedFeedback {
         // A version 2 record is an evidence submission (ADR 0138); every
         // other version is read by B5's reader, which refuses what it does
         // not know.
-        let (feedback, evidence) = if wire.feedback.get("version").and_then(Value::as_u64)
+        // A version 2 record without its block is one the hosted function read with
+        // evidence switched off: it is the version 1 record it also is, so it can still
+        // be moderated and erased.
+        let mut wire_feedback = wire.feedback;
+        if wire_feedback.get("version").and_then(Value::as_u64)
+            == Some(crate::evidence_submission::EVIDENCE_SUBMISSION_VERSION)
+            && wire_feedback.get("evidence").is_none()
+        {
+            wire_feedback["version"] = 1.into();
+        }
+        let (feedback, evidence) = if wire_feedback.get("version").and_then(Value::as_u64)
             == Some(crate::evidence_submission::EVIDENCE_SUBMISSION_VERSION)
         {
-            let record = crate::evidence_submission::EvidenceRecord::from_value(&wire.feedback)
+            let record = crate::evidence_submission::EvidenceRecord::from_value(&wire_feedback)
                 .map_err(|error| match error.feedback {
                     Some(code) => FeedbackError::new(code, error.message),
                     None => invalid("a hosted evidence submission is not valid"),
                 })?;
             (record.feedback, record.evidence)
         } else {
-            (ScholarlyFeedback::from_value(&wire.feedback)?, None)
+            (ScholarlyFeedback::from_value(&wire_feedback)?, None)
         };
         let decisions = wire
             .decisions
