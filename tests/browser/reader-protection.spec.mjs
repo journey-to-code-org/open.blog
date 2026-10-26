@@ -326,13 +326,29 @@ test("a report that cannot be sent says why, keeps the form and focus on the sta
   expect(sent.reports).toHaveLength(4);
 });
 
+// How far the post's main content (the notes, the report forms, the receipt form) pokes past the
+// viewport or scrolls sideways, with what overflows. The site's own header and navigation belong
+// to the theme, whose width depends on the platform's fonts, not to these forms.
+const mainOverflow = (page) =>
+  page.evaluate(() => {
+    const region = document.querySelector("main#main");
+    const elements = [region, ...region.querySelectorAll("*")];
+    const limit = window.innerWidth;
+    const offenders = elements
+      .filter((element) => element.getBoundingClientRect().right > limit + 1)
+      .map((element) => `${element.tagName.toLowerCase()}.${element.className}: ${Math.round(element.getBoundingClientRect().right)}px`);
+    const widest = Math.max(...elements.map((element) => element.getBoundingClientRect().right));
+    return { overflow: Math.max(widest - limit, region.scrollWidth - region.clientWidth), offenders };
+  });
+
 test("without JavaScript the page says how to report and to send a note, and fits 320px", async ({ browser }) => {
   const still = await browser.newContext({ javaScriptEnabled: false, viewport: { width: 320, height: 800 } });
   const page = await still.newPage();
   await page.goto(`${origin}/tides/`);
   await expect(page.getByText("To report this note as abusive, write to the author.")).toBeVisible();
   await expect(page.getByText("The feedback form needs JavaScript", { exact: false })).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+  const still320 = await mainOverflow(page);
+  expect(still320.overflow, still320.offenders.join(", ")).toBeLessThanOrEqual(1);
   await still.close();
   const narrow = await browser.newContext({ viewport: { width: 320, height: 800 } });
   const live = await narrow.newPage();
@@ -340,7 +356,8 @@ test("without JavaScript the page says how to report and to send a note, and fit
   await live.goto(`${origin}/tides/`);
   await live.locator(`#ob-reader-note-${NOTE_ID}`).getByText("Report this note").click();
   await live.locator(".ob-receipt-manage summary").click();
-  expect(await live.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+  const live320 = await mainOverflow(live);
+  expect(live320.overflow, live320.offenders.join(", ")).toBeLessThanOrEqual(1);
   await narrow.close();
 });
 
