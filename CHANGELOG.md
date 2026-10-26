@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.26.1] - 2026-10-25
+
 - Two people saving to the same shared reflection at once (drafts, invitations, members, reveal
   and approval changes) are no longer refused now and then with "another content write is
   active": a finished request now releases the content lock before the next one starts.
