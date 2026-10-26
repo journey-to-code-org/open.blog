@@ -303,6 +303,18 @@ export function feedbackModerationRequest(item, action, reason, acknowledged) {
   return request;
 }
 
+/**
+ * What a card says when an item's state and the published file disagree, and the fix it offers: an
+ * approved note that is not on its post yet, or a removed or rejected one that still is (a removal
+ * whose file write failed, or a decision made outside Admin). `published` is null when unknown.
+ */
+export function feedbackPublicationMismatch(item) {
+  if (item.status === "approved" && item.published === false) return { notice: "Approved, but not on the site yet.", action: "publish", label: "Publish on the post" };
+  if (item.status === "removed" && item.published === true) return { notice: "Removed, but still on the post.", action: "unpublish", label: "Take it off the post" };
+  if (item.status === "rejected" && item.published === true) return { notice: "Rejected, but still on the post.", action: "unpublish", label: "Take it off the post" };
+  return null;
+}
+
 /** Who sent a note, for the moderator only, with the reader's choice about their name. */
 export function feedbackReaderLine(reader) {
   if (!reader?.name) return "From an anonymous reader.";
@@ -10242,7 +10254,9 @@ export class ObAdmin extends AdminElement {
           const result = await this.api.call("PATCH", "engagement/feedback", { json: feedbackModerationRequest(item, action, reason, acknowledge?.checked) });
           const done = action === "approve"
             ? result.published ? `Approved and published on ${where}. Rebuild or publish to update the live site.` : `Approved. ${result.publishError || ""}`
-            : action === "reject" ? "Rejected. Nothing was published." : `Removed from ${where}.`;
+            : action === "reject" ? "Rejected. Nothing was published."
+            : result.published ? `Removed, but still on the post. ${result.publishError || ""} Take it off the post from the Removed list.`
+            : result.publishError ? `Removed. ${result.publishError}` : `Removed from ${where}.`;
           await reloadAll(done, result.publishError ? "notice" : "ok");
         } catch (error) {
           busy(false);
@@ -10280,25 +10294,24 @@ export class ObAdmin extends AdminElement {
             } }, option.label)));
         }
       }
-      if (item.status === "approved") {
-        if (item.published === false) {
-          actions.append(h("button", { class: "oba-btn", type: "button", onClick: async () => {
-            busy(true);
-            try {
-              await this.api.call("POST", "engagement/feedback/publish", { json: { id: item.id } });
-              await reloadAll(`Published on ${where}.`, "ok");
-            } catch (error) {
-              busy(false);
-              announce(line, error.message, "error");
-            }
-          } }, "Publish on the post"));
-          card.append(h("p", { class: "oba-notice" }, "Approved, but not on the site yet."));
-        } else if (item.published === true) {
-          card.append(h("p", { class: "oba-small" }, "Published on the post. ", h("a", { href: `#oba-published-${key}`, onClick: (event) => {
-            event.preventDefault();
-            document.getElementById(`oba-published-${key}-response`)?.focus();
-          } }, "Respond or record a revision note")));
-        }
+      const mismatch = feedbackPublicationMismatch(item);
+      if (mismatch) {
+        actions.append(h("button", { class: "oba-btn", type: "button", onClick: async () => {
+          busy(true);
+          try {
+            await this.api.call("POST", `engagement/feedback/${mismatch.action}`, { json: { id: item.id } });
+            await reloadAll(mismatch.action === "publish" ? `Published on ${where}.` : `Taken off ${where}. Rebuild or publish to update the live site.`, "ok");
+          } catch (error) {
+            busy(false);
+            announce(line, error.message, "error");
+          }
+        } }, mismatch.label));
+        card.append(h("p", { class: "oba-notice" }, mismatch.notice));
+      } else if (item.status === "approved" && item.published === true) {
+        card.append(h("p", { class: "oba-small" }, "Published on the post. ", h("a", { href: `#oba-published-${key}`, onClick: (event) => {
+          event.preventDefault();
+          document.getElementById(`oba-published-${key}-response`)?.focus();
+        } }, "Respond or record a revision note")));
       }
       card.append(actions, line);
       return card;

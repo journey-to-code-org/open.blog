@@ -55,7 +55,9 @@ All notable changes to open.blog are recorded here. Releases follow
   You can add a public response to each note and record what changed in the post as a revision
   note (`evidenceRevisions`), which a site that takes feedback now publishes; neither edits the
   post, and nothing is sent to readers. Feeds and portable copies carry a link to the page instead
-  of the notes. Run `supabase/feedback.sql` again to add moderation: it adds two columns, an audit
+  of the notes. A note that is approved but not on its post yet, or removed but still on it
+  (because the file could not be written, or the decision was made outside Admin), says so and can
+  be put on or taken off the post again. Run `supabase/feedback.sql` again to add moderation: it adds two columns, an audit
   table and one moderation function, and changes nothing else.
 
 ## [0.32.0] - 2026-10-26

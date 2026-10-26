@@ -665,6 +665,7 @@ fn authenticated_api(
         ("GET", "engagement/feedback") => feedback_queue(state, req),
         ("PATCH", "engagement/feedback") => moderate_feedback(state, req, session),
         ("POST", "engagement/feedback/publish") => publish_feedback(state, req),
+        ("POST", "engagement/feedback/unpublish") => unpublish_moderated(state, req),
         ("GET", "engagement/feedback/published") => published_feedback(state),
         ("PUT", "engagement/feedback/response") => respond_to_feedback(state, req),
         ("POST", "engagement/feedback/revision-note") => record_revision_note(state, req),
@@ -4395,6 +4396,18 @@ fn unpublish_feedback(path: &Path, id: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Take a removed or rejected item off its post, or say why not. The caller
+/// holds the content lock.
+fn unpublish_moderated_feedback(path: &Path, item: &HostedFeedback) -> Result<(), String> {
+    if !matches!(
+        item.status,
+        ModerationState::Removed | ModerationState::Rejected
+    ) {
+        return Err("Only removed or rejected feedback is taken off a post here".into());
+    }
+    unpublish_feedback(path, &item.id)
+}
+
 /// Whether an approval may go ahead given the passage as it is now: a
 /// passage that is not current needs the moderator to name the check they
 /// read, so a re-anchored or stale passage is never approved unseen.
@@ -4523,7 +4536,16 @@ fn moderate_feedback(state: &AppState, req: &Request, session: &auth::Session) -
                 published = change.action == ModerationAction::Approve;
                 build = Some(feedback_build_json(&state.rebuild_locked(&mut status)));
             }
-            Err(error) => publish_error = Some(error),
+            Err(error) => {
+                // A removal that could not be written leaves the note on the
+                // post; say so when the file says so.
+                if change.action == ModerationAction::Remove {
+                    published = reader_feedback_path(state)
+                        .and_then(|path| load_reader_feedback(&path))
+                        .is_ok_and(|(file, _)| file.get(&id).is_some());
+                }
+                publish_error = Some(error)
+            }
         }
     }
     let mut view = feedback_moderation::moderation_view(&changed, &site);
@@ -4573,6 +4595,39 @@ fn publish_feedback(state: &AppState, req: &Request) -> Response {
     let build = feedback_build_json(&state.rebuild_locked(&mut status));
     eprintln!("admin: feedback {id} published");
     Response::json(200, &json!({ "published": true, "build": build }))
+}
+
+/// `POST engagement/feedback/unpublish`: take a removed or rejected item off
+/// its post again, after a removal whose file write failed or a decision made
+/// outside Admin.
+fn unpublish_moderated(state: &AppState, req: &Request) -> Response {
+    let body = match feedback_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let id = match feedback_id(&body["id"]) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let item = match hosted_feedback_item(state, &id) {
+        Ok(item) => item,
+        Err(response) => return response,
+    };
+    let mut status = lock(&state.build);
+    let _transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let path = match reader_feedback_path(state) {
+        Ok(path) => path,
+        Err(response) => return response,
+    };
+    if let Err(error) = unpublish_moderated_feedback(&path, &item) {
+        return Response::error(409, &error);
+    }
+    let build = feedback_build_json(&state.rebuild_locked(&mut status));
+    eprintln!("admin: feedback {id} unpublished");
+    Response::json(200, &json!({ "published": false, "build": build }))
 }
 
 /// Every note the site publishes, each as its post shows it now, with the
@@ -16950,11 +17005,12 @@ mod tests {
 
     const FEEDBACK_ITEM_ID: &str = "00000000-0000-4000-8000-0000000000a1";
 
-    fn feedback_routes() -> [(&'static str, &'static str); 6] {
+    fn feedback_routes() -> [(&'static str, &'static str); 7] {
         [
             ("GET", "/admin/api/engagement/feedback"),
             ("PATCH", "/admin/api/engagement/feedback"),
             ("POST", "/admin/api/engagement/feedback/publish"),
+            ("POST", "/admin/api/engagement/feedback/unpublish"),
             ("GET", "/admin/api/engagement/feedback/published"),
             ("PUT", "/admin/api/engagement/feedback/response"),
             ("POST", "/admin/api/engagement/feedback/revision-note"),
@@ -17041,6 +17097,22 @@ mod tests {
             ),
         );
         assert_eq!(unknown.status, 422, "refused before any hosted request");
+        let unpublish = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/engagement/feedback/unpublish",
+                    json!({ "id": FEEDBACK_ITEM_ID }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            unpublish.status, 404,
+            "needs the hosted state, so off says so"
+        );
         let _ = fs::remove_dir_all(&f.dir);
     }
 
@@ -17398,6 +17470,33 @@ mod tests {
             publish_approved_feedback(&path, &site, &current).is_err(),
             "pending is never published"
         );
+        // Taking a note off the post again needs the hosted state to say it
+        // was removed or rejected: an approved or pending note stays.
+        let removed = hosted(&feedback_record(&site, &post, None, "section"), "removed");
+        let rejected = hosted(&feedback_record(&site, &post, None, "section"), "rejected");
+        for kept in [&approved, &current] {
+            assert!(unpublish_moderated_feedback(&path, kept).is_err());
+            assert_eq!(
+                feedback_publication::ReaderFeedbackFile::from_json(
+                    &fs::read_to_string(&path).unwrap()
+                )
+                .unwrap()
+                .items
+                .len(),
+                1,
+                "{} stays on the post",
+                kept.status.id()
+            );
+        }
+        unpublish_moderated_feedback(&path, &removed).unwrap();
+        assert!(feedback_publication::ReaderFeedbackFile::from_json(
+            &fs::read_to_string(&path).unwrap()
+        )
+        .unwrap()
+        .items
+        .is_empty());
+        unpublish_moderated_feedback(&path, &rejected).unwrap();
+        publish_approved_feedback(&path, &site, &approved).unwrap();
         unpublish_feedback(&path, FEEDBACK_ITEM_ID).unwrap();
         assert!(feedback_publication::ReaderFeedbackFile::from_json(
             &fs::read_to_string(&path).unwrap()
@@ -17405,6 +17504,10 @@ mod tests {
         .unwrap()
         .items
         .is_empty());
+        // A file that cannot be read is never written over.
+        fs::write(&path, "{not json").unwrap();
+        assert!(unpublish_moderated_feedback(&path, &removed).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{not json");
         let _ = fs::remove_dir_all(&f.dir);
     }
 

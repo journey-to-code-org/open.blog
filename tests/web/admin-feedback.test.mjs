@@ -5,7 +5,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { FEEDBACK_QUEUE_STATES, feedbackModerationRequest, feedbackPreviewText, feedbackReaderLine } from "../../web/admin/admin.js";
+import { FEEDBACK_QUEUE_STATES, feedbackModerationRequest, feedbackPreviewText, feedbackPublicationMismatch, feedbackReaderLine } from "../../web/admin/admin.js";
 
 const moderation = JSON.parse(readFileSync(new URL("../fixtures/feedback-moderation.json", import.meta.url), "utf8"));
 
@@ -48,4 +48,14 @@ test("the public preview says what the post will show, and never quotes a change
     "On the post it is shown without a quotation, because the passage has changed, as from a reader, received 2026-10-26.",
   );
   assert.equal(feedbackPreviewText(null), "");
+});
+
+test("a card offers to fix a note whose state and the published file disagree", () => {
+  const card = (status, published) => feedbackPublicationMismatch({ status, published });
+  assert.deepEqual(card("approved", false), { notice: "Approved, but not on the site yet.", action: "publish", label: "Publish on the post" });
+  assert.deepEqual(card("removed", true), { notice: "Removed, but still on the post.", action: "unpublish", label: "Take it off the post" });
+  assert.equal(card("rejected", true).action, "unpublish");
+  for (const [status, published] of [["approved", true], ["approved", null], ["removed", false], ["removed", null], ["rejected", false], ["pending", true], ["pending", false]]) {
+    assert.equal(card(status, published), null, `${status} ${published}`);
+  }
 });
