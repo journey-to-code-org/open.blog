@@ -17,6 +17,9 @@ pub struct ArrangedTurn {
     pub author: String,
     pub label: Option<String>,
     pub body: String,
+    /// The contributor registry key the section was composed under, when the
+    /// body states it (ADR 0176). Older bodies do not.
+    pub contributor: Option<String>,
 }
 
 /// One round: an optional prompt and the turns that answer it, in reading order.
@@ -126,6 +129,7 @@ impl Arrangement {
         let mut last_end = 0;
         let mut author = String::new();
         let mut label: Option<String> = None;
+        let mut contributor: Option<String> = None;
         for (start, end, line) in lines {
             let gap_blank = blank(&markdown[last_end..start]);
             match stage {
@@ -155,9 +159,21 @@ impl Arrangement {
                     round.prompt = Some(decode_text(element(line, PROMPT_OPEN, "</p>")?)?);
                 }
                 Stage::Round if gap_blank && line.starts_with(SECTION_OPEN) => {
-                    if !digits(line.strip_prefix(SECTION_OPEN)?.strip_suffix("\">")?) {
+                    let rest = line.strip_prefix(SECTION_OPEN)?.strip_suffix("\">")?;
+                    let prefix = format!(" {}", crate::reflection::CONTRIBUTOR_CLASS_PREFIX);
+                    let (lane, bound) = match rest.split_once(prefix.as_str()) {
+                        Some((lane, key)) => {
+                            if !crate::reflection::is_contributor_key(key) {
+                                return None;
+                            }
+                            (lane, Some(key.to_string()))
+                        }
+                        None => (rest, None),
+                    };
+                    if !digits(lane) {
                         return None;
                     }
+                    contributor = bound;
                     stage = Stage::Section;
                 }
                 Stage::Section if gap_blank => {
@@ -176,6 +192,7 @@ impl Arrangement {
                     rounds.last_mut()?.turns.push(ArrangedTurn {
                         author: std::mem::take(&mut author),
                         label: label.take(),
+                        contributor: contributor.take(),
                         body: body.to_string(),
                     });
                     stage = Stage::Round;

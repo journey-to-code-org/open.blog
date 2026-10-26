@@ -5345,6 +5345,7 @@ fn answer_as_author(
             parent_target: &target,
             body: post.authored_markdown(),
             credits,
+            registry: &sources.published.config.contributors,
             at: clock::now(),
         },
     );
@@ -6438,11 +6439,13 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
                 return Response::json(
                     if code == author_response::PARENT_UNAVAILABLE {
                         409
+                    } else if code == author_response::RESPONDER_DENIED {
+                        403
                     } else {
                         422
                     },
                     &json!({
-                        "error": "The reflection this answers is not shown to readers now, or is not about this author’s section, so the answer cannot be approved.",
+                        "error": "The reflection this answers is not shown to readers now, is not about this author’s section, or the account that wrote the answer is no longer that section’s author, so the answer cannot be approved.",
                         "code": code,
                         "item": view,
                     }),
@@ -13825,6 +13828,31 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
                 "The post credits changed on disk since you opened them. Reload before saving.",
             );
         }
+        // A shared reflection's credits list each contributor once, in the
+        // order they first appear in the body (ADR 0030). An edit that breaks
+        // that order would stop its sections being attributed to their
+        // authors, so it is refused rather than saved (ADR 0176).
+        if let CreditEdit::Set(contents) = &credit_edit {
+            let before = current
+                .as_deref()
+                .and_then(|bytes| std::str::from_utf8(bytes).ok());
+            let published = attributed_perspective::AttributedSections::from_published(
+                text_body,
+                before,
+                &config.contributors,
+            );
+            let edited = attributed_perspective::AttributedSections::from_published(
+                text_body,
+                Some(contents),
+                &config.contributors,
+            );
+            if !published.sections().is_empty() && edited.sections().is_empty() {
+                return Response::error(
+                    422,
+                    "These credits no longer match the order in which each contributor first appears in this shared reflection, so readers could no longer write to or answer each author’s own section. List each contributor once, in the order they first appear.",
+                );
+            }
+        }
     }
 
     if let Err(problems) = validate_candidate(&state.root, &config, &rel, &source, &credit_edit) {
@@ -20831,7 +20859,7 @@ mod tests {
             AuthorizationRole, IdentityBinding, NewParticipant, NewSharedPublication,
             NewSourceReference, Participant, SharedPublication, SourceKind,
         };
-        use openblog_core::reflection::{compose, ComposedTurn, Placement, ReflectionLayout};
+        use openblog_core::reflection::{compose_bound, ComposedTurn, Placement, ReflectionLayout};
         use openblog_core::third_perspective::{
             ConsentChoices, Intake, LocalReflection, ReaderAttribution,
         };
@@ -20912,7 +20940,9 @@ mod tests {
                     body: (*text).to_string(),
                 })
                 .collect();
-            compose(ReflectionLayout::Sequential, &composed)
+            let keys: Vec<String> = turns.iter().map(|(name, _)| name.to_lowercase()).collect();
+            let bound: Vec<Option<&str>> = keys.iter().map(|key| Some(key.as_str())).collect();
+            compose_bound(ReflectionLayout::Sequential, &composed, &bound)
         }
 
         fn site(config: &str, turns: &[(&str, &str)], credits: bool) -> Site {
@@ -21457,6 +21487,24 @@ mod tests {
                 json!({"id": ANSWER, "expectedVersion": 2, "actor": "mina-admin"})
             );
             assert_eq!(body_json(&response)["item"]["status"], "withdrawn");
+            // Membership revoked after the answer was written does not stop its
+            // author taking their own words back (ADR 0162).
+            let mut unbound = record();
+            unbound
+                .authorization
+                .bindings
+                .retain(|binding| binding.participant_id != "p-mina");
+            let revoked = self::sources(self::site(SITE_JSON, &TURNS, true), unbound);
+            let response = withdraw_answer_with(
+                &revoked,
+                &session("mina-admin"),
+                protocol,
+                true,
+                &item,
+                2,
+                |_| Ok((200, json!({"item": answer_value("withdrawn", 3)}))),
+            );
+            assert_eq!(response.status, 200);
             // Another account, even a coordinator (who removes instead), the
             // same refusal as an answer that is not there; nothing is sent.
             for user in ["joe-admin", "coord-admin", "owner-admin"] {
@@ -25949,6 +25997,104 @@ mod tests {
             .unwrap();
         assert_eq!(inherited["status"], "error");
         assert_eq!(inherited["creditMode"], "inherited");
+    }
+
+    #[test]
+    fn credits_that_would_unattribute_a_shared_reflection_are_refused() {
+        use openblog_core::reflection::{compose_bound, ComposedTurn, Placement, ReflectionLayout};
+        let f = fixture("credit-order");
+        let config_path = f.dir.join("openblog.json");
+        let mut config: Json =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        config["contributors"] = json!({ "ada": { "name": "Ada" }, "grace": { "name": "Grace" } });
+        fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
+        let session = login_ok(&f);
+        let turns = [("Ada", "One."), ("Grace", "Two."), ("Ada", "Three.")];
+        let composed: Vec<ComposedTurn<'_>> = turns
+            .iter()
+            .enumerate()
+            .map(|(round, (name, text))| ComposedTurn {
+                round,
+                round_prompt: None,
+                display_name: name,
+                label: None,
+                placement: Placement { lane: 0, lanes: 1 },
+                body: (*text).to_string(),
+            })
+            .collect();
+        let body = compose_bound(
+            ReflectionLayout::Sequential,
+            &composed,
+            &[Some("ada"), Some("grace"), Some("ada")],
+        );
+        let author = |id: &str| json!({"contributor": id, "roles": [{"vocabulary": "crossref", "role": "author"}]});
+        let created = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/document",
+                    json!({
+                        "kind": "posts",
+                        "fields": {"title": "Shared", "date": "2026-01-01"},
+                        "body": body,
+                        "credits": [author("ada"), author("grace")]
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            created.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&created.body)
+        );
+        let rel = body_json(&created)["path"].as_str().unwrap().to_string();
+        let sidecar = f.dir.join("content/posts/2026-01-01-shared.credits.json");
+        let fetch = || {
+            body_json(&handle(
+                &f.state,
+                &authed(
+                    req("GET", &format!("/admin/api/document?path={rel}")),
+                    &session,
+                    false,
+                ),
+            ))
+        };
+        let put = |fetched: &Json, credits: Json| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "PUT",
+                        &format!("/admin/api/document?path={rel}"),
+                        json!({
+                            "fields": fetched["fields"], "body": body,
+                            "etag": fetched["etag"], "credits": credits,
+                            "creditEtag": fetched["creditEtag"]
+                        }),
+                    ),
+                    &session,
+                    true,
+                ),
+            )
+        };
+        let fetched = fetch();
+        let before = fs::read_to_string(&sidecar).unwrap();
+        // A byline reorder would unattribute every section: refused, nothing written.
+        let refused = put(&fetched, json!([author("grace"), author("ada")]));
+        assert_eq!(refused.status, 422);
+        assert!(String::from_utf8_lossy(&refused.body).contains("first appears"));
+        assert_eq!(fs::read_to_string(&sidecar).unwrap(), before);
+        // Dropping a credit is refused for the same reason.
+        assert_eq!(put(&fetched, json!([author("ada")])).status, 422);
+        // The same credits in the same order are saved as usual.
+        assert_eq!(
+            put(&fetched, json!([author("ada"), author("grace")])).status,
+            200
+        );
     }
 
     #[test]

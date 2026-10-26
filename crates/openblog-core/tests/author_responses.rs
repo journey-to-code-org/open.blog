@@ -26,7 +26,7 @@ use openblog_core::moderation::{
 use openblog_core::moderation_inbox::{read_page, Inbox, InboxItem, Protocol, Source};
 use openblog_core::participation::{ParticipationKind, ParticipationMode};
 use openblog_core::passage_target::PassageDocument;
-use openblog_core::reflection::{compose, ComposedTurn, Placement, ReflectionLayout};
+use openblog_core::reflection::{compose_bound, ComposedTurn, Placement, ReflectionLayout};
 use openblog_core::third_perspective::{
     ConsentChoices, Intake, LocalReflection, PerspectiveTarget, ReaderAttribution, SubmittedCopy,
 };
@@ -195,7 +195,9 @@ fn arranged(turns: &[(&str, &str)]) -> String {
             body: (*text).to_string(),
         })
         .collect();
-    compose(ReflectionLayout::Sequential, &composed)
+    let keys: Vec<String> = turns.iter().map(|(name, _)| name.to_lowercase()).collect();
+    let bound: Vec<Option<&str>> = keys.iter().map(|key| Some(key.as_str())).collect();
+    compose_bound(ReflectionLayout::Sequential, &composed, &bound)
 }
 
 const SITE_JSON: &str = r#"{"title":"T","url":"https://t.dev","postPath":"/posts/{slug}/",
@@ -327,6 +329,7 @@ fn answer(
             parent_target: &target,
             body: &arranged(&TURNS),
             credits: Some(CREDITS),
+            registry: &site.config.contributors,
             at: time("2026-10-27T10:00:00Z"),
         },
     )
@@ -837,36 +840,104 @@ fn only_the_author_who_wrote_an_answer_takes_it_back_and_only_while_still_bound(
         }
     }
 
-    // Revoked membership: the account is no longer bound, or no longer a
-    // contributor, or its participant is gone: it cannot take the answer back.
+    // Revoked membership: the account is no longer bound, no longer a
+    // contributor, or its participant is gone. It may still take its own
+    // words back (taking words down is never the risk); approving is where
+    // the binding is checked again.
     let revoked = |change: &dyn Fn(&mut SharedPublication)| {
         let mut changed = record.clone();
         change(&mut changed);
         let records = [changed];
         let works = SharedWorks::new(&records, &site);
-        inbox(&site, &works, &identities, session("mina-admin"), true).may_withdraw(&pending)
+        let mina = inbox(&site, &works, &identities, session("mina-admin"), true);
+        (
+            mina.may_withdraw(&pending),
+            mina.withdraw_answer(&pending, 1).is_ok(),
+        )
     };
-    assert!(!revoked(&|r| r
-        .authorization
-        .bindings
-        .retain(|binding| binding.participant_id != "p-mina")));
-    assert!(!revoked(&|r| {
+    let unbound: &dyn Fn(&mut SharedPublication) = &|r| {
+        r.authorization
+            .bindings
+            .retain(|binding| binding.participant_id != "p-mina")
+    };
+    let demoted: &dyn Fn(&mut SharedPublication) = &|r| {
         for binding in &mut r.authorization.bindings {
             if binding.participant_id == "p-mina" {
                 binding.roles = vec![AuthorizationRole::Editor];
             }
         }
-    }));
-    assert!(!revoked(&|r| r
-        .collaboration
-        .participants
-        .retain(|participant| participant.id != "p-mina")));
-    // The account itself deactivated, or its registry key dropped.
-    let inactive = Identities {
-        active_admin_users: &["owner-admin", "joe-admin"],
-        contributor_ids: &KEYS,
     };
-    assert!(!inbox(&site, &works, &inactive, session("mina-admin"), true).may_withdraw(&pending));
+    let gone: &dyn Fn(&mut SharedPublication) = &|r| {
+        r.collaboration
+            .participants
+            .retain(|participant| participant.id != "p-mina")
+    };
+    for change in [unbound, demoted, gone] {
+        assert_eq!(revoked(change), (true, true));
+    }
+}
+
+#[test]
+fn approval_checks_the_responder_against_the_record_again() {
+    let site = site();
+    let record = record();
+    let (_, row) = answer(&site, &record, "mina-admin");
+    let item = InboxItem::from_value(&hosted_answer(&row, "pending", 1)).unwrap();
+    let (copy, _) = perspective_copy(&site, 0);
+    let parent = InboxItem::from_value(&hosted_perspective(&copy, "approved")).unwrap();
+    let identities = identities();
+    let check = |record: &SharedPublication, item: &InboxItem| {
+        let records = [record.clone()];
+        let works = SharedWorks::new(&records, &site);
+        inbox(&site, &works, &identities, session("coord-admin"), true)
+            .check_answer_approval(item, &parent)
+    };
+    assert_eq!(check(&record, &item), Ok(()));
+
+    // Membership revoked after the answer was written: unbound, demoted to a
+    // reader, or the participant removed. None is approved.
+    let mut unbound = record.clone();
+    unbound
+        .authorization
+        .bindings
+        .retain(|binding| binding.participant_id != "p-mina");
+    assert_eq!(check(&unbound, &item), Err("denied"));
+    let mut demoted = record.clone();
+    for binding in &mut demoted.authorization.bindings {
+        if binding.participant_id == "p-mina" {
+            binding.roles = vec![AuthorizationRole::Reader];
+        }
+    }
+    assert_eq!(check(&demoted, &item), Err("denied"));
+    let mut rebound = record.clone();
+    for binding in &mut rebound.authorization.bindings {
+        if binding.participant_id == "p-mina" {
+            binding.contributor_id = "joe".into();
+        }
+    }
+    assert_eq!(check(&rebound, &item), Err("denied"));
+
+    // Rows forged with the moderation token: the stored responder names an
+    // account that is not bound to that participant, a participant that is
+    // not that contributor, or a contributor nobody is bound to.
+    for (account, participant, contributor) in [
+        ("joe-admin", "p-mina", "mina"),
+        ("mina-admin", "p-joe", "mina"),
+        ("coord-admin", "p-coord", "mina"),
+        ("ghost-admin", "p-ghost", "mina"),
+        ("mina-admin", "p-nobody", "mina"),
+    ] {
+        let mut forged = hosted_answer(&row, "pending", 1);
+        forged["feedback"]["details"]["binding"]["account"] = json!(account);
+        forged["feedback"]["details"]["binding"]["participant"] = json!(participant);
+        forged["feedback"]["details"]["responder"]["contributor"] = json!(contributor);
+        let forged = InboxItem::from_value(&forged).unwrap();
+        assert_eq!(
+            check(&record, &forged),
+            Err("denied"),
+            "{account} {participant} {contributor}"
+        );
+    }
 }
 
 #[test]

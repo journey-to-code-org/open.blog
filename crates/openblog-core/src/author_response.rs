@@ -427,6 +427,9 @@ pub struct ParentRow {
 /// Why an answer does not belong under a parent, or may not be decided.
 /// The same codes the hosted function answers with.
 pub const PARENT_UNAVAILABLE: &str = "parentUnavailable";
+/// The responder an answer stores is not, now, the account bound to the
+/// section's contributor.
+pub const RESPONDER_DENIED: &str = "denied";
 pub const PARENT_NOT_ATTRIBUTED: &str = "notAttributed";
 pub const PARENT_RESPONDER_MISMATCH: &str = "responderMismatch";
 pub const PARENT_WRONG_WORK: &str = "wrongWork";

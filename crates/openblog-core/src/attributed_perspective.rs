@@ -292,25 +292,44 @@ pub struct AttributedSections {
 
 impl AttributedSections {
     /// The sections as the work's committed content publishes them: the
-    /// Markdown body read back as an arranged reflection (ADR 0033) and its
+    /// Markdown body read back as an arranged reflection (ADR 0033), its
     /// credits sidecar, which lists each contributor once, in the order they
-    /// first appear (ADR 0030). The k-th distinct author name in the body is
-    /// the k-th credit. Nothing private is read and no name is compared with
-    /// any record, so a static or CI build, a later invitation of someone with
-    /// the same name, or a look-alike name changes nothing. A body that is not
-    /// an arranged reflection has no sections; a sidecar whose credits do not
-    /// pair one to one with the body's distinct names (two authors sharing a
-    /// name, a hand-edited body, a missing or unreadable sidecar) attributes
-    /// nothing and counts every turn as unattributed, so it fails closed
-    /// instead of guessing an author.
-    pub fn from_published(body: &str, credits: Option<&str>) -> Self {
-        Self::from_published_ids(body, credits.and_then(crate::contributor::credited_ids))
+    /// first appear (ADR 0030), and the committed contributor registry the
+    /// credits name. The k-th distinct author name in the body is the k-th
+    /// credit, and only when that credit's public registry name is the name
+    /// the body prints (ADR 0176): credits reordered in the post editor, a
+    /// changed registry name or a hand-edited body therefore attribute nothing
+    /// instead of putting one person's words under another's id. Nothing
+    /// private is read and no participant record is consulted, so a static or
+    /// CI build, a later invitation of someone with the same name, or a
+    /// look-alike name changes nothing. A body that is not an arranged
+    /// reflection has no sections; credits that do not pair one to one with
+    /// the body's distinct names (two authors sharing a name, a missing or
+    /// unreadable sidecar, an id missing from the registry) attribute nothing
+    /// and count every turn as unattributed, so it fails closed instead of
+    /// guessing an author.
+    pub fn from_published(
+        body: &str,
+        credits: Option<&str>,
+        registry: &std::collections::BTreeMap<String, crate::contributor::Contributor>,
+    ) -> Self {
+        let pairs = credits
+            .and_then(crate::contributor::credited_ids)
+            .and_then(|ids| {
+                ids.into_iter()
+                    .map(|id| {
+                        let name = registry.get(&id)?.name.clone();
+                        Some((id, name))
+                    })
+                    .collect::<Option<Vec<_>>>()
+            });
+        Self::from_published_credits(body, pairs)
     }
 
     /// [`AttributedSections::from_published`] from the credited contributor
-    /// ids a loaded post already holds, in the sidecar's order. `None` is no
-    /// readable sidecar.
-    pub fn from_published_ids(body: &str, ids: Option<Vec<String>>) -> Self {
+    /// ids and their registry names a loaded post already holds, in the
+    /// sidecar's order. `None` is no readable sidecar.
+    pub fn from_published_credits(body: &str, credits: Option<Vec<(String, String)>>) -> Self {
         let Some(arrangement) = Arrangement::parse(body) else {
             return Self::default();
         };
@@ -321,13 +340,55 @@ impl AttributedSections {
                 names.push(&turn.author);
             }
         }
-        let paired = ids.filter(|ids| {
-            ids.len() == names.len()
-                && ids.iter().all(|id| valid_contributor_id(id))
-                && ids
+        // A body that states each turn's contributor (ADR 0176) is paired by
+        // that; an older body that states none, by the registry's public name.
+        // A body that states some turns' and not others', or states two keys
+        // for one name, is not trusted at all.
+        let bound = turns
+            .iter()
+            .filter(|turn| turn.contributor.is_some())
+            .count();
+        let name_keys: Option<Vec<&str>> = if bound == 0 {
+            None
+        } else if bound == turns.len() {
+            let mut keys: Vec<Option<&str>> = vec![None; names.len()];
+            let mut consistent = true;
+            for turn in &turns {
+                let index = names
+                    .iter()
+                    .position(|name| *name == turn.author)
+                    .unwrap_or(0);
+                let key = turn.contributor.as_deref();
+                match keys[index] {
+                    None => keys[index] = key,
+                    Some(known) => consistent &= Some(known) == key,
+                }
+            }
+            Some(if consistent {
+                keys.into_iter().flatten().collect()
+            } else {
+                Vec::new()
+            })
+        } else {
+            Some(Vec::new())
+        };
+        let paired = credits.filter(|credits| {
+            credits.len() == names.len()
+                && credits.iter().all(|(id, _)| valid_contributor_id(id))
+                && credits
                     .iter()
                     .enumerate()
-                    .all(|(index, id)| !ids[..index].contains(id))
+                    .all(|(index, (id, _))| !credits[..index].iter().any(|(other, _)| other == id))
+                && match &name_keys {
+                    None => credits
+                        .iter()
+                        .zip(&names)
+                        .all(|((_, registry_name), name)| registry_name.trim() == name.trim()),
+                    Some(keys) => {
+                        keys.len() == credits.len()
+                            && keys.iter().zip(credits).all(|(key, (id, _))| key == id)
+                    }
+                }
         });
         let Some(ids) = paired else {
             return Self {
@@ -346,7 +407,7 @@ impl AttributedSections {
                 unattributed += 1;
                 continue;
             }
-            let contribution = &ids[index];
+            let contribution = &ids[index].0;
             let nth = sections
                 .iter()
                 .filter(|section| &section.contribution == contribution)
@@ -536,6 +597,8 @@ pub struct ResponseRequest<'a> {
     pub body: &'a str,
     /// The work's credits sidecar, as committed.
     pub credits: Option<&'a str>,
+    /// The committed contributor registry the credits name (`openblog.json`).
+    pub registry: &'a std::collections::BTreeMap<String, crate::contributor::Contributor>,
     pub at: DateTime,
 }
 
@@ -603,7 +666,8 @@ pub fn admit_response(
     {
         return Err(ResponseError::Unavailable);
     }
-    let sections = AttributedSections::from_published(request.body, request.credits);
+    let sections =
+        AttributedSections::from_published(request.body, request.credits, request.registry);
     let standing = sections.resolve(&target);
     let author = match &standing {
         Standing::Current { author, .. } => Some(author),
@@ -694,13 +758,19 @@ impl AttributedSections {
     /// contributor ids in its order. A legacy post, which synthesizes one
     /// site author from the configuration, has no sidecar and so no sections.
     pub fn of_post(post: &crate::model::Post) -> Self {
-        let ids = (post.credit_provenance == crate::contributor::CreditProvenance::ExplicitSidecar)
+        let credits = (post.credit_provenance
+            == crate::contributor::CreditProvenance::ExplicitSidecar)
             .then(|| {
                 post.credits
                     .iter()
-                    .map(|credit| credit.contributor_id.clone())
+                    .map(|credit| {
+                        (
+                            credit.contributor_id.clone(),
+                            credit.contributor.name.clone(),
+                        )
+                    })
                     .collect()
             });
-        Self::from_published_ids(&post.authored_markdown, ids)
+        Self::from_published_credits(&post.authored_markdown, credits)
     }
 }

@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 
 use openblog_core::attributed_perspective::AttributedSections;
-use openblog_core::reflection::{compose, ComposedTurn, Placement, ReflectionLayout};
+use openblog_core::reflection::{compose_bound, ComposedTurn, Placement, ReflectionLayout};
 use openblog_core::{generate, LoadOptions, Site, SiteConfig, SourceFile, Sources, ThemeSet};
 use serde_json::Value;
 
@@ -38,7 +38,9 @@ fn arranged(turns: &[(&str, &str)]) -> String {
             body: (*text).to_string(),
         })
         .collect();
-    compose(ReflectionLayout::Sequential, &composed)
+    let keys: Vec<String> = turns.iter().map(|(name, _)| name.to_lowercase()).collect();
+    let bound: Vec<Option<&str>> = keys.iter().map(|key| Some(key.as_str())).collect();
+    compose_bound(ReflectionLayout::Sequential, &composed, &bound)
 }
 
 fn site(kinds: &str, body: &str, credits: bool) -> Site {

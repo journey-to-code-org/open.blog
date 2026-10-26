@@ -18,6 +18,7 @@ use crate::attributed_perspective::{
 };
 use crate::author_response::{
     may_decide_answer, HostedAuthorResponse, ParentFacts, StoredStanding, PARENT_UNAVAILABLE,
+    RESPONDER_DENIED,
 };
 use crate::correction_decision::{
     decide as decide_correction, decision_in_force, passage_check_id, standing, CorrectionDecision,
@@ -965,7 +966,37 @@ impl<'a> Inbox<'a> {
         parent
             .parent_facts()
             .ok_or(PARENT_UNAVAILABLE)?
-            .check_answer(&item.work, &hosted.responder.contributor)
+            .check_answer(&item.work, &hosted.responder.contributor)?;
+        // The responder is read against the private record again at approval:
+        // the account that wrote the answer must still be bound as that
+        // section's contributor, so membership revoked after the answer was
+        // written, or a row stored with a responder it never had (a forged
+        // row written with the token), is never approved (ADR 0162).
+        let record = self
+            .works
+            .record_for_work(&item.work)
+            .ok_or(RESPONDER_DENIED)?;
+        authorize_author(
+            record,
+            self.identities,
+            &hosted.responder.account,
+            &hosted.responder.participant,
+        )
+        .map_err(|_| RESPONDER_DENIED)?;
+        let bound = record
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.participant_id == hosted.responder.participant)
+            .is_some_and(|binding| {
+                binding.contributor_id == hosted.responder.contributor
+                    && binding.admin_user == hosted.responder.account
+            });
+        if bound {
+            Ok(())
+        } else {
+            Err(RESPONDER_DENIED)
+        }
     }
 
     /// Whether a Third Perspective is shown to readers now: its facts say so
@@ -1018,12 +1049,10 @@ impl<'a> Inbox<'a> {
         }))
     }
 
-    /// Whether the viewer is the author who wrote this answer and still may
-    /// speak for that section: the account that wrote it, still bound as a
-    /// contributor of the publication that publishes the work, to the
-    /// participant the answer stored. A binding that has since been removed or
-    /// demoted, or any other account, is no. A coordinator removes an answer
-    /// instead (ADR 0162).
+    /// Whether the viewer is the account that wrote this answer. Membership
+    /// is not re-checked: an author whose binding was removed or demoted can
+    /// still take their own words back. Any other account is no. A
+    /// coordinator removes an answer instead (ADR 0162).
     pub fn may_withdraw(&self, item: &InboxItem) -> bool {
         let Principal::AdminSession { admin_user } = self.principal else {
             return false;
@@ -1031,19 +1060,10 @@ impl<'a> Inbox<'a> {
         let Some(hosted) = item.author_response() else {
             return false;
         };
+        // Taking one's own words down is never the risk (ADR 0162), so the
+        // account that wrote the answer may withdraw it even after its
+        // binding was removed or demoted; approving is what re-checks that.
         hosted.responder.account == admin_user
-            && self
-                .works
-                .record_for_work(&item.work)
-                .is_some_and(|record| {
-                    authorize_author(
-                        record,
-                        self.identities,
-                        admin_user,
-                        &hosted.responder.participant,
-                    )
-                    .is_ok()
-                })
     }
 
     /// An author taking their own answer back: the submitter's withdrawal

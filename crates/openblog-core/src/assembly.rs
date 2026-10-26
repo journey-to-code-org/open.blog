@@ -17,7 +17,7 @@ use crate::draft::DraftSet;
 use crate::frontmatter::{self, Value};
 use crate::media_moment::MomentSet;
 use crate::published_moment::{self, MomentsBlock};
-use crate::reflection::{compose, strip_part_markers, ComposedTurn, ReflectionStructure};
+use crate::reflection::{compose_bound, strip_part_markers, ComposedTurn, ReflectionStructure};
 use crate::shared_series::{SERIES_KEY, SERIES_ORDER_KEY};
 use crate::shared_source::{
     SharedAttribution, QUESTION_KEY, SOURCE_KIND_KEY, SOURCE_TITLE_KEY, SOURCE_URL_KEY,
@@ -426,6 +426,7 @@ pub fn assemble(
             .collect();
         let placements = ReflectionStructure::placements(structure.layout, &order);
         let mut turns = Vec::new();
+        let mut bound: Vec<Option<&str>> = Vec::new();
         let mut credited: Vec<&str> = Vec::new();
         for (entry, placement) in order.iter().zip(placements) {
             let text = entry.markdown.as_deref().unwrap_or_default().trim();
@@ -437,6 +438,14 @@ pub fn assemble(
                 credits.push(credit_for(entry.participant_id)?);
             }
             prose.push(text.to_string());
+            bound.push(
+                record
+                    .authorization
+                    .bindings
+                    .iter()
+                    .find(|binding| binding.participant_id == entry.participant_id)
+                    .map(|binding| binding.contributor_id.as_str()),
+            );
             turns.push(ComposedTurn {
                 round: entry.round,
                 round_prompt: structure.rounds[entry.round].round_prompt.as_deref(),
@@ -446,7 +455,7 @@ pub fn assemble(
                 body: text.to_string(),
             });
         }
-        arranged = Some(compose(structure.layout, &turns));
+        arranged = Some(compose_bound(structure.layout, &turns, &bound));
     } else {
         for participant in &record.collaboration.participants {
             if !active.contains(&participant.id.as_str()) {

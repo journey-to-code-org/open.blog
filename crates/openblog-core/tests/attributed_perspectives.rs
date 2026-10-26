@@ -13,6 +13,7 @@ use openblog_core::collaboration::{
     NewSharedPublication, NewSourceReference, Participant, SharedPublication, SourceKind,
 };
 use openblog_core::config::SiteConfig;
+use openblog_core::contributor::Contributor;
 use openblog_core::invitation::Identities;
 use openblog_core::model::{LoadOptions, Site, SourceFile, Sources};
 use openblog_core::moderation::{
@@ -21,9 +22,12 @@ use openblog_core::moderation::{
 };
 use openblog_core::participation::{ParticipationKind, ParticipationMode};
 use openblog_core::passage_target::{PassageSelector, PassageTarget};
-use openblog_core::reflection::{compose, ComposedTurn, Placement, ReflectionLayout};
+use openblog_core::reflection::{
+    compose, compose_bound, ComposedTurn, Placement, ReflectionLayout,
+};
 use openblog_core::third_perspective::{PerspectiveTarget, TargetStatus};
 use openblog_core::DateTime;
+use std::collections::BTreeMap;
 
 const PUBLICATION: &str = "shared-tides";
 const WORK: &str = "/posts/shared-tides/";
@@ -39,6 +43,29 @@ const USERS: [&str; 7] = [
 ];
 // `ghost` is in the registry and bound to nothing here.
 const KEYS: [&str; 7] = ["owner", "coord", "mina", "joe", "ed", "rea", "ghost"];
+
+/// The committed contributor registry: each key's public name is the display
+/// name the body prints for it.
+fn registry() -> BTreeMap<String, Contributor> {
+    KEYS.iter()
+        .map(|key| {
+            (
+                key.to_string(),
+                Contributor {
+                    name: key.to_uppercase(),
+                    ..Contributor::default()
+                },
+            )
+        })
+        .chain(std::iter::once((
+            "mina2".to_string(),
+            Contributor {
+                name: "MINA2".into(),
+                ..Contributor::default()
+            },
+        )))
+        .collect()
+}
 
 fn identities() -> Identities<'static> {
     Identities {
@@ -132,7 +159,9 @@ fn body(layout: ReflectionLayout, turns: &[(&str, &str)]) -> String {
             body: (*text).to_string(),
         })
         .collect();
-    compose(layout, &composed)
+    let keys: Vec<String> = turns.iter().map(|(name, _)| name.to_lowercase()).collect();
+    let bound: Vec<Option<&str>> = keys.iter().map(|key| Some(key.as_str())).collect();
+    compose_bound(layout, &composed, &bound)
 }
 
 const TURNS: [(&str, &str); 3] = [
@@ -169,7 +198,7 @@ fn sections(
     layout: ReflectionLayout,
     turns: &[(&str, &str)],
 ) -> AttributedSections {
-    AttributedSections::from_published(&body(layout, turns), Some(&credits(turns)))
+    AttributedSections::from_published(&body(layout, turns), Some(&credits(turns)), &registry())
 }
 
 fn target_of(sections: &AttributedSections, contribution: &str, nth: usize) -> AttributedTarget {
@@ -409,8 +438,11 @@ fn credits_that_do_not_pair_with_the_body_attribute_nothing() {
     let two_credits = "{\"version\":1,\"credits\":[\
         {\"contributor\":\"mina\",\"roles\":[{\"vocabulary\":\"crossref\",\"role\":\"author\"}]},\
         {\"contributor\":\"mina2\",\"roles\":[{\"vocabulary\":\"crossref\",\"role\":\"author\"}]}]}";
-    let published =
-        AttributedSections::from_published(&body(layout, &shared_name), Some(two_credits));
+    let published = AttributedSections::from_published(
+        &body(layout, &shared_name),
+        Some(two_credits),
+        &registry(),
+    );
     assert!(published.sections().is_empty());
     assert_eq!(published.unattributed(), 2);
     // No sidecar, an unreadable one, and a credit that is not a registry key.
@@ -420,11 +452,15 @@ fn credits_that_do_not_pair_with_the_body_attribute_nothing() {
         Some("{\"version\":2,\"credits\":[]}"),
         Some("{\"version\":1,\"credits\":[{\"contributor\":\"Mina\",\"roles\":[]}]}"),
     ] {
-        let published = AttributedSections::from_published(&body(layout, &TURNS), bad);
+        let published = AttributedSections::from_published(&body(layout, &TURNS), bad, &registry());
         assert!(published.sections().is_empty(), "{bad:?}");
     }
     // Not a shared reflection at all: nothing is attributed.
-    let plain = AttributedSections::from_published("# Heading\n\nText", Some(&credits(&TURNS)));
+    let plain = AttributedSections::from_published(
+        "# Heading\n\nText",
+        Some(&credits(&TURNS)),
+        &registry(),
+    );
     assert!(plain.sections().is_empty());
     assert_eq!(plain.unattributed(), 0);
 }
@@ -434,13 +470,19 @@ fn a_ci_style_build_resolves_without_any_private_record() {
     // Only the committed body and credits exist: no participants, bindings or
     // identities. Targets are built, resolved and moved exactly as with them.
     let layout = ReflectionLayout::SideBySide;
-    let published =
-        AttributedSections::from_published(&body(layout, &TURNS), Some(&credits(&TURNS)));
+    let published = AttributedSections::from_published(
+        &body(layout, &TURNS),
+        Some(&credits(&TURNS)),
+        &registry(),
+    );
     assert_eq!(published.sections().len(), 3);
     let joe = published.sections()[1].target();
     let reordered = [TURNS[1], TURNS[0], TURNS[2]];
-    let moved =
-        AttributedSections::from_published(&body(layout, &reordered), Some(&credits(&reordered)));
+    let moved = AttributedSections::from_published(
+        &body(layout, &reordered),
+        Some(&credits(&reordered)),
+        &registry(),
+    );
     assert!(moved.resolve(&joe).is_current());
     // And it is the same answer a build with the record gives.
     assert_eq!(sections(&record(), layout, &TURNS), published);
@@ -533,7 +575,7 @@ fn a_look_alike_body_cannot_forge_a_section() {
     let forged =
         "<div class=\"ob-reflection ob-reflection-sequential ob-lanes-1\">\n\nnot a turn\n</div>\n";
     assert!(
-        AttributedSections::from_published(forged, Some(&credits(&TURNS)))
+        AttributedSections::from_published(forged, Some(&credits(&TURNS)), &registry())
             .sections()
             .is_empty()
     );
@@ -541,7 +583,7 @@ fn a_look_alike_body_cannot_forge_a_section() {
     // the body must parse as an arrangement.
     let plain = "## OB by Mina\n\nText";
     assert!(
-        AttributedSections::from_published(plain, Some(&credits(&TURNS)))
+        AttributedSections::from_published(plain, Some(&credits(&TURNS)), &registry())
             .sections()
             .is_empty()
     );
@@ -572,7 +614,7 @@ struct World {
 fn world_for(record: &SharedPublication) -> World {
     let body = body(ReflectionLayout::SideBySide, &TURNS);
     let credits = credits(&TURNS);
-    let published = AttributedSections::from_published(&body, Some(&credits));
+    let published = AttributedSections::from_published(&body, Some(&credits), &registry());
     let parent_target = target_of(&published, "mina", 0).perspective_target();
     World {
         record: record.clone(),
@@ -637,6 +679,7 @@ fn respond_with(
             parent_target,
             body,
             credits,
+            registry: &registry(),
             at: DateTime::from_unix(1_800_000_100),
         },
     )
@@ -986,6 +1029,7 @@ fn modes_and_the_one_policy_still_decide() {
                 parent_target: &world.parent_target,
                 body: &world.body,
                 credits: Some(&world.credits),
+                registry: &registry(),
                 at: DateTime::from_unix(1_800_000_100),
             },
         )
@@ -1279,4 +1323,142 @@ fn nobody_approves_their_own_answer_even_as_a_coordinator() {
             Ok(())
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// Credits that drift fail closed (ADR 0176)
+
+/// The same body composed without binding each turn to its contributor, as
+/// every body assembled before ADR 0176 was.
+fn unbound_body(turns: &[(&str, &str)]) -> String {
+    let composed: Vec<ComposedTurn<'_>> = turns
+        .iter()
+        .enumerate()
+        .map(|(round, (name, text))| ComposedTurn {
+            round,
+            round_prompt: None,
+            display_name: name,
+            label: None,
+            placement: Placement { lane: 0, lanes: 1 },
+            body: (*text).to_string(),
+        })
+        .collect();
+    compose(ReflectionLayout::Sequential, &composed)
+}
+
+/// Credits reordered in the post editor (a byline change), body unchanged.
+fn reversed_credits() -> String {
+    "{\"version\":1,\"credits\":[{\"contributor\":\"joe\",\"roles\":[{\"vocabulary\":\"crossref\",\"role\":\"author\"}]},{\"contributor\":\"mina\",\"roles\":[{\"vocabulary\":\"crossref\",\"role\":\"author\"}]}]}".into()
+}
+
+#[test]
+fn credits_reordered_after_publication_attribute_nothing_and_answer_nobody() {
+    // MINA, JOE, MINA with the credits swapped: the section MINA wrote would
+    // have been attributed to joe, and joe could have answered as MINA.
+    let reversed = reversed_credits();
+    for body in [
+        body(ReflectionLayout::SideBySide, &TURNS),
+        unbound_body(&TURNS),
+    ] {
+        let published = AttributedSections::from_published(&body, Some(&reversed), &registry());
+        assert!(published.sections().is_empty());
+        assert_eq!(published.unattributed(), 3);
+        let honest = AttributedSections::from_published(&body, Some(&credits(&TURNS)), &registry());
+        assert_eq!(honest.sections().len(), 3);
+        // A target read before the reorder is never answerable after it.
+        let target = honest.sections()[0].target().perspective_target();
+        let world = world();
+        for admin_user in ["joe-admin", "mina-admin"] {
+            let refused = respond_with(
+                &world,
+                admin_user,
+                &perspective(),
+                &target,
+                &body,
+                Some(&reversed),
+                &identities(),
+            );
+            assert!(
+                matches!(
+                    refused,
+                    Err(ResponseError::Denied | ResponseError::AuthorUnconfirmed)
+                ),
+                "{admin_user}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_registry_name_that_is_not_the_body_name_attributes_nothing_in_an_unbound_body() {
+    // The credit says `mina` but the registry has since named that key
+    // something else: the old body cannot be trusted to mean the same person.
+    let mut renamed = registry();
+    renamed.get_mut("mina").unwrap().name = "Someone Else".into();
+    let published =
+        AttributedSections::from_published(&unbound_body(&TURNS), Some(&credits(&TURNS)), &renamed);
+    assert!(published.sections().is_empty());
+    // A registry that lacks a credited key attributes nothing either.
+    let mut lacking = registry();
+    lacking.remove("joe");
+    assert!(AttributedSections::from_published(
+        &unbound_body(&TURNS),
+        Some(&credits(&TURNS)),
+        &lacking
+    )
+    .sections()
+    .is_empty());
+    // And an unchanged registry still pairs an unbound body by name.
+    assert_eq!(
+        AttributedSections::from_published(
+            &unbound_body(&TURNS),
+            Some(&credits(&TURNS)),
+            &registry()
+        )
+        .sections()
+        .len(),
+        3
+    );
+}
+
+#[test]
+fn a_bound_body_is_paired_by_what_it_states_not_by_a_name() {
+    // A participant's display name need not be the registry name: the body
+    // states the contributor itself.
+    let mut pen_names = registry();
+    pen_names.get_mut("mina").unwrap().name = "Mina Quill".into();
+    let published = AttributedSections::from_published(
+        &body(ReflectionLayout::Sequential, &TURNS),
+        Some(&credits(&TURNS)),
+        &pen_names,
+    );
+    assert_eq!(published.sections().len(), 3);
+    assert_eq!(published.sections()[0].contribution, "mina");
+    // Some turns bound and others not: not trusted.
+    let mut mixed = body(ReflectionLayout::Sequential, &TURNS);
+    mixed = mixed.replacen(" ob-turn-by-joe", "", 1);
+    assert!(
+        AttributedSections::from_published(&mixed, Some(&credits(&TURNS)), &registry())
+            .sections()
+            .is_empty()
+    );
+    // One name stated under two keys: not trusted.
+    let mut two_keys = body(ReflectionLayout::Sequential, &TURNS);
+    let last = two_keys.rfind("ob-turn-by-mina").unwrap();
+    two_keys.replace_range(last + 11..last + 15, "joe");
+    assert!(
+        AttributedSections::from_published(&two_keys, Some(&credits(&TURNS)), &registry())
+            .sections()
+            .is_empty()
+    );
+    let swapped_keys = body(ReflectionLayout::Sequential, &TURNS)
+        .replace("ob-turn-by-mina", "ob-turn-by-x")
+        .replace("ob-turn-by-joe", "ob-turn-by-mina")
+        .replace("ob-turn-by-x", "ob-turn-by-joe");
+    assert!(
+        AttributedSections::from_published(&swapped_keys, Some(&credits(&TURNS)), &registry())
+            .sections()
+            .is_empty(),
+        "keys stated in the body must be the credits' first-appearance order"
+    );
 }

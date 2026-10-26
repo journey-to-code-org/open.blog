@@ -68,3 +68,5 @@ columns or lanes, so any "left author" or "right author" is a property of CSS, n
 - The anchor carries a registry key that is already public in the committed sidecar. It carries no
   participant number, so it does not reveal how many editors, readers or other participants a
   publication has.
+
+Amended by [ADR 0176](0176-a-section-states-its-contributor-and-credits-that-drift-attribute-nothing.md): the k-th name is also required to be the k-th credit's registry name (older bodies) or to state that credit's key itself (bound bodies), so credits edited after publication attribute nothing.

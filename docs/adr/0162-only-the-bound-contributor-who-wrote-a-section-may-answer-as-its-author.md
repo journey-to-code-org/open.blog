@@ -56,8 +56,27 @@ on the site, not that they wrote this section.
   their own answer: `may_decide_response` refuses an approval by the account that wrote the
   response, the conservative choice, enforced where the response is stored because RD12's item
   facts do not carry the submitter. A contributing author never moderates at all.
-- **Withdrawing is the same author check** (`authorize_author`), then RD12's `withdraw` as the
-  submitter; an author removed from the publication cannot, and a coordinator removes instead.
+- **Approval reads the responder against the record again.** Admin's approval of an answer runs
+  `authorize_author` for the account and participant the row stores and requires the participant's
+  binding to be that contributor and that account (`denied` otherwise, `403`), beside the parent
+  check. A row written before a membership was revoked, and a row forged with the moderation token
+  naming a responder it never had, are therefore never approved.
+- **Withdrawing is the writing account's, and needs no membership.** RD12's `withdraw` as the
+  submitter, for the account that wrote the answer: taking one's own words down is never the risk,
+  so an author whose binding was removed or demoted after writing can still withdraw. A coordinator
+  removes instead.
+
+## Why a coordinator cannot answer as an author
+
+Issue #223 says "the bound contributor or authorized coordinator responds as an author". This
+decision reads that more narrowly, on purpose. A section is one person's words; an answer "as its
+author" tells readers the author said it. A coordinator who is not that author would be putting
+words in the author's mouth, under the author's name, which is the impersonation the story exists
+to prevent, and a coordinator's real powers (approve, reject, remove, and clarifying with the
+reader) already cover everything a coordinator needs in order to run the conversation. So the
+coordinator's part is moderation, never speech as another, and a coordinator who is also the
+section's contributor writes through the contributor grant and cannot approve their own answer. If
+a site wants a coordinator to answer, they answer as themselves, as a reader's reflection would.
 
 ## Consequences
 
