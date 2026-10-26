@@ -14,11 +14,14 @@ export const MODERATION_ACTIONS = Object.freeze({
   remove: Object.freeze({ from: Object.freeze(["approved"]), to: "removed", reasons: DECLINE_REASONS }),
 });
 
-/** An Admin account name the audit trail may record, or the token's own name. */
+/**
+ * An Admin account name the audit trail may record, or the token's own name. Account names follow
+ * `openblog_core::collaboration::valid_admin_username`: 1 to 32 of `a-z`, `0-9`, `_`, `.` and `-`.
+ */
 export const MODERATION_TOKEN_ACTOR = "@moderation-token";
 export const auditActor = (value) => {
   const actor = typeof value === "string" ? value : "";
-  return /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(actor) ? actor : MODERATION_TOKEN_ACTOR;
+  return /^[a-z0-9_.-]{1,32}$/.test(actor) ? actor : MODERATION_TOKEN_ACTOR;
 };
 
 /**

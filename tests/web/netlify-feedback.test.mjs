@@ -371,8 +371,9 @@ test("the function's moderation rules are the shared fixture's", () => {
       assert.equal(outcome.change.reason, item.reason ?? null);
     }
   }
-  assert.equal(auditActor("writer.one"), "writer.one");
-  for (const bad of ["", " writer", "a".repeat(65), "x y", null, 7]) assert.equal(auditActor(bad), "@moderation-token");
+  // Any Admin account name is recorded as it is (valid_admin_username), and nothing else.
+  for (const good of ["writer.one", "_ops", ".x", "-", "a".repeat(32)]) assert.equal(auditActor(good), good);
+  for (const bad of ["", " writer", "a".repeat(33), "x y", "Writer", "@moderation-token", null, 7]) assert.equal(auditActor(bad), "@moderation-token");
 });
 
 test("provider failures are reported without detail and change nothing else", async () => {
