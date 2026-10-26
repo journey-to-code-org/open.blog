@@ -1633,11 +1633,35 @@ impl<'a> Renderer<'a> {
             }
             body.push_str("</ol></details></nav>\n");
         }
+        // A post with supplements is enhanced by `<ob-reading-modes>` (ADR
+        // 0142): the page is complete without it, so the element carries only
+        // the author's default mode and the control is built by script.
+        let reading_modes = post
+            .reading_depth()
+            .filter(|depth| !depth.is_empty())
+            .map(|depth| depth.default_mode.as_str());
+        if let Some(default_mode) = reading_modes {
+            // A site under a folder (GitHub Pages project sites) shares its
+            // origin's storage with its siblings, so the choice is kept under
+            // the base path (ADR 0144).
+            let base = self.site.config.base_path();
+            let scope = if base.is_empty() {
+                String::new()
+            } else {
+                format!(" data-ob-base=\"{}\"", attr(&base))
+            };
+            body.push_str(&format!(
+                "<ob-reading-modes default=\"{default_mode}\"{scope}>"
+            ));
+        }
         body.push_str(&format!(
             "<ob-code{}><div class=\"ob-prose e-content\">{}</div></ob-code>\n",
             self.code_attr(theme, Some(post)),
             self.prose_with_conversations(post)
         ));
+        if reading_modes.is_some() {
+            body.push_str("</ob-reading-modes>\n");
+        }
         if post.recipe.is_some() {
             body.push_str("</ob-recipe>\n");
         }

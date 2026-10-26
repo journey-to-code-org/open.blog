@@ -107,6 +107,8 @@
     {
       "id": "guided-reading-supplements",
       "status": "defined",
+      "implementation_status": "implemented",
+      "implemented_fallback": "labeled-static-group",
       "owner_story": 26,
       "portability_owner_issue": 68,
       "implementation_issues": [69, 70, 71],

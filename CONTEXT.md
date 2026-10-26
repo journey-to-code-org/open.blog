@@ -467,6 +467,31 @@ The citation style that publishes each cited reference once, numbered in order o
 citation, under References, with locators kept next to the marker in the text.
 _Avoid_: References section when the research profile's hand-written list is meant
 
+**Supplement**:
+A block quote an author marks `[!supplement kind=... level=...]` in a post that opts in with
+`readingModes`, holding extra context beside the article: a definition, context, deeper evidence, a
+relationship, a comparison or further reading, or a kind the site does not know. It is the
+author's own words in the published post and nothing else can become one. It is never an
+alternate article body: the argument, citations and footnotes read the same without it.
+_Avoid_: Sidebar, hidden text, alternate version, AI summary
+
+**Reading mode**:
+A reader's local choice of how many supplements show: `standard` (none), `guided` (guided ones) or
+`deep-dive` (guided and deep-dive ones). It changes visibility only, never the article, and without
+script every supplement is shown. A supplement that holds a warning or caution callout is shown in
+every mode. The author may name the mode a post opens in; a reader's saved choice comes first.
+_Avoid_: Reading level, difficulty, personalised view
+
+**Article boundary**:
+What tells a reader which words are the article under every reading mode: each supplement is a bordered group with a visible label and an "End of ... supplement." line, and the reading-mode control says everything outside those boxes is the article. The article itself is never wrapped or relabelled.
+_Avoid_: Main text marker, article toggle
+
+**Reading depth**:
+The least reading mode that shows a supplement, `guided` or `deep-dive`, written as `level` or
+taken from the supplement's kind. A supplement inside another is shown no earlier than the one
+holding it.
+_Avoid_: Priority, importance, rank
+
 **Reader references**:
 The versioned data a citation preview reads: each cited reference once under its citation key,
 and each citation with its marker and note ids and its locators, projected from the published

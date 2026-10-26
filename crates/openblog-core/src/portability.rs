@@ -695,6 +695,7 @@ impl<'a> PortableProjection<'a> {
                 citation_notes: None,
                 // The section is ordinary content in a portable copy.
                 claim_evidence_section: false,
+                supplements: post.reading_depth.is_some(),
             },
             runner_languages: (!config.code_runner.endpoint.is_empty())
                 .then(|| config.code_runner.languages.clone()),
@@ -1963,7 +1964,7 @@ impl<'a> PortableProjection<'a> {
     /// Produce plain feed text from the portable Markdown, including code and
     /// link destinations instead of inheriting the native search-text omissions.
     pub fn portable_text(&self) -> Result<String, String> {
-        let compact = markdown_to_text(&self.portable_markdown()?);
+        let compact = markdown_to_text(&self.portable_markdown()?, self.render_options.supplements);
         self.ensure_semantics(RepresentationFormat::Text, &compact)?;
         Ok(compact)
     }
@@ -1980,7 +1981,7 @@ impl<'a> PortableProjection<'a> {
         let (body, _) = escape_raw_html(&self.portable_source());
         let markdown = portable_markdown_body(&body, self)
             .map_err(|error| format!("{}: {error}", self.source_path))?;
-        Ok(Some(markdown_to_text(&markdown)))
+        Ok(Some(markdown_to_text(&markdown, false)))
     }
 
     /// The arrangement recorded in a shared reflection's authored Markdown, if it has one. It is
@@ -2243,11 +2244,43 @@ fn transformation_summary(capability: &str) -> &'static str {
 }
 
 /// Plain text of Markdown, keeping code and link destinations (shared by the portable text and the
-/// reflection text).
-fn markdown_to_text(markdown: &str) -> String {
+/// reflection text). With `supplements` (a post that opted in to reading modes, ADR 0140) each
+/// supplement's marker line becomes a line naming it and a line closes it, so the text shows where
+/// it starts and stops without a stylesheet.
+fn markdown_to_text(markdown: &str, supplements: bool) -> String {
     let mut output = String::new();
     let mut links: Vec<(usize, String)> = Vec::new();
-    for event in Parser::new_ext(markdown, crate::markdown::parser_options(false)) {
+    let events =
+        Parser::new_ext(markdown, crate::markdown::parser_options(false)).collect::<Vec<_>>();
+    let analysis = supplements.then(|| crate::reading_depth::analyze(&events));
+    // One entry per open block quote: the supplement it is, for its end line.
+    let mut quotes: Vec<Option<&crate::reading_depth::Supplement>> = Vec::new();
+    let mut index = 0;
+    while index < events.len() {
+        let event = events[index].clone();
+        index += 1;
+        if let Event::Start(Tag::BlockQuote(_)) = &event {
+            let start = analysis
+                .as_ref()
+                .and_then(|analysis| analysis.start_at(index - 1));
+            if let Some((supplement, resume)) = start {
+                output.push_str(&crate::reading_depth::start_words(supplement));
+                output.push('\n');
+                quotes.push(Some(supplement));
+                index = resume;
+            } else {
+                quotes.push(None);
+            }
+            continue;
+        }
+        if let Event::End(TagEnd::BlockQuote(_)) = &event {
+            if let Some(Some(supplement)) = quotes.pop() {
+                output.push('\n');
+                output.push_str(&crate::reading_depth::end_words(supplement));
+            }
+            output.push('\n');
+            continue;
+        }
         match event {
             Event::Text(text) | Event::Code(text) | Event::Html(text) | Event::InlineHtml(text) => {
                 output.push_str(&text)
@@ -2276,7 +2309,6 @@ fn markdown_to_text(markdown: &str) -> String {
                 | TagEnd::Heading(_)
                 | TagEnd::Item
                 | TagEnd::CodeBlock
-                | TagEnd::BlockQuote(_)
                 | TagEnd::TableCell
                 | TagEnd::TableHead,
             ) => output.push('\n'),
@@ -4401,6 +4433,10 @@ A[^a b].
         let native = post.html.clone();
         for contract in registry["contracts"].as_array().unwrap() {
             let id = contract["id"].as_str().unwrap();
+            // An implemented capability (B2, ADR 0141) has its own portable
+            // fallback instead of a canonical-only label: it must still keep
+            // the public prose, but owes no label or canonical-only notice.
+            let implemented = contract["implementation_status"].as_str() == Some("implemented");
             let registered = [CapabilityDescriptor::describe(id, None)];
             let mut projection = PortableProjection::from_post(post, &config).unwrap();
             projection.capabilities = &registered;
@@ -4417,7 +4453,12 @@ A[^a b].
                 ] {
                     assert!(artifact.contains(fact), "{id}: lost {fact}");
                 }
-                if let Some(label) = registered[0].portable_label() {
+                if implemented {
+                    assert!(
+                        registered[0].has_portable_fallback(),
+                        "{id}: an implemented capability needs its own fallback"
+                    );
+                } else if let Some(label) = registered[0].portable_label() {
                     assert!(
                         artifact.contains(label),
                         "{id}: missing canonical-only label"
@@ -4430,7 +4471,12 @@ A[^a b].
                     );
                 }
             }
-            if registered[0].portable_label().is_none() {
+            if implemented {
+                assert!(html
+                    .diagnostics
+                    .iter()
+                    .all(|diagnostic| diagnostic.code != "canonical-only-interaction"));
+            } else if registered[0].portable_label().is_none() {
                 assert!(html.capabilities.is_empty());
                 assert!(html.diagnostics.is_empty());
             } else {
