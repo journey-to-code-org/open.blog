@@ -931,9 +931,9 @@ pub fn outcome_html(item: &PublicFeedback, outcome: &PublicOutcome, page: &str) 
         "<p class=\"ob-reader-note-affected\">Affected revision: <code>{}</code>{}</p>\n",
         text(&item.provenance.revision),
         if item.provenance.stale {
-            ". The passage has been revised since"
+            ". The passage has been revised since."
         } else {
-            ""
+            "."
         }
     ));
     if let Some(change) = &outcome.change {

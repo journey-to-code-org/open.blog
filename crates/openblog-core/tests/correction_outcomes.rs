@@ -588,7 +588,7 @@ fn withdrawn_evidence_stale_notes_and_stale_targets_are_said_not_linked() {
     let notes = section(&page);
     let correction = article(notes, ID_CORRECTION);
     assert!(
-        correction.contains(". The passage has been revised since</p>"),
+        correction.contains(". The passage has been revised since.</p>"),
         "{correction}"
     );
     assert!(correction.contains("Affected revision: <code>p1:"));
