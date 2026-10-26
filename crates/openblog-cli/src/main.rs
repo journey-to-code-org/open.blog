@@ -843,7 +843,7 @@ fn check_research_notebook(
 
 /// Validate the private Knowledge Atlas when one is stored, against the stored
 /// library and notebook. A missing atlas is not mentioned. The summary says
-/// whether builds publish its approved part (ADR 0063). Approved relationships
+/// whether builds publish its approved part (ADR 0058). Approved relationships
 /// the publication projection would leave out are non-blocking notices that
 /// name ids, never authored text.
 fn check_knowledge_atlas(

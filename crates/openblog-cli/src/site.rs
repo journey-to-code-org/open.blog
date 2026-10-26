@@ -535,7 +535,7 @@ pub fn web_file(root: &Path, config: &SiteConfig, rel: &str) -> Option<Vec<u8>> 
 }
 
 /// The public Knowledge Atlas projection, when the site opts in to publishing
-/// it (ADR 0063). A site that does not never reads the private atlas. The atlas
+/// it (ADR 0058). A site that does not never reads the private atlas. The atlas
 /// is read and validated against the library and notebook exactly as Admin
 /// reads it, and a problem refuses the build before anything is written,
 /// naming the file and ids only.
@@ -1064,7 +1064,7 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
-    // ---- Knowledge Atlas publication (A5.4, ADR 0063) ---------------------------
+    // ---- Knowledge Atlas publication (A5.4, ADR 0058) ---------------------------
 
     fn dist_bytes(root: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
         let output = root.join("dist");

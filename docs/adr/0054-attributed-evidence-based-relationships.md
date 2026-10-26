@@ -1,4 +1,4 @@
-# ADR 0059: Every relationship is one party's assertion on cited evidence
+# ADR 0054: Every relationship is one party's assertion on cited evidence
 
 - Status: Accepted
 - Date: 2026-10-25
@@ -6,7 +6,7 @@
 - Parent story: [#21](https://github.com/journey-to-code-org/open.blog/issues/21)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
 - Builds on: [ADR 0034](0034-private-passages-and-research-notes.md),
-  [ADR 0058](0058-knowledge-atlas-entries-keep-their-kind.md)
+  [ADR 0053](0053-knowledge-atlas-entries-keep-their-kind.md)
 - Contract: [Knowledge Atlas format](../specs/knowledge-atlas.md)
 
 ## Context
@@ -47,7 +47,7 @@ tempts tools to infer edges from dates ("born earlier, therefore influential").
 - **Approval is consent for one item.** A relationship's `visibility` covers only that
   relationship. It is projected only when both entries it joins are approved too, so an
   approved relationship never drags a private entry into public output, and a private
-  endpoint is a notice rather than an error (ADR 0058).
+  endpoint is a notice rather than an error (ADR 0053).
 - **Cycles.** `part-of` (between entries of one kind) and `specializes` may not form cycles,
   and every relationship on one is reported. Influence may be mutual, so other kinds may.
   Self-relationships are refused.

@@ -1,4 +1,4 @@
-# ADR 0061: Take research locks in one order and refuse removals that would break the atlas
+# ADR 0056: Take research locks in one order and refuse removals that would break the atlas
 
 - Status: Accepted
 - Date: 2026-10-25
@@ -6,7 +6,7 @@
 - Parent story: [#21](https://github.com/journey-to-code-org/open.blog/issues/21)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
 - Builds on: [ADR 0035](0035-private-notebook-storage-and-admin-capture.md),
-  [ADR 0060](0060-private-knowledge-atlas-storage.md)
+  [ADR 0055](0055-private-knowledge-atlas-storage.md)
 - Contract: [Knowledge Atlas format](../specs/knowledge-atlas.md)
 
 ## Context

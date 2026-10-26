@@ -1639,7 +1639,7 @@ fn notebook_store_error(
 }
 
 // ---------------------------------------------------------------------------
-// Knowledge Atlas: private entries and attributed relationships (ADR 0062)
+// Knowledge Atlas: private entries and attributed relationships (ADR 0057)
 // ---------------------------------------------------------------------------
 
 /// A short, character-safe preview of private text for a picker label.
@@ -1816,7 +1816,7 @@ fn atlas_saved(
     Response::json(if create { 201 } else { 200 }, &view)
 }
 
-/// While the site publishes its atlas (ADR 0063), a saved atlas change is
+/// While the site publishes its atlas (ADR 0058), a saved atlas change is
 /// published at once, so granting or withdrawing approval reaches the public
 /// site without waiting for another save. The outcome travels as `build`; a
 /// site that does not publish its atlas is not rebuilt.
@@ -12474,7 +12474,7 @@ mod tests {
         }
     }
 
-    // ---- Knowledge Atlas leak regressions (A5.2, ADR 0060) ----------------------
+    // ---- Knowledge Atlas leak regressions (A5.2, ADR 0055) ----------------------
     //
     // Every atlas field holds its own sentinel, including approved items: the site
     // does not publish its atlas, so approval alone must not open any surface.
@@ -12710,7 +12710,7 @@ mod tests {
         assert!(error.contains("static/graph.json") && atlas_leaked(error.as_bytes()).is_empty());
     }
 
-    // ---- Knowledge Atlas Admin routes (A5.3, ADR 0062) -------------------------
+    // ---- Knowledge Atlas Admin routes (A5.3, ADR 0057) -------------------------
 
     fn atlas(f: &Fixture, session: &(String, String)) -> Json {
         let response = handle(
@@ -13192,7 +13192,7 @@ mod tests {
         );
     }
 
-    // ---- Knowledge Atlas publication (A5.4, ADR 0063) ---------------------------
+    // ---- Knowledge Atlas publication (A5.4, ADR 0058) ---------------------------
     //
     // With publication turned on, the approved sentinels above may appear, but only
     // in the atlas pages, `atlas.json` and the sitemap. Unknown fields at every

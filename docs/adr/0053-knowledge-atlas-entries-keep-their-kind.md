@@ -1,4 +1,4 @@
-# ADR 0058: Keep Knowledge Atlas entries typed, private by default, and the home of notebook concepts
+# ADR 0053: Keep Knowledge Atlas entries typed, private by default, and the home of notebook concepts
 
 - Status: Accepted
 - Date: 2026-10-25
@@ -69,7 +69,7 @@ one identifier space of immutable lowercase slugs.
   and bidirectional override characters are refused in text.
 
 Storage, revision checks and atomic writes (following ADR 0010 and 0035, decided in
-[ADR 0060](0060-private-knowledge-atlas-storage.md)), Admin UI and the
+[ADR 0055](0055-private-knowledge-atlas-storage.md)), Admin UI and the
 publication projection are separate slices.
 
 ## Consequences

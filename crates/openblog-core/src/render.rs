@@ -270,7 +270,7 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
             out.add(url_to_file(alias), r.alias_page(&page.url, &page.title))?;
         }
     }
-    // The Knowledge Atlas, only when the site publishes it (ADR 0063): its
+    // The Knowledge Atlas, only when the site publishes it (ADR 0058): its
     // pages and its JSON artifact are both rendered from the one projection.
     if let Some(atlas) = &site.atlas {
         out.add(

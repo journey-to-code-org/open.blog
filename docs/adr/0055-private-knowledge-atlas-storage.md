@@ -1,4 +1,4 @@
-# ADR 0060: Store the Knowledge Atlas as one private, revision-checked file beside the notebook
+# ADR 0055: Store the Knowledge Atlas as one private, revision-checked file beside the notebook
 
 - Status: Accepted
 - Date: 2026-10-25
@@ -8,13 +8,13 @@
 - Builds on: [ADR 0010](0010-private-source-library-storage.md),
   [ADR 0035](0035-private-notebook-storage-and-admin-capture.md),
   [ADR 0037](0037-private-notebook-lifecycle-export-and-leak-guards.md),
-  [ADR 0058](0058-knowledge-atlas-entries-keep-their-kind.md),
-  [ADR 0059](0059-attributed-evidence-based-relationships.md)
+  [ADR 0053](0053-knowledge-atlas-entries-keep-their-kind.md),
+  [ADR 0054](0054-attributed-evidence-based-relationships.md)
 - Contract: [Knowledge Atlas format](../specs/knowledge-atlas.md)
 
 ## Context
 
-ADR 0058 and 0059 defined what the atlas holds and left storage to this slice. The atlas
+ADR 0053 and 0054 defined what the atlas holds and left storage to this slice. The atlas
 points into the source library (work entries, evidence, attribution) and the notebook
 (evidence passages) and must copy neither. It holds the author's unreviewed readings of
 who influenced whom, so it needs the notebook's privacy and corruption guarantees, not a
@@ -40,7 +40,7 @@ weaker copy of them.
   revision. Create refuses an id any entry or relationship uses; update refuses an unknown
   one; an entry keeps its kind. Diagnostics are the core's, scoped to collection, id and
   field, and never repeat authored text. Removing a concept that notes link to succeeds and
-  returns the notes whose link became unresolved (ADR 0058).
+  returns the notes whose link became unresolved (ADR 0053).
 - **Deterministic index.** `Atlas::index` builds sorted lookup tables (entries by kind,
   relationships by entry, users by source, users by passage) from file order alone. Nothing
   is indexed on disk; every read recomputes it, so it can never be stale.
@@ -69,6 +69,6 @@ weaker copy of them.
 - An atlas edit costs one extra read of the library and notebook; all three are at most
   4 MiB and parsed in memory.
 - A hand edit that breaks the atlas blocks atlas changes, and blocks removing sources and
-  passages, until it is repaired (ADR 0061); ordinary library and notebook edits continue.
+  passages, until it is repaired (ADR 0056); ordinary library and notebook edits continue.
 - The Admin workspace (#50) and the publication projection (#51) build on `atlas_store` and
   `Atlas::projected` rather than reading the file themselves.

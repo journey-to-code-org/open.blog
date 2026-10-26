@@ -1,4 +1,4 @@
-//! The public Knowledge Atlas projection (ADR 0063): the field allowlist,
+//! The public Knowledge Atlas projection (ADR 0058): the field allowlist,
 //! approval and withdrawal, contested standing, direction and provenance,
 //! determinism, escaping, the reserved path, and sites that do not publish.
 

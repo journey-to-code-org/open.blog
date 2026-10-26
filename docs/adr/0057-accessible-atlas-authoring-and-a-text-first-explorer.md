@@ -1,4 +1,4 @@
-# ADR 0062: Author the Knowledge Atlas in Admin Studio as forms and explore it as text
+# ADR 0057: Author the Knowledge Atlas in Admin Studio as forms and explore it as text
 
 - Status: Accepted
 - Date: 2026-10-25
@@ -6,14 +6,14 @@
 - Parent story: [#21](https://github.com/journey-to-code-org/open.blog/issues/21)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
 - Builds on: [ADR 0035](0035-private-notebook-storage-and-admin-capture.md),
-  [ADR 0058](0058-knowledge-atlas-entries-keep-their-kind.md),
-  [ADR 0059](0059-attributed-evidence-based-relationships.md),
-  [ADR 0060](0060-private-knowledge-atlas-storage.md)
+  [ADR 0053](0053-knowledge-atlas-entries-keep-their-kind.md),
+  [ADR 0054](0054-attributed-evidence-based-relationships.md),
+  [ADR 0055](0055-private-knowledge-atlas-storage.md)
 - Contract: [Knowledge Atlas format](../specs/knowledge-atlas.md)
 
 ## Context
 
-ADR 0060 stored the atlas and left its Admin workspace to this slice. An atlas invites a
+ADR 0055 stored the atlas and left its Admin workspace to this slice. An atlas invites a
 node-and-edge drawing, but a drawing is hard to operate from a keyboard, says little to a
 screen reader, and makes it easy to show a contested link as a plain line that reads as
 fact. Authors also need to edit relationships whose validity depends on entry kinds, the

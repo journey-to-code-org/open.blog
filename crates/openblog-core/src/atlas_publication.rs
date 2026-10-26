@@ -1,5 +1,5 @@
 //! The public Knowledge Atlas: the one projection of approved atlas items that
-//! every public representation reads (ADR 0063).
+//! every public representation reads (ADR 0058).
 //!
 //! [`PublicAtlas`] is built from an explicit allowlist. It copies only entries
 //! the author approved and only relationships [`Atlas::is_projected`] lets

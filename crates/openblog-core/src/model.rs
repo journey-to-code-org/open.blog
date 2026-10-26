@@ -418,7 +418,7 @@ pub struct Site {
     /// the analytics backup) so static builds can show counts.
     pub view_counts: BTreeMap<String, u64>,
     /// The public Knowledge Atlas projection, supplied by the caller only when
-    /// the site opts in to publishing it (ADR 0063). `None` writes no atlas
+    /// the site opts in to publishing it (ADR 0058). `None` writes no atlas
     /// output at all.
     pub atlas: Option<crate::atlas_publication::PublicAtlas>,
     /// The time the site was loaded for (`LoadOptions::now`). A post dated after it is scheduled,

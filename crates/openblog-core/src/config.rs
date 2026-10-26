@@ -78,7 +78,7 @@ pub struct SiteConfig {
     pub knowledge_atlas: KnowledgeAtlasConfig,
 }
 
-/// Whether builds publish the Knowledge Atlas projection (ADR 0063). Off by
+/// Whether builds publish the Knowledge Atlas projection (ADR 0058). Off by
 /// default: the build then never reads the private atlas. On, it publishes
 /// `/atlas/` pages and `/atlas.json` holding only approved entries and the
 /// relationships whose entries are all approved.

@@ -2,12 +2,12 @@
 
 The private Knowledge Atlas holds contextual entries and the attributed relationships between
 them. It is owned by `openblog_core::knowledge_atlas` and stored by the CLI's `atlas_store`;
-decisions are in [ADR 0058](../adr/0058-knowledge-atlas-entries-keep-their-kind.md),
-[ADR 0059](../adr/0059-attributed-evidence-based-relationships.md),
-[ADR 0060](../adr/0060-private-knowledge-atlas-storage.md),
-[ADR 0061](../adr/0061-one-lock-order-and-cross-store-research-guards.md) and
-[ADR 0062](../adr/0062-accessible-atlas-authoring-and-a-text-first-explorer.md) and
-[ADR 0063](../adr/0063-publish-one-allowlisted-knowledge-atlas-projection.md). Nothing in it
+decisions are in [ADR 0053](../adr/0053-knowledge-atlas-entries-keep-their-kind.md),
+[ADR 0054](../adr/0054-attributed-evidence-based-relationships.md),
+[ADR 0055](../adr/0055-private-knowledge-atlas-storage.md),
+[ADR 0056](../adr/0056-one-lock-order-and-cross-store-research-guards.md) and
+[ADR 0057](../adr/0057-accessible-atlas-authoring-and-a-text-first-explorer.md) and
+[ADR 0058](../adr/0058-publish-one-allowlisted-knowledge-atlas-projection.md). Nothing in it
 reaches a public page, feed, search index, `llms.txt` or export except through the
 [publication projection](#publication), which copies approved items only when the site opts in.
 
@@ -108,7 +108,7 @@ relationships by entry, users by source and users by passage. Nothing is indexed
 
 ## Admin API and workspace
 
-Defined by [ADR 0062](../adr/0062-accessible-atlas-authoring-and-a-text-first-explorer.md).
+Defined by [ADR 0057](../adr/0057-accessible-atlas-authoring-and-a-text-first-explorer.md).
 Admin Studio's **Atlas** view (Research tools, next to Notebook, and `#/atlas/<id>`) lists,
 searches and filters entries by kind, edits one entry or relationship, and explores an
 entry's relationships as text. There is no graph drawing.
@@ -137,7 +137,7 @@ concept links open the matching entry, or a new concept with that identifier.
 
 ## Publication
 
-Defined by [ADR 0063](../adr/0063-publish-one-allowlisted-knowledge-atlas-projection.md). A site
+Defined by [ADR 0058](../adr/0058-publish-one-allowlisted-knowledge-atlas-projection.md). A site
 publishes its atlas only with `"knowledgeAtlas": {"publish": true}` in `openblog.json`; until then
 no build reads the atlas. When it is on, `openblog_core::atlas_publication::PublicAtlas` projects
 the approved entries and the relationships `Atlas::is_projected` allows (approved, sourced, no

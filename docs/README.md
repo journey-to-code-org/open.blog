@@ -78,9 +78,9 @@ citation checks with CSL JSON and BibTeX exports of a post's cited references
 [Knowledge Atlas format](specs/knowledge-atlas.md), which keeps people, works, concepts, movements and
 events typed and records every relationship as an attributed, evidence-backed assertion that is
 never presented as consensus, stored privately beside the notebook
-([ADR 0060](adr/0060-private-knowledge-atlas-storage.md)) with one lock order and guards that
+([ADR 0055](adr/0055-private-knowledge-atlas-storage.md)) with one lock order and guards that
 keep sources and passages it uses from being removed
-([ADR 0061](adr/0061-one-lock-order-and-cross-store-research-guards.md)).
+([ADR 0056](adr/0056-one-lock-order-and-cross-store-research-guards.md)).
 
 ## Command reference
 

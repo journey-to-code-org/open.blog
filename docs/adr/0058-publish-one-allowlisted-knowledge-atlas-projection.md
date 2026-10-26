@@ -1,4 +1,4 @@
-# ADR 0063: Publish the approved Knowledge Atlas as one allowlisted projection, as pages and `atlas.json`
+# ADR 0058: Publish the approved Knowledge Atlas as one allowlisted projection, as pages and `atlas.json`
 
 - Status: Accepted
 - Date: 2026-10-25
@@ -7,16 +7,16 @@
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
 - Builds on: [ADR 0044](0044-what-a-citation-makes-public.md),
   [ADR 0048](0048-citations-publish-through-the-one-publication-projection.md),
-  [ADR 0058](0058-knowledge-atlas-entries-keep-their-kind.md),
-  [ADR 0059](0059-attributed-evidence-based-relationships.md),
-  [ADR 0060](0060-private-knowledge-atlas-storage.md)
-- Amends: [ADR 0060](0060-private-knowledge-atlas-storage.md) (a build now reads the atlas, only
+  [ADR 0053](0053-knowledge-atlas-entries-keep-their-kind.md),
+  [ADR 0054](0054-attributed-evidence-based-relationships.md),
+  [ADR 0055](0055-private-knowledge-atlas-storage.md)
+- Amends: [ADR 0055](0055-private-knowledge-atlas-storage.md) (a build now reads the atlas, only
   when the site opts in)
 - Contract: [Knowledge Atlas format](../specs/knowledge-atlas.md)
 
 ## Context
 
-ADR 0058 made approval the author's recorded consent for a publication projection and left the
+ADR 0053 made approval the author's recorded consent for a publication projection and left the
 projection to this slice. The atlas holds the author's unreviewed readings about real people, so
 the public boundary must be a short explicit list, not a filter over the private record. Issue
 #92 gives each public surface one projection that every representation reads, and B3.1 (#72)
