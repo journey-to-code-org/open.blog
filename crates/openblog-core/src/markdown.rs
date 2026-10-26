@@ -51,6 +51,9 @@ pub struct Rendered {
     pub recipe_ingredients: Vec<String>,
     pub recipe_steps: Vec<String>,
     pub recipe_anchor: Option<String>,
+    /// With [`RenderOptions::supplements`]: the supplements read and what was
+    /// reported about their markers.
+    pub reading_depth: Option<crate::reading_depth::ReadingDepth>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -84,6 +87,10 @@ pub struct RenderOptions<'a> {
     /// section (ADR 0075): its prose (description, word count, reading time)
     /// ends at that section's heading, as it ends at generated citation notes.
     pub claim_evidence_section: bool,
+    /// Set for a post that opts in to reading modes (ADR 0140): marked
+    /// supplements are wrapped in labelled groups and kept out of the post's
+    /// own prose. `false` renders every block quote as before.
+    pub supplements: bool,
 }
 
 impl Default for RenderOptions<'_> {
@@ -98,6 +105,7 @@ impl Default for RenderOptions<'_> {
             web_libraries: None,
             citation_notes: None,
             claim_evidence_section: false,
+            supplements: false,
         }
     }
 }
@@ -1614,11 +1622,33 @@ pub(crate) fn parser_options(smart_punctuation: bool) -> Options {
     options
 }
 
+/// CommonMark reads U+0000 as U+FFFD. For a post with supplements it is
+/// replaced before parsing, so a NUL in the text can never look like the tag
+/// the renderer uses to mark a supplement. Posts without a NUL are untouched,
+/// and posts that have not opted in are never rewritten.
+fn without_nul(markdown: &str, supplements: bool) -> std::borrow::Cow<'_, str> {
+    if supplements && markdown.contains('\u{0}') {
+        std::borrow::Cow::Owned(markdown.replace('\u{0}', "\u{FFFD}"))
+    } else {
+        std::borrow::Cow::Borrowed(markdown)
+    }
+}
+
 pub fn render(markdown: &str, options: RenderOptions<'_>) -> Rendered {
+    let source = without_nul(markdown, options.supplements);
     let mut parsed_events =
-        Parser::new_ext(markdown, parser_options(options.smart_punctuation)).collect::<Vec<_>>();
-    assign_heading_ids(&mut parsed_events, options.citation_notes.as_ref());
-    render_events(parsed_events, markdown.len(), options, None)
+        Parser::new_ext(&source, parser_options(options.smart_punctuation)).collect::<Vec<_>>();
+    let mut findings = Vec::new();
+    if options.supplements {
+        findings = crate::reading_depth::reserve_ids(&mut parsed_events);
+        crate::reading_depth::name_headings(&mut parsed_events);
+    }
+    assign_heading_ids(
+        &mut parsed_events,
+        options.citation_notes.as_ref(),
+        options.supplements,
+    );
+    render_events(parsed_events, markdown.len(), options, None, findings)
 }
 
 /// The start of an attributed section's anchor, which no heading id may have
@@ -1640,6 +1670,7 @@ const RESERVED_ANCHOR_PREFIX: &str = crate::attributed_perspective::ANCHOR_PREFI
 fn assign_heading_ids(
     events: &mut [Event<'_>],
     notes: Option<&crate::bibliography::CitationNoteLabels<'_>>,
+    supplements: bool,
 ) {
     let notes_start = notes.and_then(|labels| generated_notes_heading(events, labels));
     let written = if notes_start.is_some() {
@@ -1666,9 +1697,25 @@ fn assign_heading_ids(
                 let Some((start, title)) = heading.take() else {
                     continue;
                 };
+                // A heading written inside a supplement already has the id
+                // that names it (ADR 0142); it takes no slug from the post's.
+                if supplements
+                    && matches!(
+                        &events[start],
+                        Event::Start(Tag::Heading { id: Some(id), .. })
+                            if id.starts_with(crate::reading_depth::ID_PREFIX)
+                    )
+                {
+                    continue;
+                }
                 let mut id = slugify(&title);
                 if id.is_empty() {
                     id = "section".to_string();
+                }
+                // `ob-supplement-` names the supplements' own ids only, for a
+                // post that has them; any other post's slugs are as they were.
+                if supplements && id.starts_with(crate::reading_depth::ID_PREFIX) {
+                    id = format!("section-{id}");
                 }
                 // `ob-by-` belongs to attributed sections (ADR 0126). A
                 // heading whose text begins "OB by" must not take it.
@@ -1777,12 +1824,25 @@ fn written_ids(events: &[Event<'_>]) -> std::collections::HashSet<String> {
     ids
 }
 
+/// For a post that opted in to reading modes, the renames [`render`] makes
+/// before it assigns heading ids: ids that belong to the supplements are
+/// freed and supplement headings are named. Everything that reads heading
+/// ids outside the renderer runs the same steps, so its ids are the page's.
+fn reserve_supplement_ids(events: &mut [Event<'_>], supplements: bool) {
+    if supplements {
+        crate::reading_depth::reserve_ids(events);
+        crate::reading_depth::name_headings(events);
+    }
+}
+
 /// Every heading id the author's Markdown gets, as [`render`] assigns them
 /// with or without citations: the author's `{#id}` values and the generated
-/// slugs.
-pub(crate) fn heading_ids(markdown: &str) -> Vec<String> {
-    let mut events = Parser::new_ext(markdown, parser_options(false)).collect::<Vec<_>>();
-    assign_heading_ids(&mut events, None);
+/// slugs. `supplements` is whether the post opted in to reading modes.
+pub(crate) fn heading_ids(markdown: &str, supplements: bool) -> Vec<String> {
+    let source = without_nul(markdown, supplements);
+    let mut events = Parser::new_ext(&source, parser_options(false)).collect::<Vec<_>>();
+    reserve_supplement_ids(&mut events, supplements);
+    assign_heading_ids(&mut events, None, supplements);
     events
         .into_iter()
         .filter_map(|event| match event {
@@ -1807,10 +1867,13 @@ pub(crate) fn passage_sections(
     smart_punctuation: bool,
     embeds: bool,
     notes: Option<&crate::bibliography::CitationNoteLabels<'_>>,
+    supplements: bool,
 ) -> Vec<(Option<String>, String)> {
+    let source = without_nul(markdown, supplements);
     let mut events =
-        Parser::new_ext(markdown, parser_options(smart_punctuation)).collect::<Vec<_>>();
-    assign_heading_ids(&mut events, notes);
+        Parser::new_ext(&source, parser_options(smart_punctuation)).collect::<Vec<_>>();
+    reserve_supplement_ids(&mut events, supplements);
+    assign_heading_ids(&mut events, notes, supplements);
     let notes_start = notes.and_then(|labels| generated_notes_heading(&events, labels));
     let mut sections: Vec<(Option<String>, String)> = vec![(None, String::new())];
     let mut in_code_block = false;
@@ -1868,9 +1931,15 @@ pub fn render_portable(
     options: RenderOptions<'_>,
     projection: &crate::portability::PortableProjection<'_>,
 ) -> Result<Rendered, String> {
+    let source = without_nul(markdown, options.supplements);
     let mut parsed_events =
-        Parser::new_ext(markdown, parser_options(options.smart_punctuation)).collect::<Vec<_>>();
-    assign_heading_ids(&mut parsed_events, None);
+        Parser::new_ext(&source, parser_options(options.smart_punctuation)).collect::<Vec<_>>();
+    let mut findings = Vec::new();
+    if options.supplements {
+        findings = crate::reading_depth::reserve_ids(&mut parsed_events);
+        crate::reading_depth::name_headings(&mut parsed_events);
+    }
+    assign_heading_ids(&mut parsed_events, None, options.supplements);
     for event in &mut parsed_events {
         let destination = match event {
             Event::Start(Tag::Link { dest_url, .. })
@@ -1887,6 +1956,7 @@ pub fn render_portable(
         markdown.len(),
         options,
         Some(projection.markdown_context()),
+        findings,
     );
     // Recipe sections are added after raw HTML is balanced inside its own
     // containers, so the finished body is balanced once more as a whole.
@@ -1903,8 +1973,15 @@ pub(crate) fn portable_semantic_facts(
     projection: &crate::portability::PortableProjection<'_>,
 ) -> Result<Vec<crate::portability::SemanticFact>, String> {
     use crate::portability::SemanticFact;
-    let events = Parser::new_ext(markdown, parser_options(options.smart_punctuation));
-    let sanitized = crate::raw_html::sanitize(events.collect(), projection)?;
+    let source = without_nul(markdown, options.supplements);
+    let events = Parser::new_ext(&source, parser_options(options.smart_punctuation));
+    let mut sanitized = crate::raw_html::sanitize(events.collect(), projection)?;
+    if options.supplements {
+        crate::reading_depth::reserve_ids(&mut sanitized.events);
+        // The marker line is replaced by a label in the HTML and kept as
+        // written in Markdown, so it is not a fact either must carry.
+        sanitized.events = crate::reading_depth::transform(sanitized.events, false).events;
+    }
     let mut facts = Vec::new();
     let mut semantic_events = Vec::new();
     let mut index = 0;
@@ -2123,7 +2200,28 @@ fn render_events<'a>(
     source_length: usize,
     options: RenderOptions<'_>,
     portable: Option<PortableContext<'_>>,
+    id_findings: Vec<crate::reading_depth::Finding>,
 ) -> Rendered {
+    let (parsed_events, inside_supplement, reading_depth) = if options.supplements {
+        let transformed = crate::reading_depth::transform(parsed_events, true);
+        let mut depth = transformed.depth;
+        // Renamed ids come first, within the findings' limit.
+        depth.findings.splice(0..0, id_findings);
+        depth.findings.truncate(crate::reading_depth::MAX_FINDINGS);
+        (transformed.events, transformed.inside, Some(depth))
+    } else {
+        (parsed_events, Vec::new(), None)
+    };
+    // The post's own words, built with every push `text` gets except the
+    // words of a supplement (ADR 0140). Only a post with supplements keeps it.
+    let mut own = options.supplements.then(String::new);
+    let mut own_end = None;
+    // Per open block quote: the supplement it is, for its end marker.
+    let mut quote_supplements: Vec<Option<usize>> = Vec::new();
+    // Footnote labels cited inside a supplement, and the supplements citing.
+    let mut cited_in: std::collections::HashMap<String, Vec<usize>> =
+        std::collections::HashMap::new();
+    let mut cited_outside: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut events: Vec<Event> = Vec::new();
     let mut headings = Vec::new();
     let mut text = String::new();
@@ -2147,11 +2245,59 @@ fn render_events<'a>(
     let mut prose_end = None;
     let mut after_marker = false;
 
+    // Spacing goes to both texts; a word goes to the post's own only outside
+    // a supplement.
+    macro_rules! space {
+        ($($piece:expr),+) => {{
+            $(text.push_str($piece);
+            if let Some(own) = own.as_mut() {
+                own.push_str($piece);
+            })+
+        }};
+    }
+
     for (index, event) in parsed_events.into_iter().enumerate() {
         if notes_start == Some(index) || claims_start == Some(index) {
             prose_end.get_or_insert(text.len());
+            if let Some(own) = &own {
+                own_end.get_or_insert(own.len());
+            }
         }
         let followed_marker = std::mem::take(&mut after_marker);
+        let inside = inside_supplement.get(index).copied().unwrap_or(false);
+        if let Event::FootnoteReference(name) = &event {
+            if inside {
+                let holder = quote_supplements.iter().rev().flatten().next().copied();
+                if let Some(holder) = holder {
+                    let held = cited_in.entry(name.to_string()).or_default();
+                    if !held.contains(&holder) {
+                        held.push(holder);
+                    }
+                }
+            } else {
+                cited_outside.insert(name.to_string());
+            }
+        }
+        match &event {
+            Event::Start(Tag::BlockQuote(_)) => quote_supplements.push(None),
+            Event::Html(html) if reading_depth.is_some() => {
+                // The tag [`reading_depth::transform`] left on a supplement's
+                // quote: its boundary words go in the page's text, so a text
+                // copy shows where it starts and stops.
+                let ordinal = crate::reading_depth::sentinel_ordinal(html);
+                if let (Some(ordinal), Some(depth)) = (ordinal, reading_depth.as_ref()) {
+                    if let (Some(slot), Some(supplement)) = (
+                        quote_supplements.last_mut(),
+                        depth.supplements.get(ordinal.wrapping_sub(1)),
+                    ) {
+                        *slot = Some(ordinal - 1);
+                        text.push_str(&crate::reading_depth::start_words(supplement));
+                        space!(" ");
+                    }
+                }
+            }
+            _ => {}
+        }
         match &event {
             Event::FootnoteReference(name)
                 if options
@@ -2177,7 +2323,9 @@ fn render_events<'a>(
                     first_image = Some(dest_url.to_string());
                 }
             }
-            Event::Start(Tag::Heading { level, .. }) => {
+            // A heading inside a supplement is a heading, but not an entry of
+            // the outline (ADR 0142).
+            Event::Start(Tag::Heading { level, .. }) if !inside => {
                 heading = Some((*level, events.len(), String::new()));
             }
             Event::Text(t) | Event::Code(t) => {
@@ -2189,24 +2337,43 @@ fn render_events<'a>(
                         && t.starts_with(|c: char| ",.;:!?)]}\u{2019}\u{201d}".contains(c))
                     {
                         text.truncate(text.trim_end_matches(' ').len());
+                        if let (Some(own), false) = (own.as_mut(), inside) {
+                            own.truncate(own.trim_end_matches(' ').len());
+                        }
                     }
                     text.push_str(t);
+                    if let (Some(own), false) = (own.as_mut(), inside) {
+                        own.push_str(t);
+                    }
                 }
             }
             Event::SoftBreak | Event::HardBreak => {
                 if let Some((_, _, buf)) = heading.as_mut() {
                     buf.push(' ');
                 }
-                text.push(' ');
+                space!(" ");
+            }
+            Event::End(TagEnd::BlockQuote(_)) => {
+                if let Some(Some(held)) = quote_supplements.pop() {
+                    if let Some(supplement) = reading_depth
+                        .as_ref()
+                        .and_then(|depth| depth.supplements.get(held))
+                    {
+                        space!(" ");
+                        text.push_str(&crate::reading_depth::end_words(supplement));
+                    }
+                }
+                space!(" ");
             }
             Event::End(TagEnd::Paragraph)
             | Event::End(TagEnd::Item)
-            | Event::End(TagEnd::TableCell)
-            | Event::End(TagEnd::BlockQuote(_)) => text.push(' '),
+            | Event::End(TagEnd::TableCell) => space!(" "),
             _ => {}
         }
 
-        if let Event::End(TagEnd::Heading(_)) = &event {
+        if let (Event::End(TagEnd::Heading(_)), true) = (&event, inside) {
+            space!(" ");
+        } else if let Event::End(TagEnd::Heading(_)) = &event {
             if let Some((level, start_index, title)) = heading.take() {
                 let id = match &events[start_index] {
                     Event::Start(Tag::Heading { id: Some(id), .. }) => id.to_string(),
@@ -2228,7 +2395,7 @@ fn render_events<'a>(
                     id,
                     text: title.trim().to_string(),
                 });
-                text.push(' ');
+                space!(" ");
             }
         }
 
@@ -2258,22 +2425,74 @@ fn render_events<'a>(
         (None, Some(labels)) => apply_citation_notes(events, labels),
         _ => events,
     };
+    // Last, so every transform above saw each supplement as the quote it is.
+    let events = match &reading_depth {
+        Some(depth) => crate::reading_depth::wrap(events, depth),
+        None => events,
+    };
     let mut html = String::with_capacity(source_length * 2);
     pulldown_cmark::html::push_html(&mut html, events.into_iter());
+    if portable.is_none() {
+        // A note cited only inside supplements says which, so the page can
+        // show a supplement a reader navigates into (ADR 0142).
+        let mut notes: Vec<_> = cited_in
+            .iter()
+            .filter(|(name, _)| !cited_outside.contains(*name))
+            .collect();
+        notes.sort();
+        for (name, holders) in notes {
+            let ids = holders
+                .iter()
+                .filter_map(|holder| reading_depth.as_ref()?.supplements.get(*holder))
+                .map(|supplement| supplement.id.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
+            let name = escape::attr(name);
+            for class in [
+                "footnote-definition ob-citation-note",
+                "footnote-definition",
+            ] {
+                let opening = format!("<div class=\"{class}\" id=\"{name}\"");
+                if html.contains(&opening) {
+                    html = html.replacen(
+                        &opening,
+                        &format!("{opening} data-ob-supplement=\"{ids}\""),
+                        1,
+                    );
+                    break;
+                }
+            }
+        }
+    }
     let mut html = restore_bracketed_hosts(html);
     if options.lazy_images {
         html = html.replace("<img src=", "<img loading=\"lazy\" decoding=\"async\" src=");
     }
 
-    let prose = collapse_whitespace(&text[..prose_end.unwrap_or(text.len())]);
+    // Supplements are not the post's own words: they stay in the search text
+    // but not in the description, word count or reading time.
+    let prose = match &own {
+        Some(own) => collapse_whitespace(&own[..own_end.unwrap_or(own.len())]),
+        None => collapse_whitespace(&text[..prose_end.unwrap_or(text.len())]),
+    };
     let text = collapse_whitespace(&text);
+    let mut capabilities = blocks.capabilities;
+    if reading_depth
+        .as_ref()
+        .is_some_and(|depth| !depth.is_empty())
+    {
+        capabilities.push(CapabilityDescriptor::describe(
+            crate::reading_depth::CAPABILITY_ID,
+            None,
+        ));
+    }
     let word_count = prose.split_whitespace().count();
     Rendered {
         html,
         portable_images: Vec::new(),
         portable_has_raw_html: false,
         portable_video_ids,
-        capabilities: blocks.capabilities,
+        capabilities,
         errors: blocks.errors,
         headings,
         text,
@@ -2284,6 +2503,7 @@ fn render_events<'a>(
         recipe_ingredients: blocks.ingredients,
         recipe_steps: blocks.steps,
         recipe_anchor: blocks.recipe_anchor,
+        reading_depth,
     }
 }
 

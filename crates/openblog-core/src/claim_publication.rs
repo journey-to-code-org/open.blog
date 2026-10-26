@@ -560,7 +560,11 @@ fn pieces(count: usize, kind: &str) -> String {
 /// would swallow or reshape the section, so a reader could see support
 /// without its contradiction; that post is refused instead. On success each
 /// claim's `url` gets the fragment of its heading.
-pub fn check_section(markdown: &str, post: &mut PostEvidence) -> Result<(), String> {
+pub fn check_section(
+    markdown: &str,
+    post: &mut PostEvidence,
+    supplements: bool,
+) -> Result<(), String> {
     let mut expected: Vec<(u8, String, usize)> = Vec::new();
     for claim in &post.claims {
         expected.push((3, format!("Claim {}", claim.number), 0));
@@ -650,7 +654,7 @@ pub fn check_section(markdown: &str, post: &mut PostEvidence) -> Result<(), Stri
     if found != expected || lists_before {
         return Err(refused());
     }
-    let ids = crate::markdown::heading_ids(markdown);
+    let ids = crate::markdown::heading_ids(markdown, supplements);
     for claim in &mut post.claims {
         let title = format!("Claim {}", claim.number);
         let Some(ordinal) = inside
@@ -999,7 +1003,7 @@ mod tests {
         // An author heading with the same text gets the plain slug first.
         let body = "## Claim 1\n\nIntro.\n";
         let published = format!("{body}{section}");
-        check_section(&published, &mut post).unwrap();
+        check_section(&published, &mut post, false).unwrap();
         assert_eq!(post.claims[0].url, "/posts/cave/#claim-1-2");
         assert_eq!(post.claims[1].url, "/posts/cave/#claim-2");
         assert!(section.contains("- 2026-10-20 (Claim 2): Re-read Book VII."));
@@ -1007,12 +1011,15 @@ mod tests {
         let (section, mut post) =
             compose(Some(&evidence), "cave", "/p/", Some(BODY), vec![]).unwrap();
         let swallowed = format!("Text.\n\n```\nunclosed\n{section}");
-        assert!(check_section(&swallowed, &mut post)
+        assert!(check_section(&swallowed, &mut post, false)
             .unwrap_err()
             .contains("code block"));
         for opener in ["<pre>", "<!-- open"] {
             let unclosed = format!("Text.\n\n{opener}\n{section}");
-            assert!(check_section(&unclosed, &mut post).is_err(), "{opener}");
+            assert!(
+                check_section(&unclosed, &mut post, false).is_err(),
+                "{opener}"
+            );
         }
     }
 

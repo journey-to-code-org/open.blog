@@ -10,6 +10,7 @@ import "./components/ob-code-runner.js";
 import "./components/ob-web-sandbox.js";
 import "./components/ob-recipe.js";
 import "./components/ob-quiz.js";
+import "./components/ob-reading-modes.js";
 import "./components/ob-back-to-top.js";
 import "./components/ob-search.js";
 import "./components/ob-share.js";

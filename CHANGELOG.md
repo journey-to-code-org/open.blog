@@ -14,6 +14,57 @@ All notable changes to open.blog are recorded here. Releases follow
   only to the site Admin and the reader, and nothing will enter the private research library unless
   an author chooses to. No SQL changes.
 
+## [0.41.0] - 2026-10-26
+
+- A site can choose the reading mode its posts open in. Set `readingModes.default` in
+  `openblog.json` to `guided` or `deep-dive`: a post that opts in with `readingModes: true` and
+  names no default of its own opens in that mode. A post's own `readingModes: {default: ...}` still
+  wins, a reader's saved choice beats both, and a site that does not set it keeps opening in
+  standard.
+- Printing a post says what it left out: one line, "Printed in Standard mode; 3 supplements not
+  shown.", appears only on paper.
+- Reading modes are safer to read and easier to style. The control says in a visible note that the
+  article is the same in every mode and that everything outside the labelled supplement boxes is the
+  article. Each shown supplement has a "Skip this ... supplement" link, seen when it has focus, that
+  moves past it. A supplement holding a warning or caution is never hidden, even when its marker was
+  lost, and the page keeps the box drawn in forced colours and in print. Passage feedback and
+  claim sections follow the same heading ids as the page in a post with supplements. The stable
+  class, attribute and custom-property hooks for themes are documented.
+- Guided and deep-dive layers now appear progressively and keep your place. With script on, the page
+  no longer paints every layer and then hides some: the layers the post's default mode hides are
+  hidden from the start (and come back by themselves if the script never loads), a mode change keeps
+  the paragraph you are reading where it is, and a hidden layer can still be found with find in
+  page or a link, which show it. A link to the address already shown now reveals a supplement too.
+  Without script every layer is still in the page, labelled, and portable copies keep them all.
+- Reading-mode fixes. A supplement written inside a warning or caution callout is no longer hidden.
+  A change in another tab no longer re-hides a supplement you opened or drops your focus. The
+  "Use the author's default" button keeps keyboard focus. The saved choice is now kept per site
+  folder, so GitHub Pages project sites on one account no longer share it (readers choose once
+  again). With reading modes on, ids you wrote that start with `ob-supplement-` are renamed by
+  their exact value (Markdown links to them follow) and reported, a NUL character is read as a
+  replacement character, headings keep their old slugs when reading modes are off, and
+  `readingModes: {enabled: false}` turns them off while an unknown key is reported.
+- Defined author-approved supplements and reading modes, ahead of the reader controls. A post that
+  opts in with `readingModes: true` can mark a block quote `[!supplement kind=definition
+  level=guided]` as extra context (definition, context, evidence, relationship, comparison, further
+  reading, or any other kind). A reading mode only shows or hides supplements: standard shows none,
+  guided shows guided ones, deep-dive shows both. Nothing about the article changes in any mode, a
+  supplement's words are not counted in the post's word count or reading time, and without script
+  every supplement is shown, labelled, in the page, feeds and portable copies. Posts that do not
+  opt in are unchanged.
+- Readers can choose standard, guided or deep-dive reading. A post with supplements gets a "Reading
+  mode" group of three radio buttons, each saying what it adds, with a reset to the author's
+  default. It works from the keyboard and with a screen reader, announces each change, respects
+  reduced motion, reflows at 320 pixels and 400% zoom, and remembers the choice on that device only
+  (never sent anywhere; the page works when storage is blocked). Without script nothing is hidden.
+  A link into a hidden supplement shows it. Write `readingModes: {default: guided}` to open a post
+  in another mode. A supplement that holds a `[!WARNING]` or `[!CAUTION]` callout is always shown.
+- Supplements are clearer and safer to write. Each one has a visible boundary even without a
+  stylesheet (a labelled quote ending with "End of ... supplement"), headings inside it stay real
+  headings that do not join the outline or renumber yours, a recipe no longer reads its lists as
+  ingredients, and a marker the build could not read is listed in the build, `check` and Admin
+  warnings with the post. Fixed a crash on a citation inside a supplement.
+
 ## [0.40.0] - 2026-10-26
 
 - A reader's Third Perspective about one author's section of a shared reflection, and that
