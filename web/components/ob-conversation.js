@@ -1,4 +1,4 @@
-// <ob-conversation> (ADR 0178): progressive enhancement for the conversation after an author's
+// <ob-conversation> (ADR 0138): progressive enhancement for the conversation after an author's
 // section. The page is complete without this script: the reader's reflections and the author's
 // response are static, labelled HTML that follows the author's words, in order. With it, a long
 // conversation (more than COLLAPSE_AFTER reflections) starts folded behind one native button, so a

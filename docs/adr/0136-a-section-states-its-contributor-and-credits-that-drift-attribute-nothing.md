@@ -1,4 +1,4 @@
-# ADR 0176: A section states its contributor, and credits that drift attribute nothing
+# ADR 0136: A section states its contributor, and credits that drift attribute nothing
 
 - Status: Accepted
 - Date: 2026-10-27
@@ -7,12 +7,12 @@
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
 - Builds on: [ADR 0031](0031-sequential-and-side-by-side-presentation.md),
   [ADR 0033](0033-portable-equivalents-of-every-reflection-layout.md),
-  [ADR 0160](0160-an-attributed-section-is-an-ordinary-section-target-with-a-reserved-anchor-and-a-digest.md),
-  [ADR 0162](0162-only-the-bound-contributor-who-wrote-a-section-may-answer-as-its-author.md)
+  [ADR 0126](0126-an-attributed-section-is-an-ordinary-section-target-with-a-reserved-anchor-and-a-digest.md),
+  [ADR 0128](0128-only-the-bound-contributor-who-wrote-a-section-may-answer-as-its-author.md)
 
 ## Context
 
-ADR 0160 pairs the k-th distinct author name in a shared reflection's body with the k-th credit in
+ADR 0126 pairs the k-th distinct author name in a shared reflection's body with the k-th credit in
 its sidecar. A review found that this misattributes instead of failing closed when the credits are
 edited afterwards: a body MINA, JOE, MINA with credits `[joe, mina]` still has two names and two
 credits, so MINA's section is attributed to `joe`, and `joe` could then answer as MINA. The count

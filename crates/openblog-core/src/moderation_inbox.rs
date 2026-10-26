@@ -126,7 +126,7 @@ impl Protocol {
         match self {
             Protocol::Protected => true,
             // An author response needs the hosted function's own opt-in on top
-            // of protection (ADR 0166), so only the protected protocol has it.
+            // of protection (ADR 0132), so only the protected protocol has it.
             Protocol::Full => {
                 kind != ParticipationKind::AbuseReport && kind != ParticipationKind::AuthorResponse
             }
@@ -194,7 +194,7 @@ pub enum Content {
     /// A Third Perspective with its consent records (ADRs 0110, 0113).
     Perspective(Box<HostedPerspective>),
     /// An author's answer to a Third Perspective about their own section,
-    /// with the responder it stores (ADRs 0164 to 0166).
+    /// with the responder it stores (ADRs 0130 to 0132).
     AuthorResponse(Box<HostedAuthorResponse>),
     /// An abuse report: the reader's ground and what they wrote, if anything.
     /// It never names the reporter.
@@ -911,7 +911,7 @@ impl<'a> Inbox<'a> {
         // An author response is never asked to clarify (its kind has no
         // clarification), is approved only where the hosted function records
         // answers (the same opt-in as Third Perspectives), and is never
-        // approved by the account that wrote it (ADR 0162).
+        // approved by the account that wrote it (ADR 0128).
         if let Some(hosted) = item.author_response() {
             if action == ModerationAction::Approve && !self.third_perspectives {
                 return Err(PolicyError::NotAllowed);
@@ -985,7 +985,7 @@ impl<'a> Inbox<'a> {
         // the account that wrote the answer must still be bound as that
         // section's contributor, so membership revoked after the answer was
         // written, or a row stored with a responder it never had (a forged
-        // row written with the token), is never approved (ADR 0162).
+        // row written with the token), is never approved (ADR 0128).
         let record = self
             .works
             .record_for_work(&item.work)
@@ -1066,7 +1066,7 @@ impl<'a> Inbox<'a> {
     /// Whether the viewer is the account that wrote this answer. Membership
     /// is not re-checked: an author whose binding was removed or demoted can
     /// still take their own words back. Any other account is no. A
-    /// coordinator removes an answer instead (ADR 0162).
+    /// coordinator removes an answer instead (ADR 0128).
     pub fn may_withdraw(&self, item: &InboxItem) -> bool {
         let Principal::AdminSession { admin_user } = self.principal else {
             return false;
@@ -1074,7 +1074,7 @@ impl<'a> Inbox<'a> {
         let Some(hosted) = item.author_response() else {
             return false;
         };
-        // Taking one's own words down is never the risk (ADR 0162), so the
+        // Taking one's own words down is never the risk (ADR 0128), so the
         // account that wrote the answer may withdraw it even after its
         // binding was removed or demoted; approving is what re-checks that.
         hosted.responder.account == admin_user

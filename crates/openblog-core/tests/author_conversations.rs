@@ -1,5 +1,5 @@
-//! Accessible attributed perspective conversations (#224, ADRs 0177 and
-//! 0178): an approved author response is published in the versioned public
+//! Accessible attributed perspective conversations (#224, ADRs 0137 and
+//! 0138): an approved author response is published in the versioned public
 //! file under the reflection it answers, shown after that author's own section
 //! on the canonical page as static HTML, labelled as the author's and never a
 //! reader's, bounded, escaped and anchored; portable copies, feeds and `llms`

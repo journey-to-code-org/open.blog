@@ -1,4 +1,4 @@
-# ADR 0168: Answers are moderated in the one inbox, approved only under a shown parent and never by their own author
+# ADR 0134: Answers are moderated in the one inbox, approved only under a shown parent and never by their own author
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -7,15 +7,15 @@
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
 - Builds on: [ADR 0103](0103-who-may-moderate-reader-participation.md),
   [ADR 0105](0105-one-moderation-inbox-decided-per-item-by-the-one-policy.md),
-  [ADR 0162](0162-only-the-bound-contributor-who-wrote-a-section-may-answer-as-its-author.md),
-  [ADR 0163](0163-an-answer-is-the-authors-pending-words-named-as-the-section-is-and-follows-its-parent.md),
-  [ADR 0166](0166-an-author-response-is-one-more-row-of-the-existing-feedback-table-stored-through-one-admin-route-behind-one-flag.md)
+  [ADR 0128](0128-only-the-bound-contributor-who-wrote-a-section-may-answer-as-its-author.md),
+  [ADR 0129](0129-an-answer-is-the-authors-pending-words-named-as-the-section-is-and-follows-its-parent.md),
+  [ADR 0132](0132-an-author-response-is-one-more-row-of-the-existing-feedback-table-stored-through-one-admin-route-behind-one-flag.md)
 
 ## Context
 
 "Coordinator review" of an answer is RD12's moderation, not a second workflow. The one inbox must
 list answers, show a moderator whose words they are and what they answer, and refuse the two
-approvals that would contradict ADR 0162 and 0163: one by the account that wrote it, and one under
+approvals that would contradict ADR 0128 and 0129: one by the account that wrote it, and one under
 a reflection that is not shown.
 
 ## Decision
@@ -50,7 +50,7 @@ a reflection that is not shown.
 - **An answer is published nowhere by this change.** Approving one writes no file (`reader-feedback.json`
   and `third-perspectives.json` are untouched), so there is nothing to take it off; showing it under
   its reflection is #224's, from `response_shown`, which already requires the stored responder to be
-  the section's own contributor (ADR 0163).
+  the section's own contributor (ADR 0129).
 
 ## Consequences
 

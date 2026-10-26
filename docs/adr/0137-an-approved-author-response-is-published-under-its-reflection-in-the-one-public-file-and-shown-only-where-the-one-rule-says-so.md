@@ -1,4 +1,4 @@
-# ADR 0177: An approved author response is published under its reflection in the one public file, and shown only where the one rule says so
+# ADR 0137: An approved author response is published under its reflection in the one public file, and shown only where the one rule says so
 
 - Status: Accepted
 - Date: 2026-10-27
@@ -6,10 +6,10 @@
 - Parent story: [#202](https://github.com/journey-to-code-org/open.blog/issues/202)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
 - Builds on: [ADR 0115](0115-approved-third-perspectives-publish-from-a-versioned-public-file-and-portable-copies-link-to-them.md),
-  [ADR 0162](0162-only-the-bound-contributor-who-wrote-a-section-may-answer-as-its-author.md),
-  [ADR 0164](0164-attributed-perspectives-store-the-responder-publish-nothing-by-themselves-and-leave-static-reading-whole.md),
-  [ADR 0166](0166-an-author-response-is-one-more-row-of-the-existing-feedback-table-stored-through-one-admin-route-behind-one-flag.md),
-  [ADR 0168](0168-answers-are-moderated-in-the-one-inbox-under-a-shown-parent-and-never-approved-by-their-own-author.md)
+  [ADR 0128](0128-only-the-bound-contributor-who-wrote-a-section-may-answer-as-its-author.md),
+  [ADR 0130](0130-attributed-perspectives-store-the-responder-publish-nothing-by-themselves-and-leave-static-reading-whole.md),
+  [ADR 0132](0132-an-author-response-is-one-more-row-of-the-existing-feedback-table-stored-through-one-admin-route-behind-one-flag.md),
+  [ADR 0134](0134-answers-are-moderated-in-the-one-inbox-under-a-shown-parent-and-never-approved-by-their-own-author.md)
 
 ## Context
 
@@ -21,7 +21,7 @@ that Admin writes and the build reads (ADR 0115); an answer follows the same pat
 ## Decision
 
 - **An answer is an `answer` on its reflection's record in `third-perspectives.json`.** It is not a
-  second file, because an answer never outlives or contradicts its reflection (ADR 0168) and one
+  second file, because an answer never outlives or contradicts its reflection (ADR 0134) and one
   record leaves nothing to keep in step. It holds only public fields: the hosted row's id (the handle
   an abuse report names and Admin takes off by), the contributor registry key, the name the section
   was published under, the text, and the days received and approved. Never the participant, the Admin
@@ -43,7 +43,7 @@ that Admin writes and the build reads (ADR 0115); an answer follows the same pat
   the page is the section's author as published now, and the name it was answered under only when
   that section has gone.
 - **Admin writes it, with the reflection.** Approving an answer, after the parent and responder
-  checks of ADR 0162, publishes it under its reflection (publishing the reflection first if it is
+  checks of ADR 0128, publishes it under its reflection (publishing the reflection first if it is
   not on the file), under the content lock, and then rebuilds. Rejecting, removing, deleting a
   closed answer or reopening it takes it off its reflection and leaves the reflection; the author's
   withdrawal takes it off; removing the reflection takes its answer with it. A reflection published
@@ -56,7 +56,7 @@ that Admin writes and the build reads (ADR 0115); an answer follows the same pat
   (`GET engagement/third-perspectives/published`) adds `answersMustComeOff`, and the inbox shows on
   every tab a banner counting the answers that must come off, with one take-off button each, apart
   from the reflections' own, and says the reflection stays.
-- **No hosted schema change.** The function stores and moderates answers as before (ADR 0166) and
+- **No hosted schema change.** The function stores and moderates answers as before (ADR 0132) and
   publishes nothing. There is no new SQL and so no rollback file. To roll the feature back, remove
   `OPENBLOG_AUTHOR_RESPONSES_ENABLED` and set `author-response` to `hidden`: pages show no answers,
   and `third-perspectives.json` can be left alone (or its `answer` fields removed and its version set

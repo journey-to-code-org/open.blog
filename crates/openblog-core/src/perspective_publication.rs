@@ -23,7 +23,7 @@
 //! Only the canonical page shows them; portable copies, feeds and `llms`
 //! files carry a labelled link to it instead (P6.2).
 //!
-//! An approved author response (#224, ADR 0177) is published in the same
+//! An approved author response (#224, ADR 0137) is published in the same
 //! file, as an `answer` on the reflection it answers, so the file is version
 //! 2 only while it holds one. It holds only public fields, and the page shows
 //! it only where [`crate::attributed_perspective::response_shown`] says so:
@@ -622,7 +622,7 @@ pub struct PublicPerspective {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub section_title: Option<String>,
     /// The author's approved answer, only where [`response_shown`] says it is
-    /// shown now (ADR 0177).
+    /// shown now (ADR 0137).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub answer: Option<PublicAnswer>,
 }
@@ -677,7 +677,7 @@ pub fn project_post(
         .filter_map(|item| {
             // A reflection about one author's section is checked against that
             // author's published sections, never B5's heading sections (ADR
-            // 0161): the page says whose section it is about and, when the
+            // 0127): the page says whose section it is about and, when the
             // text there differs, only that it was changed or removed. The
             // section has no anchor of its own to link to yet, so none is
             // given.
@@ -821,7 +821,7 @@ fn paragraphs(value: &str) -> String {
 }
 
 /// The most reflections shown after one section; any more are listed in the
-/// section below, so a long thread never buries the article (ADR 0178).
+/// section below, so a long thread never buries the article (ADR 0138).
 pub const MAX_IN_SECTION: usize = 5;
 
 /// The reflections shown after their own attributed section, by section

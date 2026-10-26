@@ -18,7 +18,7 @@ pub struct ArrangedTurn {
     pub label: Option<String>,
     pub body: String,
     /// The contributor registry key the section was composed under, when the
-    /// body states it (ADR 0176). Older bodies do not.
+    /// body states it (ADR 0136). Older bodies do not.
     pub contributor: Option<String>,
 }
 

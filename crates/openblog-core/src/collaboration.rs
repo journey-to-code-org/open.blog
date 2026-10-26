@@ -151,7 +151,7 @@ pub enum AuthorizationAction {
     /// participant. Only Contributors hold it, and only for themselves, because a named author
     /// must be able to approve the piece, which Editors cannot.
     EditSynthesis,
-    /// Answer a reader's Third Perspective as the author of one attributed section (ADR 0162).
+    /// Answer a reader's Third Perspective as the author of one attributed section (ADR 0128).
     /// Targets the author's own participant. Only Contributors hold it, and only for themselves:
     /// a coordinator or site owner moderates the response but never writes as another author,
     /// and a contributor registry key or an Editor binding grants nothing here.

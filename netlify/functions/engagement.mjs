@@ -226,7 +226,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const FEEDBACK_UNAVAILABLE = "Passage feedback is not available on this site. The page itself is unchanged; you can copy your note and send it to the author instead.";
 const PERSPECTIVE_UNAVAILABLE = "This site does not take Third Perspectives through the form. The page itself is unchanged; you can copy your reflection and send it to the author instead.";
 const PERSPECTIVE_INBOX_UNAVAILABLE = "Run supabase/feedback.sql again and set OPENBLOG_THIRD_PERSPECTIVES_ENABLED=true to approve Third Perspectives, so each approval records the consent it covers.";
-// Author responses (ADR 0166) need no SQL: they are rows of the Third Perspectives' table. Only this opt-in.
+// Author responses (ADR 0132) need no SQL: they are rows of the Third Perspectives' table. Only this opt-in.
 const ANSWER_UNAVAILABLE = "Set OPENBLOG_AUTHOR_RESPONSES_ENABLED=true, on top of Third Perspectives, for authors to answer them.";
 const ANSWER_PARENT_UNAVAILABLE = "The reflection this answers is not shown to readers now, so it cannot be answered or its answer approved.";
 // Which parent mismatches are the request's fault (422) and which are the world having moved (409).
@@ -272,7 +272,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
     // Third Perspectives (ADR 0113): set only after running supabase/feedback.sql again, on top of
     // passage feedback and protection, because every hosted copy needs its reader's receipt.
     values.thirdPerspectives = values.protection && values.feedback && String(env.OPENBLOG_THIRD_PERSPECTIVES_ENABLED || "").trim() === "true";
-    // Author responses (ADR 0166): the same store and inbox, opt in on top of Third Perspectives.
+    // Author responses (ADR 0132): the same store and inbox, opt in on top of Third Perspectives.
     values.authorResponses = values.thirdPerspectives && String(env.OPENBLOG_AUTHOR_RESPONSES_ENABLED || "").trim() === "true";
     const required = [values.url, values.key, values.siteId, values.origin, values.adminKey, values.salt];
     if (!required.every(Boolean) || !/^\/(?:[^\\?#\u0000-\u001F]*\/)?$/.test(values.basePath) || values.basePath.includes("//") || values.basePath.split("/").some((segment) => segment === "." || segment === "..")) return null;
@@ -879,7 +879,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
             && (facts.kind !== THIRD_PERSPECTIVE_KIND || perspectivePublic(target) !== false) && await feedbackPolicy(settings, work, facts.kind) !== "hidden";
         if (!facts.retained || !shown) return unavailable();
         // An answer is shown only under a Third Perspective shown now and about its own responder's
-        // section (ADR 0168), so a hidden answer, whose parent is gone, answers `unavailable` exactly
+        // section (ADR 0134), so a hidden answer, whose parent is gone, answers `unavailable` exactly
         // as an answer that does not exist and its existence does not leak.
         if (source === "feedback" && facts.kind === AUTHOR_RESPONSE_KIND
           && (await answerParentCode(settings, work, target.details?.parent, target.details?.responder?.contributor)).code !== null) return unavailable();
@@ -1073,7 +1073,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
           if (source === "feedback" && facts.kind === AUTHOR_RESPONSE_KIND) {
             // An answer is approved only where the service records answers, only under a Third
             // Perspective that is shown now and about its own author's section, and never by the
-            // account that wrote it (ADR 0162); anything else about it is decided like any item.
+            // account that wrote it (ADR 0128); anything else about it is decided like any item.
             if (plan.change.to === "approved") {
               if (!settings.authorResponses) return json(422, { error: ANSWER_UNAVAILABLE, code: "notAllowed" }, corsOrigin);
               if (!mayDecideResponse(row.details?.binding?.account, auditActor(body.actor), "approve")) return refused("denied");
@@ -1081,7 +1081,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
               if (code) return answerParentRefusal(code, corsOrigin, await itemOf(row));
               // Two answers written in the same instant can both be stored pending (no constraint
               // stops it without a schema change), so at most one is ever shown: approving one while
-              // another is shown under the same parent is refused (ADR 0166).
+              // another is shown under the same parent is refused (ADR 0132).
               const shown = new URLSearchParams({
                 site_id: `eq.${settings.siteId}`, kind: `eq.${AUTHOR_RESPONSE_KIND}`, "details->>parent": `eq.${row.details?.parent}`,
                 status: "eq.approved", purged_at: "is.null", id: `neq.${row.id}`, select: "id", limit: "1",
@@ -1097,7 +1097,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         }
       }
       if (operation === "admin/author-response") {
-        // An author's answer to a Third Perspective (ADRs 0165 and 0166). Admin has already checked,
+        // An author's answer to a Third Perspective (ADRs 0131 and 0132). Admin has already checked,
         // against the private shared-publication record this function never holds, that the signed-in
         // account is the contributor bound to the section; the function reads the request strictly,
         // reads the parent from its own store and checks it again, and stores the answer pending.

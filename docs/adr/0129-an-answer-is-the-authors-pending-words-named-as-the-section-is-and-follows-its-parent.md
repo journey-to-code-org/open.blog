@@ -1,4 +1,4 @@
-# ADR 0163: An answer is the author's own pending words, named as the section is, and follows its parent
+# ADR 0129: An answer is the author's own pending words, named as the section is, and follows its parent
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -8,7 +8,7 @@
 - Builds on: [ADR 0102](0102-one-moderation-state-machine-where-everything-starts-pending.md),
   [ADR 0104](0104-retention-audit-events-and-abuse-reports-fail-closed.md),
   [ADR 0111](0111-third-perspective-lifecycle-and-its-one-public-projection.md),
-  [ADR 0162](0162-only-the-bound-contributor-who-wrote-a-section-may-answer-as-its-author.md)
+  [ADR 0128](0128-only-the-bound-contributor-who-wrote-a-section-may-answer-as-its-author.md)
 
 ## Context
 
@@ -34,7 +34,7 @@ reader's note.
   the reader's note hides the answer without deleting it, so a reader's words are never displayed
   as if answered after they are taken down, and an answer is never orphaned on a page.
 - **Honest context for changes.** An answer written about a section that has since changed carries
-  the section's standing (ADR 0161), so the page can say the section changed after the reader read
+  the section's standing (ADR 0127), so the page can say the section changed after the reader read
   it. Removing an author from the publication does not delete what they already published; a
   coordinator removes an answer when it should go.
 - **No nesting.** An answer cannot be answered (RD12 refuses an author response to an author
@@ -43,5 +43,5 @@ reader's note.
 ## Consequences
 
 #223 stores the answer and its responder through the existing hosted participation seam (ADR
-0164) and #224 renders it from `response_shown` and the stored responder's published name, without
+0130) and #224 renders it from `response_shown` and the stored responder's published name, without
 new vocabulary.

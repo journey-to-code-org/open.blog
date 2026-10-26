@@ -1,5 +1,5 @@
 {
-  "description": "Author responses (#223, ADRs 0165 to 0169), read and received by both crates/openblog-core/src/author_response.rs and netlify/lib/author-response.mjs. A `requests` case's `request` (or its exact `text`) is read, and received at `receivedAt` under `parent` (the parent row's passage revision and target): `expect` is the row the function stores, or the code of the first problem. A `parents` case says whether an answer by `contributor` on `work` belongs under a perspective with those `facts`: `ok` or the code. A `decisions` case says whether `decider` may take `action` on an answer `account` wrote.",
+  "description": "Author responses (#223, ADRs 0131 to 0135), read and received by both crates/openblog-core/src/author_response.rs and netlify/lib/author-response.mjs. A `requests` case's `request` (or its exact `text`) is read, and received at `receivedAt` under `parent` (the parent row's passage revision and target): `expect` is the row the function stores, or the code of the first problem. A `parents` case says whether an answer by `contributor` on `work` belongs under a perspective with those `facts`: `ok` or the code. A `decisions` case says whether `decider` may take `action` on an answer `account` wrote.",
   "receivedAt": "2026-10-26T10:00:00Z",
   "requests": [
     {

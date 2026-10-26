@@ -1,5 +1,5 @@
 //! Stable attributed-perspective targets and author-response permissions
-//! (RD11.1, ADRs 0160 to 0164): targets that survive a re-layout, reorder
+//! (RD11.1, ADRs 0126 to 0130): targets that survive a re-layout, reorder
 //! and edit without ever pointing at other words, and a response only the
 //! section's own bound contributor can write.
 
@@ -1326,10 +1326,10 @@ fn nobody_approves_their_own_answer_even_as_a_coordinator() {
 }
 
 // ---------------------------------------------------------------------------
-// Credits that drift fail closed (ADR 0176)
+// Credits that drift fail closed (ADR 0136)
 
 /// The same body composed without binding each turn to its contributor, as
-/// every body assembled before ADR 0176 was.
+/// every body assembled before ADR 0136 was.
 fn unbound_body(turns: &[(&str, &str)]) -> String {
     let composed: Vec<ComposedTurn<'_>> = turns
         .iter()

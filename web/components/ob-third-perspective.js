@@ -34,7 +34,7 @@ import {
 import { isReceipt, receiptManager, receiptPanel } from "./feedback-receipt.js";
 
 export const DATA_ELEMENT_ID = "ob-passages";
-// Where a shared reflection's author sections are listed, when the site opens author responses (ADR 0165).
+// Where a shared reflection's author sections are listed, when the site opens author responses (ADR 0131).
 export const ATTRIBUTED_DATA_ELEMENT_ID = "ob-attributed-sections";
 const MAX_ATTRIBUTED = 1000;
 const SUPPORTED_VERSION = 1;
@@ -253,7 +253,7 @@ export class ObThirdPerspective extends HTMLElement {
       section.disabled = true;
       sectionSelect.disabled = true;
     }
-    // One author's section of a shared reflection, by author and place (ADR 0165): offered only
+    // One author's section of a shared reflection, by author and place (ADR 0131): offered only
     // where the build listed them.
     let authorRadio = null;
     let authorSelect = null;

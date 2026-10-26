@@ -341,7 +341,7 @@ impl TryFrom<PassageTarget> for PerspectiveTarget {
     }
 }
 
-/// The reserved `ob-by-` anchor space (ADR 0160) is the author sections of a
+/// The reserved `ob-by-` anchor space (ADR 0126) is the author sections of a
 /// shared reflection and nothing else: a target in it must be written exactly
 /// as an attributed target is, with its digest, wherever it is read.
 fn attributed_check(target: &PassageTarget) -> Result<(), ThirdPerspectiveError> {

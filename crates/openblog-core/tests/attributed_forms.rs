@@ -1,4 +1,4 @@
-//! The Third Perspective region on a shared reflection (#223, ADR 0165): where
+//! The Third Perspective region on a shared reflection (#223, ADR 0131): where
 //! the site opens author responses on a post whose body is an arranged
 //! reflection with committed credits, the region lists each author's section
 //! by author, place, first words and digest, computed by the build from the
@@ -324,7 +324,7 @@ fn a_published_reflection_about_an_authors_section_says_whose_and_never_claims_w
     };
     // The section is as the reader read it: its author's section has an
     // anchor now, so the reflection follows it there, labelled as a reader's,
-    // and is not listed a second time (ADR 0178).
+    // and is not listed a second time (ADR 0138).
     let files = published(BOTH_OPEN, &TURNS, vec![item.clone()]);
     let page = &files["shared-tides/index.html"];
     assert!(page.contains("id=\"ob-by-mina-0\""), "{page}");

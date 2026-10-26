@@ -1,5 +1,5 @@
 //! Stable targets at one author's section of a shared reflection, and who may
-//! answer a Third Perspective about it (ADRs 0160 to 0164).
+//! answer a Third Perspective about it (ADRs 0126 to 0130).
 //!
 //! A shared reflection publishes each author's text under that author's name
 //! (ADR 0030, 0033). A reader's Third Perspective (RD10) may be about one of
@@ -27,7 +27,7 @@
 //!   the sealed [`AuthorGrant`] the policy demands for an attributed parent.
 //!
 //! Which author wrote a section is read from committed, public content only:
-//! the post's arranged body and its credits sidecar (ADR 0161). The private
+//! the post's arranged body and its credits sidecar (ADR 0127). The private
 //! shared-publication record decides one thing, who may answer, and is never
 //! needed to resolve, render or build a target. Everything here is pure.
 
@@ -284,7 +284,7 @@ impl Standing {
 }
 
 /// The contributor keys a body's `ob-turn-by-` classes state, in document
-/// order. Only compose writes them (ADR 0176), so a manual edit that changes
+/// order. Only compose writes them (ADR 0136), so a manual edit that changes
 /// this sequence is a forged or broken binding.
 pub fn turn_binding_sequence(body: &str) -> Vec<String> {
     let prefix = crate::reflection::CONTRIBUTOR_CLASS_PREFIX;
@@ -315,7 +315,7 @@ impl AttributedSections {
     /// first appear (ADR 0030), and the committed contributor registry the
     /// credits name. The k-th distinct author name in the body is the k-th
     /// credit, and only when that credit's public registry name is the name
-    /// the body prints (ADR 0176): credits reordered in the post editor, a
+    /// the body prints (ADR 0136): credits reordered in the post editor, a
     /// changed registry name or a hand-edited body therefore attribute nothing
     /// instead of putting one person's words under another's id. Nothing
     /// private is read and no participant record is consulted, so a static or
@@ -358,7 +358,7 @@ impl AttributedSections {
                 names.push(&turn.author);
             }
         }
-        // A body that states each turn's contributor (ADR 0176) is paired by
+        // A body that states each turn's contributor (ADR 0136) is paired by
         // that; an older body that states none, by the registry's public name.
         // A body that states some turns' and not others', or states two keys
         // for one name, is not trusted at all.
@@ -545,7 +545,7 @@ impl std::fmt::Display for ResponseError {
 
 impl std::error::Error for ResponseError {}
 
-/// Who answered, as the store keeps it (ADR 0164). The binding is private:
+/// Who answered, as the store keeps it (ADR 0130). The binding is private:
 /// it never leaves the record. The handle, the published name and the
 /// standing are what a public page may say.
 #[derive(Clone, Debug, PartialEq, Eq)]

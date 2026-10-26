@@ -267,7 +267,7 @@ test("a Third Perspective's approval names the text revision and consent record 
   assert.equal(moderationReaderLine({ name: "Ada", publishName: true }, "feedback", "third-perspective"), "From Ada, who agreed to show this name if you publish the reflection.");
 });
 
-// ---- Author responses (#223, ADR 0166)
+// ---- Author responses (#223, ADR 0132)
 
 const PARENT = "00000000-0000-4000-8000-000000000001";
 const perspective = (extra = {}) => ({
@@ -327,7 +327,7 @@ test("the inbox draws the answer form and the withdrawal as native, labelled con
   assert.match(admin, /I understand that my answer is taken off the post for good/);
 });
 
-test("an answer's card and the audit say when it is on the post and when it must come off (ADR 0177)", () => {
+test("an answer's card and the audit say when it is on the post and when it must come off (ADR 0137)", () => {
   // Approved but not on the post yet: the site Admin may publish it.
   assert.deepEqual(answerPublicationMismatch({ status: "approved", published: false, mayBeShown: true }), { notice: "Approved, but not on the post yet.", action: "publish", label: "Publish the answer on the post" });
   assert.equal(answerPublicationMismatch({ status: "approved", published: true, mayBeShown: true }), null);

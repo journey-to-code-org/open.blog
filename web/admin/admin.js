@@ -509,7 +509,7 @@ export function perspectiveLines(item) {
 }
 
 /**
- * What a moderator reads about an author's answer beside its text (ADR 0166): whose section it
+ * What a moderator reads about an author's answer beside its text (ADR 0132): whose section it
  * answers, what the section's standing was, whether it is the viewer's own, and the account only
  * the site Admin may see. Never a participant: the server does not send one.
  */
@@ -637,7 +637,7 @@ export function perspectivePublicationMismatch(item) {
 }
 
 /**
- * The same for an author's answer (ADR 0177): an approved answer that is not on its post yet, or
+ * The same for an author's answer (ADR 0137): an approved answer that is not on its post yet, or
  * a published one the hosted copy no longer allows, most often because its author withdrew it.
  * It is published under its reflection, so the notice says so.
  */
@@ -14893,7 +14893,7 @@ export class ObAdmin extends AdminElement {
       }
       const offer = answerOffer(item);
       if (offer && item.kind === "third-perspective") {
-        // The author of the section the reflection is about may answer it (ADR 0166). The server
+        // The author of the section the reflection is about may answer it (ADR 0132). The server
         // offered this only to the contributor bound to that section.
         const textId = `oba-answer-${key}-text`;
         const hintId = `${textId}-hint`;

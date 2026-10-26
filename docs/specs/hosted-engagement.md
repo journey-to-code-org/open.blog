@@ -108,8 +108,8 @@ agreed to publication while the consent in effect still does (ADR 0115).
 
 ## Author responses
 
-An author's answer to a Third Perspective about their own section of a shared reflection (ADRs 0165
-to 0169) is one more `openblog_feedback` row of kind `author-response`, so it needs no SQL and no
+An author's answer to a Third Perspective about their own section of a shared reflection (ADRs 0131
+to 0135) is one more `openblog_feedback` row of kind `author-response`, so it needs no SQL and no
 rollback; it is opt in behind `OPENBLOG_AUTHOR_RESPONSES_ENABLED`, on top of Third Perspectives.
 Admin decides who may answer from the private record and sends the function one checked request
 (`admin/author-response`, Admin's token only), which the function reads with its own contract
@@ -119,7 +119,7 @@ one inbox moderates it; an approval needs a shown parent about that author's sec
 the responder against the private record, and is never the writing account's own. An approved
 answer is published by Admin into `third-perspectives.json` under its reflection (version 2 of the
 file, only while an answer is in it) and comes off with a withdrawal or removal, with a banner
-for any that must (ADRs 0177 to 0179); the hosted schema is unchanged.
+for any that must (ADRs 0137 to 0139); the hosted schema is unchanged.
 
 ## Testing decisions
 

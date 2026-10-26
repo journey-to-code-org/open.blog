@@ -1,4 +1,4 @@
-// An author's answer to a Third Perspective about their own section (#223, ADRs 0165 to 0169): the
+// An author's answer to a Third Perspective about their own section (#223, ADRs 0131 to 0135): the
 // hosted-function half of the contract in crates/openblog-core/src/author_response.rs. Both read
 // tests/fixtures/author-responses.json and must agree on every code and row.
 //
@@ -193,6 +193,6 @@ export function checkAnswerParent(facts, work, contributor) {
 
 /**
  * Whether `decider` may take `action` on an answer written by `account`: nobody approves their own
- * answer (ADR 0162). Taking one's own words down stays allowed.
+ * answer (ADR 0128). Taking one's own words down stays allowed.
  */
 export const mayDecideResponse = (account, decider, action) => !(action === "approve" && typeof account === "string" && account === decider);

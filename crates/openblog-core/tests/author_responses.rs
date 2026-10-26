@@ -1,5 +1,5 @@
 //! Author responses to Third Perspectives about one author's section (#223,
-//! ADRs 0165 to 0169): the request Admin sends the hosted function, the row it
+//! ADRs 0131 to 0135): the request Admin sends the hosted function, the row it
 //! stores, the answer read back into the one moderation inbox, who sees and
 //! decides it, and the checks that it still belongs under its parent. The pure
 //! rules are held to `tests/fixtures/author-responses.json`, which

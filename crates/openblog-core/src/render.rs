@@ -218,7 +218,7 @@ fn script_json(data: &serde_json::Value) -> String {
 }
 
 /// The id of the page data element that lists a post's attributed sections
-/// for the Third Perspective form (ADR 0165).
+/// for the Third Perspective form (ADR 0131).
 pub const ATTRIBUTED_DATA_ELEMENT_ID: &str = "ob-attributed-sections";
 
 /// A shared reflection's attributed sections as the Third Perspective form
@@ -1050,7 +1050,7 @@ impl<'a> Renderer<'a> {
         };
         // Where the site opens author responses on this post, a shared
         // reflection's author sections can be written about by author and
-        // place (ADR 0165). Everywhere else the region is as it was.
+        // place (ADR 0131). Everywhere else the region is as it was.
         let attributed =
             if participation::effective_mode(c, post, ParticipationKind::AuthorResponse)
                 == ParticipationMode::Hidden
@@ -1079,7 +1079,7 @@ impl<'a> Renderer<'a> {
     /// The post's body HTML. For a shared reflection whose author responses
     /// are not hidden, each author's section gets its `ob-by-` anchor and the
     /// reflections about its current text, with the author's answer, follow
-    /// the author's words inside that section's own turn (ADR 0178). Anything
+    /// the author's words inside that section's own turn (ADR 0138). Anything
     /// that does not line up (a body that is not a reflection, a section
     /// count that differs from the attributed sections) is left exactly as it
     /// is, so a page without answers is byte for byte what it was.

@@ -1,4 +1,4 @@
-# ADR 0178: A conversation follows its author's section as static HTML with anchors, bounded, and enhanced only by script
+# ADR 0138: A conversation follows its author's section as static HTML with anchors, bounded, and enhanced only by script
 
 - Status: Accepted
 - Date: 2026-10-27
@@ -8,9 +8,9 @@
 - Builds on: [ADR 0031](0031-sequential-and-side-by-side-presentation.md),
   [ADR 0111](0111-third-perspective-lifecycle-and-its-one-public-projection.md),
   [ADR 0115](0115-approved-third-perspectives-publish-from-a-versioned-public-file-and-portable-copies-link-to-them.md),
-  [ADR 0160](0160-an-attributed-section-is-an-ordinary-section-target-with-a-reserved-anchor-and-a-digest.md),
-  [ADR 0169](0169-until-sections-have-anchors-an-approved-reflection-about-an-authors-section-is-named-by-its-author-and-never-linked.md),
-  [ADR 0177](0177-an-approved-author-response-is-published-under-its-reflection-in-the-one-public-file-and-shown-only-where-the-one-rule-says-so.md)
+  [ADR 0126](0126-an-attributed-section-is-an-ordinary-section-target-with-a-reserved-anchor-and-a-digest.md),
+  [ADR 0135](0135-until-sections-have-anchors-an-approved-reflection-about-an-authors-section-is-named-by-its-author-and-never-linked.md),
+  [ADR 0137](0137-an-approved-author-response-is-published-under-its-reflection-in-the-one-public-file-and-shown-only-where-the-one-rule-says-so.md)
 
 ## Context
 
@@ -21,7 +21,7 @@ the author's words.
 
 ## Decision
 
-- **Each author's section gets its anchor** `ob-by-<contributor>-<nth>` (ADR 0160) as the `id` of its
+- **Each author's section gets its anchor** `ob-by-<contributor>-<nth>` (ADR 0126) as the `id` of its
   own `<section class="ob-turn">`, written into the rendered body by the build, wherever author
   responses are not `hidden` and the committed body and credits pair. A reflection about that
   section's current text now links to it ("About a section by MINA", linked); a stale one still says

@@ -1,4 +1,4 @@
-# ADR 0162: Only the bound contributor who wrote a section may answer as its author
+# ADR 0128: Only the bound contributor who wrote a section may answer as its author
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -9,8 +9,8 @@
   [ADR 0014](0014-record-level-authorization-and-publish-gate.md),
   [ADR 0101](0101-one-registry-of-participation-kinds-enabled-per-site-and-post.md),
   [ADR 0103](0103-who-may-moderate-reader-participation.md),
-  [ADR 0160](0160-an-attributed-section-is-an-ordinary-section-target-with-a-reserved-anchor-and-a-digest.md),
-  [ADR 0161](0161-an-attributed-target-resolves-by-author-and-text-and-is-stale-rather-than-retargeted.md)
+  [ADR 0126](0126-an-attributed-section-is-an-ordinary-section-target-with-a-reserved-anchor-and-a-digest.md),
+  [ADR 0127](0127-an-attributed-target-resolves-by-author-and-text-and-is-stale-rather-than-retargeted.md)
 
 ## Context
 

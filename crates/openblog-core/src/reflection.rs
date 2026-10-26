@@ -539,7 +539,7 @@ pub fn compose(layout: ReflectionLayout, turns: &[ComposedTurn<'_>]) -> String {
 }
 
 /// The one extra class a bound turn's section carries, `ob-turn-by-<key>`
-/// (ADR 0176): the contributor registry key the turn was written under, which
+/// (ADR 0136): the contributor registry key the turn was written under, which
 /// is already public in the post's credits sidecar. Only a well-formed key is
 /// ever written, so an unbound turn is the safe reading of anything else.
 pub const CONTRIBUTOR_CLASS_PREFIX: &str = "ob-turn-by-";

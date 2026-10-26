@@ -1,4 +1,4 @@
-# ADR 0161: An attributed target resolves by author and text, and is stale rather than retargeted
+# ADR 0127: An attributed target resolves by author and text, and is stale rather than retargeted
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -7,7 +7,7 @@
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
 - Builds on: [ADR 0077](0077-targets-resolve-as-current-reanchored-or-stale.md),
   [ADR 0111](0111-third-perspective-lifecycle-and-its-one-public-projection.md),
-  [ADR 0160](0160-an-attributed-section-is-an-ordinary-section-target-with-a-reserved-anchor-and-a-digest.md)
+  [ADR 0126](0126-an-attributed-section-is-an-ordinary-section-target-with-a-reserved-anchor-and-a-digest.md)
 
 ## Context
 
@@ -37,7 +37,7 @@ and never be shown different words as if they were the ones read.
   does not resolve an attributed target as current by accident. Wiring the page to link a
   reflection to its section, and to show answers, is #224's job. #223 wires only the status: the
   projection resolves an attributed target through `AttributedSections` and the page names the
-  author and never links the section (ADR 0169), so an approved reflection is never shown as
+  author and never links the section (ADR 0135), so an approved reflection is never shown as
   "revised or removed" when its section is unchanged.
 
 ## Consequences

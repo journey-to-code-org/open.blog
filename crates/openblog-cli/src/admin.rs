@@ -5538,7 +5538,7 @@ fn apply_perspective_sync(
 /// approved author response under its published reflection again, after a
 /// failed write, or take one off that may no longer be shown (the author
 /// withdrew it). Only the site Admin of the answer's work may, and only as the
-/// hosted copy and its parent say now (ADR 0177).
+/// hosted copy and its parent say now (ADR 0137).
 fn sync_published_answer(
     state: &AppState,
     req: &Request,
@@ -5681,7 +5681,7 @@ fn published_perspectives_audit(state: &AppState, session: &auth::Session) -> Re
                     continue;
                 }
                 // An answer under a reflection that stays is checked on its own:
-                // its hosted row must still be approved (ADR 0177).
+                // its hosted row must still be approved (ADR 0137).
                 if let (Some(answer), Some(false) | None) = (&record.answer, state_now) {
                     match hosted_inbox_lookup(state, moderation_inbox::Source::Feedback, &answer.id)
                     {
@@ -5720,7 +5720,7 @@ fn published_perspectives_audit(state: &AppState, session: &auth::Session) -> Re
     )
 }
 
-// ---- Author responses (#223, ADRs 0165 to 0169)
+// ---- Author responses (#223, ADRs 0131 to 0135)
 //
 // An author answers a reader's Third Perspective about their own section of
 // a shared reflection. Admin is where that is decided, because only Admin
@@ -6051,7 +6051,7 @@ fn withdraw_author_answer(state: &AppState, req: &Request, session: &auth::Sessi
     );
     // A withdrawn answer is never public again: take it off its reflection.
     // A failure here is not hidden: the inbox's audit lists the answer until
-    // it is off (ADR 0177).
+    // it is off (ADR 0137).
     if response.status == 200 {
         take_answer_off(state, &id);
     }
@@ -6378,7 +6378,7 @@ fn inbox_view(
                 };
         } else if item.kind == ParticipationKind::AuthorResponse {
             // An author response is published under its reflection in the same
-            // file (ADR 0177); the card says whether it is, and whether the
+            // file (ADR 0137); the card says whether it is, and whether the
             // hosted copy may be shown now.
             view["published"] = match perspectives {
                 Some(file) => json!(file.parent_of_answer(&item.id).is_some()),
@@ -7011,7 +7011,7 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
     let (decided_to, removed_target) = decision;
     // An answer is approved only under the reflection it answers, read again
     // from the hosted store now, shown to readers and about the answering
-    // contributor's own section (ADR 0166); the hosted function checks the
+    // contributor's own section (ADR 0132); the hosted function checks the
     // same again.
     let mut answer_parent: Option<moderation_inbox::InboxItem> = None;
     if action == Some(moderation::ModerationAction::Approve) {
@@ -7158,7 +7158,7 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
             target.id.clone(),
             target.kind == ParticipationKind::ThirdPerspective,
         )),
-        // An author response is published nowhere by this change (ADR 0166), so
+        // An author response is published nowhere by this change (ADR 0132), so
         // there is no file to take it off.
         _ if source == moderation_inbox::Source::Feedback
             && item.kind != ParticipationKind::AuthorResponse
@@ -7188,7 +7188,7 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
     let approved_note = changed.feedback().filter(|_| approve);
     let approved_perspective = changed.perspective().filter(|_| approve);
     // An approved author response is published under its reflection; any
-    // other decision on one that is on the site takes it off (ADR 0177).
+    // other decision on one that is on the site takes it off (ADR 0137).
     let approved_answer = changed
         .author_response()
         .filter(|_| approve)
@@ -14464,7 +14464,7 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
         // A shared reflection's credits list each contributor once, in the
         // order they first appear in the body (ADR 0030). An edit that breaks
         // that order would stop its sections being attributed to their
-        // authors, so it is refused rather than saved (ADR 0176).
+        // authors, so it is refused rather than saved (ADR 0136).
         if let CreditEdit::Set(contents) = &credit_edit {
             let before = current
                 .as_deref()
@@ -14489,7 +14489,7 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
     }
 
     if !created {
-        // A bound body states each section's author (ADR 0176) and only
+        // A bound body states each section's author (ADR 0136) and only
         // compose writes that. A manual edit may not change the binding
         // sequence, nor move an existing turn to another name or contributor,
         // whether through the body, the credits or both at once.
@@ -14558,7 +14558,7 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
 }
 
 /// Refuse a save that would change who a published shared-reflection turn is
-/// attributed to (ADR 0176). Compares the stored body with the stored credits
+/// attributed to (ADR 0136). Compares the stored body with the stored credits
 /// against the new body with the credits as they will be after the save.
 fn refuse_turn_rebinding(
     path: &Path,
@@ -23357,7 +23357,7 @@ What I read:
         .is_empty());
     }
 
-    // ---- Author responses (#223, ADRs 0165 to 0169)
+    // ---- Author responses (#223, ADRs 0131 to 0135)
 
     mod author_answers {
         use super::*;
@@ -24102,7 +24102,7 @@ What I read:
             );
             assert_eq!(body_json(&response)["item"]["status"], "withdrawn");
             // Membership revoked after the answer was written does not stop its
-            // author taking their own words back (ADR 0162).
+            // author taking their own words back (ADR 0128).
             let mut unbound = record();
             unbound
                 .authorization

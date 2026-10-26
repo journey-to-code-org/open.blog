@@ -572,7 +572,7 @@ test("the article is never changed and nothing is stored in the browser", async 
   assert.equal(view.prose.textContent, view.articleText);
 });
 
-// ---- One author's section of a shared reflection (#223, ADR 0165)
+// ---- One author's section of a shared reflection (#223, ADR 0131)
 
 const ATTRIBUTED = {
   version: 1,

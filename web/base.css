@@ -1741,7 +1741,7 @@ ob-comments {
   font-size: .9rem;
 }
 
-/* The conversation after an author's own section (ADR 0178): inside that section's turn, after
+/* The conversation after an author's own section (ADR 0138): inside that section's turn, after
    the author's words, so it never moves them. A reader's reflection and the author's response are
    told apart by their headings and labels, which are text; the border style only repeats it. */
 ob-conversation {

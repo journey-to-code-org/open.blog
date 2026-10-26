@@ -382,13 +382,13 @@ other way to take part is a participation kind, off until you switch it on in `p
   that is shown now and about that very author's section, and its author can take it back. The
   hosted function needs `OPENBLOG_AUTHOR_RESPONSES_ENABLED=true` on top of Third Perspectives and no
   SQL ([the function's guide](../netlify/functions/README.md#author-responses-optional-no-sql); ADRs
-  [0165](adr/0165-a-reader-writes-about-one-authors-section-from-the-builds-own-list-by-author-and-place.md)
-  to [0169](adr/0169-until-sections-have-anchors-an-approved-reflection-about-an-authors-section-is-named-by-its-author-and-never-linked.md)).
+  [0131](adr/0131-a-reader-writes-about-one-authors-section-from-the-builds-own-list-by-author-and-place.md)
+  to [0135](adr/0135-until-sections-have-anchors-an-approved-reflection-about-an-authors-section-is-named-by-its-author-and-never-linked.md)).
   Where the kind is not `hidden`, an approved answer is published, with its reader's reflection, in
   `content/third-perspectives.json` and shown on the post after that author's own section, labelled
   as the author's response (ADRs
-  [0177](adr/0177-an-approved-author-response-is-published-under-its-reflection-in-the-one-public-file-and-shown-only-where-the-one-rule-says-so.md)
-  to [0179](adr/0179-portable-copies-and-feeds-link-to-a-conversation-and-never-copy-it.md)); `locked`
+  [0137](adr/0137-an-approved-author-response-is-published-under-its-reflection-in-the-one-public-file-and-shown-only-where-the-one-rule-says-so.md)
+  to [0139](adr/0139-portable-copies-and-feeds-link-to-a-conversation-and-never-copy-it.md)); `locked`
   keeps showing what was approved and takes nothing new, and a post that leaves the kind `hidden` or
   `off` is built exactly as before. Portable copies, feeds and `llms` files only link to the
   canonical post.

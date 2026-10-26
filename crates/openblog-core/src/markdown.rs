@@ -1670,7 +1670,7 @@ fn assign_heading_ids(
                 if id.is_empty() {
                     id = "section".to_string();
                 }
-                // `ob-by-` belongs to attributed sections (ADR 0160). A
+                // `ob-by-` belongs to attributed sections (ADR 0126). A
                 // heading whose text begins "OB by" must not take it.
                 if id.starts_with(RESERVED_ANCHOR_PREFIX) {
                     id = format!("heading-{id}");

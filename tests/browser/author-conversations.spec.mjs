@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 
-// Accessible attributed perspective conversations (#224, ADRs 0177 and 0178). A published reader's
+// Accessible attributed perspective conversations (#224, ADRs 0137 and 0138). A published reader's
 // reflection about one author's section, and that author's approved response, are static, labelled
 // HTML after the author's own words: found by role and name with no CSS and no script, in reading
 // order, the reader's and the author's told apart by text; a long conversation folded behind one

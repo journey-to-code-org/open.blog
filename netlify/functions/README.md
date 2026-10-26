@@ -243,7 +243,7 @@ state.
 
 ### Author responses (optional, no SQL)
 
-An author's answer to a Third Perspective about their own section (ADRs 0165 to 0169) is one more
+An author's answer to a Third Perspective about their own section (ADRs 0131 to 0135) is one more
 `openblog_feedback` row, of kind `author-response`: no new table, column or function, so there is
 nothing to run in Supabase and no rollback file. Set `OPENBLOG_AUTHOR_RESPONSES_ENABLED` to `true`
 (on top of the Third Perspectives settings above) and redeploy, and set
@@ -261,7 +261,7 @@ name and the section's standing, and privately the participant and Admin account
 inbox lists it (`kind=author-response`), a coordinator approves it only under a shown parent and never
 as the account that wrote it (and never while another answer to that reflection is shown), and B5's
 `/admin/feedback` never decides one. The function publishes and e-mails nothing: Admin writes an
-approved answer into `content/third-perspectives.json` (ADR 0177), which is how the post shows it.
+approved answer into `content/third-perspectives.json` (ADR 0137), which is how the post shows it.
 Abuse reports about an answer whose reflection is not shown answer `unavailable`, as for an answer
 that does not exist.
 

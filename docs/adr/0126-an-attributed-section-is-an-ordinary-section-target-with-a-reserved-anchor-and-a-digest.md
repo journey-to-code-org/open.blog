@@ -1,4 +1,4 @@
-# ADR 0160: An attributed section is an ordinary Third Perspective section target with a reserved anchor and the digest of its text
+# ADR 0126: An attributed section is an ordinary Third Perspective section target with a reserved anchor and the digest of its text
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -69,4 +69,4 @@ columns or lanes, so any "left author" or "right author" is a property of CSS, n
   participant number, so it does not reveal how many editors, readers or other participants a
   publication has.
 
-Amended by [ADR 0176](0176-a-section-states-its-contributor-and-credits-that-drift-attribute-nothing.md): the k-th name is also required to be the k-th credit's registry name (older bodies) or to state that credit's key itself (bound bodies), so credits edited after publication attribute nothing.
+Amended by [ADR 0136](0136-a-section-states-its-contributor-and-credits-that-drift-attribute-nothing.md): the k-th name is also required to be the k-th credit's registry name (older bodies) or to state that credit's key itself (bound bodies), so credits edited after publication attribute nothing.

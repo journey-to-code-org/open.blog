@@ -1,4 +1,4 @@
-# ADR 0167: Admin decides who may answer against the private record, and sends the function only a checked request
+# ADR 0133: Admin decides who may answer against the private record, and sends the function only a checked request
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -7,9 +7,9 @@
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
 - Builds on: [ADR 0007](0007-private-shared-publication-records.md),
   [ADR 0103](0103-who-may-moderate-reader-participation.md),
-  [ADR 0160](0160-an-attributed-section-is-an-ordinary-section-target-with-a-reserved-anchor-and-a-digest.md),
-  [ADR 0162](0162-only-the-bound-contributor-who-wrote-a-section-may-answer-as-its-author.md),
-  [ADR 0166](0166-an-author-response-is-one-more-row-of-the-existing-feedback-table-stored-through-one-admin-route-behind-one-flag.md)
+  [ADR 0126](0126-an-attributed-section-is-an-ordinary-section-target-with-a-reserved-anchor-and-a-digest.md),
+  [ADR 0128](0128-only-the-bound-contributor-who-wrote-a-section-may-answer-as-its-author.md),
+  [ADR 0132](0132-an-author-response-is-one-more-row-of-the-existing-feedback-table-stored-through-one-admin-route-behind-one-flag.md)
 
 ## Context
 
@@ -21,7 +21,7 @@ behind the existing session and CSRF seams, and it must give a non-author no inf
 
 - **`POST /admin/api/engagement/author-response`** takes `{parent, parentVersion, body}` and nothing
   about who is answering, as whom or about which section. Admin reads the parent from the hosted
-  inbox, then calls `admit_response` (ADR 0162) with the signed-in account, the shared publication
+  inbox, then calls `admit_response` (ADR 0128) with the signed-in account, the shared publication
   record whose post is that work, the post's committed body and its credits sidecar read from the
   content folder as committed, and the parent's stored target. Every refusal before the author is
   confirmed is the same `403 denied` for another contributor, a coordinator, the publication's
@@ -39,7 +39,7 @@ behind the existing session and CSRF seams, and it must give a non-author no inf
 - **The request the function receives is built from what Admin decided**
   (`AuthorResponseRequest::new` over `Responder`, which came from `admit_response`), never from the
   browser's. It carries the participant binding and the Admin account privately and the contributor
-  handle, the published name and the standing publicly (ADR 0166). What the function answers is
+  handle, the published name and the standing publicly (ADR 0132). What the function answers is
   passed on only as a short plain message and its code; an absent endpoint, credential or service,
   a refused token and a timeout are Admin's own plain failures, and nothing is claimed stored.
 - **`PATCH /admin/api/engagement/author-response`** takes `{id, version}` and withdraws the answer

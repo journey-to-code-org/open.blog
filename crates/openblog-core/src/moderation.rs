@@ -700,7 +700,7 @@ pub struct Submission<'a> {
     pub parent: Option<(&'a ItemFacts<'a>, ParticipationMode)>,
     /// For an author response to a Third Perspective: the target that
     /// perspective stores. Required there, so a caller cannot leave out the
-    /// one fact that says whose section it is (ADR 0163).
+    /// one fact that says whose section it is (ADR 0129).
     pub parent_target: Option<&'a PerspectiveTarget>,
     /// Proof that the author of an attributed section was confirmed. Only
     /// [`crate::attributed_perspective::admit_response`] can issue one.

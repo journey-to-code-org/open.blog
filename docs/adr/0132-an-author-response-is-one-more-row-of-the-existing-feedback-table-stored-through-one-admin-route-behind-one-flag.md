@@ -1,4 +1,4 @@
-# ADR 0166: An author response is one more row of the existing feedback table, stored through one Admin route behind one flag
+# ADR 0132: An author response is one more row of the existing feedback table, stored through one Admin route behind one flag
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -8,12 +8,12 @@
 - Builds on: [ADR 0081](0081-hosted-feedback-transport-is-opt-in-and-reuses-the-engagement-seam.md),
   [ADR 0102](0102-one-moderation-state-machine-where-everything-starts-pending.md),
   [ADR 0113](0113-third-perspectives-are-one-feedback-row-submitted-through-the-one-route-with-a-receipt.md),
-  [ADR 0162](0162-only-the-bound-contributor-who-wrote-a-section-may-answer-as-its-author.md),
-  [ADR 0164](0164-attributed-perspectives-store-the-responder-publish-nothing-by-themselves-and-leave-static-reading-whole.md)
+  [ADR 0128](0128-only-the-bound-contributor-who-wrote-a-section-may-answer-as-its-author.md),
+  [ADR 0130](0130-attributed-perspectives-store-the-responder-publish-nothing-by-themselves-and-leave-static-reading-whole.md)
 
 ## Context
 
-ADR 0164 requires an answer to store who answered. Hosted storage is a one-way door, so this
+ADR 0130 requires an answer to store who answered. Hosted storage is a one-way door, so this
 decision takes the smallest reversible route: reuse what exists, add nothing to the database, and
 make the whole feature opt-in.
 
@@ -39,7 +39,7 @@ make the whole feature opt-in.
 - **One Admin-token route, `admin/author-response`.** `POST` stores an answer; `PATCH` withdraws
   one. Only Admin's token reaches it (a reader's origin is `401`/`403` before anything is read), and
   Admin sends it only after it has checked, against the private shared-publication record the
-  function never holds, that the signed-in account may answer (ADR 0167). The function still reads
+  function never holds, that the signed-in account may answer (ADR 0133). The function still reads
   the request strictly (`netlify/lib/author-response.mjs`, held to
   `tests/fixtures/author-responses.json` with `crates/openblog-core/src/author_response.rs`), and
   checks, in this order: the request's shape and bounds, the post's `author-response` mode, the
@@ -52,7 +52,7 @@ make the whole feature opt-in.
   `422`** (`notAttributed`, `responderMismatch`, `wrongWork`); a changed parent is `409 conflict`.
   Nothing a refusal says repeats what anyone wrote.
 - **B5's own route never decides an answer.** `/admin/feedback` answers `409 useModerationInbox`,
-  as it does for a Third Perspective, so no decision skips the checks of ADR 0168.
+  as it does for a Third Perspective, so no decision skips the checks of ADR 0134.
 - **Withdrawal keeps the row until retention purges it.** The author takes an answer back
   (`PATCH`, the account that wrote it, while pending or approved) through RD12's `withdraw` as the
   submitter, by the same moderation function as every other change, and it is never public again.

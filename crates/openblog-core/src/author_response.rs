@@ -1,5 +1,5 @@
 //! An author's answer to a Third Perspective about their own section, as the
-//! hosted store keeps it and the inbox reads it back (#223, ADRs 0165 to 0169).
+//! hosted store keeps it and the inbox reads it back (#223, ADRs 0131 to 0135).
 //!
 //! [`crate::attributed_perspective::admit_response`] decides who may answer and
 //! seals that decision. This module is the other half: the one request Admin
@@ -517,7 +517,7 @@ impl ParentFacts {
 
 /// Whether `decider` may take `action` on an answer written by `account`.
 /// The one rule beyond RD12's table: nobody approves their own answer
-/// (ADR 0162). Taking one's own words down stays allowed.
+/// (ADR 0128). Taking one's own words down stays allowed.
 pub fn may_decide_answer(
     account: &str,
     decider: &str,

@@ -180,7 +180,7 @@ export function submissionKind(text) {
   }
 }
 
-// Attributed sections (ADRs 0160 and 0161): one author's section of a published shared reflection is
+// Attributed sections (ADRs 0126 and 0127): one author's section of a published shared reflection is
 // the ordinary section target whose anchor is `ob-by-{contributor}-{nth}`, with its digest. The
 // contributor is the public registry key the post's committed credits name. This mirrors
 // crates/openblog-core/src/attributed_perspective.rs, held to the same fixture.

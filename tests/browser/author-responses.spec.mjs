@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 
-// Section commentary and author responses (#223, ADRs 0165 to 0169). Readers: a reflection about
+// Section commentary and author responses (#223, ADRs 0131 to 0135). Readers: a reflection about
 // one author's section of a shared reflection, chosen by author and place from the build's own
 // list and sent as an ordinary section target; the static text that names a section without
 // JavaScript; a post that attributes nothing, and a post where answers are off, unchanged; the
