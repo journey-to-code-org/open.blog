@@ -1895,6 +1895,18 @@ mod tests {
     }
 
     const COMPARISON_MARKER: &str = "ob-private-comparison-61e4";
+    /// Wording of exactly the excerpt limit, which is published, and of one
+    /// character more, which never is; distinct letters keep one from being
+    /// found inside the other.
+    fn exact_excerpt() -> String {
+        let lead = "PUBLIC exact ";
+        let limit = openblog_core::comparison_publication::MAX_PUBLIC_EXCERPT_CHARS;
+        format!("{lead}{}", "α".repeat(limit - lead.chars().count()))
+    }
+
+    fn over_excerpt() -> String {
+        "ω".repeat(openblog_core::comparison_publication::MAX_PUBLIC_EXCERPT_CHARS + 1)
+    }
 
     /// A project that publishes comparisons. Every value that may be published
     /// says PUBLIC; every value that may not carries a private marker, including
@@ -1907,26 +1919,39 @@ mod tests {
               {{"id":"burnet","kind":"edition","of":"republic","title":"PUBLIC Burnet","language":"grc","creators":[{{"name":"PUBLIC John Burnet","role":"editor"}}],"rights":{{"status":"publicDomain","note":"{PRIVATE_MARKER} rights note"}},"identifiers":[{{"scheme":"shelf","value":"{PRIVATE_MARKER}"}}]}},
               {{"id":"grube","kind":"translation","of":"republic","language":"en","title":"PUBLIC Grube","rights":{{"status":"rightsReserved"}}}},
               {{"id":"hebrew","kind":"translation","of":"republic","language":"he","title":"PUBLIC המדינה","anonymous":true,"creators":[{{"name":"PUBLIC Ibn Tibbon","role":"translator","attribution":"disputed","note":"{PRIVATE_MARKER} who disputes it"}}],"rights":{{"status":"openLicense","license":"PUBLIC CC-BY-4.0"}}}},
+              {{"id":"paris","kind":"witness","of":"republic","title":"PUBLIC Paris gr. 1807"}},
+              {{"id":"exact","kind":"edition","of":"republic","title":"PUBLIC Exact","rights":{{"status":"ownWork"}}}},
+              {{"id":"over","kind":"edition","of":"republic","title":"PUBLIC Over","rights":{{"status":"ownWork"}}}},
               {{"id":"unused","kind":"edition","of":"republic","title":"{PRIVATE_MARKER} unused"}}],
              "interpretations":[
               {{"id":"mine","kind":"rendering","source":"burnet","language":"en","locators":[{{"kind":"canonical","value":"514a"}}],"text":"PUBLIC rendering","interpreters":[{{"name":"PUBLIC Ada"}}],"rights":{{"status":"ownWork"}},"uncertainty":"{PRIVATE_MARKER} doubt"}}]}}"#
         );
         fs::write(root.join(crate::source_store::LIBRARY_FILE), library).unwrap();
+        let (exact, over) = (exact_excerpt(), over_excerpt());
+        assert_eq!(exact.chars().count(), 1000);
+        assert_eq!(over.chars().count(), 1001);
         let notebook = format!(
             r#"{{"version":1,"passages":[
               {{"id":"p-{NOTEBOOK_MARKER}","source":"burnet","excerpt":{{"text":"PUBLIC μετὰ ταῦτα","language":"grc"}},"locators":[{{"kind":"canonical","value":"514a"}}]}},
               {{"id":"p-grube","source":"grube","excerpt":{{"text":"{NOTEBOOK_MARKER} reserved wording","language":"en"}},"locators":[{{"kind":"page","value":"186"}}]}},
-              {{"id":"p-hebrew","source":"hebrew","excerpt":{{"text":"PUBLIC אחר כך <b>bold</b>","language":"he"}}}}],
+              {{"id":"p-hebrew","source":"hebrew","excerpt":{{"text":"PUBLIC אחר כך <b>bold</b>","language":"he"}}}},
+              {{"id":"p-paris","source":"paris","excerpt":{{"text":"{NOTEBOOK_MARKER} unknown-rights wording"}},"locators":[{{"kind":"folio","value":"12r"}}]}},
+              {{"id":"p-exact","source":"exact","excerpt":{{"text":"{exact}"}}}},
+              {{"id":"p-over","source":"over","excerpt":{{"text":"{over}"}}}}],
              "notes":[{{"id":"n-leak","kind":"question","text":"{NOTEBOOK_MARKER} noted","passages":["p-grube"]}}]}}"#
         );
         fs::write(root.join(crate::notebook_store::NOTEBOOK_FILE), notebook).unwrap();
         let alignments = format!(
             r#"{{"version":1,"alignments":[
               {{"id":"cave","label":"PUBLIC The cave","correspondence":"partial","visibility":"approved","members":[
-                {{"source":"burnet","passage":"p-{NOTEBOOK_MARKER}","note":"{COMPARISON_MARKER} member note","normalized":{{"text":"{COMPARISON_MARKER} normalization"}},"tag":"{COMPARISON_MARKER} member extra"}},
-                {{"source":"grube","passage":"p-grube"}},
+                {{"source":"burnet","passage":"p-{NOTEBOOK_MARKER}","note":"{COMPARISON_MARKER} member note","normalized":{{"text":"PUBLIC normalization"}},"tag":"{COMPARISON_MARKER} member extra"}},
+                {{"source":"grube","passage":"p-grube","normalized":{{"text":"{COMPARISON_MARKER} reserved normalization"}}}},
                 {{"source":"hebrew","passage":"p-hebrew"}},
+                {{"source":"paris","passage":"p-paris","normalized":{{"text":"{COMPARISON_MARKER} unknown normalization"}}}},
+                {{"source":"exact","passage":"p-exact"}},
+                {{"source":"over","passage":"p-over","normalized":{{"text":"{COMPARISON_MARKER} long normalization"}}}},
                 {{"interpretation":"mine"}}],
+               "publishNormalized":true,
                "rationale":"PUBLIC rationale","confidence":"plausible","uncertainty":"PUBLIC doubt",
                "recordedBy":{{"kind":"named","name":"PUBLIC Concordance"}},
                "evidence":[{{"source":"burnet","locators":[{{"kind":"page","value":"1"}}],"passage":"p-{NOTEBOOK_MARKER}"}}],
@@ -2058,6 +2083,34 @@ mod tests {
             )
         );
         assert!(page.contains("Rendering by PUBLIC Ada"));
+        // Unknown rights withhold wording the place has, and say why.
+        assert!(page.contains("PUBLIC Paris gr. 1807"));
+        assert!(
+            page.contains("Wording not shown: the author has not stated the rights in this version&#39;s text")
+                || page.contains("Wording not shown: the author has not stated the rights in this version's text"),
+            "{page}"
+        );
+        // Exactly the excerpt limit is quoted; one character more never is.
+        let exact = exact_excerpt();
+        assert!(page.contains(&exact) && json.contains(&exact));
+        assert!(page.contains(
+            "Wording not shown: it is longer than the 1000-character excerpt a comparison publishes."
+        ));
+        assert_eq!(json.matches(r#""withheld":"length""#).count(), 1);
+        assert_eq!(json.matches(r#""withheld":"rights""#).count(), 2);
+        // The author's normalizations publish only beside wording that is shown.
+        assert!(page.contains("PUBLIC normalization") && json.contains("PUBLIC normalization"));
+        for (path, bytes) in &built {
+            let text = String::from_utf8_lossy(bytes);
+            assert!(
+                !text.contains("ωωωω"),
+                "dist/{path} quotes over-long wording"
+            );
+            assert!(
+                !text.contains("unknown-rights wording"),
+                "dist/{path} quotes wording whose rights are unknown"
+            );
+        }
         // A version's makers read as interpreters do, with how firmly each is
         // attributed, and an anonymous version says so.
         assert!(
