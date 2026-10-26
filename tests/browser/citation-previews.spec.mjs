@@ -81,6 +81,13 @@ test.afterAll(async () => {
 const preview = (page) => page.locator(".ob-citation-preview");
 const marker = (page, id) => page.locator(`[id="${id}"]`);
 
+// A marker's first box is its visually hidden "Citation " prefix, clipped out of hit testing, so
+// Playwright's default point would land on the paragraph. A pointer aims at the visible number.
+async function onNumber(locator) {
+  const { width, height } = await locator.boundingBox();
+  return { position: { x: width / 2, y: height / 2 } };
+}
+
 /** The cave page once the component has enhanced it. */
 async function open(page) {
   await page.goto(`${origin}/cave/`);
@@ -137,7 +144,7 @@ test("Tab past the preview, or moving to the next marker, closes or moves it", a
 test("pointer: hover opens it, leaving closes it, a press outside closes it, a click follows the link", async ({ page }) => {
   await open(page);
   const second = marker(page, "cite-2-ref-1");
-  await second.hover();
+  await second.hover(await onNumber(second));
   await expect(preview(page)).toBeVisible();
   await expect(preview(page)).toContainText("Πολιτεία");
   await page.mouse.move(1, 1);
@@ -146,7 +153,7 @@ test("pointer: hover opens it, leaving closes it, a press outside closes it, a c
   await expect(preview(page)).toBeVisible();
   await page.locator("h1").click();
   await expect(preview(page)).toBeHidden();
-  await second.click();
+  await second.click(await onNumber(second));
   await expect(page).toHaveURL(/#cite-2$/);
   await expect(page.locator("#cite-2")).toBeFocused();
 });
@@ -156,11 +163,11 @@ test("touch: the first tap opens the preview, a second tap follows the link", as
   const page = await context.newPage();
   await open(page);
   const first = marker(page, "cite-1-ref-1");
-  await first.tap();
+  await first.tap(await onNumber(first));
   await expect(preview(page)).toBeVisible();
   await expect(preview(page)).toContainText("Platonis Rempublicam");
   expect(page.url()).not.toMatch(/#cite-1$/);
-  await first.tap();
+  await first.tap(await onNumber(first));
   await expect(page).toHaveURL(/#cite-1$/);
   await context.close();
 });
@@ -213,7 +220,8 @@ test("hostile reference text is shown as text, and the component makes no reques
   // The links it shows are the data's link and the note.
   const hrefs = await preview(page).locator("a").evaluateAll((links) => links.map((link) => link.getAttribute("href")));
   expect(hrefs).toEqual(["#cite-3"]);
-  await marker(page, "cite-1-ref-1").hover();
+  const cited = marker(page, "cite-1-ref-1");
+  await cited.hover(await onNumber(cited));
   await expect(preview(page)).toContainText("Platonis");
   expect(requests).toEqual([]);
 });
@@ -240,7 +248,8 @@ test("it works under the strict content security policy", async ({ page }) => {
   const offset = await preview(page).evaluate((element) => element.style.getPropertyValue("--ob-citation-preview-y"));
   expect(offset).toMatch(/^-?\d+px$/);
   await page.keyboard.press("Escape");
-  await marker(page, "cite-2-ref-1").hover();
+  const second = marker(page, "cite-2-ref-1");
+  await second.hover(await onNumber(second));
   await expect(preview(page)).toContainText("Πολιτεία");
   expect(await page.evaluate(() => window.__violations)).toEqual(before);
 });

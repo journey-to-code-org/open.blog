@@ -98,6 +98,13 @@ test.afterAll(async () => {
 const preview = (page) => page.locator(".ob-citation-preview");
 const markers = (page) => page.locator('a[role="doc-noteref"]');
 
+// A marker's first box is its visually hidden "Citation " prefix, clipped out of hit testing, so
+// Playwright's default point would land on the paragraph. A pointer aims at the visible number.
+async function onNumber(locator) {
+  const { width, height } = await locator.boundingBox();
+  return { position: { x: width / 2, y: height / 2 } };
+}
+
 /** The cave page once the component has enhanced it. */
 async function enhanced(page, hash = "") {
   await page.goto(`${origin}/cave/${hash}`);
@@ -121,7 +128,7 @@ test("hostile reference data never executes and nothing is requested from anothe
     await expect(preview(page).locator("img, script, svg, iframe, object")).toHaveCount(0);
     const hrefs = await preview(page).locator("a").evaluateAll((links) => links.map((link) => link.getAttribute("href")));
     for (const href of hrefs) expect(href).toMatch(/^(#cite-\d+|https?:\/\/[^\s"<>]+)$/);
-    await marker.hover();
+    await marker.hover(await onNumber(marker));
   }
   await expect(preview(page)).toBeVisible();
   // The text is shown, as text.
@@ -167,7 +174,7 @@ test("reading position survives following a citation and browser history, with t
   await marker.evaluate((element) => window.scrollTo(0, element.getBoundingClientRect().top + window.scrollY - 300));
   const reading = await page.evaluate(() => Math.round(window.scrollY));
   // A mouse click follows the link as without JavaScript, and Back returns to the same place.
-  await marker.click();
+  await marker.click(await onNumber(marker));
   await expect(page).toHaveURL(/#cite-6$/);
   await expect(page.locator("#cite-6")).toBeFocused();
   await expect(page.locator("#cite-6")).toBeInViewport();
@@ -177,7 +184,7 @@ test("reading position survives following a citation and browser history, with t
   await expect(marker).toBeInViewport();
   // The way back from the note returns focus to the marker; its preview opens beside it without
   // scrolling anything.
-  await marker.click();
+  await marker.click(await onNumber(marker));
   await expect(page.locator("#cite-6")).toBeFocused();
   await page.locator('#cite-6 a[href="#cite-6-ref-1"]').click();
   await expect(page).toHaveURL(/#cite-6-ref-1$/);
