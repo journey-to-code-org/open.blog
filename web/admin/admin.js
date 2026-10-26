@@ -2155,7 +2155,12 @@ export function approvalRuleText(rule) {
   const problems = [];
   if (rule?.unmetNamed?.length) problems.push(`${rule.unmetNamed.join(", ")} can no longer approve`);
   for (const role of rule?.unmetRoles || []) problems.push(`no author is ${ROLE_WORDS[role] || "in that role"}`);
-  if (problems.length) parts.push(`It cannot be met as things stand: ${problems.join("; ")}. A coordinator can change the rule, or restore that access or role.`);
+  if (problems.length) {
+    parts.push(`It cannot be met as things stand: ${problems.join("; ")}.`);
+    // Only a site owner can take a named person off the rule; a coordinator can change a role.
+    if (rule.unmetNamed?.length) parts.push("A site owner can take them off the rule, or restore their access.");
+    if (rule.unmetRoles?.length) parts.push("A coordinator can change the rule, or give an author that role.");
+  }
   return parts.join(" ");
 }
 

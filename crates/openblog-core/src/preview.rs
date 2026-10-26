@@ -479,9 +479,21 @@ fn document(
                 crate::approval::role_with_article(*role)
             ));
         }
+        // Only a site owner can take a named person off the rule (ADR 0052); a coordinator can
+        // change a role requirement.
+        let mut remedies = Vec::new();
+        if !rule.unmet_named.is_empty() {
+            remedies
+                .push("A site owner can take them off the rule, or their access can be restored.");
+        }
+        if !rule.unmet_roles.is_empty() {
+            remedies
+                .push("A coordinator can change the rule, or an author can be given that role.");
+        }
         html.push_str(&format!(
-            "<p class=\"ob-preview-status\" role=\"note\">This rule cannot be met as things stand: {}. A coordinator can change the rule, or the person's access or role can be restored.</p>\n",
-            escape::text(&problems.join("; "))
+            "<p class=\"ob-preview-status\" role=\"note\">This rule cannot be met as things stand: {}. {}</p>\n",
+            escape::text(&problems.join("; ")),
+            escape::text(&remedies.join(" "))
         ));
     }
     // The placement is public and bound into every approval (ADR 0038), so it is shown here.

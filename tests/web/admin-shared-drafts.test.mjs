@@ -1102,6 +1102,13 @@ test("approval rule choices round-trip and never send an empty list", () => {
   assert.match(approvalPolicyPayload({ kind: "authorsWithRoles", roles: [] }).error, /at least one role/);
   assert.deepEqual(approvalPolicyPayload({ kind: "contributingAuthors", scope: "wholePiece" }), { policy: { requirement: "contributingAuthors", scope: "wholePiece" } });
   assert.match(approvalRuleText({ summary: "S.", unmetNamed: ["Grace"], unmetRoles: ["editor"] }), /^S\. It cannot be met as things stand: Grace can no longer approve; no author is an editor\./);
+  // Only a site owner can take a named person off the rule; a coordinator can change a role.
+  const namedOnly = approvalRuleText({ summary: "S.", unmetNamed: ["Grace"] });
+  assert.match(namedOnly, /A site owner can take them off the rule/);
+  assert.doesNotMatch(namedOnly, /coordinator/);
+  const roleOnly = approvalRuleText({ summary: "S.", unmetRoles: ["editor"] });
+  assert.match(roleOnly, /A coordinator can change the rule/);
+  assert.doesNotMatch(roleOnly, /site owner/);
   assert.equal(approvalRuleText({ summary: "S." }), "S.");
   assert.equal(approvalRuleFailure({ status: 409 }).kind, "conflict");
   assert.equal(approvalRuleFailure({ status: 404 }).kind, "denied");

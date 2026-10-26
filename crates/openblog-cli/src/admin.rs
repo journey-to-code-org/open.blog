@@ -21009,7 +21009,11 @@ series: letters
         let preview = body_json(&preview_call(&f, &mikey, &id));
         assert_eq!(preview["preview"]["rule"]["unmetNamed"], json!(["Grace"]));
         assert_eq!(preview["preview"]["ready"], false);
-        assert!(preview_document_text(&f, &mikey, &preview).contains("Grace can no longer approve"));
+        let note = preview_document_text(&f, &mikey, &preview);
+        assert!(note.contains("Grace can no longer approve"));
+        // Only a site owner can take Grace off the rule, so a coordinator is not sent to do it.
+        assert!(note.contains("A site owner can take them off the rule"));
+        assert!(!note.contains("A coordinator can change the rule"));
         let read = body_json(&approval_policy_read(&f, &ada, &id));
         assert_eq!(read["unmetNamed"], json!(["Grace"]));
         assert_eq!(

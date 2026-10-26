@@ -76,8 +76,11 @@ stored groups.
   `allAuthors` they still block, and the explicit ways out are: they approve the piece without a
   section, a coordinator changes the rule (for example to `contributingAuthors`, or names the
   people who must approve), or the maintainer changes their role. A named approver who is removed
-  blocks until the rule changes or their access is restored. Both are shown in the preview, the
-  rule block and the gate's refusal, as display names only. The rule read lists such named people
+  blocks until a site owner takes them off the rule or their access is restored; a coordinator
+  cannot drop them, because losing a named person never lowers the bar on a coordinator's say-so.
+  An unmet role blocks until a coordinator changes the rule or an author is given that role. Both
+  are shown in the preview, the rule block and the gate's refusal, as display names only, and each
+  names who can resolve it. The rule read lists such named people
   (`formerApprovers`), and Admin shows each as a chosen row marked "can no longer approve" that
   can be cleared, so a rule is never saved with someone kept in it unseen.
 - **The reveal stays one group (reconciling the issue with ADR 0018).** A named or role-based
