@@ -726,6 +726,26 @@ The author choosing a claim's words again in the saved draft, after they moved, 
 became ambiguous. Evidence cannot be added to a stale or ambiguous claim until it is re-anchored.
 _Avoid_: Auto-fix, relocation by the software
 
+**Claim evidence projection**:
+The one public form of a post's claims: approved claims and projected evidence links, each
+reduced to an explicit allowlist of fields, with the public description of the sources they cite.
+It is published as a section of the post's publication Markdown and as `claim-evidence.json`;
+supporting and contradicting evidence sit side by side under each claim and are never combined.
+Withdrawing approval removes an item from the next build.
+_Avoid_: Public claims export, verdict, fact check; filtering the private claims file per surface
+
+**Claim evidence publication switch**:
+The site setting `claimEvidence.publish`. Off by default, when no build reads the claims file and
+every post is published as before; on, the build publishes the claim evidence projection. Approval
+is still required for each claim and each link.
+_Avoid_: Treating approval alone as publication
+
+**Evidence revision note**:
+A dated public note, written by the author in a post's front matter (`evidenceRevisions`), saying
+how the post's evidence changed, optionally naming one claim. It is versioned with the post, so
+removing private research or withdrawing a claim never removes it.
+_Avoid_: Changelog entry, correction notice from a reader; storing the note in private research
+
 ## Admin workspace
 
 **Workspace preferences**:

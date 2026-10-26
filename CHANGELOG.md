@@ -31,6 +31,16 @@ All notable changes to open.blog are recorded here. Releases follow
   a claim is true. `openblog check`, `openblog build` (as warnings, only when the private claims
   file is present, and never in the site) and Evidence Studio show the same findings in the same
   order. A claim's anchor that is still in place now reads "In place" rather than "Verified".
+- Sites can now publish the claims and evidence you approved: turn on `claimEvidence.publish` and
+  each post with approved claims gains a "Claims and evidence" section, readable without
+  JavaScript, listing every claim's supporting and contradicting evidence side by side with the
+  references, locations, your rationale, confidence and uncertainty, and marking a claim with
+  published contradiction as contested. The same text reaches portable copies, feeds and
+  `llms.txt`, and `/claim-evidence.json` holds the same data. Support is never published while a
+  contradicting link stays private, private notes and passages never are, and withdrawing approval
+  removes the item from the next build. Dated revision notes written in a post's front matter as
+  `evidenceRevisions` are published in the same section and stay published even when the private
+  claims file is gone. Sites that leave the setting off are unchanged.
 
 ## [0.30.0] - 2026-10-26
 

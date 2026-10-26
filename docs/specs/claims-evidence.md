@@ -9,9 +9,11 @@ Private claims in draft posts and the author's evidence links, owned by
 [ADR 0082](../adr/0082-claims-take-their-lock-after-the-atlas-and-guard-their-sources.md) and
 [ADR 0083](../adr/0083-claims-are-authored-from-a-selection-in-evidence-studio.md), with
 evidence-gap findings in
-[ADR 0090](../adr/0090-evidence-gaps-are-prompts-in-the-shared-finding-contract.md). Nothing here
-reaches a public page, feed, export or search index; a later projection copies approved items
-only.
+[ADR 0090](../adr/0090-evidence-gaps-are-prompts-in-the-shared-finding-contract.md), and its
+publication in
+[ADR 0091](../adr/0091-publish-approved-claim-evidence-in-the-post-with-public-revision-notes.md).
+The file itself never reaches a public page, feed, export or search index; only the
+[publication](#publication) copies approved items, and only when the site opts in.
 
 ```json
 {
@@ -72,3 +74,53 @@ only.
 - **Never present:** truth value, score, net result, verified state.
 - **Limits:** 4 MiB file, 20,000 claims, 100,000 links, statements 2,000 characters, rationale
   4,000.
+
+## Publication
+
+With `"claimEvidence": {"publish": true}` in `openblog.json`, a build reads the claims file and
+publishes the claim evidence projection (`openblog_core::claim_publication`). Off (the default),
+no build reads it and every post is unchanged.
+
+- **What is public:** for each approved claim, its `statement`, `uncertainty`, the anchored words
+  (only while the anchor is verified against the post's current text), its `standing`
+  (`contested` when contradicting evidence is published, otherwise `asserted`) and its projected
+  links grouped as `supports`, `contradicts` and `contextualizes`, each in file order; for each
+  link, `source`, public locators (`kind`, `value`, `to`), `rationale`, `confidence` and
+  `uncertainty`; for each cited source, its public reference description. Visibility, review
+  state, origin, `recordedBy`, passages, anchor offsets and unknown fields are never public.
+- **Where:** a `Claims and evidence` section at the end of the post's publication Markdown, before
+  any citation notes, so the page, portable copies, feeds and `llms.txt` show the same text, and
+  `/claim-evidence.json`:
+
+  ```json
+  {"format": "openblog-claim-evidence-projection", "formatVersion": 1,
+   "posts": [{"slug": "cave", "url": "/posts/cave/", "title": "The cave",
+     "claims": [{"id": "c1", "number": 1, "url": "/posts/cave/#claim-1",
+       "statement": "The cave is an allegory of education.",
+       "quote": "the cave is an allegory of education.", "standing": "contested",
+       "supports": [{"id": "l1", "source": "republic-slings",
+         "locators": [{"kind": "page", "value": "514"}], "rationale": "Socrates says so directly.",
+         "confidence": "plausible"}],
+       "contradicts": [{"id": "l2", "source": "critic", "confidence": "tentative"}],
+       "contextualizes": []}],
+     "revisions": [{"date": "2026-10-21", "claim": "c1", "note": "Added a contrary reading."}]}],
+   "sources": [{"key": "critic", "kind": "work", "title": "A Critic", "text": "A Critic"}]}
+  ```
+
+- **Revision notes** are written in the post's front matter, never in the claims file:
+
+  ```yaml
+  evidenceRevisions:
+    - "2026-10-20: First published with evidence."
+    - "2026-10-21 c1: Added a contrary reading."
+  ```
+
+  Each is `YYYY-MM-DD: note` or `YYYY-MM-DD claim-id: note`, at most 100 notes of 200
+  characters, sorted by date. A note naming a claim that is not published keeps its date and text
+  without the claim. A malformed note refuses the post, naming the item.
+- **Refused, not published partly:** a post whose body would swallow the section (an unclosed
+  code block, HTML block or comment), and any portable copy that does not carry every claim's
+  heading, contested marker and relation headings in order. A claims file, library or notebook
+  that cannot be read refuses the build, naming the file.
+- **No claims file** (a CI or static-host build): no claim is published, revision notes still
+  are, and `build` and `check` warn.

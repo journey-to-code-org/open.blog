@@ -13,6 +13,7 @@ automatic publishing of scheduled posts).
 | View counter and analytics | no (`<ob-views>` hides itself) | yes |
 | HTTPS | provided | put a reverse proxy in front |
 | Published Knowledge Atlas | only if you build locally and upload `dist/` | yes |
+| Published claim evidence | only if you build locally and upload `dist/` (revision notes always) | yes |
 
 A blog made with `openblog init` is a folder of Markdown, settings, and themes. It has
 no Rust code of its own: the `openblog` command does the building. The instructions below
@@ -27,6 +28,11 @@ CI) cannot read it and publishes an empty atlas; `openblog build` and `openblog 
 that happens. Only a build that can read the private atlas publishes it: `openblog serve` and
 Admin on the machine that holds it, or an `openblog build` run there whose `dist/` you then
 upload.
+
+**Claim evidence is not in the repository either.** With `claimEvidence.publish` on, the "Claims
+and evidence" sections and `/claim-evidence.json` come from `.openblog/private/research/claims.json`,
+which is Git-ignored. A build from a clone publishes no claims and warns; the revision notes
+written in posts' front matter are published either way.
 
 ## GitHub Pages
 

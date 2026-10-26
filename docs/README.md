@@ -96,7 +96,10 @@ authored from a selection in Evidence Studio with supporting and contradicting e
 side ([ADR 0083](adr/0083-claims-are-authored-from-a-selection-in-evidence-studio.md)), with
 evidence gaps and provenance prompts that `openblog check`, builds and Evidence Studio report
 alike and that never judge whether a claim is true
-([ADR 0090](adr/0090-evidence-gaps-are-prompts-in-the-shared-finding-contract.md)).
+([ADR 0090](adr/0090-evidence-gaps-are-prompts-in-the-shared-finding-contract.md)), and, when a
+site opts in, publishes approved claims with their evidence side by side as a section of the
+post, with revision notes the post itself carries
+([ADR 0091](adr/0091-publish-approved-claim-evidence-in-the-post-with-public-revision-notes.md)).
 
 ## Command reference
 
