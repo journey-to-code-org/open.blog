@@ -168,8 +168,9 @@ fn parse_locator_text(key: &str, part: &str) -> Result<Locator, CitationDiagnost
 
 /// Shape rules for a locator in a citation: the notebook's limits plus the
 /// characters the Markdown syntax reserves, so every accepted citation
-/// formats back to text that scans to the same citation.
-fn check_locator(locator: &Locator) -> Result<(), String> {
+/// formats back to text that scans to the same citation. Media moments use
+/// the same rules (ADR 0072), so a moment's locators can be cited unchanged.
+pub(crate) fn check_locator(locator: &Locator) -> Result<(), String> {
     let texts = std::iter::once(("value", locator.value.as_str()))
         .chain(locator.to.as_deref().map(|to| ("end", to)));
     for (name, text) in texts {
