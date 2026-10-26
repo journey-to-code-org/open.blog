@@ -117,7 +117,10 @@ no build reads it and every post is unchanged.
 
   Each is `YYYY-MM-DD: note` or `YYYY-MM-DD claim-id: note`, at most 100 notes of 200
   characters, sorted by date. A note naming a claim that is not published keeps its date and text
-  without the claim. A malformed note refuses the post, naming the item.
+  without the claim. A malformed note refuses the post, naming the item. A site that takes
+  passage feedback (`engagement.feedback`) publishes revision notes in this section even while
+  `claimEvidence.publish` is off, without reading any claims file, and Admin's Reader feedback
+  view can add a note after a reader's suggestion led to a change (ADR 0083).
 - **Refused, not published partly:** a post whose body would swallow the section (an unclosed
   code block, HTML block or comment), and any portable copy that does not carry every claim's
   heading, contested marker and relation headings in order. A claims file, library or notebook

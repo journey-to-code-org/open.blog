@@ -1610,6 +1610,222 @@ ob-comments {
 .ob-comments-form textarea { font: inherit; padding: .65rem; border: 1px solid var(--ob-color-border); border-radius: .35rem; background: var(--ob-color-surface); color: inherit; }
 .ob-comments-form button { justify-self: start; }
 
+/* Passage feedback (ADR 0082): a single-column form that fits 320px, a
+   status line outside the form, a copy-and-send fallback, and a button
+   placed next to the reader's selection by the offsets the component sets. */
+.ob-feedback {
+  margin-block: var(--ob-space-8, 2rem);
+  border-top: 1px solid var(--ob-color-border);
+  padding-top: var(--ob-space-6, 1.5rem);
+}
+
+/* Approved reader notes on a post's canonical page (ADR 0083): static text, no script. */
+.ob-reader-feedback {
+  margin-block: var(--ob-space-8, 2rem);
+  border-top: 1px solid var(--ob-color-border);
+  padding-top: var(--ob-space-6, 1.5rem);
+}
+
+/* A passage revision is one long word; let it wrap at 320px. */
+.ob-feedback code,
+.ob-reader-note code {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+.ob-reader-feedback-list {
+  display: grid;
+  gap: var(--ob-space-6, 1.5rem);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-reader-note {
+  max-inline-size: 42rem;
+  overflow-wrap: anywhere;
+}
+
+.ob-reader-note h3 {
+  margin-block: 0 .5rem;
+  font-size: 1.1rem;
+}
+
+.ob-reader-note blockquote {
+  margin: .5rem 0;
+  border-inline-start: 3px solid var(--ob-color-border);
+  padding-inline-start: 1rem;
+}
+
+.ob-reader-note-meta,
+.ob-reader-note-stale {
+  color: var(--ob-color-subtle, inherit);
+  font-size: .9rem;
+}
+
+.ob-reader-note-response {
+  margin-block-start: .75rem;
+  border-inline-start: 3px solid var(--ob-color-accent, currentColor);
+  padding-inline-start: 1rem;
+}
+
+.ob-reader-note-response h4 {
+  margin-block: 0 .25rem;
+  font-size: 1rem;
+}
+
+ob-passage-feedback {
+  display: block;
+}
+
+.ob-passage-feedback-form {
+  display: grid;
+  gap: 1rem;
+  max-inline-size: 42rem;
+}
+
+.ob-passage-feedback-form fieldset {
+  display: grid;
+  gap: .5rem;
+  min-inline-size: 0;
+  margin: 0;
+  padding: .75rem 1rem 1rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: .35rem;
+}
+
+.ob-passage-feedback-form legend {
+  padding-inline: .25rem;
+  font-weight: 600;
+}
+
+.ob-passage-feedback-field,
+.ob-passage-feedback-subfield {
+  display: grid;
+  gap: .25rem;
+}
+
+.ob-passage-feedback-subfield {
+  margin-inline-start: 1.75rem;
+}
+
+.ob-passage-feedback-field > label,
+.ob-passage-feedback-subfield > label,
+.ob-passage-feedback-fallback > label {
+  font-weight: 600;
+}
+
+.ob-passage-feedback-choice {
+  display: flex;
+  gap: .5rem;
+  align-items: baseline;
+}
+
+.ob-passage-feedback-form input:not([type="radio"], [type="checkbox"]),
+.ob-passage-feedback-form select,
+.ob-passage-feedback-form textarea,
+.ob-passage-feedback-fallback textarea {
+  box-sizing: border-box;
+  inline-size: 100%;
+  min-inline-size: 0;
+  font: inherit;
+  padding: .65rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: .35rem;
+  background: var(--ob-color-surface);
+  color: inherit;
+}
+
+.ob-passage-feedback-form [aria-invalid="true"] {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.ob-passage-feedback-hint,
+.ob-passage-feedback-quote,
+.ob-passage-feedback-error,
+.ob-passage-feedback-status,
+.ob-passage-feedback-done,
+.ob-passage-feedback-fallback-message {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ob-passage-feedback-hint,
+.ob-passage-feedback-quote {
+  color: var(--ob-color-muted);
+}
+
+.ob-passage-feedback-quote {
+  margin-inline-start: 1.75rem;
+  font-style: italic;
+  white-space: pre-wrap;
+}
+
+.ob-passage-feedback-error,
+.ob-passage-feedback-alert:not(:empty) {
+  font-weight: 600;
+}
+
+.ob-passage-feedback-error::before {
+  content: "Error: ";
+}
+
+.ob-passage-feedback-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1rem;
+  align-items: center;
+}
+
+.ob-passage-feedback-form button[aria-disabled="true"] {
+  cursor: progress;
+  opacity: .7;
+}
+
+.ob-passage-feedback-status:empty {
+  display: none;
+}
+
+.ob-passage-feedback-done,
+.ob-passage-feedback-fallback {
+  max-inline-size: 42rem;
+  margin-block: 1rem;
+}
+
+.ob-passage-feedback-fallback {
+  display: grid;
+  gap: .5rem;
+}
+
+.ob-passage-feedback [hidden],
+ob-passage-feedback [hidden] {
+  display: none;
+}
+
+.ob-passage-feedback-selection {
+  position: fixed;
+  z-index: 20;
+  left: var(--ob-passage-feedback-x, 8px);
+  top: var(--ob-passage-feedback-y, 8px);
+  max-inline-size: calc(100vw - 16px);
+  padding: .4rem .75rem;
+  border: var(--ob-border-width, 1px) solid var(--ob-color-border);
+  border-radius: var(--ob-radius, .35rem);
+  background: var(--ob-color-surface);
+  color: var(--ob-color-text);
+  box-shadow: var(--ob-shadow);
+  font: inherit;
+  font-size: .9rem;
+}
+
+.ob-passage-feedback-form :focus-visible,
+.ob-passage-feedback-fallback :focus-visible,
+.ob-passage-feedback-selection:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
 /* ---------- Series ---------- */
 
 .ob-series-box {
@@ -1909,6 +2125,8 @@ ob-back-to-top button:hover {
   .ob-series-box,
   .ob-post-pager,
   .ob-copy,
+  .ob-feedback,
+  .ob-passage-feedback-selection,
   ob-back-to-top,
   ob-theme-toggle {
     display: none !important;

@@ -64,6 +64,10 @@ struct Meta<'a> {
     /// The `<ob-citation-previews>` element that enhances the markers with
     /// previews from that data (ADR 0061), present exactly when the data is.
     citation_previews: Option<String>,
+    /// The published passage text of a post that offers passage feedback, as
+    /// its `<script type="application/json">` element (ADR 0082); `None` on
+    /// every other page, which is then written exactly as before.
+    passage_data: Option<String>,
     theme: &'a Theme,
     published: Option<String>,
     modified: Option<String>,
@@ -121,6 +125,64 @@ fn resolve_social_metadata(config: &SiteConfig, input: SocialMetadataInput<'_>) 
         },
         image,
     }
+}
+
+/// The id of a post's feedback region, which the no-JavaScript text and any
+/// participation link can target.
+const FEEDBACK_ANCHOR: &str = "ob-feedback";
+/// The id of the page data element that holds a post's passage text.
+pub const PASSAGE_DATA_ELEMENT_ID: &str = "ob-passages";
+
+/// A post's passage text as the feedback form reads it (ADRs 0076, 0082):
+/// the work's path, the passage revision and each section's index, anchor,
+/// heading title, text and digest, all computed here by the build. The JSON
+/// is escaped so no text in it can end or confuse the script element.
+fn passage_data_element(post: &Post, document: &crate::passage_target::PassageDocument) -> String {
+    // Heading titles label the form's section choices; ids can repeat, so
+    // each anchor takes the titles of its headings in order.
+    let mut titles: HashMap<&str, std::collections::VecDeque<&str>> = HashMap::new();
+    for heading in &post.headings {
+        titles
+            .entry(heading.id.as_str())
+            .or_default()
+            .push_back(heading.text.as_str());
+    }
+    let sections: Vec<serde_json::Value> = document
+        .sections
+        .iter()
+        .enumerate()
+        .map(|(index, section)| {
+            let mut value = serde_json::json!({ "index": index });
+            if let Some(anchor) = &section.anchor {
+                value["anchor"] = serde_json::json!(anchor);
+                if let Some(title) = titles
+                    .get_mut(anchor.as_str())
+                    .and_then(|queue| queue.pop_front())
+                {
+                    value["title"] = serde_json::json!(title);
+                }
+            }
+            value["text"] = serde_json::json!(section.text);
+            value["digest"] = serde_json::json!(section.digest);
+            value
+        })
+        .collect();
+    let data = serde_json::json!({
+        "version": 1,
+        "work": post.url,
+        "revision": document.revision,
+        "sections": sections,
+    });
+    let mut json = String::new();
+    for character in data.to_string().chars() {
+        match character {
+            '<' | '>' | '&' | '\u{2028}' | '\u{2029}' => {
+                json.push_str(&format!("\\u{:04x}", character as u32));
+            }
+            _ => json.push(character),
+        }
+    }
+    format!("<script type=\"application/json\" id=\"{PASSAGE_DATA_ELEMENT_ID}\">{json}</script>")
 }
 
 fn resolved_post_canonical(config: &SiteConfig, post: &Post) -> Option<String> {
@@ -385,6 +447,28 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
         "openblog-comments.json".into(),
         serde_json::to_string(&comment_policies).expect("comment policy map is serializable"),
     )?;
+    // Typed passage feedback is opt-in (ADR 0081): only a site that enables
+    // it publishes the policy the hosted function checks, so every other
+    // site's output is unchanged. Feedback follows each post's discussion
+    // setting until the participation policy (#211) gives it its own.
+    if c.engagement.enabled && c.engagement.feedback && !c.engagement.endpoint.trim().is_empty() {
+        let feedback_policies: BTreeMap<&str, &str> = site
+            .posts
+            .iter()
+            .map(|post| {
+                let policy = match post.comments {
+                    CommentsPolicy::Open => "open",
+                    CommentsPolicy::Locked => "locked",
+                    CommentsPolicy::Hidden => "hidden",
+                };
+                (post.url.as_str(), policy)
+            })
+            .collect();
+        out.add(
+            "openblog-feedback.json".into(),
+            serde_json::to_string(&feedback_policies).expect("feedback policy map is serializable"),
+        )?;
+    }
 
     Ok(out.files)
 }
@@ -663,6 +747,12 @@ impl<'a> Renderer<'a> {
             // The preview component is loaded only by pages that carry its data.
             h.push_str("<script type=\"module\" src=\"/assets/components/ob-citation-previews.js\"></script>\n");
         }
+        if let Some(element) = &meta.passage_data {
+            h.push_str(element);
+            h.push('\n');
+            // The feedback form's script is loaded only by pages that offer it.
+            h.push_str("<script type=\"module\" src=\"/assets/components/ob-passage-feedback.js\"></script>\n");
+        }
         // Owner-supplied raw HTML (third-party analytics, verification tags).
         if !c.snippets.head.trim().is_empty() {
             h.push_str(c.snippets.head.trim());
@@ -687,6 +777,47 @@ impl<'a> Renderer<'a> {
         h.push_str("</body>\n</html>\n");
         // CDN first (it matches site-relative asset paths), then the base path for everything else.
         c.apply_base_path(&c.cdn.apply(&h))
+    }
+
+    /// Passage feedback on one post (ADR 0082): the feedback region, whose
+    /// static text is the no-JavaScript path, and the post's passage text as
+    /// page data for the form. Only an open post on a site that opts in to
+    /// hosted feedback has them; every other page is unchanged.
+    fn passage_feedback(&self, post: &Post) -> Option<(String, String)> {
+        let c = &self.site.config;
+        let endpoint = c.engagement.endpoint.trim().trim_end_matches('/');
+        if !(c.engagement.enabled
+            && c.engagement.feedback
+            && !endpoint.is_empty()
+            && post.comments == CommentsPolicy::Open)
+        {
+            return None;
+        }
+        let document = crate::passage_target::PassageDocument::of_post(post, c);
+        let contact = c.engagement.feedback_contact.as_str();
+        let (contact_attr, contact_words) = if contact.is_empty() {
+            (String::new(), String::new())
+        } else if let Some(address) = contact.strip_prefix("mailto:") {
+            (
+                format!(" contact=\"{}\"", attr(contact)),
+                format!(" at <a href=\"{}\">{}</a>", attr(contact), text(address)),
+            )
+        } else {
+            (
+                format!(" contact=\"{}\"", attr(contact)),
+                format!(
+                    " through <a href=\"{}\">the contact page</a>",
+                    attr(contact)
+                ),
+            )
+        };
+        let region = format!(
+            "<section id=\"{FEEDBACK_ANCHOR}\" class=\"ob-feedback\" aria-labelledby=\"{FEEDBACK_ANCHOR}-title\">\n<h2 id=\"{FEEDBACK_ANCHOR}-title\">Questions and corrections</h2>\n<ob-passage-feedback endpoint=\"{}\" page=\"{}\"{contact_attr}>\n<p>Ask a question about a passage, suggest a source or a correction, or offer another interpretation. The author reviews every note, and nothing is published without their approval.</p>\n<p class=\"ob-passage-feedback-static\">The feedback form needs JavaScript. Without it, you can send your note to the author{contact_words}: name the section by its link, quote the words you mean, and give this page’s passage revision, <code>{}</code>, so the author can find the text you read.</p>\n</ob-passage-feedback>\n</section>\n",
+            attr(endpoint),
+            attr(&c.absolute(&post.url)),
+            text(&document.revision),
+        );
+        Some((region, passage_data_element(post, &document)))
     }
 
     fn site_header(&self, theme: &Theme, current: &str) -> String {
@@ -1010,6 +1141,7 @@ impl<'a> Renderer<'a> {
             }),
             reader_references: None,
             citation_previews: None,
+            passage_data: None,
             theme,
             published: None,
             modified: None,
@@ -1238,6 +1370,16 @@ impl<'a> Renderer<'a> {
             body.push_str("\n</section>\n");
         }
         body.push_str(&self.chronological_nav(index));
+        // Approved reader notes, with the author's responses, are shown on
+        // the canonical page only (ADR 0083), before the form that asks for
+        // more.
+        body.push_str(&crate::feedback_publication::render_section(
+            post.reader_feedback(),
+        ));
+        let passage_feedback = self.passage_feedback(post);
+        if let Some((region, _)) = &passage_feedback {
+            body.push_str(region);
+        }
         if c.engagement.enabled
             && c.engagement.comments
             && post.comments != crate::model::CommentsPolicy::Hidden
@@ -1393,6 +1535,7 @@ impl<'a> Renderer<'a> {
                 }
             }),
             reader_references: references.map(ReaderReferences::to_script_element),
+            passage_data: passage_feedback.map(|(_, data)| data),
             citation_previews: references.and(post.citations()).map(|summary| {
                 format!(
                     "<ob-citation-previews note-label=\"{}\"></ob-citation-previews>",
@@ -2262,6 +2405,7 @@ impl<'a> Renderer<'a> {
             json_ld: None,
             reader_references: None,
             citation_previews: None,
+            passage_data: None,
             theme,
             published: None,
             modified: None,
@@ -2462,6 +2606,7 @@ mod tests {
                 pages: vec![src("pages/about.md", "---\ntitle: About\nnav: true\n---\nHi")],
                 source_library: None,
                 claim_evidence: None,
+                reader_feedback: None,
             },
             LoadOptions::default(),
         )
@@ -3263,6 +3408,69 @@ mod tests {
             .unwrap()
             .values()
             .all(|policy| policy == "hidden"));
+    }
+
+    #[test]
+    fn passage_feedback_publishes_its_policy_only_when_the_site_opts_in() {
+        let posts = [
+            (
+                "posts/locked.md",
+                "---
+title: Locked
+date: 2026-01-01
+comments: locked
+---
+Text",
+            ),
+            (
+                "posts/hidden.md",
+                "---
+title: Hidden
+date: 2026-01-01
+comments: hidden
+---
+Text",
+            ),
+            (
+                "posts/open.md",
+                "---
+title: Open
+date: 2026-01-01
+---
+Text",
+            ),
+        ];
+        // Comments off does not close feedback: each post's discussion
+        // setting decides.
+        let enabled = build_posts(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","engagement":{"enabled":true,"comments":false,"feedback":true,"endpoint":"https://t.dev/api"}}"#,
+            &posts,
+        );
+        assert_eq!(
+            file(&enabled, "openblog-feedback.json"),
+            r#"{"/hidden/":"hidden","/locked/":"locked","/open/":"open"}"#
+        );
+
+        // Off by default and off with engagement off:
+        // the output is exactly what it was before the feature existed.
+        for config in [
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","engagement":{"enabled":true,"endpoint":"https://t.dev/api"}}"#,
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","engagement":{"enabled":false,"feedback":true,"endpoint":"https://t.dev/api"}}"#,
+        ] {
+            let files = build_posts(config, &posts);
+            assert!(
+                !files.iter().any(|f| f.path == "openblog-feedback.json"),
+                "{config}"
+            );
+            let without: Vec<_> = build_posts(&config.replace(r#""feedback":true,"#, ""), &posts)
+                .into_iter()
+                .map(|f| (f.path, f.contents))
+                .collect();
+            let with: Vec<_> = files.into_iter().map(|f| (f.path, f.contents)).collect();
+            assert_eq!(with, without, "{config}");
+        }
+        let defaults = SiteConfig::from_json(r#"{"title":"T","url":"https://t.dev"}"#).unwrap();
+        assert!(!defaults.engagement.feedback);
     }
 
     #[test]

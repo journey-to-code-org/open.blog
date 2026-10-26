@@ -955,6 +955,123 @@ how the post's evidence changed, optionally naming one claim. It is versioned wi
 removing private research or withdrawing a claim never removes it.
 _Avoid_: Changelog entry, correction notice from a reader; storing the note in private research
 
+## Reader participation
+
+These terms describe how readers point at published text and where their feedback came from.
+Reader data is never research: a notebook **Passage** is an author's excerpt of a source, while a
+**Passage target** points into a published post.
+
+**Passage text**:
+A post's published prose as a reader can quote it, section by section: the text before the first
+heading, then each heading's id with its title and the text up to the next heading. Generated
+markers, labels, image alternative text, raw HTML, embed frames, code blocks and the generated
+citation notes are not part of it; only whitespace is normalized. The build publishes it as page
+data; the browser maps a selection onto it rather than reading the page.
+_Avoid_: Plain text, search text, body when the quotable published text is meant
+
+**Passage revision**:
+The fingerprint of a post's passage text, written `p1:` and 32 hex digits, whose number names the
+text model. Feedback records the passage revision the reader saw.
+_Avoid_: Version, commit, notebook revision
+
+**Section digest**:
+The fingerprint of one section's passage text, so a target for a whole section can tell an
+unchanged section from an edited one.
+_Avoid_: Section id, hash of the Markdown
+
+**Passage target**:
+A durable, versioned pointer at published text: the whole post, or a section anchor (the heading
+id) and either the whole section, optionally with its digest, or a quotation of at most 500
+characters with up to 64 characters of context on each side and a position hint. Never a
+positional element id.
+_Avoid_: Passage (the notebook term), anchor, highlight, marker id, selector when the whole
+target is meant
+
+**Target resolution**:
+The outcome of reading a passage target against the current passage text: current (seen at this
+revision, text in place), re-anchored (the identical text found again, uniquely, as the same
+passage) or stale with a reason. It never points at text the reader did not quote.
+_Avoid_: Fuzzy match, retargeting, best guess
+
+**Feedback provenance**:
+Where one piece of reader feedback came from: the published work, the passage revision the
+reader saw, the passage target, when the reader saw it by their own clock, when the site received
+it, the channel and the reader's attribution choice. Reader data, never a research note.
+_Avoid_: Metadata, submission log, research note, audit trail when moderation decisions are meant
+
+**Reader attribution**:
+The name a reader optionally gives with feedback and their explicit agreement to show it. Without
+that agreement the name is private to moderation; anonymous is the default.
+_Avoid_: Author, contributor, credit, account
+
+**Public provenance**:
+The only public form of feedback provenance: the work, the revision seen, the day received,
+whether the passage is stale, its section, the quoted text only while it is still published, and
+a name only with consent.
+_Avoid_: Feedback export, moderation record
+
+**Feedback kind**:
+What a reader says they are offering about a passage: a question, a suggested source, a suggested
+correction or another interpretation. The reader's stated intent, never a verdict: a suggested
+correction is not a correction until an author decides.
+_Avoid_: Correction (for a submission), category, vote, rating
+
+**Feedback submission**:
+What a reader sends: the kind, the work, the passage revision seen, the passage target, the text,
+the kind's details (a source link, suggested wording) and the reader's attribution choice. Nothing
+else about the reader.
+_Avoid_: Comment, message, report
+
+**Scholarly feedback record**:
+A received submission: its kind, text and details with the feedback provenance, including when the
+receiver got it and by which channel. Reader data, never research, and never published except
+through its public projection after moderation.
+_Avoid_: Comment row, research note, correction
+
+**Hosted feedback transport**:
+The optional, opt-in path that carries feedback submissions to the site's hosted function and
+stores them pending moderation. Without it, the canonical page and a copy-and-send fallback
+remain.
+_Avoid_: Feedback service, comment system, backend when the opt-in path is meant
+
+**Passage data**:
+A post's passage text as page data, built by the build: the work, the passage revision and each
+section's index, anchor, heading title, text and digest, in one inert JSON element. Only an open
+post on a site that opts in to feedback carries it; the browser maps selections onto it and never
+re-derives text from the page (ADRs 0076, 0082).
+_Avoid_: Page text, DOM text, scraped text
+
+**Feedback region**:
+The section after a post's navigation where a reader sends a passage-specific note. Its static
+text tells a reader without JavaScript how to name a passage and reach the author; the feedback
+form enhances it, and a failed submission falls back to a copy of the note to send (ADR 0082).
+_Avoid_: Comment box, discussion when the hosted comments are meant
+
+**Feedback moderation**:
+A moderator's decision about one feedback item: approve, reject with a reason, or remove an
+approved item with a reason, in the participation policy's state names (pending, clarification,
+approved, rejected, removed, withdrawn). Each change names the state and version the moderator saw
+and is recorded as an audit event; approval never edits the post (ADR 0083).
+_Avoid_: Accepting a correction, verdict, review when a moderation decision is meant
+
+**Passage check**:
+What a moderator sees about a feedback item's passage before acting: current, re-anchored after
+the post changed, stale with its reason, or no post at that address. Approving anything but a
+current passage needs the moderator to confirm the check they read (ADR 0083).
+_Avoid_: Fuzzy match, auto-fix
+
+**Published reader feedback**:
+The public part of approved feedback, kept in `reader-feedback.json` in the content folder: the
+kind, text, details, target and revision seen, the days received and approved, a name only with
+consent, and the author's response. Shown on the post's canonical page only, through the public
+provenance; portable copies and feeds carry a labelled link instead (ADR 0083).
+_Avoid_: Comments, feedback export, moderation record
+
+**Author response**:
+The author's public reply to one published note, stored with it and shown under it. Replying
+sends nothing to the reader.
+_Avoid_: Reply notification, correction notice
+
 ## Admin workspace
 
 **Workspace preferences**:

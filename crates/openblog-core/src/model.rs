@@ -45,6 +45,9 @@ pub struct Sources {
     /// The projection of the private claims file, read only while the site
     /// publishes claim evidence (ADR 0075); `None` otherwise.
     pub claim_evidence: Option<ClaimEvidenceSource>,
+    /// The site's published reader feedback (`reader-feedback.json` in the
+    /// content folder, ADR 0083), when the file exists.
+    pub reader_feedback: Option<SourceFile>,
 }
 
 /// The private source library as a site load receives it.
@@ -253,6 +256,9 @@ pub struct Post {
     /// Why its claim evidence could not be published, for the site load to
     /// decide as for citations: refuse a post it publishes, warn otherwise.
     pub(crate) evidence_error: Option<String>,
+    /// The approved reader notes this post's canonical page shows, read
+    /// through the public projection (ADR 0083); empty for most posts.
+    pub(crate) reader_feedback: Vec<crate::feedback_publication::PublicFeedback>,
     pub html: String,
     pub text: String,
     pub headings: Vec<Heading>,
@@ -316,6 +322,11 @@ impl Post {
     /// notes, or `None` when it publishes none (ADR 0075).
     pub fn claim_evidence(&self) -> Option<&PostEvidence> {
         self.claim_evidence.as_ref()
+    }
+
+    /// The approved reader notes this post's canonical page shows (ADR 0083).
+    pub fn reader_feedback(&self) -> &[crate::feedback_publication::PublicFeedback] {
+        &self.reader_feedback
     }
 
     /// The reader-facing reference data of this post's published citations
@@ -452,6 +463,10 @@ pub struct Site {
     /// so a load or render that only validates content (an Admin save, a
     /// preview) is not stopped by it.
     pub claim_evidence_error: Option<String>,
+    /// Why the site's published reader feedback cannot be read (ADR 0083).
+    /// Like `claim_evidence_error`, a full build or `check` refuses while it
+    /// is set, and a load that only validates content is not stopped.
+    pub reader_feedback_error: Option<String>,
     /// The time the site was loaded for (`LoadOptions::now`). A post dated after it is scheduled,
     /// even when a preview or the admin editor loaded it, so it is never a series part.
     now: Option<DateTime>,
@@ -488,6 +503,12 @@ impl Site {
         // the switch the private claims file is never consulted and every post
         // is published as before.
         let mut claim_evidence_error = None;
+        // A site that takes passage feedback publishes the author's revision
+        // notes too, without reading any claims file (ADR 0083): a note
+        // recorded after a reader's suggestion led to a change.
+        let feedback_notes = config.engagement.enabled
+            && config.engagement.feedback
+            && !config.engagement.endpoint.trim().is_empty();
         let claim_mode = if config.claim_evidence.publish {
             match &sources.claim_evidence {
                 Some(ClaimEvidenceSource::Stored(projection)) => {
@@ -503,6 +524,8 @@ impl Site {
                 }
                 None => ClaimEvidenceMode::Publish(None),
             }
+        } else if feedback_notes {
+            ClaimEvidenceMode::Publish(None)
         } else {
             ClaimEvidenceMode::Off
         };
@@ -645,6 +668,8 @@ impl Site {
             }
         }
         posts.sort_by(|a, b| b.date.cmp(&a.date).then_with(|| a.slug.cmp(&b.slug)));
+        let reader_feedback_error =
+            attach_reader_feedback(&mut posts, &sources, &config, &mut warnings);
 
         let mut pages: Vec<Page> = Vec::new();
         for file in &sources.pages {
@@ -766,6 +791,7 @@ impl Site {
             view_counts: BTreeMap::new(),
             atlas: None,
             claim_evidence_error,
+            reader_feedback_error,
             now: options.now,
         })
     }
@@ -1069,6 +1095,57 @@ pub fn uncitable_line(source: &str, library: &SourceLibrary) -> Option<usize> {
         .diagnostics
         .first()
         .map(|found| file_line(found.line))
+}
+
+/// Give each post the approved reader notes its canonical page shows (ADR
+/// 0083), or say why the file cannot be read. A post that hides its
+/// discussion shows none; a note about a post that no longer exists is a
+/// warning, and one about a draft or scheduled post waits for it.
+fn attach_reader_feedback(
+    posts: &mut [Post],
+    sources: &Sources,
+    config: &SiteConfig,
+    warnings: &mut Vec<String>,
+) -> Option<String> {
+    let file = sources.reader_feedback.as_ref()?;
+    let published = match crate::feedback_publication::ReaderFeedbackFile::from_json(&file.contents)
+    {
+        Ok(published) => published,
+        Err(error) => return Some(format!("{}: {error}", file.path)),
+    };
+    let known: std::collections::HashSet<String> = sources
+        .posts
+        .iter()
+        .map(|post| post.path.replace('\\', "/"))
+        .collect();
+    for (index, item) in published.items.iter().enumerate() {
+        if !known.contains(&item.post) {
+            warnings.push(format!(
+                "{}: item {} is about {}, which is not a post; it is not published",
+                file.path,
+                index + 1,
+                item.post
+            ));
+        }
+    }
+    for post in posts.iter_mut() {
+        if post.comments == CommentsPolicy::Hidden {
+            continue;
+        }
+        let items = published.for_post(&post.source.replace('\\', "/"));
+        if items.is_empty() {
+            continue;
+        }
+        let document = crate::passage_target::PassageDocument::of_post(post, config);
+        post.reader_feedback = crate::feedback_publication::project(&items, post, &document);
+        // Portable copies and feeds carry a labelled link to the canonical
+        // page instead of the notes (P6.2).
+        post.capabilities.push(CapabilityDescriptor::describe(
+            "passage-questions-and-corrections",
+            Some(crate::feedback_publication::READER_FEEDBACK_ANCHOR),
+        ));
+    }
+    None
 }
 
 /// A post's revision notes as written: each item of the list, or one note
@@ -1479,6 +1556,7 @@ fn load_post_in(
         citations: citation_summary,
         claim_evidence: claim_section.map(|(_, post_evidence)| post_evidence),
         evidence_error,
+        reader_feedback: Vec::new(),
         html: rendered.html,
         text: rendered.text,
         headings: rendered.headings,
@@ -1717,6 +1795,7 @@ mod tests {
             pages: vec![post("pages/about.md", "---\ntitle: About\nnav: true\n---\nHi")],
             source_library: None,
             claim_evidence: None,
+            reader_feedback: None,
         });
         assert_eq!(s.posts.len(), 2);
         assert_eq!(s.posts[0].slug, "second");

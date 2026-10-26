@@ -1,0 +1,21 @@
+-- Roll back feedback.sql (ADR 0080). Run in the Supabase SQL editor.
+--
+-- First turn the feature off: remove OPENBLOG_FEEDBACK_ENABLED from the
+-- Netlify environment and redeploy, so nothing writes to the table. Then, if
+-- you want to keep what readers sent, export it, for example from the Table
+-- Editor (openblog_feedback, Export to CSV) or with:
+--
+--   select * from public.openblog_feedback order by received_at;
+--
+-- This drops only what feedback.sql created: the moderation function, the
+-- audit table and the feedback table, with their indexes. Comments,
+-- analytics, rate limits and every other table are untouched. Feedback rows
+-- are deleted with it and cannot be recovered without your export.
+
+begin;
+
+drop function if exists public.openblog_moderate_feedback(text, uuid, integer, text, text, text, text, text, timestamptz);
+drop table if exists public.openblog_feedback_events;
+drop table if exists public.openblog_feedback;
+
+commit;

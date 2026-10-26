@@ -1744,6 +1744,77 @@ pub(crate) fn heading_ids(markdown: &str) -> Vec<String> {
         .collect()
 }
 
+/// The passage text of a publication body (ADR 0076), section by section:
+/// the text before the first heading (no anchor), then each heading's id
+/// with its title and the text up to the next heading of any level. Text is
+/// read from the same events and with the same heading ids as [`render`],
+/// so it is the text the native page shows, without what the page generates
+/// around it: footnote and citation markers, image alternative text, raw
+/// HTML, code blocks and the generated citation notes region. Whitespace is
+/// not yet collapsed; [`crate::passage_target`] does that. With `embeds`
+/// on, a paragraph that is only an embeddable link is left out, as
+/// [`apply_embeds`] replaces it with a frame that has no prose.
+pub(crate) fn passage_sections(
+    markdown: &str,
+    smart_punctuation: bool,
+    embeds: bool,
+    notes: Option<&crate::bibliography::CitationNoteLabels<'_>>,
+) -> Vec<(Option<String>, String)> {
+    let mut events =
+        Parser::new_ext(markdown, parser_options(smart_punctuation)).collect::<Vec<_>>();
+    assign_heading_ids(&mut events, notes);
+    let notes_start = notes.and_then(|labels| generated_notes_heading(&events, labels));
+    let mut sections: Vec<(Option<String>, String)> = vec![(None, String::new())];
+    let mut in_code_block = false;
+    let mut images = 0usize;
+    let mut index = 0;
+    while index < events.len() {
+        let event = &events[index];
+        let position = index;
+        index += 1;
+        if notes_start == Some(position) {
+            break;
+        }
+        if embeds && matches!(event, Event::Start(Tag::Paragraph)) {
+            if let Some(len) = events[index..]
+                .iter()
+                .position(|e| matches!(e, Event::End(TagEnd::Paragraph)))
+            {
+                if standalone_embed(&events[index..index + len]).is_some() {
+                    index += len + 1;
+                    continue;
+                }
+            }
+        }
+        if let Event::Start(Tag::Heading { id, .. }) = event {
+            sections.push((id.as_ref().map(|id| id.to_string()), String::new()));
+            continue;
+        }
+        let text = &mut sections
+            .last_mut()
+            .expect("the lead section is always there")
+            .1;
+        match event {
+            Event::Start(Tag::CodeBlock(_)) => in_code_block = true,
+            Event::End(TagEnd::CodeBlock) => in_code_block = false,
+            Event::Start(Tag::Image { .. }) => images += 1,
+            Event::End(TagEnd::Image) => images = images.saturating_sub(1),
+            Event::Text(t) | Event::Code(t) if !in_code_block && images == 0 => text.push_str(t),
+            Event::SoftBreak | Event::HardBreak => text.push(' '),
+            Event::End(
+                TagEnd::Heading(_)
+                | TagEnd::Paragraph
+                | TagEnd::Item
+                | TagEnd::TableCell
+                | TagEnd::BlockQuote(_)
+                | TagEnd::FootnoteDefinition,
+            ) => text.push(' '),
+            _ => {}
+        }
+    }
+    sections
+}
+
 pub fn render_portable(
     markdown: &str,
     options: RenderOptions<'_>,

@@ -386,11 +386,13 @@ test("every preset applies its toolbelt modules and the open route always stays 
     [{ preset: "simple" }, "overview", content],
     [{ preset: "simple" }, "sources", [...content, "Sources", "Notebook", "Atlas", "Compare"]],
     [{ preset: "guided" }, "posts", [...content, "Sources", "Notebook", "Atlas", "Compare"]],
-    [{ preset: "advanced" }, "overview", [...content, "Analytics", "Sources", "Notebook", "Atlas", "Compare", "Contributors"]],
-    [{ preset: "custom", hiddenModules: ["contributors"] }, "overview", [...content, "Analytics", "Sources", "Notebook", "Atlas", "Compare"]],
-    [{ preset: "simple" }, "analytics", [...content, "Analytics"]],
+    [{ preset: "advanced" }, "overview", [...content, "Analytics", "Reader feedback", "Sources", "Notebook", "Atlas", "Compare", "Contributors"]],
+    [{ preset: "custom", hiddenModules: ["contributors"] }, "overview", [...content, "Analytics", "Reader feedback", "Sources", "Notebook", "Atlas", "Compare"]],
+    [{ preset: "simple" }, "analytics", [...content, "Analytics", "Reader feedback"]],
+    [{ preset: "simple" }, "feedback", [...content, "Analytics", "Reader feedback"]],
+    [{ preset: "guided" }, "feedback", [...content, "Analytics", "Reader feedback", "Sources", "Notebook", "Atlas", "Compare"]],
     [{ preset: "guided" }, "contributors", [...content, "Sources", "Notebook", "Atlas", "Compare", "Contributors"]],
-    [{ preset: "custom", hiddenModules: ["analytics"] }, "analytics", [...content, "Analytics", "Sources", "Notebook", "Atlas", "Compare", "Contributors"]],
+    [{ preset: "custom", hiddenModules: ["analytics"] }, "analytics", [...content, "Analytics", "Reader feedback", "Sources", "Notebook", "Atlas", "Compare", "Contributors"]],
   ];
   for (const [preferences, active, expected] of cases) {
     const app = appWith(fakeApi({}));

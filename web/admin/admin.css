@@ -3349,3 +3349,57 @@ a.oba-btn-primary {
     flex: 1 1 100%;
   }
 }
+
+/* Reader feedback moderation (ADR 0083). */
+.oba-feedback-list {
+  display: grid;
+  gap: 1rem;
+  margin: 0 0 1.5rem;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-feedback-item {
+  overflow-wrap: anywhere;
+}
+
+.oba-feedback-body {
+  white-space: pre-wrap;
+}
+
+.oba-feedback-item blockquote {
+  margin: 0.5rem 0;
+  border-left: 3px solid var(--ob-color-border);
+  padding-left: 0.75rem;
+}
+
+.oba-feedback-passage {
+  margin: 0.75rem 0;
+  border-left: 3px solid var(--oba-success);
+  padding: 0.25rem 0.75rem;
+  background: var(--ob-color-surface-raised);
+}
+
+.oba-feedback-passage[data-check="reanchored"],
+.oba-feedback-passage[data-check="unknown-work"] {
+  border-left-color: var(--ob-color-accent-border);
+}
+
+.oba-feedback-passage[data-check="stale"] {
+  border-left-color: var(--oba-danger);
+}
+
+.oba-feedback-passage h4 {
+  margin: 0.25rem 0;
+}
+
+.oba-feedback-reason {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.oba-feedback-revision summary {
+  cursor: pointer;
+}
