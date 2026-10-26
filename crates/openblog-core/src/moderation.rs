@@ -418,7 +418,7 @@ impl Actor<'_> {
         }
     }
 
-    fn admin_user(&self) -> Option<&str> {
+    pub(crate) fn admin_user(&self) -> Option<&str> {
         match self {
             Actor::SiteAdmin { admin_user }
             | Actor::Coordinator { admin_user, .. }

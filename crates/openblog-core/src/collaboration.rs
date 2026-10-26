@@ -151,6 +151,11 @@ pub enum AuthorizationAction {
     /// participant. Only Contributors hold it, and only for themselves, because a named author
     /// must be able to approve the piece, which Editors cannot.
     EditSynthesis,
+    /// Answer a reader's Third Perspective as the author of one attributed section (ADR 0162).
+    /// Targets the author's own participant. Only Contributors hold it, and only for themselves:
+    /// a coordinator or site owner moderates the response but never writes as another author,
+    /// and a contributor registry key or an Editor binding grants nothing here.
+    RespondAsAuthor,
     /// Capture, edit and remove the requester's own media moments (ADR 0062 to 0064), and read
     /// the moments other authors revealed with a draft. Targets the requester's own participant.
     /// Only Contributors hold it, and only for themselves: a moment proposed for the piece makes
@@ -268,8 +273,8 @@ impl AuthorizationAction {
             | ArrangeReflection | Schedule | Publish | Export | PlaceInSeries | CreateSeries => {
                 TargetKind::Publication
             }
-            ApproveContribution | EditDraft | EditSynthesis | EditMoments | RemoveMember
-            | ManageRoles => TargetKind::Participant,
+            ApproveContribution | EditDraft | EditSynthesis | EditMoments | RespondAsAuthor
+            | RemoveMember | ManageRoles => TargetKind::Participant,
             ViewRevealed | ViewContribution | EditContribution | RevealContribution => {
                 TargetKind::Contribution
             }
@@ -598,7 +603,7 @@ fn role_allows(
         (Contributor | Editor, EditDraft, ResolvedTarget::Participant { id, .. }) => *id == own,
         (
             Contributor,
-            ApproveContribution | EditSynthesis | EditMoments,
+            ApproveContribution | EditSynthesis | EditMoments | RespondAsAuthor,
             ResolvedTarget::Participant { id, .. },
         ) => *id == own,
         (
