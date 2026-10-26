@@ -5,6 +5,34 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-10-26
+
+- Shared reflections now work for groups of any size up to the participant cap, through the same
+  copy-link invitations. Site owners and coordinators see an audit trail of invitations, joins,
+  role changes, and removals (participants and roles only, never links or prose), and role
+  changes keep approvals and continuing-conversation attribution in step. Existing records need no
+  migration.
+- Site owners and coordinators can choose a shared reflection's approval rule in Admin: every
+  author, everyone who wrote, the writers plus named people, or the writers plus everyone with a
+  chosen role, and whether an approval covers one's own sections or the whole piece. Everyone who
+  wrote always approves their own words. Changing the rule needs a confirmation, clears every
+  approval, and is refused if someone else changed it first or if the authors could never meet
+  it. A coordinator can keep or add people who must approve, but only a site owner can change the
+  rule so that someone no longer has to. If a named person leaves, or nobody holds a listed role,
+  publishing waits until the rule changes. The combined preview shows the rule. Changing the
+  sharing rule now refuses to overwrite a change made elsewhere and, because it clears every
+  standing offer, needs a confirmation too.
+- A shared reflection with a large group, long names and a long membership history no longer
+  risks being saved in a form that could not be opened again; a save that would be too large is
+  refused and the reflection stays as it was.
+- Accessibility Studio and `openblog check` no longer ask you to review the layout markup of an
+  arranged shared reflection as custom raw HTML: it is written by open.blog, with every turn
+  under a heading naming its author. Raw HTML anywhere else is still flagged for review.
+- When an author removes a part of their draft after the piece was arranged, the combined
+  preview says the arrangement no longer matches the drafts, and once every required approval is
+  in, publishing asks a coordinator to arrange it again rather than failing with a generic error.
+  A coordinator who cannot read the drafts is never told whether a part exists.
+
 ## [0.27.0] - 2026-10-25
 
 - Defined how citations work, ahead of in-post citations: a citation is `[@key]` or

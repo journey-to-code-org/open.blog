@@ -42,7 +42,10 @@ set, the participants the maintainer added.
   changes). The requester must equal the participant and be a current author: no role, including
   site owner and coordinator, can approve for another or withdraw another's approval, and every
   such refusal is the same `Denied`. A publish grant never substitutes for approval. The site
-  owner may change the policy, which can only remove approvals, never add one.
+  owner may change the policy, which can only remove approvals, never add one. (Amended by
+  [ADR 0052](0052-group-approval-rules-add-approvers-and-never-split-the-reveal.md): a
+  coordinator may change it too, but only in ways that keep or add required approvers. A change
+  that drops anyone the current rule requires still needs a site owner.)
 - `ApprovalSet::evaluate` is the gate's question, asked at publish time against current content.
   A scheduled publication is therefore re-checked when it fires: time never expires or renews an
   approval, but an edit between scheduling and publishing blocks it. An invalid subject (no

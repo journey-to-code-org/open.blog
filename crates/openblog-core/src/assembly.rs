@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::approval::{public_metadata, ApprovalSet, ApprovalSubject, Readiness, Section};
-use crate::collaboration::{valid_admin_username, SharedPublication};
+use crate::collaboration::{valid_admin_username, AuthorizationRole, SharedPublication};
 use crate::draft::DraftSet;
 use crate::frontmatter::{self, Value};
 use crate::reflection::{compose, strip_part_markers, ComposedTurn, ReflectionStructure};
@@ -35,8 +35,21 @@ pub enum AssemblyError {
     /// Required approvals are missing or no longer match the content. Holds display names, for a
     /// requester who already holds the publish grant.
     Blocked { missing: Vec<String> },
+    /// The approval rule cannot be met by the authors as they are now, whatever anyone approves:
+    /// a named participant (display names here) is no longer an author, or no author holds a
+    /// listed role. Someone with the policy grant changes the rule, or the maintainer restores the
+    /// person or gives the role (ADR 0052).
+    RuleUnmet {
+        named: Vec<String>,
+        roles: Vec<AuthorizationRole>,
+    },
     /// The record cannot make a Post: no title, no section, or an author without a profile.
     Invalid,
+    /// The arrangement names a part or draft the current drafts no longer have (an author
+    /// removed a part after it was arranged). Distinct from [`Self::Invalid`] because the fix is
+    /// a coordinator's: arrange the piece again (#188). Reported only once the approvals are met,
+    /// so it never tells someone who may not read the drafts whether a part exists (ADR 0031).
+    ArrangementMismatch,
     /// A section contains raw HTML or a link or image with an active address (`javascript:`,
     /// `data:`). Native pages pass these through, which is right for the site owner's own posts
     /// but not for a co-author's prose, and the approved text must not be altered, so the piece
@@ -145,11 +158,24 @@ pub fn with_subject<R>(
     metadata.extend(synthesis.binding_frame());
     let metadata: Vec<&str> = metadata.iter().map(String::as_str).collect();
     let attributed = synthesis.attributed_authors();
+    // The roles each author holds, for role-based approval rules (ADR 0052).
+    let roles: Vec<(&str, AuthorizationRole)> = authors
+        .iter()
+        .flat_map(|author| {
+            record
+                .authorization
+                .bindings
+                .iter()
+                .filter(move |binding| binding.participant_id == *author)
+                .flat_map(move |binding| binding.roles.iter().map(move |role| (*author, *role)))
+        })
+        .collect();
     ask(&ApprovalSubject {
         authors: &authors,
         sections: &sections,
         metadata: &metadata,
         attributed: &attributed,
+        roles: &roles,
     })
 }
 
@@ -298,11 +324,21 @@ pub fn assemble(
     active: &[&str],
     date: &str,
 ) -> Result<Assembly, AssemblyError> {
+    // The approvals are evaluated before anything reads a draft. Checking the arrangement against
+    // the drafts first would refuse differently depending on whether a draft has a given part, an
+    // oracle on unrevealed prose for a coordinator who may arrange but not read (ADR 0031). Only a
+    // piece whose approvals are met can be refused as `ArrangementMismatch`, below.
     match with_subject(record, structure, drafts, synthesis, active, |subject| {
         approvals.evaluate(subject)
     }) {
         Ok(Readiness::Ready) => {}
-        Ok(Readiness::Blocked { missing }) => {
+        Ok(Readiness::Blocked { gaps, .. }) if !gaps.is_empty() => {
+            return Err(AssemblyError::RuleUnmet {
+                named: display_names(record, gaps.named.iter().map(String::as_str)),
+                roles: gaps.roles,
+            })
+        }
+        Ok(Readiness::Blocked { missing, .. }) => {
             return Err(AssemblyError::Blocked {
                 missing: display_names(record, missing.iter().map(String::as_str)),
             })
@@ -339,10 +375,12 @@ pub fn assemble(
     let mut credits = Vec::new();
     let mut arranged = None;
     if let Some(structure) = structure {
-        // The same latest revisions the approval's binding covers, in the one reading order.
+        // The same latest revisions the approval's binding covers, in the one reading order. A
+        // turn naming a part an author has since removed is a coordinator's fix, so it gets its
+        // own error; it is reached only once the approvals are met.
         let order = structure
             .reading_order(&record.collaboration, drafts)
-            .map_err(|_| AssemblyError::Invalid)?;
+            .map_err(|_| AssemblyError::ArrangementMismatch)?;
         let order: Vec<_> = order
             .into_iter()
             .filter(|entry| active.contains(&entry.participant_id) && entry.markdown.is_some())
