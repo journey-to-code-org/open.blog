@@ -516,8 +516,11 @@ fn paragraphs(value: &str) -> String {
 
 /// The section of a post's canonical page that lists its approved notes:
 /// static, semantic HTML that needs no script. Every value is escaped; a
-/// suggested source is a plain link marked as reader-supplied.
-pub fn render_section(items: &[PublicFeedback]) -> String {
+/// suggested source is a plain link marked as reader-supplied. With
+/// `reports`, the hosted endpoint while abuse reports are open (ADR 0130),
+/// each note carries a progressive report form whose static text works
+/// without it.
+pub fn render_section(items: &[PublicFeedback], reports: Option<&str>) -> String {
     if items.is_empty() {
         return String::new();
     }
@@ -585,6 +588,13 @@ pub fn render_section(items: &[PublicFeedback]) -> String {
                 "<div class=\"ob-reader-note-response\">\n<h4>The author’s response <time datetime=\"{0}\">{0}</time></h4>\n{1}\n</div>\n",
                 attr(&response.date),
                 paragraphs(&response.text)
+            ));
+        }
+        if let Some(endpoint) = reports {
+            html.push_str(&format!(
+                "<ob-abuse-report endpoint=\"{}\" source=\"feedback\" item=\"{}\" subject=\"this note\"><p class=\"ob-abuse-report-static\">To report this note as abusive, write to the author.</p></ob-abuse-report>\n",
+                attr(endpoint),
+                attr(&item.id)
             ));
         }
         html.push_str("</article></li>\n");

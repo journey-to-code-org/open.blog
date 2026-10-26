@@ -31,6 +31,7 @@ import {
   readFeedbackSubmissionJson,
   submissionValue,
 } from "./passage-feedback.js";
+import { isReceipt, receiptManager, receiptPanel } from "./feedback-receipt.js";
 
 export const DATA_ELEMENT_ID = "ob-passages";
 export const SUPPORTED_VERSION = 1;
@@ -239,6 +240,7 @@ export class ObPassageFeedback extends HTMLElement {
   #quote = null;
   #sending = null;
   #scheduled = false;
+  #receipt = null;
 
   connectedCallback() {
     if (this.#listeners) return;
@@ -259,6 +261,9 @@ export class ObPassageFeedback extends HTMLElement {
       this.#ui = this.#build(`ob-passage-feedback-${instances}`);
       this.querySelector(".ob-passage-feedback-static")?.remove();
       this.append(this.#ui.done, this.#ui.form, this.#ui.status, this.#ui.fallback, this.#ui.selectionButton);
+      // A reader's receipt (ADR 0130) is usable here once the site says the
+      // hosted service issues receipts.
+      if (this.hasAttribute("receipts")) this.append(receiptManager({ endpoint }));
       this.#kindChanged();
     }
     // The form's own listeners live as long as it does; these follow the page.
@@ -681,7 +686,11 @@ export class ObPassageFeedback extends HTMLElement {
         signal: controller.signal,
       });
       const result = await response.json().catch(() => ({}));
-      outcome = { status: response.status, code: result && typeof result === "object" ? result.code : undefined };
+      outcome = {
+        status: response.status,
+        code: result && typeof result === "object" ? result.code : undefined,
+        receipt: result && typeof result === "object" && isReceipt(result.receipt) ? result.receipt : undefined,
+      };
     } catch {
       outcome = { status: 0 };
     } finally {
@@ -693,7 +702,7 @@ export class ObPassageFeedback extends HTMLElement {
     }
     if (!this.#listeners) return;
     if (outcome.status === 202) {
-      this.#succeeded();
+      this.#succeeded(outcome.receipt);
       return;
     }
     const known = FIELD_PROBLEMS[outcome.code];
@@ -717,12 +726,18 @@ export class ObPassageFeedback extends HTMLElement {
     this.#fallback(submission, reason);
   }
 
-  #succeeded() {
+  #succeeded(receipt) {
     const ui = this.#ui;
     for (const control of [ui.body, ui.source, ui.suggested]) control.value = "";
     ui.status.textContent = "Sent for review.";
-    ui.done.textContent = "Thank you. Your note was sent to the author for review. Nothing is published unless they approve it.";
+    ui.done.textContent = receipt
+      ? "Thank you. Your note was sent to the author for review. Nothing is published unless they approve it. Keep the receipt below."
+      : "Thank you. Your note was sent to the author for review. Nothing is published unless they approve it.";
     ui.done.hidden = false;
+    // The receipt is shown once, right after the note was taken; a newer one replaces it.
+    this.#receipt?.remove();
+    this.#receipt = receipt ? receiptPanel({ endpoint: this.#endpoint, receipt }) : null;
+    if (this.#receipt) ui.done.after(this.#receipt);
     ui.done.focus();
   }
 

@@ -897,3 +897,50 @@ fn published_notes_stay_on_the_pages_of_a_site_without_hosted_engagement() {
     assert!(!pages["tides/index.html"].contains("Why the sun?"));
     assert!(!pages["tides/index.html"].contains("It was three times."));
 }
+
+/// ADR 0130: while abuse reports are open, every published note and the
+/// comments carry a report form whose static text works without a script;
+/// a site that offers receipts lets readers use them in the form. No
+/// service credential reaches any page.
+#[test]
+fn reports_and_receipts_are_offered_only_where_the_site_turns_them_on() {
+    let site = load(FEEDBACK_SITE, TIDES, None);
+    let file = published_file(&site).to_json();
+    let protected = r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","author":{"name":"A"},
+  "engagement":{"enabled":true,"feedback":true,"receipts":true,"endpoint":"https://t.dev/api"},
+  "participation":{"kinds":{"abuse-report":"open"}}}"#;
+    let pages = build(&load(protected, TIDES, Some(file.clone())));
+    let tides = &pages["tides/index.html"];
+    for id in [ID_A, ID_B] {
+        assert!(
+            tides.contains(&format!(
+                "<ob-abuse-report endpoint=\"https://t.dev/api\" source=\"feedback\" item=\"{id}\" subject=\"this note\"><p class=\"ob-abuse-report-static\">To report this note as abusive, write to the author.</p></ob-abuse-report>"
+            )),
+            "{tides}"
+        );
+    }
+    assert!(tides.contains(" receipts>"), "{tides}");
+    assert!(tides.contains("<ob-comments path=\"/tides/\" endpoint=\"https://t.dev/api\" reports>"));
+    // Off by default: the same site without them has neither.
+    let plain = build(&load(FEEDBACK_SITE, TIDES, Some(file)));
+    for page in plain.values().chain(pages.values()) {
+        for secret in [
+            "sb_secret",
+            "SUPABASE",
+            "service_role",
+            "OPENBLOG_ADMIN_API_KEY",
+            "receipt_hash",
+        ] {
+            assert!(!page.contains(secret), "{secret}");
+        }
+    }
+    let plain = &plain["tides/index.html"];
+    assert!(
+        !plain.contains("ob-abuse-report")
+            && !plain.contains(" receipts>")
+            && !plain.contains(" reports>")
+    );
+    // Written back, the setting stays out of a file that never set it.
+    let config = SiteConfig::from_json(FEEDBACK_SITE).unwrap();
+    assert!(!serde_json::to_string(&config).unwrap().contains("receipts"));
+}

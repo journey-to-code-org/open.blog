@@ -810,8 +810,15 @@ impl<'a> Renderer<'a> {
                 ),
             )
         };
+        // Readers can use their receipts on the page once the site says the
+        // hosted service issues them (ADR 0130).
+        let receipts_attr = if c.engagement.receipts {
+            " receipts"
+        } else {
+            ""
+        };
         let region = format!(
-            "<section id=\"{FEEDBACK_ANCHOR}\" class=\"ob-feedback\" aria-labelledby=\"{FEEDBACK_ANCHOR}-title\">\n<h2 id=\"{FEEDBACK_ANCHOR}-title\">Questions and corrections</h2>\n<ob-passage-feedback endpoint=\"{}\" page=\"{}\"{kinds_attr}{contact_attr}>\n<p>{invitation} The author reviews every note, and nothing is published without their approval.</p>\n<p class=\"ob-passage-feedback-static\">The feedback form needs JavaScript. Without it, you can send your note to the author{contact_words}: name the section by its link, quote the words you mean, and give this page’s passage revision, <code>{}</code>, so the author can find the text you read.</p>\n</ob-passage-feedback>\n</section>\n",
+            "<section id=\"{FEEDBACK_ANCHOR}\" class=\"ob-feedback\" aria-labelledby=\"{FEEDBACK_ANCHOR}-title\">\n<h2 id=\"{FEEDBACK_ANCHOR}-title\">Questions and corrections</h2>\n<ob-passage-feedback endpoint=\"{}\" page=\"{}\"{kinds_attr}{contact_attr}{receipts_attr}>\n<p>{invitation} The author reviews every note, and nothing is published without their approval.</p>\n<p class=\"ob-passage-feedback-static\">The feedback form needs JavaScript. Without it, you can send your note to the author{contact_words}: name the section by its link, quote the words you mean, and give this page’s passage revision, <code>{}</code>, so the author can find the text you read.</p>\n</ob-passage-feedback>\n</section>\n",
             attr(endpoint),
             attr(&c.absolute(&post.url)),
             text(&document.revision),
@@ -1372,8 +1379,15 @@ impl<'a> Renderer<'a> {
         // Approved reader notes, with the author's responses, are shown on
         // the canonical page only (ADR 0083), before the form that asks for
         // more.
+        // Abuse reports (ADR 0130): offered under each public comment and
+        // published note while the site has them open.
+        let reports_endpoint =
+            (participation::effective_mode(c, post, ParticipationKind::AbuseReport)
+                == ParticipationMode::Open)
+                .then(|| c.engagement.endpoint.trim().trim_end_matches('/'));
         body.push_str(&crate::feedback_publication::render_section(
             post.reader_feedback(),
+            reports_endpoint,
         ));
         let passage_feedback = self.passage_feedback(post);
         if let Some((region, _)) = &passage_feedback {
@@ -1386,12 +1400,18 @@ impl<'a> Renderer<'a> {
             } else {
                 ""
             };
+            let reports = if reports_endpoint.is_some() {
+                " reports"
+            } else {
+                ""
+            };
             body.push_str(&format!(
-                "<section id=\"{}\" aria-label=\"Discussion\"><ob-comments path=\"{}\" endpoint=\"{}\"{}><p>Comments require JavaScript.</p></ob-comments></section>\n",
+                "<section id=\"{}\" aria-label=\"Discussion\"><ob-comments path=\"{}\" endpoint=\"{}\"{}{}><p>Comments require JavaScript.</p></ob-comments></section>\n",
                 crate::model::DISCUSSION_ANCHOR,
                 attr(&post.url),
                 attr(c.engagement.endpoint.trim().trim_end_matches('/')),
                 mode,
+                reports,
             ));
         }
         if !c.snippets.post_footer.trim().is_empty() {

@@ -569,6 +569,13 @@ pub struct EngagementConfig {
     /// take it (ADR 0082): a `mailto:` address or an `https:` contact page,
     /// shown on pages that offer passage feedback. Empty shows none.
     pub feedback_contact: String,
+    /// Offer readers of passage feedback a way to use their private receipt
+    /// on the page: check on a note, answer a clarification request, or
+    /// withdraw it and have it deleted (ADR 0130). Off by default, and left
+    /// out of the written file while off; the deployer must also run
+    /// `supabase/protection.sql` and set `OPENBLOG_PROTECTION_ENABLED`.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub receipts: bool,
 }
 
 impl Default for EngagementConfig {
@@ -580,6 +587,7 @@ impl Default for EngagementConfig {
             endpoint: String::new(),
             feedback: false,
             feedback_contact: String::new(),
+            receipts: false,
         }
     }
 }

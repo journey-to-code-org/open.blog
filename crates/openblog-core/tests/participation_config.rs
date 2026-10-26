@@ -412,7 +412,7 @@ fn generated_comment_output_is_byte_for_byte_what_it_was() {
         ),
         (
             format!(
-                r#"{hosted},"participation":{{"kinds":{{"third-perspective":"follow-comments","abuse-report":"open"}},"retention":{{"pendingDays":7}}}}"#
+                r#"{hosted},"participation":{{"kinds":{{"third-perspective":"follow-comments"}},"retention":{{"pendingDays":7}}}}"#
             ),
             by_post,
             [Some(open_a), Some(locked_b), None, None],
@@ -437,7 +437,9 @@ fn generated_comment_output_is_byte_for_byte_what_it_was() {
     }
     // The hosted site with kinds that have no page element yet, and
     // retention, renders every post page exactly as the same site without
-    // them. (B5's kinds add their own form; see the B5 mapping tests.)
+    // them. (B5's kinds add their own form, see the B5 mapping tests, and
+    // abuse reports a report form under comments and notes, see
+    // participation_protection.rs.)
     assert_eq!(pages_by_case[4], pages_by_case[3]);
 }
 
