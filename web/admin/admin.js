@@ -2797,7 +2797,9 @@ export function createClaimsStudio({ api, post, selection, idPrefix = "oba-claim
   let form = null; // null, or { type: "claim" | "link", draft, editing, conflict }
   let busy = false;
   let lastRemoved = null; // { type, record } for undo
-  const root = h("section", { class: "oba-claims", "aria-labelledby": `${idPrefix}-heading`, "data-claims": "true" });
+  // Claims are stored apart from the post: typing in their forms is not an edit of the post, so it
+  // must not mark the post unsaved (which would refuse the next claim until a needless save).
+  const root = h("section", { class: "oba-claims", "aria-labelledby": `${idPrefix}-heading`, "data-claims": "true", onInput: (event) => event.stopPropagation() });
   const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-claims-status": "true" });
   const errorBox = h("p", { class: "oba-error", id: `${idPrefix}-error`, role: "alert", hidden: true, tabindex: "-1" });
   const list = h("div", { class: "oba-claim-list", "data-claims-list": "true" });
@@ -3233,13 +3235,14 @@ export function createClaimsStudio({ api, post, selection, idPrefix = "oba-claim
   const render = () => {
     renderForm();
     const claims = postClaims();
+    // replaceChildren takes nodes only: an array or a null would be shown as text.
     list.replaceChildren(
-      claims.length
+      ...(claims.length
         ? claims.map(claimItem)
-        : h("p", { class: "oba-small", "data-claims-empty": "true" }, "No claims about this post yet. Select words in the draft, then make a claim from them."),
+        : [h("p", { class: "oba-small", "data-claims-empty": "true" }, "No claims about this post yet. Select words in the draft, then make a claim from them.")]),
     );
     undoRegion.replaceChildren(
-      lastRemoved ? h("button", { class: "oba-btn", type: "button", "data-claims-undo-button": "true", onClick: undo }, lastRemoved.type === "claim" ? "Undo removing the claim" : "Undo removing the link") : null,
+      ...(lastRemoved ? [h("button", { class: "oba-btn", type: "button", "data-claims-undo-button": "true", onClick: undo }, lastRemoved.type === "claim" ? "Undo removing the claim" : "Undo removing the link")] : []),
     );
     const notices = state.notices.filter((notice) => {
       const link = linkById(notice.id);
@@ -3272,7 +3275,10 @@ export function createClaimsStudio({ api, post, selection, idPrefix = "oba-claim
         say(state.file ? `Stored privately in ${state.file}.` : "");
       } catch (error) {
         if (error.status === 401) throw error;
-        list.replaceChildren(h("p", { class: "oba-error", role: "alert" }, `The claims could not be read. ${claimsErrorMessage(error)}`), error.data?.file ? h("p", { class: "oba-small" }, `Repair ${error.data.file} by hand, then open this view again. Nothing was changed.`) : null);
+        list.replaceChildren(
+          h("p", { class: "oba-error", role: "alert" }, `The claims could not be read. ${claimsErrorMessage(error)}`),
+          ...(error.data?.file ? [h("p", { class: "oba-small" }, `Repair ${error.data.file} by hand, then open this view again. Nothing was changed.`)] : []),
+        );
       }
     },
     isDirty: () => Boolean(form) && !busy,
