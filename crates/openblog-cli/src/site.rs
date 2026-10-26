@@ -226,6 +226,8 @@ pub struct BuildReport {
     pub warnings: Vec<String>,
     pub accessibility: Vec<AccessibilityFinding>,
     pub evidence: Vec<EvidenceFinding>,
+    /// What the research projections published and withheld (ADR 0137).
+    pub boundary: openblog_core::publication_boundary::BoundaryManifest,
 }
 
 pub fn load_config(root: &Path) -> Result<SiteConfig, String> {
@@ -753,11 +755,32 @@ pub fn generate_site(
     site: &mut Site,
     themes: &ThemeSet,
 ) -> Result<Vec<openblog_core::OutputFile>, String> {
+    generate_site_with_boundary(root, site, themes).map(|(files, _)| files)
+}
+
+/// [`generate_site`], with the publication boundary manifest the output was
+/// checked against (ADR 0137).
+pub fn generate_site_with_boundary(
+    root: &Path,
+    site: &mut Site,
+    themes: &ThemeSet,
+) -> Result<
+    (
+        Vec<openblog_core::OutputFile>,
+        openblog_core::publication_boundary::BoundaryManifest,
+    ),
+    String,
+> {
     // Private research must never ride into a public folder (an export saved
     // into static/, a copied notebook): refuse before anything is generated.
     crate::private_guard::refuse_private_research_in_public_inputs(root, &site.config)?;
-    site.atlas = published_atlas(root, &site.config, &mut site.warnings)?;
-    site.comparisons = published_comparisons(root, &site.config, &mut site.warnings)?;
+    // The research projections, attached exactly as the Admin preview of the
+    // boundary attaches them (ADR 0137); here a projection that cannot be
+    // built refuses the output.
+    let blocked = crate::boundary::project(root, site);
+    if let Some(error) = blocked.atlas.as_ref().or(blocked.comparisons.as_ref()) {
+        return Err(error.clone());
+    }
     // Published claim evidence that cannot be read refuses the whole output
     // rather than publishing posts without it, as a damaged atlas does
     // (ADR 0075). Only here: an Admin save's validation render is not stopped.
@@ -769,11 +792,17 @@ pub fn generate_site(
     if let Some(error) = &site.reader_feedback_error {
         return Err(error.clone());
     }
+    // What the projections publish and withhold; a stale approval or an
+    // unsafe web address withholds only what it affects, and is named.
+    let stores = crate::boundary::Stores::read(root, &site.config);
+    let manifest = crate::boundary::manifest(site, &stores, &blocked, None);
+    site.warnings.extend(manifest.build_warnings());
     // Required destinations (including full-content feeds) must succeed before
     // generated output or stale files are changed.
     let files = generate(site, themes)?;
     crate::private_guard::refuse_private_research_in_output(&files)?;
-    Ok(files)
+    crate::boundary::check_output(root, site, &manifest, &files)?;
+    Ok((files, manifest))
 }
 
 pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String> {
@@ -793,7 +822,7 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
             preview_source: None,
         },
     )?;
-    let files = generate_site(root, &mut site, &themes)?;
+    let (files, boundary) = generate_site_with_boundary(root, &mut site, &themes)?;
     let config = &site.config;
     let mut warnings = site.warnings.clone();
     warnings.extend(
@@ -895,6 +924,7 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
         warnings,
         accessibility: site.accessibility.clone(),
         evidence,
+        boundary,
     })
 }
 

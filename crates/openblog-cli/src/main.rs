@@ -8,6 +8,7 @@ mod assistant;
 mod assistant_storage;
 mod atlas_store;
 mod auth;
+mod boundary;
 mod claims_store;
 mod clock;
 mod contributor_migration;
