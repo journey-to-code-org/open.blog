@@ -458,7 +458,10 @@ fn hostile_names_stay_escaped_unlinked_text_and_the_build_succeeds() {
             series_body(page(&files, "series/letters/index.html")),
             series_box(page(&files, "n1/index.html")),
         ] {
-            assert!(html.contains(&format!("By {escaped} and Ann")), "{id}: {html}");
+            assert!(
+                html.contains(&format!("By {escaped} and Ann")),
+                "{id}: {html}"
+            );
             assert!(
                 !html.contains("<img")
                     && !html.contains("<strong")
