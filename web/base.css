@@ -1674,6 +1674,37 @@ ob-comments {
   font-size: 1rem;
 }
 
+/* The author's decision on a published suggestion (ADR 0141): its words name the outcome, so
+   nothing relies on colour; an undecided suggestion has a dashed rule instead of a solid one. */
+.ob-reader-note-outcome,
+.ob-reader-outcome {
+  overflow-wrap: anywhere;
+}
+
+.ob-reader-note-outcome {
+  margin-block-start: .75rem;
+  border-inline-start: 3px solid var(--ob-color-border);
+  padding-inline-start: 1rem;
+}
+
+.ob-reader-note-outcome[data-outcome="unresolved"] {
+  border-inline-start-style: dashed;
+}
+
+.ob-reader-note-outcome h4 {
+  margin-block: 0 .25rem;
+  font-size: 1rem;
+}
+
+.ob-reader-note-outcome p {
+  margin-block: .25rem;
+}
+
+.ob-reader-note-outcome code {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
 ob-passage-feedback {
   display: block;
 }

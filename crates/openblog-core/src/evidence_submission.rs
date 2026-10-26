@@ -827,7 +827,7 @@ impl SiteReferenceIndex {
 }
 
 /// How a published evidence link's relation reads before its source.
-fn relation_words(relation: Relation) -> &'static str {
+pub(crate) fn relation_words(relation: Relation) -> &'static str {
     match relation {
         Relation::Supports => "Supported by",
         Relation::Contradicts => "Contradicted by",
