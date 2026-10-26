@@ -428,3 +428,37 @@ fn site_model_audits_page_and_series_markdown_too() {
         .iter()
         .all(|finding| finding.code == FindingCode::LinkNameEmpty));
 }
+
+#[test]
+fn a_reflection_arrangement_frame_is_not_custom_markup_but_stray_html_still_is() {
+    use openblog_core::reflection::{compose, ComposedTurn, Placement, ReflectionLayout};
+    let names = ["Ann", "Bo", "Cy"];
+    let turns = names
+        .iter()
+        .enumerate()
+        .map(|(i, name)| ComposedTurn {
+            round: 0,
+            round_prompt: (i == 0).then_some("Around the table"),
+            display_name: name,
+            label: None,
+            placement: Placement { lane: i, lanes: 3 },
+            body: format!("Words of {name}.\n"),
+        })
+        .collect::<Vec<_>>();
+    let framed = compose(ReflectionLayout::Roundtable, &turns);
+    let audit = |markdown: &str| {
+        audit_document(DocumentAuditInput {
+            path: "posts/shared-0a1b2c3d4e5f.md",
+            markdown,
+            body_line: 1,
+            embeds_enabled: true,
+            cover_alt: None,
+        })
+    };
+    assert!(audit(&framed).is_empty(), "{:?}", audit(&framed));
+    // Anything outside the closed grammar is not the frame, so it is reviewed as before.
+    let stray = format!("{framed}\n<div onclick=\"x()\">Mine</div>\n");
+    let findings = audit(&stray);
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].code, FindingCode::RawHtmlReview);
+}
