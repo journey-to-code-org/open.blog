@@ -539,9 +539,14 @@ pub fn web_file(root: &Path, config: &SiteConfig, rel: &str) -> Option<Vec<u8>> 
 /// is read and validated against the library and notebook exactly as Admin
 /// reads it, and a problem refuses the build before anything is written,
 /// naming the file and ids only.
+///
+/// The atlas is private and Git-ignored, so a build from a clone (CI, a static
+/// host) finds none and would publish an empty atlas: that build is warned in
+/// `warnings`, which `build` and `check` both report.
 pub fn published_atlas(
     root: &Path,
     config: &SiteConfig,
+    warnings: &mut Vec<String>,
 ) -> Result<Option<openblog_core::atlas_publication::PublicAtlas>, String> {
     if !config.knowledge_atlas.publish {
         return Ok(None);
@@ -553,9 +558,21 @@ pub fn published_atlas(
     };
     let snapshot = crate::atlas_store::load(root, &config.contributors)
         .map_err(|error| unpublishable(error.to_string()))?;
+    if !snapshot.stored {
+        warnings.push(unstored_atlas_warning());
+    }
     openblog_core::atlas_publication::PublicAtlas::project(&snapshot.atlas, &snapshot.library)
         .map(Some)
         .map_err(unpublishable)
+}
+
+/// What `build` and `check` say when the site publishes its atlas but this
+/// build cannot read one.
+fn unstored_atlas_warning() -> String {
+    format!(
+        "`knowledgeAtlas.publish` is on, but no Knowledge Atlas is stored at {}, so /atlas/ and atlas.json are published empty. The atlas is private and Git-ignored: only a build that can read it publishes it (`openblog serve` and Admin, or a local `openblog build` you then upload). A CI or static-host build from the repository cannot.",
+        crate::atlas_store::ATLAS_FILE
+    )
 }
 
 /// Everything a full build or `check` generates, after the guards that keep
@@ -568,7 +585,7 @@ pub fn generate_site(
     // Private research must never ride into a public folder (an export saved
     // into static/, a copied notebook): refuse before anything is generated.
     crate::private_guard::refuse_private_research_in_public_inputs(root, &site.config)?;
-    site.atlas = published_atlas(root, &site.config)?;
+    site.atlas = published_atlas(root, &site.config, &mut site.warnings)?;
     // Required destinations (including full-content feeds) must succeed before
     // generated output or stale files are changed.
     let files = generate(site, themes)?;
@@ -1078,6 +1095,49 @@ mod tests {
         production_build(&root);
         assert_eq!(dist_bytes(&root), without);
         assert!(without.keys().all(|path| !path.contains("atlas")));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_build_that_publishes_the_atlas_but_cannot_read_one_warns() {
+        let root = project_with_private_library(
+            "atlas-unstored",
+            r#"{"knowledgeAtlas":{"publish":true}}"#,
+        );
+        fs::remove_file(root.join(crate::atlas_store::ATLAS_FILE)).unwrap();
+        fs::remove_file(root.join(crate::notebook_store::NOTEBOOK_FILE)).unwrap();
+        let report = production_build(&root);
+        let warning = report
+            .warnings
+            .iter()
+            .find(|warning| warning.contains("knowledgeAtlas.publish"))
+            .expect("the build warns that it publishes an empty atlas");
+        assert!(
+            warning.contains(crate::atlas_store::ATLAS_FILE),
+            "{warning}"
+        );
+        assert!(warning.contains("published empty"), "{warning}");
+        assert!(warning.contains("openblog serve"), "{warning}");
+
+        // `check` reads the same warnings from the generated site.
+        let (mut site, themes) = load_site(&root, true, None).unwrap();
+        generate_site(&root, &mut site, &themes).unwrap();
+        assert!(site
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("knowledgeAtlas.publish")));
+
+        // A stored atlas, even an empty one, is no surprise.
+        fs::write(
+            root.join(crate::atlas_store::ATLAS_FILE),
+            r#"{"version":1,"entries":[],"relationships":[]}"#,
+        )
+        .unwrap();
+        let report = production_build(&root);
+        assert!(report
+            .warnings
+            .iter()
+            .all(|warning| !warning.contains("knowledgeAtlas.publish")));
         fs::remove_dir_all(root).unwrap();
     }
 

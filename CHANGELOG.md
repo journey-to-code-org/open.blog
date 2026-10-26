@@ -36,6 +36,9 @@ All notable changes to open.blog are recorded here. Releases follow
   with everyone who disagrees. Private entries, notebook passages, unknown fields and anything
   unapproved never appear, clearing an approval removes the item from the next build, and
   sites that leave publication off build exactly as before without reading the atlas.
+  Because the atlas is private and Git-ignored, only `openblog serve`, Admin or a local build
+  you upload can publish it; `openblog build` and `openblog check` warn when publishing is on
+  but no atlas is stored, as in a CI or static-host build.
 
 ## [0.27.0] - 2026-10-25
 

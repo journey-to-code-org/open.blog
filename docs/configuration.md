@@ -251,6 +251,12 @@ build reads the atlas. Clearing an approval removes the item from the next build
 `{ "label": "Atlas", "href": "/atlas/" }` to `nav` to link it from the header. See the
 [Knowledge Atlas format](specs/knowledge-atlas.md#publication).
 
+The atlas is private and Git-ignored, so only a build that can read it publishes it:
+`openblog serve` and Admin, or a local `openblog build` whose `dist/` you then upload. A CI or
+static-host build from the repository finds no atlas and publishes `/atlas/` and `/atlas.json`
+empty; `openblog build` and `openblog check` warn when publishing is on but no atlas is stored.
+See [Deploying](deploy.md).
+
 ## Themes
 
 Themes are not configured here beyond `theme`; each theme has its own `theme.json`. See

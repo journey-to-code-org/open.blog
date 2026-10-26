@@ -78,6 +78,12 @@ as before.
   `check` stop before generating anything, naming the file and ids only, and the previous output
   stays as it was. `atlas` is a reserved path only while the atlas is published, so an existing
   page at `/atlas/` keeps working until then and is then refused with a message naming it.
+- **Only a build that can read the atlas publishes it.** The atlas is private and Git-ignored,
+  so a build from a clone (CI, a static host) finds none and would publish an empty `/atlas/`
+  and `atlas.json`. Such a build is not refused, since an empty atlas is valid and the rest of
+  the site is unaffected, but `build` and `check` warn whenever publishing is on and no atlas is
+  stored, naming the file. The atlas is published by `openblog serve` and Admin, or by a local
+  `openblog build` whose output is then uploaded. Committing the private atlas is not offered.
 - **Guards.** The private-research guard still refuses atlas-shaped files in public inputs, and a
   new last check refuses to write any generated file shaped like private research. The leak
   corpus seeds a sentinel in every field and proves that approved fields reach only the atlas

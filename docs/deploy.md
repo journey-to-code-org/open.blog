@@ -12,12 +12,21 @@ automatic publishing of scheduled posts).
 | Admin editor | no (edit files, push) | yes, with `--admin` |
 | View counter and analytics | no (`<ob-views>` hides itself) | yes |
 | HTTPS | provided | put a reverse proxy in front |
+| Published Knowledge Atlas | only if you build locally and upload `dist/` | yes |
 
 A blog made with `openblog init` is a folder of Markdown, settings, and themes. It has
 no Rust code of its own: the `openblog` command does the building. The instructions below
 assume that layout. (If you instead work inside a clone of the open.blog repository, its
 own `.github/workflows/pages.yml` builds the starter site from source; replace
 `openblog build` with `cargo run --release -p openblog-cli -- build` in the commands here.)
+
+**The Knowledge Atlas is not in the repository.** With `knowledgeAtlas.publish` on, `/atlas/`
+and `/atlas.json` come from the private atlas at `.openblog/private/research/atlas.json`, which
+is Git-ignored. A build that runs from a clone (GitHub Actions, Netlify, Cloudflare Pages, any
+CI) cannot read it and publishes an empty atlas; `openblog build` and `openblog check` warn when
+that happens. Only a build that can read the private atlas publishes it: `openblog serve` and
+Admin on the machine that holds it, or an `openblog build` run there whose `dist/` you then
+upload.
 
 ## GitHub Pages
 
