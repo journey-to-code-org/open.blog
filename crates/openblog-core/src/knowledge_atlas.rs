@@ -629,6 +629,24 @@ pub struct AtlasDiagnostic {
     /// Field path inside the item, such as `from` or `evidence[1].locators[0].kind`.
     pub field: Option<String>,
     pub message: String,
+    /// The position-free facts a notice states: the ids, locators and
+    /// counts it is about, never a sentence. They identify what the notice
+    /// says for an author's acknowledgement (ADR 0145) and are never
+    /// serialized.
+    #[serde(skip)]
+    pub facts: Vec<String>,
+}
+
+impl AtlasDiagnostic {
+    /// The diagnostic with its position-free facts, in the validator's order.
+    pub fn with_facts<I, S>(mut self, facts: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.facts = facts.into_iter().map(Into::into).collect();
+        self
+    }
 }
 
 impl fmt::Display for AtlasDiagnostic {
@@ -659,6 +677,7 @@ pub(crate) fn atlas_diagnostic(
         id: None,
         field: field.map(str::to_string),
         message: message.into(),
+        facts: Vec::new(),
     }
 }
 
@@ -678,6 +697,7 @@ pub(crate) fn item_diagnostic(
         id: Some(id.into()),
         field: Some(field.into()),
         message: message.into(),
+        facts: Vec::new(),
     }
 }
 
@@ -720,6 +740,7 @@ impl Ctx<'_> {
             id: self.id.clone(),
             field: Some(field.into()),
             message: message.into(),
+            facts: Vec::new(),
         });
     }
 }
@@ -947,6 +968,7 @@ pub(crate) fn open<'a>(
             id: None,
             field: None,
             message: "each item must be a JSON object".into(),
+            facts: Vec::new(),
         });
         return None;
     };
@@ -2011,7 +2033,8 @@ impl Atlas {
                         owner,
                         &format!("dates[{position}]"),
                         format!("`{owner}` is not published, so its approved dating `{}` stays out of public output until it is", d.id),
-                    ));
+                    )
+                    .with_facts([d.id.as_str()]));
                 }
                 if let Some(target) = d.relative_target().filter(|t| private_entry(&t.entry)) {
                     notices.push(item_diagnostic(
@@ -2021,7 +2044,8 @@ impl Atlas {
                         owner,
                         &format!("dates[{position}].date.relative.entry"),
                         format!("the entry `{}` is private, so the approved dating `{}` relative to it stays out of public output until the entry is approved", target.entry, d.id),
-                    ));
+                    )
+                    .with_facts([target.entry.as_str(), d.id.as_str()]));
                 }
             }
         }
@@ -2041,7 +2065,8 @@ impl Atlas {
                         &r.id,
                         field,
                         format!("the entry `{id}` is private, so this approved relationship stays out of public output until the entry is approved"),
-                    ));
+                    )
+                    .with_facts([id.as_str()]));
                 }
             }
         }
@@ -2058,7 +2083,8 @@ impl Atlas {
                     entry.id,
                     if count == 1 { "" } else { "s" }
                 ),
-            ));
+            )
+            .with_facts(entry.dates.iter().map(|d| d.id.as_str())));
         }
         notices
     }
@@ -2340,6 +2366,7 @@ fn upgrade_v1_item(
             id: id.clone(),
             field: Some(field.into()),
             message: message.into(),
+            facts: Vec::new(),
         });
     };
     if map.contains_key("dates") {
@@ -2478,6 +2505,7 @@ fn unknown_item(collection: &'static str, id: &str) -> AtlasDiagnostic {
         id: Some(id.into()),
         field: None,
         message: format!("nothing has the id `{id}`"),
+        facts: Vec::new(),
     }
 }
 

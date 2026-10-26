@@ -14,9 +14,8 @@
 //! key and fingerprint, the order and the counts are that contract's, under
 //! the same names and JSON fields, so the readiness report of #194 replaces
 //! the converters here without changing what Admin receives. What the
-//! adapter cannot supply yet is recorded in ADR 0135: today's validators
-//! state no position-free facts, so evidence findings are fingerprinted by
-//! their key and related objects alone.
+//! adapter adds is recorded in ADR 0135. Every validator states the same
+//! position-free facts as RW9's, so fingerprints agree with the contract's.
 //!
 //! The review is a prompt, never a verdict. There is no score, total, pass,
 //! ready or resolved field. Only a finding whose validator refuses the
@@ -663,7 +662,7 @@ impl ReviewFinding {
 
     /// A research-profile, citation or claim-review finding. A claim finding
     /// is scoped to its claim, a link finding to its link with the claim
-    /// related; anything else to the post. Today's findings state no facts.
+    /// related; anything else to the post. Its facts are the validator's.
     pub fn from_evidence(finding: &EvidenceFinding) -> Self {
         let (object, id, related) = match &finding.object {
             Some(EvidenceObject {
@@ -694,12 +693,12 @@ impl ReviewFinding {
             related,
             finding.message.clone(),
             Some(finding.repair.clone()),
-            Vec::new(),
+            finding.facts.clone(),
         )
     }
 
-    /// A diagnostic or notice of the atlas, claims or alignments file. A
-    /// notice states the ids it names as its facts.
+    /// A diagnostic or notice of the atlas, claims or alignments file, with
+    /// the position-free facts its validator states.
     pub fn from_atlas_diagnostic(diagnostic: &AtlasDiagnostic) -> Self {
         let spec = atlas_spec(diagnostic.subject, diagnostic.code);
         let file = match diagnostic.subject {
@@ -724,7 +723,7 @@ impl ReviewFinding {
             Vec::new(),
             diagnostic.message.clone(),
             None,
-            Vec::new(),
+            diagnostic.facts.clone(),
         )
     }
 
@@ -748,7 +747,7 @@ impl ReviewFinding {
                 .collect(),
             prompt.message.clone(),
             None,
-            Vec::new(),
+            prompt.facts.clone(),
         )
     }
 

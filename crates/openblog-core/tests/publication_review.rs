@@ -27,6 +27,7 @@ fn evidence(code: EvidenceCode, outcome: EvidenceOutcome, line: Option<usize>) -
         message: format!("{code} at line {line:?}"),
         repair: "Do the thing.".into(),
         object: None,
+        facts: Vec::new(),
     }
 }
 
@@ -53,6 +54,7 @@ fn notice(subject: DiagnosticSubject, code: AtlasDiagnosticCode, id: &str) -> At
         id: Some(id.into()),
         field: None,
         message: format!("notice about {id}"),
+        facts: Vec::new(),
     }
 }
 
@@ -333,4 +335,68 @@ fn the_acknowledgements_file_is_strict_sorted_and_holds_nothing_private() {
     assert!(set.withdraw(&acknowledgement));
     assert!(set.acknowledgements.is_empty());
     assert!(!set.withdraw(&acknowledgement));
+}
+
+#[test]
+fn acknowledging_one_unresolved_footnote_does_not_acknowledge_another() {
+    // Two findings with no id or field share a key; the facts the research
+    // audit states (the footnote's name) tell them apart.
+    let front = openblog_core::frontmatter::parse(
+        "---
+title: Cave
+---
+",
+    )
+    .unwrap()
+    .front_matter;
+    let audit = |body: &str| -> Vec<ReviewFinding> {
+        openblog_core::research::audit_document("posts/cave.md", &front, body, 4)
+            .iter()
+            .filter(|finding| finding.code == EvidenceCode::FootnoteUnresolved)
+            .map(ReviewFinding::from_evidence)
+            .collect()
+    };
+    let only_a = audit(
+        "Text.[^a]
+",
+    );
+    assert_eq!(only_a.len(), 1);
+    let acknowledged = Acknowledgement::of(&only_a[0]).unwrap();
+
+    let both = audit(
+        "Text.[^a] More.[^b]
+",
+    );
+    assert_eq!(both.len(), 2);
+    assert_ne!(both[0].fingerprint(), both[1].fingerprint());
+    let review = PublicationReview::new(both, std::slice::from_ref(&acknowledged));
+    let states: Vec<_> = review
+        .findings
+        .iter()
+        .map(|entry| (entry.finding.message.clone(), entry.acknowledgement))
+        .collect();
+    assert_eq!(
+        states,
+        vec![
+            (
+                "Footnote `[^a]` has no definition.".to_string(),
+                Some(AcknowledgementState::Current)
+            ),
+            ("Footnote `[^b]` has no definition.".to_string(), None),
+        ]
+    );
+    assert_eq!(review.counts.detected.acknowledged, 1);
+
+    // A new footnote alone is never read as the acknowledged one.
+    let only_b = PublicationReview::new(
+        audit(
+            "Text.[^b]
+",
+        ),
+        &[acknowledged],
+    );
+    assert_ne!(
+        only_b.findings[0].acknowledgement,
+        Some(AcknowledgementState::Current)
+    );
 }

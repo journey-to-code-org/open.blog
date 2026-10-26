@@ -309,6 +309,7 @@ pub fn create_alignment(
                     "`{}` is already used by an alignment; edit it or choose another id",
                     alignment.id
                 ),
+                facts: Vec::new(),
             }]);
         }
         set.upsert_alignment(alignment.clone(), links)
@@ -430,6 +431,7 @@ fn file_diagnostic(code: AtlasDiagnosticCode, message: String) -> AtlasDiagnosti
         id: None,
         field: None,
         message,
+        facts: Vec::new(),
     }
 }
 

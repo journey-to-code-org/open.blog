@@ -293,6 +293,7 @@ fn diagnostic(
         id: Some(id.into()),
         field: field.map(str::to_string),
         message,
+        facts: Vec::new(),
     }
 }
 
@@ -453,6 +454,7 @@ fn read(root: &Path, library: SourceLibrary, notebook: Notebook) -> Result<Snaps
             id: None,
             field: None,
             message: "the atlas is not valid UTF-8".into(),
+            facts: Vec::new(),
         }])
     })?;
     let atlas = Atlas::parse(
@@ -481,6 +483,7 @@ fn too_large() -> AtlasDiagnostic {
         id: None,
         field: None,
         message: format!("the atlas is larger than {MAX_ATLAS_BYTES} bytes"),
+        facts: Vec::new(),
     }
 }
 

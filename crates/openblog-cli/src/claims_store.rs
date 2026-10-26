@@ -509,6 +509,7 @@ fn diagnostic(
         id: Some(id.into()),
         field: field.map(str::to_string),
         message,
+        facts: Vec::new(),
     }
 }
 
@@ -673,6 +674,7 @@ fn read(root: &Path, library: SourceLibrary, notebook: Notebook) -> Result<Snaps
             id: None,
             field: None,
             message: "the claims file is not valid UTF-8".into(),
+            facts: Vec::new(),
         }])
     })?;
     let claims = ClaimSet::parse(
@@ -701,6 +703,7 @@ fn too_large() -> AtlasDiagnostic {
         id: None,
         field: None,
         message: format!("the claims file is larger than {MAX_CLAIMS_BYTES} bytes"),
+        facts: Vec::new(),
     }
 }
 

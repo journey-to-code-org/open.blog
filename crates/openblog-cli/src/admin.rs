@@ -13559,12 +13559,14 @@ fn preview(state: &AppState, req: &Request) -> Response {
             Ok(revision) => revision,
             Err(error) => return Response::error(422, &error),
         };
-        let acknowledgement_path =
-            match resolve_portability_acknowledgement_path(&state.root, &preview_site.config, rel)
-            {
-                Ok(path) => path,
-                Err(error) => return Response::error(422, &error),
-            };
+        let acknowledgement_path = match resolve_portability_acknowledgement_path(
+            &state.root,
+            &preview_site.config,
+            rel,
+        ) {
+            Ok(path) => path,
+            Err(error) => return Response::error(422, &error),
+        };
         let (acknowledgements, acknowledgement_etag) =
             match load_portability_acknowledgements(&acknowledgement_path) {
                 Ok(sidecar) => sidecar,
