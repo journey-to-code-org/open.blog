@@ -23,6 +23,14 @@ All notable changes to open.blog are recorded here. Releases follow
   checked by `openblog check`, synced by the hosted workspace, and never reach your site, feeds,
   search, `llms.txt` or exports. A source or passage an evidence link uses cannot be removed
   until the link stops using it.
+- Claims now come with evidence gaps and review prompts: a claim with no evidence, contradicting
+  evidence without a note on how the post addresses it, only supporting evidence on a claim you
+  marked uncertain, a link resting on an archived source or passage, a link with no location or
+  no rationale, a location nobody has checked, a suggestion nobody has reviewed, and claim words
+  that moved or are gone. Each names what was checked and what to do next, and none says whether
+  a claim is true. `openblog check`, `openblog build` (as warnings, only when the private claims
+  file is present, and never in the site) and Evidence Studio show the same findings in the same
+  order. A claim's anchor that is still in place now reads "In place" rather than "Verified".
 
 ## [0.30.0] - 2026-10-26
 

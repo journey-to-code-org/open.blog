@@ -93,7 +93,10 @@ checked against each post's saved draft
 order and guards that keep the sources and passages it uses
 ([ADR 0082](adr/0082-claims-take-their-lock-after-the-atlas-and-guard-their-sources.md)), and
 authored from a selection in Evidence Studio with supporting and contradicting evidence side by
-side ([ADR 0083](adr/0083-claims-are-authored-from-a-selection-in-evidence-studio.md)).
+side ([ADR 0083](adr/0083-claims-are-authored-from-a-selection-in-evidence-studio.md)), with
+evidence gaps and provenance prompts that `openblog check`, builds and Evidence Studio report
+alike and that never judge whether a claim is true
+([ADR 0090](adr/0090-evidence-gaps-are-prompts-in-the-shared-finding-contract.md)).
 
 ## Command reference
 

@@ -708,6 +708,14 @@ Comparing a claim's recorded span with the current anchor text: verified, moved,
 ambiguous. It reports and never repairs.
 _Avoid_: Auto-relocation
 
+**Evidence gap**:
+A finding about what a claim's record lacks or what only the author can check: no evidence,
+contradicting evidence the post may not address, only support for a claim marked uncertain, an
+archived source or passage, a missing location or rationale, an unchecked location, an
+unreviewed suggestion, or words no longer where they were anchored. It is a prompt with a next
+action, in the same finding contract as citation checks, and never a verdict on truth.
+_Avoid_: Evidence score, weak claim, unsupported claim, verification
+
 **Saved draft**:
 A post's text as stored in its file, which every claim anchor is checked against. Unsaved editor
 text never is; the author saves the post before anchoring a claim in new words.

@@ -7,7 +7,9 @@ Private claims in draft posts and the author's evidence links, owned by
 [ADR 0080](../adr/0080-claim-anchors-are-verified-utf8-byte-spans.md),
 [ADR 0081](../adr/0081-private-claims-storage-checked-against-the-saved-draft.md),
 [ADR 0082](../adr/0082-claims-take-their-lock-after-the-atlas-and-guard-their-sources.md) and
-[ADR 0083](../adr/0083-claims-are-authored-from-a-selection-in-evidence-studio.md). Nothing here
+[ADR 0083](../adr/0083-claims-are-authored-from-a-selection-in-evidence-studio.md), with
+evidence-gap findings in
+[ADR 0090](../adr/0090-evidence-gaps-are-prompts-in-the-shared-finding-contract.md). Nothing here
 reaches a public page, feed, export or search index; a later projection copies approved items
 only.
 
@@ -56,6 +58,17 @@ only.
 - **Guards:** a source or notebook passage an evidence link uses cannot be removed, and a
   library or notebook change that would leave the file invalid is refused. Locks are taken in
   the order atlas, claims, notebook, library.
+- **Evidence gaps and prompts** (`openblog_core::claim_review`) are `EvidenceFinding`s, the
+  citation checks' contract, with `object: {claim, link?}`: `claim-post-missing`,
+  `claim-anchor-moved`, `claim-anchor-stale`, `claim-anchor-ambiguous` (detected);
+  `claim-evidence-missing`, `claim-locator-missing`, `claim-rationale-missing` (potential);
+  `claim-suggestion-unreviewed`, `claim-support-only` (an uncertain claim with only supporting
+  links), `claim-contradiction-undiscussed` (contradicting links, no uncertainty note),
+  `claim-source-archived`, `claim-passage-archived`, `claim-location-unreviewed` (needs review).
+  Claims in file order, each followed by its links; `path` is the post (or the claims file when
+  the post is missing) and `field` the record and property, such as `links[l1].rationale`.
+  Findings name ids only, never say whether anything is true, and are identical in
+  `openblog check`, build output (stderr only) and Evidence Studio.
 - **Never present:** truth value, score, net result, verified state.
 - **Limits:** 4 MiB file, 20,000 claims, 100,000 links, statements 2,000 characters, rationale
   4,000.

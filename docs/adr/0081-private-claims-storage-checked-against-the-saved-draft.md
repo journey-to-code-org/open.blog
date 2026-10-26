@@ -30,7 +30,7 @@ the draft and the store as they were.
   written by temporary file and `fsutil::replace_file`, under locks (ADR 0082); a refused, failed
   or interrupted write leaves the file byte for byte. Symlinks, directories, non-UTF-8 and
   oversized files are reported, never replaced, and messages name the claims file.
-- **Anchors are checked against the saved post, never the editor.** `claims_store::read_drafts`
+- **Anchors are checked against the saved post, never the editor.** `claims_store::read_saved_posts`
   reads every saved post under `content/posts` and keeps its anchor text
   (`claims::anchor_text`) by slug, decided as the build decides it (`claims::post_slug`). A post
   that cannot be read, a symlink, and a slug two posts share are left out, so nothing in them can
@@ -61,11 +61,13 @@ the draft and the store as they were.
   `422` and scoped diagnostics that never repeat authored text. An id in a removal is checked
   before any message names it.
 - **Checked offline and synced like the other research files.** `openblog check` validates a
-  stored file, prints projection notices and anchors that are moved, stale or ambiguous as
-  `notice:` lines naming ids and states, and summarises counts per relation, never combined. A
+  stored file, prints projection notices as `notice:` lines naming ids, reports anchors that are
+  moved, stale or ambiguous as evidence findings (ADR 0090), and summarises counts per relation,
+  never combined. A
   missing file is not mentioned. The hosted workspace allow-list carries the exact path at the
   library's 4 MiB limit and nothing beside it (no lock, temporary file or child path).
-- **Never public.** No build, feed, search index, export or route reads the file; the public
+- **Never public.** No feed, search index, export, generated page or public route reads the
+  file (a build reads it only to print the author's evidence findings, ADR 0090); the public
   server refuses it under every spelling; and a copy in `content/`, `static/` or a theme, or a
   generated file shaped like it, stops the build naming only the path (ADR 0079's structural
   guard).
