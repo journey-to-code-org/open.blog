@@ -21,6 +21,7 @@
 //! - [`citation_review`]: offline syntax, resolution, completeness and location checks of citations
 //! - [`knowledge_atlas`]: the private Knowledge Atlas of entries and attributed relationships
 //! - [`atlas_publication`]: the one public projection of its approved items, for pages and `atlas.json`
+//! - [`third_perspective`]: a reader's consented, moderated reflection on a published work, and its one public form
 
 pub mod accessibility;
 pub mod approval;
@@ -69,6 +70,7 @@ pub mod source_interchange;
 pub mod source_library;
 pub mod synthesis;
 pub mod theme;
+pub mod third_perspective;
 pub mod video;
 
 pub use config::SiteConfig;

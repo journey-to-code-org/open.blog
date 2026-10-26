@@ -5,6 +5,16 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Defined Third Perspectives, a reader's own reflection on a shared reflection or post, about the
+  whole work or one section. Each one has an optional prompt category (never a score or a side),
+  plain text of up to 4000 characters, and a numbered history of what the reader agreed to publish.
+  The reader can hide their name or take the reflection back at any time. A reflection is public
+  only once a named moderator approves that exact text and consent. It is always shown as a
+  reader's reflection, anonymously unless the reader chose to show a name, and never under the
+  name of the work's authors or group. A private draft, the submitted copy, the approved response
+  and a featured reflection are kept apart. This adds the contract and its checks only; nothing
+  is collected or shown yet.
+
 ## [0.31.0] - 2026-10-26
 
 - Contributors to a shared reflection can pin moments to its sources in Admin: a time or range in
