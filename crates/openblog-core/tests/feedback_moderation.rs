@@ -8,14 +8,17 @@ use std::collections::BTreeMap;
 
 use openblog_core::date::DateTime;
 use openblog_core::feedback_moderation::{
-    available, moderation_view, plan, reasons, review_passage, rules, ModerationAction,
-    ModerationState, PassageCheck, PolicyError, ReasonCode,
+    available, plan, reasons, review_passage, rules, ModerationAction, ModerationState,
+    PassageCheck, PolicyError, ReasonCode,
 };
 use openblog_core::feedback_provenance::FeedbackChannel;
 use openblog_core::feedback_publication::{
     is_day, is_post_source, PublishedFeedback, ReaderFeedbackFile, MAX_PUBLISHED_FEEDBACK,
     READER_FEEDBACK_ANCHOR,
 };
+use openblog_core::invitation::Identities;
+use openblog_core::moderation::{ModerationPolicy, Principal, SharedWorks};
+use openblog_core::moderation_inbox::{Inbox, InboxItem, Protocol};
 use openblog_core::passage_target::PassageDocument;
 use openblog_core::portability::PortableProjection;
 use openblog_core::scholarly_feedback::{FeedbackSubmission, HostedFeedback, ScholarlyFeedback};
@@ -256,6 +259,31 @@ fn received(
         .unwrap()
         .receive(at("2026-10-26T10:00:00Z"), FeedbackChannel::Hosted)
         .unwrap()
+}
+
+/// The item as the site Admin sees it in the moderation inbox (ADR 0104).
+fn moderation_view(item: &HostedFeedback, site: &Site) -> Value {
+    let value = json!({
+        "source": "feedback", "id": item.id, "status": item.status.id(), "version": item.version,
+        "moderatedAt": null, "reason": null, "feedback": item.feedback.to_value(),
+    });
+    let item = InboxItem::from_value(&value).unwrap();
+    let works = SharedWorks::new(&[], site);
+    let identities = Identities {
+        active_admin_users: &[],
+        contributor_ids: &[],
+    };
+    Inbox {
+        site,
+        works: &works,
+        principal: Principal::ModerationToken,
+        identities: &identities,
+        policy: ModerationPolicy::default(),
+        protocol: Protocol::Full,
+        now: at("2026-10-27T10:00:00Z"),
+    }
+    .view(&item)
+    .unwrap()
 }
 
 fn hosted(record: &ScholarlyFeedback, id: &str, status: &str) -> HostedFeedback {

@@ -915,7 +915,7 @@ impl ModerationPolicy {
     }
 
     /// Whether retention covers this kind at all.
-    fn retains(&self, kind: ParticipationKind) -> bool {
+    pub fn retains(&self, kind: ParticipationKind) -> bool {
         kind != ParticipationKind::Comment || self.comment_retention
     }
 

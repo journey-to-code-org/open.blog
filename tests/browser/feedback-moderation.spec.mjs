@@ -8,11 +8,10 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 
-// Moderating passage feedback and publishing what was approved (#83, ADR 0083). The hosted queue
-// is mocked at the Admin API (the real Admin keeps the hosted token and talks to the hosted
-// function itself); responses, revision notes and the canonical page are the real server's.
-// Covers keyboard-only moderation, a moved passage that must be confirmed before approval, reasons,
-// conflicts, the author's response and revision note, escaping, no JavaScript and 320px.
+// Publishing what was approved of passage feedback (#83, ADR 0083): responses, revision notes and
+// the canonical page are the real server's. Deciding on feedback is the moderation inbox's
+// (moderation-inbox.spec.mjs, ADR 0104). Covers the author's response and revision note, a
+// conflicting file, escaping, no JavaScript and 320px.
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const binary = join(repository, "target", "debug", process.platform === "win32" ? "openblog.exe" : "openblog");
@@ -121,125 +120,15 @@ async function signIn(page) {
   }
 }
 
-const reasons = [
-  { id: "spam", label: "Spam" },
-  { id: "off-topic", label: "Off topic" },
-  { id: "other", label: "Other" },
-];
-
-/** A queue item as the Admin server describes it. */
-function queueItem(id, check, extra = {}) {
-  const stale = check === "stale";
-  return {
-    id,
-    status: "pending",
-    statusLabel: "Pending",
-    version: 2,
-    moderatedAt: null,
-    reason: null,
-    reasonLabel: null,
-    kind: stale ? "correction-suggestion" : "question",
-    kindLabel: stale ? "Suggested correction" : "Question",
-    body: stale ? `It was three times a day. ${HOSTILE}` : "Which harbour?",
-    details: stale ? { suggestedText: "We measured the tides three times a day." } : {},
-    work: "/tides/",
-    post: { title: "Tides", source: "posts/tides.md", url: "/tides/" },
-    receivedAt: "2026-10-26T10:00:00Z",
-    reader: stale ? { name: "Grace Private", publishName: false } : { publishName: false },
-    passage: stale
-      ? { check: "stale", reason: "quoteNotFound", explanation: "Stale: the post changed after the reader saw it, and the words the reader quoted are no longer in the post. The reader's quotation is shown as they sent it; it will not be quoted on the post.", revisionSeen: "p1:11111111111111111111111111111111", revisionNow: "p1:22222222222222222222222222222222", acknowledge: true, quoted: "four times", sectionSeen: "methods" }
-      : { check: "current", explanation: "Current: the reader saw the revision that is published now, and the passage is in “Methods”.", revisionSeen: "p1:22222222222222222222222222222222", revisionNow: "p1:22222222222222222222222222222222", acknowledge: false, sectionNow: "Methods" },
-    publicPreview: { work: "/tides/", revision: "p1:11111111111111111111111111111111", received: "2026-10-26", stale },
-    actions: [
-      { action: "approve", label: "Approve", reasons: [] },
-      { action: "reject", label: "Reject", reasons },
-    ],
-    published: null,
-    ...extra,
-  };
-}
-
-test("pending feedback is moderated from the keyboard, and a moved passage must be confirmed first", async ({ page }) => {
-  const STALE = "00000000-0000-4000-8000-0000000000b1";
-  const CURRENT = "00000000-0000-4000-8000-0000000000b2";
-  let queue = [queueItem(STALE, "stale"), queueItem(CURRENT, "current")];
-  const changes = [];
-  let answer = null;
-  await page.route(`${origin}/admin/api/engagement/feedback?**`, async (route) => {
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: "pending", items: queue, invalid: 1 }) });
-  });
-  await page.route(`${origin}/admin/api/engagement/feedback`, async (route) => {
-    const request = route.request();
-    expect(request.method()).toBe("PATCH");
-    const body = request.postDataJSON();
-    changes.push(body);
-    if (answer) {
-      await route.fulfill({ status: answer.status, contentType: "application/json", body: JSON.stringify(answer.body) });
-      return;
-    }
-    queue = queue.filter((item) => item.id !== body.id);
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ item: { id: body.id }, published: body.action === "approve", publishError: null }) });
-  });
-  const dialogs = [];
-  page.on("dialog", (dialog) => { dialogs.push(dialog.message()); dialog.dismiss(); });
-  await signIn(page);
-  await page.goto(`${origin}/admin/#/feedback`);
-  await expect(page.getByRole("heading", { name: "Moderation queue", level: 2 })).toBeVisible();
-  await expect(page.getByText("2 pending items. 1 item was not valid and is not shown.")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Pending", exact: true })).toHaveAttribute("aria-current", "page");
-
-  const stale = page.locator(`[data-feedback-id="${STALE}"]`);
-  await expect(stale.getByRole("heading", { name: "Suggested correction on “Tides”", level: 3 })).toBeVisible();
-  await expect(stale.locator('.oba-feedback-passage[data-check="stale"]')).toContainText("Stale.");
-  await expect(stale.locator(".oba-feedback-passage blockquote")).toHaveText("four times");
-  await expect(stale.getByText(`It was three times a day. ${HOSTILE}`)).toBeVisible();
-  await expect(stale.getByText("The name stays private", { exact: false })).toBeVisible();
-  await expect(stale.getByText("without a quotation, because the passage has changed", { exact: false })).toBeVisible();
-
-  // Approving a moved passage before confirming it is refused with focus on the confirmation.
-  await stale.getByRole("button", { name: "Approve", exact: true }).focus();
-  await page.keyboard.press("Enter");
-  const confirm = stale.getByRole("checkbox", { name: /I have read the passage as it is published now/ });
-  await expect(confirm).toBeFocused();
-  await expect(stale.getByText("Confirm that you read the passage as it is now before approving.")).toBeVisible();
-  expect(changes).toHaveLength(0);
-  await page.keyboard.press("Space");
-  await expect(confirm).toBeChecked();
-  await stale.getByRole("button", { name: "Approve", exact: true }).focus();
-  await page.keyboard.press("Enter");
-  const status = page.locator(".oba-feedback-section").first().locator('[role="status"]').first();
-  await expect(status).toHaveText("Approved and published on “Tides”. Rebuild or publish to update the live site.");
-  await expect(status).toBeFocused();
-  expect(changes[0]).toEqual({ id: STALE, action: "approve", from: "pending", version: 2, acknowledge: "stale" });
-
-  // A rejection needs a reason, chosen with the keyboard.
-  const current = page.locator(`[data-feedback-id="${CURRENT}"]`);
-  await expect(current.getByRole("checkbox")).toHaveCount(0);
-  await current.getByRole("button", { name: "Reject", exact: true }).focus();
-  await page.keyboard.press("Enter");
-  const reason = current.getByLabel("Reason to reject");
-  await expect(reason).toBeFocused();
-  await reason.selectOption("off-topic");
-  answer = { status: 409, body: { error: "This item changed since you loaded it. Review it again before acting.", code: "conflict" } };
-  await current.getByRole("button", { name: "Reject", exact: true }).focus();
-  await page.keyboard.press("Enter");
-  await expect(status).toContainText("This item changed since you loaded it.");
-  expect(changes[1]).toEqual({ id: CURRENT, action: "reject", from: "pending", version: 2, reason: "off-topic" });
-  answer = null;
-  await page.locator(`[data-feedback-id="${CURRENT}"]`).getByLabel("Reason to reject").selectOption("spam");
-  await page.locator(`[data-feedback-id="${CURRENT}"]`).getByRole("button", { name: "Reject", exact: true }).click();
-  await expect(status).toHaveText("Rejected. Nothing was published.");
-  await expect(page.locator("[data-feedback-id]")).toHaveCount(0);
-  expect(dialogs).toEqual([]);
-});
-
 test("the author's response and revision note are saved to the site's files and shown on the canonical page", async ({ page }) => {
   const dialogs = [];
   page.on("dialog", (dialog) => { dialogs.push(dialog.message()); dialog.dismiss(); });
   await signIn(page);
+  // B5's address opens the one moderation inbox (ADR 0104).
   await page.goto(`${origin}/admin/#/feedback`);
-  // No hosted token is saved, so the queue explains itself; what the site publishes still works.
-  await expect(page.getByText("Feedback could not be loaded. Hosted engagement admin credential is not configured")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Moderation inbox", exact: true })).toHaveAttribute("aria-current", "page");
+  // No hosted token is saved, so the inbox explains itself; what the site publishes still works.
+  await expect(page.getByText("The inbox could not be loaded. Hosted engagement admin credential is not configured")).toBeVisible();
   await expect(page.getByText("2 notes published on your posts.")).toBeVisible();
 
   const card = page.locator(`#oba-published-${QUESTION_ID}`);

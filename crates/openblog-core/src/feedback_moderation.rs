@@ -24,7 +24,7 @@ use serde_json::{json, Value};
 use crate::model::{Post, Site};
 use crate::participation::ParticipationKind;
 use crate::passage_target::{PassageDocument, PassageSelector, Resolution, StaleReason};
-use crate::scholarly_feedback::{HostedFeedback, ScholarlyFeedback};
+use crate::scholarly_feedback::ScholarlyFeedback;
 
 pub use crate::moderation::{ModerationAction, ModerationState, PolicyError, ReasonCode};
 
@@ -279,30 +279,16 @@ pub fn post_for_work<'a>(site: &'a Site, work: &str) -> Option<&'a Post> {
     site.posts.iter().find(|post| post.url == work)
 }
 
-/// One moderation item as Admin shows it to the site's moderator: the
-/// reader's feedback, the passage check, the public form it would take, and
-/// the actions open to it. The reader's name is shown here, to moderation
-/// only, with their publication choice; the reader's own clock is not.
-pub fn moderation_view(item: &HostedFeedback, site: &Site) -> Value {
-    let feedback = &item.feedback;
+/// What a moderator sees of one feedback record beside its moderation state
+/// (ADR 0083): the passage check with both revisions and the reader's own
+/// quotation, the kind's details, and the public form approving would give
+/// it. Who sent it is the caller's to show, by the viewer's role (ADR 0102);
+/// the reader's own clock is never shown.
+pub fn feedback_review(feedback: &ScholarlyFeedback, site: &Site) -> Value {
     let provenance = &feedback.provenance;
     let post = post_for_work(site, &provenance.work);
     let document = post.map(|post| PassageDocument::of_post(post, &site.config));
     let review = review_passage(feedback, post.zip(document.as_ref()));
-    let quoted = match &provenance.target.selector {
-        PassageSelector::Quote(quote) => Some(quote.exact.clone()),
-        _ => None,
-    };
-    let actions: Vec<Value> = available(item.status)
-        .into_iter()
-        .map(|action| {
-            json!({
-                "action": action.id(),
-                "label": action.label(),
-                "reasons": reasons(action).iter().map(|reason| json!({"id": reason.id(), "label": reason.label()})).collect::<Vec<_>>(),
-            })
-        })
-        .collect();
     let mut passage = json!({
         "check": review.check.id(),
         "explanation": review.explanation,
@@ -321,8 +307,8 @@ pub fn moderation_view(item: &HostedFeedback, site: &Site) -> Value {
     if let Some(revision) = &review.revision_now {
         passage["revisionNow"] = json!(revision);
     }
-    if let Some(quoted) = quoted {
-        passage["quoted"] = json!(quoted);
+    if let PassageSelector::Quote(quote) = &provenance.target.selector {
+        passage["quoted"] = json!(quote.exact);
     }
     let mut details = json!({});
     if let Some(url) = &feedback.details.source_url {
@@ -331,28 +317,24 @@ pub fn moderation_view(item: &HostedFeedback, site: &Site) -> Value {
     if let Some(text) = &feedback.details.suggested_text {
         details["suggestedText"] = json!(text);
     }
-    let mut reader = json!({ "publishName": provenance.attribution.publish_name });
-    if let Some(name) = &provenance.attribution.name {
-        reader["name"] = json!(name);
-    }
     json!({
-        "id": item.id,
-        "status": item.status.id(),
-        "statusLabel": item.status.label(),
-        "version": item.version,
-        "moderatedAt": item.moderated_at.map(crate::DateTime::rfc3339),
-        "reason": item.reason.map(ReasonCode::id),
-        "reasonLabel": item.reason.map(ReasonCode::label),
-        "kind": feedback.kind.id(),
-        "kindLabel": feedback.kind.label(),
-        "body": feedback.body,
-        "details": details,
-        "work": provenance.work,
-        "post": post.map(|post| json!({"title": post.title, "source": post.source, "url": post.url})),
-        "receivedAt": provenance.received_at.rfc3339(),
-        "reader": reader,
         "passage": passage,
+        "details": details,
         "publicPreview": document.as_ref().map(|document| serde_json::to_value(provenance.public(document)).expect("public provenance serializes")),
-        "actions": actions,
     })
+}
+
+/// Whether an approval may go ahead given the passage as it is now: a
+/// passage that is not current needs the moderator to name the check they
+/// read (`acknowledge`), so a re-anchored or stale passage is never approved
+/// unseen.
+pub fn approval_acknowledged(
+    feedback: &ScholarlyFeedback,
+    site: &Site,
+    acknowledge: Option<&str>,
+) -> bool {
+    let post = post_for_work(site, &feedback.provenance.work);
+    let document = post.map(|post| PassageDocument::of_post(post, &site.config));
+    let review = review_passage(feedback, post.zip(document.as_ref()));
+    !review.check.needs_acknowledgement() || acknowledge == Some(review.check.id())
 }

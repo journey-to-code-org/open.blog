@@ -3274,3 +3274,49 @@ a.oba-btn-primary {
 .oba-feedback-revision summary {
   cursor: pointer;
 }
+
+/* The moderation inbox (ADR 0104): one decision per row, its guidance under it, wrapping at any
+   width or zoom. */
+/* Six states wrap rather than scroll, so the list reflows at any zoom. */
+.oba-moderation-states {
+  flex-wrap: wrap;
+  overflow-x: visible;
+}
+
+.oba-moderation-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.75rem 0;
+}
+
+.oba-moderation-actions {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.oba-moderation-action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.oba-moderation-guidance {
+  flex: 1 1 100%;
+  margin: 0;
+}
+
+.oba-moderation-item h3:focus-visible {
+  outline: 2px solid var(--ob-color-accent-border);
+  outline-offset: 2px;
+}
+
+@media (max-width: 44rem) {
+  .oba-moderation-action select,
+  .oba-moderation-action .oba-btn {
+    flex: 1 1 100%;
+  }
+}
