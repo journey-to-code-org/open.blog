@@ -381,6 +381,32 @@ fn pages_and_the_artifact_come_from_the_one_projection_and_hold_nothing_private(
 }
 
 #[test]
+fn section_and_relationship_ids_never_collide() {
+    let mut value = atlas_value();
+    value["relationships"][0]["id"] = json!("from");
+    value["relationships"][1]["id"] = json!("to");
+    let files = build(&site(
+        config("https://example.test"),
+        vec![],
+        Some(project(&value)),
+    ));
+    for page in ["atlas/plato/index.html", "atlas/republic/index.html"] {
+        let html = &files[page];
+        let ids: Vec<&str> = html
+            .split(" id=\"")
+            .skip(1)
+            .map(|rest| &rest[..rest.find('"').unwrap()])
+            .collect();
+        let unique: std::collections::BTreeSet<&str> = ids.iter().copied().collect();
+        assert_eq!(unique.len(), ids.len(), "{page} repeats an id: {ids:?}");
+        assert!(html.contains("<h2 id=\"atlas-section-from\">"), "{page}");
+        assert!(html.contains("<h2 id=\"atlas-section-to\">"), "{page}");
+    }
+    assert!(files["atlas/republic/index.html"].contains("<li id=\"atlas-r-from\""));
+    assert!(files["atlas/republic/index.html"].contains("<li id=\"atlas-r-to\""));
+}
+
+#[test]
 fn a_site_that_does_not_publish_its_atlas_is_unchanged() {
     let without = build(&site(config("https://example.test"), vec![], None));
     assert!(without.keys().all(|path| !path.contains("atlas")));

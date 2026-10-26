@@ -2034,8 +2034,15 @@ impl<'a> Renderer<'a> {
         }
         let (outgoing, incoming) = atlas.relationships_of(&entry.id);
         for (id, title, list) in [
-            ("atlas-from", "Relationships from this entry", outgoing),
-            ("atlas-to", "Relationships to this entry", incoming),
+            // Section ids and relationship ids (`atlas-r-<id>`) live in
+            // separate namespaces, so a relationship named `from` or `to`
+            // cannot collide with a section.
+            (
+                "atlas-section-from",
+                "Relationships from this entry",
+                outgoing,
+            ),
+            ("atlas-section-to", "Relationships to this entry", incoming),
         ] {
             body.push_str(&format!(
                 "<section aria-labelledby=\"{id}\">\n<h2 id=\"{id}\">{title}</h2>\n"
@@ -2114,7 +2121,7 @@ impl<'a> Renderer<'a> {
             ),
         };
         let mut out = format!(
-            "<li id=\"atlas-{}\" class=\"ob-atlas-relationship\" data-standing=\"{standing}\">\n<p>{}{} {} {}.</p>\n<dl>\n",
+            "<li id=\"atlas-r-{}\" class=\"ob-atlas-relationship\" data-standing=\"{standing}\">\n<p>{}{} {} {}.</p>\n<dl>\n",
             attr(&r.id),
             if r.contested_by.is_empty() {
                 ""
