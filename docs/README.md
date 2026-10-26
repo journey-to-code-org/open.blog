@@ -83,23 +83,23 @@ keep sources and passages it uses from being removed
 ([ADR 0056](adr/0056-one-lock-order-and-cross-store-research-guards.md)), and the
 [claims and evidence links format](specs/claims-evidence.md), which records the author's own
 reading of which sources support, contradict or contextualize a claim in a draft, with no score
-or verdict ([ADR 0078](adr/0078-claims-and-evidence-links-record-the-authors-reading.md)), never
+or verdict ([ADR 0068](adr/0068-claims-and-evidence-links-record-the-authors-reading.md)), never
 publishes support while contradiction is withheld
-([ADR 0079](adr/0079-contradicting-evidence-is-never-hidden-or-published-alone.md)), and checks
+([ADR 0069](adr/0069-contradicting-evidence-is-never-hidden-or-published-alone.md)), and checks
 claim anchors against the draft without repairing them
-([ADR 0080](adr/0080-claim-anchors-are-verified-utf8-byte-spans.md)), stored privately and
+([ADR 0070](adr/0070-claim-anchors-are-verified-utf8-byte-spans.md)), stored privately and
 checked against each post's saved draft
-([ADR 0081](adr/0081-private-claims-storage-checked-against-the-saved-draft.md)) with a lock
+([ADR 0071](adr/0071-private-claims-storage-checked-against-the-saved-draft.md)) with a lock
 order and guards that keep the sources and passages it uses
-([ADR 0082](adr/0082-claims-take-their-lock-after-the-atlas-and-guard-their-sources.md)), and
+([ADR 0072](adr/0072-claims-take-their-lock-after-the-atlas-and-guard-their-sources.md)), and
 authored from a selection in Evidence Studio with supporting and contradicting evidence side by
-side ([ADR 0083](adr/0083-claims-are-authored-from-a-selection-in-evidence-studio.md)), with
+side ([ADR 0073](adr/0073-claims-are-authored-from-a-selection-in-evidence-studio.md)), with
 evidence gaps and provenance prompts that `openblog check`, builds and Evidence Studio report
 alike and that never judge whether a claim is true
-([ADR 0090](adr/0090-evidence-gaps-are-prompts-in-the-shared-finding-contract.md)), and, when a
+([ADR 0074](adr/0074-evidence-gaps-are-prompts-in-the-shared-finding-contract.md)), and, when a
 site opts in, publishes approved claims with their evidence side by side as a section of the
 post, with revision notes the post itself carries
-([ADR 0091](adr/0091-publish-approved-claim-evidence-in-the-post-with-public-revision-notes.md)).
+([ADR 0075](adr/0075-publish-approved-claim-evidence-in-the-post-with-public-revision-notes.md)).
 
 ## Command reference
 

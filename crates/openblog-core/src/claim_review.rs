@@ -1,4 +1,4 @@
-//! Evidence gaps and provenance prompts for private claims (ADR 0090).
+//! Evidence gaps and provenance prompts for private claims (ADR 0074).
 //!
 //! A review reads a valid claims file beside the saved drafts, the source
 //! library and the notebook, and reports [`EvidenceFinding`]s in the shared

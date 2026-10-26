@@ -47,7 +47,7 @@ pub enum EvidenceCode {
     CitationReferenceIncomplete,
     /// Located citations a person must check against the source.
     CitationLocationReview,
-    /// A claim names a post slug no saved post has (ADR 0090).
+    /// A claim names a post slug no saved post has (ADR 0074).
     ClaimPostMissing,
     /// A claim's words occur once, away from the recorded offsets.
     ClaimAnchorMoved,

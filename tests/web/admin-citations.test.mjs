@@ -398,7 +398,7 @@ test("a pasted look-alike chip cannot smuggle Markdown into the draft", withDom(
   assert.equal(editor.richEditorMarkdown(), "Text. \\[@x\\](javascript:alert(1))\n");
 }));
 
-// ------------------------------------------- claim anchors from the visual editor (A4, ADR 0083)
+// ------------------------------------------- claim anchors from the visual editor (A4, ADR 0073)
 
 function savableVisualEditor(markdown, saved) {
   const editor = visualEditor(markdown);

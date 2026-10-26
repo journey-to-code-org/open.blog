@@ -1,4 +1,4 @@
-# ADR 0083: Author claims from a selection in Evidence Studio, with opposing evidence side by side
+# ADR 0073: Author claims from a selection in Evidence Studio, with opposing evidence side by side
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -6,9 +6,9 @@
 - Parent story: [#20](https://github.com/journey-to-code-org/open.blog/issues/20)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
 - Builds on: [ADR 0057](0057-accessible-atlas-authoring-and-a-text-first-explorer.md),
-  [ADR 0079](0079-contradicting-evidence-is-never-hidden-or-published-alone.md),
-  [ADR 0080](0080-claim-anchors-are-verified-utf8-byte-spans.md),
-  [ADR 0081](0081-private-claims-storage-checked-against-the-saved-draft.md)
+  [ADR 0069](0069-contradicting-evidence-is-never-hidden-or-published-alone.md),
+  [ADR 0070](0070-claim-anchors-are-verified-utf8-byte-spans.md),
+  [ADR 0071](0071-private-claims-storage-checked-against-the-saved-draft.md)
 - Contract: [Claims and evidence links format](../specs/claims-evidence.md)
 
 ## Context

@@ -199,7 +199,7 @@ pub struct PortableProjection<'a> {
     participation: Option<CommentsPolicy>,
     /// The post's place in a collaborative series, when it is a part of one (ADR 0041).
     series: Option<SeriesContext>,
-    /// The claim evidence the post publishes (ADR 0091), which every portable
+    /// The claim evidence the post publishes (ADR 0075), which every portable
     /// artifact must carry whole.
     claim_evidence: Option<&'a crate::claim_publication::PostEvidence>,
 }
@@ -1658,7 +1658,7 @@ impl<'a> PortableProjection<'a> {
 
     fn ensure_semantics(&self, format: RepresentationFormat, artifact: &str) -> Result<(), String> {
         // Claim evidence fails closed: a copy that dropped or reordered any of
-        // it could show support without its contradiction (ADR 0091).
+        // it could show support without its contradiction (ADR 0075).
         if let Some(evidence) = self.claim_evidence {
             if !crate::claim_publication::carried_whole(artifact, evidence) {
                 return Err(format!(

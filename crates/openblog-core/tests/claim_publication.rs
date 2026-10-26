@@ -1,4 +1,4 @@
-//! Published claim evidence (ADR 0091): the site switch, the field allowlist,
+//! Published claim evidence (ADR 0075): the site switch, the field allowlist,
 //! contested evidence side by side, withdrawal, revision notes that outlive the
 //! private file, fail-closed checks, determinism, and a leak corpus across
 //! every public representation.

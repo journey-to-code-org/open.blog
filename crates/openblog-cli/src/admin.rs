@@ -1986,7 +1986,7 @@ fn atlas_store_error(
     }
 }
 
-// ---- claims and evidence links (Evidence Studio, ADR 0081 to 0083) ----------
+// ---- claims and evidence links (Evidence Studio, ADR 0071 to 0073) ----------
 
 /// The saved drafts by slug, with each post's content path for findings.
 type SavedPosts = (claims::Drafts, BTreeMap<String, String>);
@@ -2210,7 +2210,7 @@ fn claims_saved(
     Response::json(status, &view)
 }
 
-/// While the site publishes claim evidence (ADR 0091), a saved claims change
+/// While the site publishes claim evidence (ADR 0075), a saved claims change
 /// is published at once, so granting or withdrawing approval reaches the
 /// public site without waiting for another save. The outcome travels as
 /// `build`; a site that does not publish claim evidence is not rebuilt. The
@@ -13657,7 +13657,7 @@ mod tests {
         assert!(error.contains("static/graph.json") && atlas_leaked(error.as_bytes()).is_empty());
     }
 
-    // ---- Claims and evidence links Admin routes (A4.2, ADR 0081 to 0083) ------
+    // ---- Claims and evidence links Admin routes (A4.2, ADR 0071 to 0073) ------
 
     const CLAIM_POST: &str = "posts/2026-01-07-cave.md";
     const CLAIM_SENTINEL: &str = "ob-claims-rationale-7731";

@@ -43,7 +43,7 @@ pub struct Sources {
     /// and publishes only the cited references' public description (ADR 0048).
     pub source_library: Option<LibrarySource>,
     /// The projection of the private claims file, read only while the site
-    /// publishes claim evidence (ADR 0091); `None` otherwise.
+    /// publishes claim evidence (ADR 0075); `None` otherwise.
     pub claim_evidence: Option<ClaimEvidenceSource>,
 }
 
@@ -248,7 +248,7 @@ pub struct Post {
     /// them; portable bibliography exports read it (ADR 0050).
     pub(crate) citations: Option<CitationSummary>,
     /// What the post publishes of its approved claims and its revision notes,
-    /// for a site that publishes claim evidence (ADR 0091).
+    /// for a site that publishes claim evidence (ADR 0075).
     pub(crate) claim_evidence: Option<PostEvidence>,
     /// Why its claim evidence could not be published, for the site load to
     /// decide as for citations: refuse a post it publishes, warn otherwise.
@@ -313,7 +313,7 @@ impl Post {
     }
 
     /// What this post publishes of its approved claims, evidence and revision
-    /// notes, or `None` when it publishes none (ADR 0091).
+    /// notes, or `None` when it publishes none (ADR 0075).
     pub fn claim_evidence(&self) -> Option<&PostEvidence> {
         self.claim_evidence.as_ref()
     }
@@ -445,7 +445,7 @@ pub struct Site {
     /// the site opts in to publishing it (ADR 0058). `None` writes no atlas
     /// output at all.
     pub atlas: Option<crate::atlas_publication::PublicAtlas>,
-    /// Why this site's claim evidence cannot be published (ADR 0091): the
+    /// Why this site's claim evidence cannot be published (ADR 0075): the
     /// claims file, or the library or notebook it is checked against, cannot
     /// be read or validated. A full build or `check` refuses while it is set,
     /// where a damaged published atlas refuses it; `generate` itself does not,
@@ -484,7 +484,7 @@ impl Site {
                 .map_err(Clone::clone)
         };
         errors.extend(credit_sidecars.errors.iter().cloned());
-        // Claim evidence, only while the site publishes it (ADR 0091). Without
+        // Claim evidence, only while the site publishes it (ADR 0075). Without
         // the switch the private claims file is never consulted and every post
         // is published as before.
         let mut claim_evidence_error = None;
@@ -1177,7 +1177,7 @@ pub fn load_post_cited(
     }
 }
 
-/// How a post load treats claim evidence (ADR 0091).
+/// How a post load treats claim evidence (ADR 0075).
 #[derive(Clone, Copy)]
 enum ClaimEvidenceMode<'e> {
     /// The site does not publish it: the post is read exactly as before.
@@ -1201,7 +1201,7 @@ fn load_post_in(
     // Citations are opt-in (ADR 0043): a post without `citations` is read
     // exactly as before, and so is one that opts in but cites nothing.
     let citation_style = CitationStyle::from_front_matter(first(fm, &["citations"]))?;
-    // Claim evidence (ADR 0091): the post's approved claims and the author's
+    // Claim evidence (ADR 0075): the post's approved claims and the author's
     // revision notes become one section of the publication Markdown, ahead of
     // any citation notes. A post with neither is read exactly as before.
     let mut evidence_error = None;

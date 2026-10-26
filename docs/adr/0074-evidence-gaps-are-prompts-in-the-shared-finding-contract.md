@@ -1,4 +1,4 @@
-# ADR 0090: Evidence gaps and provenance prompts are findings, never verdicts
+# ADR 0074: Evidence gaps and provenance prompts are findings, never verdicts
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -6,20 +6,20 @@
 - Parent story: [#20](https://github.com/journey-to-code-org/open.blog/issues/20)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
 - Builds on: [ADR 0050](0050-offline-citation-checks-and-portable-bibliography-exports.md),
-  [ADR 0079](0079-contradicting-evidence-is-never-hidden-or-published-alone.md),
-  [ADR 0080](0080-claim-anchors-are-verified-utf8-byte-spans.md),
-  [ADR 0081](0081-private-claims-storage-checked-against-the-saved-draft.md)
-- Amends: ADR 0081's "no build reads the file" (a build now reads it for the author's findings
+  [ADR 0069](0069-contradicting-evidence-is-never-hidden-or-published-alone.md),
+  [ADR 0070](0070-claim-anchors-are-verified-utf8-byte-spans.md),
+  [ADR 0071](0071-private-claims-storage-checked-against-the-saved-draft.md)
+- Amends: ADR 0071's "no build reads the file" (a build now reads it for the author's findings
   only)
 - Contract: [Claims and evidence links format](../specs/claims-evidence.md)
 
 ## Context
 
-Claims and evidence links record the author's reading of their sources (ADR 0078). An author
+Claims and evidence links record the author's reading of their sources (ADR 0068). An author
 also needs to see what that record lacks: a claim with no evidence, contradicting evidence the
 post may not address, a link resting on an archived source, a location nobody has checked. A
 check that said "supported" or "well evidenced" would claim what software cannot know, and a
-score would hide contradicting evidence inside a number, which ADR 0079 forbids. Citation checks
+score would hide contradicting evidence inside a number, which ADR 0069 forbids. Citation checks
 already report `EvidenceFinding`s (ADR 0050) to `openblog check`, builds and Evidence Studio; a
 second, differently shaped report would let the three surfaces disagree.
 
@@ -80,7 +80,7 @@ second, differently shaped report would let the three surfaces disagree.
   and Evidence Studio lists each claim's findings under it with the next action, and a summary
   for the post.
 - **Projection notices stay notices.** `private-endpoint` and `undisclosed-contradiction`
-  (ADR 0079) describe what a future publication withholds, not a gap in the evidence, and keep
+  (ADR 0069) describe what a future publication withholds, not a gap in the evidence, and keep
   their own `notice:` lines.
 
 ## Consequences

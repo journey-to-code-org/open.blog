@@ -1,5 +1,5 @@
 //! The public form of claims and evidence links: the one projection of what
-//! the author approved, published with the post it is about (ADR 0091).
+//! the author approved, published with the post it is about (ADR 0075).
 //!
 //! [`ClaimEvidence::project`] reads a validated claims file and the source
 //! library, and nothing else, so no notebook text can reach it. It copies the

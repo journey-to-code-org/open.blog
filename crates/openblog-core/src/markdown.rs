@@ -81,7 +81,7 @@ pub struct RenderOptions<'a> {
     /// back to each citation. `None` renders every footnote as before.
     pub citation_notes: Option<crate::bibliography::CitationNoteLabels<'a>>,
     /// Set for a post whose publication Markdown carries a claim evidence
-    /// section (ADR 0091): its prose (description, word count, reading time)
+    /// section (ADR 0075): its prose (description, word count, reading time)
     /// ends at that section's heading, as it ends at generated citation notes.
     pub claim_evidence_section: bool,
 }

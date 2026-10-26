@@ -12,7 +12,7 @@
 //! the stored atlas exactly as it was.
 //!
 //! Locks are always taken in one order: atlas, then claims, then notebook,
-//! then library (ADR 0056, ADR 0082). An atlas write takes atlas, notebook and
+//! then library (ADR 0056, ADR 0072). An atlas write takes atlas, notebook and
 //! library and never the claims lock. Notebook changes (notebook, library) and
 //! library changes (library) take a suffix of it and only *read* the atlas,
 //! which they may safely do because an atlas write holds their locks for its

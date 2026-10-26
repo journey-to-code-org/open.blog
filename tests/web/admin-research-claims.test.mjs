@@ -22,7 +22,7 @@ import {
   visualSelectionAnchor,
 } from "../../web/admin/admin.js";
 
-// Claims and evidence links in Evidence Studio (A4.2, ADR 0083): selection anchors in UTF-8
+// Claims and evidence links in Evidence Studio (A4.2, ADR 0073): selection anchors in UTF-8
 // bytes, opposing links side by side and never netted, stale and ambiguous ranges refused,
 // conflicts that keep the draft, undo, keyboard labels, and hostile text kept as text.
 

@@ -2641,7 +2641,7 @@ export function claimLinkColumns(links, claimId) {
 }
 
 /**
- * The evidence gaps and review prompts (ADR 0090) about one claim and its links, in the order the
+ * The evidence gaps and review prompts (ADR 0074) about one claim and its links, in the order the
  * server reviewed them, which is the order `openblog check` prints. Only well-formed findings are kept.
  */
 export function claimFindings(findings, claimId) {

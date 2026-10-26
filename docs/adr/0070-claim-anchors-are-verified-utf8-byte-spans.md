@@ -1,10 +1,10 @@
-# ADR 0080: Claim anchors are UTF-8 byte spans that are checked, never repaired
+# ADR 0070: Claim anchors are UTF-8 byte spans that are checked, never repaired
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#44](https://github.com/journey-to-code-org/open.blog/issues/44)
 - Parent story: [#20](https://github.com/journey-to-code-org/open.blog/issues/20)
-- Builds on: [ADR 0078](0078-claims-and-evidence-links-record-the-authors-reading.md)
+- Builds on: [ADR 0068](0068-claims-and-evidence-links-record-the-authors-reading.md)
 - Contract: [Claims and evidence links format](../specs/claims-evidence.md)
 
 ## Context
@@ -37,7 +37,7 @@ evidence to different words than the author chose.
   file unchanged.
 - **Storage is deferred.** The planned private file is
   `.openblog/private/research/claims.json`, owned by a later store with the atlas store's
-  revision-checked, lock-and-rename writes and the hosted allow-list (now ADR 0081). This task
+  revision-checked, lock-and-rename writes and the hosted allow-list (now ADR 0071). This task
   defines the core types, validation and canonical JSON only, so no site output or file changes.
   Failures are diagnostics scoped to collection, id and field and never repeat authored text.
 - **Edits are all-or-nothing.** `upsert_*` and `remove_*` validate the whole edited set exactly as

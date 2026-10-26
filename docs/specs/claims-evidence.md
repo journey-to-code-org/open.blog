@@ -2,16 +2,16 @@
 
 Private claims in draft posts and the author's evidence links, owned by
 `openblog_core::claims` and stored in `.openblog/private/research/claims.json`. Decisions:
-[ADR 0078](../adr/0078-claims-and-evidence-links-record-the-authors-reading.md),
-[ADR 0079](../adr/0079-contradicting-evidence-is-never-hidden-or-published-alone.md),
-[ADR 0080](../adr/0080-claim-anchors-are-verified-utf8-byte-spans.md),
-[ADR 0081](../adr/0081-private-claims-storage-checked-against-the-saved-draft.md),
-[ADR 0082](../adr/0082-claims-take-their-lock-after-the-atlas-and-guard-their-sources.md) and
-[ADR 0083](../adr/0083-claims-are-authored-from-a-selection-in-evidence-studio.md), with
+[ADR 0068](../adr/0068-claims-and-evidence-links-record-the-authors-reading.md),
+[ADR 0069](../adr/0069-contradicting-evidence-is-never-hidden-or-published-alone.md),
+[ADR 0070](../adr/0070-claim-anchors-are-verified-utf8-byte-spans.md),
+[ADR 0071](../adr/0071-private-claims-storage-checked-against-the-saved-draft.md),
+[ADR 0072](../adr/0072-claims-take-their-lock-after-the-atlas-and-guard-their-sources.md) and
+[ADR 0073](../adr/0073-claims-are-authored-from-a-selection-in-evidence-studio.md), with
 evidence-gap findings in
-[ADR 0090](../adr/0090-evidence-gaps-are-prompts-in-the-shared-finding-contract.md), and its
+[ADR 0074](../adr/0074-evidence-gaps-are-prompts-in-the-shared-finding-contract.md), and its
 publication in
-[ADR 0091](../adr/0091-publish-approved-claim-evidence-in-the-post-with-public-revision-notes.md).
+[ADR 0075](../adr/0075-publish-approved-claim-evidence-in-the-post-with-public-revision-notes.md).
 The file itself never reaches a public page, feed, export or search index; only the
 [publication](#publication) copies approved items, and only when the site opts in.
 

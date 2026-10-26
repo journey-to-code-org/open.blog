@@ -6,7 +6,7 @@
 //! directory and outside content, static files, themes and build output, so no
 //! feed, search index, `llms.txt`, export or generated page reads it. A build
 //! reads it only to report evidence gaps to the author ([`build_findings`],
-//! ADR 0090), and nothing from it reaches the build's output. It points into
+//! ADR 0074), and nothing from it reaches the build's output. It points into
 //! the library and the notebook (source ids, locators, passages) and copies
 //! neither. Every change names the revision it was based on, is validated by
 //! `openblog_core::claims` against the library and notebook as stored, and
@@ -14,7 +14,7 @@
 //! or interrupted change leaves the stored file exactly as it was.
 //!
 //! Locks are always taken in one order: atlas, claims, notebook, library
-//! (ADR 0082). A claims write takes claims, notebook and library; it never
+//! (ADR 0072). A claims write takes claims, notebook and library; it never
 //! holds the atlas lock, and an atlas write never takes the claims lock, so
 //! each writer takes its locks in that one order and no two can wait on each
 //! other. Notebook and library changes take a suffix of the order and only
@@ -267,7 +267,7 @@ fn drafts_of<'a>(
 }
 
 /// The evidence gaps and provenance prompts of a loaded claims file
-/// (`openblog_core::claim_review`, ADR 0090), against the saved posts. Read
+/// (`openblog_core::claim_review`, ADR 0074), against the saved posts. Read
 /// only: nothing is created, locked or changed.
 pub fn review(snapshot: &Snapshot, root: &Path, content_dir: &str) -> Vec<EvidenceFinding> {
     let (drafts, paths) = read_saved_posts(root, content_dir);
@@ -326,7 +326,7 @@ fn claims_file_absent(root: &Path) -> bool {
     })
 }
 
-/// What a build that publishes claim evidence (ADR 0091) reads from the
+/// What a build that publishes claim evidence (ADR 0075) reads from the
 /// claims file: its projection, a warning when none is stored (a CI or
 /// static-host build), or a refusal that names the file and counts its
 /// problems without repeating anything from it. Without a claims file

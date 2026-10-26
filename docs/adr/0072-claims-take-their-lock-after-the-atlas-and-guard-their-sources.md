@@ -1,4 +1,4 @@
-# ADR 0082: The claims file takes its lock after the atlas, and guards the sources and passages it uses
+# ADR 0072: The claims file takes its lock after the atlas, and guards the sources and passages it uses
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -6,7 +6,7 @@
 - Parent story: [#20](https://github.com/journey-to-code-org/open.blog/issues/20)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
 - Builds on: [ADR 0056](0056-one-lock-order-and-cross-store-research-guards.md),
-  [ADR 0081](0081-private-claims-storage-checked-against-the-saved-draft.md)
+  [ADR 0071](0071-private-claims-storage-checked-against-the-saved-draft.md)
 
 ## Context
 

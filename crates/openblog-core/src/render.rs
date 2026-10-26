@@ -296,7 +296,7 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
             c.apply_base_path(&atlas.to_json()),
         )?;
     }
-    // Claim evidence as data, only while the site publishes it (ADR 0091):
+    // Claim evidence as data, only while the site publishes it (ADR 0075):
     // the same values each post's section was written from.
     if c.claim_evidence.publish {
         out.add(

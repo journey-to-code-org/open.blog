@@ -82,7 +82,7 @@ pub struct SiteConfig {
     pub claim_evidence: ClaimEvidenceConfig,
 }
 
-/// Whether builds publish approved claim evidence (ADR 0091). Off by default:
+/// Whether builds publish approved claim evidence (ADR 0075). Off by default:
 /// the build then never reads the private claims file and every post is
 /// published as before. On, each post with approved claims or revision notes
 /// gains a "Claims and evidence" section, and the site gains

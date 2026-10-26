@@ -899,7 +899,7 @@ fn check_knowledge_atlas(
 }
 
 /// What `check` prints for the claims file: a summary, projection notices
-/// and the evidence findings (ADR 0090).
+/// and the evidence findings (ADR 0074).
 type ClaimsCheck = (
     String,
     Vec<String>,
@@ -910,7 +910,7 @@ type ClaimsCheck = (
 /// library and notebook. A missing file is not mentioned. Approved links the
 /// projection leaves out are non-blocking notices that name ids and states,
 /// never authored text; anchors that moved or no longer match the saved draft
-/// are evidence findings (ADR 0090), with the other gaps and prompts. Counts
+/// are evidence findings (ADR 0074), with the other gaps and prompts. Counts
 /// are given per relation and never combined.
 fn check_claims(
     root: &std::path::Path,
@@ -928,7 +928,7 @@ fn check_claims(
         .map(|notice| format!("{}: {notice}", claims_store::CLAIMS_FILE))
         .collect();
     // Anchors that moved or went stale are findings now, in the same list and
-    // order as the build and Evidence Studio show (ADR 0090).
+    // order as the build and Evidence Studio show (ADR 0074).
     let findings = claims_store::review(&snapshot, root, content_dir);
     let mut totals = openblog_core::claims::RelationCounts::default();
     for claim in &set.claims {

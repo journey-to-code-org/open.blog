@@ -1,4 +1,4 @@
-# ADR 0091: Publish approved claim evidence as a section of the post, with revision notes the post itself carries
+# ADR 0075: Publish approved claim evidence as a section of the post, with revision notes the post itself carries
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -8,18 +8,18 @@
 - Builds on: [ADR 0044](0044-what-a-citation-makes-public.md),
   [ADR 0048](0048-citations-publish-through-the-one-publication-projection.md),
   [ADR 0058](0058-publish-one-allowlisted-knowledge-atlas-projection.md),
-  [ADR 0078](0078-claims-and-evidence-links-record-the-authors-reading.md),
-  [ADR 0079](0079-contradicting-evidence-is-never-hidden-or-published-alone.md),
-  [ADR 0080](0080-claim-anchors-are-verified-utf8-byte-spans.md),
-  [ADR 0081](0081-private-claims-storage-checked-against-the-saved-draft.md)
-- Amends: [ADR 0081](0081-private-claims-storage-checked-against-the-saved-draft.md) and
-  [ADR 0090](0090-evidence-gaps-are-prompts-in-the-shared-finding-contract.md) (a build now
+  [ADR 0068](0068-claims-and-evidence-links-record-the-authors-reading.md),
+  [ADR 0069](0069-contradicting-evidence-is-never-hidden-or-published-alone.md),
+  [ADR 0070](0070-claim-anchors-are-verified-utf8-byte-spans.md),
+  [ADR 0071](0071-private-claims-storage-checked-against-the-saved-draft.md)
+- Amends: [ADR 0071](0071-private-claims-storage-checked-against-the-saved-draft.md) and
+  [ADR 0074](0074-evidence-gaps-are-prompts-in-the-shared-finding-contract.md) (a build now
   reads the claims file to publish it, only when the site opts in)
 - Contract: [Claims and evidence links format](../specs/claims-evidence.md#publication)
 
 ## Context
 
-ADR 0079 made approval the author's consent and fixed which links a projection may copy: a
+ADR 0069 made approval the author's consent and fixed which links a projection may copy: a
 link and its claim approved, no notebook passage, and support only while every contradicting
 link on the claim is approved too. It left the projection to this task. Readers should see the
 author's evidence for a claim next to the claim, with contradiction as visible as support and no

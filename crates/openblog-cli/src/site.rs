@@ -282,7 +282,7 @@ pub fn read_sources_excluding(
     // A deferred read: the load reads the library only when an opted-in post
     // cites something; see `Site::load`.
     sources.source_library = Some(crate::source_store::read_for_build(root));
-    // Claim evidence is read only while the site publishes it (ADR 0091).
+    // Claim evidence is read only while the site publishes it (ADR 0075).
     if config.claim_evidence.publish {
         sources.claim_evidence = Some(crate::claims_store::evidence_for_build(
             root,
@@ -606,7 +606,7 @@ pub fn generate_site(
     site.atlas = published_atlas(root, &site.config, &mut site.warnings)?;
     // Published claim evidence that cannot be read refuses the whole output
     // rather than publishing posts without it, as a damaged atlas does
-    // (ADR 0091). Only here: an Admin save's validation render is not stopped.
+    // (ADR 0075). Only here: an Admin save's validation render is not stopped.
     if let Some(error) = &site.claim_evidence_error {
         return Err(error.clone());
     }
@@ -1282,7 +1282,7 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
-    // ---- Claim evidence publication (A4.4, ADR 0091) ---------------------------
+    // ---- Claim evidence publication (A4.4, ADR 0075) ---------------------------
 
     const CLAIM_MARKER: &str = "ob-private-claim-6604";
 

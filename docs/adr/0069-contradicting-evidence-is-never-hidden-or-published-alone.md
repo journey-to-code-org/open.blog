@@ -1,11 +1,11 @@
-# ADR 0079: Contradicting evidence is never hidden, and support is never published alone
+# ADR 0069: Contradicting evidence is never hidden, and support is never published alone
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#44](https://github.com/journey-to-code-org/open.blog/issues/44)
 - Parent story: [#20](https://github.com/journey-to-code-org/open.blog/issues/20)
 - Builds on: [ADR 0054](0054-attributed-evidence-based-relationships.md),
-  [ADR 0078](0078-claims-and-evidence-links-record-the-authors-reading.md)
+  [ADR 0068](0068-claims-and-evidence-links-record-the-authors-reading.md)
 - Contract: [Claims and evidence links format](../specs/claims-evidence.md)
 
 ## Context

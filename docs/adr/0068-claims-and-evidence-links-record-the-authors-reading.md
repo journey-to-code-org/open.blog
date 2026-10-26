@@ -1,4 +1,4 @@
-# ADR 0078: A claim is a draft statement and an evidence link is the author's recorded reading
+# ADR 0068: A claim is a draft statement and an evidence link is the author's recorded reading
 
 - Status: Accepted
 - Date: 2026-10-26

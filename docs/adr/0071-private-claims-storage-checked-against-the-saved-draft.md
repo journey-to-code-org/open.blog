@@ -1,4 +1,4 @@
-# ADR 0081: Store claims privately and check every new anchor against the saved draft
+# ADR 0071: Store claims privately and check every new anchor against the saved draft
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -7,14 +7,14 @@
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
 - Builds on: [ADR 0055](0055-private-knowledge-atlas-storage.md),
   [ADR 0057](0057-accessible-atlas-authoring-and-a-text-first-explorer.md),
-  [ADR 0078](0078-claims-and-evidence-links-record-the-authors-reading.md),
-  [ADR 0079](0079-contradicting-evidence-is-never-hidden-or-published-alone.md),
-  [ADR 0080](0080-claim-anchors-are-verified-utf8-byte-spans.md)
+  [ADR 0068](0068-claims-and-evidence-links-record-the-authors-reading.md),
+  [ADR 0069](0069-contradicting-evidence-is-never-hidden-or-published-alone.md),
+  [ADR 0070](0070-claim-anchors-are-verified-utf8-byte-spans.md)
 - Contract: [Claims and evidence links format](../specs/claims-evidence.md)
 
 ## Context
 
-ADR 0080 defined claims, links and anchors but deferred storage. Authors now select words in a
+ADR 0070 defined claims, links and anchors but deferred storage. Authors now select words in a
 draft and attach saved passages to them. The words an author selected must be the words the
 evidence attaches to: a selection made in older or unsaved text, or a range that has since gone
 stale or become ambiguous, must not reach the evidence store, and a refused save must leave both
@@ -27,7 +27,7 @@ the draft and the store as they were.
   store's rules: an absent file reads as empty and reading creates nothing; every change names
   the revision (SHA-256 of the stored bytes) it was based on and a stale one is a conflict; the
   edited set is validated by `openblog_core::claims` against the stored library and notebook and
-  written by temporary file and `fsutil::replace_file`, under locks (ADR 0082); a refused, failed
+  written by temporary file and `fsutil::replace_file`, under locks (ADR 0072); a refused, failed
   or interrupted write leaves the file byte for byte. Symlinks, directories, non-UTF-8 and
   oversized files are reported, never replaced, and messages name the claims file.
 - **Anchors are checked against the saved post, never the editor.** `claims_store::read_saved_posts`
@@ -49,7 +49,7 @@ the draft and the store as they were.
   creating a link, or changing one, while its claim's anchor is stale or ambiguous. A moved
   anchor (its words occur once, elsewhere) is allowed and reported so the author can re-anchor.
   Removing a link, and withdrawing a link's approval with no other change, are always allowed:
-  consent can always be withdrawn (ADR 0079).
+  consent can always be withdrawn (ADR 0069).
 - **Selections are checked in the text they were made in.** `POST
   /admin/api/research/claims/anchor` takes the post path, the revision (etag) the editor loaded,
   UTF-8 byte offsets and the exact words, and answers `verified`, `moved`, `stale` or
@@ -66,14 +66,14 @@ the draft and the store as they were.
   before any message names it.
 - **Checked offline and synced like the other research files.** `openblog check` validates a
   stored file, prints projection notices as `notice:` lines naming ids, reports anchors that are
-  moved, stale or ambiguous as evidence findings (ADR 0090), and summarises counts per relation,
+  moved, stale or ambiguous as evidence findings (ADR 0074), and summarises counts per relation,
   never combined. A
   missing file is not mentioned. The hosted workspace allow-list carries the exact path at the
   library's 4 MiB limit and nothing beside it (no lock, temporary file or child path).
 - **Never public.** No feed, search index, export, generated page or public route reads the
-  file (a build reads it only to print the author's evidence findings, ADR 0090); the public
+  file (a build reads it only to print the author's evidence findings, ADR 0074); the public
   server refuses it under every spelling; and a copy in `content/`, `static/` or a theme, or a
-  generated file shaped like it, stops the build naming only the path (ADR 0079's structural
+  generated file shaped like it, stops the build naming only the path (ADR 0069's structural
   guard).
 
 ## Consequences
