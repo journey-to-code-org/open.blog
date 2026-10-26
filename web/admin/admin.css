@@ -2644,6 +2644,93 @@ html[data-admin-density="compact"] .oba-pane {
   }
 }
 
+/* Claims and evidence: supporting and contradicting side by side, never combined. */
+/* Inset from the pane border so text never touches it and focus rings are not clipped. */
+.oba-claims-region {
+  padding-inline: 0.75rem;
+}
+
+.oba-claims {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: var(--ob-border-width) solid var(--oba-panel-border);
+}
+
+.oba-claim {
+  padding: 0.75rem 0;
+  border-top: var(--ob-border-width) solid var(--oba-panel-border);
+}
+
+.oba-claim-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.oba-claim-links {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-claim-link {
+  padding: 0.5rem 0;
+  border-top: var(--ob-border-width) solid var(--oba-panel-border);
+}
+
+/* Gaps and prompts: a list of actions, marked by outcome without colour alone (the label says it). */
+.oba-claim-findings ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-claim-finding {
+  padding: 0.25rem 0 0.25rem 0.75rem;
+  border-inline-start: 3px solid var(--oba-panel-border);
+}
+
+.oba-claim-finding.is-detected {
+  border-inline-start-color: var(--ob-color-accent);
+}
+
+.oba-claim-finding code {
+  overflow-wrap: anywhere;
+}
+
+.oba-claim h4,
+.oba-claim h5,
+.oba-claim p,
+.oba-claim q,
+.oba-claim-form q {
+  overflow-wrap: anywhere;
+}
+
+.oba-claims .oba-btn {
+  min-height: 44px;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.oba-claims button:focus-visible,
+.oba-claims fieldset:focus-visible,
+.oba-claim h4:focus-visible {
+  outline: 3px solid var(--ob-color-accent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 40rem) {
+  .oba-claim-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .oba-claims .oba-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
 /* Anchors styled as buttons or tabs should not look like prose links. */
 a.oba-btn,
 a.oba-tab {

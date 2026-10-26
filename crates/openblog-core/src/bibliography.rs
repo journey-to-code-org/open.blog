@@ -145,6 +145,12 @@ impl CitationLocale {
     pub fn locators_text(self, locators: &[PublicLocator]) -> String {
         locators_text(locators, self.strings())
     }
+
+    /// A reference as escaped inline Markdown in this locale, as a note shows
+    /// it, without a final period.
+    pub(crate) fn reference_markdown(self, reference: &PublicReference) -> String {
+        reference_markdown(reference, self.strings())
+    }
 }
 
 /// A locator label in its singular and range (plural) forms.
@@ -727,7 +733,7 @@ pub(crate) fn safe_http_url(value: &str) -> Option<String> {
 /// Untrusted text as inline Markdown that renders exactly as written: inner
 /// whitespace collapsed, and every character Markdown could read as markup,
 /// HTML or an entity escaped.
-fn markdown_text(value: &str) -> String {
+pub(crate) fn markdown_text(value: &str) -> String {
     let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
     let mut escaped = String::with_capacity(normalized.len());
     for character in normalized.chars() {
@@ -744,7 +750,7 @@ fn markdown_text(value: &str) -> String {
 
 /// A note body that cannot start a block of its own (a heading, list, quote
 /// or rule) when it sits after `[^label]: `.
-fn block_safe(body: &str) -> String {
+pub(crate) fn block_safe(body: &str) -> String {
     let digits = body.bytes().take_while(u8::is_ascii_digit).count();
     if digits > 0 && matches!(body.as_bytes().get(digits), Some(b'.' | b')')) {
         return format!("{}\\{}", &body[..digits], &body[digits..]);

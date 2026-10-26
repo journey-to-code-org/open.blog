@@ -776,6 +776,73 @@ How a relationship reads from one of its entries: its kind going out (`authored`
 label coming in (`authored by`). A label for display, never a second stored assertion.
 _Avoid_: Reverse edge, inferred relationship
 
+**Claim**:
+A statement made in one draft post, optionally anchored to a UTF-8 byte span of its anchor text.
+It is private until the author approves it and carries no truth value.
+_Avoid_: Fact, finding; treating a cited sentence as a claim automatically
+
+**Anchor text**:
+The text a claim anchor indexes: the post body after a leading byte-order mark and the front
+matter are removed, with every CRLF folded to LF and then any leading line breaks dropped, so the
+blank line Admin's save writes after the front matter counts for nothing. Offsets are UTF-8 bytes
+into it.
+_Avoid_: Offsets into the raw file, character or UTF-16 offsets
+
+**Evidence link**:
+The author's recorded relation (supports, contradicts or contextualizes) between one claim and one
+source, with optional locators and notebook passage, rationale, uncertainty, review state and
+provenance. A citation alone is not one.
+_Avoid_: Citation, proof, verdict; defaulting a relation to supports
+
+**Projected evidence link**:
+An approved link on an approved claim with no private passage and, if it supports the claim, no
+private contradicting link beside it. Anything else stays private and is reported as a notice,
+never refused, so withdrawing consent is an ordinary edit.
+_Avoid_: Public link, approved link when its claim or a contradiction may be private
+
+**Claim anchor check**:
+Comparing a claim's recorded span with the current anchor text: verified, moved, stale or
+ambiguous. It reports and never repairs.
+_Avoid_: Auto-relocation
+
+**Evidence gap**:
+A finding about what a claim's record lacks or what only the author can check: no evidence,
+contradicting evidence the post may not address, only support for a claim marked uncertain, an
+archived source or passage, a missing location or rationale, an unchecked location, an
+unreviewed suggestion, or words no longer where they were anchored. It is a prompt with a next
+action, in the same finding contract as citation checks, and never a verdict on truth.
+_Avoid_: Evidence score, weak claim, unsupported claim, verification
+
+**Saved draft**:
+A post's text as stored in its file, which every claim anchor is checked against. Unsaved editor
+text never is; the author saves the post before anchoring a claim in new words.
+_Avoid_: Editor buffer, live text
+
+**Re-anchor**:
+The author choosing a claim's words again in the saved draft, after they moved, went stale or
+became ambiguous. Evidence cannot be added to a stale or ambiguous claim until it is re-anchored.
+_Avoid_: Auto-fix, relocation by the software
+
+**Claim evidence projection**:
+The one public form of a post's claims: approved claims and projected evidence links, each
+reduced to an explicit allowlist of fields, with the public description of the sources they cite.
+It is published as a section of the post's publication Markdown and as `claim-evidence.json`;
+supporting and contradicting evidence sit side by side under each claim and are never combined.
+Withdrawing approval removes an item from the next build.
+_Avoid_: Public claims export, verdict, fact check; filtering the private claims file per surface
+
+**Claim evidence publication switch**:
+The site setting `claimEvidence.publish`. Off by default, when no build reads the claims file and
+every post is published as before; on, the build publishes the claim evidence projection. Approval
+is still required for each claim and each link.
+_Avoid_: Treating approval alone as publication
+
+**Evidence revision note**:
+A dated public note, written by the author in a post's front matter (`evidenceRevisions`), saying
+how the post's evidence changed, optionally naming one claim. It is versioned with the post, so
+removing private research or withdrawing a claim never removes it.
+_Avoid_: Changelog entry, correction notice from a reader; storing the note in private research
+
 ## Reader participation
 
 These terms describe how readers point at published text and where their feedback came from.

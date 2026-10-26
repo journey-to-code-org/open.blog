@@ -47,6 +47,32 @@ pub enum EvidenceCode {
     CitationReferenceIncomplete,
     /// Located citations a person must check against the source.
     CitationLocationReview,
+    /// A claim names a post slug no saved post has (ADR 0074).
+    ClaimPostMissing,
+    /// A claim's words occur once, away from the recorded offsets.
+    ClaimAnchorMoved,
+    /// A claim's words no longer occur in the saved draft.
+    ClaimAnchorStale,
+    /// A claim's words occur several times and the offsets no longer match.
+    ClaimAnchorAmbiguous,
+    /// A suggested claim or link nobody has made their own yet.
+    ClaimSuggestionUnreviewed,
+    /// A claim with no evidence link at all.
+    ClaimEvidenceMissing,
+    /// A claim marked uncertain whose links all support it.
+    ClaimSupportOnly,
+    /// Contradicting links on a claim with no note on how the draft meets them.
+    ClaimContradictionUndiscussed,
+    /// A link resting on a source archived in the library.
+    ClaimSourceArchived,
+    /// A link pointing at a notebook passage that is archived.
+    ClaimPassageArchived,
+    /// A link that gives no location in its source.
+    ClaimLocatorMissing,
+    /// A located link nobody has recorded checking against the source.
+    ClaimLocationUnreviewed,
+    /// A link that does not say why the author reads the source this way.
+    ClaimRationaleMissing,
 }
 
 impl fmt::Display for EvidenceCode {
@@ -64,6 +90,19 @@ impl fmt::Display for EvidenceCode {
             Self::CitationIdentifierUnpublished => "citation-identifier-unpublished",
             Self::CitationReferenceIncomplete => "citation-reference-incomplete",
             Self::CitationLocationReview => "citation-location-review",
+            Self::ClaimPostMissing => "claim-post-missing",
+            Self::ClaimAnchorMoved => "claim-anchor-moved",
+            Self::ClaimAnchorStale => "claim-anchor-stale",
+            Self::ClaimAnchorAmbiguous => "claim-anchor-ambiguous",
+            Self::ClaimSuggestionUnreviewed => "claim-suggestion-unreviewed",
+            Self::ClaimEvidenceMissing => "claim-evidence-missing",
+            Self::ClaimSupportOnly => "claim-support-only",
+            Self::ClaimContradictionUndiscussed => "claim-contradiction-undiscussed",
+            Self::ClaimSourceArchived => "claim-source-archived",
+            Self::ClaimPassageArchived => "claim-passage-archived",
+            Self::ClaimLocatorMissing => "claim-locator-missing",
+            Self::ClaimLocationUnreviewed => "claim-location-unreviewed",
+            Self::ClaimRationaleMissing => "claim-rationale-missing",
         })
     }
 }
@@ -95,6 +134,18 @@ pub struct EvidenceFinding {
     pub source: EvidenceSource,
     pub message: String,
     pub repair: String,
+    /// The claims-file record a finding is about, so Evidence Studio can show
+    /// it beside that claim. Absent for findings about a post's own text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub object: Option<EvidenceObject>,
+}
+
+/// The claim, and optionally the evidence link on it, a finding is about.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct EvidenceObject {
+    pub claim: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -691,6 +742,7 @@ fn field_finding(
         },
         message: message.to_string(),
         repair: repair.to_string(),
+        object: None,
     }
 }
 
@@ -726,6 +778,7 @@ fn offset_finding(
         },
         message,
         repair,
+        object: None,
     }
 }
 

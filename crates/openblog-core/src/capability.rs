@@ -12,6 +12,7 @@ const PORTABLE_FALLBACKS: &[&str] = &[
     "comments",
     "raw-html",
     "citations",
+    "claim-evidence",
 ];
 
 /// Planned capabilities registered in `docs/portability/planned-capability-contracts.json`,
@@ -132,6 +133,11 @@ impl CapabilityDescriptor {
             "citations" => (
                 "Citations of saved references, published as numbered notes or a bibliography.",
                 Some("markdown-footnotes"),
+                PortabilityLevel::FullyPortable,
+            ),
+            "claim-evidence" => (
+                "The author's approved claims with their supporting and contradicting evidence side by side, and revision notes.",
+                Some("markdown-section"),
                 PortabilityLevel::FullyPortable,
             ),
             planned if matches!(planned_entry(planned), Some(Some(_))) => (

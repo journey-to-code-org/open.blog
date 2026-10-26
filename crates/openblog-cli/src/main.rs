@@ -7,6 +7,7 @@ mod assistant;
 mod assistant_storage;
 mod atlas_store;
 mod auth;
+mod claims_store;
 mod clock;
 mod contributor_migration;
 mod fsutil;
@@ -416,6 +417,15 @@ fn run(raw: &[String]) -> Result<(), String> {
                 for notice in notices {
                     eprintln!("notice: {notice}");
                 }
+                println!("{summary}");
+            }
+            if let Some((summary, notices, findings)) =
+                check_claims(&root, &site.config.contributors, &site.config.paths.content)?
+            {
+                for notice in notices {
+                    eprintln!("notice: {notice}");
+                }
+                serve::print_evidence_findings(&findings);
                 println!("{summary}");
             }
             Ok(())
@@ -888,6 +898,74 @@ fn check_knowledge_atlas(
     )))
 }
 
+/// What `check` prints for the claims file: a summary, projection notices
+/// and the evidence findings (ADR 0074).
+type ClaimsCheck = (
+    String,
+    Vec<String>,
+    Vec<openblog_core::research::EvidenceFinding>,
+);
+
+/// Validate the private claims file when one is stored, against the stored
+/// library and notebook. A missing file is not mentioned. Approved links the
+/// projection leaves out are non-blocking notices that name ids and states,
+/// never authored text; anchors that moved or no longer match the saved draft
+/// are evidence findings (ADR 0074), with the other gaps and prompts. Counts
+/// are given per relation and never combined.
+fn check_claims(
+    root: &std::path::Path,
+    contributors: &std::collections::BTreeMap<String, openblog_core::contributor::Contributor>,
+    content_dir: &str,
+) -> Result<Option<ClaimsCheck>, String> {
+    let snapshot = claims_store::load(root, contributors).map_err(|error| error.to_string())?;
+    if !snapshot.stored {
+        return Ok(None);
+    }
+    let set = &snapshot.claims;
+    let notices: Vec<String> = set
+        .notices()
+        .iter()
+        .map(|notice| format!("{}: {notice}", claims_store::CLAIMS_FILE))
+        .collect();
+    // Anchors that moved or went stale are findings now, in the same list and
+    // order as the build and Evidence Studio show (ADR 0074).
+    let findings = claims_store::review(&snapshot, root, content_dir);
+    let mut totals = openblog_core::claims::RelationCounts::default();
+    for claim in &set.claims {
+        let counts = set.counts(&claim.id);
+        totals.supports += counts.supports;
+        totals.contradicts += counts.contradicts;
+        totals.contextualizes += counts.contextualizes;
+    }
+    let outcome = |wanted: openblog_core::research::EvidenceOutcome| {
+        findings.iter().filter(|f| f.outcome == wanted).count()
+    };
+    let prompts = if findings.is_empty() {
+        "No evidence gaps or review prompts.".to_string()
+    } else {
+        format!(
+            "{} evidence gap(s) and review prompt(s): {} detected, {} potential, {} needing review. They point at what the record lacks or what only you can check, never at whether a claim is true.",
+            findings.len(),
+            outcome(openblog_core::research::EvidenceOutcome::Detected),
+            outcome(openblog_core::research::EvidenceOutcome::Potential),
+            outcome(openblog_core::research::EvidenceOutcome::NeedsReview)
+        )
+    };
+    Ok(Some((
+        format!(
+            "OK: private claims file {} has {} claim(s) and {} evidence link(s): {} supporting, {} contradicting, {} contextualizing; builds never publish it. {prompts}",
+            claims_store::CLAIMS_FILE,
+            set.claims.len(),
+            set.links.len(),
+            totals.supports,
+            totals.contradicts,
+            totals.contextualizes
+        ),
+        notices,
+        findings,
+    )))
+}
+
 /// Remove an Admin username from every shared publication binding, under the content
 /// transaction lock so a running Admin server cannot interleave a write.
 fn revoke_shared_publication_bindings(root: &std::path::Path, name: &str) -> Result<(), String> {
@@ -949,6 +1027,92 @@ mod tests {
         assert!(
             error.contains(".openblog/private/research/notebook.json: notes[0] `n`")
                 && error.contains("(unknown-source)"),
+            "{error}"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn check_reports_the_private_claims_file_only_when_it_is_stored() {
+        let root = std::env::temp_dir().join(format!(
+            "openblog-check-claims-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("content/posts")).unwrap();
+        let contributors = std::collections::BTreeMap::new();
+        assert_eq!(check_claims(&root, &contributors, "content"), Ok(None));
+        assert!(!root.join(".openblog").exists());
+        std::fs::write(
+            root.join("content/posts/2026-01-07-cave.md"),
+            "---\ntitle: Cave\n---\nThe cave educates.\n",
+        )
+        .unwrap();
+        let library = root.join(source_store::LIBRARY_FILE);
+        std::fs::create_dir_all(library.parent().unwrap()).unwrap();
+        std::fs::write(
+            &library,
+            r#"{"version":1,"sources":[{"id":"w","kind":"work","title":"W"}]}"#,
+        )
+        .unwrap();
+        let path = root.join(claims_store::CLAIMS_FILE);
+        std::fs::write(
+            &path,
+            r#"{"version":1,"claims":[{"id":"c1","post":"cave","statement":"ob-secret-statement","anchor":{"start":4,"end":8,"text":"cave"}},{"id":"c2","post":"cave","statement":"S","anchor":{"start":0,"end":4,"text":"gone"}}],"links":[{"id":"l1","claim":"c1","relation":"supports","evidence":{"source":"w"},"visibility":"approved"},{"id":"l2","claim":"c1","relation":"contradicts","evidence":{"source":"w"}}]}"#,
+        )
+        .unwrap();
+        let (summary, notices, findings) = check_claims(&root, &contributors, "content")
+            .unwrap()
+            .unwrap();
+        assert!(
+            summary.contains("2 claim(s) and 2 evidence link(s): 1 supporting, 1 contradicting, 0 contextualizing; builds never publish it."),
+            "{summary}"
+        );
+        assert!(
+            summary.contains("7 evidence gap(s) and review prompt(s): 1 detected, 5 potential, 1 needing review.")
+                && summary.contains("never at whether a claim is true"),
+            "{summary}"
+        );
+        assert_eq!(notices.len(), 1, "{notices:?}");
+        assert!(
+            notices[0].contains("links[0] `l1` claim") && notices[0].contains("(private-endpoint)"),
+            "{notices:?}"
+        );
+        // The anchor that went stale is a finding now, in review order and
+        // named by the post it is about.
+        let codes: Vec<String> = findings.iter().map(|f| f.code.to_string()).collect();
+        assert_eq!(
+            codes,
+            [
+                "claim-contradiction-undiscussed",
+                "claim-locator-missing",
+                "claim-rationale-missing",
+                "claim-locator-missing",
+                "claim-rationale-missing",
+                "claim-anchor-stale",
+                "claim-evidence-missing",
+            ]
+        );
+        assert!(findings
+            .iter()
+            .all(|f| f.source.path == "posts/2026-01-07-cave.md"));
+        assert!(notices
+            .iter()
+            .chain(findings.iter().map(|f| &f.message))
+            .all(|n| !n.contains("ob-secret-statement") && !n.contains("gone")));
+
+        std::fs::write(
+            &path,
+            r#"{"version":1,"links":[{"id":"l1","claim":"c9","relation":"supports","evidence":{"source":"w"}}]}"#,
+        )
+        .unwrap();
+        let error = check_claims(&root, &contributors, "content").unwrap_err();
+        assert!(
+            error.contains(".openblog/private/research/claims.json: links[0] `l1` claim")
+                && error.contains("(unknown-claim)"),
             "{error}"
         );
         std::fs::remove_dir_all(root).unwrap();

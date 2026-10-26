@@ -44,7 +44,8 @@ default, so you can edit values in place and delete the ones you do not need.
   "paths": { "content": "content", "static": "static", "output": "dist", "themes": "themes", "web": "web" },
   "admin": { "usersFile": ".openblog/users.json", "sessionHours": 12, "secureCookies": false, "maxUploadMb": 10, "trustedProxies": [] },
   "publish": { "remote": "origin", "branch": "main", "auto": false, "includeDrafts": false, "paths": ["content", "static", "openblog.json", "themes", ".github"], "pullFirst": true },
-  "knowledgeAtlas": { "publish": false }
+  "knowledgeAtlas": { "publish": false },
+  "claimEvidence": { "publish": false }
 }
 ```
 
@@ -265,6 +266,23 @@ The atlas is private and Git-ignored, so only a build that can read it publishes
 static-host build from the repository finds no atlas and publishes `/atlas/` and `/atlas.json`
 empty; `openblog build` and `openblog check` warn when publishing is on but no atlas is stored.
 See [Deploying](deploy.md).
+
+## Claim evidence
+
+`claimEvidence.publish` (off by default) publishes the claims and evidence links you approved in
+Evidence Studio with the posts they are about: each such post gains a "Claims and evidence"
+section listing, for every approved claim, its supporting and contradicting evidence side by side
+with the references, locations, your rationale, confidence and uncertainty, and the site gains
+`/claim-evidence.json` with the same data. Support is never published while a contradicting link
+on the same claim is private, and nothing is netted or scored. Revision notes you write in a
+post's front matter as `evidenceRevisions` are published in the same section. While it is off, no
+build reads the private claims file and every post is unchanged. Clearing an approval removes the
+item from the next build. See the [claims format](specs/claims-evidence.md#publication).
+
+The claims file is private and Git-ignored, so only a build that can read it publishes claim
+evidence: `openblog serve` and Admin, or a local `openblog build` whose `dist/` you then upload. A
+CI or static-host build publishes no claims (revision notes still appear), and `openblog build`
+and `openblog check` warn. See [Deploying](deploy.md).
 
 ## Themes
 

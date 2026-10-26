@@ -372,7 +372,9 @@ pub fn looks_like_private_research(bytes: &[u8]) -> bool {
     if root.get("format").and_then(Value::as_str) == Some(BUNDLE_FORMAT) {
         return true;
     }
-    notebook_shaped(&root) || crate::knowledge_atlas::looks_like_atlas(&root)
+    notebook_shaped(&root)
+        || crate::knowledge_atlas::looks_like_atlas(&root)
+        || crate::claims::looks_like_claims(&root)
 }
 
 fn notebook_shaped(root: &Map<String, Value>) -> bool {

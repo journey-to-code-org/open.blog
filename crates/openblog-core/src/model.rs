@@ -9,6 +9,7 @@ use crate::bibliography::{
     self, CitationLocale, CitationNoteLabels, CitationStyle, CitationSummary,
 };
 use crate::capability::CapabilityDescriptor;
+use crate::claim_publication::{ClaimEvidence, ClaimEvidenceSource, PostEvidence};
 use crate::config::SiteConfig;
 use crate::contributor::{self, CreditProvenance, ResolvedCredit};
 use crate::date::DateTime;
@@ -41,6 +42,9 @@ pub struct Sources {
     /// reads it only when a post that opts in to citations cites something,
     /// and publishes only the cited references' public description (ADR 0048).
     pub source_library: Option<LibrarySource>,
+    /// The projection of the private claims file, read only while the site
+    /// publishes claim evidence (ADR 0075); `None` otherwise.
+    pub claim_evidence: Option<ClaimEvidenceSource>,
 }
 
 /// The private source library as a site load receives it.
@@ -243,6 +247,12 @@ pub struct Post {
     /// What the published citations made public, for a post that publishes
     /// them; portable bibliography exports read it (ADR 0050).
     pub(crate) citations: Option<CitationSummary>,
+    /// What the post publishes of its approved claims and its revision notes,
+    /// for a site that publishes claim evidence (ADR 0075).
+    pub(crate) claim_evidence: Option<PostEvidence>,
+    /// Why its claim evidence could not be published, for the site load to
+    /// decide as for citations: refuse a post it publishes, warn otherwise.
+    pub(crate) evidence_error: Option<String>,
     pub html: String,
     pub text: String,
     pub headings: Vec<Heading>,
@@ -300,6 +310,12 @@ impl Post {
     /// bibliography exports, so they hold exactly what the page shows.
     pub fn citations(&self) -> Option<&CitationSummary> {
         self.citations.as_ref()
+    }
+
+    /// What this post publishes of its approved claims, evidence and revision
+    /// notes, or `None` when it publishes none (ADR 0075).
+    pub fn claim_evidence(&self) -> Option<&PostEvidence> {
+        self.claim_evidence.as_ref()
     }
 
     /// The reader-facing reference data of this post's published citations
@@ -429,6 +445,13 @@ pub struct Site {
     /// the site opts in to publishing it (ADR 0058). `None` writes no atlas
     /// output at all.
     pub atlas: Option<crate::atlas_publication::PublicAtlas>,
+    /// Why this site's claim evidence cannot be published (ADR 0075): the
+    /// claims file, or the library or notebook it is checked against, cannot
+    /// be read or validated. A full build or `check` refuses while it is set,
+    /// where a damaged published atlas refuses it; `generate` itself does not,
+    /// so a load or render that only validates content (an Admin save, a
+    /// preview) is not stopped by it.
+    pub claim_evidence_error: Option<String>,
     /// The time the site was loaded for (`LoadOptions::now`). A post dated after it is scheduled,
     /// even when a preview or the admin editor loaded it, so it is never a series part.
     now: Option<DateTime>,
@@ -461,6 +484,28 @@ impl Site {
                 .map_err(Clone::clone)
         };
         errors.extend(credit_sidecars.errors.iter().cloned());
+        // Claim evidence, only while the site publishes it (ADR 0075). Without
+        // the switch the private claims file is never consulted and every post
+        // is published as before.
+        let mut claim_evidence_error = None;
+        let claim_mode = if config.claim_evidence.publish {
+            match &sources.claim_evidence {
+                Some(ClaimEvidenceSource::Stored(projection)) => {
+                    ClaimEvidenceMode::Publish(Some(projection))
+                }
+                Some(ClaimEvidenceSource::Unstored { warning }) => {
+                    warnings.push(warning.clone());
+                    ClaimEvidenceMode::Publish(None)
+                }
+                Some(ClaimEvidenceSource::Unreadable(error)) => {
+                    claim_evidence_error = Some(error.clone());
+                    ClaimEvidenceMode::Publish(None)
+                }
+                None => ClaimEvidenceMode::Publish(None),
+            }
+        } else {
+            ClaimEvidenceMode::Off
+        };
 
         // Series definitions first, so posts can reference them.
         let mut series: Vec<Series> = Vec::new();
@@ -497,7 +542,13 @@ impl Site {
                 continue;
             }
             let sidecar = credit_sidecars.by_post.get(&normalized_path).copied();
-            match load_post_in(file, &config, render_options, Citations::Publish(&library)) {
+            match load_post_in(
+                file,
+                &config,
+                render_options,
+                Citations::Publish(&library),
+                claim_mode,
+            ) {
                 Ok(mut post) => {
                     if let Err(error) = apply_credits(&mut post, &config, sidecar) {
                         errors.push(format!(
@@ -538,29 +589,38 @@ impl Site {
                         options.preview_source.as_deref() == Some(post.source.as_str());
                     let held_back = !options.include_drafts && !is_preview_target;
                     let scheduled_out = held_back && options.now.is_some_and(|now| post.date > now);
-                    if let Some(error) = post.citation_error.take() {
-                        // Only a post this load publishes is refused (ADR 0049).
-                        // A draft, a post waiting for its date and, in a preview,
-                        // every other document keep their citations as text.
-                        let reason = if post.draft {
-                            Some("while the post is a draft")
-                        } else if scheduled_out {
-                            Some("until the post is due, and must resolve before then")
-                        } else if options.preview_source.is_some() && !is_preview_target {
-                            Some("in this preview")
-                        } else {
-                            None
-                        };
+                    // Only a post this load publishes is refused (ADR 0049).
+                    // A draft, a post waiting for its date and, in a preview,
+                    // every other document keep their citations as text and
+                    // publish no claim evidence.
+                    let reason = if post.draft {
+                        Some("while the post is a draft")
+                    } else if scheduled_out {
+                        Some("until the post is due, and must resolve before then")
+                    } else if options.preview_source.is_some() && !is_preview_target {
+                        Some("in this preview")
+                    } else {
+                        None
+                    };
+                    let mut refused = false;
+                    for (what, error) in [
+                        ("citations are", post.citation_error.take()),
+                        ("claim evidence is", post.evidence_error.take()),
+                    ] {
+                        let Some(error) = error else { continue };
                         match reason {
                             Some(reason) => warnings.push(format!(
-                                "{}: citations are not published {reason}: {error}",
+                                "{}: {what} not published {reason}: {error}",
                                 file.path
                             )),
                             None => {
                                 errors.push(format!("{}: {error}", file.path));
-                                continue;
+                                refused = true;
                             }
                         }
+                    }
+                    if refused {
+                        continue;
                     }
                     if post.draft && held_back {
                         continue;
@@ -705,6 +765,7 @@ impl Site {
             evidence,
             view_counts: BTreeMap::new(),
             atlas: None,
+            claim_evidence_error,
             now: options.now,
         })
     }
@@ -1010,6 +1071,16 @@ pub fn uncitable_line(source: &str, library: &SourceLibrary) -> Option<usize> {
         .map(|found| file_line(found.line))
 }
 
+/// A post's revision notes as written: each item of the list, or one note
+/// written as a single value (which is never split at its commas).
+fn revision_items(fm: &FrontMatter) -> Vec<String> {
+    match fm.fields.get(crate::claim_publication::REVISIONS_FIELD) {
+        Some(frontmatter::Value::List(items)) => items.clone(),
+        Some(frontmatter::Value::Scalar(item)) if !item.trim().is_empty() => vec![item.clone()],
+        _ => Vec::new(),
+    }
+}
+
 fn first<'a>(fm: &'a FrontMatter, keys: &[&str]) -> Option<&'a str> {
     keys.iter()
         .find_map(|k| fm.get(k))
@@ -1074,7 +1145,13 @@ pub fn load_post(
     config: &SiteConfig,
     options: RenderOptions<'_>,
 ) -> Result<Post, String> {
-    load_post_in(file, config, options, Citations::Unpublished)
+    load_post_in(
+        file,
+        config,
+        options,
+        Citations::Unpublished,
+        ClaimEvidenceMode::Off,
+    )
 }
 
 /// Parse one post file and publish its citations against `library` exactly
@@ -1087,11 +1164,27 @@ pub fn load_post_cited(
     library: Option<&SourceLibrary>,
 ) -> Result<Post, String> {
     let library = || Ok(library);
-    let mut post = load_post_in(file, config, options, Citations::Publish(&library))?;
+    let mut post = load_post_in(
+        file,
+        config,
+        options,
+        Citations::Publish(&library),
+        ClaimEvidenceMode::Off,
+    )?;
     match post.citation_error.take() {
         Some(error) => Err(error),
         None => Ok(post),
     }
+}
+
+/// How a post load treats claim evidence (ADR 0075).
+#[derive(Clone, Copy)]
+enum ClaimEvidenceMode<'e> {
+    /// The site does not publish it: the post is read exactly as before.
+    Off,
+    /// Publish the post's approved claims from this projection (none while
+    /// no claims file is stored) and its revision notes.
+    Publish(Option<&'e ClaimEvidence>),
 }
 
 fn load_post_in(
@@ -1099,6 +1192,7 @@ fn load_post_in(
     config: &SiteConfig,
     options: RenderOptions<'_>,
     citations: Citations<'_>,
+    claim_evidence: ClaimEvidenceMode<'_>,
 ) -> Result<Post, String> {
     let doc = frontmatter::parse(&file.contents)?;
     let fm = &doc.front_matter;
@@ -1107,6 +1201,54 @@ fn load_post_in(
     // Citations are opt-in (ADR 0043): a post without `citations` is read
     // exactly as before, and so is one that opts in but cites nothing.
     let citation_style = CitationStyle::from_front_matter(first(fm, &["citations"]))?;
+    // Claim evidence (ADR 0075): the post's approved claims and the author's
+    // revision notes become one section of the publication Markdown, ahead of
+    // any citation notes. A post with neither is read exactly as before.
+    let mut evidence_error = None;
+    let mut claim_section = match claim_evidence {
+        ClaimEvidenceMode::Off => None,
+        ClaimEvidenceMode::Publish(projection) => {
+            match crate::claim_publication::revision_notes(&revision_items(fm)) {
+                Err(error) => {
+                    evidence_error = Some(error);
+                    None
+                }
+                Ok(notes) => {
+                    let slug = first(fm, &["slug"])
+                        .map(slugify)
+                        .unwrap_or_else(|| from_file_stem(file_stem(&file.path)));
+                    let draft = crate::claims::anchor_text(&file.contents).ok();
+                    crate::claim_publication::compose(
+                        projection,
+                        &slug,
+                        &config.post_url(&slug),
+                        draft.as_deref(),
+                        notes,
+                    )
+                }
+            }
+        }
+    };
+    // The section must read back exactly as composed before anything else is
+    // added; a post whose body would swallow it publishes no evidence.
+    let with_evidence = claim_section.as_mut().and_then(|(section, post_evidence)| {
+        let mut markdown = doc.body.clone();
+        if !markdown.ends_with('\n') {
+            markdown.push('\n');
+        }
+        markdown.push_str(section);
+        match crate::claim_publication::check_section(&markdown, post_evidence) {
+            Ok(()) => Some(markdown),
+            Err(error) => {
+                evidence_error = Some(error);
+                None
+            }
+        }
+    });
+    if with_evidence.is_none() {
+        claim_section = None;
+    }
+    let base = with_evidence.as_deref().unwrap_or(&doc.body);
     let mut citation_error = None;
     let mut citation_findings = Vec::new();
     let published = match (citation_style, citations) {
@@ -1123,8 +1265,7 @@ fn load_post_in(
             )?;
             // A failure keeps the citations as text and is left to the site
             // load, which knows whether this post is published now.
-            match bibliography::publish_citations(&doc.body, doc.body_line, style, locale, library)
-            {
+            match bibliography::publish_citations(base, doc.body_line, style, locale, library) {
                 Ok(published) => published.map(|published| (published, locale)),
                 Err(error) => {
                     citation_error = Some(error);
@@ -1137,7 +1278,7 @@ fn load_post_in(
     let rendered = markdown::render(
         published
             .as_ref()
-            .map_or(doc.body.as_str(), |(published, _)| &published.markdown),
+            .map_or(base, |(published, _)| &published.markdown),
         RenderOptions {
             recipe: is_recipe,
             citation_notes: published
@@ -1146,6 +1287,7 @@ fn load_post_in(
                     prefix: &published.prefix,
                     locale: *locale,
                 }),
+            claim_evidence_section: with_evidence.is_some(),
             ..options
         },
     );
@@ -1302,6 +1444,9 @@ fn load_post_in(
             Some("ob-citation-notes"),
         ));
     }
+    if claim_section.is_some() {
+        capabilities.push(CapabilityDescriptor::describe("claim-evidence", None));
+    }
 
     Ok(Post {
         url: config.post_url(&slug),
@@ -1326,9 +1471,13 @@ fn load_post_in(
         theme: optional_string(first(fm, &["theme"])),
         aliases: aliases(fm)?,
         authored_markdown: doc.body,
-        published_markdown: published.map(|(published, _)| published.markdown),
+        published_markdown: published
+            .map(|(published, _)| published.markdown)
+            .or(with_evidence),
         citation_error,
         citations: citation_summary,
+        claim_evidence: claim_section.map(|(_, post_evidence)| post_evidence),
+        evidence_error,
         html: rendered.html,
         text: rendered.text,
         headings: rendered.headings,
@@ -1566,6 +1715,7 @@ mod tests {
             series: vec![post("series/guide.md", "---\nname: The Guide\ntheme: paper\n---\nAbout the guide")],
             pages: vec![post("pages/about.md", "---\ntitle: About\nnav: true\n---\nHi")],
             source_library: None,
+            claim_evidence: None,
         });
         assert_eq!(s.posts.len(), 2);
         assert_eq!(s.posts[0].slug, "second");

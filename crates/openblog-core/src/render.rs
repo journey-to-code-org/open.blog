@@ -358,6 +358,16 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
             c.apply_base_path(&atlas.to_json()),
         )?;
     }
+    // Claim evidence as data, only while the site publishes it (ADR 0075):
+    // the same values each post's section was written from.
+    if c.claim_evidence.publish {
+        out.add(
+            crate::claim_publication::CLAIM_EVIDENCE_JSON_FILE.into(),
+            c.apply_base_path(
+                &crate::claim_publication::PublicClaimEvidence::of(&site.posts).to_json(),
+            ),
+        )?;
+    }
     // GitHub Pages skips Jekyll processing when this file exists.
     out.add(".nojekyll".into(), String::new())?;
     out.add("404.html".into(), r.not_found(default_theme))?;
@@ -2589,6 +2599,7 @@ mod tests {
                 series: vec![src("series/s.md", "---\nname: Series S\ntheme: loud\n---\nAbout S")],
                 pages: vec![src("pages/about.md", "---\ntitle: About\nnav: true\n---\nHi")],
                 source_library: None,
+                claim_evidence: None,
             },
             LoadOptions::default(),
         )
