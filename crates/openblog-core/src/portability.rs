@@ -1502,16 +1502,15 @@ impl<'a> PortableProjection<'a> {
                     *required += 1;
                     content.match_indices(&target).count() >= *required
                 } else if let Some(index) = links.iter().position(|link| {
-                    let target = Url::parse(&link.target)
-                        .map(|url| url.to_string())
-                        .unwrap_or_else(|_| link.target.clone());
+                    let target = canonical_target(&link.target);
+                    let (value, expected) = (canonical_target(&value), canonical_target(expected));
                     let label = if format == RepresentationFormat::Html {
                         fact.html_link_label.as_ref().unwrap_or(label)
                     } else {
                         label
                     };
                     link.kind == fact.link_kind
-                        && (target == value || target == *expected)
+                        && (target == value || target == expected)
                         && normalize(&link.label) == normalize(label)
                 }) {
                     links.remove(index);
@@ -1532,8 +1531,7 @@ impl<'a> PortableProjection<'a> {
                     if let Some(index) = metadata_links.iter().position(|link| {
                         link.kind == SemanticLinkKind::Anchor
                             && (link.target == *expected
-                                || Url::parse(&link.target)
-                                    .is_ok_and(|target| target.as_str() == value))
+                                || canonical_target(&link.target) == canonical_target(&value))
                     }) {
                         metadata_links.remove(index);
                         true
@@ -1867,6 +1865,21 @@ fn resolve_link_in(
     } else {
         resolved.to_string()
     })
+}
+
+/// A link target as the checks compare it: parsed and written again, with
+/// `[` and `]` read the same whether the HTML writer escaped them (`%5B`, as it
+/// does in the authority of an IPv6 address such as `http://[2001:db8::1]/`)
+/// or not.
+fn canonical_target(target: &str) -> String {
+    let plain = target
+        .replace("%5B", "[")
+        .replace("%5b", "[")
+        .replace("%5D", "]")
+        .replace("%5d", "]");
+    Url::parse(&plain)
+        .map(|url| url.to_string())
+        .unwrap_or(plain)
 }
 
 fn portability_diagnostics(
@@ -3352,6 +3365,21 @@ mod tests {
         assert!(!output.html.contains("<script type=\"module\""));
         assert_eq!(post.html, native_html);
         assert_eq!(projection.portable_html().unwrap(), output);
+    }
+
+
+    #[test]
+    fn an_ipv6_literal_link_projects_to_every_representation() {
+        let (config, site) = public_post(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\nSee [http://\\[2001:db8::1\\]/x](http://[2001:db8::1]/x) and <http://[2001:db8::2]/y> and [here](http://[2001:db8::3]/z).\n",
+        );
+        let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
+        let html = projection.portable_html().unwrap();
+        assert!(html.html.contains("href=\"http://[2001:db8::1]/x\""), "{}", html.html);
+        assert!(html.html.contains("href=\"http://[2001:db8::2]/y\""), "{}", html.html);
+        assert!(html.html.contains("href=\"http://[2001:db8::3]/z\""), "{}", html.html);
+        projection.portable_markdown().unwrap();
+        projection.portable_text().unwrap();
     }
 
     #[test]
