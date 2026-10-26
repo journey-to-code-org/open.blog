@@ -274,7 +274,7 @@ fn anchor_sections(
     let mut at = 0;
     for (start, section) in starts.iter().zip(sections.sections()) {
         let tag_end = start + html[*start..].find('>')?;
-        let close = tag_end + html[tag_end..].find("</section>")?;
+        let close = start + matching_section_close(&html[*start..])?;
         let anchor = section.anchor();
         out.push_str(&html[at..tag_end]);
         out.push_str(&format!(" id=\"{}\"", attr(&anchor)));
@@ -288,6 +288,33 @@ fn anchor_sections(
     }
     out.push_str(&html[at..]);
     Some(out)
+}
+
+/// The offset of the `</section>` that closes the `<section ...>` whose open
+/// tag starts `html`, counting nested sections (a knowledge check, a recipe
+/// part, citation notes) so the first close tag is not taken for the turn's.
+fn matching_section_close(html: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut at = 0;
+    while let Some(found) = html[at..].find("<") {
+        let tag = at + found;
+        let rest = &html[tag..];
+        if rest.starts_with("</section>") {
+            depth = depth.checked_sub(1)?;
+            if depth == 0 {
+                return Some(tag);
+            }
+        } else if rest.starts_with("<section")
+            && rest[8..]
+                .chars()
+                .next()
+                .is_some_and(|c| c == '>' || c.is_ascii_whitespace())
+        {
+            depth += 1;
+        }
+        at = tag + 1;
+    }
+    None
 }
 
 fn resolved_post_canonical(config: &SiteConfig, post: &Post) -> Option<String> {

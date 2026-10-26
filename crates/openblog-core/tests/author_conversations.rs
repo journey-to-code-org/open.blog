@@ -103,7 +103,17 @@ fn build(site: &Site) -> BTreeMap<String, String> {
 /// A published reflection about the `nth` section of the original body, as
 /// Admin writes it, with an optional answer.
 fn item(n: u32, section: usize, body: &str, answer: Option<Value>) -> Value {
-    let original = load(BOTH_OPEN, &TURNS, None, 1);
+    item_in(&TURNS, n, section, body, answer)
+}
+
+fn item_in(
+    turns: &[(&str, &str)],
+    n: u32,
+    section: usize,
+    body: &str,
+    answer: Option<Value>,
+) -> Value {
+    let original = load(BOTH_OPEN, turns, None, 1);
     let target = AttributedSections::of_post(&original.posts[0]).sections()[section]
         .target()
         .perspective_target()
@@ -568,4 +578,47 @@ fn feeds_portable_copies_and_llms_files_carry_only_the_canonical_link() {
     // reflection is shown after its own section.
     assert!(page(&files).contains("id=\"ob-third-perspectives\""));
     assert!(files["llms-full.txt"].contains("Third Perspectives"));
+}
+
+#[test]
+fn a_nested_section_inside_a_turn_does_not_pull_the_conversation_ahead_of_the_words() {
+    let quiz = "Before the quiz.
+
+```quiz
+Which pulls the tide?
+- [x] The moon
+- [ ] Cheese
+```
+
+After the quiz, the author's last words.";
+    let turns = [("MINA", quiz), ("JOE", "It is also the sun.")];
+    let site = load(
+        BOTH_OPEN,
+        &turns,
+        Some(vec![item_in(
+            &turns,
+            1,
+            0,
+            "I read the harbour differently.",
+            Some(answer(2, "mina", "MINA", "I meant the harbour.")),
+        )]),
+        2,
+    );
+    let files = build(&site);
+    let html = page(&files);
+    assert!(html.contains("class=\"ob-knowledge-check\""), "{html}");
+    let start = html.find("id=\"ob-by-mina-0\"").unwrap();
+    let conversation = html[start..]
+        .find("<aside class=\"ob-conversation\"")
+        .unwrap()
+        + start;
+    let last_words = html[start..].find("After the quiz").unwrap() + start;
+    let check_close = html[start..].find("</ob-quiz>").unwrap() + start;
+    assert!(
+        check_close < last_words && last_words < conversation,
+        "the conversation follows the whole turn, nested sections included"
+    );
+    // And it is still inside the turn, before the next author's.
+    let next = html.find("id=\"ob-by-joe-0\"").unwrap();
+    assert!(conversation < next);
 }
