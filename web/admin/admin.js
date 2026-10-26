@@ -6893,10 +6893,15 @@ function visualCitationRanges(line) {
 /**
  * Formatting on a line, read with its chips masked out, so a `_` or `*`
  * inside a citation is never taken for emphasis and a chip is never split.
+ * A backslash-escaped character outside code spans is masked too, since
+ * CommonMark reads it as text: `\*b\*` is never emphasis and `\[x\](y)` never
+ * a link, so the editor shows and writes back the characters themselves.
  */
 function visualFormattingTokens(line, chips) {
   let masked = line;
   for (const [start, end] of chips) masked = masked.slice(0, start) + "\u0001".repeat(end - start) + masked.slice(end);
+  const code = codeSpanRanges(line);
+  masked = masked.replace(/\\[\\*_`[\]]/g, (pair, at) => (code.some(([from, to]) => at >= from && at < to) ? pair : "\u0001\u0001"));
   return [...masked.matchAll(VISUAL_FORMATTING)].map((match) => [match.index, match.index + match[0].length]);
 }
 

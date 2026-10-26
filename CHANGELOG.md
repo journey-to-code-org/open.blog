@@ -19,6 +19,10 @@ All notable changes to open.blog are recorded here. Releases follow
   tools and `Ctrl+K`, and Custom lets you choose. Every Admin page gains a skip link, and focus moves
   to the new page's heading after navigation.
 
+- In Visual mode, backslash-escaped `*`, `_`, backticks, `[` and `]` are now read as the
+  characters themselves. Before, `\*word\*` showed as emphasis and `\[x\](y)` as a link, and
+  switching modes could add backslashes to the draft.
+
 ## [0.35.0] - 2026-10-26
 
 - The private Knowledge Atlas can now record uncertain chronology. Entries and relationships
