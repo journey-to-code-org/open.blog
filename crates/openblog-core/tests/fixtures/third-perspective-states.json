@@ -1,5 +1,5 @@
 {
-  "description": "Third Perspective state fixtures (ADRs 0106 to 0109): a stored record, its moderation facts, whether the kind is shown on the post, the published work and how its target resolves, an optional editorial feature selection, and the expected stage and public projection. Defaults: shown true, the work /posts/tides/ at the revision the reader saw, credited to Ada Lovelace and Grace Hopper, the target current at its own section, no feature.",
+  "description": "Third Perspective state fixtures (ADRs 0109 to 0112): a stored record, its moderation facts, whether the kind is shown on the post, the published work and how its target resolves, an optional editorial feature selection, and the expected stage and public projection. Defaults: shown true, the work /posts/tides/ at the revision the reader saw, credited to Ada Lovelace and Grace Hopper, the target current at its own section, no feature.",
   "cases": [
     {
       "name": "a pending submission is private",

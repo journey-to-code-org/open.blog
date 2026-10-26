@@ -1,4 +1,4 @@
-//! Third Perspective contracts (ADRs 0106 to 0109): response categories,
+//! Third Perspective contracts (ADRs 0109 to 0112): response categories,
 //! the four distinct stages, consent records, the lifecycle on the one
 //! moderation state machine, and the one public projection.
 

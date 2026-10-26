@@ -1,5 +1,5 @@
 //! Third Perspectives: a reader's own reflection on a published work
-//! (ADRs 0106 to 0109).
+//! (ADRs 0109 to 0112).
 //!
 //! A Third Perspective is another reading of a shared reflection or a post,
 //! offered by a reader. It is never one of the authors' perspectives, never a
@@ -25,7 +25,7 @@
 //!
 //! Until B5 (passage targets, feedback provenance) and RD12 (participation
 //! kinds, moderation) merge, this module carries minimal shapes of their
-//! types with the same ids and JSON. ADR 0109 records how each one maps.
+//! types with the same ids and JSON. ADR 0112 records how each one maps.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -291,7 +291,7 @@ impl ResponseCategory {
 // Target (B5's passage target, restricted to the work or a section)
 
 /// What a Third Perspective is about: the whole work, usually, or one
-/// section. Written exactly as B5's passage target (ADR 0084):
+/// section. Written exactly as B5's passage target (ADR 0076):
 /// `{"version":1,"kind":"work"}` or
 /// `{"version":1,"kind":"section","section":"methods","digest":"…"}`. A
 /// quotation target is refused: quoting a passage is passage feedback.
@@ -557,7 +557,7 @@ pub enum Channel {
 }
 
 /// Which text the reader saw, when, and how it arrived: B5's feedback
-/// provenance (ADR 0086), with the target restricted to the work or a
+/// provenance (ADR 0078), with the target restricted to the work or a
 /// section. Its JSON is B5's record, key order aside.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Provenance {
@@ -1339,7 +1339,7 @@ impl SubmittedCopy {
         ThirdPerspectiveError::new(ErrorCode::InvalidConsentHistory, message)
     }
 
-    /// Check every rule (ADRs 0106 to 0108).
+    /// Check every rule (ADRs 0109 to 0111).
     pub fn validate(&self) -> Result<(), ThirdPerspectiveError> {
         if normalize_body(&self.body).as_deref() != Some(self.body.as_str()) {
             return Err(body_error());
@@ -1740,7 +1740,7 @@ impl SubmittedCopy {
             .is_some_and(|name| matches_credit(name, credited))
     }
 
-    /// The one public form of this copy (ADR 0108), or `None` while it may
+    /// The one public form of this copy (ADR 0111), or `None` while it may
     /// not be shown: only approved, at the current revision and under a
     /// consent record that still allows publication, with the text kept and
     /// the kind shown on the work (`shown`, RD12's mode `locked` or `open`).

@@ -1,4 +1,4 @@
-# ADR 0106: Third Perspectives are reader reflections with optional prompts, a work or section target, and four distinct stages
+# ADR 0109: Third Perspectives are reader reflections with optional prompts, a work or section target, and four distinct stages
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -7,8 +7,8 @@
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
 - Builds on: [ADR 0026](0026-publishing-approved-synthesis-in-the-post.md),
   [ADR 0040](0040-contributor-aware-series-navigation.md), B5's passage targets and feedback
-  provenance (ADRs 0084 and 0086 on `story/b5-passage-feedback`), RD12's participation registry
-  (ADR 0100 on `story/rd12-moderation`)
+  provenance (ADRs 0076 and 0078 on `story/b5-passage-feedback`), RD12's participation registry
+  (ADR 0101 on `story/rd12-moderation`)
 - Coordinates with: [#221](https://github.com/journey-to-code-org/open.blog/issues/221) and
   [#222](https://github.com/journey-to-code-org/open.blog/issues/222) (RD10 submission and
   status), [#211](https://github.com/journey-to-code-org/open.blog/issues/211) (participation
@@ -35,8 +35,8 @@ moderation provenance. Hosted persistence and UI are out of scope.
 - **A Third Perspective is one participation kind.** `openblog_core::third_perspective` defines it
   with RD12's kind id `third-perspective` and label "Third Perspective". It is a reader's own
   reflection on a published work (a shared reflection or any post), submitted through the public
-  path without an account, always pending first (ADR 0108), and public only with the reader's
-  consent (ADR 0107) and a moderator's approval of exactly that text and consent. It is never an
+  path without an account, always pending first (ADR 0111), and public only with the reader's
+  consent (ADR 0110) and a moderator's approval of exactly that text and consent. It is never an
   author's perspective, never part of the authors' sections or "Continuing the conversation",
   never a work credit, and never a research note.
 - **Four distinct stages, four types.** Nothing converts one into the next except the step named:
@@ -45,7 +45,7 @@ moderation provenance. Hosted persistence and UI are out of scope.
   2. **Submitted copy** (`SubmittedCopy`): what the site received when the reader chose to send
      the draft with their consent (`SubmissionRequest::receive`). Private to moderation.
   3. **Approved response** (`ApprovedResponse`): the one public projection of an approved copy
-     (ADR 0108), for the canonical page only.
+     (ADR 0111), for the canonical page only.
   4. **Featured publication** (`FeaturedPublication`): an approved response an editor features,
      which needs the reader's separate feature consent for that approved revision. RD14 (#214)
      owns placement, editorial context and the unpublish policy; selection is editorial and never
@@ -102,7 +102,7 @@ moderation provenance. Hosted persistence and UI are out of scope.
   the one participation policy instead.
 - **Publish approved Third Perspectives inside the Post, like synthesis items.** Rejected: the
   Post is the authors' approved work and its credits. Approved responses stay a reader layer on the
-  canonical page (ADR 0108); only RD14's featured publication may later place one in published
+  canonical page (ADR 0111); only RD14's featured publication may later place one in published
   content, with its own consent.
 - **Required categories, or categories such as "agree" and "disagree".** Rejected: they would
   turn reflections into votes and make an uncategorized thought incomplete.

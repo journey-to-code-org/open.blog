@@ -1,14 +1,14 @@
-# ADR 0108: A Third Perspective's lifecycle runs on the one moderation state machine, with one public projection
+# ADR 0111: A Third Perspective's lifecycle runs on the one moderation state machine, with one public projection
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#210](https://github.com/journey-to-code-org/open.blog/issues/210)
 - Parent story: [#201](https://github.com/journey-to-code-org/open.blog/issues/201)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0106](0106-third-perspectives-are-reader-reflections-with-optional-prompts-and-four-distinct-stages.md),
-  [ADR 0107](0107-submission-consent-is-an-append-only-record-and-anonymous-display-keeps-provenance.md),
-  RD12's moderation state machine (ADR 0101 on `story/rd12-moderation`), B5's target resolution
-  (ADR 0085 on `story/b5-passage-feedback`)
+- Builds on: [ADR 0109](0109-third-perspectives-are-reader-reflections-with-optional-prompts-and-four-distinct-stages.md),
+  [ADR 0110](0110-submission-consent-is-an-append-only-record-and-anonymous-display-keeps-provenance.md),
+  RD12's moderation state machine (ADR 0102 on `story/rd12-moderation`), B5's target resolution
+  (ADR 0077 on `story/b5-passage-feedback`)
 - Coordinates with: [#225](https://github.com/journey-to-code-org/open.blog/issues/225)
   (moderation inbox), [#222](https://github.com/journey-to-code-org/open.blog/issues/222)
   (status and portable fallback), [#214](https://github.com/journey-to-code-org/open.blog/issues/214)
@@ -49,7 +49,7 @@ group-authored work.
 - **Revision.** The text changes only by answering a clarification request
   (`SubmittedCopy::clarify`, alongside RD12's `clarify`): the answer replaces the text as the
   next revision, the replaced text can never be approved, and an approval of an older revision
-  publishes nothing. Consent changes (ADR 0107) never change the text revision.
+  publishes nothing. Consent changes (ADR 0110) never change the text revision.
 - **Withdrawal and deletion.** Revoking publication asks for RD12's withdrawal; a withdrawn copy
   is never public and its text is purged at once. Once retention purges the text, name and
   consent records, the stage is `deleted` whatever the state, nothing can change, and only the
@@ -99,7 +99,7 @@ group-authored work.
 
 ## Considered options
 
-- **A Third Perspective state machine.** Rejected: one machine serves every kind (ADR 0101); the
+- **A Third Perspective state machine.** Rejected: one machine serves every kind (ADR 0102); the
   kind adds checks, not states.
 - **Re-check a stale section target by quoting it.** Rejected: a stale target is never re-quoted,
   so text an author removed is not republished; the projection only says that it changed.

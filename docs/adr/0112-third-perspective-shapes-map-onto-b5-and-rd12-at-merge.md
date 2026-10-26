@@ -1,15 +1,15 @@
-# ADR 0109: Third Perspective shapes map mechanically onto B5's targets and provenance and RD12's policy when they merge
+# ADR 0112: Third Perspective shapes map mechanically onto B5's targets and provenance and RD12's policy when they merge
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#210](https://github.com/journey-to-code-org/open.blog/issues/210)
 - Parent story: [#201](https://github.com/journey-to-code-org/open.blog/issues/201)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0106](0106-third-perspectives-are-reader-reflections-with-optional-prompts-and-four-distinct-stages.md),
-  [ADR 0107](0107-submission-consent-is-an-append-only-record-and-anonymous-display-keeps-provenance.md),
-  [ADR 0108](0108-third-perspective-lifecycle-and-its-one-public-projection.md)
-- Coordinates with: `story/b5-passage-feedback` (ADRs 0084 to 0089, 0094) and
-  `story/rd12-moderation` (ADRs 0100 to 0103), neither merged into main
+- Builds on: [ADR 0109](0109-third-perspectives-are-reader-reflections-with-optional-prompts-and-four-distinct-stages.md),
+  [ADR 0110](0110-submission-consent-is-an-append-only-record-and-anonymous-display-keeps-provenance.md),
+  [ADR 0111](0111-third-perspective-lifecycle-and-its-one-public-projection.md)
+- Coordinates with: `story/b5-passage-feedback` (ADRs 0076 to 0082) and
+  `story/rd12-moderation` (ADRs 0101 to 0104), neither merged into main
 
 ## Context
 
@@ -42,7 +42,7 @@ order aside, which JSON does not define).
 | `Stage` | `moderation::ModerationState` and `ItemFacts::content_retained` | Unchanged: a pure view over RD12's facts. |
 
 **Storage, a one-way door this task does not open.** No table, column or migration changes here.
-The conservative mapping for #221 is one `openblog_feedback` row per copy (B5's ADR 0088, whose
+The conservative mapping for #221 is one `openblog_feedback` row per copy (B5's ADR 0080, whose
 `kind` and `status` columns check only the id's shape): `kind` = `third-perspective`; `work`,
 `revision`, `target`, `body`, `seen_at`, `received_at`, `channel`, `reader_name` and
 `publish_name` from the provenance as received; `details` = `{"category"?, "intake",

@@ -1,12 +1,12 @@
-# ADR 0107: Submission consent is an append-only record, and anonymous display never means anonymous provenance
+# ADR 0110: Submission consent is an append-only record, and anonymous display never means anonymous provenance
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#210](https://github.com/journey-to-code-org/open.blog/issues/210)
 - Parent story: [#201](https://github.com/journey-to-code-org/open.blog/issues/201)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0106](0106-third-perspectives-are-reader-reflections-with-optional-prompts-and-four-distinct-stages.md),
-  B5's feedback provenance (ADR 0086 on `story/b5-passage-feedback`)
+- Builds on: [ADR 0109](0109-third-perspectives-are-reader-reflections-with-optional-prompts-and-four-distinct-stages.md),
+  B5's feedback provenance (ADR 0078 on `story/b5-passage-feedback`)
 - Coordinates with: [#214](https://github.com/journey-to-code-org/open.blog/issues/214) (RD14
   feature consent), [#222](https://github.com/journey-to-code-org/open.blog/issues/222) (receipts),
   [#211](https://github.com/journey-to-code-org/open.blog/issues/211) (withdrawal and retention)
@@ -45,12 +45,12 @@ change consent, answer a clarification), and every decision has to say who made 
   revocation needs none. At most three narrowing steps are ever left (hide the name, decline
   clarification, decline a feature), which is why three slots are kept.
 - **Changing consent** (`SubmittedCopy::revise_consent`), by the submitter as the server proves
-  them (ADR 0108):
+  them (ADR 0111):
   - **Narrowing takes effect at once**, in any state whose text is kept: hiding the name,
     declining clarification, declining a feature. The public projection follows immediately.
   - **Widening the name waits for a decision.** Showing a name, or a different name, is accepted
     only while the copy is pending or awaiting clarification, and an approval binds the consent
-    record the moderator saw (ADR 0108). After approval, rejection or removal it is refused
+    record the moderator saw (ADR 0111). After approval, rejection or removal it is refused
     (`wideningAfterDecision`): the reader can withdraw and submit again. Even a stored record
     that widens after approval is never shown, because the projection shows a name only when the
     approved and the current consent agree on it.
@@ -81,7 +81,7 @@ change consent, answer a clarification), and every decision has to say who made 
     receipt the reader holds, never the receipt itself; for a manual copy the Admin user who
     entered the reader's message. A copy without exactly the intake its channel needs is refused.
 
-  Every approval names its moderator (ADR 0108), so neither side of a moderation decision is
+  Every approval names its moderator (ADR 0111), so neither side of a moderation decision is
   anonymous. Nothing else about the reader is kept: no e-mail, address, device, cookie or account
   field exists, and unknown fields are refused. Whether to collect contact details for a reply is
   left to a later version of the format.

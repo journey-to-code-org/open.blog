@@ -1362,7 +1362,7 @@ _Avoid_: Default tool, pinned tool
 
 ## Third Perspectives
 
-Readers' own reflections on published works (ADRs 0106 to 0109). They extend the one reader
+Readers' own reflections on published works (ADRs 0109 to 0112). They extend the one reader
 participation seam as the kind `third-perspective`; they never join the authors' work.
 
 **Reader reflection**:
