@@ -227,6 +227,75 @@ test("an unsaved source survives a switch to the notebook and back, then saves",
   expect(storedLibrary()).toContain("bloom-1968");
 });
 
+test("a kept notebook draft saved after the notebook changed elsewhere gets the conflict choice and keeps the draft", async ({ page }) => {
+  await openAdmin(page, "#/research/notebook");
+  await page.locator('[data-entry-id="cave"]').click();
+  const excerpt = page.locator("#oba-research-excerpt");
+  await expect(excerpt).toHaveValue("Behold! human beings living in an underground den");
+  await excerpt.fill("Behold! my unsaved reading of the den");
+  await panelLink(page, "Sources").click();
+  await expect(pageHeading(page)).toHaveText("Sources");
+  await expect(workspaceNav(page).locator('[data-research-panel="notebook"] .oba-research-kept')).toHaveText("Unsaved changes kept");
+
+  // Someone else changes the stored passage while the notebook is kept.
+  const elsewhere = structuredClone(NOTEBOOK);
+  elsewhere.passages[0].excerpt.text = "Behold! the stored reading changed elsewhere";
+  writeFileSync(research("notebook.json"), JSON.stringify(elsewhere));
+
+  await panelLink(page, "Notebook").click();
+  await expect(excerpt).toHaveValue("Behold! my unsaved reading of the den");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  const conflict = page.locator("[data-capture-conflict]");
+  await expect(conflict).toBeVisible();
+  await expect(conflict).toContainText("changed");
+  await expect(excerpt).toHaveValue("Behold! my unsaved reading of the den");
+  expect(readFileSync(research("notebook.json"), "utf8")).toContain("the stored reading changed elsewhere");
+  expect(readFileSync(research("notebook.json"), "utf8")).not.toContain("my unsaved reading");
+
+  // Keeping the draft rests it on the latest notebook, and then it saves.
+  await page.locator('[data-capture-conflict-use="draft"]').click();
+  await expect(conflict).toHaveCount(0);
+  await expect(excerpt).toHaveValue("Behold! my unsaved reading of the den");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect.poll(() => readFileSync(research("notebook.json"), "utf8")).toContain("my unsaved reading of the den");
+  expect(dialogs).toEqual([]);
+});
+
+test("an earlier address of the open panel keeps its unsaved changes", async ({ page }) => {
+  await openAdmin(page, "#/research/sources");
+  await page.getByRole("button", { name: "New source" }).click();
+  await page.getByLabel("Title", { exact: true }).fill("Still typing");
+  await page.goto(`${origin}/admin/#/sources`);
+  await expect(page).toHaveURL(/#\/research\/sources$/);
+  await expect(page.getByLabel("Title", { exact: true })).toHaveValue("Still typing");
+  expect(dialogs).toEqual([]);
+});
+
+test("an expired session keeps unsaved panels for the same user's next sign-in", async ({ page }) => {
+  await openAdmin(page, "#/research/sources");
+  await page.getByRole("button", { name: "New source" }).click();
+  await page.getByLabel("ID", { exact: true }).fill("kept-through-sign-in");
+  await page.getByLabel("Title", { exact: true }).fill("Kept through sign-in");
+  // The session ends without signing out; the next panel's request is refused.
+  await page.context().clearCookies();
+  await panelLink(page, "Notebook").click();
+  await expect(page.getByLabel("Username", { exact: true })).toBeVisible();
+  await expect(page.locator("[data-login-kept]")).toContainText("Sign in again as the same user");
+  await expect(page.locator("form")).not.toContainText("Kept through sign-in");
+
+  await page.getByLabel("Username", { exact: true }).fill("writer");
+  await page.getByLabel("Password", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(pageHeading(page)).toHaveText("Research notebook");
+  await expect(workspaceNav(page).locator('[data-research-panel="sources"] .oba-research-kept')).toHaveText("Unsaved changes kept");
+  await panelLink(page, "Sources").click();
+  await expect(page.getByLabel("Title", { exact: true })).toHaveValue("Kept through sign-in");
+  await page.getByRole("button", { name: "Create source" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Kept through sign-in saved." })).toBeVisible();
+  expect(storedLibrary()).toContain("kept-through-sign-in");
+  expect(dialogs).toEqual([]);
+});
+
 test("a draft keeps its unsaved title and text while research is open, and asks before it is lost", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await openAdmin(page, "#/new/posts");
