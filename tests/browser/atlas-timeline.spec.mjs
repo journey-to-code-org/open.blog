@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// The published Knowledge Atlas chronology (ADR 0126, ADR 0127), built and served by the real
+// The published Knowledge Atlas chronology (ADR 0099, ADR 0100), built and served by the real
 // binary from a private atlas with competing, BCE, open, relative and unknown datings, a dated
 // relationship, a hostile label, and private datings that must not appear. Covers the complete
 // timeline without JavaScript, the <ob-atlas-timeline> filters from the keyboard under a strict

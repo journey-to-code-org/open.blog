@@ -1,4 +1,4 @@
-# ADR 0118: Uncertain dates are attributed datings at their stated precision
+# ADR 0093: Uncertain dates are attributed datings at their stated precision
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -38,7 +38,7 @@ tools to treat the date as fact.
   `{"from": P, "to": P}` is a duration, either end open, only for an aspect that lasts.
   `{"notBefore": P, "notAfter": P}` is a window inside which a thing happened, either end open,
   both ends inclusive: an open end is "after" or "before". `{"unknown": true}` says the date is
-  unknown. `{"relative": ...}` is a temporal relationship ([ADR 0119](0119-temporal-relationships-are-relative-datings-never-inferred.md)).
+  unknown. `{"relative": ...}` is a temporal relationship ([ADR 0094](0094-temporal-relationships-are-relative-datings-never-inferred.md)).
   A birth given as a duration is refused, since a birth happens once and its uncertainty is a
   window.
 - **A point states one precision.** `{"year": Y}` optionally with `month`, and `day` only with

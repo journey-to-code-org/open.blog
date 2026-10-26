@@ -1,4 +1,4 @@
-# ADR 0120: Atlas version 2 supersedes `bounds` with datings that stay private until approved
+# ADR 0095: Atlas version 2 supersedes `bounds` with datings that stay private until approved
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -9,8 +9,8 @@
   [ADR 0055](0055-private-knowledge-atlas-storage.md),
   [ADR 0057](0057-accessible-atlas-authoring-and-a-text-first-explorer.md),
   [ADR 0058](0058-publish-one-allowlisted-knowledge-atlas-projection.md),
-  [ADR 0118](0118-uncertain-dates-are-attributed-datings-at-their-stated-precision.md),
-  [ADR 0119](0119-temporal-relationships-are-relative-datings-never-inferred.md)
+  [ADR 0093](0093-uncertain-dates-are-attributed-datings-at-their-stated-precision.md),
+  [ADR 0094](0094-temporal-relationships-are-relative-datings-never-inferred.md)
 - Amends: [ADR 0053](0053-knowledge-atlas-entries-keep-their-kind.md) (`bounds` is replaced),
   [ADR 0057](0057-accessible-atlas-authoring-and-a-text-first-explorer.md) (the entry form no
   longer edits years), [ADR 0058](0058-publish-one-allowlisted-knowledge-atlas-projection.md)
@@ -53,7 +53,7 @@ unsourced author note as a sourced claim.
   them, with no other edit. `Atlas::projected_datings` lists what may be copied.
 - **Nothing publishes datings yet.** Publishing them is the chronology publication slice (#59),
   which must add them to `PublicAtlas` field by field (amended by
-  [ADR 0126](0126-approved-datings-publish-through-the-atlas-projection.md), which does). Until then `PublicAtlas` and the atlas
+  [ADR 0099](0099-approved-datings-publish-through-the-atlas-projection.md), which does). Until then `PublicAtlas` and the atlas
   pages carry no dates. This withdraws the year line that approved entries showed from `bounds`:
   a migrated span is an unsourced draft, which cannot be approved, and publishing it would show
   an uncited date as a claim. This is the conservative and reversible choice: the data is kept,

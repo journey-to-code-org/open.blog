@@ -1,4 +1,4 @@
-# ADR 0122: Chronology prompts are structural, scoped and never verdicts
+# ADR 0097: Chronology prompts are structural, scoped and never verdicts
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -6,13 +6,13 @@
 - Parent story: [#23](https://github.com/journey-to-code-org/open.blog/issues/23)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
 - Builds on: [ADR 0074](0074-evidence-gaps-are-prompts-in-the-shared-finding-contract.md),
-  [ADR 0119](0119-temporal-relationships-are-relative-datings-never-inferred.md),
-  [ADR 0121](0121-the-chronology-index-orders-every-dating-for-display-only.md)
+  [ADR 0094](0094-temporal-relationships-are-relative-datings-never-inferred.md),
+  [ADR 0096](0096-the-chronology-index-orders-every-dating-for-display-only.md)
 - Contract: [Knowledge Atlas format](../specs/knowledge-atlas.md#chronology-index-and-prompts)
 
 ## Context
 
-ADR 0119 records contradictory datings rather than refusing them, and leaves detecting them to
+ADR 0094 records contradictory datings rather than refusing them, and leaves detecting them to
 the chronology index as a structural, non-authoritative warning. An author benefits from hearing
 that a death is dated before a birth, or that two relative datings order the same works both
 ways round: it is often a slip in a year or an era. But a tool that says which date is right, or

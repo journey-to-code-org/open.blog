@@ -14,7 +14,7 @@
 //! asserts it, on what evidence, with what confidence and doubt, and its
 //! derived standing: `asserted`, or `contested` with every dissenting party.
 //!
-//! Datings are copied the same way (ADR 0126): only those
+//! Datings are copied the same way (ADR 0099): only those
 //! [`Atlas::is_dating_projected`] lets through, each with who dates it, on
 //! what evidence, how firmly and with what note, at the precision it states.
 //! Competing datings of one aspect are all kept, side by side, and nothing

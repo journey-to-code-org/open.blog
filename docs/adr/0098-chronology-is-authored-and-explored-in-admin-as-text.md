@@ -1,4 +1,4 @@
-# ADR 0123: Chronology is authored in the atlas editors and explored in Admin as text
+# ADR 0098: Chronology is authored in the atlas editors and explored in Admin as text
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -6,12 +6,12 @@
 - Parent story: [#23](https://github.com/journey-to-code-org/open.blog/issues/23)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
 - Builds on: [ADR 0057](0057-accessible-atlas-authoring-and-a-text-first-explorer.md),
-  [ADR 0118](0118-uncertain-dates-are-attributed-datings-at-their-stated-precision.md),
-  [ADR 0119](0119-temporal-relationships-are-relative-datings-never-inferred.md),
-  [ADR 0120](0120-atlas-version-2-supersedes-bounds-and-keeps-datings-private.md),
-  [ADR 0121](0121-the-chronology-index-orders-every-dating-for-display-only.md),
-  [ADR 0122](0122-chronology-prompts-are-structural-and-never-verdicts.md)
-- Amends: [ADR 0120](0120-atlas-version-2-supersedes-bounds-and-keeps-datings-private.md)
+  [ADR 0093](0093-uncertain-dates-are-attributed-datings-at-their-stated-precision.md),
+  [ADR 0094](0094-temporal-relationships-are-relative-datings-never-inferred.md),
+  [ADR 0095](0095-atlas-version-2-supersedes-bounds-and-keeps-datings-private.md),
+  [ADR 0096](0096-the-chronology-index-orders-every-dating-for-display-only.md),
+  [ADR 0097](0097-chronology-prompts-are-structural-and-never-verdicts.md)
+- Amends: [ADR 0095](0095-atlas-version-2-supersedes-bounds-and-keeps-datings-private.md)
   (datings are no longer edited only in the file)
 - Contract: [Knowledge Atlas format](../specs/knowledge-atlas.md#admin-api-and-workspace)
 

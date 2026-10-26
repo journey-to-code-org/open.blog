@@ -1,4 +1,4 @@
-//! Uncertain chronology in the Knowledge Atlas (ADR 0118 to 0120): precision
+//! Uncertain chronology in the Knowledge Atlas (ADR 0093 to 0095): precision
 //! and uncertainty survive round trips, competing datings coexist with their
 //! attribution, unknown is never coerced to a date, BCE has no year 0,
 //! calendars are never converted, relative datings are asserted and cited,

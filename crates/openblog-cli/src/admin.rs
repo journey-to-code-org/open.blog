@@ -1761,7 +1761,7 @@ fn atlas_kinds() -> Json {
     })
 }
 
-/// The chronology index for the explorer (ADR 0121, ADR 0122): every dating,
+/// The chronology index for the explorer (ADR 0096, ADR 0097): every dating,
 /// private or approved, in the index's one display order, with its owner, its
 /// stated value read back at its own precision, and the first and last year
 /// it covers (none for an open end, a relative or an unknown dating), plus the
@@ -14769,7 +14769,7 @@ mod tests {
             "id": ATLAS_SENTINELS[0].1, "kind": "person", "label": ATLAS_SENTINELS[1].1,
             "aliases": [ATLAS_SENTINELS[2].1], "summary": ATLAS_SENTINELS[3].1,
             "visibility": "approved", "shelf": ATLAS_SENTINELS[8].1,
-            // An approved, cited dating: published with the atlas (ADR 0126),
+            // An approved, cited dating: published with the atlas (ADR 0099),
             // except its unknown field.
             "dates": [{"id": ATLAS_SENTINELS[14].1, "aspect": "birth",
                 "date": {"notBefore": {"year": -428, "circa": true}, "notAfter": {"century": -5}},

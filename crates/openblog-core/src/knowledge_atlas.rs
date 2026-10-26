@@ -1912,7 +1912,7 @@ impl Atlas {
 
     /// The datings the publication projection may copy, each with the id of
     /// the entry or relationship it dates, in file order (entries first).
-    /// `PublicAtlas::project` copies them from here (ADR 0126).
+    /// `PublicAtlas::project` copies them from here (ADR 0099).
     pub fn projected_datings(&self) -> Vec<(&str, &Dating)> {
         self.all_datings()
             .into_iter()

@@ -60,7 +60,7 @@ one identifier space of immutable lowercase slugs.
   is BCE, no year 0) kept for display. Nothing orders or relates entries by it. Cited,
   uncertain and competing dates are the chronology contract (#56), which supersedes `bounds`
   with a version bump rather than overloading it. (Superseded by
-  [ADR 0120](0120-atlas-version-2-supersedes-bounds-and-keeps-datings-private.md): atlas
+  [ADR 0095](0095-atlas-version-2-supersedes-bounds-and-keeps-datings-private.md): atlas
   version 2 replaces `bounds` with attributed, cited datings, and a version 1 `bounds` is
   upgraded to a private, unsourced dating of the entry's span.)
 - **Validation is all-or-nothing and scoped.** Diagnostics name the collection, index, id and

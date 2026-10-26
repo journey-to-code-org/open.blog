@@ -1,18 +1,18 @@
-# ADR 0121: The chronology index orders every dating for display only
+# ADR 0096: The chronology index orders every dating for display only
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#57](https://github.com/journey-to-code-org/open.blog/issues/57)
 - Parent story: [#23](https://github.com/journey-to-code-org/open.blog/issues/23)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
-- Builds on: [ADR 0118](0118-uncertain-dates-are-attributed-datings-at-their-stated-precision.md),
-  [ADR 0119](0119-temporal-relationships-are-relative-datings-never-inferred.md)
+- Builds on: [ADR 0093](0093-uncertain-dates-are-attributed-datings-at-their-stated-precision.md),
+  [ADR 0094](0094-temporal-relationships-are-relative-datings-never-inferred.md)
 - Contract: [Knowledge Atlas format](../specs/knowledge-atlas.md#chronology-index-and-prompts)
 
 ## Context
 
-ADR 0118 gave every dating a display key (`DateExpr::key`) and kept competing datings side by
-side. Admin exploration (#58), publication (#59) and the structural prompts (ADR 0122) all need
+ADR 0093 gave every dating a display key (`DateExpr::key`) and kept competing datings side by
+side. Admin exploration (#58), publication (#59) and the structural prompts (ADR 0097) all need
 the same lookups: an entry's datings by aspect, every dating of one aspect, and one timeline. If
 each surface sorted for itself, two views of one atlas could order partial dates differently, and
 a convenience such as "show the most likely date" or "group contemporaries" could creep in.
@@ -37,7 +37,7 @@ a convenience such as "show the most likely date" or "group contemporaries" coul
   never touches relationships: `Atlas::relationships_of` reads the same before and after.
 - **Private and approved alike.** The index covers every dating, so it is for the author's
   tools (`check`, Admin). A public surface must read only projected datings
-  (`Atlas::projected_datings`, ADR 0120); the index is never published.
+  (`Atlas::projected_datings`, ADR 0095); the index is never published.
 
 ## Consequences
 

@@ -41,8 +41,8 @@ as before.
 - **An allowlist of fields.** Public types name exactly what is published:
   - entry: `id`, `kind`, `label`, `aliases`, `summary`, a work's `source`, `bounds.from` and
     `bounds.until`, and its canonical `url` (amended by
-    [ADR 0120](0120-atlas-version-2-supersedes-bounds-and-keeps-datings-private.md): `bounds`
-    no longer exists; [ADR 0126](0126-approved-datings-publish-through-the-atlas-projection.md)
+    [ADR 0095](0095-atlas-version-2-supersedes-bounds-and-keeps-datings-private.md): `bounds`
+    no longer exists; [ADR 0099](0099-approved-datings-publish-through-the-atlas-projection.md)
     publishes projected datings in their own allowlisted `datings` list);
   - relationship: `id`, `kind`, `from`, `to` (the stored direction), `label` and
     `inverseLabel` (display words only), `assertedBy`, `confidence`, `evidence` (source id and
@@ -64,7 +64,7 @@ as before.
   entry's prose and its relationships from and to it, each read in the stored direction, with
   attribution, confidence, cited references and locators, uncertainty and dissent, as semantic
   HTML that needs no JavaScript and no new stylesheet or script (amended by
-  [ADR 0127](0127-the-public-timeline-is-a-progressive-ordered-list-with-relative-trails.md):
+  [ADR 0100](0100-the-public-timeline-is-a-progressive-ordered-list-with-relative-trails.md):
   when datings are published, `/atlas/` also carries the timeline and loads its one component). `/atlas.json` is the same
   projection as data: `{"format": "openblog-atlas-projection", "formatVersion": 1, "entries",
   "relationships", "sources"}`, compact, with root-relative URLs (prefixed with a site's base

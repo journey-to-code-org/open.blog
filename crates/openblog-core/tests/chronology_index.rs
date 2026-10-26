@@ -1,4 +1,4 @@
-//! The chronology index and its structural prompts (ADR 0121, ADR 0122):
+//! The chronology index and its structural prompts (ADR 0096, ADR 0097):
 //! sorting is deterministic across partial, open, BCE, tied, unknown and
 //! relative datings whatever the file order; competing datings stay side by
 //! side; prompts explain the authored contradiction with its stated values,

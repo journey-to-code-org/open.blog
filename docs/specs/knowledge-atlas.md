@@ -9,9 +9,9 @@ decisions are in [ADR 0053](../adr/0053-knowledge-atlas-entries-keep-their-kind.
 [ADR 0057](../adr/0057-accessible-atlas-authoring-and-a-text-first-explorer.md),
 [ADR 0058](../adr/0058-publish-one-allowlisted-knowledge-atlas-projection.md), and, for
 [chronology](#chronology),
-[ADR 0118](../adr/0118-uncertain-dates-are-attributed-datings-at-their-stated-precision.md),
-[ADR 0119](../adr/0119-temporal-relationships-are-relative-datings-never-inferred.md) and
-[ADR 0120](../adr/0120-atlas-version-2-supersedes-bounds-and-keeps-datings-private.md). Nothing in it
+[ADR 0093](../adr/0093-uncertain-dates-are-attributed-datings-at-their-stated-precision.md),
+[ADR 0094](../adr/0094-temporal-relationships-are-relative-datings-never-inferred.md) and
+[ADR 0095](../adr/0095-atlas-version-2-supersedes-bounds-and-keeps-datings-private.md). Nothing in it
 reaches a public page, feed, search index, `llms.txt` or export except through the
 [publication projection](#publication), which copies approved items only when the site opts in.
 
@@ -164,8 +164,8 @@ version 1 item that already uses `dates` is refused until renamed.
 
 ### Chronology index and prompts
 
-Owned by `openblog_core::chronology_index` ([ADR 0121](../adr/0121-the-chronology-index-orders-every-dating-for-display-only.md),
-[ADR 0122](../adr/0122-chronology-prompts-are-structural-and-never-verdicts.md)).
+Owned by `openblog_core::chronology_index` ([ADR 0096](../adr/0096-the-chronology-index-orders-every-dating-for-display-only.md),
+[ADR 0097](../adr/0097-chronology-prompts-are-structural-and-never-verdicts.md)).
 `ChronologyIndex::of(&atlas)` reads a valid atlas, never fails and never writes. It indexes every
 dating, private or approved, by id; `by_owner` (each entry's or relationship's datings by aspect,
 competing datings side by side, `competing(owner, aspect)`), `by_aspect`, `by_time` (one
@@ -251,7 +251,7 @@ plus the saved `entry` or `relationship`. `409` carries `conflict`, the latest `
 and the stored `current` copy; `422` carries scoped `diagnostics` and the `file`. An id in a
 removal or exploration request that is not an atlas identifier is `400` and is never echoed.
 
-`chronology` ([ADR 0123](../adr/0123-chronology-is-authored-and-explored-in-admin-as-text.md)) is
+`chronology` ([ADR 0098](../adr/0098-chronology-is-authored-and-explored-in-admin-as-text.md)) is
 the chronology index for the author: `timeline`, every dating in index order as `id`, `owner`,
 `collection`, `index`, `field` (`dates[1]`), `aspect`, `text` (the stated value read back),
 `placement` (`dated`, `relative` or `unknown`), `startYear` and `endYear` (null for an open end,
@@ -335,7 +335,7 @@ the Admin explorer show it. URLs are root-relative and follow a site's base path
 text are written as JSON escapes. A relationship is `contested` whenever anyone dissents;
 there is no agreed state.
 
-**Datings** ([ADR 0126](../adr/0126-approved-datings-publish-through-the-atlas-projection.md)).
+**Datings** ([ADR 0099](../adr/0099-approved-datings-publish-through-the-atlas-projection.md)).
 `datings` holds every projected dating in `chronology::chronological` order, and is left out when
 there are none, so an atlas without projected datings is written exactly as before (the format
 version stays 1). Each carries `id`, `owner` and `ownerType` (`entry` or `relationship`),
@@ -349,7 +349,7 @@ under "Dates", one heading per dated aspect (`#atlas-dates-<aspect>`) with "N co
 side by side" and each dating (`#atlas-d-<id>`) with who dates it, confidence, cited evidence and
 note; a relationship's datings appear in its item under "When it held".
 
-**Timeline and trails** ([ADR 0127](../adr/0127-the-public-timeline-is-a-progressive-ordered-list-with-relative-trails.md)).
+**Timeline and trails** ([ADR 0100](../adr/0100-the-public-timeline-is-a-progressive-ordered-list-with-relative-trails.md)).
 When datings are published, `/atlas/` ends with a timeline (`#atlas-timeline`): an ordered list of
 periods, each the century in which a dated aspect's earliest absolute dating begins
 (`#atlas-period-bce-5`, with "No earliest year stated (open start)" first), holding dated aspects

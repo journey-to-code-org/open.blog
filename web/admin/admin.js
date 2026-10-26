@@ -2264,7 +2264,7 @@ export function validateAtlasRelationshipDraft(draft, { entries = [], kinds = nu
   return null;
 }
 
-// ---- chronology: datings authored in the editors, and the explorer (ADR 0118 to 0122, 0123)
+// ---- chronology: datings authored in the editors, and the explorer (ADR 0093 to 0097, 0098)
 
 /** The five date forms, exactly one per dating. A competing date is its own dating. */
 export const ATLAS_DATE_FORMS = Object.freeze([
@@ -2987,7 +2987,7 @@ export function createAtlasForm({ api, state, type = "entry", item = null, prefi
   };
 
 
-  // ---- dating parts (ADR 0118, ADR 0123)
+  // ---- dating parts (ADR 0093, ADR 0098)
   const datingOwner = () => (isEntry ? draft.kind : "relationship");
   const datingAspects = () => atlasAspects(state.kinds, datingOwner());
   /** Every identifier a new dating may not take: the atlas's entries, relationships and other items' datings. */
@@ -9277,7 +9277,7 @@ export class ObAdmin extends AdminElement {
     };
 
 
-    // ---- chronology explorer (ADR 0123): lists only, competing datings side by side, never resolved
+    // ---- chronology explorer (ADR 0098): lists only, competing datings side by side, never resolved
     const chronologyFilters = { query: "", aspect: "", fromYear: "", fromEra: "bce", toYear: "", toEra: "ce", zoom: "century", competing: false, prompted: false };
     const openItem = (collection, id, focusDating = null) => open({ type: collection === "entries" ? "entry" : "relationship", id, focusDating });
     const datingPosition = (field) => {

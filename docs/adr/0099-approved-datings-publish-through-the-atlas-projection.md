@@ -1,4 +1,4 @@
-# ADR 0126: Approved datings publish through the atlas projection, attributed, cited and side by side
+# ADR 0099: Approved datings publish through the atlas projection, attributed, cited and side by side
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -6,19 +6,19 @@
 - Parent story: [#23](https://github.com/journey-to-code-org/open.blog/issues/23)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
 - Builds on: [ADR 0058](0058-publish-one-allowlisted-knowledge-atlas-projection.md),
-  [ADR 0118](0118-uncertain-dates-are-attributed-datings-at-their-stated-precision.md),
-  [ADR 0119](0119-temporal-relationships-are-relative-datings-never-inferred.md),
-  [ADR 0120](0120-atlas-version-2-supersedes-bounds-and-keeps-datings-private.md),
-  [ADR 0121](0121-the-chronology-index-orders-every-dating-for-display-only.md)
+  [ADR 0093](0093-uncertain-dates-are-attributed-datings-at-their-stated-precision.md),
+  [ADR 0094](0094-temporal-relationships-are-relative-datings-never-inferred.md),
+  [ADR 0095](0095-atlas-version-2-supersedes-bounds-and-keeps-datings-private.md),
+  [ADR 0096](0096-the-chronology-index-orders-every-dating-for-display-only.md)
 - Amends: [ADR 0058](0058-publish-one-allowlisted-knowledge-atlas-projection.md) (the
   projection carries datings, and `/atlas/` and entry pages show them),
-  [ADR 0120](0120-atlas-version-2-supersedes-bounds-and-keeps-datings-private.md) ("nothing
+  [ADR 0095](0095-atlas-version-2-supersedes-bounds-and-keeps-datings-private.md) ("nothing
   publishes datings yet" ends here)
 - Contract: [Knowledge Atlas format](../specs/knowledge-atlas.md#publication)
 
 ## Context
 
-ADR 0120 kept every dating private until this slice and said it must add datings to
+ADR 0095 kept every dating private until this slice and said it must add datings to
 `PublicAtlas` field by field. Sites that publish their atlas lost the years their approved entries
 showed from `bounds`, and `build`, `check` and Admin warn about each such entry. A published date
 names real people and is easily read as fact, so it must carry who dates it, on what evidence,

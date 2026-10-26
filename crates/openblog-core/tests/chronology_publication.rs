@@ -1,4 +1,4 @@
-//! Publishing approved chronology (ADR 0126, ADR 0127): datings on entry
+//! Publishing approved chronology (ADR 0099, ADR 0100): datings on entry
 //! pages with attribution and evidence, competing datings side by side, the
 //! progressive timeline on the atlas index, relative datings as navigable
 //! trails, relationship datings, BCE written readably, determinism, escaping,

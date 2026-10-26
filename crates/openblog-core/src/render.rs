@@ -74,7 +74,7 @@ struct Meta<'a> {
     /// its `<script type="application/json">` element (ADR 0082); `None` on
     /// every other page, which is then written exactly as before.
     passage_data: Option<String>,
-    /// Whether the page carries the atlas timeline (ADR 0127), so it loads
+    /// Whether the page carries the atlas timeline (ADR 0100), so it loads
     /// the `<ob-atlas-timeline>` component; `false` on every other page,
     /// which is then written exactly as before.
     atlas_timeline: bool,
@@ -2248,7 +2248,7 @@ impl<'a> Renderer<'a> {
         self.document(&meta, &body)
     }
 
-    /// The public timeline (ADR 0127): every published dating, in the
+    /// The public timeline (ADR 0100): every published dating, in the
     /// chronology's one order, as an ordered list of periods holding dated
     /// aspects, each with all its competing datings side by side and their
     /// attribution, evidence and notes. It reads completely without
@@ -2866,7 +2866,7 @@ impl<'a> Renderer<'a> {
 
 /// What the atlas index says before any entry.
 const ATLAS_LEDE: &str = "People, works, concepts, movements and events, and the relationships between them that the author has chosen to publish. Each relationship is one party's assertion on cited evidence; contested ones name who disagrees.";
-/// What the atlas timeline says before it lists anything (ADR 0127).
+/// What the atlas timeline says before it lists anything (ADR 0100).
 const ATLAS_TIMELINE_NOTE: &str = "Every published dating in time order, grouped by the century in which each dated aspect's earliest dating begins. Each dating is one party's claim on cited evidence, at the precision it states. Competing datings of the same thing stand side by side; none is preferred, and nothing here resolves them. The order is for reading only: it never means that one thing caused or influenced another.";
 /// What an entry page says above its datings.
 const ATLAS_DATES_NOTE: &str = "Each dating is one party's claim on cited evidence, at the precision it states. Competing datings stand side by side; none is preferred, and nothing here resolves them.";

@@ -1,5 +1,5 @@
 //! Deterministic chronology indexes and structural prompts over a valid
-//! Knowledge Atlas (ADR 0121, ADR 0122).
+//! Knowledge Atlas (ADR 0096, ADR 0097).
 //!
 //! The index places every dating by the entry or relationship it dates, by
 //! aspect and in time. Competing datings stay side by side and none is

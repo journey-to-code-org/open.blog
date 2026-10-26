@@ -872,7 +872,7 @@ fn check_research_notebook(
 /// whether builds publish its approved part (ADR 0058). Approved relationships
 /// the publication projection would leave out are non-blocking notices that
 /// name ids, never authored text. So are the chronology index's structural
-/// prompts (ADR 0122): datings that cannot all hold as recorded, named by id
+/// prompts (ADR 0097): datings that cannot all hold as recorded, named by id
 /// with their stated values, never a ruling on which one is right.
 fn check_knowledge_atlas(
     root: &std::path::Path,

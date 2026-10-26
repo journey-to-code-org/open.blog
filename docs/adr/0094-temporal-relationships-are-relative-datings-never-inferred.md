@@ -1,4 +1,4 @@
-# ADR 0119: Temporal relationships are asserted relative datings, never inferred from dates
+# ADR 0094: Temporal relationships are asserted relative datings, never inferred from dates
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -6,7 +6,7 @@
 - Parent story: [#23](https://github.com/journey-to-code-org/open.blog/issues/23)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
 - Builds on: [ADR 0054](0054-attributed-evidence-based-relationships.md),
-  [ADR 0118](0118-uncertain-dates-are-attributed-datings-at-their-stated-precision.md)
+  [ADR 0093](0093-uncertain-dates-are-attributed-datings-at-their-stated-precision.md)
 - Contract: [Knowledge Atlas format](../specs/knowledge-atlas.md#chronology)
 
 ## Context
@@ -49,7 +49,7 @@ Academy from 387 BCE").
   relationships read exactly as before.
 - The chronology index (#57) can build before/after constraints from relative datings and warn
   about cycles or conflicts, always naming the parties and dating ids involved.
-- A relative dating to a private entry is never published (ADR 0120).
+- A relative dating to a private entry is never published (ADR 0095).
 
 ## Domain language
 

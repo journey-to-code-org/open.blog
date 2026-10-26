@@ -989,7 +989,7 @@ test("every atlas control is labelled and grouped", withDom(async () => {
   assert.ok(buttonLabelled(form, "Remove evidence 1") && buttonLabelled(form, "Remove dissent 1") && buttonLabelled(form, "Add evidence to dissent 1"));
 }));
 
-// ---------------------------------------------------------------- chronology (ADR 0123)
+// ---------------------------------------------------------------- chronology (ADR 0098)
 
 const CHRONO_ENTRIES = () => {
   const entries = ENTRIES();

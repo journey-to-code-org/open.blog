@@ -1,4 +1,4 @@
-# ADR 0127: The public timeline is a progressive ordered list, and relative datings are trails
+# ADR 0100: The public timeline is a progressive ordered list, and relative datings are trails
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -6,10 +6,10 @@
 - Parent story: [#23](https://github.com/journey-to-code-org/open.blog/issues/23)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
 - Builds on: [ADR 0061](0061-citation-previews-are-a-progressive-non-modal-component.md),
-  [ADR 0119](0119-temporal-relationships-are-relative-datings-never-inferred.md),
-  [ADR 0121](0121-the-chronology-index-orders-every-dating-for-display-only.md),
-  [ADR 0123](0123-chronology-is-authored-and-explored-in-admin-as-text.md),
-  [ADR 0126](0126-approved-datings-publish-through-the-atlas-projection.md)
+  [ADR 0094](0094-temporal-relationships-are-relative-datings-never-inferred.md),
+  [ADR 0096](0096-the-chronology-index-orders-every-dating-for-display-only.md),
+  [ADR 0098](0098-chronology-is-authored-and-explored-in-admin-as-text.md),
+  [ADR 0099](0099-approved-datings-publish-through-the-atlas-projection.md)
 - Amends: [ADR 0058](0058-publish-one-allowlisted-knowledge-atlas-projection.md) (`/atlas/`
   carries the timeline, and its index page may load one component)
 - Contract: [Knowledge Atlas format](../specs/knowledge-atlas.md#publication)
@@ -18,10 +18,10 @@
 
 Issue #59 asks for opt-in static chronology lists with a progressively enhanced timeline and
 attributed relationship trails, keeping uncertainty and no-JavaScript navigation, with print and
-reduced motion usable and an enhancement that hides no citation or doubt. ADR 0123 chose lists
+reduced motion usable and an enhancement that hides no citation or doubt. ADR 0098 chose lists
 and words over a drawing for Admin for the same reasons: a bar chart flattens competing datings,
 open ends and relative or unknown dates, and is hard to read without sight or a pointer. ADR
-0121 forbids neighbours or contemporaries, so a trail cannot be computed from dates.
+0096 forbids neighbours or contemporaries, so a trail cannot be computed from dates.
 
 ## Decision
 

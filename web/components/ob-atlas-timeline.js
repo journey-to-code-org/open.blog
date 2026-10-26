@@ -1,4 +1,4 @@
-// <ob-atlas-timeline> enhances the Knowledge Atlas timeline (ADR 0127). The
+// <ob-atlas-timeline> enhances the Knowledge Atlas timeline (ADR 0100). The
 // page is complete without it: the static timeline is an ordered list of
 // periods, each holding dated aspects with every competing dating, who dates
 // it, how firmly, the cited evidence and the note, then the aspects not placed

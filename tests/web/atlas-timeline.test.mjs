@@ -1,4 +1,4 @@
-// Contract tests for <ob-atlas-timeline> (ADR 0127): filters show or hide a
+// Contract tests for <ob-atlas-timeline> (ADR 0100): filters show or hide a
 // whole dated aspect and never one of its competing datings, the status line
 // says what is shown, the component reads only the page and writes only text,
 // shadows no HTMLElement property, and the page's styles keep print complete
