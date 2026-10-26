@@ -1260,3 +1260,28 @@ _Avoid_: Reference, related link; a citation names a source, a context link name
 The author's explicit step that puts a private research note into a draft as their own words,
 after confirming it becomes part of the post. It is the only way a note reaches a draft (ADR 0134).
 _Avoid_: Publishing a note, copying a note
+
+**Research review before publication**:
+What the research checks already say about a post, gathered when the author publishes or
+schedules a research or cited post, or asks for it in Evidence Studio: grouped by what blocks the
+build, then by outcome, each finding linked to its line, field or research object (ADR 0135). It
+uses the research-completeness contract's finding shape and has no score.
+_Avoid_: Readiness score, publication check, approval, quality gate
+
+**Blocking finding**:
+A finding in the review whose validator refuses the build that would publish the post: a citation
+it cannot publish, or an integrity or privacy failure of a private file it reads. Only blocking
+findings stop publishing, and they cannot be acknowledged; every other finding is advisory.
+_Avoid_: Error, failure, must-fix warning
+
+**Context link check**:
+The check that each context link in a post names a page the next build publishes, owned by
+`context_links` and reported as `context-link-unpublished` (ADR 0135). A missing page is a gap to
+repair, never a privacy failure.
+_Avoid_: Broken link check, link validation
+
+**Finding acknowledgement**:
+The author's private record that they have seen an advisory finding: its key and fingerprint, in
+`.openblog/private/research/acknowledgements.json` (ADR 0136). The finding stays listed and
+counted; the acknowledgement goes stale when what the finding is about changes.
+_Avoid_: Dismissal, resolution, waiver, sign-off

@@ -29,6 +29,19 @@ All notable changes to open.blog are recorded here. Releases follow
   on request and go in only through an explicit conversion. Insertions work in Visual and
   Markdown modes, never land in code, HTML or a link, and Ctrl+Z undoes them. Nothing is written
   to your research files.
+- Publishing or scheduling a post on the Research profile, or one that publishes citations, now
+  opens a **research review** first. It gathers what your research checks already say about the
+  post: the research-profile and citation checks, the post's claims, links to atlas entries and
+  comparisons the next build will not publish, what a linked atlas entry or comparison leaves out
+  or asks you to check, and any private research file the build cannot read. Findings are grouped
+  by what the build would refuse, then as detected, potential or needs review, and each one goes
+  to its line, field, claim or research object. Only a citation the build would refuse or a
+  research file it cannot read stops publishing; everything else is yours to decide, and you can
+  acknowledge it. An acknowledged finding stays listed and counted, and asks again once what it
+  is about changes. There is no score. Evidence Studio can run the same review at any time, and
+  other posts publish exactly as before. Acknowledgements are kept privately in
+  `.openblog/private/research/acknowledgements.json`. Sources now opens a source by its address,
+  `#/research/sources/<id>`.
 - In Visual mode, backslash-escaped `*`, `_`, backticks, `[` and `]` are now read as the
   characters themselves. Before, `\*word\*` showed as emphasis and `\[x\](y)` as a link, and
   switching modes could add backslashes to the draft.
