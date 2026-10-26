@@ -663,8 +663,7 @@ fn the_front_matter_key_is_read_tolerantly_and_a_map_never_switches_the_post_off
         ("{default: guided}", ReadingMode::Guided),
         ("{ default: deep-dive }", ReadingMode::DeepDive),
         ("{\"default\": \"standard\"}", ReadingMode::Standard),
-        ("{default: guided, other: 1}", ReadingMode::Guided),
-        ("{other: 1}", ReadingMode::Standard),
+        ("{enabled: true, default: guided}", ReadingMode::Guided),
         ("{}", ReadingMode::Standard),
         ("guided", ReadingMode::Guided),
     ] {
@@ -673,6 +672,17 @@ fn the_front_matter_key_is_read_tolerantly_and_a_map_never_switches_the_post_off
         assert_eq!(read.default_mode, mode, "{value}");
         assert!(read.warning.is_none(), "{value}");
     }
+    // `{enabled: false}` is off, like `false`.
+    for off in ["{enabled: false}", "{enabled: off, default: guided}"] {
+        let read = setting(Some(off));
+        assert!(!read.enabled && read.warning.is_none(), "{off}");
+    }
+    // An unknown key is reported and ignored; the post stays opted in.
+    let unknown = setting(Some("{default: guided, other: 1}"));
+    assert!(unknown.enabled && unknown.default_mode == ReadingMode::Guided);
+    assert!(unknown.warning.unwrap().contains("`other`"));
+    let odd = setting(Some("{enabled: maybe}"));
+    assert!(odd.enabled && odd.warning.unwrap().contains("maybe"));
     let bad_default = setting(Some("{default: expert}"));
     assert!(bad_default.enabled && bad_default.default_mode == ReadingMode::Standard);
     assert!(bad_default.warning.unwrap().contains("expert"));
@@ -814,4 +824,98 @@ fn the_post_page_carries_the_hooks_the_component_reads_and_only_when_there_are_s
     // Opted in with no supplement, or not opted in: no element at all.
     assert!(!build("readingModes: true\n", "Just words.\n").contains("ob-reading-modes"));
     assert!(!build("", ARTICLE).contains("ob-reading-modes"));
+}
+
+#[test]
+fn a_supplement_written_inside_a_warning_or_caution_callout_is_never_hidden() {
+    let markdown = "> [!WARNING]\n> Read first.\n>\n> > [!supplement kind=context level=deep-dive] Why\n> > Because.\n\n\
+> [!CAUTION]\n> > [!supplement kind=evidence]\n> > Sharp.\n\n\
+> [!NOTE]\n> > [!supplement kind=context level=deep-dive]\n> > Fine to hide.\n";
+    let depth = scan(markdown);
+    let [warned, cautioned, noted] = &depth.supplements[..] else {
+        panic!("{:?}", depth.supplements)
+    };
+    assert!(warned.always && cautioned.always && !noted.always);
+    let shown = depth
+        .visible(ReadingMode::Standard)
+        .iter()
+        .map(|s| s.id.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(shown, ["ob-supplement-1", "ob-supplement-2"]);
+    let html = render(markdown, on()).html;
+    assert_eq!(html.matches("data-ob-always").count(), 2, "{html}");
+}
+
+#[test]
+fn heading_slugs_are_unchanged_when_the_feature_is_off() {
+    let markdown = "## OB Supplement 1\n\nText.\n\n## Other {#ob-supplement-x}\n\nMore.\n";
+    let off = render(markdown, RenderOptions::default()).html;
+    assert!(off.contains("id=\"ob-supplement-1\""), "{off}");
+    assert!(off.contains("id=\"ob-supplement-x\""), "{off}");
+    assert!(!off.contains("section-ob-supplement"), "{off}");
+    // With it on the reserved prefix is avoided and reported.
+    let rendered = render(markdown, on());
+    assert!(
+        rendered.html.contains("id=\"section-ob-supplement-1\""),
+        "{}",
+        rendered.html
+    );
+    assert!(
+        rendered.html.contains("id=\"section-ob-supplement-x\""),
+        "{}",
+        rendered.html
+    );
+    assert!(!rendered.html.contains("id=\"ob-supplement-x\""));
+    let findings = rendered.reading_depth.unwrap().findings;
+    assert!(
+        findings.iter().any(|f| f.marker == "{#ob-supplement-x}"),
+        "{findings:?}"
+    );
+}
+
+#[test]
+fn ids_the_author_wrote_with_the_supplement_prefix_are_renamed_and_reported() {
+    let markdown = "Cited.[^ob-supplement-9]\n\n[^ob-supplement-9]: A note.\n\n\
+<div id=\"ob-supplement-1\">raw</div>\n\n\
+<span\nid=\"ob-supplement-2\">split</span>\n\n\
+> [!supplement kind=context]\n> Inside.\n";
+    let rendered = render(markdown, on());
+    let html = &rendered.html;
+    // Only the supplement itself owns the reserved id.
+    assert_eq!(html.matches("id=\"ob-supplement-1\"").count(), 1, "{html}");
+    assert!(
+        html.contains("<div id=\"section-ob-supplement-1\">raw</div>"),
+        "{html}"
+    );
+    assert!(html.contains("id=\"section-ob-supplement-2\""), "{html}");
+    assert!(html.contains("id=\"section-ob-supplement-9\""), "{html}");
+    assert!(html.contains("href=\"#section-ob-supplement-9\""), "{html}");
+    let findings = rendered.reading_depth.unwrap().findings;
+    assert_eq!(findings.len(), 3, "{findings:?}");
+    assert!(findings
+        .iter()
+        .all(|f| f.message.contains("reserved for supplements")));
+    // The same Markdown without the feature is exactly as it was.
+    let off = render(markdown, RenderOptions::default()).html;
+    assert!(
+        off.contains("id=\"ob-supplement-1\"") && off.contains("id=\"ob-supplement-9\""),
+        "{off}"
+    );
+}
+
+#[test]
+fn a_nul_in_a_post_with_supplements_is_read_as_the_replacement_character() {
+    let markdown =
+        "> \u{0}ob-supplement-1\n\n> [!supplement kind=context]\n> Real.\n\nAfter \u{0} text.\n";
+    let html = render(markdown, on()).html;
+    assert!(!html.contains('\u{0}'), "{html:?}");
+    assert!(html.contains("\u{FFFD}ob-supplement-1"), "{html:?}");
+    assert!(html.contains("After \u{FFFD} text."), "{html:?}");
+    // The real supplement is still wrapped, and the quote that held the
+    // would-be tag stays an ordinary quote.
+    assert_eq!(
+        html.matches("class=\"ob-supplement\"").count(),
+        1,
+        "{html:?}"
+    );
 }

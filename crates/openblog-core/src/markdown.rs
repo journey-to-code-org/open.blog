@@ -1589,14 +1589,33 @@ pub(crate) fn parser_options(smart_punctuation: bool) -> Options {
     options
 }
 
+/// CommonMark reads U+0000 as U+FFFD. For a post with supplements it is
+/// replaced before parsing, so a NUL in the text can never look like the tag
+/// the renderer uses to mark a supplement. Posts without a NUL are untouched,
+/// and posts that have not opted in are never rewritten.
+fn without_nul(markdown: &str, supplements: bool) -> std::borrow::Cow<'_, str> {
+    if supplements && markdown.contains('\u{0}') {
+        std::borrow::Cow::Owned(markdown.replace('\u{0}', "\u{FFFD}"))
+    } else {
+        std::borrow::Cow::Borrowed(markdown)
+    }
+}
+
 pub fn render(markdown: &str, options: RenderOptions<'_>) -> Rendered {
+    let source = without_nul(markdown, options.supplements);
     let mut parsed_events =
-        Parser::new_ext(markdown, parser_options(options.smart_punctuation)).collect::<Vec<_>>();
+        Parser::new_ext(&source, parser_options(options.smart_punctuation)).collect::<Vec<_>>();
+    let mut findings = Vec::new();
     if options.supplements {
+        findings = crate::reading_depth::reserve_ids(&mut parsed_events);
         crate::reading_depth::name_headings(&mut parsed_events);
     }
-    assign_heading_ids(&mut parsed_events, options.citation_notes.as_ref());
-    render_events(parsed_events, markdown.len(), options, None)
+    assign_heading_ids(
+        &mut parsed_events,
+        options.citation_notes.as_ref(),
+        options.supplements,
+    );
+    render_events(parsed_events, markdown.len(), options, None, findings)
 }
 
 /// Give every heading its id: the `{#id}` the author wrote, or a slug of its
@@ -1614,6 +1633,7 @@ pub fn render(markdown: &str, options: RenderOptions<'_>) -> Rendered {
 fn assign_heading_ids(
     events: &mut [Event<'_>],
     notes: Option<&crate::bibliography::CitationNoteLabels<'_>>,
+    supplements: bool,
 ) {
     let notes_start = notes.and_then(|labels| generated_notes_heading(events, labels));
     let written = if notes_start.is_some() {
@@ -1642,19 +1662,22 @@ fn assign_heading_ids(
                 };
                 // A heading written inside a supplement already has the id
                 // that names it (ADR 0172); it takes no slug from the post's.
-                if matches!(
-                    &events[start],
-                    Event::Start(Tag::Heading { id: Some(id), .. })
-                        if id.starts_with(crate::reading_depth::ID_PREFIX)
-                ) {
+                if supplements
+                    && matches!(
+                        &events[start],
+                        Event::Start(Tag::Heading { id: Some(id), .. })
+                            if id.starts_with(crate::reading_depth::ID_PREFIX)
+                    )
+                {
                     continue;
                 }
                 let mut id = slugify(&title);
                 if id.is_empty() {
                     id = "section".to_string();
                 }
-                // `ob-supplement-` names the supplements' own ids only.
-                if id.starts_with(crate::reading_depth::ID_PREFIX) {
+                // `ob-supplement-` names the supplements' own ids only, for a
+                // post that has them; any other post's slugs are as they were.
+                if supplements && id.starts_with(crate::reading_depth::ID_PREFIX) {
                     id = format!("section-{id}");
                 }
                 let Event::Start(Tag::Heading { id: existing, .. }) = &mut events[start] else {
@@ -1758,7 +1781,7 @@ fn written_ids(events: &[Event<'_>]) -> std::collections::HashSet<String> {
 /// slugs.
 pub(crate) fn heading_ids(markdown: &str) -> Vec<String> {
     let mut events = Parser::new_ext(markdown, parser_options(false)).collect::<Vec<_>>();
-    assign_heading_ids(&mut events, None);
+    assign_heading_ids(&mut events, None, false);
     events
         .into_iter()
         .filter_map(|event| match event {
@@ -1786,7 +1809,7 @@ pub(crate) fn passage_sections(
 ) -> Vec<(Option<String>, String)> {
     let mut events =
         Parser::new_ext(markdown, parser_options(smart_punctuation)).collect::<Vec<_>>();
-    assign_heading_ids(&mut events, notes);
+    assign_heading_ids(&mut events, notes, false);
     let notes_start = notes.and_then(|labels| generated_notes_heading(&events, labels));
     let mut sections: Vec<(Option<String>, String)> = vec![(None, String::new())];
     let mut in_code_block = false;
@@ -1844,12 +1867,15 @@ pub fn render_portable(
     options: RenderOptions<'_>,
     projection: &crate::portability::PortableProjection<'_>,
 ) -> Result<Rendered, String> {
+    let source = without_nul(markdown, options.supplements);
     let mut parsed_events =
-        Parser::new_ext(markdown, parser_options(options.smart_punctuation)).collect::<Vec<_>>();
+        Parser::new_ext(&source, parser_options(options.smart_punctuation)).collect::<Vec<_>>();
+    let mut findings = Vec::new();
     if options.supplements {
+        findings = crate::reading_depth::reserve_ids(&mut parsed_events);
         crate::reading_depth::name_headings(&mut parsed_events);
     }
-    assign_heading_ids(&mut parsed_events, None);
+    assign_heading_ids(&mut parsed_events, None, options.supplements);
     for event in &mut parsed_events {
         let destination = match event {
             Event::Start(Tag::Link { dest_url, .. })
@@ -1866,6 +1892,7 @@ pub fn render_portable(
         markdown.len(),
         options,
         Some(projection.markdown_context()),
+        findings,
     );
     // Recipe sections are added after raw HTML is balanced inside its own
     // containers, so the finished body is balanced once more as a whole.
@@ -1882,9 +1909,11 @@ pub(crate) fn portable_semantic_facts(
     projection: &crate::portability::PortableProjection<'_>,
 ) -> Result<Vec<crate::portability::SemanticFact>, String> {
     use crate::portability::SemanticFact;
-    let events = Parser::new_ext(markdown, parser_options(options.smart_punctuation));
+    let source = without_nul(markdown, options.supplements);
+    let events = Parser::new_ext(&source, parser_options(options.smart_punctuation));
     let mut sanitized = crate::raw_html::sanitize(events.collect(), projection)?;
     if options.supplements {
+        crate::reading_depth::reserve_ids(&mut sanitized.events);
         // The marker line is replaced by a label in the HTML and kept as
         // written in Markdown, so it is not a fact either must carry.
         sanitized.events = crate::reading_depth::transform(sanitized.events, false).events;
@@ -2107,14 +2136,15 @@ fn render_events<'a>(
     source_length: usize,
     options: RenderOptions<'_>,
     portable: Option<PortableContext<'_>>,
+    id_findings: Vec<crate::reading_depth::Finding>,
 ) -> Rendered {
     let (parsed_events, inside_supplement, reading_depth) = if options.supplements {
         let transformed = crate::reading_depth::transform(parsed_events, true);
-        (
-            transformed.events,
-            transformed.inside,
-            Some(transformed.depth),
-        )
+        let mut depth = transformed.depth;
+        // Renamed ids come first, within the findings' limit.
+        depth.findings.splice(0..0, id_findings);
+        depth.findings.truncate(crate::reading_depth::MAX_FINDINGS);
+        (transformed.events, transformed.inside, Some(depth))
     } else {
         (parsed_events, Vec::new(), None)
     };

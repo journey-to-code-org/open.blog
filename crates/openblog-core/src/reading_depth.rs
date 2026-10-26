@@ -281,6 +281,8 @@ pub(crate) fn analyze(events: &[Event<'_>]) -> Analysis {
     let mut headings = Vec::new();
     // One entry per open block quote: the supplement it is, if it is one.
     let mut quotes: Vec<Option<usize>> = Vec::new();
+    // Parallel to `quotes`: whether that quote is a warning or caution callout.
+    let mut safety: Vec<bool> = Vec::new();
     let mut index = 0;
     while index < events.len() {
         let nesting = quotes.iter().flatten().count();
@@ -313,6 +315,7 @@ pub(crate) fn analyze(events: &[Event<'_>]) -> Analysis {
                 };
                 let Some((marker, resume, whole)) = read else {
                     quotes.push(None);
+                    safety.push(false);
                     index += 1;
                     continue;
                 };
@@ -343,7 +346,9 @@ pub(crate) fn analyze(events: &[Event<'_>]) -> Analysis {
                     depth: own,
                     depth_defaulted: written.is_none(),
                     effective_depth: effective,
-                    always: false,
+                    // Written inside a warning or caution callout: safety text
+                    // is never hidden, so neither is the supplement around it.
+                    always: safety.iter().any(|open| *open),
                     title: marker.title.clone(),
                     parent: parent.map(|p| depth.supplements[p].id.clone()),
                     nesting: nesting + 1,
@@ -359,6 +364,7 @@ pub(crate) fn analyze(events: &[Event<'_>]) -> Analysis {
                 );
                 inside[index] = true;
                 quotes.push(Some(supplement));
+                safety.push(false);
                 if whole {
                     // The marker was the whole paragraph: drop it entirely.
                     index = resume + 1;
@@ -371,6 +377,7 @@ pub(crate) fn analyze(events: &[Event<'_>]) -> Analysis {
             }
             Event::End(TagEnd::BlockQuote(_)) => {
                 quotes.pop();
+                safety.pop();
             }
             Event::Start(Tag::BlockQuote(Some(kind))) => {
                 // Safety text is never hidden: a warning or caution inside a
@@ -385,7 +392,7 @@ pub(crate) fn analyze(events: &[Event<'_>]) -> Analysis {
                                 &mut depth,
                                 Finding {
                                     marker: format!("[!supplement kind={token}]"),
-                                    message: "Holds a warning or caution callout, so it is shown in every reading mode."
+                                    message: "Holds a warning or caution callout, so it is shown in every reading mode (information, nothing to fix)."
                                         .to_string(),
                                 },
                             );
@@ -393,6 +400,10 @@ pub(crate) fn analyze(events: &[Event<'_>]) -> Analysis {
                     }
                 }
                 quotes.push(None);
+                safety.push(matches!(
+                    kind,
+                    BlockQuoteKind::Warning | BlockQuoteKind::Caution
+                ));
             }
             Event::Start(Tag::Heading { .. }) if nesting > 0 => {
                 if let Some(held) = quotes.iter().rev().flatten().next() {
@@ -431,6 +442,112 @@ pub(crate) fn name_headings(events: &mut [Event<'_>]) {
             )));
         }
     }
+}
+
+/// The post's own ids that start with [`ID_PREFIX`] (a heading's `{#id}`, a
+/// footnote label, an `id` in raw HTML), which belong to the supplements: each
+/// is renamed with a `section-` prefix, in its definition and every
+/// reference, and reported. Only for a post that opted in; run before
+/// [`name_headings`] so the names it gives are the only ones that start so.
+pub(crate) fn reserve_ids(events: &mut [Event<'_>]) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    let renamed = |id: &str| format!("section-{id}");
+    let mut note = |what: String, id: &str, how: &str| {
+        if findings.len() < MAX_FINDINGS {
+            findings.push(Finding {
+                marker: what.chars().take(MAX_TITLE_LENGTH).collect(),
+                message: format!(
+                    "Uses the id `{}`, which is reserved for supplements; {how}.",
+                    id.chars().take(MAX_TITLE_LENGTH).collect::<String>()
+                ),
+            });
+        }
+    };
+    let mut index = 0;
+    while index < events.len() {
+        match &mut events[index] {
+            Event::Start(Tag::Heading { id: Some(id), .. }) if id.starts_with(ID_PREFIX) => {
+                let old = id.to_string();
+                *id = CowStr::from(renamed(&old));
+                note(
+                    format!("{{#{old}}}"),
+                    &old,
+                    "renamed with a section- prefix",
+                );
+            }
+            Event::Start(Tag::FootnoteDefinition(label)) | Event::FootnoteReference(label)
+                if label.starts_with(ID_PREFIX) =>
+            {
+                let old = label.to_string();
+                *label = CowStr::from(renamed(&old));
+                // Said once, at the definition.
+                if matches!(events[index], Event::Start(Tag::FootnoteDefinition(_))) {
+                    note(format!("[^{old}]"), &old, "renamed with a section- prefix");
+                }
+            }
+            Event::Html(_) | Event::InlineHtml(_) => {
+                // Consecutive fragments are one piece of markup, as a browser
+                // reads them.
+                let start = index;
+                let mut end = index;
+                while matches!(
+                    events.get(end + 1),
+                    Some(Event::Html(_) | Event::InlineHtml(_))
+                ) {
+                    end += 1;
+                }
+                let raw: String = events[start..=end]
+                    .iter()
+                    .map(|event| match event {
+                        Event::Html(html) | Event::InlineHtml(html) => html.as_ref(),
+                        _ => "",
+                    })
+                    .collect();
+                let mut found = crate::raw_html::id_attributes(&raw);
+                found.retain(|(_, id)| id.starts_with(ID_PREFIX));
+                if !found.is_empty() {
+                    let mut text = raw.clone();
+                    let mut done = Vec::new();
+                    for (range, id) in found.iter().rev() {
+                        let tag = &raw[range.clone()];
+                        // An id written with character references cannot be
+                        // found as written, so it is reported, not renamed.
+                        let at = tag.find(id.as_str());
+                        if let Some(at) = at {
+                            text.replace_range(
+                                range.start + at..range.start + at + id.len(),
+                                &renamed(id),
+                            );
+                        }
+                        done.push(at.is_some());
+                    }
+                    done.reverse();
+                    for ((_, id), done) in found.iter().zip(done) {
+                        let how = if done {
+                            "renamed with a section- prefix"
+                        } else {
+                            "it could not be renamed"
+                        };
+                        note(format!("id=\"{id}\""), id, how);
+                    }
+                    if text != raw {
+                        if let Event::Html(html) | Event::InlineHtml(html) = &mut events[start] {
+                            *html = CowStr::from(text);
+                        }
+                        for event in &mut events[start + 1..=end] {
+                            if let Event::Html(html) | Event::InlineHtml(html) = event {
+                                *html = CowStr::from("");
+                            }
+                        }
+                    }
+                }
+                index = end;
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    findings
 }
 
 /// The sentinel that marks a supplement's block quote until [`wrap`] reads
@@ -740,8 +857,9 @@ pub struct Setting {
 /// Reads `readingModes` tolerantly. `true`, `yes` and `on` opt in;
 /// `false`, `no` and `off` opt out; a mode name, or a map such as
 /// `{default: guided}`, opts in and sets the author's default mode. A map
-/// never switches the post off, and a default that is not a mode is reported
-/// and read as standard. Anything else is off, with a warning, so a typo
+/// opts in unless it says `enabled: false`; an unknown key is reported and
+/// ignored, and a default that is not a mode is reported and read as
+/// standard. Anything else is off, with a warning, so a typo
 /// never publishes supplements the author did not mean to.
 pub fn setting(raw: Option<&str>) -> Setting {
     let off = |warning: Option<String>| Setting {
@@ -771,24 +889,40 @@ pub fn setting(raw: Option<&str>) -> Setting {
         .and_then(|rest| rest.strip_suffix('}'))
     {
         let mut default_mode = ReadingMode::Standard;
-        let mut warning = None;
+        let mut enabled = true;
+        let mut warnings: Vec<String> = Vec::new();
         for pair in inner.split(',') {
             let Some((key, wanted)) = pair.split_once(':') else {
                 continue;
             };
-            if key.trim().trim_matches(['"', char::from(39u8)]) != "default" {
-                continue;
-            }
+            let key = key.trim().trim_matches(['"', char::from(39u8)]);
             let wanted = wanted.trim().trim_matches(['"', char::from(39u8)]);
-            match ReadingMode::parse(wanted) {
-                Some(mode) => default_mode = mode,
-                None => {
-                    warning = Some(format!(
+            match key {
+                "default" => match ReadingMode::parse(wanted) {
+                    Some(mode) => default_mode = mode,
+                    None => warnings.push(format!(
                         "readingModes default `{}` is not standard, guided or deep-dive; the post opens in standard",
                         wanted.chars().take(40).collect::<String>()
-                    ));
-                }
+                    )),
+                },
+                // `{enabled: false}` is the same as `readingModes: false`.
+                "enabled" => match wanted {
+                    "false" | "no" | "off" => enabled = false,
+                    "true" | "yes" | "on" => enabled = true,
+                    _ => warnings.push(format!(
+                        "readingModes enabled `{}` is not true or false; reading modes stay on",
+                        wanted.chars().take(40).collect::<String>()
+                    )),
+                },
+                other => warnings.push(format!(
+                    "readingModes key `{}` is not known (use default or enabled) and is ignored",
+                    other.chars().take(40).collect::<String>()
+                )),
             }
+        }
+        let warning = (!warnings.is_empty()).then(|| warnings.join("; "));
+        if !enabled {
+            return off(warning);
         }
         return on(default_mode, warning);
     }
