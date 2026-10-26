@@ -1277,29 +1277,61 @@ fn apply_portable_footnotes<'a>(
 /// Give generated citation notes accessible anchors on the native page: each
 /// marker is a `doc-noteref` link with a visually hidden "Citation" before its
 /// number and an id of its own, and each note ends with a `doc-backlink` to
-/// every place it is cited. The author's own footnotes are written exactly as
-/// the HTML writer writes them, with the same numbers (first use), because
-/// every footnote in the post shares one numbering.
+/// every place it is cited. The generated heading and notes, which always
+/// close the post, are one `doc-endnotes` region named by that heading, and
+/// each note can take focus, so following a marker without JavaScript lands
+/// keyboard and screen-reader focus on the note it names. The author's own
+/// footnotes are written exactly as the HTML writer writes them, with the same
+/// numbers (first use), because every footnote in the post shares one
+/// numbering.
 fn apply_citation_notes<'a>(
     events: Vec<Event<'a>>,
     labels: crate::bibliography::CitationNoteLabels<'_>,
 ) -> Vec<Event<'a>> {
     let mut uses: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-    for event in &events {
-        if let Event::FootnoteReference(name) = event {
-            if labels.number(name).is_some() {
+    let mut first_note = None;
+    let mut generated_notes = 0;
+    for (index, event) in events.iter().enumerate() {
+        match event {
+            Event::FootnoteReference(name) if labels.number(name).is_some() => {
                 *uses.entry(name.to_string()).or_default() += 1;
             }
+            Event::Start(Tag::FootnoteDefinition(name)) if labels.number(name).is_some() => {
+                first_note.get_or_insert(index);
+                generated_notes += 1;
+            }
+            _ => {}
         }
     }
+    let region = first_note.and_then(|first| notes_heading(&events, first));
+    let mut notes_closed = 0;
+    let mut in_generated_note = false;
     let mut numbers: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let mut open_note: Option<(String, usize)> = None;
     let mut out = Vec::with_capacity(events.len());
-    for event in events {
+    for (index, event) in events.into_iter().enumerate() {
+        if let Some((start, id)) = &region {
+            if index == *start {
+                out.push(Event::Html(CowStr::from(format!(
+                    "<section class=\"ob-citation-notes\" role=\"doc-endnotes\" aria-labelledby=\"{}\">\n",
+                    escape::attr(id)
+                ))));
+            }
+        }
         let (name, reference) = match &event {
             Event::FootnoteReference(name) => (name.to_string(), true),
             Event::Start(Tag::FootnoteDefinition(name)) => (name.to_string(), false),
+            Event::End(TagEnd::FootnoteDefinition) => {
+                out.push(event);
+                if std::mem::take(&mut in_generated_note) {
+                    notes_closed += 1;
+                    if region.is_some() && notes_closed == generated_notes {
+                        out.push(Event::Html(CowStr::from("</section>\n")));
+                    }
+                }
+                continue;
+            }
             Event::End(TagEnd::Paragraph) => {
                 // The note's text is one paragraph; its links back close it.
                 if let Some((name, number)) = open_note.take() {
@@ -1345,17 +1377,38 @@ fn apply_citation_notes<'a>(
             (false, generated) => {
                 if generated {
                     open_note = Some((name.clone(), number));
+                    in_generated_note = true;
                 }
                 format!(
-                    "<div class=\"footnote-definition{}\" id=\"{}\"><sup class=\"footnote-definition-label\">{number}</sup>",
+                    "<div class=\"footnote-definition{}\" id=\"{}\"{}><sup class=\"footnote-definition-label\">{number}</sup>",
                     if generated { " ob-citation-note" } else { "" },
-                    escape::attr(&name)
+                    escape::attr(&name),
+                    if generated { " tabindex=\"-1\"" } else { "" },
                 )
             }
         };
         out.push(Event::Html(CowStr::from(html)));
     }
     out
+}
+
+/// Where the generated notes' region starts and the id of the heading that
+/// names it: the heading that ends straight before the first generated note.
+/// `None` (and no region) if the events are not in that shape.
+fn notes_heading(events: &[Event<'_>], first_note: usize) -> Option<(usize, String)> {
+    if !matches!(
+        events.get(first_note.checked_sub(1)?),
+        Some(Event::End(TagEnd::Heading(_)))
+    ) {
+        return None;
+    }
+    events[..first_note]
+        .iter()
+        .rposition(|event| matches!(event, Event::Start(Tag::Heading { .. })))
+        .and_then(|start| match &events[start] {
+            Event::Start(Tag::Heading { id: Some(id), .. }) => Some((start, id.to_string())),
+            _ => None,
+        })
 }
 
 /// A chapter list for a tight bulleted list whose items are all timestamp

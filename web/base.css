@@ -761,6 +761,28 @@ h2.ob-title {
   outline-offset: 2px;
 }
 
+/* Following a marker lands on its note, and a way back lands on the marker:
+   clear of the top edge, and marked so the eye finds where it arrived.
+   Long addresses wrap at high zoom instead of widening the page. */
+.ob-citation-note,
+.ob-citation a {
+  scroll-margin-block: 1.5rem;
+}
+
+.ob-citation-note {
+  overflow-wrap: anywhere;
+}
+
+.ob-citation-note:target,
+.ob-citation a:target {
+  outline: 2px solid var(--ob-color-accent);
+  outline-offset: 2px;
+}
+
+.ob-citation-note:focus:not(:focus-visible, :target) {
+  outline: none;
+}
+
 /* ---------- Syntax highlighting (tokens painted by <ob-code highlight>) ---------- */
 
 .tok-keyword { color: var(--ob-color-code-keyword); }
@@ -1836,6 +1858,22 @@ ob-back-to-top button:hover {
   .ob-recipe-card {
     background: none;
     color: inherit;
+  }
+
+  /* Citation notes print whole and together with their numbers; the ways
+     back to a marker are for screens only. */
+  .ob-citation-back {
+    display: none !important;
+  }
+
+  .ob-citation-note {
+    break-inside: avoid;
+    color: inherit;
+  }
+
+  .ob-citation-note:target,
+  .ob-citation a:target {
+    outline: none;
   }
 
   .ob-recipe-facts dt {

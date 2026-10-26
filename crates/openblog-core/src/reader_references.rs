@@ -159,15 +159,31 @@ impl ReaderReferences {
         Ok(())
     }
 
-    /// Whether the page's HTML holds every marker and note this data names,
-    /// so that each citation resolves to a visible reference without
-    /// JavaScript. Returns the first missing id.
+    /// Whether the page's HTML lets each citation be followed without
+    /// JavaScript: exactly one element carries each marker id and each note
+    /// id, the marker is a link to its note, and the page links back to the
+    /// marker. Returns the first problem, naming the id.
     pub fn check_page(&self, html: &str) -> Result<(), String> {
         for citation in &self.citations {
             for id in [&citation.marker, &citation.note] {
-                if !html.contains(&format!("id=\"{id}\"")) {
-                    return Err(format!("the page has no element with id `{id}`"));
+                match element_ids(html, id).len() {
+                    1 => {}
+                    0 => return Err(format!("the page has no element with id `{id}`")),
+                    _ => return Err(format!("the page has more than one element with id `{id}`")),
                 }
+            }
+            let marker = opening_tag(html, element_ids(html, &citation.marker)[0]);
+            if !marker.contains(&format!(" href=\"#{}\"", citation.note)) {
+                return Err(format!(
+                    "the marker `{}` does not link to its note `{}`",
+                    citation.marker, citation.note
+                ));
+            }
+            if !html.contains(&format!(" href=\"#{}\"", citation.marker)) {
+                return Err(format!(
+                    "nothing links back to the marker `{}`",
+                    citation.marker
+                ));
             }
         }
         Ok(())
@@ -204,6 +220,23 @@ impl ReaderReferences {
             self.to_embedded_json()
         )
     }
+}
+
+/// Where each ` id="…"` attribute with exactly this value starts. The
+/// leading space keeps `data-id="…"` and similar names from counting. Generated
+/// text escapes its quotes, so only markup can match; authored raw HTML that
+/// writes one inside another attribute's value counts too, which errs towards
+/// refusing the page.
+fn element_ids(html: &str, id: &str) -> Vec<usize> {
+    let needle = format!(" id=\"{id}\"");
+    html.match_indices(&needle).map(|(at, _)| at).collect()
+}
+
+/// The opening tag around a byte position inside it.
+fn opening_tag(html: &str, at: usize) -> &str {
+    let start = html[..at].rfind('<').unwrap_or(0);
+    let end = html[at..].find('>').map_or(html.len(), |end| at + end);
+    &html[start..end]
 }
 
 /// A reference's one safe external link: its DOI, else its web address.

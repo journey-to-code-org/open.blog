@@ -121,8 +121,13 @@ format cannot carry.
 
 On the native page a generated marker is
 `<sup class="footnote-reference ob-citation"><a href="#cite-1" id="cite-1-ref-1" role="doc-noteref"><span class="ob-visually-hidden">Citation </span>1</a></sup>`
-and each note ends with one `doc-backlink` per citing marker. Portable copies keep ordinary
-footnotes that link to the note on the canonical article.
+and each note ends with one `doc-backlink` per citing marker. The generated heading and notes
+are one `<section class="ob-citation-notes" role="doc-endnotes" aria-labelledby="…">` named by
+that heading's id, and each generated note has `tabindex="-1"`, so following a marker moves focus
+to its note without JavaScript; the author's own footnotes stay outside it, unchanged. The
+reached note or marker is outlined (`:target`), long addresses wrap, and print hides only the
+back links ([ADR 0065](../adr/0065-citation-navigation-is-static-html-checked-at-build.md)).
+Portable copies keep ordinary footnotes that link to the note on the canonical article.
 
 ## Reader references
 
@@ -139,9 +144,14 @@ publishes none.
 
 Every citation names a listed reference, every reference is cited, and `check_page` confirms the
 page holds each marker and note id, so each citation resolves to a visible reference without
-JavaScript. Only the reference `id` is stable across revisions: `marker` and `note` ids are
+JavaScript: exactly one element carries each id, the marker links to its note, and the page links
+back to the marker. The build runs it on every finished post page and in the Admin preview, and
+stops with `<source path>: the page's citation anchors do not match its reference data: …` when
+they disagree (for example, authored HTML that repeats a generated id). Only the reference `id` is
+stable across revisions: `marker` and `note` ids are
 positional (order of first citation, occurrence and the post's label prefix), valid for the one
 revision whose page carries them, and must not be stored. A durable target uses the reference id,
 or the passage and annotation selectors of #80 and #84. The document is written inline as
 `<script type="application/json" id="ob-references">` with `<`, `>`, `&` and U+2028/9 escaped
-(`to_script_element`); there is no separate file in version 1.
+(`to_script_element`) in the `<head>` of the post's page, after the JSON-LD, and nowhere else;
+there is no separate file in version 1.

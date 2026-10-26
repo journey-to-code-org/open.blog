@@ -14,6 +14,7 @@ use crate::escape::{attr, cdata, text};
 use crate::feeds;
 use crate::markdown::{self, RenderOptions};
 use crate::model::{CommentsPolicy, Post, Series, Site};
+use crate::reader_references::ReaderReferences;
 use crate::theme::{Theme, ThemeSet};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -50,6 +51,10 @@ struct Meta<'a> {
     image: Option<String>,
     image_alt: Option<String>,
     json_ld: Option<String>,
+    /// The reader reference data of a post that publishes citations, as its
+    /// `<script type="application/json">` element (ADR 0064); `None` on every
+    /// other page, which is then written exactly as before.
+    reader_references: Option<String>,
     theme: &'a Theme,
     published: Option<String>,
     modified: Option<String>,
@@ -240,7 +245,7 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
     }
 
     for (index, post) in site.posts.iter().enumerate() {
-        out.add(url_to_file(&post.url), r.post(index, post))?;
+        out.add(url_to_file(&post.url), r.post(index, post)?)?;
         for alias in &post.aliases {
             out.add(url_to_file(alias), r.alias_page(&post.url, &post.title))?;
         }
@@ -365,7 +370,7 @@ pub fn generate_document(
         .enumerate()
         .find(|(_, post)| post.source == source)
     {
-        (post.url.as_str(), renderer.post(index, post))
+        (post.url.as_str(), renderer.post(index, post)?)
     } else if let Some(series) = site
         .series
         .iter()
@@ -604,6 +609,10 @@ impl<'a> Renderer<'a> {
                     .replace('>', "\\u003e")
                     .replace('&', "\\u0026")
             ));
+        }
+        if let Some(element) = &meta.reader_references {
+            h.push_str(element);
+            h.push('\n');
         }
         // Owner-supplied raw HTML (third-party analytics, verification tags).
         if !c.snippets.head.trim().is_empty() {
@@ -946,6 +955,7 @@ impl<'a> Renderer<'a> {
                 }
                 blog.to_string()
             }),
+            reader_references: None,
             theme,
             published: None,
             modified: None,
@@ -956,7 +966,35 @@ impl<'a> Renderer<'a> {
         self.document(&meta, &body)
     }
 
-    fn post(&self, index: usize, post: &Post) -> String {
+    /// A post's page. A post that publishes citations carries its reader
+    /// reference data, and the page must hold every marker and note that data
+    /// names, each marker linking to its note and back; otherwise the build
+    /// stops with a diagnostic naming the post, rather than publish a citation
+    /// that leads nowhere.
+    fn post(&self, index: usize, post: &Post) -> Result<String, String> {
+        let references = post
+            .citations()
+            .map(ReaderReferences::from_summary)
+            .transpose()
+            .map_err(|error| format!("{}: citation reference data: {error}", post.source))?;
+        let page = self.post_page(index, post, references.as_ref());
+        if let Some(references) = &references {
+            references.check_page(&page).map_err(|error| {
+                format!(
+                    "{}: the page's citation anchors do not match its reference data: {error}",
+                    post.source
+                )
+            })?;
+        }
+        Ok(page)
+    }
+
+    fn post_page(
+        &self,
+        index: usize,
+        post: &Post,
+        references: Option<&ReaderReferences>,
+    ) -> String {
         let c = &self.site.config;
         let theme = self.theme(self.site.theme_for_post(post));
         let series = post
@@ -1300,6 +1338,7 @@ impl<'a> Renderer<'a> {
                     None => posting.to_string(),
                 }
             }),
+            reader_references: references.map(ReaderReferences::to_script_element),
             theme,
             published: Some(post.date.rfc3339()),
             modified: post.updated.map(|u| u.rfc3339()),
@@ -1927,6 +1966,7 @@ impl<'a> Renderer<'a> {
             image: None,
             image_alt: None,
             json_ld: None,
+            reader_references: None,
             theme,
             published: None,
             modified: None,

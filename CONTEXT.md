@@ -355,6 +355,13 @@ needed to read it. Only the reference id is stable; marker and note ids are posi
 revision and are never stored.
 _Avoid_: Bibliography data, citation metadata
 
+**Citation endnotes**:
+The region at the end of a native post page that holds its generated citation notes under their
+heading, announced as endnotes and named by that heading. Following a marker moves focus to its
+note, and each note links back to every marker citing it. It never holds the author's own
+footnotes.
+_Avoid_: Footnotes section, bibliography block
+
 **Citation check**:
 An offline finding about a post's citations, in one of four separate classes: syntax (the
 citation cannot be read), resolution (its key or locator does not resolve, or an identifier is

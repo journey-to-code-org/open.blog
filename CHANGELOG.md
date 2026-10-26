@@ -9,6 +9,12 @@ All notable changes to open.blog are recorded here. Releases follow
   stable id (its citation key, distinct per edition), each citation names its marker, note and
   locators, and only the public reference description is included. Posts without published
   citations are unchanged; the page and its notes read the same without JavaScript.
+- Pages that publish citations now carry that reference data inline and are easier to navigate
+  without JavaScript: the notes are one labelled region, following a citation moves keyboard and
+  screen-reader focus to its note, each way back returns to the exact citation (repeated ones
+  included), the place you arrive is highlighted, long addresses wrap at high zoom, and print keeps
+  every note. If a page's citation links would not match its notes, for example because the post's
+  own HTML reuses a generated id, the build stops and names the post. Other pages are unchanged.
 
 ### Fixed
 
