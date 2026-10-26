@@ -28,7 +28,7 @@ const POLICY = `default-src 'self'; script-src 'self'; style-src 'self'; connect
 
 const turn = (lane, author, text) => `<div class="ob-round">
 
-<section class="ob-turn ob-lane-${lane}">
+<section class="ob-turn ob-lane-${lane} ob-turn-by-${author.toLowerCase()}">
 <h2 class="ob-turn-author">${author}</h2>
 
 ${text}

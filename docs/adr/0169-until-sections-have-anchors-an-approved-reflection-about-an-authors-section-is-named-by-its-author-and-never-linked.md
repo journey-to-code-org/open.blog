@@ -36,6 +36,10 @@ there and unchanged. The page anchors for author sections and the answers under 
   author in words; an author's Admin form keeps what was written and says why; Admin reports an
   absent endpoint, credential or service in its own plain words and never claims an answer stored.
 
+Amended by [ADR 0178](0178-a-conversation-follows-its-authors-section-as-static-html-with-anchors-bounded-and-enhanced-only-by-script.md):
+where author responses are not hidden, each author's section now has its `ob-by-` anchor, so a
+current reflection links to it and is shown after it.
+
 ## Consequences
 
 Approving a reflection about an author's section is safe to do before #224: the page says only what

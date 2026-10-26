@@ -115,8 +115,11 @@ Admin decides who may answer from the private record and sends the function one 
 (`admin/author-response`, Admin's token only), which the function reads with its own contract
 (`netlify/lib/author-response.mjs`, held to the build by `tests/fixtures/author-responses.json`),
 re-checks against the parent row it reads, and stores pending with the responder in `details`. The
-one inbox moderates it; an approval needs a shown parent about that author's section and is never
-the writing account's own.
+one inbox moderates it; an approval needs a shown parent about that author's section, re-checks
+the responder against the private record, and is never the writing account's own. An approved
+answer is published by Admin into `third-perspectives.json` under its reflection (version 2 of the
+file, only while an answer is in it) and comes off with a withdrawal or removal, with a banner
+for any that must (ADRs 0177 to 0179); the hosted schema is unchanged.
 
 ## Testing decisions
 

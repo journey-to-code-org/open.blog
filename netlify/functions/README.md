@@ -259,8 +259,11 @@ version Admin saw), allows one answer pending or shown per reflection, 20 an hou
 the same answer once an hour. The row keeps the parent's id, the contributor handle, the published
 name and the section's standing, and privately the participant and Admin account that wrote it; the
 inbox lists it (`kind=author-response`), a coordinator approves it only under a shown parent and never
-as the account that wrote it, and B5's `/admin/feedback` never decides one. Nothing is published or
-e-mailed by this: showing answers on the page is a later change.
+as the account that wrote it (and never while another answer to that reflection is shown), and B5's
+`/admin/feedback` never decides one. The function publishes and e-mails nothing: Admin writes an
+approved answer into `content/third-perspectives.json` (ADR 0177), which is how the post shows it.
+Abuse reports about an answer whose reflection is not shown answer `unavailable`, as for an answer
+that does not exist.
 
 To undo it, remove `OPENBLOG_AUTHOR_RESPONSES_ENABLED` and redeploy. Existing answers stay private
 in the inbox, where they can still be rejected or removed but not approved.

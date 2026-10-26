@@ -5,6 +5,25 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- A reader's Third Perspective about one author's section of a shared reflection, and that
+  author's approved response, are now shown on the post, after that author's own words: a labelled
+  conversation inside the section's turn, the reader's reflection under "Third Perspective from a
+  reader" and the author's under "Author's response from NAME", in order, as plain HTML that works
+  without JavaScript or a stylesheet (with script, a long conversation folds behind one button, and
+  a link into it opens it). Each author's section now has an `ob-by-...` anchor, a reflection links
+  to it, no more than five show after a section (the rest stay in the post's "Third Perspectives"
+  list, each shown once), and it reflows at 320px and 400% zoom and prints whole. Admin publishes an
+  approved answer into `content/third-perspectives.json` with its reflection (the file becomes version
+  2 only while it holds an answer) and takes it off when its author withdraws it or a coordinator
+  removes it; the inbox counts any that must come off in the same banner as reflections. Portable
+  copies, feeds and `llms` files only link to the canonical post. Where `author-response` is
+  `hidden` or `off`, or no answer is published, pages build exactly as before. No SQL changes.
+- Credits that are edited after a shared reflection is published can no longer move a section to
+  another author: a section now states its contributor in the post, an older post is paired with
+  the committed contributor names, and anything that does not match attributes nothing. Admin
+  refuses a credits edit that would break it. Approving an answer re-checks the account that wrote
+  it against the shared publication, and an author whose membership was removed can still withdraw
+  their own answer.
 - Readers can write a Third Perspective about one author's section of a shared reflection, and that
   author can answer it, through the moderation you already have. Where a site sets
   `participation.kinds."author-response"` to `open`, a shared reflection's Third Perspective form

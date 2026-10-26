@@ -1574,6 +1574,24 @@ registry entry alone, a coordinator, a site owner, an editor and the moderation 
 they may moderate the answer but not write it, and nobody approves their own answer (ADR 0162).
 _Avoid_: Registry access, author role, impersonation, reply right
 
+**Conversation (on a section)**:
+The reader's Third Perspectives about one attributed section, and the author's approved response to
+each, shown on the post inside that section's own turn, after the author's words: a labelled
+`<aside>` of static HTML (headings h3 to h5, the reader's reflection and the author's response as
+separate articles told apart by their headings and labels), at most five reflections per section
+(the rest stay in the "Third Perspectives" list, each shown once), with a button that folds a long
+one only when script runs. It never changes the author's words, is never ranked or counted, and only
+the canonical page carries it (ADRs 0177 to 0179).
+_Avoid_: Comment thread, discussion, replies, nested thread
+
+**Published answer**:
+An approved author response as `third-perspectives.json` stores it, under the reflection it answers
+(`answer`, file version 2 only while one exists): the hosted row's id, the contributor registry key,
+the published name, the text and two days, never the participant, the account or a moderator. The
+page shows it only where the one rule says so: it and its reflection public in their kinds' modes,
+and the responder the contributor the reflection's section is credited to (ADR 0177).
+_Avoid_: Reply record, stored answer
+
 **Author section list**:
 The build's list of a shared reflection's author sections in its Third Perspective region, written
 only where the site opens author responses on the post and the committed body and credits pair: each
