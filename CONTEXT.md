@@ -671,3 +671,19 @@ _Avoid_: Mode or role; a preset never grants or removes permissions
 An Admin control no workspace preference can hide or reorder: Write, Site preview, Settings,
 save state, publish status, conflicts, privacy notices, approvals, and blocking validation.
 _Avoid_: Default tool, pinned tool
+
+**Claim**:
+A statement made in one draft post, optionally anchored to a UTF-8 byte span of its source. It is
+private until the author approves it and carries no truth value.
+_Avoid_: Fact, finding; treating a cited sentence as a claim automatically
+
+**Evidence link**:
+The author's recorded relation (supports, contradicts or contextualizes) between one claim and one
+source, with optional locators and notebook passage, rationale, uncertainty, review state and
+provenance. A citation alone is not one.
+_Avoid_: Citation, proof, verdict; defaulting a relation to supports
+
+**Claim anchor check**:
+Comparing a claim's recorded span with the current draft: verified, moved, stale or ambiguous. It
+reports and never repairs.
+_Avoid_: Auto-relocation

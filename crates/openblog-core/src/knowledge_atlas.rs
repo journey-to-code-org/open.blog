@@ -29,12 +29,12 @@ pub const MAX_ATLAS_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_ENTRIES: usize = 10_000;
 pub const MAX_RELATIONSHIPS: usize = 50_000;
 const MAX_SUMMARY_CHARS: usize = 20_000;
-const MAX_UNCERTAINTY_CHARS: usize = 2_000;
-const MAX_SHORT_CHARS: usize = 200;
+pub(crate) const MAX_UNCERTAINTY_CHARS: usize = 2_000;
+pub(crate) const MAX_SHORT_CHARS: usize = 200;
 const MAX_ALIASES: usize = 20;
 const MAX_EVIDENCE: usize = 20;
 const MAX_DISSENTS: usize = 20;
-const MAX_LOCATORS: usize = 8;
+pub(crate) const MAX_LOCATORS: usize = 8;
 const CREDIT_FIELDS: &[&str] = &["credit", "credits", "contributor", "contributors"];
 
 const ATLAS_FIELDS: &[&str] = &["version", "entries", "relationships"];
@@ -327,7 +327,7 @@ pub enum Confidence {
 }
 
 impl Confidence {
-    fn parse(value: &str) -> Option<Self> {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
         match value {
             "tentative" => Some(Self::Tentative),
             "plausible" => Some(Self::Plausible),
@@ -541,6 +541,10 @@ pub enum AtlasDiagnosticCode {
     ContributorCredit,
     StillLinked,
     ShadowedField,
+    UnknownClaim,
+    DuplicateLink,
+    AnchorMismatch,
+    UndisclosedContradiction,
 }
 
 impl fmt::Display for AtlasDiagnosticCode {
@@ -583,7 +587,7 @@ impl fmt::Display for AtlasDiagnostic {
     }
 }
 
-fn atlas_diagnostic(
+pub(crate) fn atlas_diagnostic(
     code: AtlasDiagnosticCode,
     field: Option<&str>,
     message: impl Into<String>,
@@ -598,7 +602,7 @@ fn atlas_diagnostic(
     }
 }
 
-fn item_diagnostic(
+pub(crate) fn item_diagnostic(
     code: AtlasDiagnosticCode,
     collection: &'static str,
     index: usize,
@@ -616,7 +620,7 @@ fn item_diagnostic(
     }
 }
 
-fn too_large() -> AtlasDiagnostic {
+pub(crate) fn too_large() -> AtlasDiagnostic {
     atlas_diagnostic(
         AtlasDiagnosticCode::TooLarge,
         None,
@@ -625,16 +629,21 @@ fn too_large() -> AtlasDiagnostic {
 }
 
 /// Field-by-field reader state for one raw item, so each problem names its field.
-struct Ctx<'a> {
-    collection: &'static str,
-    index: usize,
-    id: Option<String>,
-    diagnostics: &'a mut Vec<AtlasDiagnostic>,
-    failed: bool,
+pub(crate) struct Ctx<'a> {
+    pub(crate) collection: &'static str,
+    pub(crate) index: usize,
+    pub(crate) id: Option<String>,
+    pub(crate) diagnostics: &'a mut Vec<AtlasDiagnostic>,
+    pub(crate) failed: bool,
 }
 
 impl Ctx<'_> {
-    fn report(&mut self, code: AtlasDiagnosticCode, field: &str, message: impl Into<String>) {
+    pub(crate) fn report(
+        &mut self,
+        code: AtlasDiagnosticCode,
+        field: &str,
+        message: impl Into<String>,
+    ) {
         self.failed = true;
         self.diagnostics.push(AtlasDiagnostic {
             code,
@@ -648,12 +657,16 @@ impl Ctx<'_> {
 }
 
 /// One JSON object being read, with the path used to name its fields.
-struct Obj {
-    path: String,
-    map: Map<String, Value>,
+pub(crate) struct Obj {
+    pub(crate) path: String,
+    pub(crate) map: Map<String, Value>,
 }
 
-fn text_problem(text: &str, max: usize, multiline: bool) -> Option<(AtlasDiagnosticCode, String)> {
+pub(crate) fn text_problem(
+    text: &str,
+    max: usize,
+    multiline: bool,
+) -> Option<(AtlasDiagnosticCode, String)> {
     if text.trim().is_empty() {
         Some((
             AtlasDiagnosticCode::InvalidField,
@@ -678,7 +691,7 @@ fn text_problem(text: &str, max: usize, multiline: bool) -> Option<(AtlasDiagnos
 }
 
 impl Obj {
-    fn field(&self, key: &str) -> String {
+    pub(crate) fn field(&self, key: &str) -> String {
         if self.path.is_empty() {
             key.into()
         } else {
@@ -686,7 +699,7 @@ impl Obj {
         }
     }
 
-    fn text(
+    pub(crate) fn text(
         &mut self,
         ctx: &mut Ctx<'_>,
         key: &str,
@@ -718,7 +731,13 @@ impl Obj {
         }
     }
 
-    fn id(&mut self, ctx: &mut Ctx<'_>, key: &str, what: &str, required: bool) -> Option<String> {
+    pub(crate) fn id(
+        &mut self,
+        ctx: &mut Ctx<'_>,
+        key: &str,
+        what: &str,
+        required: bool,
+    ) -> Option<String> {
         let field = self.field(key);
         match self.map.remove(key) {
             Some(Value::String(value)) if valid_source_id(&value) => Some(value),
@@ -746,7 +765,7 @@ impl Obj {
         }
     }
 
-    fn flag(&mut self, ctx: &mut Ctx<'_>, key: &str) -> bool {
+    pub(crate) fn flag(&mut self, ctx: &mut Ctx<'_>, key: &str) -> bool {
         match self.map.remove(key) {
             None => false,
             Some(Value::Bool(value)) => value,
@@ -762,7 +781,7 @@ impl Obj {
         }
     }
 
-    fn object(&mut self, ctx: &mut Ctx<'_>, key: &str, required: bool) -> Option<Obj> {
+    pub(crate) fn object(&mut self, ctx: &mut Ctx<'_>, key: &str, required: bool) -> Option<Obj> {
         let field = self.field(key);
         match self.map.remove(key) {
             Some(Value::Object(map)) => Some(Obj { path: field, map }),
@@ -782,7 +801,7 @@ impl Obj {
         }
     }
 
-    fn array(&mut self, ctx: &mut Ctx<'_>, key: &str, max: usize) -> Vec<Value> {
+    pub(crate) fn array(&mut self, ctx: &mut Ctx<'_>, key: &str, max: usize) -> Vec<Value> {
         let field = self.field(key);
         match self.map.remove(key) {
             None => Vec::new(),
@@ -806,7 +825,7 @@ impl Obj {
         }
     }
 
-    fn reject_credits(&mut self, ctx: &mut Ctx<'_>) {
+    pub(crate) fn reject_credits(&mut self, ctx: &mut Ctx<'_>) {
         let found: Vec<String> = self
             .map
             .keys()
@@ -823,7 +842,7 @@ impl Obj {
         }
     }
 
-    fn visibility(&mut self, ctx: &mut Ctx<'_>) -> Visibility {
+    pub(crate) fn visibility(&mut self, ctx: &mut Ctx<'_>) -> Visibility {
         match self.map.remove("visibility") {
             None => Visibility::Private,
             Some(Value::String(v)) if v == "private" => Visibility::Private,
@@ -839,12 +858,12 @@ impl Obj {
         }
     }
 
-    fn rest(self) -> BTreeMap<String, Value> {
+    pub(crate) fn rest(self) -> BTreeMap<String, Value> {
         self.map.into_iter().collect()
     }
 }
 
-fn open<'a>(
+pub(crate) fn open<'a>(
     collection: &'static str,
     index: usize,
     raw: Value,
@@ -1014,7 +1033,7 @@ fn parse_entry(
     }
 }
 
-fn parse_attribution(ctx: &mut Ctx<'_>, mut obj: Obj) -> Option<Attribution> {
+pub(crate) fn parse_attribution(ctx: &mut Ctx<'_>, mut obj: Obj) -> Option<Attribution> {
     let kind_field = obj.field("kind");
     let kind = match obj.map.remove("kind") {
         Some(Value::String(t)) => match t.as_str() {
@@ -1127,7 +1146,7 @@ fn parse_locator(ctx: &mut Ctx<'_>, path: &str, item: Value) -> Option<Locator> 
     })
 }
 
-fn parse_evidence(ctx: &mut Ctx<'_>, path: &str, item: Value) -> Option<Evidence> {
+pub(crate) fn parse_evidence(ctx: &mut Ctx<'_>, path: &str, item: Value) -> Option<Evidence> {
     let Value::Object(map) = item else {
         ctx.report(AtlasDiagnosticCode::InvalidField, path, "must be an object");
         return None;
@@ -1158,7 +1177,7 @@ fn parse_evidence(ctx: &mut Ctx<'_>, path: &str, item: Value) -> Option<Evidence
     })
 }
 
-fn parse_evidence_list(ctx: &mut Ctx<'_>, obj: &mut Obj, key: &str) -> Vec<Evidence> {
+pub(crate) fn parse_evidence_list(ctx: &mut Ctx<'_>, obj: &mut Obj, key: &str) -> Vec<Evidence> {
     let base = obj.field(key);
     obj.array(ctx, key, MAX_EVIDENCE)
         .into_iter()
@@ -2254,7 +2273,7 @@ fn check_graph(
     }
 }
 
-fn check_attribution(
+pub(crate) fn check_attribution(
     attribution: &Attribution,
     path: &str,
     links: Links<'_>,
@@ -2272,7 +2291,7 @@ fn check_attribution(
     }
 }
 
-fn check_evidence(
+pub(crate) fn check_evidence(
     evidence: &Evidence,
     path: &str,
     links: Links<'_>,

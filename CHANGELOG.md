@@ -5,6 +5,12 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Defined the format for private claims in draft posts and evidence links that record whether a
+  source supports, contradicts or contextualizes each claim, with rationale, uncertainty, review
+  state and provenance. A citation alone never asserts support, contradicting evidence cannot be
+  hidden while support is published, and nothing judges evidence or scores it. Nothing reads or
+  writes these files yet, so no site output changes.
+
 ## [0.29.0] - 2026-10-26
 
 - Defined the format for a private Knowledge Atlas of people, works, concepts, movements and events,
