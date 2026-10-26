@@ -220,11 +220,6 @@ fn url_to_file(url: &str) -> String {
 /// Render the whole site to files. `themes` supplies every registered theme;
 /// the ones the site uses must resolve, others are emitted when they do.
 pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, String> {
-    // Published claim evidence that cannot be read refuses the whole output
-    // rather than publishing posts without it (ADR 0091).
-    if let Some(error) = &site.claim_evidence_error {
-        return Err(error.clone());
-    }
     validate_output_paths(site)?;
     let resolved = resolve_themes(site, themes)?;
 

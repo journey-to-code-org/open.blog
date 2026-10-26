@@ -446,10 +446,11 @@ pub struct Site {
     /// output at all.
     pub atlas: Option<crate::atlas_publication::PublicAtlas>,
     /// Why this site's claim evidence cannot be published (ADR 0091): the
-    /// claims file, library or notebook cannot be read or validated. Every
-    /// full generation refuses while it is set, as a damaged published atlas
-    /// refuses the build; a load that only reads or validates content (an
-    /// Admin save, a preview) is not stopped by it.
+    /// claims file, or the library or notebook it is checked against, cannot
+    /// be read or validated. A full build or `check` refuses while it is set,
+    /// where a damaged published atlas refuses it; `generate` itself does not,
+    /// so a load or render that only validates content (an Admin save, a
+    /// preview) is not stopped by it.
     pub claim_evidence_error: Option<String>,
     /// The time the site was loaded for (`LoadOptions::now`). A post dated after it is scheduled,
     /// even when a preview or the admin editor loaded it, so it is never a series part.

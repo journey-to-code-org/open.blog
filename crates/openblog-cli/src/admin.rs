@@ -13220,6 +13220,44 @@ mod tests {
     }
 
     #[test]
+    fn a_post_saves_while_the_site_publishes_claim_evidence_and_its_claims_file_is_damaged() {
+        let f = fixture("claims-damaged-save");
+        let session = login_ok(&f);
+        let config_path = f.dir.join(site::CONFIG_FILE);
+        let mut config: Json = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+        config["claimEvidence"] = json!({"publish": true});
+        fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+        let claims = f.dir.join(crate::claims_store::CLAIMS_FILE);
+        fs::create_dir_all(claims.parent().unwrap()).unwrap();
+        fs::write(&claims, "{ not json").unwrap();
+
+        let create = json!({ "kind": "posts",
+            "fields": { "title": "Still Saved", "date": "2020-01-01T00:00:00Z" },
+            "body": "Saving is not stopped by the claims file." });
+        let resp = handle(
+            &f.state,
+            &authed(
+                json_req("POST", "/admin/api/document", create),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(resp.status, 201, "{}", String::from_utf8_lossy(&resp.body));
+        let created = body_json(&resp);
+        assert!(f
+            .dir
+            .join("content")
+            .join(created["path"].as_str().unwrap())
+            .exists());
+        // The build that follows still refuses, naming the claims file, and
+        // writes nothing, as a damaged published atlas does.
+        let error = f.state.rebuild().err().unwrap();
+        assert!(error.contains(crate::claims_store::CLAIMS_FILE), "{error}");
+        assert!(!f.dir.join("dist/posts/still-saved/index.html").exists());
+        assert_eq!(fs::read(&claims).unwrap(), b"{ not json", "never replaced");
+    }
+
+    #[test]
     fn claims_api_is_authenticated_csrf_protected_revision_and_anchor_checked() {
         let f = fixture_with_sources("claims-api");
         for (method, path) in [

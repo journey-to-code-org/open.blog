@@ -329,7 +329,7 @@ fn without_a_claims_file_the_build_warns_and_still_publishes_revision_notes() {
 }
 
 #[test]
-fn an_unreadable_claims_file_refuses_every_generation_but_not_a_load() {
+fn an_unreadable_claims_file_is_reported_for_the_build_but_stops_no_load_or_render() {
     let site = load(
         true,
         vec![post("posts/cave.md", CAVE)],
@@ -339,8 +339,12 @@ fn an_unreadable_claims_file_refuses_every_generation_but_not_a_load() {
         LoadOptions::default(),
     )
     .expect("a load that only reads content is not stopped");
-    let error = generate(&site, &ThemeSet::new()).unwrap_err();
+    let error = site.claim_evidence_error.as_deref().unwrap();
     assert!(error.contains("claims.json"), "{error}");
+    // The full build refuses on it (`site::generate_site`); a validation
+    // render such as an Admin save's is not stopped, and publishes no claim.
+    let files = generate(&site, &ThemeSet::new()).expect("a validation render is not stopped");
+    assert!(!files.iter().any(|file| file.contents.contains("PUBLIC")));
 }
 
 #[test]

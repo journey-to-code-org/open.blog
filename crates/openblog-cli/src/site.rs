@@ -604,6 +604,12 @@ pub fn generate_site(
     // into static/, a copied notebook): refuse before anything is generated.
     crate::private_guard::refuse_private_research_in_public_inputs(root, &site.config)?;
     site.atlas = published_atlas(root, &site.config, &mut site.warnings)?;
+    // Published claim evidence that cannot be read refuses the whole output
+    // rather than publishing posts without it, as a damaged atlas does
+    // (ADR 0091). Only here: an Admin save's validation render is not stopped.
+    if let Some(error) = &site.claim_evidence_error {
+        return Err(error.clone());
+    }
     // Required destinations (including full-content feeds) must succeed before
     // generated output or stale files are changed.
     let files = generate(site, themes)?;
