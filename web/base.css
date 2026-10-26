@@ -2013,7 +2013,7 @@ ob-back-to-top button:hover {
   .ob-reflection-roundtable .ob-round-prompt { grid-column: 1 / -1; margin: 0; }
 }
 
-/* Published media moments (ADR 0076): static, no script; long titles and addresses wrap. */
+/* Published media moments (ADR 0066): static, no script; long titles and addresses wrap. */
 .ob-moments .ob-moment { overflow-wrap: anywhere; }
 .ob-moments .ob-moment h3 { margin-bottom: 0.25rem; }
 .ob-moment-by { margin-top: 0; font-size: 0.9rem; font-style: italic; }

@@ -1,4 +1,4 @@
-# ADR 0076: Approved moments publish in the Post through one public projection
+# ADR 0066: Approved moments publish in the Post through one public projection
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -7,13 +7,13 @@
 - Parent epic: [#143](https://github.com/journey-to-code-org/open.blog/issues/143)
 - Builds on: [ADR 0023](0023-shared-reflections-publish-through-the-ordinary-post-pipeline.md),
   [ADR 0026](0026-publishing-approved-synthesis-in-the-post.md),
-  [ADR 0072](0072-media-moments-locate-attributed-quotations-and-observations.md),
-  [ADR 0073](0073-media-moments-stay-private-until-revealed-and-bind-into-approval.md),
-  [ADR 0075](0075-precise-quotation-attribution-and-rights-guidance.md)
+  [ADR 0062](0062-media-moments-locate-attributed-quotations-and-observations.md),
+  [ADR 0063](0063-media-moments-stay-private-until-revealed-and-bind-into-approval.md),
+  [ADR 0065](0065-precise-quotation-attribution-and-rights-guidance.md)
 
 ## Context
 
-Moments proposed for a piece bind into its approval (ADR 0073), and the gate refuses one that no
+Moments proposed for a piece bind into its approval (ADR 0063), and the gate refuses one that no
 longer fits its source, but the published Post carried none of them. ADR 0023 settles that a shared
 reflection has no projection of its own: every output derives from the Post the gate writes. A moment
 also holds things that must never be public: the quotation's rights status, rights note and
@@ -25,13 +25,13 @@ refuse to play, so what is published must not depend on any player.
 - **One public projection.** `published_moment::PublicMoment` is built field by field from a moment
   and the record: the location (the source's title and kind and the location in words, such as "The
   Art of Noticing (Video), at 1:02"), who noted it (the owner's display name, because the observation
-  is their words), the quotation's text and language with the one attribution line of ADR 0075 (which
+  is their words), the quotation's text and language with the one attribution line of ADR 0065 (which
   names the speaker), the observation, and the moment link. It has no field for rights, rights note,
   provenance, ids, intent or seals, so no renderer can publish them; nothing serializes a `Moment` or
-  a `Quotation`. The rights note stays unpublished, as ADR 0075 chose; no licence is shown publicly.
+  a `Quotation`. The rights note stays unpublished, as ADR 0065 chose; no licence is shown publicly.
 - **Which moments.** Every moment proposed for the piece, in the set's order, which is the order the
   approval binding covers. The gate has already required every author's approval of exactly those
-  moments, including each owner's, and refused unresolved ones (ADR 0073), so private, edited-since
+  moments, including each owner's, and refused unresolved ones (ADR 0063), so private, edited-since
   and newly proposed moments have no path in. A moment whose owner or source cannot be credited makes
   the piece `Invalid` rather than silently dropping something approved.
 - **Where.** `assemble` appends the moments last, after a section break, under the `##`-level heading
@@ -55,7 +55,7 @@ refuse to play, so what is published must not depend on any player.
   softens the caption and prints link addresses.
 - **Untrusted values fail safely.** Titles, names, quotations and attributions are escaped text in the
   frame (the characters that open Markdown links, emphasis and code as character references too). An
-  observation is the owner's Markdown, already held to ADR 0072's rules; at the gate it must also parse
+  observation is the owner's Markdown, already held to ADR 0062's rules; at the gate it must also parse
   the same alone as in the Post (no reference definition another part would use, no fence left open)
   and its links must be ones the build publishes, or the piece is refused as `UnsafeMoment` with the
   approved text unaltered. The gate also reads the written block back and refuses if it does not read

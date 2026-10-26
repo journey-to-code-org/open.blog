@@ -1,4 +1,4 @@
-# ADR 0075: Precise quotation attribution and rights guidance that never judges
+# ADR 0065: Precise quotation attribution and rights guidance that never judges
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -6,14 +6,14 @@
 - Parent story: [#149](https://github.com/journey-to-code-org/open.blog/issues/149)
 - Parent epic: [#143](https://github.com/journey-to-code-org/open.blog/issues/143)
 - Builds on: [ADR 0008](0008-public-source-attribution.md),
-  [ADR 0072](0072-media-moments-locate-attributed-quotations-and-observations.md),
-  [ADR 0073](0073-media-moments-stay-private-until-revealed-and-bind-into-approval.md),
-  [ADR 0074](0074-capturing-media-moments-in-admin-studio.md)
+  [ADR 0062](0062-media-moments-locate-attributed-quotations-and-observations.md),
+  [ADR 0063](0063-media-moments-stay-private-until-revealed-and-bind-into-approval.md),
+  [ADR 0064](0064-capturing-media-moments-in-admin-studio.md)
 
 ## Context
 
 A moment quotation already keeps its speaker, its rights status and its provenance apart (ADR
-0072), but each view credited it in its own way: the panel said "Said by …", the preview put the
+0062), but each view credited it in its own way: the panel said "Said by …", the preview put the
 speaker in a footer, and neither named the source and the time together. The rights status was a
 bare label. Contributors need every quotation credited the same, precise way, and help with the
 status they choose, without open.blog ever implying that a use is permitted or that a quotation
@@ -48,7 +48,7 @@ is accurate. Copyright determination and plagiarism detection are out of scope.
   counts. 300 is a guide to quoting only what a point needs, not a legal line. No warning judges
   whether the words are accurate or true. A warned quotation saves, can be proposed for the piece
   and can be approved and published; only `unknown` rights still keep a quotation out of the piece
-  (ADR 0072).
+  (ADR 0062).
 - **A rights note.** A quotation may carry `rightsNote`: one line of plain text, at most 500 bytes,
   without surrounding spaces, control, line-break or direction-override characters. The
   participant uses it to record such things as who gave permission and when, or the licence's

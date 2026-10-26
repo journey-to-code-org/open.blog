@@ -1,4 +1,4 @@
-# ADR 0074: Capturing media moments in Admin Studio
+# ADR 0064: Capturing media moments in Admin Studio
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -8,12 +8,12 @@
 - Builds on: [ADR 0017](0017-own-draft-routes-and-private-draft-storage.md),
   [ADR 0021](0021-combined-review-preview.md),
   [ADR 0025](0025-storing-authorizing-and-approving-shared-synthesis.md),
-  [ADR 0072](0072-media-moments-locate-attributed-quotations-and-observations.md),
-  [ADR 0073](0073-media-moments-stay-private-until-revealed-and-bind-into-approval.md)
+  [ADR 0062](0062-media-moments-locate-attributed-quotations-and-observations.md),
+  [ADR 0063](0063-media-moments-stay-private-until-revealed-and-bind-into-approval.md)
 
 ## Context
 
-ADR 0072 and 0073 define media moments and the rules that keep them private and bound into
+ADR 0062 and 0063 define media moments and the rules that keep them private and bound into
 approval, but nothing stored them, routed them, sealed them or showed them. Contributors need to
 capture, edit, order and follow moments from their own contribution in Admin Studio, with a
 working link even when an embed is missing, and without exposing anyone's words early.
@@ -48,7 +48,7 @@ working link even when an embed is missing, and without exposing anyone's words 
   with a revision), the route seals their proposed moments to that revision after the offer is
   stored. The offer is the writer's act of sharing under both the voluntary and the all-ready
   rule, so it fixes what goes with the revision even when the reveal completes later. The seal is
-  written once per revision, as ADR 0073 says: an offer of a revision that was already sealed
+  written once per revision, as ADR 0063 says: an offer of a revision that was already sealed
   shares no later moment edit, and the response says so (`momentsShared: false`). Sealing after the
   offer fails closed: if it cannot be written, the moments stay private, and the response says that
   instead (`momentsShared: null` with a `momentsNote` asking the writer to offer the revision
@@ -86,6 +86,6 @@ working link even when an embed is missing, and without exposing anyone's words 
 - Moments work without any hosted service; they are private files like the drafts.
 - A writer with no proposed moments still gets a seal at each offer. That records that nothing
   went with the revision, so moments added later wait for a newer revision.
-- Editing a moment's source is not offered: a moment keeps its source for life (ADR 0072). The
+- Editing a moment's source is not offered: a moment keeps its source for life (ADR 0062). The
   panel edits one location and keeps any further locators the moment already has.
 - Rights guidance is #176 and rendering approved moments is #177.

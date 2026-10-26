@@ -151,7 +151,7 @@ pub enum AuthorizationAction {
     /// participant. Only Contributors hold it, and only for themselves, because a named author
     /// must be able to approve the piece, which Editors cannot.
     EditSynthesis,
-    /// Capture, edit and remove the requester's own media moments (ADR 0072 to 0074), and read
+    /// Capture, edit and remove the requester's own media moments (ADR 0062 to 0064), and read
     /// the moments other authors revealed with a draft. Targets the requester's own participant.
     /// Only Contributors hold it, and only for themselves: a moment proposed for the piece makes
     /// its owner a required approver, which an Editor cannot be.

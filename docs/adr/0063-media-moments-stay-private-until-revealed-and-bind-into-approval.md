@@ -1,4 +1,4 @@
-# ADR 0073: Media moments stay private until revealed with a draft, and bind into approval
+# ADR 0063: Media moments stay private until revealed with a draft, and bind into approval
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -9,7 +9,7 @@
   [ADR 0020](0020-approval-snapshots-bound-to-exact-content.md),
   [ADR 0021](0021-combined-review-preview.md),
   [ADR 0024](0024-shared-synthesis-items-without-a-consensus-requirement.md),
-  [ADR 0072](0072-media-moments-locate-attributed-quotations-and-observations.md)
+  [ADR 0062](0062-media-moments-locate-attributed-quotations-and-observations.md)
 
 ## Context
 

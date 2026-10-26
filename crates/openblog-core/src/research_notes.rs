@@ -172,7 +172,7 @@ impl Serialize for LocatorKind {
 }
 
 /// Reads the same kinds [`LocatorKind::parse`] accepts, so stored forms that embed a locator
-/// (media moments, ADR 0072) refuse an unknown kind exactly as the notebook does.
+/// (media moments, ADR 0062) refuse an unknown kind exactly as the notebook does.
 impl<'de> Deserialize<'de> for LocatorKind {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let text = String::deserialize(deserializer)?;

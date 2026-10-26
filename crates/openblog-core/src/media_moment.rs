@@ -1,5 +1,5 @@
 //! Media moments: attributed observations and quotations pinned to a place in a shared
-//! reflection's source (ADR 0072, 0073).
+//! reflection's source (ADR 0062, 0063).
 //!
 //! A moment points at one of the shared publication's own source references by id (never a copy
 //! of the source, never a second identity) and at a position in it through the notebook's
@@ -13,14 +13,14 @@
 //! The set is private collaboration state. Nothing here renders, publishes or fetches anything,
 //! and no transcript is stored: a quotation is short by limit. A moment is private to its owner
 //! unless it is marked for the publication, and even then another author sees it only when it is
-//! sealed to the owner's draft revision that author may read (ADR 0073). Moments marked for the
+//! sealed to the owner's draft revision that author may read (ADR 0063). Moments marked for the
 //! publication join the approval binding through [`MomentSet::binding_frame`], which carries
 //! digests only. Every change names the set revision the caller read, so a concurrent change is
 //! [`MomentError::Stale`] and a failed call changes nothing; every refusal about a moment the
 //! requester may not touch is the same [`MomentError::Denied`].
 //!
 //! Every place a moment shows credits it the same way through [`Moment::attribution`]: the
-//! speaker, the source and the location (ADR 0075). Rights guidance ([`QuotationRights::guidance`],
+//! speaker, the source and the location (ADR 0065). Rights guidance ([`QuotationRights::guidance`],
 //! [`Quotation::notices`]) explains the participant's own statement and warns about a long or
 //! unattributed quotation; it never judges whether a use is permitted and never blocks anything.
 
@@ -53,7 +53,7 @@ pub const MAX_SPEAKER_BYTES: usize = 200;
 /// Upper bound on the participant's rights note, one line of plain text.
 pub const MAX_RIGHTS_NOTE_BYTES: usize = 500;
 /// Above this many characters a quotation counts as long in the rights guidance. It is a guide to
-/// quoting only what a point needs, never a legal limit, and it blocks nothing (ADR 0075).
+/// quoting only what a point needs, never a legal limit, and it blocks nothing (ADR 0065).
 pub const BRIEF_QUOTATION_CHARS: usize = 300;
 /// Shown with every rights status: the status is the participant's word, never open.blog's.
 pub const RIGHTS_STATEMENT: &str = "The rights status is the participant's own statement about these words. open.blog records it and shows it to co-authors; it does not check rights or decide how the words may be used.";
@@ -101,7 +101,7 @@ pub enum MomentRule {
     /// A quotation whose rights have not been considered cannot be marked for the publication.
     RightsUnknown,
     /// The observation uses raw HTML, an image, a heading, a footnote, a paragraph that is only a
-    /// link the renderer would embed (a video, say: no player is ever written, ADR 0076), or a
+    /// link the renderer would embed (a video, say: no player is ever written, ADR 0066), or a
     /// link that is not an absolute HTTP(S) address.
     Markup,
 }
@@ -189,7 +189,7 @@ impl QuotationRights {
     }
 
     /// Neutral guidance for the status: what the participant is stating and what helps their
-    /// co-authors review it. Never a statement that a use is permitted (ADR 0075).
+    /// co-authors review it. Never a statement that a use is permitted (ADR 0065).
     pub fn guidance(self) -> &'static str {
         match self {
             Self::Unknown => "Nobody has considered yet how these words may be reused. The moment can stay private, but it cannot be proposed for the piece until another status is chosen.",
@@ -506,7 +506,7 @@ impl Moment {
         self.intent
     }
 
-    /// How the moment is credited wherever it shows (ADR 0075). The source's title and kind come
+    /// How the moment is credited wherever it shows (ADR 0065). The source's title and kind come
     /// from `sources` as they are now, so correcting a source corrects every attribution.
     pub fn attribution<'a>(&'a self, sources: &'a [SourceReference]) -> MomentAttribution<'a> {
         MomentAttribution {
@@ -804,7 +804,7 @@ fn check_observation(markdown: &str) -> Result<(), MomentError> {
             }
         }
     }
-    // A paragraph that is only a video link would render as a player (ADR 0076: never).
+    // A paragraph that is only a video link would render as a player (ADR 0066: never).
     if crate::markdown::has_standalone_embed(markdown) {
         return Err(MomentError::Rule(MomentRule::Markup));
     }

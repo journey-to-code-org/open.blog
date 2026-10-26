@@ -1,5 +1,5 @@
 //! Published media moments: the public projection of the moments a shared reflection's authors
-//! approved for the piece, and the one renderer every view of them uses (ADR 0076, 0077).
+//! approved for the piece, and the one renderer every view of them uses (ADR 0066, 0067).
 //!
 //! [`PublicMoment`] is built field by field from a [`Moment`] proposed for the piece and the
 //! record: where it is in its source, who noted it (a display name), the quotation's words, language
@@ -66,7 +66,7 @@ pub struct PublicMoment {
     /// The display name of the author who noted the moment and wrote its observation.
     pub noted_by: String,
     pub quotation: Option<PublicQuotation>,
-    /// The author's own Markdown, already held to the observation rules (ADR 0072).
+    /// The author's own Markdown, already held to the observation rules (ADR 0062).
     pub observation: Option<String>,
     /// `None` when the source has no safe address: the location stays text.
     pub link: Option<PublicMomentLink>,
@@ -245,7 +245,7 @@ pub fn block_markdown(moments: &[PublicMoment]) -> String {
 }
 
 /// One moment's frame for the combined preview, rendered there through the production renderer
-/// exactly as the page renders the block (ADR 0077).
+/// exactly as the page renders the block (ADR 0067).
 pub fn moment_markdown(moment: &PublicMoment, ordinal: usize) -> String {
     moment.frame_markdown(ordinal)
 }

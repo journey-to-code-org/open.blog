@@ -1,4 +1,4 @@
-# ADR 0072: Media moments locate attributed quotations and observations in a shared source
+# ADR 0062: Media moments locate attributed quotations and observations in a shared source
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -57,7 +57,7 @@ out of scope.
   or `ownWords`. Provenance says where the text came from: `transcribed`, `copied` (from published
   text, captions or a published transcript) or `supplied` (by the speaker or rights holder).
   Neither is ever a legal determination. A quotation whose rights are `unknown` may stay in a
-  private moment, but it cannot be proposed for the piece (ADR 0073).
+  private moment, but it cannot be proposed for the piece (ADR 0063).
 - **Untrusted input fails safely.**
   - Quotations and observations refuse control characters (except newline and tab), line and
     paragraph separators, and bidirectional override and isolate controls.

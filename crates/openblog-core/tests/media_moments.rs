@@ -1,4 +1,4 @@
-//! Media moments (ADR 0072, 0073): located, attributed quotations and observations in a shared
+//! Media moments (ADR 0062, 0063): located, attributed quotations and observations in a shared
 //! reflection's sources, private until revealed with a draft, bound into approval when proposed
 //! for the piece, and refused safely when the input is hostile or stale.
 
@@ -491,7 +491,7 @@ fn untrusted_markdown_metadata_urls_and_identities_fail_safely_without_echoing_t
         ("[run](javascript:alert(1))", Err(markup)),
         ("[here](/relative)", Err(markup)),
         ("note[^1]\n\n[^1]: reaches out", Err(markup)),
-        // A paragraph that is only a video link would render as a player (ADR 0076: never).
+        // A paragraph that is only a video link would render as a player (ADR 0066: never).
         ("https://www.youtube.com/watch?v=abcdefghijk", Err(markup)),
         ("<https://www.youtube.com/watch?v=abcdefghijk>", Err(markup)),
         (
@@ -1278,7 +1278,7 @@ fn the_gate_refuses_a_publication_moment_that_no_longer_fits_its_source_once_app
 
 #[test]
 fn a_location_reads_as_plain_words_in_order() {
-    // Timestamps read the way people say them, however they were written (ADR 0076).
+    // Timestamps read the way people say them, however they were written (ADR 0066).
     assert_eq!(location_text(&[at("62")]), "at 1:02");
     assert_eq!(location_text(&[at("0:01:02")]), "at 1:02");
     assert_eq!(location_text(&[at("3725.50")]), "at 1:02:05.5");
@@ -1298,7 +1298,7 @@ fn a_location_reads_as_plain_words_in_order() {
     );
 }
 
-// ---- attribution and rights guidance (ADR 0075)
+// ---- attribution and rights guidance (ADR 0065)
 
 fn quoted(text: &str, speaker: Option<&str>, rights: QuotationRights) -> MomentInput {
     MomentInput {

@@ -1,4 +1,4 @@
-# ADR 0077: One moment frame for the preview, the page and every portable form
+# ADR 0067: One moment frame for the preview, the page and every portable form
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -8,11 +8,11 @@
 - Builds on: [ADR 0004](0004-portable-projections-from-canonical-work.md),
   [ADR 0028](0028-the-conversation-in-portable-output.md),
   [ADR 0033](0033-portable-equivalents-of-every-reflection-layout.md),
-  [ADR 0076](0076-approved-moments-publish-through-one-public-projection.md)
+  [ADR 0066](0066-approved-moments-publish-through-one-public-projection.md)
 
 ## Context
 
-ADR 0076 puts approved moments in the Post. A quotation needs its language and an attribution that
+ADR 0066 puts approved moments in the Post. A quotation needs its language and an attribution that
 is not part of the quoted words, which plain Markdown cannot express, so the Post carries a small HTML
 frame, as an arranged reflection does (ADR 0033). Portable Markdown shows raw HTML as literal source,
 the preview must show exactly what will be published, and the portable semantic check must refuse a

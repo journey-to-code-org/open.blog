@@ -66,13 +66,13 @@ pub enum AssemblyError {
     /// [`Self::UnsafeMarkup`] so the refusal names the item rather than a section.
     UnsafeConversationItem(ItemRule, ItemRef),
     /// A media moment proposed for the piece no longer resolves against the record: its source
-    /// is gone, or its locators no longer fit the source's kind (ADR 0072). Reported only once
+    /// is gone, or its locators no longer fit the source's kind (ADR 0062). Reported only once
     /// the approvals are met, like [`Self::ArrangementMismatch`], and it names no moment, so it
     /// tells nothing to someone who may not read the moments. Its owner edits or withdraws it.
     UnresolvedMoment,
     /// An approved moment's observation would change how another part of the piece renders (a
     /// reference definition or an open fence that reaches past it), or the moments could not be
-    /// written so that every public form reads them back exactly (ADR 0076). Reported only once
+    /// written so that every public form reads them back exactly (ADR 0066). Reported only once
     /// the approvals are met and it names no moment; its owner edits the observation.
     UnsafeMoment,
 }
@@ -129,11 +129,11 @@ pub fn post_path(record: &SharedPublication) -> String {
 /// reflection `structure`'s prose-free binding frame when there is one (layout, turn order, round
 /// prompts and labels; ADR 0030), then the synthesis's prose-free binding frame (items, order,
 /// attribution), then the `moments`' prose-free binding frame (one digest per moment proposed for
-/// the piece, covering the source it shows; ADR 0073). A change to any of them makes standing
+/// the piece, covering the source it shows; ADR 0063). A change to any of them makes standing
 /// approvals stale exactly as a change of prose does; with no structure, and with no moment
 /// proposed for the piece, nothing is appended for them, so approvals given before either existed
 /// stay valid. The synthesis's attributed authors, and every participant with a moment proposed
-/// for the piece, must each approve the piece whatever the policy (ADR 0024, 0025, 0073). Callers
+/// for the piece, must each approve the piece whatever the policy (ADR 0024, 0025, 0063). Callers
 /// that have not loaded moments pass an empty [`MomentSet`].
 pub fn with_subject<R>(
     record: &SharedPublication,
@@ -338,10 +338,10 @@ pub fn conversation_markdown(record: &SharedPublication, synthesis: &SynthesisSe
 /// (ADR 0031), and credits are one per participant at their first appearance (ADR 0030); without
 /// one the sections are the participants' drafts in participant order. Part marker lines never
 /// reach the Post either way. The approved conversation block follows the sections. `moments`
-/// bind into the approvals the gate evaluates (ADR 0073), and a moment proposed for the piece that
+/// bind into the approvals the gate evaluates (ADR 0063), and a moment proposed for the piece that
 /// no longer fits its source refuses it. Once the gate passes, every moment proposed for the
 /// piece has been approved by every required author, and the moments are appended last, after a
-/// section break, as their public projection ([`published_moment::block_markdown`], ADR 0076), so
+/// section break, as their public projection ([`published_moment::block_markdown`], ADR 0066), so
 /// the authors' prose and its reading order are untouched. Private moments never enter.
 #[allow(clippy::too_many_arguments)]
 pub fn assemble(
@@ -619,7 +619,7 @@ fn isolated_parts(
 /// Whether each approved observation stays inside its moment: it parses the same in the Post as
 /// alone, with the sections and the conversation before it and the frame lines (stood for by
 /// sentinels) around it, and its links are ones the site build publishes. Observations already
-/// refuse raw HTML, headings, images and footnotes (ADR 0072); this catches what only shows in
+/// refuse raw HTML, headings, images and footnotes (ADR 0062); this catches what only shows in
 /// context, such as a reference definition another part would use or a fence left open.
 fn observations_isolated(
     sections: &[String],
@@ -655,7 +655,7 @@ fn observations_isolated(
             }
         }
     }
-    // A paragraph that is only a video link would render as a player in the Post (ADR 0076:
+    // A paragraph that is only a video link would render as a player in the Post (ADR 0066:
     // no embed is ever written), so the page would not match the preview.
     !observations
         .iter()

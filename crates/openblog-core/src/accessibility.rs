@@ -201,7 +201,7 @@ pub fn audit_document(input: DocumentAuditInput<'_>) -> Vec<AccessibilityFinding
     let mut previous_heading = 1;
     let mut saw_table = false;
     // The approved moments a shared reflection ends with are framed by the same kind of closed
-    // grammar (ADR 0076), and observations cannot contain HTML (ADR 0072), so every HTML line from
+    // grammar (ADR 0066), and observations cannot contain HTML (ADR 0062), so every HTML line from
     // the block's start on is openblog's frame. What comes before it is judged on its own.
     let moments = crate::published_moment::MomentsBlock::parse(input.markdown);
     let (before_moments, moments_start) = match &moments {

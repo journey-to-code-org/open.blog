@@ -7561,7 +7561,7 @@ fn change_synthesis(state: &AppState, req: &Request, session: &auth::Session) ->
 }
 
 // ---------------------------------------------------------------------------
-// Media moments: located observations and quotations in a shared source (ADR 0072 to 0074)
+// Media moments: located observations and quotations in a shared source (ADR 0062 to 0064)
 // ---------------------------------------------------------------------------
 
 /// Every refusal reads the same, so a request cannot confirm that a reflection, a moment or an
@@ -7608,7 +7608,7 @@ fn moment_json(moment: &Moment, record: &SharedPublication) -> Json {
         "source": moment.source(),
         "locators": moment.locators(),
         "location": location_text(moment.locators()),
-        // The one attribution line every view uses (ADR 0075), built from the record as it is now.
+        // The one attribution line every view uses (ADR 0065), built from the record as it is now.
         "attribution": moment.attribution(&record.sources).text(),
         "quotation": moment.quotation(),
         "notices": notices,
@@ -7677,7 +7677,7 @@ fn moments_json(
 }
 
 /// The rights guidance and quotation thresholds, from the core definitions, so the panel's live
-/// guidance and warnings say exactly what the preview says (ADR 0075). Holds no author text.
+/// guidance and warnings say exactly what the preview says (ADR 0065). Holds no author text.
 fn quotation_guide() -> Json {
     use openblog_core::media_moment::{
         QuotationNotice, QuotationRights, BRIEF_QUOTATION_CHARS, MAX_QUOTATION_CHARS,
@@ -7949,8 +7949,8 @@ enum OfferedMoments {
 /// moment and holds no author text.
 const MOMENTS_NOT_SHARED: &str = "Your moments could not be shared with this revision, so they stay private. Take back your offer if it still stands, then offer this revision again to share them.";
 
-/// Seal the requester's proposed moments to the draft revision they just offered (ADR 0073,
-/// 0074), after the offer was stored. `None` when the requester holds no moments. A failure is
+/// Seal the requester's proposed moments to the draft revision they just offered (ADR 0063,
+/// 0064), after the offer was stored. `None` when the requester holds no moments. A failure is
 /// logged without content and leaves the moments unsealed, so it fails closed: they stay private.
 fn seal_offered_moments(
     state: &AppState,
@@ -8021,7 +8021,7 @@ fn reconcile_approvals(
                 .map_err(|_| "synthesis not stored".to_string())?;
             synthesis.set = reconciled;
         }
-        // Moments follow the author set in the same way (ADR 0073): someone who can no longer
+        // Moments follow the author set in the same way (ADR 0063): someone who can no longer
         // hold moments loses them and their seals, and restoring them brings neither back.
         let mut moments = crate::shared_publications::load_moments(&state.root, id)?;
         let holders = moment_authors(transaction, record);
@@ -23283,7 +23283,7 @@ series: letters
         assert_eq!(state_trees(&f), before);
     }
 
-    // ---- media moments (ADR 0072 to 0074)
+    // ---- media moments (ADR 0062 to 0064)
 
     fn moments_read(f: &Fixture, who: &Session, id: &str) -> Response {
         handle(
@@ -23675,7 +23675,7 @@ series: letters
         }
         assert_eq!(publish_as(&f, &ada, &id).status, 200);
         // The approved moment publishes with the piece, credited and linked, and nothing private
-        // about it does: no rights status or provenance, no moment or participant id (ADR 0076).
+        // about it does: no rights status or provenance, no moment or participant id (ADR 0066).
         let post = published_post(&f, &id).unwrap();
         assert!(post.contains("Moments in the sources"));
         assert!(post.contains("<blockquote><p>MOMENT-QUOTE</p></blockquote>"));

@@ -12,7 +12,7 @@ import { randomBytes } from "node:crypto";
 // stand-in that checks the expected revision and the time format the way the server does. This
 // exercises the media moments panel in a browser: keyboard use at phone width, malformed times,
 // several media, a source with no link, a save that lost a race, and the quotation attribution,
-// rights guidance and warnings (ADR 0075).
+// rights guidance and warnings (ADR 0065).
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const binary = join(repository, "target", "debug", process.platform === "win32" ? "openblog.exe" : "openblog");

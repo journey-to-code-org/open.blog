@@ -531,7 +531,7 @@ pub fn replace_synthesis(
     )
 }
 
-/// Private media moment sets (ADR 0073, 0074), one file per publication, beside the drafts. They
+/// Private media moment sets (ADR 0063, 0064), one file per publication, beside the drafts. They
 /// hold quotations and observations, so the directory stays out of Git, generated output, feeds
 /// and exports like the drafts and the synthesis.
 pub const MOMENTS_DIRECTORY: &str = ".openblog/private/collaboration/moments";

@@ -245,7 +245,7 @@ const CONVERSATION_CATEGORIES: [&str; 5] = [
 
 /// Whether an anchor is exactly one a generated block produces: the conversation's
 /// `continuing-the-conversation`, `conversation-<category>` or `conversation-<category>-<n>`, or
-/// the published moments' `moments-in-the-sources` or `moments-in-the-sources-<n>` (ADR 0076).
+/// the published moments' `moments-in-the-sources` or `moments-in-the-sources-<n>` (ADR 0066).
 /// Nothing else is reserved, so a heading such as "Conversation starters" is fine.
 pub fn is_reserved_anchor(id: &str) -> bool {
     let id = id.trim().to_ascii_lowercase();

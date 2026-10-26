@@ -1337,7 +1337,7 @@ impl<'a> PortableProjection<'a> {
             }
         }
         // Every published moment keeps where it is, who noted it, the quoted words with their
-        // attribution, and its link with a label that names the source (ADR 0076).
+        // attribution, and its link with a label that names the source (ADR 0066).
         let moments = self.moments();
         if let Some(block) = &moments {
             for moment in &block.moments {
@@ -1730,7 +1730,7 @@ impl<'a> PortableProjection<'a> {
     /// each turn under its author's name and label. `None` for any other post. It carries the same
     /// words, names, labels and order as the portable text, without the page's own metadata, for
     /// callers (llms-full.txt) that print their own header.
-    /// Published moments (ADR 0076) follow in the same words as the portable text.
+    /// Published moments (ADR 0066) follow in the same words as the portable text.
     pub fn reflection_text(&self) -> Result<Option<String>, String> {
         if self.arrangement().is_none() && self.moments().is_none() {
             return Ok(None);
@@ -1753,7 +1753,7 @@ impl<'a> PortableProjection<'a> {
     }
 
     /// The approved media moments a shared reflection's body ends with, read back exactly as the
-    /// gate wrote them (ADR 0076). `None` for any other post or body.
+    /// gate wrote them (ADR 0066). `None` for any other post or body.
     fn moments(&self) -> Option<crate::published_moment::MomentsBlock> {
         self.shared?;
         crate::published_moment::MomentsBlock::parse(self.markdown)
@@ -1761,7 +1761,7 @@ impl<'a> PortableProjection<'a> {
 
     /// The Markdown every portable form is derived from: a shared reflection's arrangement stated
     /// as labeled sequential sections (ADR 0033) and its published moments stated without HTML
-    /// (ADR 0076); any other body is the authored Markdown itself.
+    /// (ADR 0066); any other body is the authored Markdown itself.
     fn portable_source(&self) -> String {
         let moments = self.moments();
         let body = match &moments {

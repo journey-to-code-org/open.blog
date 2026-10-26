@@ -184,7 +184,7 @@ fn approval_label(state: ApprovalState) -> &'static str {
 /// With a `structure` the piece is arranged in its reading order and layout, as the published Post
 /// is (ADR 0030, 0031); without one the sections follow participant order.
 /// `moments` are the publication's media moments: those proposed for the piece join the approval
-/// binding and make their owners required approvers, exactly as at the publish gate (ADR 0073).
+/// binding and make their owners required approvers, exactly as at the publish gate (ADR 0063).
 /// `show_synthesis` is true only when the requester holds `EditSynthesis`; otherwise the items and
 /// the conversation section are left out (readiness still counts them).
 /// `options` are the site's production Markdown options. Pure: it never writes drafts or
@@ -240,8 +240,8 @@ pub fn build(
         |subject| {
             let mut sections = Vec::new();
             let mut rendered = Vec::new();
-            // Moments proposed for the piece are part of their owner's contribution (ADR 0073,
-            // 0074): another author sees them only sealed to the owner's latest revision that
+            // Moments proposed for the piece are part of their owner's contribution (ADR 0063,
+            // 0064): another author sees them only sealed to the owner's latest revision that
             // author may read. Until then the owner's whole part is withheld, so nobody can be
             // handed an approval token for moments they have not seen.
             let mut withheld = false;
@@ -343,9 +343,9 @@ pub fn build(
 /// The moments proposed for the piece that the requester may read, in the order the piece
 /// publishes them. Each is rendered from its public projection by the one frame the published Post
 /// carries ([`moment_markdown`]) through the production renderer, so the preview shows exactly the
-/// markup readers get (ADR 0077). Under each quotation follow, for review only, its owner's rights
+/// markup readers get (ADR 0067). Under each quotation follow, for review only, its owner's rights
 /// statement, guidance, rights note, provenance and warnings, which are never part of the published
-/// piece (ADR 0075). Empty when there are none, so a piece without moments previews as before.
+/// piece (ADR 0065). Empty when there are none, so a piece without moments previews as before.
 fn moments_html(
     record: &SharedPublication,
     moments: &MomentSet,

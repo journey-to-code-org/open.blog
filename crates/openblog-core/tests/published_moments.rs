@@ -1,4 +1,4 @@
-//! Approved media moments publish through the ordinary Post pipeline (ADR 0076, 0077): one public
+//! Approved media moments publish through the ordinary Post pipeline (ADR 0066, 0067): one public
 //! projection, one frame rendered by the production renderer for the page and the preview,
 //! resilient links and human-readable times, portable equivalents in every format checked by the
 //! portable semantic facts, and nothing private (rights, rights notes, provenance, participant

@@ -2832,7 +2832,7 @@ function rememberPromptsDismissed(dismissed) {
   }
 }
 
-// ---------------------------------------------------------------- media moments (ADR 0072 to 0074)
+// ---------------------------------------------------------------- media moments (ADR 0062 to 0064)
 
 /** Where in a source a moment can sit. Folios are never offered: a shared source is no manuscript. */
 export const MOMENT_LOCATOR_KINDS = Object.freeze([
@@ -2846,7 +2846,7 @@ export const MOMENT_LOCATOR_KINDS = Object.freeze([
 
 /**
  * The participant's statement about republishing a quotation. There is no default on purpose. The
- * labels are statements the participant makes; nothing here grants or judges a use (ADR 0075).
+ * labels are statements the participant makes; nothing here grants or judges a use (ADR 0065).
  */
 export const QUOTATION_RIGHTS = Object.freeze([
   { value: "unknown", label: "Not checked yet (keeps the moment private)" },
@@ -8649,7 +8649,7 @@ export class ObAdmin extends AdminElement {
 
   /**
    * Media moments: the writer's own located observations and quotations in the reflection's
-   * sources (ADR 0072 to 0074). Private by default; a moment proposed for the piece goes with the
+   * sources (ADR 0062 to 0064). Private by default; a moment proposed for the piece goes with the
    * draft revision the writer offers and every author approves it. Loads only when asked and only
    * for a contributor of this reflection. Links are the server's, derived from the source's own
    * address, so a missing or unsupported embed still leaves a working link or the location as text.

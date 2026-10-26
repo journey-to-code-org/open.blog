@@ -223,7 +223,7 @@ const SOURCES = [
   { id: "source-3", kind: "podcast", kindLabel: "Podcast", title: "A podcast", url: "https://podcasts.example/12" },
 ];
 
-/** The server's quotation guide (ADR 0075), shaped as `quotation_guide` sends it. */
+/** The server's quotation guide (ADR 0065), shaped as `quotation_guide` sends it. */
 const GUIDE = {
   briefQuotationChars: 300,
   maxQuotationChars: 1000,
@@ -1599,7 +1599,7 @@ test("a successful offer reloads the moments panel, keeping what was typed", wit
   assert.equal(momentField(panel, "observation").value, "Half-typed note");
 }));
 
-// ---------------------------------------------------------------- quotation attribution and rights guidance (ADR 0075)
+// ---------------------------------------------------------------- quotation attribution and rights guidance (ADR 0065)
 
 test("quotation warnings count Unicode characters and say nothing without the server's guide", () => {
   const at = "a".repeat(300);
