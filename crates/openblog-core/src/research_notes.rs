@@ -30,6 +30,9 @@ const MAX_SHORT_CHARS: usize = 200;
 const MAX_LOCATORS: usize = 8;
 const MAX_LINKS: usize = 100;
 const CREDIT_FIELDS: &[&str] = &["credit", "credits", "contributor", "contributors"];
+/// Fields of reader feedback provenance (ADR 0086): a reader's name and when
+/// feedback was seen or received never become research.
+const READER_FEEDBACK_FIELDS: &[&str] = &["attribution", "receivedAt", "seenAt"];
 
 const NOTEBOOK_FIELDS: &[&str] = &["version", "passages", "notes"];
 const PASSAGE_FIELDS: &[&str] = &[
@@ -287,6 +290,7 @@ pub enum NoteDiagnosticCode {
     AmbiguousLocator,
     NotPrivate,
     ContributorCredit,
+    ReaderFeedback,
     SourceChanged,
     StillLinked,
     UnknownEntry,
@@ -309,6 +313,7 @@ impl NoteDiagnosticCode {
             Self::AmbiguousLocator => "ambiguous-locator",
             Self::NotPrivate => "not-private",
             Self::ContributorCredit => "contributor-credit",
+            Self::ReaderFeedback => "reader-feedback",
             Self::SourceChanged => "source-changed",
             Self::StillLinked => "still-linked",
             Self::UnknownEntry => "unknown-entry",
@@ -581,8 +586,24 @@ impl Reader<'_> {
                 "contributor credits stay in `.credits.json` sidecars; notes and passages are private research",
             );
         }
+        let found: Vec<String> = self
+            .fields
+            .keys()
+            .filter(|key| READER_FEEDBACK_FIELDS.contains(&key.as_str()))
+            .cloned()
+            .collect();
+        for field in found {
+            self.report(
+                NoteDiagnosticCode::ReaderFeedback,
+                &field,
+                READER_FEEDBACK_MESSAGE,
+            );
+        }
     }
 }
+
+const READER_FEEDBACK_MESSAGE: &str =
+    "reader feedback and its provenance stay out of the notebook; the notebook holds only the author's private research";
 
 /// Unicode embedding, override, and isolate controls can reorder displayed
 /// text invisibly. They are refused in every text field.
@@ -1009,6 +1030,16 @@ impl Notebook {
                 NoteDiagnosticCode::ContributorCredit,
                 Some(key),
                 "contributor credits stay in `.credits.json` sidecars",
+            ));
+        }
+        for key in root
+            .keys()
+            .filter(|k| READER_FEEDBACK_FIELDS.contains(&k.as_str()))
+        {
+            diagnostics.push(notebook_diagnostic(
+                NoteDiagnosticCode::ReaderFeedback,
+                Some(key),
+                READER_FEEDBACK_MESSAGE,
             ));
         }
         let mut passages = Vec::new();
@@ -1701,6 +1732,22 @@ mod tests {
         assert_eq!(
             codes(parse(value)),
             vec![NoteDiagnosticCode::ContributorCredit]
+        );
+    }
+
+    #[test]
+    fn reader_feedback_stays_out_of_the_notebook() {
+        let mut value = sample();
+        value["notes"][0]["attribution"] = json!({"name": "Ada", "publishName": true});
+        assert_eq!(
+            codes(parse(value)),
+            vec![NoteDiagnosticCode::ReaderFeedback]
+        );
+        let mut value = sample();
+        value["receivedAt"] = json!("2026-10-26T10:00:00Z");
+        assert_eq!(
+            codes(parse(value)),
+            vec![NoteDiagnosticCode::ReaderFeedback]
         );
     }
 

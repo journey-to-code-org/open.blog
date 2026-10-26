@@ -22,6 +22,7 @@
 //! - [`knowledge_atlas`]: the private Knowledge Atlas of entries and attributed relationships
 //! - [`atlas_publication`]: the one public projection of its approved items, for pages and `atlas.json`
 //! - [`passage_target`]: stable passage targets in published text, resolved as current, re-anchored or stale
+//! - [`feedback_provenance`]: which revision a reader's feedback was about and when, with consent-gated attribution
 
 pub mod accessibility;
 pub mod approval;
@@ -40,6 +41,7 @@ pub mod date;
 pub mod draft;
 pub mod embed;
 pub mod escape;
+pub mod feedback_provenance;
 pub mod feeds;
 pub mod field_journal;
 pub mod frontmatter;

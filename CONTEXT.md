@@ -715,6 +715,23 @@ revision, text in place), re-anchored (the identical text found again, uniquely,
 passage) or stale with a reason. It never points at text the reader did not quote.
 _Avoid_: Fuzzy match, retargeting, best guess
 
+**Feedback provenance**:
+Where one piece of reader feedback came from: the published work, the passage revision the
+reader saw, the passage target, when the reader saw it by their own clock, when the site received
+it, the channel and the reader's attribution choice. Reader data, never a research note.
+_Avoid_: Metadata, submission log, research note, audit trail when moderation decisions are meant
+
+**Reader attribution**:
+The name a reader optionally gives with feedback and their explicit agreement to show it. Without
+that agreement the name is private to moderation; anonymous is the default.
+_Avoid_: Author, contributor, credit, account
+
+**Public provenance**:
+The only public form of feedback provenance: the work, the revision seen, the day received,
+whether the passage is stale, its section, the quoted text only while it is still published, and
+a name only with consent.
+_Avoid_: Feedback export, moderation record
+
 ## Admin workspace
 
 **Workspace preferences**:

@@ -13,6 +13,13 @@ All notable changes to open.blog are recorded here. Releases follow
   words, and accents, emoji and other combined characters are never split. The same rules run in
   the build and in a small browser module for the reader features to come, checked against the
   same cases. Nothing uses targets yet, so no page changes.
+- Defined what is kept about where each piece of reader feedback came from: the post and the
+  revision of its text the reader saw, the passage, when they saw it (by their own clock, if
+  given) and when the site received it. A reader's name is shown publicly only if they agree,
+  nothing else about them is recorded, and a published note never re-quotes text the author has
+  since removed. Research notebooks now refuse reader-feedback fields (`attribution`,
+  `receivedAt`, `seenAt`) with a clear message, so feedback cannot be merged into private research
+  by accident.
 
 ## [0.30.0] - 2026-10-26
 
