@@ -538,7 +538,7 @@ export function filterSources(sources, { query = "", kind = "all", archived = "a
 
 /** Records that point at this one, so archiving or editing can say what depends on it. */
 export function sourceDependents(sources, id) {
-  return (Array.isArray(sources) ? sources : []).filter((source) => source.of === id || source.basedOn === id);
+  return (Array.isArray(sources) ? sources : []).filter((source) => source.of === id || source.basedOn === id || source.revises === id);
 }
 
 export function sourceDraft(record = null, kind = "work") {

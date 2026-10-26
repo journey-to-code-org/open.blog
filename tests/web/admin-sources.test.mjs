@@ -256,6 +256,11 @@ test("search and filters match ids, titles, creators, and identifiers and hide a
   assert.deepEqual(filterSources(sources, { query: "nothing here" }), []);
   assert.deepEqual(filterSources(null), []);
   assert.deepEqual(sourceDependents(sources, "plato-republic").map((source) => source.id), ["slings-2003", "bloom-1968"]);
+  assert.deepEqual(
+    sourceDependents([...sources, { id: "slings-2005", kind: "edition", of: "plato-republic", revises: "slings-2003" }], "slings-2003").map((source) => source.id),
+    ["cave", "slings-2005"],
+    "a revised edition depends on the edition it revises",
+  );
 });
 
 test("each supported source type shows only its own fields and valid relations", () => {
@@ -290,6 +295,28 @@ test("a draft round-trips losslessly and keeps fields the form does not edit", (
   assert.deepEqual(sourceDraftPayload(reference), { id: "r", kind: "reference", of: "slings-2003", location: { scheme: "page", value: "12" } });
   const work2 = Object.assign(sourceDraft(null, "work"), { id: "w", title: "W", of: "stale", locationValue: "x", locationScheme: "page" });
   assert.deepEqual(sourceDraftPayload(work2), { id: "w", kind: "work", title: "W" }, "fields of another type are dropped");
+});
+
+test("version provenance the form does not edit yet survives an Admin round trip", () => {
+  const edition = {
+    id: "burnet-1902",
+    kind: "edition",
+    of: "plato-republic",
+    title: "Platonis Opera IV",
+    revises: "burnet-1900",
+    volumes: 5,
+    rights: { status: "publicDomain", note: "Published 1902" },
+    creators: [{ name: "John Burnet", role: "editor", attribution: "stated", note: "Title page" }],
+  };
+  assert.deepEqual(sourceDraftPayload(sourceDraft(edition)), edition);
+  const edited = Object.assign(sourceDraft(edition), { title: "Platonis Opera" });
+  const payload = sourceDraftPayload(edited);
+  assert.equal(payload.title, "Platonis Opera");
+  assert.deepEqual(payload.rights, edition.rights, "the author's rights declaration is never dropped by an edit");
+  assert.equal(payload.revises, "burnet-1900");
+  assert.deepEqual(payload.creators, edition.creators, "attribution certainty stays on an unchanged creator");
+  const reference = { id: "r", kind: "reference", of: "burnet-1902", location: { scheme: "page", value: "327", volume: "4" } };
+  assert.deepEqual(sourceDraftPayload(sourceDraft(reference)).location, reference.location, "the volume stays with an unchanged location");
 });
 
 test("creator and identifier lines parse without trusting their content", () => {
