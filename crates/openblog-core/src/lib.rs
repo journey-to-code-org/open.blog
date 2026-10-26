@@ -19,6 +19,7 @@
 //! - [`citations`]: the opt-in `[@key, locator]` syntax, its resolver and CSL citation items
 //! - [`bibliography`]: opt-in publication of citations as numbered notes or a bibliography
 //! - [`citation_review`]: offline syntax, resolution, completeness and location checks of citations
+//! - [`research_completeness`]: the one finding contract and matrix every research check maps into, with acknowledgements that never resolve a finding
 //! - [`claims`]: private claims in draft posts and the author's evidence links to sources and passages
 //! - [`claim_publication`]: the one public projection of approved claims and evidence, with revision notes
 //! - [`knowledge_atlas`]: the private Knowledge Atlas of entries and attributed relationships
@@ -79,6 +80,7 @@ pub mod reflection;
 pub mod render;
 pub mod research;
 pub mod research_bundle;
+pub mod research_completeness;
 pub mod research_notes;
 pub mod research_search;
 pub mod scholarly_feedback;
