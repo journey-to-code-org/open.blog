@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-10-26
+
 - Contributors to a shared reflection can pin moments to its sources in Admin: a time or range in
   a video or podcast, or a page, chapter or other location in text, with a short quotation (its
   speaker, rights and where the words came from) and their own observation. Moments are private
