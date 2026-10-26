@@ -159,6 +159,20 @@ test("every refused fixture is refused before the site or Supabase is asked, wit
   assert.equal(JSON.parse(encoded.body).target, "malformed");
 });
 
+test("a reader time in year 0000 is refused before the quota or Postgres, which cannot store it", async () => {
+  const handler = createHandler({ env: enabled, fetchImpl: noFetch, siteFetchImpl: noFetch, now: () => NOW });
+  const value = JSON.parse(submission());
+  value.seenAt = "0000-01-01T00:00:00Z";
+  const response = await handler(event("feedback", "POST", JSON.stringify(value)));
+  assert.equal(response.statusCode, 422);
+  assert.equal(JSON.parse(response.body).code, "invalidTime");
+  // The first year storage holds is still accepted.
+  const database = fakeDatabase();
+  const accepting = createHandler({ env: enabled, fetchImpl: database.fetchImpl, siteFetchImpl: sitePolicy("open"), now: () => NOW });
+  value.seenAt = "0001-01-01T00:00:00Z";
+  assert.equal((await accepting(event("feedback", "POST", JSON.stringify(value)))).statusCode, 202);
+});
+
 test("hostile text is stored as data and never echoed", async () => {
   const database = fakeDatabase();
   const handler = createHandler({ env: enabled, fetchImpl: database.fetchImpl, siteFetchImpl: sitePolicy("open"), now: () => NOW });

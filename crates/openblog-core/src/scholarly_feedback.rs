@@ -283,14 +283,12 @@ pub fn normalize_feedback_source_url(value: &str) -> Option<String> {
 
 /// A canonical UTC time, `2026-10-26T10:00:00Z`.
 fn parse_time(value: &str) -> Result<DateTime, FeedbackError> {
-    DateTime::parse(value)
-        .filter(|time| time.rfc3339() == value)
-        .ok_or_else(|| {
-            FeedbackError::new(
-                FeedbackErrorCode::InvalidTime,
-                "`seenAt` must be a UTC time written like 2026-10-26T10:00:00Z",
-            )
-        })
+    crate::feedback_provenance::parse_canonical_time(value).ok_or_else(|| {
+        FeedbackError::new(
+            FeedbackErrorCode::InvalidTime,
+            "`seenAt` must be a UTC time written like 2026-10-26T10:00:00Z",
+        )
+    })
 }
 
 fn malformed(message: &str) -> FeedbackError {
@@ -669,8 +667,7 @@ impl HostedFeedback {
         let moderated_at = wire
             .moderated_at
             .map(|time| {
-                DateTime::parse(&time)
-                    .filter(|parsed| parsed.rfc3339() == time)
+                crate::feedback_provenance::parse_canonical_time(&time)
                     .ok_or_else(|| invalid("`moderatedAt` must be a UTC time"))
             })
             .transpose()?;

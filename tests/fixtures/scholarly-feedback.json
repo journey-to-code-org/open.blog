@@ -1479,6 +1479,27 @@
       "code": "invalidTime"
     },
     {
+      "name": "the reader time 0000-01-01T00:00:00Z",
+      "submission": {
+        "version": 1,
+        "kind": "question",
+        "work": "/posts/tides/",
+        "revision": "p1:4a264dbcfbe9d0a56591ff04cbf12ca4",
+        "target": {
+          "version": 1,
+          "kind": "quote",
+          "section": "tides",
+          "exact": "The sun matters too.",
+          "prefix": "The moon causes the tides. ",
+          "suffix": "",
+          "start": 27
+        },
+        "body": "Which sources say so?",
+        "seenAt": "0000-01-01T00:00:00Z"
+      },
+      "code": "invalidTime"
+    },
+    {
       "name": "the reader time 2026-10-26T10:00:60Z",
       "submission": {
         "version": 1,

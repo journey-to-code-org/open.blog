@@ -162,15 +162,20 @@ pub fn is_work_path(path: &str) -> bool {
             .any(|segment| segment == "." || segment == "..")
 }
 
+/// A canonical UTC time, `2026-10-26T10:00:00Z`, in years 0001 to 9999: the
+/// range a Postgres `timestamptz` and a browser's `Date` both hold, so a time
+/// accepted here is never refused by storage after a quota slot is spent.
+pub(crate) fn parse_canonical_time(value: &str) -> Option<DateTime> {
+    DateTime::parse(value).filter(|time| time.rfc3339() == value && !value.starts_with("0000"))
+}
+
 fn parse_time(field: &str, value: &str) -> Result<DateTime, ProvenanceError> {
-    DateTime::parse(value)
-        .filter(|time| time.rfc3339() == value)
-        .ok_or_else(|| {
-            ProvenanceError::new(
-                ProvenanceErrorCode::InvalidTime,
-                format!("`{field}` must be a UTC time written like 2026-10-26T10:00:00Z"),
-            )
-        })
+    parse_canonical_time(value).ok_or_else(|| {
+        ProvenanceError::new(
+            ProvenanceErrorCode::InvalidTime,
+            format!("`{field}` must be a UTC time written like 2026-10-26T10:00:00Z"),
+        )
+    })
 }
 
 impl FeedbackProvenance {

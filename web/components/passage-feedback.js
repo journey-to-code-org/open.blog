@@ -79,12 +79,16 @@ export const isPassageRevision = (value) => typeof value === "string" && /^p[1-9
 
 const daysIn = (year, month) => [31, year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
 
-/** A canonical UTC time, `2026-10-26T10:00:00Z`. */
+/**
+ * A canonical UTC time, `2026-10-26T10:00:00Z`, in years 0001 to 9999: the
+ * range storage (a Postgres timestamptz) holds, so an accepted time never
+ * fails at the database after a quota slot is spent.
+ */
 export function isCanonicalTime(value) {
   const match = /^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})Z$/.exec(String(value));
   if (!match) return false;
   const [year, month, day, hour, minute, second] = match.slice(1).map(Number);
-  return month >= 1 && month <= 12 && day >= 1 && day <= daysIn(year, month) && hour <= 23 && minute <= 59 && second <= 59;
+  return year >= 1 && month >= 1 && month <= 12 && day >= 1 && day <= daysIn(year, month) && hour <= 23 && minute <= 59 && second <= 59;
 }
 
 /** A time as the canonical form, from a Date or a timestamp a database returns. */
