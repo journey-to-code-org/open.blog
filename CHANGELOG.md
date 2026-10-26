@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.40.0] - 2026-10-26
+
 - A site can choose the reading mode its posts open in. Set `readingModes.default` in
   `openblog.json` to `guided` or `deep-dive`: a post that opts in with `readingModes: true` and
   names no default of its own opens in that mode. A post's own `readingModes: {default: ...}` still
