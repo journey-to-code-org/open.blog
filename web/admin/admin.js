@@ -558,6 +558,7 @@ export function sourceDraft(record = null, kind = "work") {
     identifiers: (Array.isArray(source.identifiers) ? source.identifiers : []).map((entry) => `${entry?.scheme ?? ""}: ${entry?.value ?? ""}`).join("\n"),
     locationScheme: typeof source.location?.scheme === "string" ? source.location.scheme : "",
     locationValue: typeof source.location?.value === "string" ? source.location.value : "",
+    locationVolume: typeof source.location?.volume === "string" ? source.location.volume : "",
   };
 }
 
@@ -589,6 +590,64 @@ function keepUnchanged(parsed, original, same) {
   return parsed.map((entry, index) => (Array.isArray(original) && original[index] && same(original[index], entry) ? original[index] : entry));
 }
 
+// CSL name parts describe the stored display name, so they no longer apply once it changes.
+const SOURCE_CREATOR_NAME_PARTS = Object.freeze(["family", "given", "dropping-particle", "non-dropping-particle", "suffix"]);
+
+/**
+ * Creators from the text box, each built on the stored creator it edits: the
+ * one with the same name, otherwise the one at the same position. The text box
+ * edits only the name and role, so attribution, note, and unknown fields carry
+ * over; a role removed from the line is removed, and CSL name parts are dropped
+ * when the name itself changes.
+ */
+export function mergeSourceCreators(parsed, original) {
+  const stored = Array.isArray(original) ? original.filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry)) : [];
+  const claimed = new Set();
+  const bases = parsed.map((entry) => {
+    const index = stored.findIndex((candidate, at) => !claimed.has(at) && candidate.name === entry.name);
+    if (index >= 0) claimed.add(index);
+    return index;
+  });
+  return parsed.map((entry, position) => {
+    let index = bases[position];
+    if (index < 0 && position < stored.length && !claimed.has(position)) {
+      index = position;
+      claimed.add(position);
+    }
+    if (index < 0) return entry;
+    const base = stored[index];
+    if (base.name === entry.name && (base.role ?? "") === (entry.role ?? "")) return base;
+    const merged = { ...base, name: entry.name };
+    if (entry.role) merged.role = entry.role;
+    else delete merged.role;
+    if (base.name !== entry.name) for (const part of SOURCE_CREATOR_NAME_PARTS) delete merged[part];
+    return merged;
+  });
+}
+
+/**
+ * The reference location from the form, built on the stored one so its volume
+ * and unknown fields survive an edit; a volume the author cleared is removed.
+ */
+export function mergeSourceLocation(draft, stored) {
+  const scheme = draft.locationScheme || "";
+  const value = String(draft.locationValue || "").trim();
+  const volume = String(draft.locationVolume ?? stored?.volume ?? "").trim();
+  if (!scheme && !value) return undefined;
+  const base = stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {};
+  if (base.scheme === scheme && base.value === value && (base.volume ?? "") === volume) return base;
+  const location = { ...base, scheme, value };
+  if (volume) location.volume = volume;
+  else delete location.volume;
+  return location;
+}
+
+/** The number of volumes the record a reference points at declares, or 0. */
+export function sourceTargetVolumes(sources, id) {
+  const target = (Array.isArray(sources) ? sources : []).find((source) => source.id === id);
+  return Number.isInteger(target?.volumes) ? target.volumes : 0;
+}
+
 /** The full record to send. Unknown fields of the stored record are carried over unchanged. */
 export function sourceDraftPayload(draft) {
   const original = draft.original || {};
@@ -606,14 +665,13 @@ export function sourceDraftPayload(draft) {
   if (fields.basedOn) set("basedOn", draft.basedOn);
   set("language", draft.language);
   set("issued", draft.issued);
-  const creators = keepUnchanged(parseSourceCreators(draft.creators), original.creators, (a, b) => a.name === b.name && (a.role ?? "") === (b.role ?? ""));
+  const creators = mergeSourceCreators(parseSourceCreators(draft.creators), original.creators);
   if (creators.length) record.creators = creators;
   const identifiers = keepUnchanged(parseSourceIdentifiers(draft.identifiers), original.identifiers, (a, b) => a.scheme === b.scheme && a.value === b.value);
   if (identifiers.length) record.identifiers = identifiers;
-  const locationValue = String(draft.locationValue || "").trim();
-  if (fields.location && (draft.locationScheme || locationValue)) {
-    const stored = original.location;
-    record.location = stored && stored.scheme === draft.locationScheme && stored.value === locationValue ? stored : { scheme: draft.locationScheme, value: locationValue };
+  if (fields.location) {
+    const location = mergeSourceLocation(draft, original.location);
+    if (location) record.location = location;
   }
   return record;
 }
@@ -630,11 +688,15 @@ export function validateSourceDraft(draft, sources = []) {
   if (fields.location && Boolean(draft.locationScheme) !== Boolean(String(draft.locationValue || "").trim())) {
     return { field: "locationValue", message: "Choose a location type and enter its value, or clear both." };
   }
+  if (fields.location && !draft.locationScheme && String(draft.locationVolume || "").trim()) {
+    return { field: "locationVolume", message: "A volume belongs with a location; choose a location type and value, or clear the volume." };
+  }
   return null;
 }
 
 /** Map a server diagnostic's field path (`identifiers[0]`) to the form control that edits it. */
 export function sourceDiagnosticControl(field) {
+  if (String(field || "") === "location.volume") return "locationVolume";
   const name = String(field || "").replace(/\[\d+\].*$/, "").split(".")[0];
   return { creators: "creators", identifiers: "identifiers", location: "locationValue", id: "id", kind: "kind-field", title: "title", of: "of", basedOn: "basedOn", language: "language", issued: "issued" }[name] || "";
 }
@@ -6513,10 +6575,10 @@ export class ObAdmin extends AdminElement {
       const text = (name, props = {}) =>
         h("input", { type: "text", value: draft[name], autocomplete: "off", onInput: (event) => { draft[name] = event.target.value; touch(); }, ...props });
       const area = (name, rows) => h("textarea", { rows, spellcheck: "false", value: draft[name], onInput: (event) => { draft[name] = event.target.value; touch(); } });
-      const select = (name, options, emptyLabel) =>
+      const select = (name, options, emptyLabel, after) =>
         h(
           "select",
-          { onChange: (event) => { draft[name] = event.target.value; touch(); } },
+          { onChange: (event) => { draft[name] = event.target.value; touch(); after?.(); } },
           emptyLabel ? h("option", { value: "", selected: !draft[name] }, emptyLabel) : null,
           options.map(([value, label]) => h("option", { value, selected: draft[name] === value }, label)),
         );
@@ -6525,6 +6587,13 @@ export class ObAdmin extends AdminElement {
           name,
           sourceRelationOptions(sources, draft.kind, name, draft.id).map((source) => [source.id, `${sourceLabel(source)} (${source.kind})`]),
           name === "of" ? "Choose a source" : "None",
+          // A reference's volume control depends on the record it points at.
+          name === "of" && fields.location
+            ? () => {
+                renderPanel();
+                document.getElementById?.("oba-source-of")?.focus?.();
+              }
+            : undefined,
         );
       const kindControl = h(
         "select",
@@ -6578,6 +6647,9 @@ export class ObAdmin extends AdminElement {
                 { class: "oba-source-location", "data-source-field": "location" },
                 field("locationScheme", "Location type", select("locationScheme", SOURCE_LOCATION_SCHEMES.map((scheme) => [scheme, scheme]), "None")),
                 field("locationValue", "Location", text("locationValue", { spellcheck: "false" }), "For example 514a, 12r, or 1:02:30."),
+                sourceTargetVolumes(sources, draft.of) > 1 || String(draft.locationVolume || "").trim()
+                  ? field("locationVolume", "Volume", text("locationVolume", { spellcheck: "false" }), "Pages and folios restart in each volume, so name the volume, such as 2.")
+                  : null,
               )
             : null,
           field("creators", "Creators (optional)", area("creators", 3), "One per line. Add a role after a bar, such as Plato | author. Creators are descriptive only and are not site contributors."),

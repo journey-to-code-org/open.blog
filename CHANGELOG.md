@@ -15,6 +15,9 @@ All notable changes to open.blog are recorded here. Releases follow
   named person. Contributors named on an interpretation cannot be removed from the registry
   until it changes. Existing libraries read and save exactly as before, and none of this is
   published.
+- Editing a creator's name or role in the Admin source form no longer drops its attribution
+  certainty or note, and editing a reference's location keeps its volume. A reference to an edition
+  or manuscript in several volumes now has a Volume field.
 
 ## [0.32.0] - 2026-10-26
 
