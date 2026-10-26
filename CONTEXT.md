@@ -1462,6 +1462,129 @@ An Admin control no workspace preference can hide or reorder: Write, Site previe
 save state, publish status, conflicts, privacy notices, approvals, and blocking validation.
 _Avoid_: Default tool, pinned tool
 
+**Research workspace**:
+The one Admin destination for an author's research: the Workflow, Sources, Notebook, Atlas and
+Compare panels under `#/research/`, with Claims and the Draft beside them (ADR 0120). Its earlier
+routes redirect into it. It changes where research is reached, never what is stored or published.
+_Avoid_: Research tools, research mode
+
+**Workspace panel**:
+One place in the research workspace an author switches between: a research panel or the draft
+being written. Each has one canonical address and one visibility label.
+_Avoid_: Tab, page, pane (a pane is one view inside the editor)
+
+**Workflow panel**:
+The research workspace's first panel and empty state: the steps from a first source to a cited
+draft, each saying whether it is done. It reads and never writes.
+_Avoid_: Dashboard, onboarding wizard
+
+**Visibility label**:
+The words, repeated in data, that say whether a workspace panel is private research (nothing in
+it is public because it exists) or publishable (readers see it once it is published).
+_Avoid_: Public, shared; a label states what publishing does, not who may read the files
+
+**Kept panel**:
+A workspace panel with unsaved changes that the Admin set aside in memory, instead of discarding,
+while the author opened another panel; reopening it restores it exactly (ADR 0121). Kept panels
+are discarded, after asking, when the author leaves the workspace or signs out, and survive an
+expired session only for the same user's next sign-in in that page.
+_Avoid_: Autosave, draft recovery; nothing is written anywhere
+
+**Draft-side research panel**:
+The narrow, non-modal panel beside a post's writing surface that searches the author's research
+and inserts from it: a quotation with its checked citation, a citation, a context link or a
+converted note (ADR 0122). It writes nothing but the unsaved draft.
+_Avoid_: Research sidebar, inspector
+
+**Context link**:
+A link inserted into a draft to a published atlas entry, its published dating, or a published
+comparison. It exists only for a page the next build publishes; anything private or unpublished
+has no address to link (ADR 0122).
+_Avoid_: Reference, related link; a citation names a source, a context link names a page
+
+**Note conversion**:
+The author's explicit step that puts a private research note into a draft as their own words,
+after confirming it becomes part of the post. It is the only way a note reaches a draft (ADR 0122).
+_Avoid_: Publishing a note, copying a note
+
+**Research review before publication**:
+What the research checks already say about a post, gathered when the author publishes or
+schedules a research or cited post, or asks for it in Evidence Studio: grouped by what blocks the
+build, then by outcome, each finding linked to its line, field or research object (ADR 0123). It
+uses the research-completeness contract's finding shape and has no score.
+_Avoid_: Readiness score, publication check, approval, quality gate
+
+**Blocking finding**:
+A finding in the review whose validator refuses the build that would publish the post: a citation
+it cannot publish, or an integrity or privacy failure of a private file it reads. Only blocking
+findings stop publishing, and they cannot be acknowledged; every other finding is advisory.
+_Avoid_: Error, failure, must-fix warning
+
+**Context link check**:
+The check that each context link in a post names a page the next build publishes, owned by
+`context_links` and reported as `context-link-unpublished` (ADR 0123). A missing page is a gap to
+repair, never a privacy failure.
+_Avoid_: Broken link check, link validation
+
+**Finding acknowledgement**:
+An author's record that they have considered an advisory finding. It names the finding's key and
+fingerprint, never makes the finding resolved, is counted apart from what was found, and goes
+stale when what the finding says changes.
+_Avoid_: Dismissal, resolution, waiver; acknowledging an integrity or privacy failure
+
+**Publication boundary**:
+The line between private research and what the public site carries. Nothing crosses it because it
+exists: only what a projection publishes, and only the fields that projection copies, are public
+(ADR 0125). The build checks its output against it before writing anything: structure refuses, text only
+warns outside a projection's machine data.
+_Avoid_: Visibility filter, export rules, privacy setting
+
+**What will be public**:
+The preview of the publication boundary, for the whole site or one post: what each research
+projection publishes, with the fields it copies, what it withholds and why, and what is never
+published. It is built from the same projection values the build writes (ADR 0125).
+_Avoid_: Publication report, readiness, manifest score
+
+**Withheld reason**:
+The rule of a projection that keeps an item, or one field of a published item, private: the
+projection is off, the item is not approved, an unsourced draft, a notebook passage, an unpublished
+dependency, private contradiction, an unpublished post, a stale approval, an unsafe web address, a
+private identifier, the version's rights, length, moved anchor words, or an unpublished page. It is
+never a judgement of the research.
+_Avoid_: Rejection, error, failed check
+
+**Stale approval**:
+An approval that no longer holds because what it rests on changed after it was given: today, an
+approved comparison whose notebook passage was re-located after the alignment was saved approved,
+which the alignments file records as a fingerprint of the passage's locators. Only a recorded
+fingerprint that no longer matches withholds; an approval made before the record existed never
+does. The item alone is withheld and named, and the author checks it and chooses *Checked -
+approve again*; saving it any other way keeps the recorded places, and the finding cannot be
+acknowledged while it withholds (ADR 0125).
+_Avoid_: Expired approval, invalid comparison
+
+**Unsafe web address**:
+A source's web address the boundary never publishes: not plain `http` or `https`, carrying
+credentials, naming a private or local network host (including numeric, mapped, compatible,
+6to4, NAT64 and site-local forms), or carrying a query parameter, or a `name=value` fragment
+parameter, whose name has a word like key, token, signature or secret (`author` and `sortKey`
+do not).
+Only the address is withheld; the rest of the reference is published.
+_Avoid_: Broken link, invalid URL
+
+**Private text guard**:
+The build's heuristic check for text of a private research file in what it publishes. Text is
+compared as shingles of six consecutive normalised words, so wrapping, markup, entities, case and
+punctuation do not hide it, and generated text is cut at published titles, headings, tag, series
+and navigation names, so listing them is no match. What is allowed is the text of the published
+posts and pages, the approved projections and the site's own configuration, never a draft. A hit
+in a projection's machine data (the atlas, comparisons and claim-evidence JSON, a page's citation
+data) refuses the build; a hit anywhere else (pages, feeds, search, static, theme and front-end
+files, a portable Markdown export) is a `boundary:` warning naming the output, the file, the
+record and the field, never the text, and saying to remove it from the public file or keep it.
+Private text of fewer than six words is not guarded by text (ADR 0125).
+_Avoid_: Leak scanner, content filter
+
 ## Third Perspectives
 
 Readers' own reflections on published works (ADRs 0109 to 0115). They extend the one reader

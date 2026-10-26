@@ -128,6 +128,15 @@ pub fn load_for_build(
     against_library(root, library)
 }
 
+/// The atlas against a library and notebook already read for a build.
+pub fn from_parts(
+    root: &Path,
+    library: SourceLibrary,
+    notebook: Notebook,
+) -> Result<Snapshot, StoreError> {
+    read(root, library, notebook)
+}
+
 fn against_library(root: &Path, library: SourceLibrary) -> Result<Snapshot, StoreError> {
     let notebook = notebook_store::read(root, library.clone())
         .map_err(notebook_blocked)?
@@ -293,6 +302,7 @@ fn diagnostic(
         id: Some(id.into()),
         field: field.map(str::to_string),
         message,
+        facts: Vec::new(),
     }
 }
 
@@ -453,6 +463,7 @@ fn read(root: &Path, library: SourceLibrary, notebook: Notebook) -> Result<Snaps
             id: None,
             field: None,
             message: "the atlas is not valid UTF-8".into(),
+            facts: Vec::new(),
         }])
     })?;
     let atlas = Atlas::parse(
@@ -481,6 +492,7 @@ fn too_large() -> AtlasDiagnostic {
         id: None,
         field: None,
         message: format!("the atlas is larger than {MAX_ATLAS_BYTES} bytes"),
+        facts: Vec::new(),
     }
 }
 

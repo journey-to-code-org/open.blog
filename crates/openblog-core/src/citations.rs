@@ -471,6 +471,228 @@ pub fn public_identifier(scheme: &str, value: &str) -> bool {
     }
 }
 
+/// Why a web address may not be published, or `None` when it may (#63,
+/// ADR 0125): only a plain `http` or `https` address a reader can reach,
+/// without credentials, naming a public host and carrying no query parameter
+/// that is named like a secret. The library already refuses other schemes and
+/// credentials; the boundary also withholds addresses on a private network
+/// (`localhost`, `localhost.localdomain`, `.local`, `.internal`, `.corp`,
+/// `.test`, `.home`, loopback, private, link-local, site-local, benchmarking,
+/// multicast, reserved and NAT64 IP ranges, and an IPv4 address written in
+/// decimal, octal, hex, as a mapped or compatible IPv6 address or inside a
+/// 6to4 one) and signed or
+/// tokened addresses, which would expose an intranet or
+/// an access key. Only the address is withheld; the rest of the reference is
+/// published.
+pub fn public_url_problem(value: &str) -> Option<&'static str> {
+    let Ok(url) = url::Url::parse(value.trim()) else {
+        return Some("it is not a web address");
+    };
+    if !matches!(url.scheme(), "http" | "https") {
+        return Some("only http and https addresses are published");
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Some("it carries a user name or password");
+    }
+    let private_host = match url.host() {
+        None => true,
+        Some(url::Host::Ipv4(ip)) => private_ipv4(ip),
+        Some(url::Host::Ipv6(ip)) => {
+            let segments = ip.segments();
+            let first = segments[0];
+            let embedded = |high: u16, low: u16| {
+                let [a, b] = high.to_be_bytes();
+                let [c, d] = low.to_be_bytes();
+                private_ipv4(std::net::Ipv4Addr::new(a, b, c, d))
+            };
+            ip.is_loopback()
+                || ip.is_unspecified()
+                || ip.to_ipv4_mapped().is_some_and(private_ipv4)
+                // The deprecated IPv4-compatible form `::a.b.c.d` embeds one too.
+                || (segments[..6] == [0; 6] && embedded(segments[6], segments[7]))
+                // 6to4, 2002::/16, carries its IPv4 address in the next 32 bits.
+                || (first == 0x2002 && embedded(segments[1], segments[2]))
+                // Multicast, ff00::/8.
+                || (first & 0xff00) == 0xff00
+                // The NAT64 prefix 64:ff9b::/96 embeds any IPv4 address.
+                || (segments[..6] == [0x64, 0xff9b, 0, 0, 0, 0])
+                || (first & 0xfe00) == 0xfc00
+                || (first & 0xffc0) == 0xfe80
+                // Deprecated site-local addresses, fec0::/10.
+                || (first & 0xffc0) == 0xfec0
+        }
+        Some(url::Host::Domain(domain)) => {
+            let domain = domain.trim_end_matches('.').to_ascii_lowercase();
+            !domain.contains('.')
+                || domain == "localhost.localdomain"
+                || [
+                    ".localhost",
+                    ".localhost.localdomain",
+                    ".local",
+                    ".internal",
+                    ".lan",
+                    ".home.arpa",
+                    ".intranet",
+                    ".corp",
+                    ".test",
+                    ".home",
+                    ".localdomain",
+                ]
+                .iter()
+                .any(|suffix| domain.ends_with(suffix))
+        }
+    };
+    if private_host {
+        return Some("it names a private or local network address readers cannot reach");
+    }
+    // The query, and a fragment written as `name=value` pairs, as the
+    // single-page apps that read a token from the fragment write it. A
+    // fragment with no `=` is a heading anchor (`#Authorship`), not a pair.
+    if url.query_pairs().any(|(name, _)| secret_parameter(&name)) {
+        return Some("it carries a query parameter named like a key, token or signature");
+    }
+    let fragment = url.fragment().unwrap_or_default();
+    if fragment.contains('=')
+        && url::form_urlencoded::parse(fragment.as_bytes()).any(|(name, _)| secret_parameter(&name))
+    {
+        return Some("it carries a fragment parameter named like a key, token or signature");
+    }
+    None
+}
+
+fn private_ipv4(ip: std::net::Ipv4Addr) -> bool {
+    let [a, b, ..] = ip.octets();
+    ip.is_loopback()
+        || ip.is_private()
+        || ip.is_link_local()
+        || ip.is_unspecified()
+        || ip.is_broadcast()
+        || a == 0
+        || (a == 100 && (64..=127).contains(&b))
+        // Benchmarking, 198.18.0.0/15.
+        || (a == 198 && (18..=19).contains(&b))
+        // Multicast, 224.0.0.0/4, and reserved, 240.0.0.0/4.
+        || a >= 224
+}
+
+/// Whether a query or fragment parameter is named like a secret. The name is
+/// split into words at `_`, `-`, any other punctuation and camelCase
+/// (`X-Amz-Signature`, `access_token` and `apiKey` read as their words), and
+/// is secret when a word names one: `token`, `secret`, `password`, `sig`,
+/// `signature`, `credential`, `auth`, `session`, and `key` alone or after
+/// `api`, `access`, `secret` and the like. A few exact compounds written as one
+/// word (`apikey`, `accesstoken`) are secret too. Words are matched whole, so
+/// `author`, `authors`, `siglum`, `sigla`, `sortKey`, `monkey`, `design`,
+/// `passage` and `keyword` are published. `sid`, which OpenURL uses to name the
+/// referring database, is not a secret and is published.
+fn secret_parameter(name: &str) -> bool {
+    const SECRET_WORDS: &[&str] = &[
+        "token",
+        "secret",
+        "password",
+        "passwd",
+        "pass",
+        "pwd",
+        "sig",
+        "signature",
+        "credential",
+        "credentials",
+        "auth",
+        "authorization",
+        "session",
+        "jwt",
+        "bearer",
+    ];
+    // `key` is secret alone or when one of these says what it opens.
+    const KEY_OWNERS: &[&str] = &[
+        "api",
+        "access",
+        "secret",
+        "private",
+        "auth",
+        "license",
+        "licence",
+        "client",
+        "app",
+        "subscription",
+        "signing",
+        "encryption",
+        "master",
+    ];
+    const COMPOUNDS: &[&str] = &[
+        "apikey",
+        "xapikey",
+        "appkey",
+        "accesskey",
+        "awsaccesskeyid",
+        "secretkey",
+        "privatekey",
+        "authkey",
+        "licensekey",
+        "clientkey",
+        "signingkey",
+        "accesstoken",
+        "authtoken",
+        "idtoken",
+        "refreshtoken",
+        "sessiontoken",
+        "sessionid",
+        "bearertoken",
+        "xamzsignature",
+        "xamzcredential",
+        "xamzsecuritytoken",
+        "clientsecret",
+        "apisecret",
+        "apitoken",
+    ];
+    let words = parameter_words(name);
+    let joined: String = words.concat();
+    if joined == "key" || COMPOUNDS.contains(&joined.as_str()) {
+        return true;
+    }
+    words.iter().enumerate().any(|(index, word)| {
+        SECRET_WORDS.contains(&word.as_str())
+            || COMPOUNDS.contains(&word.as_str())
+            || (word == "key" && index > 0 && KEY_OWNERS.contains(&words[index - 1].as_str()))
+    })
+}
+
+/// The lower-cased words of a parameter name, split at anything that is not a
+/// letter or digit and at camelCase boundaries (`apiKey`, `APIKey`).
+fn parameter_words(name: &str) -> Vec<String> {
+    let chars: Vec<char> = name.chars().collect();
+    let mut words = Vec::new();
+    let mut word = String::new();
+    for (index, &c) in chars.iter().enumerate() {
+        if !c.is_ascii_alphanumeric() {
+            if !word.is_empty() {
+                words.push(std::mem::take(&mut word));
+            }
+            continue;
+        }
+        let boundary = c.is_ascii_uppercase()
+            && !word.is_empty()
+            && (chars[index - 1].is_ascii_lowercase()
+                || chars[index - 1].is_ascii_digit()
+                || chars.get(index + 1).is_some_and(char::is_ascii_lowercase)
+                    && chars[index - 1].is_ascii_uppercase());
+        if boundary {
+            words.push(std::mem::take(&mut word));
+        }
+        word.push(c.to_ascii_lowercase());
+    }
+    if !word.is_empty() {
+        words.push(word);
+    }
+    words
+}
+
+/// Whether an identifier of a record is published: a public scheme, and for
+/// a web address one [`public_url_problem`] accepts.
+pub fn published_identifier(scheme: &str, value: &str) -> bool {
+    public_identifier(scheme, value) && (scheme != "url" || public_url_problem(value).is_none())
+}
+
 pub fn public_reference(record: &SourceRecord) -> PublicReference {
     let mut csl = BTreeMap::new();
     if let Some(Value::Object(bag)) = record.extra.get("csl") {
@@ -506,7 +728,7 @@ pub fn public_reference(record: &SourceRecord) -> PublicReference {
         identifiers: record
             .identifiers
             .iter()
-            .filter(|identifier| public_identifier(&identifier.scheme, &identifier.value))
+            .filter(|identifier| published_identifier(&identifier.scheme, &identifier.value))
             .map(|identifier| (identifier.scheme.clone(), identifier.value.clone()))
             .collect(),
         csl,

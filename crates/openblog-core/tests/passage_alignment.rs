@@ -434,7 +434,7 @@ fn failures_are_scoped_and_leave_the_set_unchanged() {
     let before = set.clone();
     let mut broken = set.alignment("cave-merged").unwrap().clone();
     broken.members[0].source = Some("missing".into());
-    let problems = set.upsert_alignment(broken, links).unwrap_err();
+    let problems = set.upsert_alignment(broken, links, false).unwrap_err();
     assert_eq!(problems.len(), 1);
     assert_eq!(problems[0].id.as_deref(), Some("cave-merged"));
     assert!(problems[0]
@@ -461,9 +461,9 @@ fn failures_are_scoped_and_leave_the_set_unchanged() {
         {"source": "hebrew", "absent": true}
     ]}))
     .unwrap();
-    set.upsert_alignment(added.clone(), links).unwrap();
+    set.upsert_alignment(added.clone(), links, false).unwrap();
     added.label = Some("Later".into());
-    set.upsert_alignment(added, links).unwrap();
+    set.upsert_alignment(added, links, false).unwrap();
     assert_eq!(set.alignments.len(), 5);
     assert_eq!(set.alignments[4].label.as_deref(), Some("Later"));
     set.remove_alignment("new", links).unwrap();

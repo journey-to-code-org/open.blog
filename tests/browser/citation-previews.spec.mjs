@@ -184,8 +184,11 @@ test("at the viewport's edges the preview stays on screen, opening above near th
   await last.evaluate((element) => element.focus({ preventScroll: true }));
   await expect(preview(page)).toBeVisible();
   await expect(preview(page)).toHaveAttribute("data-side", "above");
-  const box = await preview(page).boundingBox();
-  const at = await last.boundingBox();
+  // Both boxes come from one layout pass, so a reflow cannot fall between them.
+  const [box, at] = await page.evaluate(
+    (elements) => elements.map((element) => element.getBoundingClientRect().toJSON()),
+    [await preview(page).elementHandle(), await last.elementHandle()],
+  );
   expect(box.x).toBeGreaterThanOrEqual(0);
   expect(box.x + box.width).toBeLessThanOrEqual(320);
   expect(box.y).toBeGreaterThanOrEqual(0);

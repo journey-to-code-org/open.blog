@@ -139,6 +139,15 @@ fn load_for_build(
     against_library(root, library)
 }
 
+/// The claims against a library and notebook already read for a build.
+pub fn from_parts(
+    root: &Path,
+    library: SourceLibrary,
+    notebook: Notebook,
+) -> Result<Snapshot, StoreError> {
+    read(root, library, notebook)
+}
+
 fn against_library(root: &Path, library: SourceLibrary) -> Result<Snapshot, StoreError> {
     let notebook = notebook_store::read(root, library.clone())
         .map_err(notebook_blocked)?
@@ -330,6 +339,11 @@ pub fn build_findings(
     }
 }
 
+/// Whether a claims file is stored, readable or not.
+pub fn claims_file_stored(root: &Path) -> bool {
+    !claims_file_absent(root)
+}
+
 /// Whether no claims file is stored at all. A build checks this before
 /// loading, because a load reads the library and notebook first and a site
 /// with no claims file must never be stopped by either.
@@ -504,6 +518,7 @@ fn diagnostic(
         id: Some(id.into()),
         field: field.map(str::to_string),
         message,
+        facts: Vec::new(),
     }
 }
 
@@ -668,6 +683,7 @@ fn read(root: &Path, library: SourceLibrary, notebook: Notebook) -> Result<Snaps
             id: None,
             field: None,
             message: "the claims file is not valid UTF-8".into(),
+            facts: Vec::new(),
         }])
     })?;
     let claims = ClaimSet::parse(
@@ -696,6 +712,7 @@ fn too_large() -> AtlasDiagnostic {
         id: None,
         field: None,
         message: format!("the claims file is larger than {MAX_CLAIMS_BYTES} bytes"),
+        facts: Vec::new(),
     }
 }
 
