@@ -9,7 +9,8 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::atlas_publication::{
-    self, PublicAtlas, PublicEntry, PublicEvidence, PublicRelationship,
+    self, DatedAspect, OwnerType, Placement, PublicAtlas, PublicDating, PublicEntry,
+    PublicEvidence, PublicRelationship,
 };
 use crate::config::SiteConfig;
 use crate::contributor::{CreditProvenance, ResolvedCredit};
@@ -68,6 +69,10 @@ struct Meta<'a> {
     /// its `<script type="application/json">` element (ADR 0082); `None` on
     /// every other page, which is then written exactly as before.
     passage_data: Option<String>,
+    /// Whether the page carries the atlas timeline (ADR 0127), so it loads
+    /// the `<ob-atlas-timeline>` component; `false` on every other page,
+    /// which is then written exactly as before.
+    atlas_timeline: bool,
     theme: &'a Theme,
     published: Option<String>,
     modified: Option<String>,
@@ -753,6 +758,10 @@ impl<'a> Renderer<'a> {
             // The feedback form's script is loaded only by pages that offer it.
             h.push_str("<script type=\"module\" src=\"/assets/components/ob-passage-feedback.js\"></script>\n");
         }
+        if meta.atlas_timeline {
+            // The timeline's enhancement is loaded only by the page that has one.
+            h.push_str("<script type=\"module\" src=\"/assets/components/ob-atlas-timeline.js\"></script>\n");
+        }
         // Owner-supplied raw HTML (third-party analytics, verification tags).
         if !c.snippets.head.trim().is_empty() {
             h.push_str(c.snippets.head.trim());
@@ -1142,6 +1151,7 @@ impl<'a> Renderer<'a> {
             reader_references: None,
             citation_previews: None,
             passage_data: None,
+            atlas_timeline: false,
             theme,
             published: None,
             modified: None,
@@ -1536,6 +1546,7 @@ impl<'a> Renderer<'a> {
             }),
             reader_references: references.map(ReaderReferences::to_script_element),
             passage_data: passage_feedback.map(|(_, data)| data),
+            atlas_timeline: false,
             citation_previews: references.and(post.citations()).map(|summary| {
                 format!(
                     "<ob-citation-previews note-label=\"{}\"></ob-citation-previews>",
@@ -2160,6 +2171,13 @@ impl<'a> Renderer<'a> {
         if atlas.entries.is_empty() {
             body.push_str("<p class=\"ob-empty\">No entries have been published yet.</p>\n");
         }
+        let timeline = !atlas.datings.is_empty();
+        if timeline {
+            body.push_str(&format!(
+                "<p class=\"ob-meta\">The <a href=\"#atlas-timeline\">timeline</a> lists {} in time order.</p>\n",
+                plural_text(atlas.datings.len(), "published dating", "published datings")
+            ));
+        }
         for kind in EntryKind::ALL {
             let entries: Vec<&PublicEntry> =
                 atlas.entries.iter().filter(|e| e.kind == kind).collect();
@@ -2183,17 +2201,288 @@ impl<'a> Renderer<'a> {
             }
             body.push_str("</ul>\n</section>\n");
         }
+        if timeline {
+            body.push_str(&self.atlas_timeline(atlas));
+        }
         body.push_str(&format!(
             "<p class=\"ob-meta\">The same atlas as data: <a href=\"/{file}\" type=\"application/json\">{file}</a>.</p>\n</section>\n</div>",
             file = atlas_publication::ATLAS_JSON_FILE
         ));
-        self.simple(
+        let mut meta = self.meta_simple(
             theme,
             "Knowledge Atlas",
             "People, works, concepts, movements and events, with attributed, sourced relationships.",
             atlas_publication::ATLAS_URL,
-            &body,
+        );
+        meta.atlas_timeline = timeline;
+        self.document(&meta, &body)
+    }
+
+    /// The public timeline (ADR 0127): every published dating, in the
+    /// chronology's one order, as an ordered list of periods holding dated
+    /// aspects, each with all its competing datings side by side and their
+    /// attribution, evidence and notes. It reads completely without
+    /// JavaScript; `<ob-atlas-timeline>` only adds filters and a way to jump
+    /// to a period. Aspects that cannot be placed in time are listed apart,
+    /// and relative datings are listed again as steps of a trail.
+    fn atlas_timeline(&self, atlas: &PublicAtlas) -> String {
+        let groups = atlas.dated_aspects();
+        let mut out = String::from(
+            "<ob-atlas-timeline>\n<section class=\"ob-atlas-timeline\" aria-labelledby=\"atlas-timeline\">\n<h2 id=\"atlas-timeline\">Timeline</h2>\n",
+        );
+        out.push_str(&format!(
+            "<p class=\"ob-meta\">{}</p>\n",
+            text(ATLAS_TIMELINE_NOTE)
+        ));
+        let placed: Vec<&DatedAspect> = groups.iter().filter(|g| g.placed).collect();
+        if !placed.is_empty() {
+            out.push_str("<ol class=\"ob-atlas-periods\">\n");
+            let mut open: Option<String> = None;
+            for group in placed {
+                let id = atlas_publication::period_id(group.start_year);
+                if open.as_deref() != Some(id.as_str()) {
+                    if open.is_some() {
+                        out.push_str("</ol>\n</li>\n");
+                    }
+                    out.push_str(&format!(
+                        "<li class=\"ob-atlas-period\">\n<h3 id=\"{}\" tabindex=\"-1\">{}</h3>\n<ol class=\"ob-atlas-aspects\">\n",
+                        attr(&id),
+                        text(&atlas_publication::period_label(group.start_year))
+                    ));
+                    open = Some(id);
+                }
+                out.push_str(&self.atlas_timeline_row(atlas, group));
+            }
+            out.push_str("</ol>\n</li>\n</ol>\n");
+        }
+        let unplaced: Vec<&DatedAspect> = groups.iter().filter(|g| !g.placed).collect();
+        if !unplaced.is_empty() {
+            out.push_str("<section class=\"ob-atlas-unplaced\" aria-labelledby=\"atlas-timeline-unplaced\">\n<h3 id=\"atlas-timeline-unplaced\" tabindex=\"-1\">Not placed in time</h3>\n<p class=\"ob-meta\">Aspects dated only relative to another entry, or that the dating party says are of unknown date.</p>\n<ul class=\"ob-atlas-aspects\">\n");
+            for group in unplaced {
+                out.push_str(&self.atlas_timeline_row(atlas, group));
+            }
+            out.push_str("</ul>\n</section>\n");
+        }
+        let relative: Vec<&PublicDating> = atlas
+            .datings
+            .iter()
+            .filter(|d| d.date.relative.is_some())
+            .collect();
+        if !relative.is_empty() {
+            out.push_str("<section class=\"ob-atlas-trails\" aria-labelledby=\"atlas-timeline-relative\">\n<h3 id=\"atlas-timeline-relative\" tabindex=\"-1\">Relative chronology</h3>\n<p class=\"ob-meta\">Each line is one party's recorded order between two entries, to be followed one step at a time. Nothing here is worked out from dates, and none of these is a relationship between the entries.</p>\n<ul class=\"ob-atlas-trail\">\n");
+            let author = &self.site.config.author.name;
+            for dating in relative {
+                out.push_str(&format!(
+                    "<li data-aspect=\"{}\">{} {}. <span class=\"ob-meta\">Dated by {}; {}. <a href=\"#atlas-d-{}\">Evidence and notes</a></span></li>\n",
+                    dating.aspect.as_str(),
+                    self.atlas_aspect_of(atlas, dating, None),
+                    self.atlas_date_html(atlas, dating, None),
+                    text(&atlas.party_text(&dating.asserted_by, author)),
+                    atlas_publication::confidence_text(dating.confidence).to_lowercase(),
+                    attr(&dating.id)
+                ));
+            }
+            out.push_str("</ul>\n</section>\n");
+        }
+        out.push_str("</section>\n</ob-atlas-timeline>\n");
+        out
+    }
+
+    /// One dated aspect on the timeline: what is dated, then every one of
+    /// its datings together.
+    fn atlas_timeline_row(&self, atlas: &PublicAtlas, group: &DatedAspect) -> String {
+        let count = group.datings.len();
+        let mut out = format!(
+            "<li class=\"ob-atlas-aspect\" data-aspect=\"{}\" data-datings=\"{count}\">\n<p class=\"ob-atlas-aspect-name\">{}</p>\n<p class=\"ob-meta\">{}</p>\n<ul class=\"ob-atlas-datings\">\n",
+            group.aspect.as_str(),
+            self.atlas_aspect_of(atlas, group.datings[0], None),
+            competing_text(count)
+        );
+        for dating in &group.datings {
+            out.push_str(&self.atlas_dating(atlas, dating, None, true, None));
+        }
+        out.push_str("</ul>\n</li>\n");
+        out
+    }
+
+    /// "Birth of <a>Plato</a>": the dated aspect of an item, linked to where
+    /// its datings are shown in full, or in bold on that item's own page.
+    fn atlas_aspect_of(
+        &self,
+        atlas: &PublicAtlas,
+        dating: &PublicDating,
+        here: Option<&str>,
+    ) -> String {
+        let name = text(&atlas.owner_text(&dating.owner, dating.owner_type));
+        let owner = if here == Some(dating.owner.as_str()) {
+            format!("<strong>{name}</strong>")
+        } else {
+            let href = match dating.owner_type {
+                OwnerType::Entry => format!(
+                    "{}#atlas-dates-{}",
+                    atlas_publication::entry_url(&dating.owner),
+                    dating.aspect.as_str()
+                ),
+                OwnerType::Relationship => atlas.owner_url(&dating.owner, dating.owner_type),
+            };
+            format!("<a href=\"{}\">{name}</a>", attr(&href))
+        };
+        format!(
+            "{} of {owner}",
+            capitalized(atlas_publication::aspect_noun(dating.aspect))
         )
+    }
+
+    /// A dating's date as stated. A relative dating names the other entry
+    /// and links to its datings: one step of a trail, as someone asserted it.
+    fn atlas_date_html(
+        &self,
+        atlas: &PublicAtlas,
+        dating: &PublicDating,
+        here: Option<&str>,
+    ) -> String {
+        let Some(relative) = &dating.date.relative else {
+            return if dating.placement == Placement::Unknown {
+                "unknown, as the dating party states".to_string()
+            } else {
+                text(&dating.text)
+            };
+        };
+        let label = atlas
+            .entry(&relative.entry)
+            .map_or(relative.entry.as_str(), |entry| entry.label.as_str());
+        let target = if here == Some(relative.entry.as_str()) {
+            format!("<strong>{}</strong>", text(label))
+        } else {
+            let has_aspect = atlas
+                .datings
+                .iter()
+                .any(|d| d.owner == relative.entry && d.aspect == relative.aspect);
+            let anchor = if has_aspect {
+                format!("atlas-dates-{}", relative.aspect.as_str())
+            } else {
+                "atlas-section-dates".to_string()
+            };
+            format!(
+                "<a href=\"{}#{anchor}\">{}</a>",
+                attr(&atlas_publication::entry_url(&relative.entry)),
+                text(label)
+            )
+        };
+        format!(
+            "{} the {} of {target}",
+            relative.order.as_str(),
+            atlas_publication::aspect_noun(relative.aspect)
+        )
+    }
+
+    /// One dating with who dates it, how firmly, on what evidence and with
+    /// what note. `anchored` gives it its fragment id (once per page);
+    /// `lead` replaces the plain date line with a sentence that names what
+    /// is dated.
+    fn atlas_dating(
+        &self,
+        atlas: &PublicAtlas,
+        dating: &PublicDating,
+        here: Option<&str>,
+        anchored: bool,
+        lead: Option<String>,
+    ) -> String {
+        let author = &self.site.config.author.name;
+        let id = if anchored {
+            format!(" id=\"atlas-d-{}\"", attr(&dating.id))
+        } else {
+            String::new()
+        };
+        let placement = match dating.placement {
+            Placement::Dated => "dated",
+            Placement::Relative => "relative",
+            Placement::Unknown => "unknown",
+        };
+        let date = self.atlas_date_html(atlas, dating, here);
+        let line = match lead {
+            Some(lead) => format!("{lead}: {date}"),
+            None => date,
+        };
+        let mut out = format!(
+            "<li{id} class=\"ob-atlas-dating\" data-placement=\"{placement}\">\n<p class=\"ob-atlas-date\">{line}</p>\n<dl>\n"
+        );
+        out.push_str(&format!(
+            "<dt>Dated by</dt><dd>{}</dd>\n",
+            text(&atlas.party_text(&dating.asserted_by, author))
+        ));
+        out.push_str(&format!(
+            "<dt>Confidence</dt><dd>{}: how firmly the dating party holds it, not how widely it is accepted.</dd>\n",
+            atlas_publication::confidence_text(dating.confidence)
+        ));
+        out.push_str("<dt>Evidence</dt><dd><ul>");
+        for item in &dating.evidence {
+            out.push_str(&format!(
+                "<li><cite>{}</cite></li>",
+                text(&atlas.evidence_text(item))
+            ));
+        }
+        out.push_str("</ul></dd>\n");
+        if let Some(note) = &dating.note {
+            out.push_str(&format!("<dt>Note</dt><dd>{}</dd>\n", text(note)));
+        }
+        out.push_str("</dl>\n</li>\n");
+        out
+    }
+
+    /// An entry's own datings, by aspect with competing datings side by
+    /// side, then the relative datings of other items that point at it.
+    /// Empty when it has neither, so its page is written as before.
+    fn atlas_entry_dates(&self, atlas: &PublicAtlas, entry: &PublicEntry) -> String {
+        let groups = atlas.dated_aspects_of(&entry.id);
+        let pointing = atlas.relative_to(&entry.id);
+        if groups.is_empty() && pointing.is_empty() {
+            return String::new();
+        }
+        let mut out = String::from(
+            "<section aria-labelledby=\"atlas-section-dates\">\n<h2 id=\"atlas-section-dates\">Dates</h2>\n",
+        );
+        out.push_str(&format!(
+            "<p class=\"ob-meta\">{} All published datings are also on the <a href=\"{}#atlas-timeline\">timeline</a>.</p>\n",
+            text(ATLAS_DATES_NOTE),
+            atlas_publication::ATLAS_URL
+        ));
+        for group in &groups {
+            out.push_str(&format!(
+                "<h3 id=\"atlas-dates-{}\">{}</h3>\n<p class=\"ob-meta\">{}</p>\n<ul class=\"ob-atlas-datings\">\n",
+                group.aspect.as_str(),
+                atlas_publication::aspect_heading(group.aspect),
+                competing_text(group.datings.len())
+            ));
+            for dating in &group.datings {
+                out.push_str(&self.atlas_dating(atlas, dating, Some(&entry.id), true, None));
+            }
+            out.push_str("</ul>\n");
+        }
+        if !pointing.is_empty() {
+            out.push_str("<h3 id=\"atlas-dates-relative-to\">Dated relative to this entry</h3>\n<p class=\"ob-meta\">Other items that someone dated before, after or during this entry. Each is that party's recorded order, not one worked out from dates; follow a link to continue the trail.</p>\n<ul class=\"ob-atlas-datings\">\n");
+            for dating in pointing {
+                // The step back: the dating in full on the page that owns it.
+                let href = match dating.owner_type {
+                    OwnerType::Entry => atlas_publication::entry_url(&dating.owner),
+                    OwnerType::Relationship => match atlas.relationship(&dating.owner) {
+                        Some(r) => atlas_publication::entry_url(&r.from),
+                        None => atlas_publication::ATLAS_URL.to_string(),
+                    },
+                };
+                let lead = format!(
+                    "{} of <a href=\"{}#atlas-d-{}\">{}</a>",
+                    capitalized(atlas_publication::aspect_noun(dating.aspect)),
+                    attr(&href),
+                    attr(&dating.id),
+                    text(&atlas.owner_text(&dating.owner, dating.owner_type))
+                );
+                out.push_str(&self.atlas_dating(atlas, dating, Some(&entry.id), false, Some(lead)));
+            }
+            out.push_str("</ul>\n");
+        }
+        out.push_str("</section>\n");
+        out
     }
 
     fn atlas_entry(&self, theme: &Theme, atlas: &PublicAtlas, entry: &PublicEntry) -> String {
@@ -2233,6 +2522,7 @@ impl<'a> Renderer<'a> {
                 text(&source.text)
             ));
         }
+        body.push_str(&self.atlas_entry_dates(atlas, entry));
         let (outgoing, incoming) = atlas.relationships_of(&entry.id);
         for (id, title, list) in [
             // Section ids and relationship ids (`atlas-r-<id>`) live in
@@ -2355,6 +2645,17 @@ impl<'a> Renderer<'a> {
                 text(uncertainty)
             ));
         }
+        // When it held: the relationship's own datings, never evidence for it.
+        for group in atlas.dated_aspects_of(&r.id) {
+            out.push_str(&format!(
+                "<dt>When it held</dt><dd><p>{}</p><ul class=\"ob-atlas-datings\">\n",
+                competing_text(group.datings.len())
+            ));
+            for dating in &group.datings {
+                out.push_str(&self.atlas_dating(atlas, dating, Some(&here.id), true, None));
+            }
+            out.push_str("</ul></dd>\n");
+        }
         if !r.contested_by.is_empty() {
             out.push_str("<dt>Disputed by</dt><dd><ul>");
             for dissent in &r.contested_by {
@@ -2399,6 +2700,7 @@ impl<'a> Renderer<'a> {
             reader_references: None,
             citation_previews: None,
             passage_data: None,
+            atlas_timeline: false,
             theme,
             published: None,
             modified: None,
@@ -2423,6 +2725,34 @@ impl<'a> Renderer<'a> {
 
 /// What the atlas index says before any entry.
 const ATLAS_LEDE: &str = "People, works, concepts, movements and events, and the relationships between them that the author has chosen to publish. Each relationship is one party's assertion on cited evidence; contested ones name who disagrees.";
+/// What the atlas timeline says before it lists anything (ADR 0127).
+const ATLAS_TIMELINE_NOTE: &str = "Every published dating in time order, grouped by the century in which each dated aspect's earliest dating begins. Each dating is one party's claim on cited evidence, at the precision it states. Competing datings of the same thing stand side by side; none is preferred, and nothing here resolves them. The order is for reading only: it never means that one thing caused or influenced another.";
+/// What an entry page says above its datings.
+const ATLAS_DATES_NOTE: &str = "Each dating is one party's claim on cited evidence, at the precision it states. Competing datings stand side by side; none is preferred, and nothing here resolves them.";
+
+/// "2 competing datings, side by side", or that only one is published.
+fn competing_text(count: usize) -> String {
+    if count == 1 {
+        "1 dating; no competing dating is published.".to_string()
+    } else {
+        format!("{count} competing datings, side by side. None is preferred.")
+    }
+}
+
+/// "1 published dating", "3 published datings".
+fn plural_text(count: usize, one: &str, many: &str) -> String {
+    format!("{count} {}", if count == 1 { one } else { many })
+}
+
+/// The first letter in upper case, for a generated word starting a sentence.
+fn capitalized(word: &str) -> String {
+    let mut chars = word.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
+
 /// What every atlas entry page says under its relationships.
 const ATLAS_NOTE: &str = "Every relationship here is one party's assertion on cited evidence, published with the author's approval. A contested relationship lists who disagrees. Nothing here claims that scholars agree.";
 

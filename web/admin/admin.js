@@ -2590,10 +2590,10 @@ export function atlasDatesText(count) {
   return `${kept}Each dating records who dates what, on which evidence, at the precision they state. Competing datings stay side by side; nothing picks one, averages them or converts calendars.`;
 }
 
-/** A dating's standing for publication, in words. Nothing publishes datings yet. */
+/** A dating's standing for publication, in words. Approved datings publish only while the site publishes its atlas. */
 export function atlasDatingVisibilityText(record, projected) {
   if (record?.visibility !== "approved") return "Private";
-  return projected ? "Approved for the publication projection; datings are not published yet" : "Approved, but stays private while what it dates, or the entry it is dated against, is private";
+  return projected ? "Approved for the publication projection; published with the atlas while the site publishes it" : "Approved, but stays private while what it dates, or the entry it is dated against, is private";
 }
 
 /** The explorer's time window from the filter fields, in historical years (negative is BCE). */
@@ -3047,7 +3047,7 @@ export function createAtlasForm({ api, state, type = "entry", item = null, prefi
         check(`${p}-unsourced`, "Unsourced draft: no evidence yet", dating.unsourced && !dating.evidence.length, (on) => { dating.unsourced = on; }, dating.evidence.length ? "Remove all evidence to mark this dating as an unsourced draft." : "The explicit draft state for a dating that cites nothing yet. It can be neither strong nor approved.", dating.evidence.length > 0),
       ),
       field(`${p}-note`, "Note (optional)", h("textarea", { rows: 2, value: dating.note, onInput: (event) => { dating.note = event.target.value; } }), "What is doubtful, or how the party reckons the date (a regnal year, an Olympiad). Stored as text."),
-      check(`${p}-approved`, "Approved for the publication projection", dating.approved, (on) => { dating.approved = on; }, "Your consent for this dating alone. It needs cited evidence and no notebook passage, and it stays private while what it dates, or the entry it is dated against, is private. Datings are not published yet."),
+      check(`${p}-approved`, "Approved for the publication projection", dating.approved, (on) => { dating.approved = on; }, "Your consent for this dating alone. It needs cited evidence and no notebook passage, and it stays private while what it dates, or the entry it is dated against, is private. While the site publishes its atlas, an approved dating appears on the entry's page, the timeline and atlas.json with who dates it, the evidence and the note."),
       h("button", { class: "oba-btn oba-btn-danger", type: "button", "data-atlas-remove-dating": String(index), onClick: () => { draft.datings.splice(index, 1); rerender("add-dating"); say(`Dating ${number} removed. Nothing is stored until you save.`); } }, `Remove dating ${number}`),
     );
   };
@@ -3107,7 +3107,7 @@ export function createAtlasForm({ api, state, type = "entry", item = null, prefi
     if (draft.kind === "work") fields.push(field("source", "Source-library work (optional)", sourceSelect(draft.source, (value) => { draft.source = value; }, "work"), "Editions, translations and witnesses are cited as evidence, never made entries."));
     fields.push(
       datingsEditor(),
-      check("approved", "Approved for the publication projection", draft.approved, (on) => { draft.approved = on; }, "Your consent to publish this entry on the site's Knowledge Atlas pages and atlas.json, once the site turns on knowledgeAtlas.publish. Only its label, other names, summary and work source are published; its datings are not published yet. Clearing it removes the entry from the next build."),
+      check("approved", "Approved for the publication projection", draft.approved, (on) => { draft.approved = on; }, "Your consent to publish this entry on the site's Knowledge Atlas pages and atlas.json, once the site turns on knowledgeAtlas.publish. Only its label, other names, summary and work source are published, with the datings you approve one by one. Clearing it removes the entry and its datings from the next build."),
     );
     return fields;
   };

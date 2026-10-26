@@ -18,8 +18,7 @@ All notable changes to open.blog are recorded here. Releases follow
   The Admin entry form no longer edits years; it keeps an entry's datings unchanged when you save.
 - If your site publishes its atlas, the years your approved entries showed from `bounds`
   disappear from /atlas/ pages and `atlas.json` on your next build, and stay gone until you cite
-  and approve a dating for each entry (cited, approved datings are published by a later release).
-  An uncited date is never published. `openblog build` and `openblog check` now warn about this,
+  and approve a dating for each entry. An uncited date is never published. `openblog build` and `openblog check` now warn about this,
   naming each affected entry and how many datings it holds, and Admin's atlas notices list each
   entry too.
 - `openblog check` now points out atlas datings that cannot all hold as recorded: a death dated
@@ -44,6 +43,26 @@ All notable changes to open.blog are recorded here. Releases follow
   chronology. Nothing here is published.
 - Chronology prompts from `openblog check` are now always listed in the same order, even when two
   parties record the same author.
+- Sites that publish their Knowledge Atlas now publish the datings you approved and cited. Each
+  entry's page lists its datings by what they date, with who dates each one, how firmly, the cited
+  evidence and your note, at the precision given and with BCE written out ("between c. 428 BCE
+  and 427 BCE", "the 380s BCE"). Competing datings stand side by side and are never resolved; a
+  relationship's datings appear under "When it held". `atlas.json` gains a `datings` list with
+  the same fields, the date as data and in words, and the first and last year each covers.
+  Unsourced, private and passage-cited datings, datings of unpublished items, datings relative to
+  a private entry, and your check prompts are never published, and an atlas without approved
+  datings builds exactly as before. The warning about entries without public years now names
+  only the entries that still have none.
+- `/atlas/` ends with a timeline when datings are published: an ordered list by century of every
+  published dating in full, then what cannot be placed in time, then the relative chronology. It
+  reads completely without JavaScript and prints whole; with JavaScript you can show one aspect
+  or only aspects with competing datings and go to a period from the keyboard, and a status line
+  says what is shown. Filters show or hide a whole dated aspect, never one dating or its
+  evidence. A dating relative to another entry links to that entry, whose page lists the datings
+  that point at it with links back, so relative chronology can be followed step by step; nothing
+  is worked out from dates.
+- Long unbroken titles in archive-style lists, such as the atlas index, now wrap instead of
+  making the page scroll sideways on a phone.
 
 ### Fixed
 

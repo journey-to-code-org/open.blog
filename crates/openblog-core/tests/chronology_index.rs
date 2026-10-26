@@ -866,7 +866,7 @@ fn prompts_beyond_the_limit_are_counted_not_listed() {
 }
 
 #[test]
-fn the_public_projection_is_unchanged_by_datings_and_their_prompts() {
+fn prompts_never_reach_the_public_projection_and_conflicting_datings_publish_side_by_side() {
     let value = |dates: Value| {
         json!({"version": 2,
             "entries": [
@@ -883,12 +883,20 @@ fn the_public_projection_is_unchanged_by_datings_and_their_prompts() {
     died["visibility"] = json!("approved");
     let conflicting = parse(&value(json!([born, died])));
     assert!(!ChronologyIndex::of(&conflicting).prompts.is_empty());
-    let plain = parse(&value(json!([])));
     let library = library();
+    let public = PublicAtlas::project(&conflicting, &library).unwrap();
+    // Both datings are published as recorded; the prompt about them is not,
+    // and nothing says which is right.
     assert_eq!(
-        PublicAtlas::project(&conflicting, &library)
-            .unwrap()
-            .to_json(),
-        PublicAtlas::project(&plain, &library).unwrap().to_json()
+        public
+            .datings
+            .iter()
+            .map(|d| d.id.as_str())
+            .collect::<Vec<_>>(),
+        ["died", "born"]
     );
+    let text = public.to_json();
+    for absent in ["prompt", "death-before-birth", "check", "conflict"] {
+        assert!(!text.contains(absent), "{absent} in {text}");
+    }
 }

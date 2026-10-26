@@ -14370,7 +14370,8 @@ mod tests {
             "id": ATLAS_SENTINELS[0].1, "kind": "person", "label": ATLAS_SENTINELS[1].1,
             "aliases": [ATLAS_SENTINELS[2].1], "summary": ATLAS_SENTINELS[3].1,
             "visibility": "approved", "shelf": ATLAS_SENTINELS[8].1,
-            // An approved, cited dating: no surface publishes datings yet.
+            // An approved, cited dating: published with the atlas (ADR 0126),
+            // except its unknown field.
             "dates": [{"id": ATLAS_SENTINELS[14].1, "aspect": "birth",
                 "date": {"notBefore": {"year": -428, "circa": true}, "notAfter": {"century": -5}},
                 "assertedBy": {"kind": "named", "name": ATLAS_SENTINELS[16].1},
@@ -14431,8 +14432,11 @@ mod tests {
         assert!(names.iter().any(|name| name.ends_with(".xml")), "a feed");
         for file in &files {
             let name = crate::fsutil::relative(&dist, file);
+            // The timeline component ships with every site like any other
+            // component; it holds no atlas data and no page loads it unless
+            // the site publishes datings.
             assert!(
-                !name.contains("atlas")
+                (!name.contains("atlas") || name == "assets/components/ob-atlas-timeline.js")
                     && (name == crate::fsutil::MARKER || !name.contains(".openblog")),
                 "{name}"
             );
@@ -15826,7 +15830,7 @@ mod tests {
     // level, private entries, private relationships and relationships to a private
     // entry never appear anywhere, and withdrawing approval removes them all.
 
-    const PUBLISHABLE: [usize; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 9, 10];
+    const PUBLISHABLE: [usize; 13] = [0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 14, 15, 16];
     const NEVER_PUBLIC: [(&str, &str); 3] = [
         ("private entry", "ob-atlas-private-entry-5309"),
         ("private relationship", "ob-atlas-private-relationship-5309"),
@@ -15871,7 +15875,7 @@ mod tests {
         f.state.rebuild().unwrap();
         let dist = f.dir.join("dist");
         let never = |text: &str| -> Vec<&'static str> {
-            let mut found: Vec<&'static str> = [8, 11, 12, 13, 14, 15, 16, 17]
+            let mut found: Vec<&'static str> = [8, 11, 12, 13, 17]
                 .iter()
                 .filter(|&&index| text.contains(ATLAS_SENTINELS[index].1))
                 .map(|&index| ATLAS_SENTINELS[index].0)
@@ -15915,6 +15919,13 @@ mod tests {
                 .unwrap();
         assert!(page.contains("<strong>Contested:</strong>"));
         assert!(page.contains(ATLAS_SENTINELS[10].1) && page.contains(ATLAS_SENTINELS[9].1));
+        // The approved dating is on the entry's page and the timeline, with
+        // its party and note; its unknown field is not (checked above).
+        assert!(page.contains(&format!("id=\"atlas-d-{}\"", ATLAS_SENTINELS[14].1)));
+        assert!(page.contains(ATLAS_SENTINELS[15].1) && page.contains(ATLAS_SENTINELS[16].1));
+        let index = fs::read_to_string(dist.join("atlas/index.html")).unwrap();
+        assert!(index.contains(&format!("id=\"atlas-d-{}\"", ATLAS_SENTINELS[14].1)));
+        assert!(index.contains("/assets/components/ob-atlas-timeline.js"));
 
         // The public server serves the projection, and still never the private file.
         let response = crate::serve::route(&f.state, &req("GET", "/atlas.json"), &dist);

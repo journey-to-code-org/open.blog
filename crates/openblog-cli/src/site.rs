@@ -95,6 +95,10 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
         include_str!("../../../web/components/ob-citation-previews.js"),
     ),
     (
+        "components/ob-atlas-timeline.js",
+        include_str!("../../../web/components/ob-atlas-timeline.js"),
+    ),
+    (
         "components/ob-passage-feedback.js",
         include_str!("../../../web/components/ob-passage-feedback.js"),
     ),
@@ -663,7 +667,7 @@ fn unpublished_datings_warning(
         ));
     }
     format!(
-        "{} approved Knowledge Atlas entr{} no years on /atlas/ or in atlas.json, because none of {} datings can be published: {}. Years from version 1 `bounds` are now private, unsourced datings, and only cited, approved datings are published (from #59); `openblog check` names each entry.",
+        "{} approved Knowledge Atlas entr{} no years on /atlas/ or in atlas.json, because none of {} datings can be published: {}. Only cited, approved datings are published, and years from version 1 `bounds` became private, unsourced datings; cite and approve a dating to publish it. `openblog check` names each entry.",
         undated.len(),
         if undated.len() == 1 {
             "y shows"
@@ -1629,7 +1633,14 @@ mod tests {
         fs::write(root.join(crate::atlas_store::ATLAS_FILE), "{ not json").unwrap();
         production_build(&root);
         assert_eq!(dist_bytes(&root), without);
-        assert!(without.keys().all(|path| !path.contains("atlas")));
+        // Only the timeline component, which ships with every site like any
+        // other component, carries the word; no page loads it.
+        assert!(without.keys().all(
+            |path| !path.contains("atlas") || path == "assets/components/ob-atlas-timeline.js"
+        ));
+        assert!(without
+            .values()
+            .all(|bytes| !String::from_utf8_lossy(bytes).contains("ob-atlas-timeline.js")));
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -1700,7 +1711,7 @@ mod tests {
         let undated_warning = |warnings: &[String]| {
             warnings
                 .iter()
-                .find(|warning| warning.contains("show no years"))
+                .find(|warning| warning.contains("no years on /atlas/"))
                 .cloned()
         };
         let report = production_build(&root);
@@ -1715,11 +1726,11 @@ mod tests {
             "{warning}"
         );
         assert!(
-            warning.contains("version 1 `bounds` are now private, unsourced datings"),
+            warning.contains("version 1 `bounds` became private, unsourced datings"),
             "{warning}"
         );
         assert!(
-            warning.contains("cited, approved datings are published (from #59)"),
+            warning.contains("Only cited, approved datings are published"),
             "{warning}"
         );
         // Ids and counts only: neither labels nor years, and never the
@@ -1759,13 +1770,50 @@ mod tests {
             ]
         );
 
-        // Once a dating cites evidence and is approved, nothing is withheld
-        // from the entry, whatever the dating is called.
+        // Once a dating cites evidence and is approved, it is published and
+        // the warning names only the entries still lacking one, whatever the
+        // datings are called.
         fs::write(
             root.join(crate::atlas_store::ATLAS_FILE),
             r#"{"version":2,"entries":[
               {"id":"plato","kind":"person","label":"Plato","visibility":"approved","dates":[
                 {"id":"plato-span","aspect":"span","date":{"from":{"year":-428},"to":{"year":-348}},"assertedBy":{"kind":"author"},"unsourced":true},
+                {"id":"plato-death","aspect":"death","date":{"at":{"year":-348,"circa":true}},"assertedBy":{"kind":"source","source":"apology"},"evidence":[{"source":"apology"}],"visibility":"approved"}]},
+              {"id":"socrates","kind":"person","label":"Socrates","visibility":"approved","dates":[
+                {"id":"socrates-span","aspect":"span","date":{"to":{"year":-399}},"assertedBy":{"kind":"author"},"unsourced":true}]}]}"#,
+        )
+        .unwrap();
+        let report = production_build(&root);
+        let warning = undated_warning(&report.warnings)
+            .unwrap_or_else(|| panic!("socrates still shows no years: {:?}", report.warnings));
+        assert!(
+            warning.starts_with("1 approved Knowledge Atlas entry shows no years"),
+            "{warning}"
+        );
+        assert!(warning.contains("`socrates` (1 dating)"), "{warning}");
+        assert!(!warning.contains("plato"), "{warning}");
+        let atlas_json = fs::read_to_string(root.join("dist/atlas.json")).unwrap();
+        assert!(atlas_json.contains("\"plato-death\""), "{atlas_json}");
+        assert!(
+            atlas_json.contains("\"text\":\"c. 348 BCE\""),
+            "{atlas_json}"
+        );
+        assert!(!atlas_json.contains("plato-span"), "{atlas_json}");
+        assert!(!atlas_json.contains("socrates-span"), "{atlas_json}");
+        let page = fs::read_to_string(root.join("dist/atlas/plato/index.html")).unwrap();
+        assert!(page.contains("<h2 id=\"atlas-section-dates\">Dates</h2>"));
+        assert!(page.contains("<p class=\"ob-atlas-date\">c. 348 BCE</p>"));
+        let index = fs::read_to_string(root.join("dist/atlas/index.html")).unwrap();
+        assert!(index.contains("<h2 id=\"atlas-timeline\">Timeline</h2>"));
+        assert!(index.contains("/assets/components/ob-atlas-timeline.js?v="));
+        assert!(root
+            .join("dist/assets/components/ob-atlas-timeline.js")
+            .is_file());
+
+        fs::write(
+            root.join(crate::atlas_store::ATLAS_FILE),
+            r#"{"version":2,"entries":[
+              {"id":"plato","kind":"person","label":"Plato","visibility":"approved","dates":[
                 {"id":"plato-death","aspect":"death","date":{"at":{"year":-348,"circa":true}},"assertedBy":{"kind":"source","source":"apology"},"evidence":[{"source":"apology"}],"visibility":"approved"}]}]}"#,
         )
         .unwrap();

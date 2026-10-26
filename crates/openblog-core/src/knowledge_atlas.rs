@@ -1891,9 +1891,8 @@ impl Atlas {
     }
 
     /// The datings the publication projection may copy, each with the id of
-    /// the entry or relationship it dates, in file order (entries first). No
-    /// surface publishes them yet; the chronology publication slice reads
-    /// them from here.
+    /// the entry or relationship it dates, in file order (entries first).
+    /// `PublicAtlas::project` copies them from here (ADR 0126).
     pub fn projected_datings(&self) -> Vec<(&str, &Dating)> {
         self.all_datings()
             .into_iter()
@@ -2035,7 +2034,7 @@ impl Atlas {
                 &entry.id,
                 "dates",
                 format!(
-                    "`{}` is published, but none of its {count} dating{} can be, so public pages show no years for it: years from version 1 `bounds` are now private, unsourced datings, and only cited, approved datings are published (from #59)",
+                    "`{}` is published, but none of its {count} dating{} can be, so public pages show no years for it: only cited, approved datings are published, and years from version 1 `bounds` became private, unsourced datings",
                     entry.id,
                     if count == 1 { "" } else { "s" }
                 ),
