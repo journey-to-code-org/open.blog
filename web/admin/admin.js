@@ -8024,7 +8024,12 @@ export class ObAdmin extends AdminElement {
     const requested = location.hash || "#/overview";
     const nextHash = canonicalAdminHash(requested);
     // Earlier research routes redirect without adding a history entry.
-    if (location.hash && nextHash !== requested) history.replaceState(null, "", nextHash);
+    if (location.hash && nextHash !== requested) {
+      history.replaceState(null, "", nextHash);
+      // An earlier address of the panel already open only corrects the address; reloading the
+      // panel would discard what is in it.
+      if (nextHash === this.currentHash) return;
+    }
     const previousHash = this.currentHash;
     if (this.editor && this.workspaceDraft) this.workspaceDraft.title = this.editor.currentTitle();
     // Another view of the open draft, such as its claims: switch views, never reload the draft.

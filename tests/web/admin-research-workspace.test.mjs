@@ -562,6 +562,31 @@ test("a source save in flight is never kept, so its result lands and the next sa
   assert.equal(api.calls.at(-1).body.revision, "r2", "the next save names the revision the first one produced");
 }));
 
+test("an earlier address of the open panel corrects the address without reloading it", withDom(async (dom) => {
+  const { app, root } = mountApp(fakeApi({ "GET sources": () => LIBRARY() }));
+  let notebookMounts = 0;
+  app.showResearch = async function () {
+    notebookMounts += 1;
+    this.mount(this.shell("research", node("p", "the notebook")));
+  };
+  await go(app, "#/research/sources");
+  await buttonLabelled(root, "New source").click();
+  const title = byId(root, "oba-source-title");
+  await type(title, "Unsaved");
+  await go(app, "#/sources");
+  assert.deepEqual(dom.questions, [], "nothing is asked");
+  assert.equal(dom.location.hash, "#/research/sources");
+  assert.equal(dom.replaced.at(-1), "#/research/sources");
+  assert.equal(byId(root, "oba-source-title"), title, "the same form, edits and all");
+  assert.equal(title.value, "Unsaved");
+  assert.equal(app.kept.size, 0);
+
+  await go(app, "#/research/notebook");
+  await go(app, "#/research");
+  assert.equal(notebookMounts, 1, "the bare notebook route does not reload the open notebook");
+  assert.equal(dom.location.hash, "#/research/notebook");
+}));
+
 test("leaving the workspace asks before unsaved research is lost, and declining keeps it", withDom(async (dom) => {
   const { app, root } = mountApp(fakeApi({ "GET sources": () => LIBRARY() }));
   app.showList = async function () {
