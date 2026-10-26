@@ -199,6 +199,7 @@ pub fn gather(root: &Path, site: &Site) -> Gathered {
         // When the build reads research, the finding of why is already in the
         // report, scoped to the file; otherwise nothing is blamed.
         _ if reads_atlas || reads_comparisons || (reads_claims && published.claims_stored) => {}
+        _ if !exists(root, source_store::LIBRARY_FILE) && !exists(root, notebook_store::NOTEBOOK_FILE) => {}
         _ => gathered.not_reviewed.push(NotReviewed {
             part: "source-review",
             message: format!(
@@ -228,6 +229,7 @@ pub fn gather(root: &Path, site: &Site) -> Gathered {
         }
         Ok(_) => {}
         Err(error) => unread(
+            root,
             &mut gathered,
             reads_atlas,
             "atlas",
@@ -255,6 +257,7 @@ pub fn gather(root: &Path, site: &Site) -> Gathered {
         }
         Ok(_) => {}
         Err(error) => unread(
+            root,
             &mut gathered,
             reads_claims,
             "claims",
@@ -280,6 +283,7 @@ pub fn gather(root: &Path, site: &Site) -> Gathered {
         }
         Ok(_) => {}
         Err(error) => unread(
+            root,
             &mut gathered,
             reads_comparisons,
             "alignments",
@@ -316,8 +320,16 @@ pub fn gather(root: &Path, site: &Site) -> Gathered {
 /// A stored file that cannot be read. When the build reads it, the finding of
 /// why is already in the report; otherwise the report says it was not
 /// reviewed, and nothing is repaired.
-fn unread(gathered: &mut Gathered, reads: bool, part: &'static str, file: &str, error: &str) {
-    if reads {
+fn unread(
+    root: &Path,
+    gathered: &mut Gathered,
+    reads: bool,
+    part: &'static str,
+    file: &str,
+    error: &str,
+) {
+    // A file that is not there is not unreadable: there is nothing to review.
+    if reads || std::fs::symlink_metadata(root.join(file)).is_err() {
         return;
     }
     gathered.not_reviewed.push(NotReviewed {
@@ -370,4 +382,54 @@ fn content_revision(root: &Path) -> Option<u64> {
         std::fs::read(&file).ok().hash(&mut hasher);
     }
     Some(hasher.finish())
+}
+
+fn exists(root: &Path, file: &str) -> bool {
+    std::fs::symlink_metadata(root.join(file)).is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_file_is_reported_unread_only_when_it_exists() {
+        let root = std::env::temp_dir().join(format!("ob-readiness-unread-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(".openblog/private/research")).unwrap();
+        let mut gathered = Gathered::default();
+        unread(
+            &root,
+            &mut gathered,
+            false,
+            "atlas",
+            atlas_store::ATLAS_FILE,
+            "x",
+        );
+        assert!(gathered.not_reviewed.is_empty(), "nothing to review");
+        std::fs::write(root.join(atlas_store::ATLAS_FILE), "{").unwrap();
+        unread(
+            &root,
+            &mut gathered,
+            false,
+            "atlas",
+            atlas_store::ATLAS_FILE,
+            "x",
+        );
+        assert_eq!(gathered.not_reviewed.len(), 1);
+        unread(
+            &root,
+            &mut gathered,
+            true,
+            "atlas",
+            atlas_store::ATLAS_FILE,
+            "x",
+        );
+        assert_eq!(
+            gathered.not_reviewed.len(),
+            1,
+            "the build's own finding stands"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
