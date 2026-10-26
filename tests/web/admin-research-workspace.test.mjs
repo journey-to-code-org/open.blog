@@ -349,6 +349,7 @@ test("switching panels keeps unsaved work, and only discarding it asks first", (
   assert.deepEqual(plan({ fromHash: "#/research/notebook", toHash: "#/research/atlas", currentDirty: true }), { ...none, keep: "notebook" });
   assert.deepEqual(plan({ fromHash: "#/research/notebook", toHash: "#/research/atlas", currentDirty: false }), none, "a clean panel reloads fresh");
   assert.deepEqual(plan({ fromHash: "#/edit/posts%2Fa.md", toHash: "#/research/sources", currentDirty: true, saving: true }), { ...none, confirm: ["draft"] }, "a draft is never kept mid-save");
+  assert.deepEqual(plan({ fromHash: "#/research/sources", toHash: "#/research/notebook", currentDirty: true, saving: true }), { ...none, confirm: ["sources"] }, "nor is a research panel");
   assert.deepEqual(plan({ fromHash: "#/research/atlas/plato", toHash: "#/research/atlas/socrates", currentDirty: true }), { ...none, confirm: ["atlas"] }, "reloading the same panel asks");
   assert.deepEqual(plan({ fromHash: "#/research/notebook", toHash: "#/posts", currentDirty: true }), { ...none, confirm: ["notebook"] }, "leaving the workspace asks");
   assert.deepEqual(plan({ fromHash: "#/contributors", toHash: "#/research/sources", currentDirty: true }), { ...none, confirm: ["current"] }, "a view outside the workspace is never kept");
@@ -524,6 +525,41 @@ test("a source draft is kept while another panel opens, and returns exactly as l
   assert.equal(api.calls[0].body.source.title, "The Republic");
   assert.match(root.textContent, /The Republic saved\./, "the restored panel takes its save result");
   assert.equal(app.hasUnsavedView(), false);
+}));
+
+test("a source save in flight is never kept, so its result lands and the next save sends its revision", withDom(async (dom) => {
+  let finish;
+  const api = fakeApi({
+    "GET sources": () => LIBRARY(),
+    "POST sources": (body) => new Promise((resolve) => {
+      finish = () => resolve({ revision: "r2", stored: true, source: body.source });
+    }),
+    "PUT sources": (body) => ({ revision: "r3", stored: true, source: body.source }),
+  });
+  const { app, root } = mountApp(api);
+  app.showResearch = async function () {
+    this.mount(this.shell("research", node("p", "the notebook")));
+  };
+  await go(app, "#/research/sources");
+  await buttonLabelled(root, "New source").click();
+  await type(byId(root, "oba-source-id"), "republic");
+  await type(byId(root, "oba-source-title"), "The Republic");
+  const saving = root.querySelector("form").dispatch("submit");
+  assert.equal(app.isSavingView(), true);
+
+  dom.answers.push(false);
+  await go(app, "#/research/notebook");
+  assert.deepEqual(dom.questions, ["You have unsaved changes in Sources. Leave without saving?"], "a panel mid-save is asked about, not kept");
+  assert.equal(app.kept.size, 0);
+  assert.equal(dom.location.hash, "#/research/sources");
+
+  finish();
+  await saving;
+  assert.match(root.textContent, /The Republic saved\./, "the save's result reaches the open panel");
+  await type(byId(root, "oba-source-title"), "The Republic, revised");
+  await root.querySelector("form").dispatch("submit");
+  assert.equal(api.calls.at(-1).method, "PUT");
+  assert.equal(api.calls.at(-1).body.revision, "r2", "the next save names the revision the first one produced");
 }));
 
 test("leaving the workspace asks before unsaved research is lost, and declining keeps it", withDom(async (dom) => {

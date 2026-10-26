@@ -212,8 +212,9 @@ export function planWorkspaceNavigation({ fromHash = "", toHash = "", currentDir
   const to = workspacePanelKey(toHash);
   const plan = { keep: null, restore: null, discard: [], confirm: [] };
   if (currentDirty && fromHash !== toHash) {
-    // A save in flight still owns the editor and its address, so the draft is not kept mid-save.
-    const keepable = from && from !== "overview" && to && to !== from && !(from === "draft" && saving);
+    // A save in flight still owns its panel: its result must land on the open view and its
+    // address, so no panel (the draft or a research form) is kept mid-save.
+    const keepable = from && from !== "overview" && to && to !== from && !saving;
     if (keepable) plan.keep = from;
     else plan.confirm.push(from || "current");
   }
@@ -7166,6 +7167,10 @@ export class ObAdmin extends AdminElement {
   viewSerial = 0;
   // The open view's own unsaved-changes test, for views whose forms keep their own state.
   viewDirty = null;
+  // Whether the open view's own save is in flight, for views that save outside the editor.
+  viewBusy = null;
+  // The user whose session kept the workspace's panels when it ended, so only they get them back.
+  keptOwner = "";
   // Research workspace panels kept with unsaved changes while another panel is open, by key.
   kept = new Map();
   // The document the research workspace returns to: { hash, kind, title }.
@@ -7375,6 +7380,7 @@ export class ObAdmin extends AdminElement {
     this.editor?.dispose();
     this.editor = null;
     this.viewDirty = null;
+    this.viewBusy = null;
     this.viewVersion = ++this.viewSerial;
     this.replaceChildren(...nodes);
   }
@@ -7387,6 +7393,11 @@ export class ObAdmin extends AdminElement {
   /** Whether the open view has unsaved changes, in the editor or in a view's own form. */
   hasUnsavedView() {
     return Boolean(this.dirty || this.viewDirty?.());
+  }
+
+  /** Whether the open view's save is in flight, in the editor or in a view's own form. */
+  isSavingView() {
+    return Boolean(this.editor?.saving || this.viewBusy?.());
   }
 
   /** Whether any unsaved work exists, in the open view or in a kept workspace panel. */
@@ -7420,10 +7431,12 @@ export class ObAdmin extends AdminElement {
       nodes: this.workspaceMain ? [...this.workspaceMain.childNodes] : [],
       viewVersion: this.viewVersion,
       viewDirty,
+      viewBusy: this.viewBusy,
       editor,
       isDirty: () => Boolean(editor || viewDirty?.()),
     });
     this.viewDirty = null;
+    this.viewBusy = null;
   }
 
   discardKept(key) {
@@ -7439,6 +7452,7 @@ export class ObAdmin extends AdminElement {
     this.editor = null;
     this.viewVersion = record.viewVersion;
     this.viewDirty = record.viewDirty;
+    this.viewBusy = record.viewBusy;
     // A kept research panel reopens where it was left; the draft can open on another of its views.
     const hash = key === "draft" ? requestedHash : record.hash;
     if (location.hash !== hash) history.replaceState(null, "", hash);
@@ -8023,7 +8037,7 @@ export class ObAdmin extends AdminElement {
       fromHash: previousHash,
       toHash: nextHash,
       currentDirty: this.hasUnsavedView(),
-      saving: Boolean(this.editor?.saving),
+      saving: this.isSavingView(),
       kept: [...this.kept.values()].map((record) => ({ key: record.key, hash: record.hash, dirty: record.isDirty() })),
     });
     if (plan.confirm.length && !(await this.confirmLeave(plan.confirm))) {
@@ -8936,8 +8950,10 @@ export class ObAdmin extends AdminElement {
         h("div", { class: "oba-source-layout" }, h("nav", { "aria-label": "Sources" }, list), panel),
       ),
     );
-    // The research workspace keeps this panel, instead of losing it, while another one is open.
+    // The research workspace keeps this panel, instead of losing it, while another one is open,
+    // but never while a save is running: its result has to land on this view (ADR 0133).
     this.viewDirty = () => dirty;
+    this.viewBusy = () => busy;
   }
 
   // ---- research workspace
