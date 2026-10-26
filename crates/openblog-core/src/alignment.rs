@@ -16,18 +16,24 @@
 //! wording stays in the notebook passage (quoted exactly) or the
 //! interpretation; a member's `normalized` text is the author's
 //! normalization, kept apart from it.
+//!
+//! An alignment is private until the author approves it (`visibility:
+//! "approved"`), which is consent for the comparison projection (ADR 0128) to
+//! publish it while the site opts in. Approval publishes nothing by itself,
+//! and the projection, not this module, decides what of it is public.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Map, Value};
 
+pub use crate::knowledge_atlas::Visibility;
 use crate::knowledge_atlas::{
     atlas_diagnostic, check_attribution, check_evidence, item_diagnostic, open, parse_attribution,
     parse_evidence_list, parse_locator, AtlasDiagnostic, AtlasDiagnosticCode as Code, Attribution,
     Confidence, Ctx, DiagnosticSubject, Evidence, Links, Obj, MAX_LOCATORS, MAX_SHORT_CHARS,
     MAX_UNCERTAINTY_CHARS,
 };
-use crate::research_notes::{locator_ambiguity, Locator, Visibility};
+use crate::research_notes::{locator_ambiguity, Locator};
 use crate::source_library::ResearchSourceKind;
 
 /// The only alignments file version this release reads and writes.
@@ -180,12 +186,26 @@ pub struct Alignment {
     /// Sources the alignment rests on, such as an apparatus or concordance.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub evidence: Vec<Evidence>,
+    /// `Private` (the default), or `Approved`: the author's consent for the
+    /// comparison projection to publish this alignment (ADR 0128).
     pub visibility: Visibility,
+    /// The author chose to publish members' normalizations, labelled, beside
+    /// original wording that is itself published. Written only when true.
+    #[serde(
+        rename = "publishNormalized",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub publish_normalized: bool,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
 }
 
 impl Alignment {
+    /// Whether the author approved the alignment for publication.
+    pub fn is_approved(&self) -> bool {
+        self.visibility == Visibility::Approved
+    }
+
     /// The distinct versions the alignment relates, in member order.
     pub fn versions(&self) -> Vec<MemberVersion<'_>> {
         let mut seen = BTreeSet::new();
@@ -387,18 +407,8 @@ fn parse_alignment(
     let known = ctx.id.clone();
     let id = obj.id(&mut ctx, "id", "alignment identifier", true);
     obj.reject_credits(&mut ctx);
-    let visibility = match obj.map.remove("visibility") {
-        None => Visibility::Private,
-        Some(Value::String(value)) if value == "private" => Visibility::Private,
-        Some(_) => {
-            ctx.report(
-                Code::InvalidVisibility,
-                "visibility",
-                "alignments are private research: use `private`; nothing publishes an alignment",
-            );
-            Visibility::Private
-        }
-    };
+    let visibility = obj.visibility(&mut ctx);
+    let publish_normalized = obj.flag(&mut ctx, "publishNormalized");
     let label = obj.text(&mut ctx, "label", false, MAX_SHORT_CHARS, false);
     let correspondence = match obj.map.remove("correspondence") {
         None => Some(Correspondence::Corresponding),
@@ -472,6 +482,7 @@ fn parse_alignment(
                 recorded_by,
                 evidence,
                 visibility,
+                publish_normalized,
                 extra,
             }),
         ),

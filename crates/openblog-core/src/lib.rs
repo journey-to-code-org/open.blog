@@ -23,6 +23,7 @@
 //! - [`claim_publication`]: the one public projection of approved claims and evidence, with revision notes
 //! - [`knowledge_atlas`]: the private Knowledge Atlas of entries and attributed relationships
 //! - [`atlas_publication`]: the one public projection of its approved items, for pages and `atlas.json`
+//! - [`comparison_publication`]: the one public projection of approved passage alignments, rights-gated, for pages and `comparisons.json`
 //! - [`passage_target`]: stable passage targets in published text, resolved as current, re-anchored or stale
 //! - [`feedback_provenance`]: which revision a reader's feedback was about and when, with consent-gated attribution
 //! - [`scholarly_feedback`]: typed reader questions, suggested sources and corrections and other interpretations, as submitted and as received
@@ -42,6 +43,7 @@ pub mod claim_publication;
 pub mod claim_review;
 pub mod claims;
 pub mod collaboration;
+pub mod comparison_publication;
 pub mod config;
 pub mod contributor;
 pub mod date;

@@ -249,12 +249,25 @@ fn an_alignment_never_implies_semantic_equivalence_or_authority() {
     let problems = refused(|v| v["alignments"][0]["correspondence"] = json!("equivalent"));
     assert_eq!(problems[0].0, Code::InvalidField);
     assert_eq!(problems[0].2.as_deref(), Some("correspondence"));
-    let problems = refused(|v| v["alignments"][0]["visibility"] = json!("approved"));
+    // Approval is consent for the comparison projection (ADR 0128); nothing
+    // else may mark an alignment public.
+    let problems = refused(|v| v["alignments"][0]["visibility"] = json!("public"));
+    assert_eq!(problems[0].0, Code::InvalidVisibility);
+    let mut approved = fixture();
+    approved["alignments"][0]["visibility"] = json!("approved");
+    approved["alignments"][0]["publishNormalized"] = json!(true);
+    let set = parse(&approved).unwrap();
+    assert!(set.alignments[0].is_approved() && set.alignments[0].publish_normalized);
+    assert!(!set.alignments[1].is_approved() && !set.alignments[1].publish_normalized);
+    let text = set.to_json();
+    assert!(text.contains("\"visibility\": \"approved\""));
     assert_eq!(
-        problems[0].0,
-        Code::InvalidVisibility,
-        "alignments stay private"
+        text.matches("publishNormalized").count(),
+        1,
+        "written only when true"
     );
+    let problems = refused(|v| v["alignments"][0]["publishNormalized"] = json!("yes"));
+    assert_eq!(problems[0].2.as_deref(), Some("publishNormalized"));
     for correspondence in [
         Correspondence::Corresponding,
         Correspondence::Partial,
