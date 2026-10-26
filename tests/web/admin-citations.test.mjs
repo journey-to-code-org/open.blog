@@ -655,6 +655,41 @@ test("Markdown insertion is refused inside code and link text", () => {
   assert.equal(citationInsertionProblem(markdown, markdown.indexOf(" here")), "");
 });
 
+test("Markdown insertion is refused in autolinks, indented code, multi-line spans and links, and HTML", () => {
+  const at = (markdown, needle, shift = 1) => citationInsertionProblem(markdown, markdown.indexOf(needle) + shift);
+  // Autolinks, web and email.
+  assert.equal(at("See <https://example.com/a> now.", "example"), "link");
+  assert.equal(at("Write <someone@example.com> now.", "example"), "link");
+  assert.equal(at("See <https://example.com/a> now.", " now"), "");
+  // Indented code after a blank line, but not a lazy continuation line.
+  assert.equal(at("Text.\n\n    indented code\n", "code"), "code");
+  assert.equal(at("Text.\n\n\tindented code\n", "code"), "code");
+  assert.equal(at("Text\n    continued here.\n", "continued"), "");
+  // Code spans and links over several lines of one paragraph.
+  assert.equal(at("A `code\nspan` here.", "span", 0), "code");
+  assert.equal(at("A `code\nspan` here.", " here"), "");
+  assert.equal(at("A [link\ntext](https://example.com) end.", "text"), "link");
+  assert.equal(at("A [link](https://\nexample.com) end.", "example"), "link");
+  assert.equal(at("A [link\ntext](https://example.com) end.", " end"), "");
+  // HTML comments, inline and as blocks, and HTML blocks.
+  assert.equal(at("Text <!-- a\nnote --> after.", "note"), "html");
+  assert.equal(at("Text <!-- a\nnote --> after.", " after"), "");
+  assert.equal(at("<!--\nhidden\n-->\n\nVisible.", "hidden"), "html");
+  assert.equal(at("<!--\nhidden\n-->\n\nVisible.", "Visible"), "");
+  assert.equal(at("<div>\ninside block\n</div>\n\nOutside.", "inside"), "html");
+  assert.equal(at("<div>\ninside block\n</div>\n\nOutside.", "Outside"), "");
+  assert.equal(at("<span class=\"x\">\n\nAfter.", "class"), "html");
+  assert.equal(at("Text <span title=\"a b\">kept</span>.", "a b"), "html");
+  assert.equal(at("Text <span title=\"a b\">kept</span>.", "kept"), "");
+  assert.equal(at("<pre>\nraw\n\nstill raw\n</pre>\nAfter.", "still"), "html");
+  // A link reference definition, and containers that hold ordinary text.
+  assert.equal(at("[label]: https://example.com\n", "example"), "link");
+  assert.equal(at("> Quoted text.\n", "Quoted"), "");
+  assert.equal(at("- Listed text.\n", "Listed"), "");
+  assert.equal(at("> ```\n> fenced\n> ```\n", "fenced"), "code");
+  assert.equal(at("- ```\n  fenced\n  ```\n", "fenced"), "code");
+});
+
 function dialogEditor(dom, draft, caret) {
   const editor = Object.create(Editor.prototype);
   editor.editorMode = "markdown";

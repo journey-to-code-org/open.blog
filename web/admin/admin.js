@@ -943,30 +943,128 @@ function markdownLinkRanges(line) {
   return ranges;
 }
 
+/** HTML tag names that start an HTML block (CommonMark type 6), which runs to the next blank line. */
+const HTML_BLOCK_TAGS = new Set("address article aside base basefont blockquote body caption center col colgroup dd details dialog dir div dl dt fieldset figcaption figure footer form frame frameset h1 h2 h3 h4 h5 h6 head header hr html iframe legend li link main menu menuitem nav noframes ol optgroup option p param search section summary table tbody td tfoot th thead title tr track ul".split(" "));
+const HTML_ATTRIBUTES = String.raw`(?:\s+[A-Za-z_:][\w.:-]*(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>\x60]+))?)*`;
+const HTML_OPEN_TAG = String.raw`<[A-Za-z][A-Za-z0-9-]*${HTML_ATTRIBUTES}\s*\/?>`;
+const HTML_CLOSE_TAG = String.raw`<\/[A-Za-z][A-Za-z0-9-]*\s*>`;
+const HTML_TAG_LINE = new RegExp(String.raw`^(?:${HTML_OPEN_TAG}|${HTML_CLOSE_TAG})\s*$`);
+const INLINE_HTML = new RegExp(String.raw`<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<![A-Za-z][^>]*>|<!\[CDATA\[[\s\S]*?\]\]>|${HTML_OPEN_TAG}|${HTML_CLOSE_TAG}`, "g");
+const AUTOLINK = /<[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]*>|<[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*>/g;
+
+/** A line without its block quote and list markers, so fences and HTML inside containers are seen too. */
+function containerContent(line) {
+  return line.replace(/^(?: {0,3}>[ \t]?| {0,3}(?:[-+*]|\d{1,9}[.)])(?:[ \t]+|$))*/, "");
+}
+
+/** The width of a line's leading whitespace, with tabs to the next multiple of four. */
+function indentWidth(line) {
+  let width = 0;
+  for (const character of line) {
+    if (character === " ") width += 1;
+    else if (character === "\t") width += 4 - (width % 4);
+    else break;
+  }
+  return width;
+}
+
 /**
- * Why a new citation cannot go at `at` in Markdown: `"code"` inside fenced
- * code or a code span, `"link"` inside a link or image (its text or address),
- * where it would not be read as a citation; otherwise `""`.
+ * How an HTML block that starts on this line ends: a test for its closing
+ * line, `"blank"` for one that runs to the next blank line, or null when the
+ * line starts no HTML block. A lone tag line starts one only after a blank
+ * line, since that kind cannot interrupt a paragraph.
+ */
+function htmlBlockEnd(content, afterBlank) {
+  const rest = /^ {0,3}(<.*)$/.exec(content)?.[1];
+  if (!rest) return null;
+  const raw = /^<(script|pre|style|textarea)(?:\s|>|$)/i.exec(rest);
+  if (raw) return (line) => new RegExp(`</${raw[1]}>`, "i").test(line);
+  if (rest.startsWith("<!--")) return (line) => line.includes("-->");
+  if (rest.startsWith("<?")) return (line) => line.includes("?>");
+  if (rest.startsWith("<![CDATA[")) return (line) => line.includes("]]>");
+  if (/^<![A-Za-z]/.test(rest)) return (line) => line.includes(">");
+  const tag = /^<\/?([A-Za-z][A-Za-z0-9-]*)(?:\s|\/?>|$)/.exec(rest);
+  if (tag && HTML_BLOCK_TAGS.has(tag[1].toLowerCase())) return "blank";
+  if (afterBlank && HTML_TAG_LINE.test(rest)) return "blank";
+  return null;
+}
+
+/** Each line of Markdown as `"code"`, `"html"`, `"blank"` or paragraph `"text"`. */
+function markdownLineKinds(lines) {
+  const kinds = [];
+  let fence = null;
+  let html = null;
+  for (const [index, line] of lines.entries()) {
+    const content = containerContent(line);
+    const blank = !content.trim();
+    const previous = kinds[index - 1];
+    const afterBlank = previous !== "text";
+    if (fence) {
+      const marker = /^\s*(`{3,}|~{3,})\s*$/.exec(content);
+      if (marker && marker[1][0] === fence[0] && marker[1].length >= fence.length) fence = null;
+      kinds.push("code");
+    } else if (html) {
+      const closes = html === "blank" ? blank : html(line);
+      kinds.push(closes && html === "blank" ? "blank" : "html");
+      if (closes) html = null;
+    } else if (blank) {
+      kinds.push("blank");
+    } else {
+      const marker = /^\s*(`{3,}|~{3,})/.exec(content);
+      const end = htmlBlockEnd(content, afterBlank);
+      if (marker && !(marker[1][0] === "`" && content.slice(marker[0].length).includes("`"))) {
+        fence = marker[1];
+        kinds.push("code");
+      } else if (afterBlank && indentWidth(line.replace(/^(?: {0,3}>[ \t]?)*/, "")) >= 4) {
+        // Indented code, or a paragraph inside a list item; refusing is the safe side.
+        kinds.push("code");
+      } else if (end) {
+        kinds.push("html");
+        if (end === "blank" || !end(line)) html = end;
+      } else kinds.push("text");
+    }
+  }
+  return kinds;
+}
+
+/**
+ * Why a new citation cannot go at `at` in Markdown, where it would not be
+ * read as a citation: `"code"` inside fenced or indented code or a code span
+ * (also one over several lines), `"html"` inside an HTML block, a comment or
+ * a tag, `"link"` inside a link, image, autolink or link reference
+ * definition (also over several lines); otherwise `""`. It errs towards
+ * refusing: a line it cannot be sure about (such as an indented line after a
+ * blank one, which may be code) is refused, and the server checks whatever
+ * is inserted.
  */
 export function citationInsertionProblem(markdown, at) {
-  const text = String(markdown ?? "");
+  const lines = String(markdown ?? "").split("\n");
+  const kinds = markdownLineKinds(lines);
   let offset = 0;
-  let fence = null;
-  for (const line of text.split("\n")) {
-    const end = offset + line.length;
-    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line);
-    const closes = fence && marker && marker[1][0] === fence[0] && marker[1].length >= fence.length && !line.slice(marker[0].length).trim();
-    if (at >= offset && at <= end) {
-      if (fence || marker) return "code";
-      const column = at - offset;
-      if (codeSpanRanges(line).some(([from, to]) => column > from && column < to)) return "code";
-      if (markdownLinkRanges(line).some(([from, to]) => column > from && column < to)) return "link";
-      return "";
+  for (const [index, line] of lines.entries()) {
+    const lineEnd = offset + line.length;
+    if (at < offset || at > lineEnd) {
+      offset = lineEnd + 1;
+      continue;
     }
-    if (fence) {
-      if (closes) fence = null;
-    } else if (marker) fence = marker[1];
-    offset = end + 1;
+    const kind = kinds[index];
+    if (kind === "code" || kind === "html") return kind;
+    if (kind !== "text") return "";
+    // The whole paragraph, since code spans, links and HTML cross lines.
+    let first = index;
+    while (first > 0 && kinds[first - 1] === "text") first -= 1;
+    let last = index;
+    while (last + 1 < lines.length && kinds[last + 1] === "text") last += 1;
+    const start = lines.slice(0, first).reduce((sum, text) => sum + text.length + 1, 0);
+    const paragraph = lines.slice(first, last + 1).join("\n");
+    const column = at - start;
+    const inside = (ranges) => ranges.some(([from, to]) => column > from && column < to);
+    const matches = (pattern) => [...paragraph.matchAll(pattern)].map((match) => [match.index, match.index + match[0].length]);
+    if (inside(codeSpanRanges(paragraph))) return "code";
+    if (inside(matches(INLINE_HTML))) return "html";
+    if (inside(matches(AUTOLINK)) || inside(markdownLinkRanges(paragraph))) return "link";
+    if (index === first && /^ {0,3}\[(?:[^\]\\]|\\.)+\]:/.test(containerContent(line))) return "link";
+    return "";
   }
   return "";
 }
@@ -9887,9 +9985,11 @@ export class Editor {
     if (target.span || target.chip) return "";
     const inCode = "A citation cannot go inside code or a protected block. Cancel, move the caret into ordinary text and choose Cite again; your draft is unchanged.";
     const inLink = "A citation cannot go inside a link, where it would not be read as a citation. Cancel, move the caret after the link and choose Cite again; your draft is unchanged.";
+    const inHtml = "A citation cannot go inside HTML or a comment, where it would not be read as a citation. Cancel, move the caret into ordinary text and choose Cite again; your draft is unchanged.";
     if (target.mode === "markdown") {
       const problem = citationInsertionProblem(this.ui.body.value, Math.max(target.start, target.end));
-      return problem === "code" ? inCode : problem === "link" ? inLink : "";
+      if (problem === "html") return inHtml;
+      return problem === "link" ? inLink : problem ? inCode : "";
     }
     const editor = this.ui.richBody;
     const range = target.range;
