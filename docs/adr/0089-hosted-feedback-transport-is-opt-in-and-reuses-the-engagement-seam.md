@@ -71,8 +71,8 @@ e-mailed or notified.
   exactly as before, and the copy text of ADR 0087 lets a reader send their note to the author,
   who can enter it as manual feedback with the same record. Forms that offer it are #82.
 - **Bundling.** The function imports the validator from `web/components/`, so `netlify.toml`
-  bundles functions with esbuild. Comments, views and analytics behave as before; their quota
-  code now goes through the same helper.
+  bundles the engagement function, and only it, with esbuild. Comments, views and analytics
+  behave as before; their quota code now goes through the same helper.
 
 ## Consequences
 

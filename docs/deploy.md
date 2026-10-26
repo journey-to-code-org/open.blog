@@ -123,7 +123,7 @@ analytics and their tables are not changed. To roll back, unset `OPENBLOG_FEEDBA
 redeploy, then, if you also want the data gone, export it and run
 [`supabase/feedback-rollback.sql`](../supabase/feedback-rollback.sql), which drops only that table.
 The [function setup guide](../netlify/functions/README.md#passage-feedback-optional) has the
-details. The function is bundled with esbuild (`node_bundler` in `netlify.toml`) so it can share
+details. The engagement function is bundled with esbuild (`[functions."engagement"]` in `netlify.toml`) so it can share
 the feedback validator in `web/components/`.
 
 ### Durable editorial workspace on ephemeral hosts
