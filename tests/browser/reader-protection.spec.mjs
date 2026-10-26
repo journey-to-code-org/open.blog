@@ -82,8 +82,14 @@ const json = (route, status, body) => route.fulfill({
 });
 const preflight = (route) => route.fulfill({ status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Content-Type", "Access-Control-Allow-Methods": "GET, POST" }, body: "" });
 
-/** The hosted function's public routes, recording what the page sends. */
-async function mockHosted(page, { receipt = {}, comments = [] } = {}) {
+/**
+ * The hosted function's public routes, recording what the page sends. `receipt` maps a receipt
+ * action to its answer and `options.report` is the answer to a report; either may be changed
+ * between requests, and an answer `{ abort: true }` drops the connection, as when the reader is
+ * offline.
+ */
+async function mockHosted(page, options = {}) {
+  const { receipt = {}, comments = [] } = options;
   const sent = { feedback: [], receipt: [], reports: [] };
   await page.route(`${ENDPOINT}/comments?**`, (route) => json(route, 200, { comments }));
   for (const name of ["feedback", "receipt", "reports"]) {
@@ -92,13 +98,24 @@ async function mockHosted(page, { receipt = {}, comments = [] } = {}) {
       const body = JSON.parse(route.request().postData() || "{}");
       sent[name].push(body);
       if (name === "feedback") return json(route, 202, { id: ID(1), status: "pending", receivedAt: "2026-10-27T10:00:00Z", receipt: RECEIPT });
-      if (name === "reports") return json(route, 202, { status: "pending" });
-      const answer = receipt[body.action || "read"];
+      const answer = name === "reports" ? options.report ?? { status: 202, body: { status: "pending" } } : receipt[body.action || "read"];
+      if (answer?.abort) return route.abort("internetdisconnected");
       return answer ? json(route, answer.status ?? 200, answer.body) : json(route, 404, { error: "No note matches this receipt.", code: "unknownReceipt" });
     });
   }
   return sent;
 }
+// What the hosted function answers when a client is over its quota or its database is down, and a
+// dropped connection.
+const LIMITED = { status: 429, body: { error: "Too many requests from here. Please try again later.", code: "rateLimited" } };
+const DOWN = { status: 502, body: { error: "The hosted data service is unavailable." } };
+const OFFLINE = { abort: true };
+const CONFLICT = (item) => ({ status: 409, body: { error: "Your note changed since you loaded it. Review it again.", code: "conflict", item } });
+const RECEIPT_FAILURES = [
+  [OFFLINE, "The service did not answer. Check your connection and try again."],
+  [LIMITED, "Too many requests have come from here recently. Please try again later."],
+  [DOWN, "Something went wrong. Please try again later, or write to the author."],
+];
 
 const noteItem = (extra = {}) => ({ kind: "question", status: "pending", version: 1, work: "/tides/", receivedAt: "2026-10-27T10:00:00Z", clarification: null, consent: false, published: false, purged: false, body: "How was it measured?", details: {}, ...extra });
 
@@ -189,6 +206,124 @@ test("a published note and a comment can be reported anonymously, with a ground 
   await discussion.getByRole("button", { name: "Send report" }).click();
   await expect(discussion.getByText("Thank you. Your report was sent", { exact: false })).toBeVisible();
   expect(sent.reports.at(-1)).toEqual({ source: "comment", id: COMMENT_ID, ground: "spam" });
+});
+
+test("a receipt lookup that fails says why in the live status and takes the reader there", async ({ page }) => {
+  const answers = {};
+  await mockHosted(page, { receipt: answers });
+  await page.goto(`${origin}/tides/`);
+  const manage = page.locator(".ob-receipt-manage");
+  await manage.locator("summary").click();
+  const input = manage.getByLabel("Your receipt");
+  const status = manage.getByRole("status").first();
+  for (const [answer, message] of RECEIPT_FAILURES) {
+    answers.read = answer;
+    await input.fill(RECEIPT);
+    await input.press("Enter");
+    await expect(status).toHaveText(message);
+    await expect(status).toBeFocused();
+    await expect(manage.getByRole("heading", { name: "Your note" })).toHaveCount(0);
+  }
+});
+
+test("receipt actions that fail or meet a changed note say so, keep the reader's place and never lose their words", async ({ page }) => {
+  const asked = noteItem({ status: "clarification", version: 2, clarification: { reason: "unclear" }, consent: true, body: "Old words." });
+  const answers = { read: { body: { item: asked } } };
+  const sent = await mockHosted(page, { receipt: answers });
+  await page.goto(`${origin}/tides/`);
+  const manage = page.locator(".ob-receipt-manage");
+  await manage.locator("summary").click();
+  await manage.getByLabel("Your receipt").fill(RECEIPT);
+  await manage.getByRole("button", { name: "Look up my note" }).click();
+  await expect(manage.getByRole("heading", { name: "Your note", level: 3 })).toBeFocused();
+  const status = manage.getByRole("status").first();
+
+  // A clarification that cannot be sent keeps the answer, with focus on it.
+  const answer = manage.getByLabel("Your clarified note");
+  await answer.fill("Clearer words.");
+  for (const [reply, message] of RECEIPT_FAILURES) {
+    answers.clarify = reply;
+    await manage.getByRole("button", { name: "Send my clarified note" }).click();
+    await expect(status).toHaveText(message);
+    await expect(answer).toBeFocused();
+    await expect(answer).toHaveValue("Clearer words.");
+  }
+  // The author decided meanwhile: the note is shown as it is now, and nothing is sent over it.
+  answers.clarify = CONFLICT(noteItem({ status: "rejected", version: 3, body: "Old words." }));
+  await manage.getByRole("button", { name: "Send my clarified note" }).click();
+  await expect(status).toHaveText("Your note changed since you looked it up. Here it is as it is now.");
+  await expect(status).toBeFocused();
+  await expect(manage.getByText("The author decided not to publish it.")).toBeVisible();
+  await expect(manage.getByLabel("Your clarified note")).toHaveCount(0);
+
+  // Withdrawing that fails says why and takes the reader there; a changed note is shown again.
+  await manage.getByLabel("I want this note’s text and my name deleted. This cannot be undone.").check();
+  const withdraw = manage.getByRole("button", { name: "Withdraw and delete my note" });
+  for (const [reply, message] of RECEIPT_FAILURES) {
+    answers.withdraw = reply;
+    await withdraw.click();
+    await expect(status).toHaveText(message);
+    await expect(status).toBeFocused();
+    await expect(withdraw).toBeEnabled();
+  }
+  answers.withdraw = CONFLICT(noteItem({ status: "removed", version: 4, body: "Old words." }));
+  await withdraw.click();
+  await expect(status).toHaveText("Your note changed since you looked it up. Here it is as it is now.");
+  await expect(status).toBeFocused();
+  await expect(manage.getByText("The author took it off the post.")).toBeVisible();
+  expect(sent.receipt.filter((body) => body.action === "withdraw").map((body) => body.expectedVersion)).toEqual([3, 3, 3, 3]);
+});
+
+test("agreeing to be asked that fails says why, keeps the box as it was and focus on it", async ({ page }) => {
+  const answers = {};
+  await mockHosted(page, { receipt: answers });
+  await page.goto(`${origin}/tides/`);
+  const region = page.locator("#ob-feedback");
+  await region.getByLabel("Kind of feedback").selectOption("question");
+  await region.getByLabel("Your note", { exact: true }).fill("How was it measured?");
+  await region.getByRole("button", { name: "Send for review" }).click();
+  const panel = region.getByRole("region", { name: "Your private receipt" });
+  const consent = panel.getByLabel("The author may ask me to clarify this note through this receipt");
+  const status = panel.getByRole("status");
+  for (const [reply, message] of [
+    ...RECEIPT_FAILURES,
+    [CONFLICT(noteItem({ status: "rejected", version: 2 })), "Your note changed since you sent it, so this was not saved. Try again."],
+  ]) {
+    answers.consent = reply;
+    await consent.focus();
+    await page.keyboard.press("Space");
+    await expect(status).toHaveText(message);
+    await expect(consent).not.toBeChecked();
+    await expect(consent).toBeFocused();
+  }
+});
+
+test("a report that cannot be sent says why, keeps the form and focus on the status, and can be sent again", async ({ page }) => {
+  const hosted = { report: OFFLINE };
+  const sent = await mockHosted(page, hosted);
+  await page.goto(`${origin}/tides/`);
+  const note = page.locator(`#ob-reader-note-${NOTE_ID}`);
+  await note.getByText("Report this note").click();
+  await note.getByRole("radio", { name: "Spam" }).check();
+  const send = note.getByRole("button", { name: "Send report" });
+  const status = note.getByRole("status");
+  for (const [reply, message] of [
+    [OFFLINE, "Your report could not be sent: the service did not answer. You can write to the author instead."],
+    [LIMITED, "Too many reports have come from here recently. Please try again later."],
+    [DOWN, "Your report could not be sent. You can write to the author instead."],
+  ]) {
+    hosted.report = reply;
+    await send.click();
+    await expect(status).toHaveText(message);
+    await expect(status).toBeFocused();
+    await expect(send).toBeVisible();
+    await expect(note.getByRole("radio", { name: "Spam" })).toBeChecked();
+  }
+  hosted.report = null;
+  await send.click();
+  await expect(status).toHaveText("Thank you. Your report was sent to the author, who reviews every report. It is not published.");
+  await expect(status).toBeFocused();
+  expect(sent.reports).toHaveLength(4);
 });
 
 test("without JavaScript the page says how to report and to send a note, and fits 320px", async ({ browser }) => {

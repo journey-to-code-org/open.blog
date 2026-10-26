@@ -136,14 +136,16 @@ export function receiptPanel({ endpoint, receipt }) {
     status.textContent = "Saving…";
     const { status: code, data } = await call(endpoint, { receipt, action: "consent", consent: wanted, expectedVersion: version });
     consent.disabled = false;
+    // Disabling the box while saving took focus from it; give it back to the reader.
+    consent.focus();
     if (code === 200 && data.item) {
       version = data.item.version;
       consent.checked = data.item.consent === true;
       status.textContent = consent.checked ? "Saved: the author may ask you to clarify this note." : "Saved: the author will not ask you to clarify this note.";
     } else {
-      consent.checked = !wanted;
+      consent.checked = data.item ? data.item.consent === true : !wanted;
       if (data.item?.version) version = data.item.version;
-      status.textContent = receiptProblem(code, data.code);
+      status.textContent = code === 409 ? "Your note changed since you sent it, so this was not saved. Try again." : receiptProblem(code, data.code);
     }
   });
   return panel;
@@ -235,7 +237,11 @@ export function receiptManager({ endpoint }) {
         withdraw.disabled = false;
         if (code === 200 && data.item) show(data.item, item.status === "approved" ? "Your note was withdrawn and its text and your name deleted. The author has been shown that it must come off the post." : "Your note was withdrawn and its text and your name deleted.");
         else if (code === 409 && data.item) show(data.item, receiptProblem(code, data.code));
-        else status.textContent = receiptProblem(code, data.code);
+        else {
+          // Disabling the button while sending took focus from it: the reader is taken to why.
+          status.textContent = receiptProblem(code, data.code);
+          status.focus();
+        }
       });
       result.append(make("h4", undefined, "Withdraw it"), confirmRow, withdraw);
     }
