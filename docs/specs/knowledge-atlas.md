@@ -148,7 +148,8 @@ point at it. `DateExpr::key` orders absolute datings by their earliest and lates
 A dating is projected (`Atlas::is_dating_projected`, `Atlas::projected_datings`) only when it is
 approved and cited with no passage, its entry is approved or its relationship is projected, and
 the entry a relative dating points at is approved. Otherwise it stays private, with a
-non-blocking `private-endpoint` notice. No surface publishes datings yet. An approved entry that
+non-blocking `private-endpoint` notice. Projected datings are published with the atlas
+([Publication](#publication)). An approved entry that
 carries datings none of which may be projected (every approved entry that had version 1 `bounds`)
 gets an `unpublished-datings` notice, and a build that publishes the atlas warns, naming those
 entries and their dating counts, since their years are missing from public output. A dating's sources
@@ -287,8 +288,8 @@ passage pointer, both entries approved), and the build writes:
 
 | Output | Content |
 | --- | --- |
-| `/atlas/` | Published entries grouped by kind, with how many relationships each has, and a link to `atlas.json`. |
-| `/atlas/<id>/` | The entry's label, other names, summary and work reference, then its relationships from and to it, each in the stored direction with standing, who asserts it, confidence, cited references and locators, uncertainty and every dissent. |
+| `/atlas/` | Published entries grouped by kind, with how many relationships each has, a link to `atlas.json`, and, when datings are published, the timeline (below). |
+| `/atlas/<id>/` | The entry's label, other names, summary and work reference; its datings, if any (below); then its relationships from and to it, each in the stored direction with standing, who asserts it, confidence, cited references and locators, uncertainty, every dissent and the datings of when it held. |
 | `/atlas.json` | The same projection as compact data (below). |
 
 ```json
@@ -311,6 +312,15 @@ passage pointer, both entries approved), and the build writes:
   ],
   "sources": [
     { "key": "scholar-book", "kind": "work", "title": "A study", "text": "A study" }
+  ],
+  "datings": [
+    { "id": "plato-birth", "owner": "plato", "ownerType": "entry", "aspect": "birth",
+      "date": { "notBefore": { "year": -428, "circa": true }, "notAfter": { "year": -427 } },
+      "text": "between c. 428 BCE and 427 BCE", "placement": "dated",
+      "startYear": -428, "endYear": -427,
+      "assertedBy": { "kind": "source", "source": "scholar-book" }, "confidence": "plausible",
+      "evidence": [{ "source": "scholar-book", "locators": [{ "kind": "chapter", "value": "3" }] }],
+      "note": "Reckoned from the archon list." }
   ]
 }
 ```
@@ -318,13 +328,40 @@ passage pointer, both entries approved), and the build writes:
 Only the fields shown (and an entry's `summary` and a work's `source`, a dissent's `evidence`)
 are published; sources carry the citation allowlist of ADR 0044. Visibility, `unsourced`,
 passage ids, unknown fields, private entries and relationships, relationships touching a
-private entry, datings (until the chronology publication slice adds them) and notebook data
-are never published. Entries, relationships and sources are
-sorted by id. A relationship's `kind` is the stored machine value (`member-of`); `label` and
+private entry, datings that are not projected and notebook data are never published. Entries,
+relationships and sources are sorted by id. A relationship's `kind` is the stored machine value (`member-of`); `label` and
 `inverseLabel` are how it reads in words from each end (`member of`, `has member`), as pages and
 the Admin explorer show it. URLs are root-relative and follow a site's base path, and `<`, `>` and `&` in
 text are written as JSON escapes. A relationship is `contested` whenever anyone dissents;
 there is no agreed state.
+
+**Datings** ([ADR 0126](../adr/0126-approved-datings-publish-through-the-atlas-projection.md)).
+`datings` holds every projected dating in `chronology::chronological` order, and is left out when
+there are none, so an atlas without projected datings is written exactly as before (the format
+version stays 1). Each carries `id`, `owner` and `ownerType` (`entry` or `relationship`),
+`aspect`, `date` (exactly one form; points keep only `year`, `month`, `day`, `decade`, `century`,
+`circa` and `calendar`), `text` (the stated value in words with BCE written out; a relative dating
+reads "after the composition of Phaedo"), `placement` (`dated`, `relative` or `unknown`),
+`startYear` and `endYear` (the first and last year an absolute dating covers, absent for an open
+end), `assertedBy`, `confidence`, `evidence` and its `note`. Competing datings are all present
+and none is preferred; chronology prompts are never published. An entry page shows its datings
+under "Dates", one heading per dated aspect (`#atlas-dates-<aspect>`) with "N competing datings,
+side by side" and each dating (`#atlas-d-<id>`) with who dates it, confidence, cited evidence and
+note; a relationship's datings appear in its item under "When it held".
+
+**Timeline and trails** ([ADR 0127](../adr/0127-the-public-timeline-is-a-progressive-ordered-list-with-relative-trails.md)).
+When datings are published, `/atlas/` ends with a timeline (`#atlas-timeline`): an ordered list of
+periods, each the century in which a dated aspect's earliest absolute dating begins
+(`#atlas-period-bce-5`, with "No earliest year stated (open start)" first), holding dated aspects
+in display order with every dating in full; then "Not placed in time" (aspects dated only
+relatively or stated unknown) and "Relative chronology" (every relative dating as an attributed
+sentence linking both entries). A relative dating links to the other entry's datings, and that
+entry's page lists "Dated relative to this entry" with links back, so relative chronology is
+followed one asserted step at a time; nothing is inferred. The page loads
+`<ob-atlas-timeline>` (`/assets/components/ob-atlas-timeline.js`), which adds a "Show" aspect
+filter, "Only aspects with competing datings", "Go to period" and a status line. Filters show or
+hide whole dated aspects, never one dating or its evidence or note; print shows everything and
+hides the toolbar; nothing animates.
 
 Clearing an approval removes the item, and an entry's relationships, from the next build;
 while the site publishes its atlas, a saved Admin atlas change rebuilds at once and its response

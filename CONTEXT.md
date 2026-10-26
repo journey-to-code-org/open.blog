@@ -838,6 +838,26 @@ Both the atlas pages and `atlas.json` are rendered from it, and nothing public r
 atlas. Withdrawing approval removes an item from the next build.
 _Avoid_: Public atlas export, public graph; filtering the private atlas per surface
 
+**Published dating**:
+A projected dating as the atlas projection publishes it: who dates what, on which cited evidence,
+how firmly and with what note, at the precision stated and read back in words with BCE written
+out. Competing published datings appear side by side, in the chronology's one order, and none is
+preferred.
+_Avoid_: Public date, the date of an entry, resolved date
+
+**Public timeline**:
+The `/atlas/` section that lists every published dating as text, by the century in which each
+dated aspect's earliest dating begins, with aspects not placed in time listed apart. It reads
+completely without JavaScript; its component only filters whole dated aspects and moves focus to
+a period. Order on it never means cause or influence.
+_Avoid_: Timeline chart, canonical chronology, contemporaries list
+
+**Chronology trail**:
+The path a reader follows from one entry to another through published relative datings, one
+asserted, attributed and cited step at a time, each linked both ways. Nothing chains steps, infers
+an order from dates, or turns a step into a relationship.
+_Avoid_: Influence chain, inferred sequence, derived timeline
+
 **Atlas publication switch**:
 The site setting `knowledgeAtlas.publish`. Off by default, when no build reads the atlas at all;
 on, the build publishes the atlas projection. Item approval is still required for each item.

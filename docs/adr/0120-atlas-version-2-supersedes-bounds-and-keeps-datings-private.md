@@ -52,7 +52,8 @@ unsourced author note as a sourced claim.
   only; withdrawing an entry or relationship withdraws its datings, and approving it restores
   them, with no other edit. `Atlas::projected_datings` lists what may be copied.
 - **Nothing publishes datings yet.** Publishing them is the chronology publication slice (#59),
-  which must add them to `PublicAtlas` field by field. Until then `PublicAtlas` and the atlas
+  which must add them to `PublicAtlas` field by field (amended by
+  [ADR 0126](0126-approved-datings-publish-through-the-atlas-projection.md), which does). Until then `PublicAtlas` and the atlas
   pages carry no dates. This withdraws the year line that approved entries showed from `bounds`:
   a migrated span is an unsourced draft, which cannot be approved, and publishing it would show
   an uncited date as a claim. This is the conservative and reversible choice: the data is kept,
