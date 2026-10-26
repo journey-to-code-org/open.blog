@@ -36,6 +36,11 @@ pub struct Rendered {
     pub headings: Vec<Heading>,
     /// Body text with markup removed; code blocks are excluded.
     pub text: String,
+    /// The post's own prose: [`Rendered::text`] without the generated
+    /// citation notes region. Descriptions, word counts and reading time
+    /// come from it; search keeps the full text.
+    pub prose: String,
+    /// Words of [`Rendered::prose`].
     pub word_count: usize,
     /// Languages of fenced code blocks, in order of first appearance.
     pub code_languages: Vec<String>,
@@ -1967,9 +1972,29 @@ fn render_events<'a>(
 
     let mut in_code_block = false;
     let mut heading: Option<(HeadingLevel, usize, String)> = None;
+    // Where the generated notes begin, and the text before them. A marker
+    // removed from the text takes the space before it when punctuation follows.
+    let notes_start = match (portable, options.citation_notes.as_ref()) {
+        (None, Some(labels)) => generated_notes_heading(&parsed_events, labels),
+        _ => None,
+    };
+    let mut prose_end = None;
+    let mut after_marker = false;
 
-    for event in parsed_events {
+    for (index, event) in parsed_events.into_iter().enumerate() {
+        if notes_start == Some(index) {
+            prose_end = Some(text.len());
+        }
+        let followed_marker = std::mem::take(&mut after_marker);
         match &event {
+            Event::FootnoteReference(name)
+                if options
+                    .citation_notes
+                    .as_ref()
+                    .is_some_and(|labels| labels.number(name).is_some()) =>
+            {
+                after_marker = true;
+            }
             Event::Start(Tag::CodeBlock(kind)) => {
                 in_code_block = true;
                 if let CodeBlockKind::Fenced(info) = kind {
@@ -1994,6 +2019,11 @@ fn render_events<'a>(
                     buf.push_str(t);
                 }
                 if !in_code_block {
+                    if followed_marker
+                        && t.starts_with(|c: char| ",.;:!?)]}\u{2019}\u{201d}".contains(c))
+                    {
+                        text.truncate(text.trim_end_matches(' ').len());
+                    }
                     text.push_str(t);
                 }
             }
@@ -2068,8 +2098,9 @@ fn render_events<'a>(
         html = html.replace("<img src=", "<img loading=\"lazy\" decoding=\"async\" src=");
     }
 
+    let prose = collapse_whitespace(&text[..prose_end.unwrap_or(text.len())]);
     let text = collapse_whitespace(&text);
-    let word_count = text.split_whitespace().count();
+    let word_count = prose.split_whitespace().count();
     Rendered {
         html,
         portable_images: Vec::new(),
@@ -2079,6 +2110,7 @@ fn render_events<'a>(
         errors: blocks.errors,
         headings,
         text,
+        prose,
         word_count,
         code_languages,
         first_image,

@@ -30,6 +30,11 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ### Fixed
 
+- A post that publishes citations and has no `description` no longer takes its description, JSON-LD
+  `wordCount` and reading time from the generated notes. They now come from the post's own prose,
+  and the space left before a removed citation marker is gone, so "stronger [@plato]." reads
+  "stronger." (introduced in 0.27.0). Site search still includes the notes, as it does an author's
+  footnotes; a written `description` and posts without citations are unchanged.
 - Citation notes now link a DOI stored as `doi:10.x/y` or as a `doi.org` or `dx.doi.org` address
   to `https://doi.org/10.x/y` and show it as `doi:10.x/y`, instead of producing a broken
   `https://doi.org/https://doi.org/...` link (introduced in 0.27.0).
