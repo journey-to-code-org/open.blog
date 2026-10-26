@@ -35,21 +35,56 @@ pub struct Sources {
     pub credits: Vec<SourceFile>,
     pub series: Vec<SourceFile>,
     pub pages: Vec<SourceFile>,
-    /// The private source library, when one is stored. A load reads it only
-    /// for a post that opts in to citations and has some, and publishes only
-    /// the cited references' public description (ADR 0054).
+    /// Where the private source library comes from, if anywhere. A load
+    /// reads it only when a post that opts in to citations cites something,
+    /// and publishes only the cited references' public description (ADR 0054).
     pub source_library: Option<LibrarySource>,
 }
 
 /// The private source library as a site load receives it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LibrarySource {
-    /// The library file's project-relative path and text.
+    /// The library file's project-relative path and text, already in memory.
     Text(SourceFile),
-    /// The library exists but could not be read safely. Only a post that
-    /// needs it is refused, with this reason.
-    Unreadable(String),
+    /// A read the load makes at most once, on first need, so a site whose
+    /// posts cite nothing never reads the library at all.
+    Deferred(LibraryReader),
 }
+
+/// Reads the private source library on demand: its project-relative path and
+/// text, `None` while no library is stored, or why it cannot be read safely
+/// (reported only to the posts that need it, never with its contents).
+#[derive(Clone)]
+pub struct LibraryReader(
+    std::sync::Arc<dyn Fn() -> Result<Option<SourceFile>, String> + Send + Sync>,
+);
+
+impl LibraryReader {
+    pub fn new(
+        read: impl Fn() -> Result<Option<SourceFile>, String> + Send + Sync + 'static,
+    ) -> Self {
+        Self(std::sync::Arc::new(read))
+    }
+
+    fn read(&self) -> Result<Option<SourceFile>, String> {
+        (self.0)()
+    }
+}
+
+impl std::fmt::Debug for LibraryReader {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("LibraryReader(..)")
+    }
+}
+
+/// Two readers are equal only when they are the same reader.
+impl PartialEq for LibraryReader {
+    fn eq(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for LibraryReader {}
 
 /// Validated association between Markdown posts and their adjacent credit
 /// sidecars. Consumers such as Admin Studio use this same index as `Site::load`
@@ -359,8 +394,9 @@ impl Site {
         let mut evidence = Vec::new();
         let render_options = config.render_options();
         let credit_sidecars = associate_credit_sidecars(&sources);
-        // Parsed on first need only, so a site without citations never reads it
-        // and a broken library refuses only the posts that cite.
+        // Read and parsed on first need only, so a site whose posts cite
+        // nothing never reads it and a broken library refuses only the posts
+        // that cite.
         let parsed_library = std::cell::OnceCell::new();
         let library = || -> Result<Option<&SourceLibrary>, String> {
             parsed_library
@@ -827,23 +863,29 @@ fn read_library(
     source: Option<&LibrarySource>,
     config: &SiteConfig,
 ) -> Result<Option<SourceLibrary>, String> {
-    match source {
-        None => Ok(None),
-        Some(LibrarySource::Unreadable(reason)) => Err(format!(
-            "the private source library cannot be read ({reason})"
-        )),
-        Some(LibrarySource::Text(file)) => {
-            SourceLibrary::parse(&file.contents, &config.contributors)
-                .map(Some)
-                .map_err(|problems| {
-                    format!(
+    let read;
+    let file = match source {
+        None => return Ok(None),
+        Some(LibrarySource::Text(file)) => file,
+        Some(LibrarySource::Deferred(reader)) => {
+            read = reader.read().map_err(|reason| {
+                format!("the private source library cannot be read ({reason})")
+            })?;
+            match &read {
+                Some(file) => file,
+                None => return Ok(None),
+            }
+        }
+    };
+    SourceLibrary::parse(&file.contents, &config.contributors)
+        .map(Some)
+        .map_err(|problems| {
+            format!(
                 "the private source library {} has {} problem(s); run `openblog check` to see them",
                 file.path,
                 problems.len()
             )
-                })
-        }
-    }
+        })
 }
 
 /// How a post load treats a post that opts in to citations.

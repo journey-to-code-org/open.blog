@@ -268,8 +268,9 @@ pub fn read_sources_excluding(
             contents,
         });
     }
-    // Only posts that opt in to citations read it; see `Site::load`.
-    sources.source_library = crate::source_store::read_for_build(root);
+    // A deferred read: the load reads the library only when an opted-in post
+    // cites something; see `Site::load`.
+    sources.source_library = Some(crate::source_store::read_for_build(root));
     Ok(sources)
 }
 

@@ -89,7 +89,9 @@ translations, witnesses, or locations.
   text. Deeply nested JSON is rejected by the parser's recursion limit.
 - **Privacy.** The library stays private. An export is an explicit, authenticated,
   author-initiated download of the author's own data, not a publication artifact, and
-  builds never read the library.
+  builds never read the library (amended by [ADR 0054](0054-citations-publish-through-the-one-publication-projection.md):
+  a build reads it only when a post that opts in to citations cites something, and publishes
+  only the cited references' public description, never this export).
 
 ## Consequences
 

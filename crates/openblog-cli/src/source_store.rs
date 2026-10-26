@@ -2,11 +2,12 @@
 //!
 //! The library lives at [`LIBRARY_FILE`], inside the Git-ignored private
 //! directory and outside content, static files, themes, and build output, so
-//! no build copies it. A build reads it only to resolve the citations of a
-//! post that opts in, and publishes only those references' public
-//! description ([`read_for_build`], ADR 0054). Every change names the revision it was based
-//! on, is validated by `openblog_core::source_library`, and replaces the file
-//! by atomic rename while holding a lock: a refused, failed, or interrupted
+//! no build copies it. A build reads it only when a post that opts in to
+//! citations cites something, and publishes only those references' public
+//! description ([`read_for_build`], ADR 0054); a site whose posts cite
+//! nothing never reads it. Every change names the revision it was based on,
+//! is validated by `openblog_core::source_library`, and replaces the file by
+//! atomic rename while holding a lock: a refused, failed, or interrupted
 //! change leaves the stored library exactly as it was.
 
 use std::collections::BTreeMap;
@@ -17,7 +18,7 @@ use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
 use openblog_core::contributor::Contributor;
-use openblog_core::model::LibrarySource;
+use openblog_core::model::{LibraryReader, LibrarySource};
 use openblog_core::source_interchange::{plan_csl_import, ImportPlan};
 use openblog_core::source_library::{
     SourceDiagnostic, SourceDiagnosticCode, SourceLibrary, SourceRecord, MAX_LIBRARY_BYTES,
@@ -451,27 +452,29 @@ fn not_utf8() -> StoreError {
     )])
 }
 
-/// The stored library's text for a site load, through the same safe path
-/// checks as every other read. The load parses it only for a post that opts
-/// in to citations and has some, and publishes only the cited references'
-/// public description. `None` while no library is stored; a library that
-/// cannot be read safely is reported only to the posts that need it.
-pub fn read_for_build(root: &Path) -> Option<LibrarySource> {
-    let read = library_path(root)
-        .and_then(|path| read_bytes(&path))
-        .and_then(|bytes| {
-            bytes
-                .map(|bytes| String::from_utf8(bytes).map_err(|_| not_utf8()))
-                .transpose()
-        });
-    match read {
-        Ok(None) => None,
-        Ok(Some(contents)) => Some(LibrarySource::Text(SourceFile {
-            path: LIBRARY_FILE.into(),
-            contents,
-        })),
-        Err(error) => Some(LibrarySource::Unreadable(error.to_string())),
-    }
+/// The stored library for a site load, as a deferred read through the same
+/// safe path checks as every other read. Nothing is inspected or read until
+/// the load needs it: only when a post that opts in to citations cites
+/// something, and then once. The load publishes only the cited references'
+/// public description; a library that cannot be read safely is reported only
+/// to the posts that need it.
+pub fn read_for_build(root: &Path) -> LibrarySource {
+    let root = root.to_path_buf();
+    LibrarySource::Deferred(LibraryReader::new(move || {
+        let bytes = library_path(&root)
+            .and_then(|path| read_bytes(&path))
+            .map_err(|error| error.to_string())?;
+        bytes
+            .map(|bytes| {
+                String::from_utf8(bytes)
+                    .map(|contents| SourceFile {
+                        path: LIBRARY_FILE.into(),
+                        contents,
+                    })
+                    .map_err(|_| not_utf8().to_string())
+            })
+            .transpose()
+    }))
 }
 
 fn library_diagnostic(code: SourceDiagnosticCode, message: String) -> SourceDiagnostic {

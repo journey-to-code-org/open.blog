@@ -652,3 +652,68 @@ fn an_authors_literal_cite_label_moves_the_generated_prefix() {
         );
     }
 }
+
+#[test]
+fn the_library_is_read_only_when_an_opted_in_post_cites_something() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    let load_counting = |posts: Vec<SourceFile>| {
+        let reads = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&reads);
+        let reader = model::LibraryReader::new(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+            Ok(Some(SourceFile {
+                path: ".openblog/private/research/sources.json".into(),
+                contents: LIBRARY.into(),
+            }))
+        });
+        let result = Site::load(
+            config("en"),
+            Sources {
+                posts,
+                source_library: Some(LibrarySource::Deferred(reader)),
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        );
+        (result, reads.load(Ordering::SeqCst))
+    };
+    // No post opts in, or one opts in and cites nothing: never read.
+    let (site, reads) = load_counting(vec![
+        post("posts/ok.md", OK_POST),
+        post(
+            "posts/handle.md",
+            "---\ntitle: Handle\ndate: 2026-10-03\n---\nPing [@handle].\n",
+        ),
+        post(
+            "posts/empty.md",
+            "---\ntitle: Empty\ndate: 2026-10-04\ncitations: notes\n---\nNo citations.\n",
+        ),
+    ]);
+    assert!(site.is_ok());
+    assert_eq!(reads, 0);
+    // Two citing posts read it once.
+    let second = CITED.replace("title: The cave", "title: Again");
+    let (site, reads) = load_counting(vec![
+        post("posts/cave.md", CITED),
+        post("posts/again.md", &second),
+    ]);
+    assert!(site.is_ok());
+    assert_eq!(reads, 1);
+    // A reader that fails is reported to the citing post only, without detail.
+    let failing = Sources {
+        posts: vec![post("posts/cave.md", CITED), post("posts/ok.md", OK_POST)],
+        source_library: Some(LibrarySource::Deferred(model::LibraryReader::new(|| {
+            Err("refusing a symlink".into())
+        }))),
+        ..Default::default()
+    };
+    let errors = Site::load(config("en"), failing, LoadOptions::default()).unwrap_err();
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(
+        errors[0].starts_with(
+            "posts/cave.md: the private source library cannot be read (refusing a symlink)"
+        ),
+        "{errors:?}"
+    );
+}

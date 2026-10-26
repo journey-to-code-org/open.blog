@@ -8,7 +8,9 @@
 - Builds on: [ADR 0004](0004-portable-projections-from-canonical-work.md),
   [ADR 0049](0049-opt-in-citation-markdown-syntax.md),
   [ADR 0050](0050-what-a-citation-makes-public.md)
-- Amends: [ADR 0012](0012-source-library-interchange.md) (builds now read the library, for opted-in posts only)
+- Amends: [ADR 0010](0010-private-source-library-storage.md) and
+  [ADR 0012](0012-source-library-interchange.md) (builds now read the library, only when an
+  opted-in post cites something)
 - Contract: [Citation format](../specs/citations.md)
 
 ## Context
@@ -50,9 +52,10 @@ publish byte for byte as before, and the source library is private author resear
   machine's locale or hash order. A DOI links to `https://doi.org/`, a web address links to
   itself only when it is a plain HTTP(S) address without credentials, and other public schemes
   are text.
-- **The library is read only when needed.** The CLI hands the stored library's text to the load
-  through the same symlink, containment and size checks as Admin storage. The load parses it on
-  first need, so a site without citations never reads it, and a broken or unreadable library
+- **The library is read only when needed.** The CLI hands the load a deferred read of the stored
+  library, which goes through the same symlink, containment and size checks as Admin storage.
+  The load makes that read, and parses the library, once and only when an opted-in post cites
+  something, so a site whose posts cite nothing never reads it, and a broken or unreadable library
   refuses only the posts that cite, with a message that names the file and `openblog check`
   and never repeats its contents. `load_post` (used for listings and status) reads no library and
   leaves citations as text; `Site::load` and `load_post_cited` publish them.
