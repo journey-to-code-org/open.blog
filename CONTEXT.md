@@ -1240,5 +1240,6 @@ _Avoid_: Public, shared; a label states what publishing does, not who may read t
 **Kept panel**:
 A workspace panel with unsaved changes that the Admin set aside in memory, instead of discarding,
 while the author opened another panel; reopening it restores it exactly (ADR 0133). Kept panels
-are discarded, after asking, when the author leaves the workspace or signs out.
+are discarded, after asking, when the author leaves the workspace or signs out, and survive an
+expired session only for the same user's next sign-in in that page.
 _Avoid_: Autosave, draft recovery; nothing is written anywhere

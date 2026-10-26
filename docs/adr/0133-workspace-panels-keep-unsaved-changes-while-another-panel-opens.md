@@ -42,13 +42,19 @@ that outlives the session and is shared by whoever uses the browser.
   “On the cave” and Notebook"), before: reloading the same panel, leaving the workspace for any
   other Admin page (kept panels are then discarded), opening a different document while a draft
   is kept, signing out, and closing or reloading the page. Declining changes nothing and puts the
-  address back. A draft whose save is in flight is never kept, because the save still owns the
-  editor and its address; the author is asked as before.
-- **Memory only, for one sign-in.** Kept panels live only in the page's memory. Nothing is
+  address back. A panel whose save is in flight, the draft or a research form such as Sources
+  (views register `viewBusy` beside `viewDirty`), is never kept, because the save still owns the
+  view and its address and its result must land there, or the next save would send a stale
+  revision; the author is asked as before. An earlier address of the panel already open (such as
+  `#/sources` on Sources) only corrects the address and never reloads the panel.
+- **Memory only, for one user.** Kept panels live only in the page's memory. Nothing is
   written to files, browser storage, logs or the server, so no private research or unpublished
-  prose is copied anywhere. Signing out, or a session that ends and shows the sign-in form,
-  discards every kept panel and the workspace's remembered draft title, so another sign-in in
-  the same tab never sees them.
+  prose is copied anywhere. Signing out discards every kept panel and the workspace's remembered
+  draft title. A session that ends without signing out (an expired session that shows the
+  sign-in form) keeps them, together with the open panel when it has unsaved changes, for the
+  user who was signed in: signing in again as that user in the same tab returns to them, and a
+  sign-in as anyone else discards them first, so another user never sees them. The sign-in form
+  says that unsaved changes are kept without naming them.
 - **The rules are one pure function.** `planWorkspaceNavigation` decides what a move keeps,
   restores, discards and asks about from the two addresses, whether the open view is unsaved or
   saving, and the kept panels; the router only carries the plan out, so the rules are tested

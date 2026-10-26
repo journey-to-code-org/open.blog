@@ -7473,6 +7473,19 @@ export class ObAdmin extends AdminElement {
   forgetWorkspace() {
     for (const key of [...this.kept.keys()]) this.discardKept(key);
     this.workspaceDraft = null;
+    this.keptOwner = "";
+  }
+
+  /**
+   * A session that ended without signing out (ADR 0133): the open workspace panel is kept if it
+   * has unsaved changes, and every kept panel stays in this page's memory for the user who was
+   * signed in. Signing in again as that user returns to them; anyone else discards them.
+   */
+  showSessionEnded(message = "Your session ended. Sign in again.") {
+    const key = workspacePanelKey(this.currentHash);
+    if (key && key !== "overview" && this.hasUnsavedView() && !this.isSavingView()) this.keepCurrentView(key);
+    this.keptOwner = this.kept.size ? this.user : "";
+    this.showLogin(message, { keepWorkspace: true });
   }
 
   focusPageHeading() {
@@ -7501,8 +7514,12 @@ export class ObAdmin extends AdminElement {
     this.mount(h("div", { class: "oba-card" }, h("h1", {}, "Something went wrong"), h("p", { class: "oba-error", role: "alert" }, err.message)));
   }
 
-  showLogin(message = "") {
-    this.forgetWorkspace();
+  showLogin(message = "", { keepWorkspace = false } = {}) {
+    // Signing out forgets every kept panel; an ended session keeps them for the same user only.
+    if (!keepWorkspace) this.forgetWorkspace();
+    const keptNote = this.kept.size
+      ? h("p", { class: "oba-small", "data-login-kept": "true" }, "Your unsaved changes are kept on this page. Sign in again as the same user to return to them; signing in as anyone else discards them.")
+      : null;
     const user = h("input", { id: "oba-user", type: "text", autocomplete: "username", required: true, autocapitalize: "none", spellcheck: "false" });
     const pass = h("input", { id: "oba-pass", type: "password", autocomplete: "current-password", required: true });
     const status = h("p", { class: "oba-error", role: "alert", hidden: !message }, message);
@@ -7519,6 +7536,9 @@ export class ObAdmin extends AdminElement {
             const res = await this.api.call("POST", "login", { json: { username: user.value.trim(), password: pass.value } });
             this.api.csrf = res.csrf;
             this.user = res.user;
+            // Kept panels belong to the user whose session ended; nobody else ever sees them.
+            if (this.keptOwner !== res.user) this.forgetWorkspace();
+            this.keptOwner = "";
             pass.value = "";
             await this.enter();
           } catch (err) {
@@ -7533,12 +7553,15 @@ export class ObAdmin extends AdminElement {
       },
       h("div", { class: "oba-login-head" }, h("div", {}, h("p", { class: "oba-eyebrow" }, "open.blog"), h("h1", {}, "Welcome back")), themeButton()),
       h("p", { class: "oba-login-copy" }, "Sign in to write, preview, and publish your blog."),
+      keptNote,
       h("div", { class: "oba-field" }, h("label", { for: "oba-user" }, "Username"), user),
       h("div", { class: "oba-field" }, h("label", { for: "oba-pass" }, "Password"), pass),
       status,
       submit,
     );
     this.mount(form);
+    // The open editor, unless it was kept above, went with the view.
+    this.dirty = false;
     user.focus();
   }
 
@@ -8070,8 +8093,13 @@ export class ObAdmin extends AdminElement {
       else if (head === "overview" || !head) await this.showOverview(params.get("focus"));
       else await this.showList(KINDS[head] ? head : "posts", params.get("status"));
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) this.showLogin("Your session ended. Sign in again.");
-      else this.showFatal(err);
+      if (err instanceof ApiError && err.status === 401) {
+        // The view being left was kept or given up by the plan above; it is not kept again here.
+        this.viewDirty = null;
+        this.viewBusy = null;
+        this.dirty = false;
+        this.showSessionEnded();
+      } else this.showFatal(err);
     }
     this.currentHash = location.hash || "#/overview";
     // A link that started this move left with the old view; give focus to the new page's heading
@@ -10783,7 +10811,7 @@ export class ObAdmin extends AdminElement {
                 await this.showSharedReflections("Shared reflection created. It is private to you until you invite others.");
               },
               failed: (error, problem) =>
-                error instanceof ApiError && error.status === 401 ? this.showLogin("Your session ended. Sign in again.") : showProblem(problem),
+                error instanceof ApiError && error.status === 401 ? this.showSessionEnded() : showProblem(problem),
             });
           } finally {
             submit.disabled = !contributors.length;
@@ -14419,7 +14447,7 @@ export class Editor {
     try {
       await this.claimsStudio.load();
     } catch (error) {
-      if (error.status === 401) this.app.showLogin("Your session ended. Sign in again to see this post's claims.");
+      if (error.status === 401) this.app.showSessionEnded("Your session ended. Sign in again to see this post's claims.");
     }
   }
 
@@ -16931,7 +16959,9 @@ export class Editor {
       this.reportSaved(res, savedState.messageIsCurrent);
     } catch (err) {
       if (err.status === 401) {
-        this.app.showLogin("Your session ended. Sign in again; your edits are still in the form only until you reload.");
+        // The save is over, so the draft is kept for the same user's next sign-in (ADR 0133).
+        this.saving = false;
+        this.app.showSessionEnded("Your session ended. Sign in again to return to your unsaved draft.");
       } else if (err.status === 409) {
         this.flash("error", err.message, [], h("button", { class: "oba-btn", type: "button", onClick: () => location.reload() }, "Reload"));
       } else {

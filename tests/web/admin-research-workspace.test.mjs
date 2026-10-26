@@ -700,6 +700,85 @@ test("signing out asks about kept work and a new sign-in starts with nothing kep
   assert.ok(editor.log.includes("dispose"));
 }));
 
+/** Sign in through the form the way an author would, without the rest of the Admin's start-up. */
+async function signIn(app, root, username) {
+  app.enter = async function () {
+    await this.onHash();
+  };
+  byId(root, "oba-user").value = username;
+  byId(root, "oba-pass").value = "secret";
+  await root.querySelector("form").dispatch("submit");
+}
+
+test("an ended session keeps unsaved panels for the same user's next sign-in", withDom(async (dom) => {
+  const api = fakeApi({
+    "GET sources": () => LIBRARY(),
+    "POST login": (body) => ({ csrf: "fresh", user: body.username }),
+  });
+  const { app, root } = mountApp(api, "guided");
+  app.user = "writer";
+  const editor = fakeEditor("Private title");
+  openFakeEditor(app, "#/edit/posts%2Fa.md", editor);
+  app.dirty = true;
+  await go(app, "#/research/sources");
+  await buttonLabelled(root, "New source").click();
+  const title = byId(root, "oba-source-title");
+  await type(title, "Unsaved source");
+
+  app.showSessionEnded();
+  assert.deepEqual([...app.kept.keys()].sort(), ["draft", "sources"], "the open panel is kept with the draft");
+  assert.ok(!editor.log.includes("dispose"));
+  assert.equal(app.hasUnsavedWork(), true, "closing the page still warns");
+  assert.match(root.querySelector("[data-login-kept]").textContent, /kept on this page/);
+  assert.doesNotMatch(root.textContent, /Private title|Unsaved source/, "the sign-in form names no kept work");
+
+  await signIn(app, root, "writer");
+  assert.deepEqual(dom.questions, []);
+  assert.equal(byId(root, "oba-source-title"), title, "the same form returns");
+  assert.equal(title.value, "Unsaved source");
+  assert.equal(api.csrf, "fresh", "later saves carry the new session token");
+  assert.deepEqual([...app.kept.keys()], ["draft"]);
+
+  await go(app, "#/edit/posts%2Fa.md");
+  assert.equal(app.editor, editor, "the kept draft comes back too");
+  assert.deepEqual(editor.log, ["suspend", "resume"]);
+}));
+
+test("another user signing in after an ended session never sees the kept panels", withDom(async (dom) => {
+  const api = fakeApi({
+    "GET sources": () => LIBRARY(),
+    "POST login": (body) => ({ csrf: "fresh", user: body.username }),
+  });
+  const { app, root } = mountApp(api, "guided");
+  app.user = "writer";
+  const editor = fakeEditor("Private title");
+  openFakeEditor(app, "#/edit/posts%2Fa.md", editor);
+  app.dirty = true;
+  app.showSessionEnded();
+  assert.deepEqual([...app.kept.keys()], ["draft"]);
+
+  app.showEditor = async function () {
+    this.mount(this.shell("posts", node("p", "a fresh load")));
+  };
+  await signIn(app, root, "someone-else");
+  assert.equal(app.kept.size, 0);
+  assert.equal(app.workspaceDraft, null);
+  assert.ok(editor.log.includes("dispose"), "the other user's draft is disposed");
+  assert.match(root.textContent, /a fresh load/);
+  assert.deepEqual(dom.questions, []);
+
+  // Signing out on purpose forgets kept work even for the same user.
+  const again = fakeEditor();
+  openFakeEditor(app, "#/edit/posts%2Fb.md", again);
+  app.dirty = true;
+  app.user = "writer";
+  app.showSessionEnded();
+  assert.equal(app.kept.size, 1);
+  app.showLogin();
+  assert.equal(app.kept.size, 0);
+  assert.equal(root.querySelector("[data-login-kept]"), null);
+}));
+
 test("a route change moves focus to the new page's heading unless the view placed it", withDom(async (dom) => {
   const { app, root } = mountApp(fakeApi());
   app.showResearch = async function () {

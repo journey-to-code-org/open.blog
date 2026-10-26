@@ -277,7 +277,9 @@ left it, with a short announcement. Panels without unsaved changes reload, so th
 latest files. Admin still asks first, naming where the unsaved work is, before you leave the
 workspace for another page, open a different document while a draft is kept, sign out, or close
 or reload the page. Kept work stays only in this page's memory: it is never saved, stored in the
-browser, or sent anywhere, and signing out discards it. A kept panel saves against the revision
+browser, or sent anywhere, and signing out discards it. If your session expires instead, the
+unsaved panels wait in the page until you sign in again as the same user; signing in as anyone
+else discards them. A panel that is saving is not kept; Admin asks first. A kept panel saves against the revision
 it read, so if the file changed elsewhere meanwhile you get the usual conflict choice instead of
 an overwrite. The earlier addresses `#/sources`, `#/research`, `#/atlas/<id>`, and
 `#/compare/<id>` open the same panels. See

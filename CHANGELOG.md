@@ -12,7 +12,8 @@ All notable changes to open.blog are recorded here. Releases follow
   your research has come. Switching between the draft and research panels now keeps unsaved
   changes in each, and returns to them exactly as you left them; leaving the workspace, opening
   another document, signing out or closing the page still asks first, naming where the unsaved
-  work is. Notebook, atlas and comparison forms are now protected like the editor. The earlier
+  work is. If your session expires, the unsaved panels wait in the page until you sign in again
+  as the same user. Notebook, atlas and comparison forms are now protected like the editor. The earlier
   `#/sources`, `#/research`, `#/atlas` and `#/compare` addresses redirect to the same panels.
   Guided and Advanced show the workspace in the main navigation, Simple reaches it from Advanced
   tools and `Ctrl+K`, and Custom lets you choose. Every Admin page gains a skip link, and focus moves
