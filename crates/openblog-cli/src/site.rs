@@ -579,9 +579,55 @@ pub fn published_atlas(
     if !snapshot.stored {
         warnings.push(unstored_atlas_warning());
     }
+    let undated = snapshot.atlas.entries_with_unpublished_datings();
+    if !undated.is_empty() {
+        warnings.push(unpublished_datings_warning(&undated));
+    }
     openblog_core::atlas_publication::PublicAtlas::project(&snapshot.atlas, &snapshot.library)
         .map(Some)
         .map_err(unpublishable)
+}
+
+/// The most entries [`unpublished_datings_warning`] names before it counts
+/// the rest.
+const NAMED_UNDATED_ENTRIES: usize = 20;
+
+/// What `build` and `check` say when approved entries carry datings none of
+/// which may be published, so their years are missing from /atlas/ and
+/// atlas.json. An uncited date is never published; the warning only says so,
+/// naming ids and counts.
+fn unpublished_datings_warning(
+    undated: &[(usize, &openblog_core::knowledge_atlas::Entry)],
+) -> String {
+    let mut named: Vec<String> = undated
+        .iter()
+        .take(NAMED_UNDATED_ENTRIES)
+        .map(|(_, entry)| {
+            let count = entry.dates.len();
+            format!(
+                "`{}` ({count} dating{})",
+                entry.id,
+                if count == 1 { "" } else { "s" }
+            )
+        })
+        .collect();
+    if undated.len() > NAMED_UNDATED_ENTRIES {
+        named.push(format!(
+            "and {} more",
+            undated.len() - NAMED_UNDATED_ENTRIES
+        ));
+    }
+    format!(
+        "{} approved Knowledge Atlas entr{} no years on /atlas/ or in atlas.json, because none of {} datings can be published: {}. Years from version 1 `bounds` are now private, unsourced datings, and only cited, approved datings are published (from #59); `openblog check` names each entry.",
+        undated.len(),
+        if undated.len() == 1 {
+            "y shows"
+        } else {
+            "ies show"
+        },
+        if undated.len() == 1 { "its" } else { "their" },
+        named.join(", ")
+    )
 }
 
 /// What `build` and `check` say when the site publishes its atlas but this
@@ -1536,6 +1582,109 @@ mod tests {
             .warnings
             .iter()
             .all(|warning| !warning.contains("knowledgeAtlas.publish")));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_build_that_publishes_entries_whose_years_became_private_datings_warns() {
+        let root =
+            project_with_private_library("atlas-undated", r#"{"knowledgeAtlas":{"publish":true}}"#);
+        fs::remove_file(root.join(crate::notebook_store::NOTEBOOK_FILE)).unwrap();
+        fs::write(
+            root.join(crate::source_store::LIBRARY_FILE),
+            r#"{"version":1,"sources":[{"id":"apology","kind":"work","title":"Apology"}]}"#,
+        )
+        .unwrap();
+        // Version 1: approved entries' years were published from `bounds`.
+        // After the upgrade they are private, unsourced datings.
+        fs::write(
+            root.join(crate::atlas_store::ATLAS_FILE),
+            r#"{"version":1,"entries":[
+              {"id":"plato","kind":"person","label":"Plato","bounds":{"from":-428,"until":-348},"visibility":"approved"},
+              {"id":"socrates","kind":"person","label":"Socrates","bounds":{"until":-399},"visibility":"approved"},
+              {"id":"undated","kind":"concept","label":"Undated","visibility":"approved"},
+              {"id":"hidden","kind":"person","label":"Hidden","bounds":{"from":-500}}]}"#,
+        )
+        .unwrap();
+        let undated_warning = |warnings: &[String]| {
+            warnings
+                .iter()
+                .find(|warning| warning.contains("show no years"))
+                .cloned()
+        };
+        let report = production_build(&root);
+        let warning = undated_warning(&report.warnings)
+            .expect("the build warns that published entries lost their years");
+        assert!(
+            warning.starts_with("2 approved Knowledge Atlas entries show no years"),
+            "{warning}"
+        );
+        assert!(
+            warning.contains("`plato` (1 dating), `socrates` (1 dating)"),
+            "{warning}"
+        );
+        assert!(
+            warning.contains("version 1 `bounds` are now private, unsourced datings"),
+            "{warning}"
+        );
+        assert!(
+            warning.contains("cited, approved datings are published (from #59)"),
+            "{warning}"
+        );
+        // Ids and counts only: neither labels nor years, and never the
+        // private entry or the approved entry without datings.
+        for absent in ["Plato", "428", "399", "hidden", "undated"] {
+            assert!(!warning.contains(absent), "{absent}: {warning}");
+        }
+        // The years stay unpublished: an uncited date is never shown.
+        let atlas_json = fs::read_to_string(root.join("dist/atlas.json")).unwrap();
+        assert!(atlas_json.contains("\"plato\""), "{atlas_json}");
+        assert!(!atlas_json.contains("428"), "{atlas_json}");
+
+        // `check` reports the same warning, and Admin's notices name each entry.
+        let (mut site, themes) = load_site(&root, true, None).unwrap();
+        generate_site(&root, &mut site, &themes).unwrap();
+        assert_eq!(undated_warning(&site.warnings), Some(warning));
+        let snapshot = crate::atlas_store::load(&root, &std::collections::BTreeMap::new()).unwrap();
+        let notices: Vec<_> = snapshot
+            .atlas
+            .notices()
+            .into_iter()
+            .filter(|notice| {
+                notice.code
+                    == openblog_core::knowledge_atlas::AtlasDiagnosticCode::UnpublishedDatings
+            })
+            .map(|notice| (notice.collection, notice.id, notice.field))
+            .collect();
+        assert_eq!(
+            notices,
+            [
+                (Some("entries"), Some("plato".into()), Some("dates".into())),
+                (
+                    Some("entries"),
+                    Some("socrates".into()),
+                    Some("dates".into())
+                ),
+            ]
+        );
+
+        // Once a dating cites evidence and is approved, nothing is withheld
+        // from the entry, whatever the dating is called.
+        fs::write(
+            root.join(crate::atlas_store::ATLAS_FILE),
+            r#"{"version":2,"entries":[
+              {"id":"plato","kind":"person","label":"Plato","visibility":"approved","dates":[
+                {"id":"plato-span","aspect":"span","date":{"from":{"year":-428},"to":{"year":-348}},"assertedBy":{"kind":"author"},"unsourced":true},
+                {"id":"plato-death","aspect":"death","date":{"at":{"year":-348,"circa":true}},"assertedBy":{"kind":"source","source":"apology"},"evidence":[{"source":"apology"}],"visibility":"approved"}]}]}"#,
+        )
+        .unwrap();
+        let report = production_build(&root);
+        assert_eq!(
+            undated_warning(&report.warnings),
+            None,
+            "{:?}",
+            report.warnings
+        );
         fs::remove_dir_all(root).unwrap();
     }
 

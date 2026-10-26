@@ -829,9 +829,19 @@ test("a concept a note links to without an entry opens as a new concept with tha
 }));
 
 test("notices and a damaged atlas are reported as text, never with a way to overwrite", withDom(async () => {
-  const noticed = mountAtlas(atlasApi({ "GET research/atlas": () => atlas({ notices: [{ code: "private-endpoint", id: "plato-authored-politeia", field: "from", message: "the entry `plato` is private, so this approved relationship stays out of public output until the entry is approved" }] }) }));
+  const noticed = mountAtlas(atlasApi({
+    "GET research/atlas": () =>
+      atlas({
+        notices: [
+          { code: "private-endpoint", collection: "relationships", id: "plato-authored-politeia", field: "from", message: "the entry `plato` is private, so this approved relationship stays out of public output until the entry is approved" },
+          { code: "unpublished-datings", collection: "entries", id: "plato", field: "dates", message: "`plato` is published, but none of its 1 dating can be, so public pages show no years for it" },
+        ],
+      }),
+  }));
   await noticed.app.showAtlas();
   assert.match(noticed.root.textContent, /Relationship plato-authored-politeia, from: the entry `plato` is private/);
+  const undated = noticed.root.querySelectorAll("li").find((item) => item.dataset.atlasNotice === "unpublished-datings");
+  assert.match(undated.textContent, /^Entry plato, dates: `plato` is published, but none of its 1 dating can be/, "an entry's notice names the entry, not a relationship");
   const damaged = mountAtlas(atlasApi({
     "GET research/atlas": () => {
       throw new ApiError("bad", 422, { error: "invalid JSON", file: ".openblog/private/research/atlas.json", diagnostics: [{ message: "invalid JSON: eof" }] });

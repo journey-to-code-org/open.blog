@@ -14,10 +14,14 @@ All notable changes to open.blog are recorded here. Releases follow
   resolved. A relative dating never becomes or supports a relationship.
 - The atlas file is now version 2. A version 1 atlas is still read, and its next change writes
   version 2, turning each entry's `bounds` years into a private, unsourced dating by the author
-  with nothing lost. Datings are private by default and approval follows the atlas projection,
-  but no page publishes them yet, so a published atlas page no longer shows an entry's years
-  until a cited, approved dating can be published. The Admin entry form no longer edits years;
-  it keeps an entry's datings unchanged when you save.
+  with nothing lost. Datings are private by default and approval follows the atlas projection.
+  The Admin entry form no longer edits years; it keeps an entry's datings unchanged when you save.
+- If your site publishes its atlas, the years your approved entries showed from `bounds`
+  disappear from /atlas/ pages and `atlas.json` on your next build, and stay gone until you cite
+  and approve a dating for each entry (cited, approved datings are published by a later release).
+  An uncited date is never published. `openblog build` and `openblog check` now warn about this,
+  naming each affected entry and how many datings it holds, and Admin's atlas notices list each
+  entry too.
 
 ## [0.32.0] - 2026-10-26
 

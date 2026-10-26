@@ -71,6 +71,8 @@ unsourced author note as a sourced claim.
 - Older open.blog releases refuse a version 2 atlas as written by a newer release, as designed;
   an author who downgrades must restore a version 1 copy.
 - A site that published approved entries' years stops showing them until #59 publishes cited,
-  approved datings.
+  approved datings. Rather than vanish silently, `build` and `check` warn while the atlas is
+  published, naming each approved entry none of whose datings may be published and how many it
+  holds, and Admin lists an `unpublished-datings` notice for each.
 - `check` and Admin read a version 1 atlas without change, so upgrading is an ordinary edit
   with the usual revision check.

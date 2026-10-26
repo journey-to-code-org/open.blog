@@ -148,7 +148,10 @@ point at it. `DateExpr::key` orders absolute datings by their earliest and lates
 A dating is projected (`Atlas::is_dating_projected`, `Atlas::projected_datings`) only when it is
 approved and cited with no passage, its entry is approved or its relationship is projected, and
 the entry a relative dating points at is approved. Otherwise it stays private, with a
-non-blocking `private-endpoint` notice. No surface publishes datings yet. A dating's sources
+non-blocking `private-endpoint` notice. No surface publishes datings yet. An approved entry that
+carries datings none of which may be projected (every approved entry that had version 1 `bounds`)
+gets an `unpublished-datings` notice, and a build that publishes the atlas warns, naming those
+entries and their dating counts, since their years are missing from public output. A dating's sources
 and passages count as uses, so removing them from the library or notebook is refused.
 
 **Version 1.** A `"version": 1` atlas is read as version 2 and written as version 2 by the next

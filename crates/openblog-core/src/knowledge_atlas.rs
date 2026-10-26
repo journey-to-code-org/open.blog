@@ -552,6 +552,7 @@ pub enum AtlasDiagnosticCode {
     InvalidDate,
     AspectKind,
     DuplicateDating,
+    UnpublishedDatings,
 }
 
 /// Which private file a diagnostic is about, so a message names the right
@@ -1926,10 +1927,28 @@ impl Atlas {
         owned.chain(pointing).copied().collect()
     }
 
+    /// Approved entries, with their position in the file, that carry datings
+    /// none of which the projection may publish: a published entry whose
+    /// years no public output can show. After the version 2 upgrade this is
+    /// every approved entry that had `bounds`, since its years became a
+    /// private, unsourced dating. It is decided from the datings themselves,
+    /// never from how they are named.
+    pub fn entries_with_unpublished_datings(&self) -> Vec<(usize, &Entry)> {
+        self.entries
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| {
+                e.visibility == Visibility::Approved
+                    && !e.dates.is_empty()
+                    && !e.dates.iter().any(|d| self.is_dating_projected(&e.id, d))
+            })
+            .collect()
+    }
+
     /// Non-blocking notices about a valid atlas: approved relationships and
     /// datings the projection leaves out because something they depend on is
-    /// private. They never make the atlas invalid, and they repeat no authored
-    /// text.
+    /// private, and approved entries none of whose datings may be published.
+    /// They never make the atlas invalid, and they repeat no authored text.
     pub fn notices(&self) -> Vec<AtlasDiagnostic> {
         let mut notices = Vec::new();
         let private_entry = |id: &str| {
@@ -2006,6 +2025,21 @@ impl Atlas {
                     ));
                 }
             }
+        }
+        for (index, entry) in self.entries_with_unpublished_datings() {
+            let count = entry.dates.len();
+            notices.push(item_diagnostic(
+                AtlasDiagnosticCode::UnpublishedDatings,
+                "entries",
+                index,
+                &entry.id,
+                "dates",
+                format!(
+                    "`{}` is published, but none of its {count} dating{} can be, so public pages show no years for it: years from version 1 `bounds` are now private, unsourced datings, and only cited, approved datings are published (from #59)",
+                    entry.id,
+                    if count == 1 { "" } else { "s" }
+                ),
+            ));
         }
         notices
     }
@@ -3496,7 +3530,16 @@ mod tests {
         value["entries"][0]["visibility"] = json!("approved");
         value["entries"][1]["visibility"] = json!("approved");
         let mut atlas = parse(value.clone()).expect("valid");
-        assert!(atlas.notices().is_empty());
+        // Plato's version 1 years became a private, unsourced dating, so the
+        // published entry shows none, and a notice names the entry only.
+        let notices = atlas.notices();
+        assert_eq!(notices.len(), 1, "{notices:?}");
+        assert_eq!(notices[0].code, AtlasDiagnosticCode::UnpublishedDatings);
+        assert_eq!(
+            (notices[0].collection, notices[0].id.as_deref()),
+            (Some("entries"), Some("plato"))
+        );
+        assert!(!notices[0].message.contains("Plato") && !notices[0].message.contains("428"));
         let (entries, relationships) = atlas.projected();
         assert_eq!(
             entries.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(),

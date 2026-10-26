@@ -7422,7 +7422,7 @@ export class ObAdmin extends AdminElement {
             "section",
             { class: "oba-notice", "aria-labelledby": "oba-atlas-notices-heading" },
             h("h2", { class: "oba-small-heading", id: "oba-atlas-notices-heading" }, "Notices"),
-            h("ul", {}, state.notices.map((notice) => h("li", {}, `Relationship ${notice.id}, ${notice.field}: ${notice.message}`))),
+            h("ul", {}, state.notices.map((notice) => h("li", { "data-atlas-notice": notice.code }, `${notice.collection === "entries" ? "Entry" : "Relationship"} ${notice.id}, ${notice.field}: ${notice.message}`))),
           ),
         );
       }
