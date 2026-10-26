@@ -5,6 +5,16 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Defined how readers' evidence and the author's correction decisions work, ahead of the forms
+  that use them. A suggested source or correction may name the published claim, evidence link or
+  citation it questions and a published source with page or other locations; this is the
+  reader's statement, never checked for truth or counted. Only the author's decision can make a
+  suggestion a correction: accepted as a correction, as a clarification or as evidence (in full or
+  in part), declined with the author's reason, or already addressed, linked to the post's revision
+  note and claim evidence. Decisions are kept in order and never erase the reader's record, and a
+  decision is shown only beside a reader's note that is itself public. Nothing changes on pages,
+  feeds or the hosted service yet.
+
 ## [0.35.0] - 2026-10-26
 
 - The private Knowledge Atlas can now record uncertain chronology. Entries and relationships

@@ -84,6 +84,15 @@ the change with its audit event only while the item still has that state and ver
 otherwise), and approved notes are published from `content/reader-feedback.json`, never read back
 from the hosted service by a build. Comments, their table and their routes are unchanged.
 
+Evidence submissions and correction decisions (RD6) extend the same two kinds rather than adding a
+third: a suggested source or correction may carry a version 2 evidence block naming the published
+claim, evidence link, citation or source it concerns
+([ADR 0138](../adr/0138-evidence-submissions-are-suggested-sources-and-corrections-with-unverified-reader-evidence.md)),
+and only the author's correction decision, separate from moderation and kept in an append-only
+log per item, can label one a correction
+([ADR 0139](../adr/0139-only-the-authors-correction-decision-labels-a-correction.md)). The hosted
+function refuses version 2 until #217 adopts it.
+
 ## Out of scope
 
 - Reader accounts, email collection, avatars, reactions, notifications, nested replies, rich-text

@@ -1198,6 +1198,54 @@ The author's public reply to one published note, stored with it and shown under 
 sends nothing to the reader.
 _Avoid_: Reply notification, correction notice
 
+**Evidence submission**:
+A suggested source or suggested correction (the two evidence kinds), optionally with an evidence
+block naming the published claim, evidence link, citation or source it concerns. Reader data and
+the reader's statement, never evaluated and never a correction until the author decides
+(ADR 0138).
+_Avoid_: Correction, evidence link, citation, fact check
+
+**Evidence block**:
+The `evidence` member of a version 2 feedback submission: the claim, evidence link, citation and
+offered source a reader names by the site's public ids, with locators and the reader's stance.
+Never an A4 evidence link and never copied into research.
+_Avoid_: Evidence (for the author's evidence links), vote, endorsement
+
+**Published references**:
+The claims, evidence links and sources one post publishes, the only things a reader's evidence
+block is checked against. A reference outside them reads only as not published here, never as
+private.
+_Avoid_: Claims file, Source Library lookup
+
+**Correction decision**:
+The author's recorded conclusion about one evidence submission: an outcome linked to the item,
+the post's revision note and, where relevant, the claim evidence link the author recorded. Separate
+from moderation; it never edits the post and never changes the reader's record (ADR 0139).
+_Avoid_: Moderation, approval, verdict, fact check
+
+**Decision outcome**:
+Accepted as a correction, accepted as a clarification, accepted as evidence (each in full or in
+part), declined with the author's reason, or already addressed. Only accepted as a correction makes
+anything a correction.
+_Avoid_: Verdict, rating, true or false
+
+**Decision log**:
+Every correction decision about one item, oldest first and numbered from 1. A new decision names
+how many it saw and supersedes the last without removing it.
+_Avoid_: Overwriting a decision, audit trail when moderation events are meant
+
+**Standing**:
+How an item reads to readers and editors: a question, another interpretation, a proposed source,
+a challenged citation or a possible error until the author decides, then the outcome in force. It
+depends on the kind, the evidence block and the decision only, never on counts.
+_Avoid_: Status (moderation), score, consensus
+
+**Public decision**:
+The public form of an item's decision in force (outcome, extent, reason, rationale, revision note,
+published claim evidence, day), shown only while the reader's item is itself public, and naming
+neither the reader nor who decided.
+_Avoid_: Correction notice for a private submission, decision export
+
 ## Admin workspace
 
 **Workspace preferences**:
