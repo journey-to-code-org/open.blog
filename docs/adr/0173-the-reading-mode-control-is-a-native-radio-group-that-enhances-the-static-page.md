@@ -47,7 +47,8 @@ pixels and 400% zoom, and the choice is a private preference.
 - **Reduced motion.** Showing a supplement fades it in over 0.18 seconds only under
   `prefers-reduced-motion: no-preference`; scrolling to a revealed target is instant under `reduce`.
 - **Layout.** The options wrap and stack; descriptions wrap anywhere; at 320 CSS pixels and at 400%
-  zoom nothing scrolls sideways. Print hides the control and prints the page as shown.
+  zoom nothing scrolls sideways (the browser test emulates the 320 by 256 CSS pixel viewport that 400%
+  zoom leaves; it does not drive the browser's zoom command). Print hides the control and prints the page as shown.
 - **Fields are private** (`#name`) so none can shadow an `HTMLElement` property such as `hidden`,
   `popover` or `title`.
 - **The rules live in one dependency-free module** (`web/components/reading-modes.js`): the mode

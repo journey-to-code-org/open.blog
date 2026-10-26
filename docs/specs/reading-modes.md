@@ -59,7 +59,14 @@ A mode changes visibility only. The article words, citations, footnotes, heading
 are identical in every mode. A supplement's own words are not counted in the post's description, word
 count or reading time. A heading inside a supplement is a real heading with its own id
 (`ob-supplement-N-hK`, or the author's `{#id}`), is not in the outline and does not renumber the
-post's headings. The reader's saved choice opens first, then the author's default, then standard.
+post's headings. A post opens in the reader's saved choice, else its own default, else the site's
+default, else standard.
+
+In a post's passage sections (the text a reader can comment on or compare) the heading of a
+supplement is a section too, and its anchor is positional: the supplement's `ob-supplement-N-hK` id
+(or the author's `{#id}`) names a place in this revision of the post, so a passage target on it
+can point elsewhere when supplements are added, removed or reordered. The
+article's own headings keep the ids the page gives them, whatever the supplements.
 
 ## Static markup (no JavaScript)
 
@@ -78,8 +85,7 @@ effective level. Controls hide a supplement whose `data-ob-level` the chosen mod
 restore all of them without script. Ids are positional for one revision of the post and are not
 stored; `ob-supplement-` is reserved: a heading `{#id}`, footnote label or raw HTML `id` an opted-in post
 writes with that prefix is renamed with `section-` (by its exact written value; a Markdown link to it
- follows) and reported (a post that has not opted in is
-never touched), and a U+0000 in such a post is read as U+FFFD. A generated note cited only inside supplements has
+follows) and reported (a post that has not opted in is never touched), and a U+0000 in such a post is read as U+FFFD. A generated note cited only inside supplements has
 `data-ob-supplement="ob-supplement-1 ob-supplement-3"` naming them.
 
 ## The control (no JavaScript needed to read; script adds it)

@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 // and the real stylesheet and component: the standard, guided and deep-dive controls by keyboard
 // and screen-reader name, state and description, a page that is complete without JavaScript, the
 // choice kept on the device (and the page working when storage is blocked), reduced motion, a
-// 320 CSS pixel and 400% zoom reflow measured on the article region, a warning that no mode hides,
+// 320 CSS pixel and 320 by 256 (the viewport 400% zoom leaves) reflow measured on the article region, a warning that no mode hides,
 // and links into a hidden supplement.
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -72,6 +72,10 @@ test.beforeAll(async () => {
   writeFileSync(
     join(root, "content", "posts", "uncertain.md"),
     "---\ntitle: Uncertain\ndate: 2026-10-20\nreadingModes: true\n---\nScholars are unsure whether the text is early. That doubt belongs to the article.\n\n> [!supplement kind=uncertainty level=guided] What is not known\n> The dating rests on one witness.\n\n> [!CAUTION]\n> The reading is disputed.\n>\n> > [!supplement kind=uncertainty level=deep-dive] Why it is disputed\n> > The witnesses disagree.\n\nThe article ends.\n",
+  );
+  writeFileSync(
+    join(root, "content", "posts", "nested.md"),
+    "---\ntitle: Nested\ndate: 2026-10-20\nreadingModes: true\n---\nOpening.\n\n> [!supplement kind=context level=guided] Outer\n> Outer words.\n>\n> > [!supplement kind=evidence level=deep-dive] Inner\n> > Inner words.\n\nClosing.\n",
   );
   // A theme from before reading modes: its own stylesheet flattens block quotes and knows no supplement hook.
   mkdirSync(join(root, "themes", "legacy"), { recursive: true });
@@ -282,12 +286,8 @@ test("the site's default reading mode opens a post that names none; the post's o
     const config = JSON.parse(readFileSync(configPath, "utf8"));
     config.readingModes = { default: "guided" };
     writeFileSync(configPath, JSON.stringify(config, null, 2));
-    for (const [name, front] of [["site", "readingModes: true
-"], ["own", "readingModes: {default: deep-dive}
-"], ["standard", "readingModes: {default: standard}
-"]]) {
-      writeFileSync(join(other, "content", "posts", `${name}.md`), post(`Site default ${name}`, front).replace("citations: notes
-", ""));
+    for (const [name, front] of [["site", "readingModes: true\n"], ["own", "readingModes: {default: deep-dive}\n"], ["standard", "readingModes: {default: standard}\n"]]) {
+      writeFileSync(join(other, "content", "posts", `${name}.md`), post(`Site default ${name}`, front).replace("citations: notes\n", ""));
     }
     const listener = createServer();
     listener.listen(0, "127.0.0.1");
@@ -413,8 +413,9 @@ test("at 320 CSS pixels the article region reflows with no sideways scrolling in
   }
 });
 
-test("at 400% zoom the control still reaches, labels and operates every option", async ({ browser }) => {
-  // 400% of a 1280 pixel window is a 320 by 256 CSS pixel viewport at four device pixels per pixel.
+test("in the 320 by 256 CSS pixel viewport that 400% zoom gives, the control still reaches, labels and operates every option", async ({ browser }) => {
+  // 400% zoom of a 1280 pixel window leaves a 320 by 256 CSS pixel viewport at four device pixels per pixel. This
+  // emulates that viewport and scale; it is not the browser's own zoom command.
   const context = await browser.newContext({ viewport: { width: 320, height: 256 }, deviceScaleFactor: 4 });
   const page = await context.newPage();
   await open(page);
@@ -832,6 +833,49 @@ test("a link to this page written in full reveals the supplement it points into"
   await expect(supplement(page, 2)).toBeHidden();
 });
 
+test("a link written with /index.html reveals the supplement it points into, as the page's own address does", async ({ page }) => {
+  await open(page);
+  // The navigation itself is not what is under test, and a reload would show the layer by itself: a listener
+  // on window runs after the component's, which sees the click first, and stops the browser following it.
+  await page.evaluate(() => addEventListener("click", (event) => event.preventDefault()));
+  await page.evaluate(() => {
+    const link = document.createElement("a");
+    link.id = "index-link";
+    link.href = `${location.origin}${location.pathname}index.html#ob-supplement-2-h1`;
+    link.textContent = "index address";
+    document.querySelector("article").prepend(link);
+  });
+  await expect(supplement(page, 2)).toBeHidden();
+  await page.locator("#index-link").click();
+  await expect(supplement(page, 2)).toBeVisible();
+  await expect(page.locator("ob-reading-modes [role=status]")).toContainText("Showed the evidence supplement");
+});
+
+test("a hidden supplement nested in a shown one leaves no gap behind", async ({ page }) => {
+  await open(page, "nested");
+  await radio(page, "Guided").check();
+  await expect(supplement(page, 1)).toBeVisible();
+  await expect(supplement(page, 2)).toBeHidden();
+  const measure = () =>
+    page.evaluate(() => {
+      const outer = document.getElementById("ob-supplement-1");
+      const words = outer.querySelector("blockquote > p").getBoundingClientRect();
+      const end = outer.querySelector(":scope > .ob-supplement-end").getBoundingClientRect();
+      const inner = document.getElementById("ob-supplement-2");
+      return { gap: end.top - words.bottom, height: outer.getBoundingClientRect().height, innerBox: inner.getBoundingClientRect().height, innerDisplay: getComputedStyle(inner).display };
+    });
+  const guided = await measure();
+  // The hidden layer takes no box: nothing but the usual paragraph and end-line spacing is left.
+  expect(guided.innerBox).toBe(0);
+  expect(guided.gap).toBeLessThan(64);
+  await radio(page, "Deep dive").check();
+  const deep = await measure();
+  expect(deep.height).toBeGreaterThan(guided.height + 20);
+  // Going back removes it again, with the same height as before.
+  await radio(page, "Guided").check();
+  expect((await measure()).height).toBeCloseTo(guided.height, 0);
+});
+
 test("a theme from before reading modes still draws the boundary, labels and control", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 640 });
   await open(page, "legacy");
@@ -914,7 +958,7 @@ test("the component ends the pre-paint hiding as its first act, and the hiding i
   await context.close();
 });
 
-test("at 320 CSS pixels and at 400% zoom the article region has no overflow with the note and skip links", async ({ browser }) => {
+test("at 320 CSS pixels and in the viewport 400% zoom gives, the article region has no overflow with the note and skip links", async ({ browser }) => {
   for (const viewport of [{ width: 320, height: 640 }, { width: 320, height: 256, scale: 4 }]) {
     const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height }, deviceScaleFactor: viewport.scale ?? 1 });
     const page = await context.newPage();

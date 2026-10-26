@@ -1341,3 +1341,24 @@ fn the_site_default_is_read_tolerantly_and_never_fails_the_configuration() {
         SiteConfig::from_json(r#"{"title": "T", "readingModes": {"default": "guided"}}"#).unwrap();
     assert!(set.to_json().contains("\"default\": \"guided\""));
 }
+
+#[test]
+fn a_reserved_id_written_with_character_references_is_renamed_by_its_written_value() {
+    let markdown = "<div id=\"ob&#45;supplement-1\">one</div>\n\n\
+<p id='&#111;b-supplement-2' title=\"ob&#45;supplement-2\">two</p>\n\n\
+See [one](#ob-supplement-1).\n\n> [!supplement kind=context]\n> Inside.\n";
+    let html = render(markdown, on()).html;
+    // The written value is prefixed as written (the character references stay), and the id the
+    // browser reads is no longer a reserved one; the title next to it is untouched.
+    assert!(
+        html.contains("<div id=\"section-ob&#45;supplement-1\">"),
+        "{html}"
+    );
+    assert!(
+        html.contains("<p id='section-&#111;b-supplement-2' title=\"ob&#45;supplement-2\">"),
+        "{html}"
+    );
+    // A link to the decoded id follows it, and the only reserved ids left are the supplement's own.
+    assert!(html.contains("href=\"#section-ob-supplement-1\""), "{html}");
+    assert_eq!(html.matches("id=\"ob-supplement-1\"").count(), 1, "{html}");
+}

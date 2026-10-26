@@ -17,10 +17,8 @@ All notable changes to open.blog are recorded here. Releases follow
   article. Each shown supplement has a "Skip this ... supplement" link, seen when it has focus, that
   moves past it. A supplement holding a warning or caution is never hidden, even when its marker was
   lost, and the page keeps the box drawn in forced colours and in print. Passage feedback and
-  claim sections follow the same heading ids as the page in a post with supplements; an id you wrote
-  that starts `ob-supplement-` is renamed by its exact value and Markdown links to it follow. The
-  stable class, attribute and custom-property hooks for themes are documented.
-
+  claim sections follow the same heading ids as the page in a post with supplements. The stable
+  class, attribute and custom-property hooks for themes are documented.
 - Guided and deep-dive layers now appear progressively and keep your place. With script on, the page
   no longer paints every layer and then hides some: the layers the post's default mode hides are
   hidden from the start (and come back by themselves if the script never loads), a mode change keeps
@@ -31,10 +29,10 @@ All notable changes to open.blog are recorded here. Releases follow
   A change in another tab no longer re-hides a supplement you opened or drops your focus. The
   "Use the author's default" button keeps keyboard focus. The saved choice is now kept per site
   folder, so GitHub Pages project sites on one account no longer share it (readers choose once
-  again). With reading modes on, ids you wrote that start with `ob-supplement-` are renamed and
-  reported, a NUL character is read as a replacement character, headings keep their old slugs when
-  reading modes are off, and `readingModes: {enabled: false}` turns them off while an unknown key is
-  reported.
+  again). With reading modes on, ids you wrote that start with `ob-supplement-` are renamed by
+  their exact value (Markdown links to them follow) and reported, a NUL character is read as a
+  replacement character, headings keep their old slugs when reading modes are off, and
+  `readingModes: {enabled: false}` turns them off while an unknown key is reported.
 - Defined author-approved supplements and reading modes, ahead of the reader controls. A post that
   opts in with `readingModes: true` can mark a block quote `[!supplement kind=definition
   level=guided]` as extra context (definition, context, evidence, relationship, comparison, further
