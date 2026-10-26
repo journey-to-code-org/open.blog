@@ -62,6 +62,9 @@ class DomNode {
     if (name === "hidden") this.hidden = true;
     if (name.startsWith("data-")) this.dataset[name.slice(5).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())] = String(value);
   }
+  removeAttribute(name) {
+    delete this.attributes[name];
+  }
   contains(node) {
     for (let current = node; current; current = current.parent) if (current === this) return true;
     return false;
@@ -1681,4 +1684,71 @@ test("the panel never implies permission or fair use, and fetches nothing from a
   assert.equal(shared.querySelector("script"), null);
   assert.equal(shared.querySelector("b"), null);
   assert.ok(api.state.calls.every((call) => call.key.split(" ")[1].startsWith("collaboration/")), "only Admin API calls");
+}));
+
+// A moments save that stays in flight until the test lets it finish.
+const holdMomentSaves = (api) => {
+  const real = api.call.bind(api);
+  const held = { release: null, started: 0 };
+  api.call = (method, path, options) => {
+    if (method !== "POST" || !path.startsWith("collaboration/moments")) return real(method, path, options);
+    held.started += 1;
+    return new Promise((resolve, reject) => {
+      held.release = () => real(method, path, options).then(resolve, reject);
+    });
+  };
+  return held;
+};
+const momentSaves = (api) => api.state.calls.filter((call) => call.key === "POST collaboration/moments");
+
+test("a double submit of a moment sends one request and the buttons wait for the save", withDom(async () => {
+  const api = fakeApi();
+  const { panel } = await openDraft(api);
+  const held = holdMomentSaves(api);
+  await typeMoment(panel, { source: "source-1", value: "1:02", observation: "Noticed the pause." });
+  const first = momentSubmit(panel);
+  await settle();
+  const second = momentSubmit(panel);
+  await settle();
+  assert.equal(held.started, 1, "the repeat submit is ignored");
+  const save = button(panel, "Add moment");
+  assert.equal(save.disabled, true);
+  assert.equal(save.attributes["aria-disabled"], "true");
+  held.release();
+  await Promise.all([first, second]);
+  await settle();
+  assert.equal(momentSaves(api).length, 1);
+  assert.equal(momentItems(panel).length, 1);
+  assert.equal(button(panel, "Add moment").disabled, false);
+  assert.equal(alertOf(panel).hidden, true, "no conflict against its own first save");
+}));
+
+test("text typed while a moment is being saved survives the save", withDom(async () => {
+  const api = fakeApi();
+  const { panel } = await openDraft(api);
+  const held = holdMomentSaves(api);
+  await typeMoment(panel, { source: "source-1", value: "1:02", observation: "First." });
+  const saving = momentSubmit(panel);
+  await settle();
+  await typeMoment(panel, { observation: "Typed during the save." });
+  held.release();
+  await saving;
+  await settle();
+  assert.equal(momentItems(panel).length, 1);
+  assert.equal(momentField(panel, "observation").value, "Typed during the save.");
+}));
+
+test("the moment buttons are enabled again after a failed save, and the typed text stays", withDom(async () => {
+  const api = fakeApi({ failures: { "POST collaboration/moments": new FakeApiError("The moments changed since you read them.", 500, null) } });
+  const { panel } = await openDraft(api);
+  await typeMoment(panel, { source: "source-1", value: "1:02", observation: "Keep me." });
+  await momentSubmit(panel);
+  await settle();
+  const save = button(panel, "Add moment");
+  assert.equal(save.disabled, false);
+  assert.equal(save.attributes["aria-disabled"], undefined);
+  assert.equal(momentField(panel, "observation").value, "Keep me.");
+  await momentSubmit(panel);
+  await settle();
+  assert.equal(momentItems(panel).length, 1, "a retry goes through");
 }));

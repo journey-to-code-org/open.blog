@@ -31,6 +31,9 @@ All notable changes to open.blog are recorded here. Releases follow
   drop one is refused. The preview shows each moment exactly as it will be published. Rights
   statements, rights notes and private moments are never published, and pieces without proposed
   moments publish exactly as before.
+- Saving a moment in Admin now waits for the save to finish: its buttons are disabled while it is in
+  flight, a quick second click no longer collides with the first save, and anything you type while
+  it saves is kept instead of cleared.
 
 ## [0.30.0] - 2026-10-26
 

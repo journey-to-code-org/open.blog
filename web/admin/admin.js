@@ -8670,6 +8670,24 @@ export class ObAdmin extends AdminElement {
     const blank = () => ({ source: "", kind: "timestamp", value: "", to: "", quote: "", speaker: "", rights: "", rightsNote: "", provenance: "", observation: "", publish: false });
     let typed = blank();
     let editing = null;
+    // One save at a time: while a change is in flight the buttons that would start another are
+    // disabled and a repeat submit is ignored, so a second request never carries a stale revision.
+    // `typedEdits` counts the writer's own changes so a finished save never wipes newer typing.
+    let busy = false;
+    let typedEdits = 0;
+    let formButtons = [];
+    const itemButtons = new Set();
+    const gate = (button) => {
+      if (!button) return button;
+      button.disabled = busy;
+      if (busy) button.setAttribute("aria-disabled", "true");
+      else button.removeAttribute("aria-disabled");
+      return button;
+    };
+    const setBusy = (value) => {
+      busy = value;
+      for (const button of [...formButtons, ...itemButtons]) gate(button);
+    };
     const controls = new Map();
     const fields = new Map();
     let submit = (event) => event.preventDefault();
@@ -8700,14 +8718,18 @@ export class ObAdmin extends AdminElement {
       heading.focus();
     };
     const send = async (change, done, focusKeys) => {
+      if (busy) return false;
       clearProblem();
+      setBusy(true);
       try {
         current = await this.api.call("POST", "collaboration/moments", { json: { publicationId: id, expectedRevision: current.revision, change } });
+        setBusy(false);
         render();
         status.textContent = done;
         focusTo(typeof focusKeys === "function" ? focusKeys() : focusKeys);
         return true;
       } catch (error) {
+        setBusy(false);
         const failure = momentsFailure(error);
         fail(failure.message, SERVER_FIELDS[failure.field]);
         // A conflict reloads the current moments around what was typed; a denial keeps the notice
@@ -8759,7 +8781,10 @@ export class ObAdmin extends AdminElement {
       const edit = h("button", { class: "oba-btn", type: "button", "aria-label": `Edit moment ${position + 1} of ${total}` }, "Edit");
       const remove = h("button", { class: "oba-btn", type: "button", "aria-label": `Remove moment ${position + 1} of ${total}` }, "Remove");
       const confirmHolder = h("div", {});
+      itemButtons.add(gate(edit));
+      itemButtons.add(gate(remove));
       edit.addEventListener("click", () => {
+        if (busy) return;
         const [first, ...rest] = moment.locators || [];
         editing = { id: moment.id, position, locators: rest, language: moment.quotation?.language || "" };
         typed = {
@@ -8780,6 +8805,7 @@ export class ObAdmin extends AdminElement {
         fields.get("value")?.focus();
       });
       remove.addEventListener("click", () => {
+        if (busy) return;
         const yes = h("button", { class: "oba-btn oba-btn-danger", type: "button" }, "Remove this moment");
         const no = h("button", { class: "oba-btn", type: "button" }, "Cancel");
         const box = h(
@@ -8789,6 +8815,8 @@ export class ObAdmin extends AdminElement {
           h("p", { class: "oba-small" }, moment.intent === "publication" ? "It is taken out of the piece, and every approval must be given again." : "It is deleted. Nobody else ever saw it."),
           h("div", { class: "oba-toolbar" }, yes, no),
         );
+        itemButtons.add(gate(yes));
+        itemButtons.add(gate(no));
         confirmHolder.replaceChildren(box);
         box.focus();
         const close = () => {
@@ -8800,6 +8828,7 @@ export class ObAdmin extends AdminElement {
           if (event.key === "Escape") close();
         });
         yes.addEventListener("click", () => {
+          if (busy) return;
           if (editing?.id === moment.id) {
             editing = null;
             typed = blank();
@@ -8832,6 +8861,7 @@ export class ObAdmin extends AdminElement {
       const bind = (key, control, event = "input") => {
         fields.set(key, control);
         control.addEventListener(event, () => {
+          typedEdits += 1;
           typed[key] = control.getAttribute("type") === "checkbox" ? control.checked : control.value;
           control.removeAttribute?.("aria-invalid");
         });
@@ -8884,7 +8914,10 @@ export class ObAdmin extends AdminElement {
       const publish = bind("publish", h("input", { id: `${prefix}-publish`, type: "checkbox", checked: typed.publish, "aria-describedby": `${prefix}-publish-hint` }), "change");
       const save = h("button", { class: "oba-btn oba-btn-primary", type: "submit" }, editing ? "Save changes" : "Add moment");
       const cancel = editing ? h("button", { class: "oba-btn", type: "button" }, "Cancel editing") : null;
+      formButtons = [save, cancel].filter(Boolean);
+      for (const button of formButtons) gate(button);
       cancel?.addEventListener("click", () => {
+        if (busy) return;
         const position = editing.position;
         const editedId = editing.id;
         editing = null;
@@ -8895,6 +8928,7 @@ export class ObAdmin extends AdminElement {
       });
       submit = async (event) => {
         event.preventDefault();
+        if (busy) return;
         clearProblem();
         const result = momentPayload(typed, editing || {});
         if (result.error) {
@@ -8905,11 +8939,13 @@ export class ObAdmin extends AdminElement {
         const change = editedId ? { action: "edit", id: editedId, moment: result.moment } : { action: "add", moment: result.moment };
         const before = new Set(current.moments.map((moment) => moment.id));
         const done = editedId ? (result.moment.intent === "publication" ? "Moment saved. Every author must approve the piece again." : "Moment saved.") : result.moment.intent === "publication" ? "Moment added and proposed for the piece. It is shared with the next revision you offer." : "Moment added. Only you can see it.";
+        const typedBefore = typedEdits;
         const stored = await send(change, done, () => {
           const added = current.moments.find((moment) => !before.has(moment.id));
           return [`${editedId || added?.id}:edit`, "list-heading"];
         });
-        if (stored) {
+        // Reset only a form the writer left alone; text typed during the save stays as typed.
+        if (stored && typedEdits === typedBefore) {
           editing = null;
           typed = blank();
           renderForm();
@@ -8955,6 +8991,7 @@ export class ObAdmin extends AdminElement {
       const moments = sortMoments(current.moments, current.sources);
       if (editing && !moments.some((moment) => moment.id === editing.id)) editing = null;
       const keep = controls.get("list-heading");
+      itemButtons.clear();
       controls.clear();
       controls.set("list-heading", keep);
       list.replaceChildren(...moments.map((moment, position) => itemView(moment, position, moments.length)));
