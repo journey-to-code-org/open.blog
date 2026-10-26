@@ -1,5 +1,5 @@
 //! Third Perspectives: a reader's own reflection on a published work
-//! (ADRs 0109 to 0112).
+//! (ADRs 0109 to 0114).
 //!
 //! A Third Perspective is another reading of a shared reflection or a post,
 //! offered by a reader. It is never one of the authors' perspectives, never a
@@ -25,7 +25,9 @@
 //!
 //! B5's passage targets and feedback provenance and RD12's participation
 //! kinds and moderation facts are used directly; ADR 0112 records how each
-//! shape this module first carried maps onto them.
+//! shape this module first carried maps onto them. A hosted copy is one
+//! `openblog_feedback` row ([`SubmittedCopy::stored_details`],
+//! [`HostedPerspective`], ADR 0113).
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -1147,6 +1149,18 @@ struct WireRecord<P = Value> {
     consents: Vec<WireConsent>,
 }
 
+/// A row's `details`, as stored (ADR 0113).
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct StoredDetails {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    category: Option<String>,
+    intake: WireIntake,
+    consents: Vec<WireConsent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    revised_at: Option<String>,
+}
+
 impl SubmittedCopy {
     /// The consent in effect.
     pub fn consent(&self) -> &SubmissionConsent {
@@ -1339,23 +1353,59 @@ impl SubmittedCopy {
             .collect()
     }
 
-    /// The size of what RD12's storage keeps as the row's `details`: the
-    /// category, the intake and every consent record.
-    pub fn details_bytes(&self) -> usize {
-        #[derive(Serialize)]
-        struct Details {
-            #[serde(skip_serializing_if = "Option::is_none")]
-            category: Option<&'static str>,
-            intake: WireIntake,
-            consents: Vec<WireConsent>,
-        }
-        serde_json::to_string(&Details {
-            category: self.category.map(|category| category.id()),
+    fn stored(&self) -> StoredDetails {
+        StoredDetails {
+            category: self.category.map(|category| category.id().to_string()),
             intake: self.intake.wire(),
             consents: self.wire_consents(),
-        })
-        .expect("details always serialize")
-        .len()
+            revised_at: self.revised_at.map(DateTime::rfc3339),
+        }
+    }
+
+    /// What one `openblog_feedback` row keeps in `details` (ADR 0113):
+    /// `{category?, intake, consents, revisedAt?}`. The other parts of the
+    /// copy have columns of their own: the text in `body`, its revision in
+    /// `item_revision`, and the provenance in `work`, `revision`, `target`,
+    /// `seen_at`, `received_at`, `channel`, `reader_name` and `publish_name`.
+    pub fn stored_details(&self) -> Value {
+        serde_json::to_value(self.stored()).expect("details always serialize")
+    }
+
+    /// The size of what the row keeps as `details`, which B5's table bounds
+    /// at [`MAX_DETAILS_BYTES`].
+    pub fn details_bytes(&self) -> usize {
+        serde_json::to_string(&self.stored())
+            .expect("details always serialize")
+            .len()
+    }
+
+    /// Read a copy from the parts of a stored row: its text, its text
+    /// revision, its `details` and its provenance (B5's record). Every rule
+    /// of [`SubmittedCopy::from_json`] applies; nothing is repaired.
+    pub fn from_stored(
+        body: &str,
+        revision: u32,
+        details: &Value,
+        provenance: &Value,
+    ) -> Result<Self, ThirdPerspectiveError> {
+        let stored: StoredDetails = serde_json::from_value(details.clone())
+            .map_err(|_| wire_error("Third Perspective's stored details"))?;
+        let mut record = serde_json::json!({
+            "version": THIRD_PERSPECTIVE_VERSION,
+            "kind": KIND.id(),
+            "body": body,
+            "revision": revision,
+            "provenance": provenance,
+            "intake": stored.intake,
+            "consents": stored.consents,
+        });
+        if let Some(category) = stored.category {
+            record["category"] = Value::String(category);
+        }
+        if let Some(revised_at) = stored.revised_at {
+            record["revisedAt"] = Value::String(revised_at);
+        }
+        Self::from_json(&record.to_string())
     }
 
     fn within_bounds(&self, reserve: usize) -> bool {
@@ -1809,5 +1859,181 @@ pub struct FeaturedPublication {
 impl FeaturedPublication {
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).expect("a featured response always serializes")
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The hosted row, as the one moderation inbox reads it (ADR 0113)
+
+impl PublishedWork {
+    /// A post as published now: its path, its passage revision and every
+    /// name its work credits show, the site's own author among them.
+    pub fn of_post(post: &crate::Post, config: &crate::SiteConfig) -> Self {
+        let mut credited: Vec<String> = post
+            .credits
+            .iter()
+            .map(|credit| credit.contributor.name.trim().to_string())
+            .filter(|name| !name.is_empty())
+            .collect();
+        let author = config.author.name.trim();
+        if !author.is_empty() && !credited.iter().any(|name| name == author) {
+            credited.push(author.to_string());
+        }
+        Self {
+            path: post.url.clone(),
+            revision: crate::passage_target::PassageDocument::of_post(post, config).revision,
+            credited,
+        }
+    }
+}
+
+/// One Third Perspective as the hosted inbox returns it: the row's
+/// moderation facts (RD12's columns), the consent record its approval binds,
+/// and the copy read back from the row's text, revision, `details` and
+/// provenance with every rule of [`SubmittedCopy`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HostedPerspective {
+    pub id: String,
+    pub state: ModerationState,
+    pub version: u64,
+    pub moderated_at: Option<DateTime>,
+    pub reason: Option<crate::moderation::ReasonCode>,
+    pub copy: SubmittedCopy,
+    /// Set only while approved.
+    pub approved_revision: Option<u32>,
+    /// The consent record the approval covers; set only while approved.
+    pub approved_consent: Option<u32>,
+    pub clarification_asked: Option<u32>,
+    /// RD12's column, and only while the consent in effect agrees: a reader
+    /// who declined is never asked.
+    pub clarification_consent: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct WireHostedPerspective {
+    id: String,
+    status: String,
+    version: u64,
+    #[serde(default)]
+    moderated_at: Option<String>,
+    #[serde(default)]
+    reason: Option<String>,
+    feedback: WireHostedRecord,
+    #[serde(default)]
+    item_revision: Option<u64>,
+    #[serde(default)]
+    approved_revision: Option<u64>,
+    #[serde(default)]
+    clarification_asked: Option<u64>,
+    #[serde(default)]
+    clarification_consent: Option<bool>,
+    #[serde(default)]
+    approved_consent: Option<u64>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WireHostedRecord {
+    version: u64,
+    kind: String,
+    body: String,
+    details: Value,
+    provenance: Value,
+}
+
+impl HostedPerspective {
+    /// Read one hosted inbox item of this kind. A bad item is refused on its
+    /// own, naming what is wrong and never what it holds.
+    pub fn from_value(value: &Value) -> Result<Self, ThirdPerspectiveError> {
+        let invalid = |what: &str| ThirdPerspectiveError::new(ErrorCode::Malformed, what);
+        let wire: WireHostedPerspective = serde_json::from_value(value.clone())
+            .map_err(|_| invalid("a hosted Third Perspective has an unknown or mistyped field"))?;
+        if !crate::scholarly_feedback::is_uuid(&wire.id) {
+            return Err(invalid("a hosted Third Perspective needs a UUID `id`"));
+        }
+        let state = ModerationState::from_id(&wire.status)
+            .ok_or_else(|| invalid("a hosted Third Perspective has an unknown state"))?;
+        if wire.version == 0 || wire.version > i32::MAX as u64 {
+            return Err(invalid(
+                "a hosted Third Perspective needs a positive `version`",
+            ));
+        }
+        let reason = wire
+            .reason
+            .map(|reason| {
+                crate::moderation::ReasonCode::from_id(&reason)
+                    .ok_or_else(|| invalid("a hosted Third Perspective has an unknown reason"))
+            })
+            .transpose()?;
+        let moderated_at = wire
+            .moderated_at
+            .map(|time| {
+                crate::feedback_provenance::parse_canonical_time(&time)
+                    .ok_or_else(|| invalid("`moderatedAt` must be a UTC time"))
+            })
+            .transpose()?;
+        let number = |value: Option<u64>, what: &str| {
+            value
+                .map(|value| {
+                    u32::try_from(value)
+                        .ok()
+                        .filter(|value| (1..=i32::MAX as u32).contains(value))
+                        .ok_or_else(|| invalid(what))
+                })
+                .transpose()
+        };
+        let revision = number(wire.item_revision, "`itemRevision` must be positive")?.unwrap_or(1);
+        let approved_revision = number(
+            wire.approved_revision,
+            "`approvedRevision` must be positive",
+        )?;
+        let clarification_asked = number(
+            wire.clarification_asked,
+            "`clarificationAsked` must be positive",
+        )?;
+        let approved_consent = number(wire.approved_consent, "`approvedConsent` must be positive")?;
+        if approved_revision.is_some_and(|approved| approved > revision)
+            || clarification_asked.is_some_and(|asked| asked > revision)
+        {
+            return Err(invalid(
+                "a hosted Third Perspective names a revision after its current one",
+            ));
+        }
+        let record = wire.feedback;
+        if record.version != THIRD_PERSPECTIVE_VERSION {
+            return Err(invalid("a hosted Third Perspective needs format version 1"));
+        }
+        read_kind(&record.kind)?;
+        let copy = SubmittedCopy::from_stored(
+            &record.body,
+            revision,
+            &record.details,
+            &record.provenance,
+        )?;
+        let approved = state == ModerationState::Approved;
+        if approved_consent.is_some_and(|consent| copy.consent_record(consent).is_none()) {
+            return Err(invalid(
+                "a hosted Third Perspective's approval names a consent record it does not have",
+            ));
+        }
+        Ok(Self {
+            id: wire.id,
+            state,
+            version: wire.version,
+            moderated_at,
+            reason,
+            clarification_consent: wire.clarification_consent.unwrap_or(false)
+                && copy.consent().clarification,
+            approved_revision: approved.then(|| approved_revision.unwrap_or(revision)),
+            approved_consent: approved_consent.filter(|_| approved),
+            clarification_asked,
+            copy,
+        })
+    }
+
+    /// The facts this module decides on, from RD12's facts of the item.
+    pub fn facts(&self, item: &ItemFacts<'_>) -> ModerationFacts {
+        ModerationFacts::from_item(item, self.approved_consent)
     }
 }

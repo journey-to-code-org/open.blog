@@ -510,6 +510,7 @@ fn inbox<'a>(
         identities,
         policy: ModerationPolicy::default(),
         protocol,
+        third_perspectives: true,
         now: DateTime::parse("2026-10-27T10:00:00Z").unwrap(),
     }
 }

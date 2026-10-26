@@ -559,6 +559,7 @@ fn with_inbox<T>(protocol: Protocol, run: impl FnOnce(&Inbox<'_>) -> T) -> T {
         identities: &identities,
         policy: ModerationPolicy::default(),
         protocol,
+        third_perspectives: false,
         now: now(),
     };
     run(&inbox)

@@ -1783,3 +1783,102 @@ fn a_public_response_names_its_kind_by_the_registry_id() {
     let value: Value = serde_json::from_str(&response.to_json()).unwrap();
     assert_eq!(value["kind"], "third-perspective");
 }
+
+// ---------------------------------------------------------------------------
+// The shared submission fixture (#221): the build, the browser and the hosted
+// function read and receive every submission the same way.
+
+#[test]
+fn shared_submission_fixtures_read_and_receive_as_the_browser_and_function_do() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/third-perspective-submissions.json"
+    ))
+    .unwrap();
+    let received = time(fixture["receivedAt"].as_str().unwrap());
+    let digest = fixture["receiptDigest"].as_str().unwrap().to_string();
+    let cases = fixture["cases"].as_array().unwrap();
+    assert!(cases.len() >= 40);
+    for case in cases {
+        let name = case["name"].as_str().unwrap();
+        let text = case["text"]
+            .as_str()
+            .map(str::to_string)
+            .unwrap_or_else(|| case["request"].to_string());
+        let outcome = SubmissionRequest::from_json(&text).and_then(|request| {
+            request.receive(
+                received,
+                Intake::Hosted {
+                    receipt_digest: digest.clone(),
+                },
+            )
+        });
+        let expect = &case["expect"];
+        match (outcome, expect.get("record")) {
+            (Ok(copy), Some(record)) => {
+                let canonical: Value = serde_json::from_str(&copy.to_json()).unwrap();
+                assert_eq!(&canonical, record, "{name}: the received record");
+                // The row keeps the copy in its columns and `details`.
+                let stored = SubmittedCopy::from_stored(
+                    &copy.body,
+                    copy.revision,
+                    &copy.stored_details(),
+                    &record["provenance"],
+                )
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+                assert_eq!(stored, copy, "{name}: the stored row reads back");
+                assert!(copy.stored_details().get("body").is_none());
+            }
+            (Err(error), None) => assert_eq!(
+                serde_json::to_value(error.code).unwrap(),
+                expect["code"],
+                "{name}: {}",
+                error.message
+            ),
+            (Ok(_), None) => panic!("{name}: accepted, but {} was expected", expect["code"]),
+            (Err(error), Some(_)) => panic!("{name}: refused with {error}"),
+        }
+    }
+    let too_large = request_json(json!({"body": "a".repeat(MAX_JSON_BYTES)}));
+    assert_eq!(
+        SubmissionRequest::from_json(&too_large).unwrap_err().code,
+        ErrorCode::TooLarge
+    );
+
+    for case in fixture["consentChanges"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let mut copy = SubmittedCopy::from_json(&case["record"].to_string())
+            .unwrap_or_else(|error| panic!("{name}: {error}"));
+        let moderation = &case["moderation"];
+        let facts = ModerationFacts {
+            state: ModerationState::from_id(moderation["state"].as_str().unwrap()).unwrap(),
+            revision: moderation["revision"].as_u64().unwrap() as u32,
+            approved_revision: moderation["approvedRevision"].as_u64().map(|n| n as u32),
+            approved_consent: None,
+            clarification_asked: None,
+            content_retained: moderation["contentRetained"].as_bool().unwrap(),
+        };
+        let current = copy.consent().clone();
+        let outcome = copy.revise_consent(
+            &facts,
+            ConsentChange {
+                publish: true,
+                attribution: current.attribution.clone(),
+                clarification: case["clarification"].as_bool().unwrap(),
+                feature: current.feature_revision.is_some(),
+            },
+            time(case["at"].as_str().unwrap()),
+        );
+        let expect = &case["expect"];
+        match outcome {
+            Ok(outcome) => {
+                assert_eq!(outcome, ConsentOutcome::Recorded, "{name}");
+                assert_eq!(
+                    copy.stored_details()["consents"],
+                    expect["consents"],
+                    "{name}: the consent records"
+                );
+            }
+            Err(error) => assert_eq!(expect["code"], error.code(), "{name}"),
+        }
+    }
+}

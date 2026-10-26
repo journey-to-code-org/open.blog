@@ -59,6 +59,7 @@ use openblog_core::scholarly_feedback::HostedFeedback;
 use openblog_core::slug::slugify;
 use openblog_core::source_interchange::{self, plan_csl_import};
 use openblog_core::source_library::{SourceDiagnostic, SourceRecord};
+use openblog_core::third_perspective;
 use openblog_core::{
     generate, generate_document, social_metadata, DateTime, LoadOptions, Site, SiteConfig,
     SourceFile,
@@ -4971,6 +4972,7 @@ impl InboxSources {
         &self,
         session: &auth::Session,
         protocol: moderation_inbox::Protocol,
+        third_perspectives: bool,
         with: impl FnOnce(&moderation_inbox::Inbox<'_>) -> T,
     ) -> T {
         let works = moderation::SharedWorks::new(&self.records, &self.loaded);
@@ -4989,6 +4991,7 @@ impl InboxSources {
             identities: &identities,
             policy: moderation::ModerationPolicy::from_config(&self.config),
             protocol,
+            third_perspectives,
             now: clock::now(),
         })
     }
@@ -5003,7 +5006,8 @@ fn inbox_view(
     published: Option<&feedback_publication::ReaderFeedbackFile>,
 ) -> Option<Json> {
     let mut view = inbox.view(item)?;
-    if item.source == moderation_inbox::Source::Feedback {
+    // A Third Perspective is never written to reader-feedback.json.
+    if item.source == moderation_inbox::Source::Feedback && item.perspective().is_none() {
         view["published"] = match published {
             Some(file) => json!(file.get(&item.id).is_some()),
             None => Json::Null,
@@ -5071,7 +5075,7 @@ fn moderation_inbox_page(state: &AppState, req: &Request, session: &auth::Sessio
             }
         },
         |page| {
-            sources.inbox(session, page.protocol, |inbox| {
+            sources.inbox(session, page.protocol, page.third_perspectives, |inbox| {
                 page.items
                     .iter()
                     .filter_map(|item| inbox_view(inbox, item, published.as_ref()))
@@ -5158,7 +5162,14 @@ fn hosted_inbox_item(
     state: &AppState,
     source: moderation_inbox::Source,
     id: &str,
-) -> Result<(moderation_inbox::Protocol, moderation_inbox::InboxItem), Response> {
+) -> Result<
+    (
+        moderation_inbox::Protocol,
+        bool,
+        moderation_inbox::InboxItem,
+    ),
+    Response,
+> {
     let (_, value) = hosted_moderation_call(state, &[("id", id), ("source", source.id())], None)?;
     let page = moderation_inbox::read_page(&value).map_err(|error| Response::error(502, &error))?;
     if page.invalid > 0 {
@@ -5168,10 +5179,11 @@ fn hosted_inbox_item(
         ));
     }
     let protocol = page.protocol;
+    let third_perspectives = page.third_perspectives;
     page.items
         .into_iter()
         .find(|item| item.id == id && item.source == source)
-        .map(|item| (protocol, item))
+        .map(|item| (protocol, third_perspectives, item))
         .ok_or_else(|| Response::error(404, "No such item"))
 }
 
@@ -5487,7 +5499,7 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
         },
         _ => return Response::error(422, "A reason is a reason code"),
     };
-    let (protocol, item) = match hosted_inbox_item(state, source, &id) {
+    let (protocol, third_perspectives, item) = match hosted_inbox_item(state, source, &id) {
         Ok(found) => found,
         Err(response) => return response,
     };
@@ -5496,11 +5508,35 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
         Err(response) => return response,
     };
     let published = published_feedback_file(state);
+    // A Third Perspective's approval names the text revision and consent
+    // record the moderator saw (ADR 0111); both are checked again here and
+    // by the hosted function and the database.
+    let seen = |key: &str| {
+        body[key]
+            .as_u64()
+            .and_then(|value| u32::try_from(value).ok())
+            .filter(|value| *value >= 1)
+    };
+    let approving_perspective =
+        action == Some(moderation::ModerationAction::Approve) && item.perspective().is_some();
+    let seen_perspective = (seen("seenRevision"), seen("seenConsent"));
+    if approving_perspective && (seen_perspective.0.is_none() || seen_perspective.1.is_none()) {
+        return Response::error(
+            422,
+            "Send the reflection's revision and consent record as you reviewed them",
+        );
+    }
     // Decided here first, with this account's role on the item's work: the
     // state the item ends in, and the item an upheld report takes down.
-    let decided = sources.inbox(session, protocol, |inbox| {
+    let decided = sources.inbox(session, protocol, third_perspectives, |inbox| {
         let view = inbox_view(inbox, &item, published.as_ref());
         let role = inbox.actor(&item).role();
+        let binding = match seen_perspective {
+            (Some(revision), Some(consent)) if approving_perspective => {
+                Some(inbox.check_perspective_approval(&item, &session.user, revision, consent))
+            }
+            _ => None,
+        };
         let decision = match action {
             Some(action) => inbox
                 .decide(&item, action, version, reason)
@@ -5515,9 +5551,9 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
                 .erase(&item, version)
                 .map(|erasure| (erasure.state, None)),
         };
-        (view, role, decision)
+        (view, role, decision, binding)
     });
-    let (view, role, decision) = decided;
+    let (view, role, decision, binding) = decided;
     let conflict = |view: Option<Json>, message: &str| {
         Response::json(
             409,
@@ -5542,6 +5578,21 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
         Ok(decision) => decision,
     };
     let (decided_to, removed_target) = decision;
+    let binding = match binding {
+        None => None,
+        Some(Ok(binding)) => Some(binding),
+        Some(Err(
+            error @ (third_perspective::LifecycleError::StaleRevision
+            | third_perspective::LifecycleError::StaleConsent
+            | third_perspective::LifecycleError::OutOfStep),
+        )) => return conflict(view, &format!("{}.", capitalize(&error.to_string()))),
+        Some(Err(error)) => {
+            return Response::json(
+                422,
+                &json!({ "error": format!("{}.", capitalize(&error.to_string())), "code": error.code() }),
+            )
+        }
+    };
     // A passage that moved or changed is approved only once the moderator
     // has confirmed the check they read (ADR 0083).
     if action == Some(moderation::ModerationAction::Approve) {
@@ -5572,6 +5623,10 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
         "actor": session.user,
         "actorRole": role.id(),
     });
+    if let Some(binding) = &binding {
+        request["seenRevision"] = json!(binding.revision);
+        request["seenConsent"] = json!(binding.consent);
+    }
     if action == Some(moderation::ModerationAction::UpholdReport) {
         // The hosted function upholds only while the reported item is
         // exactly as this decision saw it (ADR 0104).
@@ -5596,7 +5651,7 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
         },
         Ok((409, value)) => {
             let current = reread(&value).and_then(|current| {
-                sources.inbox(session, protocol, |inbox| {
+                sources.inbox(session, protocol, third_perspectives, |inbox| {
                     inbox_view(inbox, &current, published.as_ref())
                 })
             });
@@ -5675,7 +5730,7 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
         }
     }
     let published = published_feedback_file(state);
-    let view = sources.inbox(session, protocol, |inbox| {
+    let view = sources.inbox(session, protocol, third_perspectives, |inbox| {
         inbox_view(inbox, &changed, published.as_ref())
     });
     Response::json(
@@ -19477,6 +19532,7 @@ mod tests {
         };
         moderation_inbox::HostedPage {
             protocol: moderation_inbox::Protocol::Full,
+            third_perspectives: false,
             items: (0..items.len())
                 .map(|n| moderation_inbox::InboxItem::from_value(&comment(n)).unwrap())
                 .collect(),
@@ -19729,6 +19785,7 @@ mod tests {
             identities: &identities,
             policy: moderation::ModerationPolicy::default(),
             protocol: moderation_inbox::Protocol::Full,
+            third_perspectives: false,
             now: clock::now(),
         };
         let item = |status: &str| {
