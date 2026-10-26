@@ -173,18 +173,20 @@ impl ReaderReferences {
     /// `doc-endnotes` region. Returns the first problem, naming the id and,
     /// when another element reuses it, how to fix the post.
     pub fn check_page(&self, html: &str) -> Result<(), String> {
+        let elements = element_ids(html);
+        let tags = |id: &str| elements.get(id).map_or(&[][..], Vec::as_slice);
         for citation in &self.citations {
             for (id, what) in [
                 (&citation.marker, "a citation marker"),
                 (&citation.note, "a citation note"),
             ] {
-                match element_ids(html, id).len() {
+                match tags(id).len() {
                     1 => {}
                     0 => return Err(format!("the page has no element with id `{id}`")),
                     _ => return Err(reused(id, what)),
                 }
             }
-            let marker = opening_tag(html, element_ids(html, &citation.marker)[0]);
+            let marker = &html[tags(&citation.marker)[0].clone()];
             if !marker.contains(&format!(" href=\"#{}\"", citation.note)) {
                 return Err(format!(
                     "the marker `{}` does not link to its note `{}`",
@@ -199,7 +201,7 @@ impl ReaderReferences {
             }
         }
         for label in attribute_after(html, ENDNOTES_LABEL) {
-            match element_ids(html, label).len() {
+            match tags(label).len() {
                 1 => {}
                 0 => {
                     return Err(format!(
@@ -245,14 +247,17 @@ impl ReaderReferences {
     }
 }
 
-/// Where each ` id="…"` attribute with exactly this value starts. The
-/// leading space keeps `data-id="…"` and similar names from counting. Generated
-/// text escapes its quotes, so only markup can match; authored raw HTML that
-/// writes one inside another attribute's value counts too, which errs towards
-/// refusing the page.
-fn element_ids(html: &str, id: &str) -> Vec<usize> {
-    let needle = format!(" id=\"{id}\"");
-    html.match_indices(&needle).map(|(at, _)| at).collect()
+/// The opening tag of every element on the page, by its id, read once as a
+/// browser reads ids ([`crate::raw_html::id_attributes`]): `ID="x"`,
+/// `id = 'x'` and `id=x` all name `x`. Text inside an attribute value or a
+/// comment names nothing; raw text that looks like markup counts, which errs
+/// towards refusing the page.
+fn element_ids(html: &str) -> std::collections::HashMap<String, Vec<std::ops::Range<usize>>> {
+    let mut elements: std::collections::HashMap<String, Vec<_>> = std::collections::HashMap::new();
+    for (tag, id) in crate::raw_html::id_attributes(html) {
+        elements.entry(id).or_default().push(tag);
+    }
+    elements
 }
 
 /// What opens the attribute that names the notes' region with its heading.
@@ -275,13 +280,6 @@ fn reused(id: &str, what: &str) -> String {
     format!(
         "the page has more than one element with id `{id}`, which {what} uses; rename the other `id=\"{id}\"` in the post (raw HTML cannot reuse a citation's ids)"
     )
-}
-
-/// The opening tag around a byte position inside it.
-fn opening_tag(html: &str, at: usize) -> &str {
-    let start = html[..at].rfind('<').unwrap_or(0);
-    let end = html[at..].find('>').map_or(html.len(), |end| at + end);
-    &html[start..end]
 }
 
 /// A reference's one safe external link: its DOI, else its web address.

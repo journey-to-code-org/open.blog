@@ -213,6 +213,30 @@ fn next_token(source: &str, at: usize) -> (Token<'_>, usize) {
     }
 }
 
+/// Each start tag in `html` that gives its element an id, as a browser reads
+/// it: the tag's byte range and its decoded id. The attribute name matches in
+/// any case after any whitespace (or `/`), `=` may have whitespace around it,
+/// and the value may be double-quoted, single-quoted or unquoted; the first of
+/// a repeated `id` wins and an empty one names nothing. Comments, doctypes and
+/// text that is not complete markup hold no elements. Raw text such as a
+/// script's is read as markup too, which only ever finds more ids.
+pub(crate) fn id_attributes(html: &str) -> Vec<(std::ops::Range<usize>, String)> {
+    let mut found = Vec::new();
+    let mut at = 0;
+    while at < html.len() {
+        let (token, next) = next_token(html, at);
+        if let Token::Start { attributes, .. } = token {
+            if let Some((_, id)) = attributes.into_iter().find(|(name, _)| name == "id") {
+                if !id.is_empty() {
+                    found.push((at..next, id));
+                }
+            }
+        }
+        at = next;
+    }
+    found
+}
+
 #[derive(Clone)]
 pub(crate) struct SemanticLink {
     pub kind: crate::portability::SemanticLinkKind,
@@ -1313,6 +1337,52 @@ mod tests {
         );
         assert_eq!(decode("&Tab;&NewLine;"), "\t\n");
         assert_eq!(decode("&#;&#x;&"), "&#;&#x;&");
+    }
+
+    #[test]
+    fn ids_are_read_in_any_case_spacing_and_quoting() {
+        let ids = |html: &str| {
+            id_attributes(html)
+                .into_iter()
+                .map(|(tag, id)| (html[tag].to_string(), id))
+                .collect::<Vec<_>>()
+        };
+        for html in [
+            "<span id=\"notes\">",
+            "<span ID=\"notes\">",
+            "<span Id = \"notes\">",
+            "<span id='notes'>",
+            "<span id=notes>",
+            "<span	id
+=
+'notes'>",
+            "<span/id=notes />",
+            "<span class=x id=\"notes\" id=\"other\">",
+            "<span id=&#110;otes>",
+        ] {
+            assert_eq!(
+                ids(html),
+                [(html.to_string(), "notes".to_string())],
+                "{html}"
+            );
+        }
+        for html in [
+            "<span data-id=\"notes\">",
+            "<span title=' id=\"notes\"'>",
+            "<!-- <span id=\"notes\"> -->",
+            "<span id=\"\">",
+            "<span id>",
+            "id=\"notes\"",
+            "</span id=\"notes\">",
+            "<span id=\"notes\"",
+        ] {
+            assert!(ids(html).is_empty(), "{html}");
+        }
+        assert_eq!(
+            ids("<p id=a>x</p><b ID='b'>").len(),
+            2,
+            "every element is read"
+        );
     }
 
     #[test]

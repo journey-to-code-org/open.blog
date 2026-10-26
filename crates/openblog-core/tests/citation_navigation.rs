@@ -338,6 +338,16 @@ fn anchors_that_disagree_with_the_data_stop_the_build_naming_the_post() {
     for (clash, id) in [
         ("<span id=\"cite-1-ref-2\"></span>", "cite-1-ref-2"),
         ("<p id=\"cite-2\">x</p>", "cite-2"),
+        // Ids in any case, spacing or quoting are the same id to a browser.
+        ("<span ID=\"cite-1\"></span>", "cite-1"),
+        ("<span id = \"cite-1-ref-1\"></span>", "cite-1-ref-1"),
+        ("<span	id='cite-3'></span>", "cite-3"),
+        ("<em class=x id=cite-2-ref-1>x</em>", "cite-2-ref-1"),
+        (
+            "<span
+  id=\"cite-3-ref-1\"></span>",
+            "cite-3-ref-1",
+        ),
     ] {
         let body = format!("{CITED}\n{clash}\n");
         let site = load(&[("posts/cave.md", &body)], Some(LIBRARY)).unwrap();
@@ -387,6 +397,53 @@ fn the_page_check_rejects_malformed_destinations() {
         .check_page(&lookalike)
         .unwrap_err()
         .contains("`cite-3`"));
+    // Nor is text inside another attribute's value or a comment.
+    for quiet in [
+        "<p title=' id=\"cite-3\"'>x</p>",
+        "<!-- <span id=\"cite-3\"> -->",
+    ] {
+        let page = page.replacen("</main>", &format!("{quiet}</main>"), 1);
+        data.check_page(&page).unwrap();
+    }
+}
+
+#[test]
+fn raw_html_ids_in_any_case_or_quoting_move_the_notes_heading_aside() {
+    for written in [
+        "<span ID=\"notes\"></span>",
+        "<span id = \"notes\"></span>",
+        "<span id='notes'></span>",
+        "<span id=notes></span>",
+        "<div
+  id=\"notes\">
+x
+</div>",
+        "Inline <b	Id=notes>x</b>.",
+    ] {
+        let body = CITED.replace(
+            "## Notes
+
+My own heading",
+            &format!(
+                "{written}
+
+My own heading"
+            ),
+        );
+        let (site, page) = cited(&body);
+        assert!(
+            page.contains(
+                "aria-labelledby=\"notes-2\">
+<h2 id=\"notes-2\">"
+            ),
+            "{written}: {page}"
+        );
+        site.posts[0]
+            .reader_references()
+            .unwrap()
+            .check_page(&page)
+            .unwrap();
+    }
 }
 
 #[test]

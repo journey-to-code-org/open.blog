@@ -1651,49 +1651,36 @@ fn generated_notes_heading(
 
 /// The element ids a post's own markup writes: each heading's `{#id}`, each
 /// footnote definition's label (its note's id) and each `id` attribute found
-/// in raw HTML.
+/// in raw HTML, read as a browser reads it ([`crate::raw_html::id_attributes`]).
+/// Consecutive raw HTML fragments are read together, so a tag that spans
+/// lines still counts.
 fn written_ids(events: &[Event<'_>]) -> std::collections::HashSet<String> {
     let mut ids = std::collections::HashSet::new();
+    let mut raw = String::new();
     for event in events {
         match event {
+            Event::Html(html) | Event::InlineHtml(html) => {
+                raw.push_str(html);
+                continue;
+            }
             Event::Start(Tag::Heading { id: Some(id), .. })
             | Event::Start(Tag::FootnoteDefinition(id)) => {
                 ids.insert(id.to_string());
             }
-            Event::Html(html) | Event::InlineHtml(html) => {
-                ids.extend(raw_html_ids(html).map(str::to_string));
-            }
             _ => {}
         }
+        ids.extend(
+            crate::raw_html::id_attributes(&std::mem::take(&mut raw))
+                .into_iter()
+                .map(|(_, id)| id),
+        );
     }
+    ids.extend(
+        crate::raw_html::id_attributes(&raw)
+            .into_iter()
+            .map(|(_, id)| id),
+    );
     ids
-}
-
-/// The values of the `id` attributes in a fragment of raw HTML: ` id="…"`,
-/// ` id='…'` or an unquoted ` id=…`, after any whitespace. A cheap scan, not a
-/// parser: text that merely looks like an attribute counts too, which only
-/// ever moves a generated heading id further aside.
-fn raw_html_ids(html: &str) -> impl Iterator<Item = &str> {
-    html.match_indices("id=").filter_map(move |(at, _)| {
-        let before = html[..at].bytes().next_back()?;
-        if !before.is_ascii_whitespace() {
-            return None;
-        }
-        let rest = &html[at + 3..];
-        let value = match rest.as_bytes().first()? {
-            quote @ (b'"' | b'\'') => {
-                let rest = &rest[1..];
-                &rest[..rest.find(*quote as char)?]
-            }
-            _ => {
-                let end = rest
-                    .find(|c: char| c.is_ascii_whitespace() || c == '>' || c == '/')
-                    .unwrap_or(rest.len());
-                &rest[..end]
-            }
-        };
-        (!value.is_empty()).then_some(value)
-    })
 }
 
 /// Every heading id the author's Markdown gets, as [`render`] assigns them
