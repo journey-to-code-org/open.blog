@@ -65,10 +65,20 @@ Comments are the first kind in the one participation and moderation policy
 manifest and `<ob-comments>` come from the policy's comment row, which keeps the rule above
 unchanged. Further kinds (passage feedback, Third Perspectives, author responses, abuse reports)
 are off until `participation.kinds` switches them on, then share this function, its quotas and its
-moderation token, read their modes from `openblog-participation.json`, and start pending. The
-function's adoption of the full state machine (clarification, removal, withdrawal, versions,
-reasons, retention and audit events) belongs to #225 and #226; the stored comment statuses stay
-`pending`, `approved` and `rejected` until an additive migration widens them.
+moderation token, read their modes from `openblog-participation.json`, and start pending.
+
+## Moderation inbox
+
+Comments and passage feedback are moderated in one Admin inbox through `GET` and `PATCH
+/admin/moderation` (ADR 0104): a keyset-paged list by state and kind, each item offered the
+decisions the one policy accepts for the signed-in account's role on its work, every decision
+decided again by the function from the stored row (`netlify/lib/participation-moderation.mjs`,
+checked against `tests/fixtures/participation-transitions.json`) and written once, conditionally,
+with its audit event. The hosted schema for every decision is opt in (ADR 0105): `moderation.sql`
+adds a version, the full state and a reason beside the comment `status` column, which keeps its
+three values for public reads, and a comment audit table; `feedback.sql` adds the item's
+revisions and the audit fields ADR 0083 left. Without `OPENBLOG_MODERATION_ENABLED` the inbox offers
+what the older schema can store. Retention, abuse reports and reader receipts belong to #226.
 
 ## Testing decisions
 

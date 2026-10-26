@@ -938,10 +938,11 @@ form enhances it, and a failed submission falls back to a copy of the note to se
 _Avoid_: Comment box, discussion when the hosted comments are meant
 
 **Feedback moderation**:
-A moderator's decision about one feedback item: approve, reject with a reason, or remove an
-approved item with a reason, in the participation policy's state names (pending, clarification,
-approved, rejected, removed, withdrawn). Each change names the state and version the moderator saw
-and is recorded as an audit event; approval never edits the post (ADR 0083).
+A moderator's decision about one feedback item, taken in the moderation inbox: approve, ask to
+clarify, reject or remove with a reason, or reopen, in the participation policy's state names
+(pending, clarification, approved, rejected, removed, withdrawn). Each change names the state and
+version the moderator saw and is recorded as an audit event; approval never edits the post (ADRs
+0083, 0104).
 _Avoid_: Accepting a correction, verdict, review when a moderation decision is meant
 
 **Passage check**:
@@ -1050,6 +1051,26 @@ rejected and removed text and upheld abuse reports are purged after a period, wi
 once, and audit events last longer than any text. Comments are covered only once the site sets
 `participation.retention` itself.
 _Avoid_: Archive, backup, analytics retention
+
+**Moderation inbox**:
+Admin's one list of every hosted participation item, comments and passage feedback today, by
+state and kind, oldest first. Each item is shown, and offered the decisions the one policy accepts
+now, for the role the signed-in account has on that item's work; an item it may not see is left
+out and never counted (ADR 0104).
+_Avoid_: Comment moderation, Reader feedback view, queue when the whole inbox is meant
+
+**Inbox decision**:
+Approve, ask to clarify, reject, remove or reopen one item, naming the state and version the
+moderator loaded. Admin and the hosted function each decide it with the same rules before one
+conditional write records it with its audit event (ADR 0104).
+_Avoid_: Status change, bulk action, verdict
+
+**Inbox schema**:
+The hosted columns, comment audit table and conditional moderation functions every inbox decision
+needs, added by `supabase/moderation.sql` and `supabase/feedback.sql` and switched on with
+`OPENBLOG_MODERATION_ENABLED`. Without it the inbox offers only what the older schema can store
+(ADR 0105).
+_Avoid_: Migration (it is additive and optional), new comment system
 
 ## Admin workspace
 

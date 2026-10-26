@@ -99,7 +99,7 @@ These are described in [Sharing, views, analytics, and embeds](features.md).
   JavaScript, or when the service cannot take the note, the reader gets instructions or a copy of
   the note to send to the author. `engagement.feedbackContact` (optional) is where that copy can
   go: a plain `mailto:` address or an `https:` contact page, linked from the form. Moderate what
-  readers send in Admin under **Reader feedback**; approved notes, with your responses, are kept in
+  readers send, with comments, in Admin's **Moderation inbox**; approved notes, with your responses, are kept in
   `content/reader-feedback.json` and shown on the post's page only, and a site with feedback on
   publishes the post's `evidenceRevisions` notes (ADR 0083).
 - `snippets` are raw HTML placed on every page (`head`, `bodyEnd`) or under every post

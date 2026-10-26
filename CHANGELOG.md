@@ -17,6 +17,20 @@ All notable changes to open.blog are recorded here. Releases follow
   now the same as setting its four kinds to `follow-comments`, so each kind can also be set on its
   own: the "Questions and corrections" form offers only the kinds open on a post, and a locked
   kind keeps its published notes on show without taking new ones.
+- Comments and reader feedback are now moderated in one place: Admin's **Moderation inbox**
+  replaces the comment section of Analytics and the Reader feedback view. It lists every item by
+  state (pending, waiting for clarification, approved, rejected, removed, withdrawn) and kind,
+  oldest first, and pages through long lists. Each item shows only the decisions you can take on
+  it, with their reasons and what each does: approve, ask the reader to clarify, reject, remove
+  from the post, or reopen for a fresh decision. A removed or rejected comment can no longer be
+  approved straight away, a moved passage must still be confirmed before approval, and a decision
+  made on an out-of-date view is refused and the list reloaded. On a shared reflection a
+  co-writer moderates as its coordinator, or only reads as a contributing author, and never sees
+  a reader's private name. Everything works with the tables you have; to offer every decision,
+  with a version and an audit trail for comments, run the new optional
+  `supabase/moderation.sql` (and `feedback.sql` again if you use feedback) and set
+  `OPENBLOG_MODERATION_ENABLED=true`; `supabase/moderation-rollback.sql` undoes it. Nothing is
+  e-mailed to anyone.
 
 ## [0.33.0] - 2026-10-26
 

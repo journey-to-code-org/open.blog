@@ -86,7 +86,10 @@ pending, that clarification never publishes the original, and that removal fails
   clarification consent and no submitter receipt, so they never reach clarification or
   withdrawal. Widening the column, if wanted, is an additive migration for #226. The hosted
   function adopts these rules (no straight rejected-to-approved change, versions, reasons) with
-  the inbox (#225); until then its existing behaviour is unchanged.
+  the inbox (#225); until then its existing behaviour is unchanged. (Amended by
+  [ADR 0105](0105-the-inbox-adds-columns-an-audit-table-and-conditional-functions-opt-in.md):
+  the column is not widened; comments gain the full state in a new `moderation_state` column
+  beside it, with a version and an audit table, opt in, and the inbox adopts the rules.)
 - **Errors change nothing and say nothing.** `PolicyError` codes (`denied`, `unavailable`,
   `closed`, `stale`, `notAllowed`, `reasonRequired`, `reasonNotAllowed`, `consentRequired`,
   `contentPurged`, `notDue`, `reportMismatch`, `invalidTarget`) carry fixed messages that name no
