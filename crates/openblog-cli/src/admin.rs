@@ -32,7 +32,7 @@ use openblog_core::config::{AssistantProviderKind, SyndicationProvider};
 use openblog_core::draft::{
     ComparisonSlot, DraftError, DraftSet, DraftView, ReadyOutcome, RevealPolicy,
 };
-use openblog_core::feedback_moderation::{self, ModerationAction, ModerationState};
+use openblog_core::feedback_moderation;
 use openblog_core::feedback_publication;
 use openblog_core::frontmatter::{self, Value};
 use openblog_core::invitation::{
@@ -45,6 +45,9 @@ use openblog_core::knowledge_atlas::{
 use openblog_core::markdown::RenderOptions;
 use openblog_core::media_moment::{location_text, Moment, MomentSet};
 use openblog_core::members::MemberError;
+use openblog_core::moderation::{self, ModerationState};
+use openblog_core::moderation_inbox;
+use openblog_core::participation::ParticipationKind;
 use openblog_core::passage_target::PassageDocument;
 use openblog_core::portability::{destination_policy, DestinationRepresentation};
 use openblog_core::research_bundle;
@@ -667,10 +670,10 @@ fn authenticated_api(
         ("GET", "engagement/settings") => engagement_settings(state),
         ("PUT", "engagement/settings") => save_engagement_settings(state, req),
         ("GET", "engagement/analytics") => hosted_engagement_request(state, req, "admin/analytics"),
-        ("GET", "engagement/comments") => hosted_engagement_request(state, req, "admin/comments"),
-        ("PATCH", "engagement/comments") => hosted_engagement_request(state, req, "admin/comments"),
-        ("GET", "engagement/feedback") => feedback_queue(state, req),
-        ("PATCH", "engagement/feedback") => moderate_feedback(state, req, session),
+        ("GET", "engagement/moderation") => moderation_inbox_page(state, req, session),
+        ("PATCH", "engagement/moderation") => moderate_inbox_item(state, req, session),
+        ("GET", "engagement/retention") => retention_dry_run(state, session),
+        ("POST", "engagement/retention") => run_retention(state, req, session),
         ("POST", "engagement/feedback/publish") => publish_feedback(state, req),
         ("POST", "engagement/feedback/unpublish") => unpublish_moderated(state, req),
         ("GET", "engagement/feedback/published") => published_feedback(state),
@@ -4347,30 +4350,6 @@ fn hosted_site_path(value: &str) -> bool {
         && !value.split('/').any(|part| matches!(part, "." | ".."))
 }
 
-fn validate_hosted_comments(value: &Json) -> Result<Json, String> {
-    let rows = value["comments"]
-        .as_array()
-        .filter(|rows| rows.len() <= 200)
-        .ok_or_else(|| "hosted engagement returned invalid comments".to_string())?;
-    let mut comments = Vec::with_capacity(rows.len());
-    for row in rows {
-        let id = hosted_text(row, "id", 64)?;
-        let path = hosted_text(row, "path", 500)?;
-        let author = hosted_text(row, "authorName", 80)?;
-        let body = hosted_text(row, "body", 4_000)?;
-        let status = hosted_text(row, "status", 16)?;
-        let created = hosted_text(row, "createdAt", 64)?;
-        if !hosted_site_path(path) || !matches!(status, "pending" | "approved" | "rejected") {
-            return Err("hosted engagement returned an invalid comment".into());
-        }
-        comments.push(json!({
-            "id": id, "path": path, "authorName": author, "body": body,
-            "status": status, "createdAt": created,
-        }));
-    }
-    Ok(json!({ "comments": comments }))
-}
-
 fn validate_hosted_analytics(value: &Json) -> Result<Json, String> {
     let days = hosted_count(value, "days")?;
     if !matches!(days, 7 | 30 | 90 | 365) {
@@ -4436,15 +4415,6 @@ fn validate_hosted_engagement_response(
     value: &Json,
 ) -> Result<Json, String> {
     match (method, operation) {
-        ("GET", "admin/comments") => validate_hosted_comments(value),
-        ("PATCH", "admin/comments") => {
-            let status = hosted_text(value, "status", 16)?;
-            if value["ok"].as_bool() == Some(true) && matches!(status, "approved" | "rejected") {
-                Ok(json!({ "ok": true, "status": status }))
-            } else {
-                Err("hosted engagement returned an invalid moderation response".into())
-            }
-        }
         ("GET", "admin/analytics") => validate_hosted_analytics(value),
         _ => Err("unsupported hosted engagement operation".into()),
     }
@@ -4575,12 +4545,12 @@ fn hosted_feedback_call(
 ) -> Result<(u16, Json), Response> {
     let config = site::load_config(&state.root).map_err(|error| Response::error(500, &error))?;
     if !config.engagement.enabled
-        || !config.engagement.feedback
+        || !config.participation.passage_feedback_enabled()
         || !valid_engagement_endpoint(&config.engagement.endpoint)
     {
         return Err(Response::error(
             404,
-            "Passage feedback is not turned on: enable hosted engagement with an endpoint and set engagement.feedback in openblog.json.",
+            "Passage feedback is not turned on: enable hosted engagement with an endpoint and set engagement.feedback (or a passage feedback kind in participation.kinds) in openblog.json.",
         ));
     }
     let credential = match engagement_credential(&state.root, &config.engagement.endpoint) {
@@ -4767,58 +4737,6 @@ fn feedback_site(state: &AppState) -> Result<Site, Response> {
         .map_err(|error| Response::error(500, &error))
 }
 
-/// `GET engagement/feedback?status=`: one state's queue, each item with its
-/// passage check, its public preview and whether the site publishes it.
-fn feedback_queue(state: &AppState, req: &Request) -> Response {
-    let status = req.query.get("status").map_or("pending", String::as_str);
-    let Some(status) = ModerationState::from_id(status) else {
-        return Response::error(422, "Unknown moderation state");
-    };
-    let value = match hosted_feedback_call(state, &[("status", status.id())], None) {
-        Ok((_, value)) => value,
-        Err(response) => return response,
-    };
-    let (items, invalid) = match hosted_feedback_items(&value) {
-        Ok(items) => items,
-        Err(response) => return response,
-    };
-    let site = match feedback_site(state) {
-        Ok(site) => site,
-        Err(response) => return response,
-    };
-    let published = reader_feedback_path(state)
-        .and_then(|path| load_reader_feedback(&path))
-        .ok()
-        .map(|(file, _)| file);
-    Response::json(
-        200,
-        &feedback_queue_view(status, &items, invalid, &site, published.as_ref()),
-    )
-}
-
-/// The queue as Admin shows it. `published` is `None` when the published
-/// file cannot be read, so nothing claims an item is or is not on the site.
-fn feedback_queue_view(
-    status: ModerationState,
-    items: &[HostedFeedback],
-    invalid: usize,
-    site: &Site,
-    published: Option<&feedback_publication::ReaderFeedbackFile>,
-) -> Json {
-    let views: Vec<Json> = items
-        .iter()
-        .map(|item| {
-            let mut view = feedback_moderation::moderation_view(item, site);
-            view["published"] = match published {
-                Some(file) => json!(file.get(&item.id).is_some()),
-                None => Json::Null,
-            };
-            view
-        })
-        .collect();
-    json!({ "status": status.id(), "items": views, "invalid": invalid })
-}
-
 /// Put one approved item on its post, or say why not. The caller holds the
 /// content lock.
 fn publish_approved_feedback(
@@ -4863,37 +4781,685 @@ fn unpublish_feedback(path: &Path, id: &str) -> Result<(), String> {
 fn unpublish_moderated_feedback(path: &Path, item: &HostedFeedback) -> Result<(), String> {
     if !matches!(
         item.status,
-        ModerationState::Removed | ModerationState::Rejected
+        ModerationState::Removed | ModerationState::Rejected | ModerationState::Withdrawn
     ) {
-        return Err("Only removed or rejected feedback is taken off a post here".into());
+        return Err("Only removed, rejected or withdrawn feedback is taken off a post here".into());
     }
     unpublish_feedback(path, &item.id)
 }
 
-/// Whether an approval may go ahead given the passage as it is now: a
-/// passage that is not current needs the moderator to name the check they
-/// read, so a re-anchored or stale passage is never approved unseen.
-fn approval_acknowledged(item: &HostedFeedback, site: &Site, acknowledge: Option<&str>) -> bool {
-    let post = feedback_moderation::post_for_work(site, &item.feedback.provenance.work);
-    let document = post.map(|post| PassageDocument::of_post(post, &site.config));
-    let review = feedback_moderation::review_passage(&item.feedback, post.zip(document.as_ref()));
-    !review.check.needs_acknowledgement() || acknowledge == Some(review.check.id())
+// ---- The moderation inbox (ADR 0105)
+//
+// One list for hosted comments and passage feedback, driven by the one state
+// machine. The hosted function holds the items; Admin reaches it only
+// through this server, which keeps the token. Each item is read again with a
+// strict validator, given the actor the signed-in account is on that item's
+// work (`SharedWorks::actor`, ADR 0103), shown only as far as that actor may
+// see it, and offered only the decisions the policy accepts now. A decision
+// re-reads the item and decides again before the hosted function, which
+// decides a third time, writes it conditionally with its audit event.
+
+/// One request to the hosted inbox, with the server-held token. A `404` for
+/// a missing item, a `403` refusal and a `409` conflict are returned with
+/// their bodies; anything else becomes a short message naming no secret.
+fn hosted_moderation_call(
+    state: &AppState,
+    query: &[(&str, &str)],
+    body: Option<&Json>,
+) -> Result<(u16, Json), Response> {
+    hosted_inbox_request(
+        state,
+        "admin/moderation",
+        query,
+        body.map(|body| ("PATCH", body)),
+    )
 }
 
-/// `PATCH engagement/feedback`: approve, reject or remove one item. The
-/// request names the state and version the moderator saw, and, to approve a
-/// passage that is not current, the passage check they read. The item is
-/// read again and its passage checked again first, so nothing is approved on
-/// the strength of an old view; the hosted function then applies the change
-/// only if the item is still as seen, and records the audit event.
-fn moderate_feedback(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+/// One request to a hosted inbox route (`admin/moderation` or
+/// `admin/retention`) with the server-held token: a `GET` with `query`, or
+/// `body` sent with its method.
+fn hosted_inbox_request(
+    state: &AppState,
+    operation: &str,
+    query: &[(&str, &str)],
+    body: Option<(&str, &Json)>,
+) -> Result<(u16, Json), Response> {
+    let config = site::load_config(&state.root).map_err(|error| Response::error(500, &error))?;
+    if !config.engagement.enabled || !valid_engagement_endpoint(&config.engagement.endpoint) {
+        return Err(Response::error(
+            404,
+            "Hosted engagement is not turned on: enable it with an endpoint in Settings to moderate comments and reader feedback.",
+        ));
+    }
+    let credential = match engagement_credential(&state.root, &config.engagement.endpoint) {
+        Ok(Some(credential)) => credential,
+        Ok(None) => {
+            return Err(Response::error(
+                503,
+                "Hosted engagement admin credential is not configured",
+            ))
+        }
+        Err(error) => return Err(Response::error(500, &error)),
+    };
+    let mut url = format!(
+        "{}/{operation}",
+        config.engagement.endpoint.trim_end_matches('/')
+    );
+    if !query.is_empty() {
+        url.push('?');
+        url.push_str(
+            &url::form_urlencoded::Serializer::new(String::new())
+                .extend_pairs(query)
+                .finish(),
+        );
+    }
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(20)))
+        .max_redirects(0)
+        .http_status_as_error(false)
+        .user_agent(concat!("open.blog-admin/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .into();
+    let authorization = format!("Bearer {credential}");
+    let response = match body {
+        Some(("POST", body)) => agent
+            .post(&url)
+            .header("Authorization", &authorization)
+            .header("Content-Type", "application/json")
+            .send(body.to_string().as_bytes()),
+        Some((_, body)) => agent
+            .patch(&url)
+            .header("Authorization", &authorization)
+            .header("Content-Type", "application/json")
+            .send(body.to_string().as_bytes()),
+        None => agent
+            .get(&url)
+            .header("Authorization", &authorization)
+            .call(),
+    };
+    let mut response = match response {
+        Ok(response) => response,
+        Err(ureq::Error::Timeout(_)) => {
+            return Err(Response::error(504, "Hosted engagement timed out"))
+        }
+        Err(_) => return Err(Response::error(502, "Hosted engagement request failed")),
+    };
+    let status = response.status().as_u16();
+    let bytes = response
+        .body_mut()
+        .with_config()
+        .limit(2 * 1024 * 1024)
+        .read_to_vec()
+        .map_err(|_| Response::error(502, "Cannot read hosted engagement response"))?;
+    let value = serde_json::from_slice::<Json>(&bytes).unwrap_or(Json::Null);
+    hosted_moderation_answer(status, value)
+}
+
+/// What Admin makes of a hosted inbox answer. A refusal's message is passed
+/// on only when short and plain; nothing names the token.
+fn hosted_moderation_answer(status: u16, value: Json) -> Result<(u16, Json), Response> {
+    match status {
+        200 | 409 => Ok((status, value)),
+        403 if value["code"] == "denied" => Ok((status, value)),
+        404 if value["code"] == "notFound" => Ok((status, value)),
+        404 => Err(Response::error(
+            404,
+            "The hosted function does not offer the moderation inbox yet: deploy netlify/functions from this version of open.blog.",
+        )),
+        401 => Err(Response::error(
+            502,
+            "The hosted function refused the saved moderation token",
+        )),
+        422 => Err(Response::json(
+            422,
+            &json!({
+                "error": value["error"]
+                    .as_str()
+                    .filter(|message| message.len() <= 300 && !message.chars().any(char::is_control))
+                    .unwrap_or("The hosted function refused the change"),
+                "code": value["code"].as_str().filter(|code| code.len() <= 40 && code.chars().all(|c| c.is_ascii_alphabetic())),
+            }),
+        )),
+        _ => Err(Response::error(
+            502,
+            &format!("Hosted engagement returned HTTP {status}"),
+        )),
+    }
+}
+
+/// What deciding who a viewer is needs: the site as readers see it now (for
+/// passage checks and modes), the site as Admin loads it, drafts included
+/// (for shared works, ADR 0103), the shared-publication records and the
+/// accounts and contributor keys their bindings must still resolve to.
+struct InboxSources {
+    config: SiteConfig,
+    published: Site,
+    loaded: Site,
+    records: Vec<SharedPublication>,
+    admin_users: Vec<String>,
+    contributor_ids: Vec<String>,
+}
+
+fn inbox_sources(state: &AppState) -> Result<InboxSources, Response> {
+    let config = site::load_config(&state.root).map_err(|error| Response::error(500, &error))?;
+    let now = clock::now();
+    let published = site::load_site(&state.root, false, Some(now))
+        .map(|(site, _)| site)
+        .map_err(|error| Response::error(500, &error))?;
+    let loaded = site::load_site(&state.root, true, Some(now))
+        .map(|(site, _)| site)
+        .map_err(|error| Response::error(500, &error))?;
+    let records = crate::shared_publications::load_all(&state.root)
+        .map_err(|error| Response::error(500, &error))?
+        .into_iter()
+        .map(|(_, record)| record)
+        .collect();
+    let (admin_users, contributor_ids) = collaboration_identities(&state.root, &config)?;
+    Ok(InboxSources {
+        config,
+        published,
+        loaded,
+        records,
+        admin_users,
+        contributor_ids,
+    })
+}
+
+impl InboxSources {
+    /// Run `with` on the signed-in account's inbox.
+    fn inbox<T>(
+        &self,
+        session: &auth::Session,
+        protocol: moderation_inbox::Protocol,
+        with: impl FnOnce(&moderation_inbox::Inbox<'_>) -> T,
+    ) -> T {
+        let works = moderation::SharedWorks::new(&self.records, &self.loaded);
+        let admin_users: Vec<&str> = self.admin_users.iter().map(String::as_str).collect();
+        let contributor_ids: Vec<&str> = self.contributor_ids.iter().map(String::as_str).collect();
+        let identities = Identities {
+            active_admin_users: &admin_users,
+            contributor_ids: &contributor_ids,
+        };
+        with(&moderation_inbox::Inbox {
+            site: &self.published,
+            works: &works,
+            principal: moderation::Principal::AdminSession {
+                admin_user: &session.user,
+            },
+            identities: &identities,
+            policy: moderation::ModerationPolicy::from_config(&self.config),
+            protocol,
+            now: clock::now(),
+        })
+    }
+}
+
+/// An item as the viewer may see it, with, for passage feedback, whether the
+/// site publishes it now (`null` when the published file cannot be read, so
+/// nothing claims either way).
+fn inbox_view(
+    inbox: &moderation_inbox::Inbox<'_>,
+    item: &moderation_inbox::InboxItem,
+    published: Option<&feedback_publication::ReaderFeedbackFile>,
+) -> Option<Json> {
+    let mut view = inbox.view(item)?;
+    if item.source == moderation_inbox::Source::Feedback {
+        view["published"] = match published {
+            Some(file) => json!(file.get(&item.id).is_some()),
+            None => Json::Null,
+        };
+    }
+    Some(view)
+}
+
+fn published_feedback_file(state: &AppState) -> Option<feedback_publication::ReaderFeedbackFile> {
+    reader_feedback_path(state)
+        .and_then(|path| load_reader_feedback(&path))
+        .ok()
+        .map(|(file, _)| file)
+}
+
+/// `GET engagement/moderation?state=&kind=&after=`: one page of the inbox,
+/// oldest first, holding only what this account may see. Nothing counts what
+/// it may not see, so no count or preview reveals a pending item
+/// (`collect_inbox_page`).
+fn moderation_inbox_page(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    let wanted_state = req.query.get("state").map_or("pending", String::as_str);
+    let Some(wanted_state) = moderation::ModerationState::from_id(wanted_state) else {
+        return Response::error(422, "Unknown moderation state");
+    };
+    let kind = req.query.get("kind").map_or("", String::as_str);
+    if !kind.is_empty() && ParticipationKind::from_id(kind).is_none() {
+        return Response::error(422, "Unknown participation kind");
+    }
+    let after = req.query.get("after").map_or("", String::as_str);
+    if !after.is_empty() && !moderation_inbox::is_cursor(after) {
+        return Response::error(422, "Invalid page cursor");
+    }
+    let sources = match inbox_sources(state) {
+        Ok(sources) => sources,
+        Err(response) => return response,
+    };
+    let bound = sources.records.iter().any(|record| {
+        record
+            .authorization
+            .bindings
+            .iter()
+            .any(|binding| binding.admin_user == session.user)
+    });
+    let published = published_feedback_file(state);
+    let page_size = moderation_inbox::PAGE_SIZE.to_string();
+    let collected = collect_inbox_page(
+        bound,
+        (!after.is_empty()).then(|| after.to_string()),
+        |cursor| {
+            let mut query = vec![("state", wanted_state.id()), ("limit", page_size.as_str())];
+            if !kind.is_empty() {
+                query.push(("kind", kind));
+            }
+            if let Some(cursor) = cursor {
+                query.push(("after", cursor));
+            }
+            match hosted_moderation_call(state, &query, None) {
+                Ok((200, value)) => moderation_inbox::read_page(&value)
+                    .map_err(|error| Response::error(502, &error)),
+                Ok(_) => Err(Response::error(
+                    502,
+                    "hosted engagement returned an invalid inbox",
+                )),
+                Err(response) => Err(response),
+            }
+        },
+        |page| {
+            sources.inbox(session, page.protocol, |inbox| {
+                page.items
+                    .iter()
+                    .filter_map(|item| inbox_view(inbox, item, published.as_ref()))
+                    .collect()
+            })
+        },
+    );
+    let collected = match collected {
+        Ok(collected) => collected,
+        Err(response) => return response,
+    };
+    Response::json(
+        200,
+        &json!({
+            "state": wanted_state.id(),
+            "kind": kind,
+            "protocol": collected.protocol.id(),
+            "items": collected.items,
+            "invalid": collected.invalid,
+            "next": collected.next,
+        }),
+    )
+}
+
+/// One page of the inbox as one account sees it.
+struct CollectedPage {
+    protocol: moderation_inbox::Protocol,
+    items: Vec<Json>,
+    invalid: usize,
+    next: Option<String>,
+}
+
+/// The most hosted pages one inbox page may read for an account that may not
+/// see every item.
+const MAX_INBOX_REQUESTS: usize = 20;
+
+/// Read hosted pages from `cursor`, keeping what `visible` lets the account
+/// see. An account that sees everything gets one hosted page. One `bound` in
+/// a shared publication, which may not, is given further pages until it has
+/// a page of items it may see, the list ends or `MAX_INBOX_REQUESTS` pages
+/// were read, so an empty page or a next link never betrays items hidden
+/// from it (at the cap with nothing it may see, the list ends for it); and
+/// it is never told how many items failed validation, which it
+/// might not have been allowed to see.
+fn collect_inbox_page(
+    bound: bool,
+    mut cursor: Option<String>,
+    mut fetch: impl FnMut(Option<&str>) -> Result<moderation_inbox::HostedPage, Response>,
+    mut visible: impl FnMut(&moderation_inbox::HostedPage) -> Vec<Json>,
+) -> Result<CollectedPage, Response> {
+    let mut items = Vec::new();
+    let mut invalid = 0;
+    let mut requests = 0;
+    loop {
+        let page = fetch(cursor.as_deref())?;
+        requests += 1;
+        invalid += page.invalid;
+        items.extend(visible(&page));
+        cursor = page.next.clone();
+        if !bound
+            || cursor.is_none()
+            || items.len() >= moderation_inbox::PAGE_SIZE
+            || requests >= MAX_INBOX_REQUESTS
+        {
+            // A bound account that reached the cap seeing nothing is told
+            // the list ended: a next link would say hidden items exist.
+            let next = if bound && items.is_empty() {
+                None
+            } else {
+                cursor
+            };
+            return Ok(CollectedPage {
+                protocol: page.protocol,
+                items,
+                invalid: if bound { 0 } else { invalid },
+                next,
+            });
+        }
+    }
+}
+
+/// One item read again from the hosted inbox, with what it can store.
+fn hosted_inbox_item(
+    state: &AppState,
+    source: moderation_inbox::Source,
+    id: &str,
+) -> Result<(moderation_inbox::Protocol, moderation_inbox::InboxItem), Response> {
+    let (_, value) = hosted_moderation_call(state, &[("id", id), ("source", source.id())], None)?;
+    let page = moderation_inbox::read_page(&value).map_err(|error| Response::error(502, &error))?;
+    if page.invalid > 0 {
+        return Err(Response::error(
+            502,
+            "The hosted item is not valid; it was not changed",
+        ));
+    }
+    let protocol = page.protocol;
+    page.items
+        .into_iter()
+        .find(|item| item.id == id && item.source == source)
+        .map(|item| (protocol, item))
+        .ok_or_else(|| Response::error(404, "No such item"))
+}
+
+const INBOX_CHANGED: &str = "This item changed since you loaded it. Review it again before acting.";
+
+// ---- The retention job (ADRs 0104 and 0108)
+//
+// Retention never runs on its own. The site Admin asks for a dry run, which
+// lists what is due under the site's periods without changing anything,
+// then runs it; both Admin and the hosted function decide each item's step,
+// and only items both agree on, still as they were, are changed. Comments
+// are part of a run only when the site set `participation.retention`.
+
+/// Whether the signed-in account is the site Admin for every work: bound in
+/// no shared publication, so retention, which spans every work, is theirs.
+fn retention_admin(sources: &InboxSources, session: &auth::Session) -> bool {
+    !sources.records.iter().any(|record| {
+        record
+            .authorization
+            .bindings
+            .iter()
+            .any(|binding| binding.admin_user == session.user)
+    })
+}
+
+/// The run's due items, as both Admin and the hosted function decide them
+/// at `as_of`, with what the hosted dry run reported.
+struct RetentionPlan {
+    cutoffs: moderation::RetentionCutoffs,
+    items: Vec<(moderation_inbox::InboxItem, moderation::RetentionStep)>,
+    audit: Json,
+    truncated: bool,
+    disagreed: usize,
+}
+
+fn retention_step_id(step: moderation::RetentionStep) -> &'static str {
+    match step {
+        moderation::RetentionStep::Expire => "expire",
+        moderation::RetentionStep::PurgeContent => "purge-content",
+    }
+}
+
+fn retention_plan(
+    state: &AppState,
+    policy: &moderation::ModerationPolicy,
+    as_of: DateTime,
+) -> Result<RetentionPlan, Response> {
+    let cutoffs = policy.cutoffs(as_of);
+    let wire = cutoffs.to_json();
+    let comments = if cutoffs.comments { "true" } else { "false" };
+    let query: Vec<(&str, &str)> = [
+        "pendingUntil",
+        "clarificationUntil",
+        "closedUntil",
+        "auditUntil",
+    ]
+    .into_iter()
+    .map(|key| (key, wire[key].as_str().unwrap_or_default()))
+    .chain([("comments", comments)])
+    .collect();
+    let value = match hosted_inbox_request(state, "admin/retention", &query, None) {
+        Ok((200, value)) => value,
+        Ok(_) => return Err(Response::error(502, "hosted engagement returned an invalid retention report")),
+        Err(response) if response.status == 404 => {
+            return Err(Response::error(
+                404,
+                "Retention needs the hosted protection schema: run supabase/protection.sql, then set OPENBLOG_PROTECTION_ENABLED=true in Netlify.",
+            ))
+        }
+        Err(response) => return Err(response),
+    };
+    let rows = value["items"]
+        .as_array()
+        .filter(|rows| rows.len() <= 3 * 200)
+        .ok_or_else(|| {
+            Response::error(
+                502,
+                "hosted engagement returned an invalid retention report",
+            )
+        })?;
+    let mut items = Vec::new();
+    let mut disagreed = 0;
+    for row in rows {
+        let hosted_step = row["step"].as_str().unwrap_or_default().to_string();
+        let mut row = row.clone();
+        if let Some(object) = row.as_object_mut() {
+            object.remove("step");
+        }
+        let item = moderation_inbox::InboxItem::from_value(&row);
+        let step = item
+            .as_ref()
+            .ok()
+            .and_then(|item| policy.retention_due(&item.facts(), as_of));
+        match (item, step) {
+            (Ok(item), Some(step)) if retention_step_id(step) == hosted_step => {
+                if item.source != moderation_inbox::Source::Comment || cutoffs.comments {
+                    items.push((item, step));
+                } else {
+                    disagreed += 1;
+                }
+            }
+            _ => disagreed += 1,
+        }
+    }
+    let audit = value["audit"].clone();
+    let audit = if audit.as_object().is_some_and(|counts| {
+        counts.len() <= 3 && counts.values().all(|count| count.as_u64().is_some())
+    }) {
+        audit
+    } else {
+        json!({})
+    };
+    Ok(RetentionPlan {
+        cutoffs,
+        items,
+        audit,
+        truncated: value["truncated"] == true,
+        disagreed,
+    })
+}
+
+/// The dry run as Admin shows it: counts by step and kind, and each item's
+/// facts, never its text or a reader's name.
+fn retention_report(
+    policy: &moderation::ModerationPolicy,
+    as_of: DateTime,
+    plan: &RetentionPlan,
+) -> Json {
+    let mut summary: std::collections::BTreeMap<(&str, &str), (usize, &str)> =
+        std::collections::BTreeMap::new();
+    for (item, step) in &plan.items {
+        summary
+            .entry((retention_step_id(*step), item.kind.id()))
+            .or_insert((0, item.kind.label()))
+            .0 += 1;
+    }
+    json!({
+        "asOf": as_of.rfc3339(),
+        "periods": {
+            "pendingDays": policy.retention.pending_days,
+            "clarificationDays": policy.retention.clarification_days,
+            "closedDays": policy.retention.closed_days,
+            "auditDays": policy.retention.audit_days,
+            "comments": policy.comment_retention,
+        },
+        "cutoffs": plan.cutoffs.to_json(),
+        "summary": summary.into_iter().map(|((step, kind), (count, label))| json!({"step": step, "kind": kind, "kindLabel": label, "count": count})).collect::<Vec<_>>(),
+        "items": plan.items.iter().map(|(item, step)| json!({
+            "source": item.source.id(), "id": item.id, "kind": item.kind.id(), "kindLabel": item.kind.label(),
+            "status": item.state.id(), "statusLabel": item.state.label(), "since": item.facts().state_since.rfc3339(),
+            "step": retention_step_id(*step), "work": item.work,
+        })).collect::<Vec<_>>(),
+        "audit": plan.audit,
+        "truncated": plan.truncated,
+        "skipped": plan.disagreed,
+    })
+}
+
+/// `GET engagement/retention`: the dry run. Nothing changes.
+fn retention_dry_run(state: &AppState, session: &auth::Session) -> Response {
+    let sources = match inbox_sources(state) {
+        Ok(sources) => sources,
+        Err(response) => return response,
+    };
+    if !retention_admin(&sources, session) {
+        return Response::error(
+            403,
+            "Only the site Admin runs retention, because it covers every post.",
+        );
+    }
+    let policy = moderation::ModerationPolicy::from_config(&sources.config);
+    let as_of = clock::now();
+    match retention_plan(state, &policy, as_of) {
+        Ok(plan) => Response::json(200, &retention_report(&policy, as_of, &plan)),
+        Err(response) => response,
+    }
+}
+
+/// `POST engagement/retention` with the dry run's `asOf` (at most an hour
+/// old) and whether to delete old audit events: runs exactly what is due at
+/// that time and still as it was, and reports what it did.
+fn run_retention(state: &AppState, req: &Request, session: &auth::Session) -> Response {
     let body = match feedback_body(req) {
         Ok(body) => body,
         Err(response) => return response,
     };
+    let now = clock::now();
+    let Some(as_of) = body["asOf"]
+        .as_str()
+        .and_then(DateTime::parse)
+        .filter(|as_of| as_of.unix() <= now.unix() && now.unix() - as_of.unix() <= 3_600)
+    else {
+        return Response::error(
+            422,
+            "Check what retention would do again, then run it within the hour.",
+        );
+    };
+    let sources = match inbox_sources(state) {
+        Ok(sources) => sources,
+        Err(response) => return response,
+    };
+    if !retention_admin(&sources, session) {
+        return Response::error(
+            403,
+            "Only the site Admin runs retention, because it covers every post.",
+        );
+    }
+    let policy = moderation::ModerationPolicy::from_config(&sources.config);
+    let plan = match retention_plan(state, &policy, as_of) {
+        Ok(plan) => plan,
+        Err(response) => return response,
+    };
+    let mut request = plan.cutoffs.to_json();
+    request["audit"] = json!(body["audit"] == true);
+    request["items"] = Json::Array(
+        plan.items
+            .iter()
+            .take(200)
+            .map(|(item, step)| json!({"source": item.source.id(), "id": item.id, "version": item.version, "step": retention_step_id(*step)}))
+            .collect(),
+    );
+    let result = match hosted_inbox_request(state, "admin/retention", &[], Some(("POST", &request)))
+    {
+        Ok((200, value)) => value,
+        Ok(_) => {
+            return Response::error(
+                502,
+                "hosted engagement returned an invalid retention result",
+            )
+        }
+        Err(response) => return response,
+    };
+    let count = |key: &str| result[key].as_u64().unwrap_or(0);
+    eprintln!(
+        "admin: retention by {} expired {} purged {} skipped {}",
+        session.user,
+        count("expired"),
+        count("purged"),
+        count("skipped")
+    );
+    Response::json(
+        200,
+        &json!({
+            "expired": count("expired"),
+            "purged": count("purged"),
+            "skipped": count("skipped") as usize + plan.disagreed,
+            "auditDeleted": result["auditDeleted"].as_object().map(|counts| counts.values().filter_map(Json::as_u64).sum::<u64>()),
+            "more": plan.truncated || plan.items.len() > 200,
+        }),
+    )
+}
+
+/// `PATCH engagement/moderation`: one decision on one item. The request names
+/// the item's source, id, state and version as loaded, the action, a reason
+/// when it takes one and, to approve passage feedback whose passage is not
+/// current, the passage check the moderator read. Nothing about who is
+/// acting comes from the request.
+fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    let body = match feedback_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let Some(source) = body["source"]
+        .as_str()
+        .and_then(moderation_inbox::Source::from_id)
+    else {
+        return Response::error(422, "Name the item's source: comment, feedback or report");
+    };
     let id = match feedback_id(&body["id"]) {
         Ok(id) => id,
         Err(response) => return response,
+    };
+    // A deletion request is not a moderation transition: it purges the
+    // item's text and name and leaves its state as it is (ADR 0107).
+    let erase = body["action"].as_str() == Some(moderation_inbox::ERASE_ACTION);
+    let action = if erase {
+        None
+    } else {
+        match body["action"]
+            .as_str()
+            .and_then(moderation::ModerationAction::from_id)
+            .filter(|action| {
+                moderation_inbox::INBOX_ACTIONS.contains(action)
+                    || *action == moderation::ModerationAction::UpholdReport
+            }) {
+            Some(action) => Some(action),
+            None => return Response::error(422, "Choose one of the item's actions"),
+        }
     };
     let Some(version) = body["version"]
         .as_u64()
@@ -4901,84 +5467,184 @@ fn moderate_feedback(state: &AppState, req: &Request, session: &auth::Session) -
     else {
         return Response::error(422, "Send the item's version as you loaded it");
     };
-    let Some(from) = body["from"].as_str().and_then(ModerationState::from_id) else {
+    let Some(from) = body["from"]
+        .as_str()
+        .and_then(moderation::ModerationState::from_id)
+    else {
         return Response::error(422, "Send the item's state as you loaded it");
     };
-    let change = match feedback_moderation::plan(
-        from,
-        body["action"].as_str().unwrap_or(""),
-        body["reason"].as_str(),
-    ) {
-        Ok(change) => change,
-        Err(error) => return Response::error(422, &error.message),
+    let reason = match &body["reason"] {
+        Json::Null => None,
+        Json::String(id) if id.is_empty() => None,
+        Json::String(id) => match moderation::ReasonCode::from_id(id) {
+            Some(reason) => Some(reason),
+            None => {
+                return Response::json(
+                    422,
+                    &json!({ "error": "Choose one of the listed reasons.", "code": "reasonNotAllowed" }),
+                )
+            }
+        },
+        _ => return Response::error(422, "A reason is a reason code"),
     };
-    let item = match hosted_feedback_item(state, &id) {
-        Ok(item) => item,
+    let (protocol, item) = match hosted_inbox_item(state, source, &id) {
+        Ok(found) => found,
         Err(response) => return response,
     };
-    let site = match feedback_site(state) {
-        Ok(site) => site,
+    let sources = match inbox_sources(state) {
+        Ok(sources) => sources,
         Err(response) => return response,
     };
-    let conflict = |item: &HostedFeedback, message: &str| {
+    let published = published_feedback_file(state);
+    // Decided here first, with this account's role on the item's work: the
+    // state the item ends in, and the item an upheld report takes down.
+    let decided = sources.inbox(session, protocol, |inbox| {
+        let view = inbox_view(inbox, &item, published.as_ref());
+        let role = inbox.actor(&item).role();
+        let decision = match action {
+            Some(action) => inbox
+                .decide(&item, action, version, reason)
+                .map(|decision| {
+                    (
+                        decision.item.to,
+                        decision.reported_item.map(|change| change.item),
+                    )
+                }),
+            None if reason.is_some() => Err(moderation::PolicyError::ReasonNotAllowed),
+            None => inbox
+                .erase(&item, version)
+                .map(|erasure| (erasure.state, None)),
+        };
+        (view, role, decision)
+    });
+    let (view, role, decision) = decided;
+    let conflict = |view: Option<Json>, message: &str| {
         Response::json(
             409,
-            &json!({ "error": message, "code": "conflict", "item": feedback_moderation::moderation_view(item, &site) }),
+            &json!({ "error": message, "code": "conflict", "item": view }),
         )
     };
-    const CHANGED: &str = "This item changed since you loaded it. Review it again before acting.";
-    if item.status != from || item.version != version {
-        return conflict(&item, CHANGED);
-    }
-    if change.action == ModerationAction::Approve
-        && !approval_acknowledged(&item, &site, body["acknowledge"].as_str())
-    {
-        return conflict(
-            &item,
-            "The passage is not where the reader saw it. Read the passage check as it is now and confirm it before approving.",
-        );
-    }
-    let request = json!({
-        "id": id,
-        "action": change.action.id(),
-        "from": change.from.id(),
-        "expectedVersion": version,
-        "reason": change.reason.map(|reason| reason.id()),
-        "actor": session.user,
-    });
-    let value = match hosted_feedback_call(state, &[], Some(&request)) {
-        Ok((200, value)) => value,
-        Ok((409, value)) => {
-            return match HostedFeedback::from_value(&value["item"]) {
-                Ok(current) => conflict(&current, CHANGED),
-                Err(_) => Response::error(409, CHANGED),
-            }
-        }
-        Ok(_) => return Response::error(404, "No such feedback item"),
-        Err(response) => return response,
-    };
-    let changed = match HostedFeedback::from_value(&value["item"]) {
-        Ok(changed) if changed.id == id && changed.status == change.to => changed,
-        _ => {
-            return Response::error(
-                502,
-                "hosted engagement returned an invalid moderation response",
+    let decision = match decision {
+        Err(moderation::PolicyError::Denied) => {
+            return Response::json(
+                403,
+                &json!({ "error": "You cannot take this decision on this item.", "code": "denied" }),
             )
         }
+        Err(moderation::PolicyError::Stale) => return conflict(view, INBOX_CHANGED),
+        Err(error) => {
+            return Response::json(
+                422,
+                &json!({ "error": format!("{}.", capitalize(&error.to_string())), "code": error.code() }),
+            )
+        }
+        Ok(_) if item.state != from => return conflict(view, INBOX_CHANGED),
+        Ok(decision) => decision,
+    };
+    let (decided_to, removed_target) = decision;
+    // A passage that moved or changed is approved only once the moderator
+    // has confirmed the check they read (ADR 0083).
+    if action == Some(moderation::ModerationAction::Approve) {
+        if let Some(hosted) = item.feedback() {
+            if !feedback_moderation::approval_acknowledged(
+                &hosted.feedback,
+                &sources.published,
+                body["acknowledge"].as_str(),
+            ) {
+                return conflict(
+                    view,
+                    "The passage is not where the reader saw it. Read the passage check as it is now and confirm it before approving.",
+                );
+            }
+        }
+    }
+    let action_id = action.map_or(
+        moderation_inbox::ERASE_ACTION,
+        moderation::ModerationAction::id,
+    );
+    let mut request = json!({
+        "source": source.id(),
+        "id": id,
+        "action": action_id,
+        "from": item.state.id(),
+        "expectedVersion": version,
+        "reason": reason.map(moderation::ReasonCode::id),
+        "actor": session.user,
+        "actorRole": role.id(),
+    });
+    if action == Some(moderation::ModerationAction::UpholdReport) {
+        // The hosted function upholds only while the reported item is
+        // exactly as this decision saw it (ADR 0104).
+        request["targetVersion"] = json!(item.target.as_ref().map(|target| target.version));
+    }
+    let reread = |value: &Json| moderation_inbox::InboxItem::from_value(&value["item"]).ok();
+    let changed = match hosted_moderation_call(state, &[], Some(&request)) {
+        Ok((200, value)) => match reread(&value) {
+            Some(changed)
+                if changed.id == id
+                    && stored_as(protocol, &changed, decided_to)
+                    && (!erase || changed.content == moderation_inbox::Content::Purged) =>
+            {
+                changed
+            }
+            _ => {
+                return Response::error(
+                    502,
+                    "hosted engagement returned an invalid moderation response",
+                )
+            }
+        },
+        Ok((409, value)) => {
+            let current = reread(&value).and_then(|current| {
+                sources.inbox(session, protocol, |inbox| {
+                    inbox_view(inbox, &current, published.as_ref())
+                })
+            });
+            return conflict(current, INBOX_CHANGED);
+        }
+        Ok((403, _)) => {
+            return Response::json(
+                403,
+                &json!({ "error": "You cannot take this decision on this item.", "code": "denied" }),
+            )
+        }
+        Ok(_) => return Response::error(404, "No such item"),
+        Err(response) => return response,
     };
     eprintln!(
-        "admin: feedback {id} {} by {}",
-        change.action.id(),
-        session.user
+        "admin: moderation {} {id} {action_id} by {} as {}",
+        source.id(),
+        session.user,
+        role.id()
     );
-    // What the site publishes follows the decision.
-    let mut published = false;
+    // What the site publishes of passage feedback follows the decision: an
+    // approval publishes the note; a removal, an upheld report that took a
+    // note down, or a deletion request takes it off its post.
+    let approve = action == Some(moderation::ModerationAction::Approve);
+    let unpublish_id = match (&item.target, &removed_target) {
+        (Some(target), Some(_)) if target.source == moderation_inbox::Source::Feedback => {
+            Some(target.id.clone())
+        }
+        _ if source == moderation_inbox::Source::Feedback
+            && (erase || action == Some(moderation::ModerationAction::Remove)) =>
+        {
+            Some(id.clone())
+        }
+        _ => None,
+    };
+    let unpublish_id = unpublish_id.filter(|target| {
+        // Only touch the file when the note is on it, or for a removal,
+        // which always says what the file holds.
+        action == Some(moderation::ModerationAction::Remove)
+            || published
+                .as_ref()
+                .is_none_or(|file| file.get(target).is_some())
+    });
+    let mut published_now = false;
     let mut publish_error = None;
     let mut build = None;
-    if matches!(
-        change.action,
-        ModerationAction::Approve | ModerationAction::Remove
-    ) {
+    let approved_note = changed.feedback().filter(|_| approve);
+    if approved_note.is_some() || unpublish_id.is_some() {
         let mut status = lock(&state.build);
         let _transaction = match content_transaction(state) {
             Ok(lock) => lock,
@@ -4986,41 +5652,63 @@ fn moderate_feedback(state: &AppState, req: &Request, session: &auth::Session) -
         };
         let outcome = reader_feedback_path(state)
             .map_err(|_| "reader-feedback.json cannot be written".to_string())
-            .and_then(|path| {
-                if change.action == ModerationAction::Approve {
-                    publish_approved_feedback(&path, &site, &changed)
-                } else {
-                    unpublish_feedback(&path, &id)
-                }
+            .and_then(|path| match (approved_note, &unpublish_id) {
+                (Some(hosted), _) => publish_approved_feedback(&path, &sources.published, hosted),
+                (None, Some(target)) => unpublish_feedback(&path, target),
+                (None, None) => Ok(()),
             });
         match outcome {
             Ok(()) => {
-                published = change.action == ModerationAction::Approve;
+                published_now = approve;
                 build = Some(feedback_build_json(&state.rebuild_locked(&mut status)));
             }
             Err(error) => {
                 // A removal that could not be written leaves the note on the
                 // post; say so when the file says so.
-                if change.action == ModerationAction::Remove {
-                    published = reader_feedback_path(state)
+                if let Some(target) = &unpublish_id {
+                    published_now = reader_feedback_path(state)
                         .and_then(|path| load_reader_feedback(&path))
-                        .is_ok_and(|(file, _)| file.get(&id).is_some());
+                        .is_ok_and(|(file, _)| file.get(target).is_some());
                 }
                 publish_error = Some(error)
             }
         }
     }
-    let mut view = feedback_moderation::moderation_view(&changed, &site);
-    view["published"] = json!(published);
+    let published = published_feedback_file(state);
+    let view = sources.inbox(session, protocol, |inbox| {
+        inbox_view(inbox, &changed, published.as_ref())
+    });
     Response::json(
         200,
         &json!({
             "item": view,
-            "published": published,
+            "published": published_now,
             "publishError": publish_error,
             "build": build,
+            "removedTarget": removed_target.is_some(),
         }),
     )
+}
+
+/// Whether the hosted function stored `to`: exactly, or, for a comment
+/// under the older schema, as the `status` value ADR 0102 maps it to (a
+/// removed comment is stored as rejected).
+fn stored_as(
+    protocol: moderation_inbox::Protocol,
+    changed: &moderation_inbox::InboxItem,
+    to: ModerationState,
+) -> bool {
+    changed.state == to
+        || (protocol == moderation_inbox::Protocol::Legacy
+            && changed.source == moderation_inbox::Source::Comment
+            && changed.state.id() == to.legacy_comment_status())
+}
+
+fn capitalize(text: &str) -> String {
+    let mut chars = text.chars();
+    chars.next().map_or_else(String::new, |first| {
+        first.to_uppercase().chain(chars).collect()
+    })
 }
 
 /// `POST engagement/feedback/publish`: put an approved item on its post
@@ -18278,10 +18966,25 @@ mod tests {
 
     const FEEDBACK_ITEM_ID: &str = "00000000-0000-4000-8000-0000000000a1";
 
-    fn feedback_routes() -> [(&'static str, &'static str); 7] {
+    /// Switch passage feedback on in a fixture's openblog.json, with a hosted
+    /// endpoint nothing in the test calls, so its kinds are shown (ADR 0101).
+    fn enable_passage_feedback(dir: &Path) {
+        let path = dir.join(site::CONFIG_FILE);
+        let mut config: Json = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        config["engagement"] = json!({
+            "enabled": true,
+            "feedback": true,
+            "endpoint": "https://engagement.invalid/api",
+        });
+        fs::write(&path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
+    }
+
+    fn feedback_routes() -> [(&'static str, &'static str); 9] {
         [
-            ("GET", "/admin/api/engagement/feedback"),
-            ("PATCH", "/admin/api/engagement/feedback"),
+            ("GET", "/admin/api/engagement/moderation"),
+            ("PATCH", "/admin/api/engagement/moderation"),
+            ("GET", "/admin/api/engagement/retention"),
+            ("POST", "/admin/api/engagement/retention"),
             ("POST", "/admin/api/engagement/feedback/publish"),
             ("POST", "/admin/api/engagement/feedback/unpublish"),
             ("GET", "/admin/api/engagement/feedback/published"),
@@ -18316,12 +19019,12 @@ mod tests {
             );
             assert_eq!(response.status, 403, "{method} {path}");
         }
-        // Off by default: the queue says how to turn it on, without asking
+        // Off by default: the inbox says how to turn it on, without asking
         // any hosted service; what the site publishes is still readable.
         let queue = handle(
             &f.state,
             &authed(
-                req("GET", "/admin/api/engagement/feedback"),
+                req("GET", "/admin/api/engagement/moderation"),
                 &session,
                 false,
             ),
@@ -18330,7 +19033,33 @@ mod tests {
         assert!(body_json(&queue)["error"]
             .as_str()
             .unwrap()
-            .contains("engagement.feedback"));
+            .contains("Hosted engagement is not turned on"));
+        // The old separate queues are gone: one inbox moderates both.
+        for path in [
+            "/admin/api/engagement/feedback",
+            "/admin/api/engagement/comments",
+        ] {
+            let gone = handle(&f.state, &authed(req("GET", path), &session, false));
+            assert_eq!(gone.status, 404, "{path}");
+        }
+        for (query, status) in [
+            ("?state=published", 422),
+            ("?kind=vote", 422),
+            ("?after=a%20b", 422),
+        ] {
+            let refused = handle(
+                &f.state,
+                &authed(
+                    req("GET", &format!("/admin/api/engagement/moderation{query}")),
+                    &session,
+                    false,
+                ),
+            );
+            assert_eq!(
+                refused.status, status,
+                "{query}: refused before any hosted request"
+            );
+        }
         let published = handle(
             &f.state,
             &authed(
@@ -18349,27 +19078,90 @@ mod tests {
             &authed(
                 json_req(
                     "PATCH",
-                    "/admin/api/engagement/feedback",
-                    json!({ "id": FEEDBACK_ITEM_ID, "action": "approve", "from": "pending", "version": 1 }),
+                    "/admin/api/engagement/moderation",
+                    json!({ "source": "feedback", "id": FEEDBACK_ITEM_ID, "action": "approve", "from": "pending", "version": 1 }),
                 ),
                 &session,
                 true,
             ),
         );
         assert_eq!(moderated.status, 404);
-        let unknown = handle(
+        for body in [
+            json!({ "source": "feedback", "id": FEEDBACK_ITEM_ID, "action": "delete", "from": "pending", "version": 1 }),
+            json!({ "source": "feedback", "id": FEEDBACK_ITEM_ID, "action": "withdraw", "from": "pending", "version": 1 }),
+            json!({ "source": "feedback", "id": FEEDBACK_ITEM_ID, "action": "expire", "from": "pending", "version": 1 }),
+            json!({ "source": "abuse", "id": FEEDBACK_ITEM_ID, "action": "approve", "from": "pending", "version": 1 }),
+            json!({ "source": "comment", "id": "../x", "action": "approve", "from": "pending", "version": 1 }),
+            json!({ "source": "comment", "id": FEEDBACK_ITEM_ID, "action": "approve", "from": "published", "version": 1 }),
+            json!({ "source": "comment", "id": FEEDBACK_ITEM_ID, "action": "approve", "from": "pending", "version": 0 }),
+            json!({ "source": "comment", "id": FEEDBACK_ITEM_ID, "action": "reject", "from": "pending", "version": 1, "reason": "incorrect" }),
+            json!("not an object"),
+        ] {
+            let unknown = handle(
+                &f.state,
+                &authed(
+                    json_req("PATCH", "/admin/api/engagement/moderation", body.clone()),
+                    &session,
+                    true,
+                ),
+            );
+            assert!(
+                matches!(unknown.status, 400 | 422),
+                "{body}: refused before any hosted request, got {}",
+                unknown.status
+            );
+        }
+        // Retention runs only from a fresh dry run, and says what it needs.
+        for as_of in [
+            json!(null),
+            json!("yesterday"),
+            json!("2020-01-01T00:00:00Z"),
+            json!("2999-01-01T00:00:00Z"),
+        ] {
+            let run = handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "POST",
+                        "/admin/api/engagement/retention",
+                        json!({ "asOf": as_of }),
+                    ),
+                    &session,
+                    true,
+                ),
+            );
+            assert_eq!(
+                run.status, 422,
+                "{as_of}: refused before any hosted request"
+            );
+        }
+        let dry = handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/engagement/retention"),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(dry.status, 404);
+        assert!(body_json(&dry)["error"]
+            .as_str()
+            .unwrap()
+            .contains("protection.sql"));
+        // A deletion request takes no reason, and names a known action.
+        let erase = handle(
             &f.state,
             &authed(
                 json_req(
                     "PATCH",
-                    "/admin/api/engagement/feedback",
-                    json!({ "id": FEEDBACK_ITEM_ID, "action": "delete", "from": "pending", "version": 1 }),
+                    "/admin/api/engagement/moderation",
+                    json!({ "source": "report", "id": FEEDBACK_ITEM_ID, "action": "purge", "from": "rejected", "version": 1 }),
                 ),
                 &session,
                 true,
             ),
         );
-        assert_eq!(unknown.status, 422, "refused before any hosted request");
+        assert_eq!(erase.status, 422);
         let unpublish = handle(
             &f.state,
             &authed(
@@ -18392,6 +19184,7 @@ mod tests {
     #[test]
     fn author_responses_are_conflict_safe_and_failures_leave_the_file_unchanged() {
         let f = fixture("feedback-responses");
+        enable_passage_feedback(&f.dir);
         let (site, _) = site::load_site(&f.dir, false, None).unwrap();
         let post = site.posts[0].clone();
         let record = feedback_record(&site, &post, None, "work");
@@ -18672,6 +19465,224 @@ mod tests {
         );
     }
 
+    /// A hosted inbox page of `items` (each visible or not to the test's
+    /// viewer), with `invalid` broken items and a next cursor unless last.
+    fn inbox_page(items: &[bool], invalid: usize, next: bool) -> moderation_inbox::HostedPage {
+        let comment = |n: usize| {
+            json!({
+                "source": "comment", "id": format!("00000000-0000-4000-8000-{n:012}"),
+                "status": "pending", "version": 1,
+                "comment": {"path": "/p/", "authorName": if items[n % items.len().max(1)] { "seen" } else { "hidden" }, "body": "Hi", "createdAt": "2026-10-26T10:00:00Z"},
+            })
+        };
+        moderation_inbox::HostedPage {
+            protocol: moderation_inbox::Protocol::Full,
+            items: (0..items.len())
+                .map(|n| moderation_inbox::InboxItem::from_value(&comment(n)).unwrap())
+                .collect(),
+            invalid,
+            next: next.then(|| {
+                format!(
+                    "2026-10-26T10:00:00.000000Z~00000000-0000-4000-8000-{:012}",
+                    items.len()
+                )
+            }),
+        }
+    }
+
+    fn seen_only(page: &moderation_inbox::HostedPage) -> Vec<Json> {
+        page.items
+            .iter()
+            .filter(|item| matches!(&item.content, moderation_inbox::Content::Comment { author_name, .. } if author_name == "seen"))
+            .map(|item| json!(item.id))
+            .collect()
+    }
+
+    #[test]
+    fn an_inbox_page_never_betrays_items_its_viewer_may_not_see() {
+        // Someone who sees everything gets exactly one hosted page, its next
+        // link and the count of broken items.
+        let mut asked = Vec::new();
+        let page = collect_inbox_page(
+            false,
+            Some("2026-10-26T10:00:00.000000Z~00000000-0000-4000-8000-000000000000".into()),
+            |cursor| {
+                asked.push(cursor.map(str::to_string));
+                Ok(inbox_page(&[true, true], 1, true))
+            },
+            seen_only,
+        )
+        .unwrap();
+        assert_eq!(asked.len(), 1);
+        assert!(asked[0].is_some());
+        assert_eq!((page.items.len(), page.invalid), (2, 1));
+        assert!(page.next.is_some());
+
+        // A co-writer whose first pages hold only others' items is given the
+        // next pages until it has items of its own or the list ends, and is
+        // never told how many items were broken.
+        let pages = [
+            inbox_page(&[false, false], 2, true),
+            inbox_page(&[false], 0, true),
+            inbox_page(&[true, false], 0, false),
+        ];
+        let mut calls = 0;
+        let page = collect_inbox_page(
+            true,
+            None,
+            |_| {
+                calls += 1;
+                Ok(pages[calls - 1].clone())
+            },
+            seen_only,
+        )
+        .unwrap();
+        assert_eq!(calls, 3);
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.invalid, 0);
+        assert_eq!(
+            page.next, None,
+            "the list ended: no link hints at hidden items"
+        );
+
+        // Nothing of theirs at all: an empty page with no next link, after
+        // at most the bounded number of hosted pages.
+        let mut calls = 0;
+        let page = collect_inbox_page(
+            true,
+            None,
+            |_| {
+                calls += 1;
+                Ok(inbox_page(&[false; 3], 0, true))
+            },
+            seen_only,
+        )
+        .unwrap();
+        assert_eq!(calls, MAX_INBOX_REQUESTS);
+        assert!(page.items.is_empty());
+        assert_eq!(
+            page.next, None,
+            "the cap with nothing visible ends the list: a next link would betray hidden items"
+        );
+        // Someone who sees everything still gets the hosted next link.
+        let page =
+            collect_inbox_page(false, None, |_| Ok(inbox_page(&[], 0, true)), seen_only).unwrap();
+        assert!(page.next.is_some());
+
+        // A failing provider stops at once and says so.
+        let failed =
+            collect_inbox_page(true, None, |_| Err(Response::error(502, "down")), seen_only);
+        assert_eq!(failed.err().unwrap().status, 502);
+    }
+
+    #[test]
+    fn the_retention_dry_run_shows_facts_and_counts_never_text_or_names() {
+        let policy = moderation::ModerationPolicy::default();
+        let as_of = DateTime::parse("2026-10-27T10:00:00Z").unwrap();
+        let item = moderation_inbox::InboxItem::from_value(&json!({
+            "source": "report", "id": FEEDBACK_ITEM_ID, "status": "rejected", "version": 2,
+            "moderatedAt": "2026-08-01T00:00:00Z", "reason": "no-action", "receivedAt": "2026-07-30T00:00:00Z",
+            "work": "/posts/tides/", "report": {"ground": "abusive", "body": "Private words from a reader"},
+            "target": null,
+        }))
+        .unwrap();
+        let step = policy.retention_due(&item.facts(), as_of).unwrap();
+        let plan = RetentionPlan {
+            cutoffs: policy.cutoffs(as_of),
+            items: vec![(item, step)],
+            audit: json!({ "comment": 2, "report": 0 }),
+            truncated: false,
+            disagreed: 1,
+        };
+        let report = retention_report(&policy, as_of, &plan);
+        assert_eq!(
+            report["summary"],
+            json!([{ "step": "purge-content", "kind": "abuse-report", "kindLabel": "Abuse report", "count": 1 }])
+        );
+        assert_eq!(report["items"][0]["since"], "2026-08-01T00:00:00Z");
+        assert_eq!(report["periods"]["comments"], false);
+        assert_eq!(report["skipped"], 1);
+        assert_eq!(report["cutoffs"]["closedUntil"], "2026-09-27T10:00:00Z");
+        assert!(!report.to_string().contains("Private words"));
+    }
+
+    #[test]
+    fn a_comment_removed_under_the_older_schema_reads_back_as_rejected() {
+        let mut rejected = inbox_page(&[true], 0, false).items.remove(0);
+        rejected.state = ModerationState::Rejected;
+        let legacy = moderation_inbox::Protocol::Legacy;
+        assert!(stored_as(legacy, &rejected, ModerationState::Removed));
+        assert!(stored_as(legacy, &rejected, ModerationState::Rejected));
+        assert!(!stored_as(legacy, &rejected, ModerationState::Approved));
+        // With the inbox's schema the full state is stored, so only it will do.
+        assert!(!stored_as(
+            moderation_inbox::Protocol::Full,
+            &rejected,
+            ModerationState::Removed
+        ));
+    }
+
+    #[test]
+    fn hosted_inbox_answers_pass_on_refusals_and_no_secret() {
+        assert_eq!(
+            hosted_moderation_answer(409, json!({ "code": "conflict" }))
+                .unwrap()
+                .0,
+            409
+        );
+        assert_eq!(
+            hosted_moderation_answer(403, json!({ "code": "denied" }))
+                .unwrap()
+                .0,
+            403
+        );
+        assert_eq!(
+            hosted_moderation_answer(404, json!({ "code": "notFound" }))
+                .unwrap()
+                .0,
+            404
+        );
+        let older =
+            hosted_moderation_answer(404, json!({ "error": "No such engagement operation." }))
+                .unwrap_err();
+        assert!(String::from_utf8_lossy(&older.body).contains("deploy netlify/functions"));
+        assert_eq!(
+            hosted_moderation_answer(403, json!({ "error": "Origin is not allowed." }))
+                .unwrap_err()
+                .status,
+            502
+        );
+        let refused = hosted_moderation_answer(
+            422,
+            json!({ "error": "Run supabase/moderation.sql first.", "code": "notAllowed" }),
+        )
+        .unwrap_err();
+        assert_eq!(refused.status, 422);
+        assert_eq!(
+            body_json(&refused),
+            json!({ "error": "Run supabase/moderation.sql first.", "code": "notAllowed" })
+        );
+        for (status, value) in [
+            (
+                500,
+                json!({ "error": "relation openblog_comments sb_secret_x" }),
+            ),
+            (401, json!({ "error": "Admin authorization is required." })),
+            (
+                422,
+                json!({ "error": format!("{} sb_secret_x", "x".repeat(400)), "code": "sb_secret" }),
+            ),
+        ] {
+            let body =
+                String::from_utf8_lossy(&hosted_moderation_answer(status, value).unwrap_err().body)
+                    .to_string();
+            assert!(
+                !body.contains("sb_secret") && !body.contains("relation"),
+                "{body}"
+            );
+        }
+    }
+
     #[test]
     fn a_passage_that_is_not_current_is_approved_only_with_the_check_confirmed() {
         let f = fixture("feedback-acknowledge");
@@ -18686,7 +19697,10 @@ mod tests {
             .unwrap()
         };
         let current = hosted(&feedback_record(&site, &post, None, "section"), "pending");
-        assert!(approval_acknowledged(&current, &site, None));
+        let acknowledged = |item: &HostedFeedback, check: Option<&str>| {
+            feedback_moderation::approval_acknowledged(&item.feedback, &site, check)
+        };
+        assert!(acknowledged(&current, None));
         let moved = hosted(
             &feedback_record(
                 &site,
@@ -18696,32 +19710,41 @@ mod tests {
             ),
             "pending",
         );
-        assert!(!approval_acknowledged(&moved, &site, None));
-        assert!(!approval_acknowledged(&moved, &site, Some("current")));
-        assert!(!approval_acknowledged(&moved, &site, Some("stale")));
-        assert!(approval_acknowledged(&moved, &site, Some("reanchored")));
+        assert!(!acknowledged(&moved, None));
+        assert!(!acknowledged(&moved, Some("current")));
+        assert!(!acknowledged(&moved, Some("stale")));
+        assert!(acknowledged(&moved, Some("reanchored")));
 
-        // The queue view says whether the site publishes each item, and
+        // The inbox says whether the site publishes each feedback item, and
         // claims nothing when the published file cannot be read.
-        let unknown = feedback_queue_view(
-            ModerationState::Pending,
-            std::slice::from_ref(&current),
-            2,
-            &site,
-            None,
-        );
-        assert_eq!(unknown["items"][0]["published"], Json::Null);
-        assert_eq!(unknown["invalid"], 2);
+        let works = moderation::SharedWorks::new(&[], &site);
+        let identities = Identities {
+            active_admin_users: &[],
+            contributor_ids: &[],
+        };
+        let inbox = moderation_inbox::Inbox {
+            site: &site,
+            works: &works,
+            principal: moderation::Principal::ModerationToken,
+            identities: &identities,
+            policy: moderation::ModerationPolicy::default(),
+            protocol: moderation_inbox::Protocol::Full,
+            now: clock::now(),
+        };
+        let item = |status: &str| {
+            let value = json!({
+                "source": "feedback", "id": FEEDBACK_ITEM_ID, "status": status, "version": 1,
+                "moderatedAt": null, "reason": null,
+                "feedback": feedback_record(&site, &post, None, "section").to_value(),
+            });
+            moderation_inbox::InboxItem::from_value(&value).unwrap()
+        };
+        let unknown = inbox_view(&inbox, &item("pending"), None).unwrap();
+        assert_eq!(unknown["published"], Json::Null);
         let mut file = feedback_publication::ReaderFeedbackFile::default();
         let approved = hosted(&feedback_record(&site, &post, None, "section"), "approved");
-        let view = feedback_queue_view(
-            ModerationState::Approved,
-            std::slice::from_ref(&approved),
-            0,
-            &site,
-            Some(&file),
-        );
-        assert_eq!(view["items"][0]["published"], false);
+        let view = inbox_view(&inbox, &item("approved"), Some(&file)).unwrap();
+        assert_eq!(view["published"], false);
         let path = f
             .dir
             .join("content")
@@ -18731,14 +19754,8 @@ mod tests {
             &fs::read_to_string(&path).unwrap(),
         )
         .unwrap();
-        let view = feedback_queue_view(
-            ModerationState::Approved,
-            std::slice::from_ref(&approved),
-            0,
-            &site,
-            Some(&file),
-        );
-        assert_eq!(view["items"][0]["published"], true);
+        let view = inbox_view(&inbox, &item("approved"), Some(&file)).unwrap();
+        assert_eq!(view["published"], true);
         assert!(
             publish_approved_feedback(&path, &site, &current).is_err(),
             "pending is never published"
@@ -18809,21 +19826,14 @@ mod tests {
         assert!(
             validate_hosted_engagement_response("GET", "admin/analytics", &unsafe_path).is_err()
         );
+        // Comments are moderated in the inbox now (ADR 0105); this path no
+        // longer passes any comment answer on.
         assert!(validate_hosted_engagement_response(
             "GET",
             "admin/comments",
-            &json!({ "comments": [{
-                "id": "x", "path": "//evil.example/", "authorName": "Mira", "body": "Hi",
-                "status": "pending", "createdAt": "2026-10-24T12:00:00Z"
-            }] })
+            &json!({ "comments": [] })
         )
         .is_err());
-        let list = json!({ "comments": [] });
-        let confirmation = json!({ "ok": true, "status": "approved" });
-        assert!(
-            validate_hosted_engagement_response("GET", "admin/comments", &confirmation).is_err()
-        );
-        assert!(validate_hosted_engagement_response("PATCH", "admin/comments", &list).is_err());
     }
 
     #[test]

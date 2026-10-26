@@ -176,8 +176,9 @@ than HTML. Supabase credentials remain in the function environment; Admin stores
 moderation token.
 
 Set `comments: locked` on a post to keep approved discussion visible without accepting submissions,
-or `comments: hidden` to omit the discussion entirely. Admin moderation includes pending, approved,
-and rejected queues so decisions can be reversed. The Netlify function checks the generated,
+or `comments: hidden` to omit the discussion entirely. Comments are moderated in Admin's
+**Moderation inbox** with reader feedback, in every state of the one moderation policy: a removed
+or rejected comment can be reopened for a fresh decision, never approved straight away. The Netlify function checks the generated,
 deployed comment-policy manifest before comment access, so direct requests cannot bypass locked or hidden policies.
 
 The raw HTML slots below remain available for third-party systems such as giscus or utterances.

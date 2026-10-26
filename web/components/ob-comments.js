@@ -1,11 +1,16 @@
 // Progressive comments for a hosted open.blog engagement endpoint. Untrusted
-// comment content is assigned only through textContent.
+// comment content is assigned only through textContent. With the `reports`
+// attribute (abuse reports open on the post, ADR 0107), each comment offers a
+// private, anonymous report form.
+
+import { reportForm } from "./ob-abuse-report.js";
 
 export class ObComments extends HTMLElement {
   async connectedCallback() {
     const path = this.getAttribute("path");
     const endpoint = (this.getAttribute("endpoint") || "").replace(/\/$/, "");
     const locked = this.getAttribute("mode") === "locked";
+    const reports = this.getAttribute("reports") !== null;
     if (!path || !endpoint) return;
     this.replaceChildren();
     const heading = document.createElement("h2");
@@ -47,6 +52,7 @@ export class ObComments extends HTMLElement {
         const body = document.createElement("p");
         body.textContent = comment.body;
         item.append(meta, body);
+        if (reports && typeof comment.id === "string") item.append(reportForm({ endpoint, source: "comment", id: comment.id, subject: "this comment" }));
         list.append(item);
       }
       if (!comments.length) status.textContent = "No approved comments yet.";

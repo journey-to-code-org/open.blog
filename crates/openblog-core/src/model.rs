@@ -229,6 +229,10 @@ pub struct Post {
     pub description: String,
     pub draft: bool,
     pub comments: CommentsPolicy,
+    /// This post's own modes for participation kinds beyond comments, from
+    /// its `participation:` front matter (ADR 0101). A kind the site has
+    /// switched off stays off whatever this says.
+    pub participation: crate::participation::PostParticipation,
     /// `<link rel="canonical">` override, for cross-posted articles.
     pub canonical: Option<String>,
     /// Where the article was first published (shown in the footer).
@@ -510,9 +514,8 @@ impl Site {
         // A site that takes passage feedback publishes the author's revision
         // notes too, without reading any claims file (ADR 0083): a note
         // recorded after a reader's suggestion led to a change.
-        let feedback_notes = config.engagement.enabled
-            && config.engagement.feedback
-            && !config.engagement.endpoint.trim().is_empty();
+        let feedback_notes = crate::participation::transport_available(&config)
+            && config.participation.passage_feedback_enabled();
         let claim_mode = if config.claim_evidence.publish {
             match &sources.claim_evidence {
                 Some(ClaimEvidenceSource::Stored(projection)) => {
@@ -1103,9 +1106,11 @@ pub fn uncitable_line(source: &str, library: &SourceLibrary) -> Option<usize> {
 }
 
 /// Give each post the approved reader notes its canonical page shows (ADR
-/// 0083), or say why the file cannot be read. A post that hides its
-/// discussion shows none; a note about a post that no longer exists is a
-/// warning, and one about a draft or scheduled post waits for it.
+/// 0083), or say why the file cannot be read. A note is shown only where its
+/// kind's site and post mode shows approved items (ADR 0101), so a post that
+/// hides a kind shows none of it, while a site without its hosted service
+/// keeps showing what it published; a note about a post that no longer exists
+/// is a warning, and one about a draft or scheduled post waits for it.
 fn attach_reader_feedback(
     posts: &mut [Post],
     sources: &Sources,
@@ -1134,10 +1139,11 @@ fn attach_reader_feedback(
         }
     }
     for post in posts.iter_mut() {
-        if post.comments == CommentsPolicy::Hidden {
-            continue;
-        }
-        let items = published.for_post(&post.source.replace('\\', "/"));
+        let mut items = published.for_post(&post.source.replace('\\', "/"));
+        items.retain(|item| {
+            crate::participation::published_mode(config, post, item.kind.participation_kind())
+                .shows_approved()
+        });
         if items.is_empty() {
             continue;
         }
@@ -1413,6 +1419,8 @@ fn load_post_in(
     }
     let draft = is_draft(fm);
     let comments = CommentsPolicy::parse(first(fm, &["comments"]))?;
+    let participation =
+        crate::participation::PostParticipation::parse(&fm.get_list("participation"))?;
     let date = match first(fm, &["date", "published", "publishedAt", "pubDate"]) {
         Some(raw) => DateTime::parse(raw)
             .ok_or_else(|| format!("unrecognised date `{raw}` (use YYYY-MM-DD or RFC 3339)"))?,
@@ -1546,6 +1554,7 @@ fn load_post_in(
         description,
         draft,
         comments,
+        participation,
         canonical: optional_string(first(fm, &["canonical", "canonicalUrl", "canonical_url"])),
         source_url: optional_string(first(
             fm,

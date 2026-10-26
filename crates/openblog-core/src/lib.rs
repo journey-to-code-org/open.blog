@@ -29,6 +29,9 @@
 //! - [`passage_target`]: stable passage targets in published text, resolved as current, re-anchored or stale
 //! - [`feedback_provenance`]: which revision a reader's feedback was about and when, with consent-gated attribution
 //! - [`scholarly_feedback`]: typed reader questions, suggested sources and corrections and other interpretations, as submitted and as received
+//! - [`participation`]: the closed registry of participation kinds and their site and post modes
+//! - [`moderation`]: the one moderation state machine, roles, audit events and retention for them
+//! - [`moderation_inbox`]: the one moderation inbox over every hosted participation store
 
 pub mod accessibility;
 pub mod alignment;
@@ -67,6 +70,9 @@ pub mod markdown;
 pub mod media_moment;
 pub mod members;
 pub mod model;
+pub mod moderation;
+pub mod moderation_inbox;
+pub mod participation;
 pub mod passage_target;
 pub mod portability;
 pub mod preview;

@@ -181,9 +181,18 @@ fn locked_and_hidden_posts_and_every_other_file_are_unchanged() {
             changed.push(path.as_str());
         }
     }
-    // Only the open post's page, and the policy the hosted function reads (ADR 0081).
-    assert_eq!(changed, ["openblog-feedback.json", "tides/index.html"]);
-    assert_eq!(with.len(), without.len() + 1);
+    // Only the open post's page, and the policies the hosted function reads:
+    // the participation manifest the opt-in folds into (ADR 0101) and B5's
+    // own file for a function deployed before it (ADR 0081).
+    assert_eq!(
+        changed,
+        [
+            "openblog-feedback.json",
+            "openblog-participation.json",
+            "tides/index.html"
+        ]
+    );
+    assert_eq!(with.len(), without.len() + 2);
 
     // The open page is the page without the opt-in plus the data, the script and the region.
     let page = &with["tides/index.html"];
