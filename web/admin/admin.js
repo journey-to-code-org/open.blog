@@ -4452,12 +4452,13 @@ export function comparisonExportText(alignment, columns, selected, { normalized 
 
 /** Copy the parts of an alignments response that describe the stored file into the view state. */
 export function applyAlignmentState(state, result) {
-  for (const key of ["revision", "file", "stored", "alignments", "sources", "passages", "interpretations", "notices", "notice", "correspondences", "publication"]) {
+  for (const key of ["revision", "file", "stored", "alignments", "sources", "passages", "interpretations", "notices", "notice", "correspondences", "publication", "staleApprovals"]) {
     if (result && result[key] !== undefined) state[key] = result[key];
   }
   for (const key of ["alignments", "sources", "passages", "interpretations", "notices"]) if (!Array.isArray(state[key])) state[key] = [];
   if (!Array.isArray(state.correspondences) || !state.correspondences.length) state.correspondences = ALIGNMENT_CORRESPONDENCES.map((item) => ({ ...item }));
   if (typeof state.notice !== "string" || !state.notice) state.notice = ALIGNMENT_NOTICE_TEXT;
+  if (!state.staleApprovals || typeof state.staleApprovals !== "object" || Array.isArray(state.staleApprovals)) state.staleApprovals = {};
   if (!state.publication || typeof state.publication !== "object") state.publication = {};
   if (!state.publication.places || typeof state.publication.places !== "object") state.publication.places = {};
   state.publication.publish = state.publication.publish === true;
@@ -4939,7 +4940,18 @@ export function createAlignmentForm({ api, state, item = null, idPrefix = "oba-a
   const render = () => {
     const save = h("button", { class: "oba-btn oba-btn-primary", type: "submit", "data-alignment-save": "true", disabled: busy || Boolean(conflict && editing) }, editing ? "Save changes" : "Add alignment");
     const cancel = h("button", { class: "oba-btn", type: "button", "data-alignment-cancel": "true", onClick: () => onCancel?.() }, "Cancel");
-    root.replaceChildren(...fields(), errorBox, conflict ? conflictNotice() : null, h("div", { class: "oba-toolbar" }, save, cancel), status);
+    // An approval whose places changed since it was approved: the comparison stays out of the next
+    // build until the author has checked those places and approves it again.
+    const stale = editing ? state.staleApprovals?.[item.id] : null;
+    const reapprove = stale
+      ? h(
+          "div",
+          { class: "oba-notice", "data-alignment-stale": "true" },
+          h("p", {}, h("bdi", {}, stale), " This comparison stays out of the next build until you have checked the places it names and approve it again."),
+          h("button", { class: "oba-btn", type: "button", "data-alignment-reapprove": "true", disabled: busy || Boolean(conflict), onClick: () => saveDraft(true) }, "Checked — approve again"),
+        )
+      : null;
+    root.replaceChildren(...fields(), errorBox, conflict ? conflictNotice() : null, reapprove, h("div", { class: "oba-toolbar" }, save, cancel), status);
   };
 
   const refresh = async () => {
@@ -4951,8 +4963,9 @@ export function createAlignmentForm({ api, state, item = null, idPrefix = "oba-a
   root.addEventListener("click", (event) => {
     if (event.target?.tagName === "BUTTON" && event.target.type === "button" && !event.target.dataset?.alignmentCancel && !event.target.dataset?.alignmentConflictUse) touched = true;
   });
-  root.addEventListener("submit", async (event) => {
-    event.preventDefault();
+  // `reapprove` is sent only by "Checked — approve again": saving otherwise keeps the places an
+  // approval recorded, so an edit never makes a changed place look checked.
+  const saveDraft = async (reapprove) => {
     if (busy) return;
     if (conflict && editing) {
       fail("Choose the stored copy or keep your draft before saving.");
@@ -4967,7 +4980,7 @@ export function createAlignmentForm({ api, state, item = null, idPrefix = "oba-a
     root.querySelector("[data-alignment-save]")?.setAttribute("disabled", "");
     say("Saving…");
     try {
-      const result = await api.call(editing ? "PUT" : "POST", "research/alignments", { json: { revision: state.revision, alignment: alignmentPayload(draft) } });
+      const result = await api.call(editing ? "PUT" : "POST", "research/alignments", { json: { revision: state.revision, alignment: alignmentPayload(draft), ...(editing && reapprove ? { reapprove: true } : {}) } });
       applyAlignmentState(state, result);
       busy = false;
       touched = false;
@@ -4993,6 +5006,10 @@ export function createAlignmentForm({ api, state, item = null, idPrefix = "oba-a
       const first = error.data?.diagnostics?.[0];
       fail(alignmentErrorMessage(error), first ? alignmentDiagnosticControl(first.field) : "");
     }
+  };
+  root.addEventListener("submit", (event) => {
+    event.preventDefault();
+    return saveDraft(false);
   });
 
   render();

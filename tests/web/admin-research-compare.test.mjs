@@ -867,6 +867,33 @@ test("a conflict offers the stored copy or the draft, and keeping the draft rest
   assert.equal(sent.alignment.shelf, "newer", "the kept draft carries the newer copy's other fields");
 }));
 
+test("saving a stale approval keeps it stale, and only Checked - approve again sends reapprove", withDom(async () => {
+  const stale = { second: "members: passage `p-long` has moved since the approval." };
+  const api = compareApi({
+    "GET research/alignments": () => view({ staleApprovals: stale }),
+    "PUT research/alignments": (body) => ({ ...view({ revision: "r2", staleApprovals: stale }), alignment: body.alignment }),
+  });
+  const { app, root } = mountCompare(api);
+  await app.showCompare("second");
+  await root.querySelector("[data-compare-edit]").click();
+  const notice = root.querySelector("[data-alignment-stale]");
+  assert.match(notice.textContent, /members: passage `p-long` has moved since the approval\./);
+  assert.match(notice.textContent, /stays out of the next build until you have checked the places it names and approve it again/);
+  await type(byId(root, "oba-alignment-label"), "An ordinary edit");
+  await submit(root);
+  assert.equal("reapprove" in api.calls[0].body, false, "an ordinary save never re-approves");
+  await root.querySelector("[data-compare-edit]").click();
+  assert.equal(root.querySelector("[data-alignment-reapprove]").textContent, "Checked — approve again");
+  await root.querySelector("[data-alignment-reapprove]").click();
+  await tick();
+  assert.equal(api.calls[1].body.reapprove, true);
+  // An alignment that is not stale offers no such control.
+  const plain = mountCompare(compareApi());
+  await plain.app.showCompare("second");
+  await plain.root.querySelector("[data-compare-edit]").click();
+  assert.equal(plain.root.querySelector("[data-alignment-reapprove]"), null);
+}));
+
 test("using the stored copy replaces the draft", withDom(async () => {
   const newer = { ...SECOND(), label: "Renamed elsewhere" };
   const api = compareApi({ "PUT research/alignments": () => { throw new ApiError("conflict", 409, { conflict: true, revision: "r2", current: newer }); } });

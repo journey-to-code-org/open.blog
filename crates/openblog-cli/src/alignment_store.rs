@@ -330,23 +330,26 @@ pub fn create_alignment(
                 facts: Vec::new(),
             }]);
         }
-        set.upsert_alignment(alignment.clone(), links)
+        set.upsert_alignment(alignment.clone(), links, false)
     })
     .map(|(snapshot, ())| snapshot)
 }
 
-/// Replace the alignment with the same identifier.
+/// Replace the alignment with the same identifier. The approval's recorded
+/// places are kept unless `reapprove` says the author checked them again
+/// (see [`AlignmentSet::upsert_alignment`]).
 pub fn update_alignment(
     root: &Path,
     expected_revision: &str,
     alignment: Alignment,
+    reapprove: bool,
     contributors: &BTreeMap<String, Contributor>,
 ) -> Result<Snapshot, StoreError> {
     change(root, expected_revision, contributors, &|set, links| {
         if set.alignment(&alignment.id).is_none() {
             return Err(vec![alignment::unknown(&alignment.id)]);
         }
-        set.upsert_alignment(alignment.clone(), links)
+        set.upsert_alignment(alignment.clone(), links, reapprove)
     })
     .map(|(snapshot, ())| snapshot)
 }
@@ -691,7 +694,7 @@ mod tests {
             codes(duplicate.unwrap_err()),
             [AtlasDiagnosticCode::DuplicateId]
         );
-        let ghost = update_alignment(&root, &seeded.revision, pair("ghost"), &none());
+        let ghost = update_alignment(&root, &seeded.revision, pair("ghost"), false, &none());
         assert_eq!(
             codes(ghost.unwrap_err()),
             [AtlasDiagnosticCode::UnknownAlignment]

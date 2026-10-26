@@ -2870,6 +2870,16 @@ fn alignments_view(
         "notices": snapshot.alignments.notices(links),
         "notice": openblog_core::alignment::ALIGNMENT_NOTICE,
         "publication": publication_preview(snapshot, contributors),
+        // Approved alignments whose places moved since the approval: out of
+        // the next build until the author checks them and approves again.
+        "staleApprovals": openblog_core::comparison_publication::stale_approvals(
+            &snapshot.alignments,
+            openblog_core::comparison_publication::ComparisonInputs {
+                library: &snapshot.library,
+                notebook: &snapshot.notebook,
+                contributors,
+            },
+        ),
     });
     if let (Some(view), Json::Object(extra)) = (view.as_object_mut(), extra) {
         view.extend(extra);
@@ -3048,7 +3058,14 @@ fn save_alignment(state: &AppState, req: &Request, create: bool) -> Response {
     let saved = if create {
         alignment_store::create_alignment(&state.root, &revision, alignment, &contributors)
     } else {
-        alignment_store::update_alignment(&state.root, &revision, alignment, &contributors)
+        let reapprove = body["reapprove"].as_bool().unwrap_or(false);
+        alignment_store::update_alignment(
+            &state.root,
+            &revision,
+            alignment,
+            reapprove,
+            &contributors,
+        )
     };
     match saved {
         Ok(snapshot) => {
@@ -15813,6 +15830,67 @@ mod tests {
         let report = production(&f.dir);
         assert!(report.warnings.iter().any(|warning| warning == said));
         assert_eq!(report.boundary.text_matches, [said]);
+    }
+
+    #[test]
+    fn saving_a_comparison_keeps_a_stale_approval_stale_until_the_author_approves_again() {
+        let f = boundary_fixture("boundary-reapprove");
+        let session = login_ok(&f);
+        let read = || {
+            let response = handle(
+                &f.state,
+                &authed(req("GET", "/admin/api/research/alignments"), &session, false),
+            );
+            assert_eq!(response.status, 200);
+            body_json(&response)
+        };
+        let save = |view: &Json, label: &str, reapprove: bool| {
+            let alignment = view["alignments"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|a| a["id"] == "stale-places")
+                .unwrap()
+                .clone();
+            let mut alignment = alignment;
+            alignment["label"] = json!(label);
+            let mut body = json!({"revision": view["revision"], "alignment": alignment});
+            if reapprove {
+                body["reapprove"] = json!(true);
+            }
+            let response = handle(
+                &f.state,
+                &authed(
+                    json_req("PUT", "/admin/api/research/alignments", body),
+                    &session,
+                    true,
+                ),
+            );
+            assert_eq!(
+                response.status,
+                200,
+                "{}",
+                String::from_utf8_lossy(&response.body)
+            );
+            body_json(&response)
+        };
+        let view = read();
+        assert!(
+            view["staleApprovals"]["stale-places"].is_string(),
+            "{}",
+            view["staleApprovals"]
+        );
+        let edited = save(&view, "Reworded", false);
+        assert!(
+            edited["staleApprovals"]["stale-places"].is_string(),
+            "an edit does not make the moved place look checked"
+        );
+        let approved = save(&edited, "Reworded again", true);
+        assert!(
+            approved["staleApprovals"]["stale-places"].is_null(),
+            "{}",
+            approved["staleApprovals"]
+        );
     }
 
     #[test]

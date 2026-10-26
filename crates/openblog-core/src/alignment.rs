@@ -859,14 +859,42 @@ impl AlignmentSet {
 
     /// Add an alignment or replace the one with the same id in place; the set
     /// changes only when the whole result is valid.
+    ///
+    /// Saving never re-approves quietly. The fingerprints a stored approval
+    /// recorded are kept when an approved alignment is saved again, so an edit
+    /// to its rationale does not make a place whose locators changed look
+    /// checked. They are recorded afresh only for a new alignment, when the
+    /// visibility changes to approved, or when the author says `reapprove`
+    /// (they checked the places and approve again). A member added since is
+    /// recorded as it stands; an approval cleared by saving private stays
+    /// cleared.
     pub fn upsert_alignment(
         &mut self,
         alignment: Alignment,
         links: Links<'_>,
+        reapprove: bool,
     ) -> Result<(), Vec<AtlasDiagnostic>> {
         let mut alignment = alignment;
-        // Saving is the approval the record remembers.
-        alignment.record_approval(links.notebook);
+        let existing = self
+            .alignments
+            .iter()
+            .find(|a| a.id == alignment.id)
+            .filter(|a| a.is_approved());
+        match existing {
+            Some(stored) if alignment.is_approved() && !reapprove => {
+                let kept = stored.approved_passages.clone();
+                alignment.record_approval(links.notebook);
+                let current = std::mem::take(&mut alignment.approved_passages);
+                alignment.approved_passages = current
+                    .into_iter()
+                    .map(|(passage, now)| {
+                        let recorded = kept.get(&passage).cloned().unwrap_or(now);
+                        (passage, recorded)
+                    })
+                    .collect();
+            }
+            _ => alignment.record_approval(links.notebook),
+        }
         let mut candidate = self.clone();
         match candidate
             .alignments

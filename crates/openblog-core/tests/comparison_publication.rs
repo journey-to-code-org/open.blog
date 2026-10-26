@@ -382,7 +382,7 @@ fn an_approval_is_stale_only_when_the_locators_it_recorded_have_changed() {
     let mut set = set_of(&fixture(), &library, &before);
     let cave = set.alignment("cave").unwrap().clone();
     assert!(cave.approved_passages.is_empty(), "nothing recorded yet");
-    set.upsert_alignment(cave, links).unwrap();
+    set.upsert_alignment(cave, links, false).unwrap();
     let recorded = set.alignment("cave").unwrap().approved_passages.clone();
     assert_eq!(
         recorded.keys().map(String::as_str).collect::<Vec<_>>(),
@@ -416,26 +416,42 @@ fn an_approval_is_stale_only_when_the_locators_it_recorded_have_changed() {
     .unwrap();
     assert!(projected.comparisons.is_empty());
 
-    // Saving the alignment again, having checked the place, approves it as
-    // it now stands.
+    // Saving the alignment again does not re-approve: an edit to its wording
+    // leaves the place stale until the author says they checked it.
+    let moved_links = Links {
+        library: &library,
+        notebook: &moved,
+    };
+    let mut edited = reread.clone();
+    let mut cave = edited.alignment("cave").unwrap().clone();
+    cave.label = Some("An edit that checks nothing".into());
+    edited.upsert_alignment(cave, moved_links, false).unwrap();
+    assert_eq!(
+        edited.alignment("cave").unwrap().approved_passages,
+        recorded,
+        "the record is kept"
+    );
+    assert_eq!(stale_ids(&edited, &library, &moved), ["cave"]);
+    // Having checked the place, the author approves it as it now stands.
     let mut again = reread.clone();
     let cave = again.alignment("cave").unwrap().clone();
-    again
-        .upsert_alignment(
-            cave,
-            Links {
-                library: &library,
-                notebook: &moved,
-            },
-        )
-        .unwrap();
+    again.upsert_alignment(cave, moved_links, true).unwrap();
     assert!(stale_ids(&again, &library, &moved).is_empty());
+    // A private alignment made approved is recorded as it stands.
+    let mut approved = reread.clone();
+    let mut cave = approved.alignment("cave").unwrap().clone();
+    cave.visibility = openblog_core::knowledge_atlas::Visibility::Private;
+    approved.upsert_alignment(cave, links, false).unwrap();
+    let mut cave = approved.alignment("cave").unwrap().clone();
+    cave.visibility = openblog_core::knowledge_atlas::Visibility::Approved;
+    approved.upsert_alignment(cave, moved_links, false).unwrap();
+    assert!(stale_ids(&approved, &library, &moved).is_empty());
 
     // Saved private, the record is cleared.
     let mut withdrawn = reread.clone();
     let mut cave = withdrawn.alignment("cave").unwrap().clone();
     cave.visibility = openblog_core::knowledge_atlas::Visibility::Private;
-    withdrawn.upsert_alignment(cave, links).unwrap();
+    withdrawn.upsert_alignment(cave, links, false).unwrap();
     assert!(withdrawn
         .alignment("cave")
         .unwrap()
