@@ -643,8 +643,11 @@ fn reference_markdown(reference: &PublicReference, strings: &LocaleStrings) -> S
 fn identifier_markdown(scheme: &str, value: &str) -> Option<String> {
     match scheme {
         "doi" => {
-            let destination = doi_link(value);
-            Some(format!("[doi:{}]({destination})", markdown_text(value)))
+            let name = markdown_text(&crate::research::doi_name(value));
+            Some(match doi_link(value) {
+                Some(destination) => format!("[doi:{name}]({destination})"),
+                None => format!("doi:{name}"),
+            })
         }
         "url" => {
             let address = safe_http_url(value)?;
@@ -664,17 +667,11 @@ fn identifier_markdown(scheme: &str, value: &str) -> Option<String> {
     }
 }
 
-/// A DOI's resolver address, percent-encoded.
-pub(crate) fn doi_link(value: &str) -> String {
-    let mut destination = String::from("https://doi.org/");
-    for byte in value.bytes() {
-        if byte.is_ascii_alphanumeric() || b"-._~/:;".contains(&byte) {
-            destination.push(byte as char);
-        } else {
-            destination.push_str(&format!("%{byte:02X}"));
-        }
-    }
-    destination
+/// A DOI's resolver address, whichever accepted form it is stored in (a bare
+/// name, `doi:10.x/y`, or a `doi.org` or `dx.doi.org` address), or `None`
+/// when the value is not a DOI.
+pub(crate) fn doi_link(value: &str) -> Option<String> {
+    crate::research::normalize_doi_url(value)
 }
 
 /// A web address, normalized, only when it is a plain HTTP(S) address with a

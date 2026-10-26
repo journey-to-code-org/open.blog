@@ -753,3 +753,42 @@ The cave [@republic-slings-2003, page 514].
         );
     }
 }
+
+/// DOIs are stored as a bare name, `doi:10.x/y` or a resolver address; each
+/// is published once as its name, linking to one resolver address.
+const DOI_FORMS_LIBRARY: &str = r#"{
+  "version": 1,
+  "sources": [
+    {"id": "prefixed", "kind": "work", "title": "Prefixed",
+     "identifiers": [{"scheme": "doi", "value": "doi:10.1000/prefixed"}]},
+    {"id": "resolver", "kind": "work", "title": "Resolver",
+     "identifiers": [{"scheme": "doi", "value": "https://doi.org/10.1000/resolver"}]},
+    {"id": "legacy-resolver", "kind": "work", "title": "Legacy resolver",
+     "identifiers": [{"scheme": "doi", "value": "http://dx.doi.org/10.1000/legacy"}]}
+  ]
+}"#;
+
+#[test]
+fn every_stored_doi_form_links_to_one_resolver_address() {
+    let site = load(
+        "en",
+        vec![post(
+            "posts/doi.md",
+            "---\ntitle: DOIs\ndate: 2026-10-20\ncitations: notes\n---\nA [@prefixed], B [@resolver], C [@legacy-resolver].\n",
+        )],
+        Some(DOI_FORMS_LIBRARY),
+    )
+    .unwrap_or_else(|errors| panic!("{errors:?}"));
+    let published = site.posts[0].publication_markdown();
+    for (number, title, name) in [
+        (1, "Prefixed", "10.1000/prefixed"),
+        (2, "Resolver", "10.1000/resolver"),
+        (3, "Legacy resolver", "10.1000/legacy"),
+    ] {
+        let note = format!("[^cite-{number}]: {title}. [doi:{name}](https://doi.org/{name}).\n");
+        assert!(published.contains(&note), "{note}\n{published}");
+    }
+    assert!(!published.contains("doi.org/http"), "{published}");
+    assert!(!published.contains("doi:doi:"), "{published}");
+    assert!(!site.posts[0].html.contains("doi.org/http"));
+}

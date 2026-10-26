@@ -10,6 +10,12 @@ All notable changes to open.blog are recorded here. Releases follow
   locators, and only the public reference description is included. Posts without published
   citations are unchanged; the page and its notes read the same without JavaScript.
 
+### Fixed
+
+- Citation notes now link a DOI stored as `doi:10.x/y` or as a `doi.org` or `dx.doi.org` address
+  to `https://doi.org/10.x/y` and show it as `doi:10.x/y`, instead of producing a broken
+  `https://doi.org/https://doi.org/...` link (introduced in 0.27.0).
+
 ## [0.27.0] - 2026-10-25
 
 - Defined how citations work, ahead of in-post citations: a citation is `[@key]` or

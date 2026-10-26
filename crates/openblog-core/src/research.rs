@@ -323,7 +323,9 @@ fn non_empty(value: Option<&str>) -> Option<String> {
         .map(str::to_string)
 }
 
-fn doi_name(value: &str) -> String {
+/// A DOI written as its bare name (`10.x/y`), whichever accepted form it
+/// is stored in; anything else is returned trimmed.
+pub(crate) fn doi_name(value: &str) -> String {
     let trimmed = value.trim();
     if let Some(name) = canonical_doi_name(trimmed) {
         return name;

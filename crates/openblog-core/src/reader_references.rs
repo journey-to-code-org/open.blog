@@ -213,6 +213,6 @@ fn reference_link(reference: &PublicReference) -> Option<String> {
             .map(|(_, value)| value.as_str())
     };
     find("doi")
-        .map(doi_link)
+        .and_then(doi_link)
         .or_else(|| find("url").and_then(safe_http_url))
 }

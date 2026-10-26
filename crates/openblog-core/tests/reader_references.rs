@@ -29,6 +29,14 @@ const LIBRARY: &str = r#"{
 }"#;
 
 fn site(post: &str, with_library: bool) -> Site {
+    load(post, with_library.then_some(LIBRARY))
+}
+
+fn site_with(post: &str, library: &str) -> Site {
+    load(post, Some(library))
+}
+
+fn load(post: &str, library: Option<&str>) -> Site {
     let config = SiteConfig::from_json(
         r#"{"title": "T", "url": "https://example.test", "author": {"name": "A"}}"#,
     )
@@ -38,10 +46,10 @@ fn site(post: &str, with_library: bool) -> Site {
             path: "content/posts/cave.md".into(),
             contents: post.into(),
         }],
-        source_library: with_library.then(|| {
+        source_library: library.map(|text| {
             LibrarySource::Text(SourceFile {
                 path: ".openblog/private/research/sources.json".into(),
-                contents: LIBRARY.into(),
+                contents: text.into(),
             })
         }),
         ..Default::default()
@@ -247,4 +255,29 @@ fn validation_rejects_dangling_duplicate_and_unused_data() {
     let mut gone = site.posts[0].reader_references().unwrap();
     gone.citations[0].marker = "cite-99-ref-1".into();
     assert!(gone.check_page(&site.posts[0].html).is_err());
+}
+
+#[test]
+fn reference_links_resolve_every_stored_doi_form() {
+    let library = r#"{
+  "version": 1,
+  "sources": [
+    {"id": "prefixed", "kind": "work", "title": "Prefixed",
+     "identifiers": [{"scheme": "doi", "value": "doi:10.1000/prefixed"}]},
+    {"id": "resolver", "kind": "work", "title": "Resolver",
+     "identifiers": [{"scheme": "doi", "value": "https://doi.org/10.1000/resolver"}]}
+  ]
+}"#;
+    let text = "---\ntitle: DOIs\ndate: 2026-10-20\ncitations: notes\n---\nA [@prefixed] and [@resolver].\n";
+    let data = site_with(text, library).posts[0]
+        .reader_references()
+        .unwrap();
+    let links: Vec<_> = data.references.iter().map(|r| r.link.as_deref()).collect();
+    assert_eq!(
+        links,
+        [
+            Some("https://doi.org/10.1000/prefixed"),
+            Some("https://doi.org/10.1000/resolver"),
+        ]
+    );
 }
