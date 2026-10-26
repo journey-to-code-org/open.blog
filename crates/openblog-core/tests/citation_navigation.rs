@@ -383,3 +383,40 @@ fn the_page_check_rejects_malformed_destinations() {
         .unwrap_err()
         .contains("`cite-3`"));
 }
+
+#[test]
+fn the_notes_region_is_named_by_its_own_heading_whatever_the_author_wrote() {
+    // The author's footnote `[^notes]` is an element with id `notes`, and so
+    // is raw HTML; the generated heading moves aside rather than share it.
+    let body = CITED.replace(
+        "a footnote[^own].\n\n[^own]: The author's note.\n",
+        "a footnote[^own] and[^notes].\n\n[^own]: The author's note.\n\n[^notes]: Named like the region.\n\n<span id=\"notes-3\"></span>\n",
+    );
+    let (site, page) = cited(&body);
+    assert!(
+        page.contains("<div class=\"footnote-definition\" id=\"notes\">"),
+        "{page}"
+    );
+    // `notes-2` is the author's own `## Notes`; `notes-3` is the raw span.
+    assert!(
+        page.contains(
+            "role=\"doc-endnotes\" aria-labelledby=\"notes-4\">\n<h2 id=\"notes-4\">Notes"
+        ),
+        "{page}"
+    );
+    let data = site.posts[0].reader_references().unwrap();
+    data.check_page(&page).unwrap();
+    // A page whose region label is carried twice, or not at all, is refused.
+    let twice = page.replacen(" id=\"notes\"", " id=\"notes-4\"", 1);
+    let error = data.check_page(&twice).unwrap_err();
+    assert!(
+        error.contains("more than one element with id `notes-4`"),
+        "{error}"
+    );
+    assert!(error.contains("heading"), "{error}");
+    let missing = page.replacen("<h2 id=\"notes-4\"", "<h2 id=\"elsewhere\"", 1);
+    assert!(data
+        .check_page(&missing)
+        .unwrap_err()
+        .contains("labelled by `notes-4`"));
+}

@@ -161,15 +161,20 @@ impl ReaderReferences {
 
     /// Whether the page's HTML lets each citation be followed without
     /// JavaScript: exactly one element carries each marker id and each note
-    /// id, the marker is a link to its note, and the page links back to the
-    /// marker. Returns the first problem, naming the id.
+    /// id, the marker is a link to its note, the page links back to the
+    /// marker, and exactly one element carries the id that names the notes'
+    /// `doc-endnotes` region. Returns the first problem, naming the id and,
+    /// when another element reuses it, how to fix the post.
     pub fn check_page(&self, html: &str) -> Result<(), String> {
         for citation in &self.citations {
-            for id in [&citation.marker, &citation.note] {
+            for (id, what) in [
+                (&citation.marker, "a citation marker"),
+                (&citation.note, "a citation note"),
+            ] {
                 match element_ids(html, id).len() {
                     1 => {}
                     0 => return Err(format!("the page has no element with id `{id}`")),
-                    _ => return Err(format!("the page has more than one element with id `{id}`")),
+                    _ => return Err(reused(id, what)),
                 }
             }
             let marker = opening_tag(html, element_ids(html, &citation.marker)[0]);
@@ -184,6 +189,17 @@ impl ReaderReferences {
                     "nothing links back to the marker `{}`",
                     citation.marker
                 ));
+            }
+        }
+        for label in attribute_after(html, ENDNOTES_LABEL) {
+            match element_ids(html, label).len() {
+                1 => {}
+                0 => {
+                    return Err(format!(
+                        "the citation notes are labelled by `{label}`, but the page has no element with that id"
+                    ))
+                }
+                _ => return Err(reused(label, "the citation notes' heading")),
             }
         }
         Ok(())
@@ -230,6 +246,28 @@ impl ReaderReferences {
 fn element_ids(html: &str, id: &str) -> Vec<usize> {
     let needle = format!(" id=\"{id}\"");
     html.match_indices(&needle).map(|(at, _)| at).collect()
+}
+
+/// What opens the attribute that names the notes' region with its heading.
+const ENDNOTES_LABEL: &str = " role=\"doc-endnotes\" aria-labelledby=\"";
+
+/// Each value of an attribute that follows `opening` (which ends with the
+/// value's opening quote).
+fn attribute_after<'h>(html: &'h str, opening: &str) -> Vec<&'h str> {
+    html.match_indices(opening)
+        .filter_map(|(at, _)| {
+            let rest = &html[at + opening.len()..];
+            rest.find('"').map(|end| &rest[..end])
+        })
+        .collect()
+}
+
+/// The diagnostic for an id that more than one element carries: which id,
+/// what the page needs it for, and what to rename.
+fn reused(id: &str, what: &str) -> String {
+    format!(
+        "the page has more than one element with id `{id}`, which {what} uses; rename the other `id=\"{id}\"` in the post (raw HTML cannot reuse a citation's ids)"
+    )
 }
 
 /// The opening tag around a byte position inside it.

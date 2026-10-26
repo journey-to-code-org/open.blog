@@ -1557,7 +1557,7 @@ pub(crate) fn parser_options(smart_punctuation: bool) -> Options {
 pub fn render(markdown: &str, options: RenderOptions<'_>) -> Rendered {
     let mut parsed_events =
         Parser::new_ext(markdown, parser_options(options.smart_punctuation)).collect::<Vec<_>>();
-    assign_heading_ids(&mut parsed_events);
+    assign_heading_ids(&mut parsed_events, options.citation_notes.is_some());
     render_events(parsed_events, markdown.len(), options, None)
 }
 
@@ -1566,7 +1566,18 @@ pub fn render(markdown: &str, options: RenderOptions<'_>) -> Rendered {
 /// existing native anchors keep their targets; the portable projection makes
 /// its own copy's ids unique. Done before rendering so the portable projection
 /// knows every heading anchor before it checks raw HTML ids.
-fn assign_heading_ids(events: &mut [Event<'_>]) {
+///
+/// A post that publishes citations (`avoid_written`) names its notes' region
+/// by the generated heading's id, which must be the only element with it, so
+/// there each slug also avoids the ids the post's own markup writes
+/// ([`written_ids`]: `{#id}` values, footnote labels and raw HTML `id`s).
+/// Written ids still keep their values.
+fn assign_heading_ids(events: &mut [Event<'_>], avoid_written: bool) {
+    let written = if avoid_written {
+        written_ids(events)
+    } else {
+        std::collections::HashSet::new()
+    };
     let mut used_ids = std::collections::HashSet::new();
     let mut heading: Option<(usize, String)> = None;
     for index in 0..events.len() {
@@ -1590,21 +1601,87 @@ fn assign_heading_ids(events: &mut [Event<'_>]) {
                 if id.is_empty() {
                     id = "section".to_string();
                 }
+                let Event::Start(Tag::Heading { id: existing, .. }) = &mut events[start] else {
+                    continue;
+                };
+                // A heading with a written id still takes its slug, as it
+                // always has, so the slugs after it keep their values.
+                let generated = existing.is_none();
                 let base = id.clone();
                 let mut n = 2;
-                while !used_ids.insert(id.clone()) {
+                while (generated && written.contains(&id)) || !used_ids.insert(id.clone()) {
                     id = format!("{base}-{n}");
                     n += 1;
                 }
-                if let Event::Start(Tag::Heading { id: existing, .. }) = &mut events[start] {
-                    if existing.is_none() {
-                        *existing = Some(CowStr::from(id));
-                    }
+                if generated {
+                    *existing = Some(CowStr::from(id));
                 }
             }
             _ => {}
         }
     }
+}
+
+/// The element ids a post's own markup writes: each heading's `{#id}`, each
+/// footnote definition's label (its note's id) and each `id` attribute found
+/// in raw HTML.
+fn written_ids(events: &[Event<'_>]) -> std::collections::HashSet<String> {
+    let mut ids = std::collections::HashSet::new();
+    for event in events {
+        match event {
+            Event::Start(Tag::Heading { id: Some(id), .. })
+            | Event::Start(Tag::FootnoteDefinition(id)) => {
+                ids.insert(id.to_string());
+            }
+            Event::Html(html) | Event::InlineHtml(html) => {
+                ids.extend(raw_html_ids(html).map(str::to_string));
+            }
+            _ => {}
+        }
+    }
+    ids
+}
+
+/// The values of the `id` attributes in a fragment of raw HTML: ` id="…"`,
+/// ` id='…'` or an unquoted ` id=…`, after any whitespace. A cheap scan, not a
+/// parser: text that merely looks like an attribute counts too, which only
+/// ever moves a generated heading id further aside.
+fn raw_html_ids(html: &str) -> impl Iterator<Item = &str> {
+    html.match_indices("id=").filter_map(move |(at, _)| {
+        let before = html[..at].bytes().next_back()?;
+        if !before.is_ascii_whitespace() {
+            return None;
+        }
+        let rest = &html[at + 3..];
+        let value = match rest.as_bytes().first()? {
+            quote @ (b'"' | b'\'') => {
+                let rest = &rest[1..];
+                &rest[..rest.find(*quote as char)?]
+            }
+            _ => {
+                let end = rest
+                    .find(|c: char| c.is_ascii_whitespace() || c == '>' || c == '/')
+                    .unwrap_or(rest.len());
+                &rest[..end]
+            }
+        };
+        (!value.is_empty()).then_some(value)
+    })
+}
+
+/// Every heading id a post's Markdown gets, as [`render`] assigns them in a
+/// post that publishes citations: the author's `{#id}` values and the
+/// generated slugs.
+pub(crate) fn heading_ids(markdown: &str) -> Vec<String> {
+    let mut events = Parser::new_ext(markdown, parser_options(false)).collect::<Vec<_>>();
+    assign_heading_ids(&mut events, true);
+    events
+        .into_iter()
+        .filter_map(|event| match event {
+            Event::Start(Tag::Heading { id: Some(id), .. }) => Some(id.to_string()),
+            _ => None,
+        })
+        .collect()
 }
 
 pub fn render_portable(
@@ -1614,7 +1691,7 @@ pub fn render_portable(
 ) -> Result<Rendered, String> {
     let mut parsed_events =
         Parser::new_ext(markdown, parser_options(options.smart_punctuation)).collect::<Vec<_>>();
-    assign_heading_ids(&mut parsed_events);
+    assign_heading_ids(&mut parsed_events, false);
     for event in &mut parsed_events {
         let destination = match event {
             Event::Start(Tag::Link { dest_url, .. })
