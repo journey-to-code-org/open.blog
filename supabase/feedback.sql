@@ -56,7 +56,9 @@ create index if not exists openblog_feedback_work
   on public.openblog_feedback (site_id, work, status, received_at);
 
 alter table public.openblog_feedback enable row level security;
-revoke all on public.openblog_feedback from public, anon, authenticated;
+-- Revoke service_role too: Supabase's default privileges grant it DELETE and
+-- TRUNCATE, which the function never needs.
+revoke all on public.openblog_feedback from public, anon, authenticated, service_role;
 grant select, insert, update on public.openblog_feedback to service_role;
 
 commit;

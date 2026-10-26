@@ -317,7 +317,9 @@ test("the migration is additive, private, and matches what the function writes a
   }
   assert.match(statements, /create table if not exists public\.openblog_feedback/);
   assert.match(statements, /alter table public\.openblog_feedback enable row level security/);
-  assert.match(statements, /revoke all on public\.openblog_feedback from public, anon, authenticated/);
+  // service_role is revoked too, so Supabase's default DELETE and TRUNCATE
+  // grants go and only the three operations the function needs remain.
+  assert.match(statements, /revoke all on public\.openblog_feedback from public, anon, authenticated, service_role;\s*grant select, insert, update on public\.openblog_feedback to service_role;/);
   assert.doesNotMatch(statements, /grant[^;]*\b(anon|authenticated)\b/);
   assert.doesNotMatch(statements, /create policy/);
   // Pending by default; the reader's name is a separate, optional column.
