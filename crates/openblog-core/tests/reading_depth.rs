@@ -3,7 +3,7 @@
 //! standard-mode byte-for-byte guarantee, mode invariants, escaping, and the
 //! portable and no-JavaScript representations.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use openblog_core::markdown::{render, RenderOptions};
 use openblog_core::portability::PortableProjection;
@@ -1034,8 +1034,135 @@ fn a_renamed_id_is_renamed_by_its_value_and_links_to_it_follow() {
     assert!(html.contains("href=\"#other\""), "{html}");
 }
 
+/// A CSS source without its comments, so a hook that is only mentioned in one is not "found".
+fn without_css_comments(css: &str) -> String {
+    let mut out = String::new();
+    let mut rest = css;
+    while let Some(start) = rest.find("/*") {
+        out.push_str(&rest[..start]);
+        rest = match rest[start + 2..].find("*/") {
+            Some(end) => &rest[start + 2 + end + 2..],
+            None => "",
+        };
+    }
+    out.push_str(rest);
+    out
+}
+
+fn is_name_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '-' || c == '_'
+}
+
+/// The whole-token names in `text`: `ob-reading-note` is not found in `ob-reading-notes`.
+fn name_tokens(text: &str) -> HashSet<&str> {
+    text.split(|c: char| !is_name_char(c))
+        .filter(|token| !token.is_empty())
+        .collect()
+}
+
+/// The text of every double-quoted string literal in a script.
+fn string_literals(script: &str) -> Vec<&str> {
+    script.split('"').skip(1).step_by(2).collect()
+}
+
+#[derive(Default)]
+struct Markup {
+    tags: HashSet<String>,
+    attributes: HashSet<String>,
+    classes: HashSet<String>,
+}
+
+/// The tag names, attribute names and class names written in `html`; each attribute value is
+/// skipped whole, so a word inside one is not taken for a name.
+fn markup_names(html: &str) -> Markup {
+    let mut found = Markup::default();
+    let mut rest = html;
+    while let Some(open) = rest.find('<') {
+        rest = &rest[open + 1..];
+        let end = rest.find('>').unwrap_or(rest.len());
+        let tag = &rest[..end];
+        let name_end = tag.find(char::is_whitespace).unwrap_or(tag.len());
+        found
+            .tags
+            .insert(tag[..name_end].trim_start_matches('/').to_string());
+        let mut cursor = tag[name_end..].trim_start();
+        while !cursor.is_empty() {
+            let name: String = cursor.chars().take_while(|c| is_name_char(*c)).collect();
+            if name.is_empty() {
+                // Something that is not a name (a stray quote or slash): step over one character.
+                let width = cursor.chars().next().map_or(1, char::len_utf8);
+                cursor = cursor[width..].trim_start();
+                continue;
+            }
+            cursor = &cursor[name.len()..];
+            if let Some(value) = cursor.trim_start().strip_prefix('=') {
+                let value = value.trim_start();
+                let (text, used) = match value.strip_prefix('"') {
+                    Some(quoted) => {
+                        let close = quoted.find('"').unwrap_or(quoted.len());
+                        (&quoted[..close], close + 2)
+                    }
+                    None => {
+                        let close = value.find(char::is_whitespace).unwrap_or(value.len());
+                        (&value[..close], close)
+                    }
+                };
+                if name == "class" {
+                    found
+                        .classes
+                        .extend(text.split_whitespace().map(str::to_string));
+                }
+                cursor = value[used.min(value.len())..].trim_start();
+            } else {
+                cursor = cursor.trim_start();
+            }
+            found.attributes.insert(name);
+        }
+        rest = &rest[end..];
+    }
+    found
+}
+
 #[test]
-fn every_documented_theme_hook_exists_in_the_page_or_the_stylesheet() {
+fn name_scanning_helpers_match_whole_tokens_and_ignore_comments() {
+    assert!(name_tokens("a.ob-reading-notes {}").contains("ob-reading-notes"));
+    assert!(!name_tokens("a.ob-reading-notes {}").contains("ob-reading-note"));
+    assert_eq!(
+        without_css_comments("a {} /* .ob-gone { } */ b {}"),
+        "a {}  b {}"
+    );
+    let found =
+        markup_names("<ob-x default=\"a b\" data-y class=\"one two\"><p class=three data-z=\"c\">");
+    assert!(found.tags.contains("ob-x") && found.tags.contains("p"));
+    for name in ["default", "data-y", "class", "data-z"] {
+        assert!(found.attributes.contains(name), "{name}");
+    }
+    assert!(!found.attributes.contains("b"));
+    for class in ["one", "two", "three"] {
+        assert!(found.classes.contains(class), "{class}");
+    }
+}
+
+/// `data-ready` is `dataset.ready` in a script.
+fn dataset_reference(attribute: &str) -> Option<String> {
+    let name = attribute.strip_prefix("data-")?;
+    let mut camel = String::new();
+    let mut upper = false;
+    for c in name.chars() {
+        if c == '-' {
+            upper = true;
+        } else if upper {
+            camel.push(c.to_ascii_uppercase());
+            upper = false;
+        } else {
+            camel.push(c);
+        }
+    }
+    Some(format!("dataset.{camel}"))
+}
+
+#[test]
+fn every_documented_theme_hook_exists_as_its_kind_in_the_page_or_the_script() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let read = |path: &str| {
         std::fs::read_to_string(root.join(path))
@@ -1048,22 +1175,71 @@ fn every_documented_theme_hook_exists_in_the_page_or_the_stylesheet() {
         .nth(1)
         .and_then(|rest| rest.split("<!-- hooks:end -->").next())
         .expect("the hooks table");
-    let hooks: Vec<&str> = table
+    // `| `hook` | kind | what it is |`
+    let hooks: Vec<(&str, &str)> = table
         .lines()
         .filter_map(|line| line.strip_prefix("| `"))
-        .filter_map(|line| line.split('`').next())
+        .filter_map(|line| {
+            let (hook, rest) = line.split_once("` | ")?;
+            Some((hook, rest.split(" | ").next()?))
+        })
         .collect();
-    assert!(hooks.len() >= 15, "{hooks:?}");
-    let css = read("web/base.css");
-    let component = read("web/components/ob-reading-modes.js");
-    let rendered = render(ARTICLE, on()).html;
-    for hook in hooks {
-        let found = [&css, &component, &rendered]
-            .iter()
-            .any(|text| text.contains(hook));
+    assert!(hooks.len() >= 25, "{hooks:?}");
+    for want in [
+        "default",
+        "data-ob-base",
+        "data-ready",
+        "data-ob-kind",
+        "data-ob-level",
+    ] {
+        assert!(
+            hooks.contains(&(want, "attribute")),
+            "`{want}` has no attribute row in the hooks table"
+        );
+    }
+    let css = without_css_comments(&read("web/base.css"));
+    let script = read("web/components/ob-reading-modes.js");
+    let literals = string_literals(&script);
+    let css_tokens = name_tokens(&css);
+    // A page with a warning supplement, so every attribute the build writes is present.
+    let markdown = format!(
+        "{ARTICLE}\n> [!supplement kind=context level=deep-dive] Careful\n> > [!WARNING]\n> > Mind this.\n"
+    );
+    // The whole page of a post, for the element the build wraps the article in.
+    let mut page = markup_names(&render(&markdown, on()).html);
+    let whole = markup_names(&page_with_site_default(
+        "",
+        "readingModes: true
+",
+    ));
+    page.tags.extend(whole.tags);
+    page.attributes.extend(whole.attributes);
+    for (hook, kind) in hooks {
+        let found = match kind {
+            "element" => {
+                // The page writes the element and the script defines it.
+                let define = format!("customElements.define(\"{hook}\"");
+                page.tags.contains(hook) && script.contains(&define)
+            }
+            "class" => {
+                // The page or the script writes it: a name only the stylesheet knows is dead.
+                let written = page.classes.contains(hook)
+                    || literals
+                        .iter()
+                        .any(|text| text.split_whitespace().any(|name| name == hook));
+                written && css_tokens.contains(hook)
+            }
+            "attribute" => {
+                page.attributes.contains(hook)
+                    || literals.contains(&hook)
+                    || dataset_reference(hook).is_some_and(|reference| script.contains(&reference))
+            }
+            "property" => css.contains(&format!("{hook}:")),
+            other => panic!("unknown hook kind `{other}` for `{hook}`"),
+        };
         assert!(
             found,
-            "documented hook `{hook}` is in no page, script or stylesheet"
+            "documented {kind} hook `{hook}` does not exist as one"
         );
     }
 }

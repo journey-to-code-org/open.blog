@@ -145,29 +145,35 @@ reduced. The shared rules are in `web/components/reading-modes.js`, checked agai
 These names are stable: a theme may style them, and a test fails if one stops existing.
 
 <!-- hooks:start -->
-| Hook | What it is |
-| --- | --- |
-| `ob-reading-modes` | the element around the article prose; `default`, `data-ob-base` and `data-ready` attributes |
-| `ob-reading-started` | class the element sets as its first act |
-| `ob-reading-controls` | the "Reading mode" fieldset |
-| `ob-reading-note` | the sentence that says what is the article |
-| `ob-reading-options` | the row of options |
-| `ob-reading-option` | one radio with its label and description |
-| `ob-reading-help` | an option's description |
-| `ob-reading-reset` | the "Use the author's default" button |
-| `ob-reading-print-note` | the line only paper shows, naming the supplements the printed mode leaves out |
-| `ob-supplement` | a supplement group; `data-ob-supplement`, `data-ob-kind`, `data-ob-level` |
-| `data-ob-always` | a supplement no mode hides |
-| `data-ob-revealed` | a supplement shown because the reader went into it |
-| `ob-just-shown` | a supplement that has just appeared from a chosen mode (fade-in) |
-| `ob-supplement-label` | the label line |
-| `ob-supplement-kind` | the kind in the label |
-| `ob-supplement-level` | the level in the label |
-| `ob-supplement-title` | the author's title in the label |
-| `ob-supplement-always` | the "shown in every mode" words |
-| `ob-supplement-skip` | the keyboard link past a supplement |
-| `ob-supplement-end` | the end line |
-| `--ob-supplement-edge` | custom property: the colour of the supplement's leading edge |
+| Hook | Kind | What it is |
+| --- | --- | --- |
+| `ob-reading-modes` | element | the element around the article prose |
+| `default` | attribute | on `ob-reading-modes`: the mode the author opens the post in |
+| `data-ob-base` | attribute | on `ob-reading-modes`: the base path of a site under a folder; absent at a site's root |
+| `data-ready` | attribute | on `ob-reading-modes`: set to `true` once the control is built |
+| `ob-reading-started` | class | class the element sets as its first act |
+| `ob-reading-controls` | class | the "Reading mode" fieldset |
+| `ob-reading-note` | class | the sentence that says what is the article |
+| `ob-reading-options` | class | the row of options |
+| `ob-reading-option` | class | one radio with its label and description |
+| `ob-reading-help` | class | an option's description |
+| `ob-reading-reset` | class | the "Use the author's default" button |
+| `ob-reading-print-note` | class | the line only paper shows, naming the supplements the printed mode leaves out |
+| `ob-supplement` | class | a supplement group |
+| `data-ob-supplement` | attribute | on a supplement group (no value), and on a generated note the ids of the supplements citing it |
+| `data-ob-kind` | attribute | on a supplement group: its kind |
+| `data-ob-level` | attribute | on a supplement group: `guided` or `deep-dive` |
+| `data-ob-always` | attribute | a supplement no mode hides |
+| `data-ob-revealed` | attribute | a supplement shown because the reader went into it |
+| `ob-just-shown` | class | a supplement that has just appeared from a chosen mode (fade-in) |
+| `ob-supplement-label` | class | the label line |
+| `ob-supplement-kind` | class | the kind in the label |
+| `ob-supplement-level` | class | the level in the label |
+| `ob-supplement-title` | class | the author's title in the label |
+| `ob-supplement-always` | class | the "shown in every mode" words |
+| `ob-supplement-skip` | class | the keyboard link past a supplement |
+| `ob-supplement-end` | class | the end line |
+| `--ob-supplement-edge` | property | custom property: the colour of the supplement's leading edge |
 <!-- hooks:end -->
 
 ## Portable copies
