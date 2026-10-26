@@ -731,10 +731,15 @@ fn claims() -> ClaimSet {
     let notebook = Notebook::parse(&json!({"version": 1}).to_string(), &library).unwrap();
     ClaimSet::parse(
         &json!({"version": 1,
-            "claims": [{"id": "tide-height", "post": "tides", "statement": "The tide rises 3 m."},
-                       {"id": "moon-phase", "post": "tides", "statement": "The moon pulls."}],
+            "claims": [{"id": "tide-height", "post": "tides", "statement": "The tide rises 3 m.", "visibility": "approved"},
+                       {"id": "moon-phase", "post": "tides", "statement": "The moon pulls.", "visibility": "approved"},
+                       {"id": "tide-secret", "post": "tides", "statement": "A private claim."}],
             "links": [{"id": "tide-height-ada", "claim": "tide-height", "relation": "supports",
-                       "evidence": {"source": "noaa-2020"}}]})
+                       "visibility": "approved", "evidence": {"source": "noaa-2020"}},
+                      {"id": "tide-private-link", "claim": "tide-height", "relation": "contextualizes",
+                       "evidence": {"source": "noaa-2020"}},
+                      {"id": "secret-link", "claim": "tide-secret", "relation": "supports",
+                       "visibility": "approved", "evidence": {"source": "noaa-2020"}}]})
         .to_string(),
         Links {
             library: &library,
@@ -761,6 +766,62 @@ fn claim_evidence_is_checked_in_the_authors_claims_file() {
             wrong.check(&set).unwrap_err().code,
             DecisionErrorCode::UnknownClaimEvidence
         );
+    }
+}
+
+#[test]
+fn a_decision_never_names_a_private_claim_or_link() {
+    let set = claims();
+    let link = |claim: &str, link: &str| ClaimEvidenceRef {
+        claim: claim.into(),
+        link: link.into(),
+    };
+    // A private link on a published claim, and an approved link on a private claim.
+    for private in [
+        link("tide-height", "tide-private-link"),
+        link("tide-secret", "secret-link"),
+    ] {
+        let error = private.check(&set).unwrap_err();
+        assert_eq!(error.code, DecisionErrorCode::ClaimEvidenceNotPublished);
+        assert!(!error.message.contains("secret"), "{}", error.message);
+        assert!(!private.is_published_on(&set, "tides"));
+    }
+    let public = link("tide-height", "tide-height-ada");
+    assert!(public.is_published_on(&set, "tides"));
+    // The claim of another post is not published on this one.
+    assert!(!public.is_published_on(&set, "other"));
+}
+
+#[test]
+fn copying_a_decision_publicly_drops_an_evidence_link_that_is_not_published() {
+    use openblog_core::feedback_publication::PublishedDecision;
+    let set = claims();
+    let decision = |claim: &str, link: &str| PublishedDecision {
+        outcome: "accepted-as-evidence".into(),
+        extent: Some("full".into()),
+        decline_reason: None,
+        rationale: None,
+        revision_note: None,
+        claim_evidence: Some(ClaimEvidenceRef {
+            claim: claim.into(),
+            link: link.into(),
+        }),
+        decided: "2026-10-27".into(),
+        superseded: 0,
+    };
+    let kept = decision("tide-height", "tide-height-ada").with_published_evidence(Some(&set), "tides");
+    assert!(kept.claim_evidence.is_some());
+    for dropped in [
+        decision("tide-height", "tide-private-link").with_published_evidence(Some(&set), "tides"),
+        decision("tide-secret", "secret-link").with_published_evidence(Some(&set), "tides"),
+        decision("tide-height", "tide-height-ada").with_published_evidence(Some(&set), "other"),
+        decision("tide-height", "tide-height-ada").with_published_evidence(None, "tides"),
+    ] {
+        assert!(dropped.claim_evidence.is_none());
+        let written = serde_json::to_string(&dropped).unwrap();
+        for id in ["secret", "private-link", "tide-height-ada"] {
+            assert!(!written.contains(id), "{written}");
+        }
     }
 }
 

@@ -244,17 +244,38 @@ pub struct ClaimEvidenceRef {
 }
 
 impl ClaimEvidenceRef {
-    /// Check, in the author's private claims file, that the link exists and
-    /// is on the claim. Whether either is published is the public
-    /// projection's business.
+    /// Check, in the author's private claims file, that the link exists, is
+    /// on the claim, and that the post publishes both: the claims file is
+    /// private, and a decision is public, so a decision never names an id
+    /// the projection withholds (approved claim, approved link).
     pub fn check(&self, set: &ClaimSet) -> Result<(), DecisionError> {
         match set.link(&self.link) {
-            Some(link) if link.claim == self.claim && set.claim(&self.claim).is_some() => Ok(()),
+            Some(link) if link.claim == self.claim && set.claim(&self.claim).is_some() => {
+                if set.is_projected(link) {
+                    Ok(())
+                } else {
+                    Err(DecisionError::new(
+                        DecisionErrorCode::ClaimEvidenceNotPublished,
+                        "`claimEvidence` must name an evidence link and claim that are approved and published; approve them first",
+                    ))
+                }
+            }
             _ => Err(DecisionError::new(
                 DecisionErrorCode::UnknownClaimEvidence,
                 "`claimEvidence` must name an evidence link in the claims file and the claim it is on",
             )),
         }
+    }
+
+    /// Whether the link is published on the post whose slug is `post` now:
+    /// both are approved and the claim is that post's. Checked again when a
+    /// decision is copied into a public file.
+    pub fn is_published_on(&self, set: &ClaimSet, post: &str) -> bool {
+        set.link(&self.link).is_some_and(|link| {
+            link.claim == self.claim
+                && set.is_projected(link)
+                && set.claim(&self.claim).is_some_and(|claim| claim.post == post)
+        })
     }
 }
 
@@ -958,6 +979,8 @@ pub enum DecisionErrorCode {
     ClaimEvidenceNotAllowed,
     InvalidClaimEvidence,
     UnknownClaimEvidence,
+    /// The claim or link exists but is private (not approved), so a public decision cannot name it.
+    ClaimEvidenceNotPublished,
     ClaimMismatch,
     AddressingRequired,
     AddressedByNotAllowed,

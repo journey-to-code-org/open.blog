@@ -121,6 +121,23 @@ impl PublishedDecision {
         }
     }
 
+    /// The decision with its evidence link kept only while `claims` publishes it on the post
+    /// `post` (a slug): a private claim or link id is never copied into the public file, and
+    /// without the claims file nothing says it is published.
+    #[must_use]
+    pub fn with_published_evidence(
+        mut self,
+        claims: Option<&crate::claims::ClaimSet>,
+        post: &str,
+    ) -> Self {
+        if let Some(evidence) = &self.claim_evidence {
+            if !claims.is_some_and(|set| evidence.is_published_on(set, post)) {
+                self.claim_evidence = None;
+            }
+        }
+        self
+    }
+
     /// The decision in force on an item whose text is at `item_revision`, if the log has one: a
     /// decision about an earlier text is not in force, so it is not published.
     pub fn in_force(log: &DecisionLog, item_revision: u32) -> Option<Self> {
