@@ -6,7 +6,7 @@
 - Parent story: [#201](https://github.com/journey-to-code-org/open.blog/issues/201)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
 - Builds on: [ADR 0109](0109-third-perspectives-are-reader-reflections-with-optional-prompts-and-four-distinct-stages.md),
-  B5's feedback provenance (ADR 0078 on `story/b5-passage-feedback`)
+  B5's feedback provenance ([ADR 0078](0078-feedback-provenance-records-the-revision-seen-and-consent.md))
 - Coordinates with: [#214](https://github.com/journey-to-code-org/open.blog/issues/214) (RD14
   feature consent), [#222](https://github.com/journey-to-code-org/open.blog/issues/222) (receipts),
   [#211](https://github.com/journey-to-code-org/open.blog/issues/211) (withdrawal and retention)

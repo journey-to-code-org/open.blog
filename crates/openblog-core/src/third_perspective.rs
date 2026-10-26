@@ -23,34 +23,35 @@
 //! [`ModerationFacts`]) and the published work, and apply what a decision
 //! returns in one write.
 //!
-//! Until B5 (passage targets, feedback provenance) and RD12 (participation
-//! kinds, moderation) merge, this module carries minimal shapes of their
-//! types with the same ids and JSON. ADR 0112 records how each one maps.
+//! B5's passage targets and feedback provenance and RD12's participation
+//! kinds and moderation facts are used directly; ADR 0112 records how each
+//! shape this module first carried maps onto them.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::date::DateTime;
+use crate::feedback_provenance::{ProvenanceError, ProvenanceErrorCode};
+use crate::moderation::ItemFacts;
+use crate::participation::{ParticipationKind, ParticipationMode};
+use crate::passage_target::{PassageSelector, PassageTarget, Resolution, TargetErrorCode};
 
-/// The participation kind id, RD12's `ParticipationKind::ThirdPerspective`.
-pub const KIND_ID: &str = "third-perspective";
-/// The kind's label for readers and moderators.
-pub const KIND_LABEL: &str = "Third Perspective";
+pub use crate::feedback_provenance::{
+    is_work_path, FeedbackChannel as Channel, FeedbackProvenance as Provenance, ReaderAttribution,
+    FEEDBACK_PROVENANCE_VERSION as PROVENANCE_VERSION, MAX_READER_NAME_CHARS, MAX_WORK_PATH_CHARS,
+};
+pub use crate::moderation::ModerationState;
+pub use crate::passage_target::{
+    is_passage_revision, MAX_ANCHOR_CHARS, PASSAGE_TARGET_VERSION as TARGET_VERSION,
+};
+
+/// The participation kind, RD12's `third-perspective`.
+pub const KIND: ParticipationKind = ParticipationKind::ThirdPerspective;
 /// The version of the submission and record formats; a reader refuses a
 /// higher one.
 pub const THIRD_PERSPECTIVE_VERSION: u64 = 1;
-/// The version of a passage target (B5's `PASSAGE_TARGET_VERSION`).
-pub const TARGET_VERSION: u64 = 1;
-/// The version of the provenance object (B5's `FEEDBACK_PROVENANCE_VERSION`).
-pub const PROVENANCE_VERSION: u64 = 1;
 /// The longest reflection, as for comments and passage feedback.
 pub const MAX_BODY_CHARS: usize = 4_000;
-/// The longest name a reader may give, as for comments.
-pub const MAX_READER_NAME_CHARS: usize = 80;
-/// The longest site-relative path of a published work.
-pub const MAX_WORK_PATH_CHARS: usize = 500;
-/// The longest section anchor (B5's `MAX_ANCHOR_CHARS`).
-pub const MAX_ANCHOR_CHARS: usize = 200;
 /// The longest moderator id an approval records.
 pub const MAX_MODERATOR_CHARS: usize = 64;
 /// The most consent records one copy keeps. The last slot is kept for a
@@ -291,40 +292,12 @@ impl ResponseCategory {
 // Target (B5's passage target, restricted to the work or a section)
 
 /// What a Third Perspective is about: the whole work, usually, or one
-/// section. Written exactly as B5's passage target (ADR 0076):
+/// section. A checked B5 passage target (ADR 0076), written exactly as one:
 /// `{"version":1,"kind":"work"}` or
 /// `{"version":1,"kind":"section","section":"methods","digest":"…"}`. A
 /// quotation target is refused: quoting a passage is passage feedback.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PerspectiveTarget {
-    /// The whole work. It stays current while the work is published.
-    Work,
-    /// One section: its heading id (`None` for the text before the first
-    /// heading) and, when known, the digest of its text.
-    Section {
-        section: Option<String>,
-        digest: Option<String>,
-    },
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct WireTarget {
-    version: u64,
-    kind: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    section: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    digest: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    exact: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    prefix: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    suffix: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    start: Option<u64>,
-}
+pub struct PerspectiveTarget(PassageTarget);
 
 fn is_digest(value: &str, length: usize) -> bool {
     value.len() == length
@@ -337,122 +310,109 @@ fn forbidden_in_line(character: char) -> bool {
     character.is_control() || crate::research_notes::bidi_override(character)
 }
 
+fn quote_refused() -> ThirdPerspectiveError {
+    ThirdPerspectiveError::new(
+        ErrorCode::TargetNotAllowed,
+        "a Third Perspective is about the whole work or a section, not a quotation",
+    )
+}
+
+fn target_error(error: crate::passage_target::TargetError) -> ThirdPerspectiveError {
+    let code = match error.code {
+        TargetErrorCode::UnsupportedVersion => ErrorCode::UnsupportedVersion,
+        _ => ErrorCode::InvalidTarget,
+    };
+    ThirdPerspectiveError::new(code, format!("`target`: {}", error.message))
+}
+
+impl TryFrom<PassageTarget> for PerspectiveTarget {
+    type Error = ThirdPerspectiveError;
+
+    /// Accept a work or section target; refuse a quotation.
+    fn try_from(target: PassageTarget) -> Result<Self, Self::Error> {
+        if matches!(target.selector, PassageSelector::Quote(_)) {
+            return Err(quote_refused());
+        }
+        target.validate().map_err(target_error)?;
+        Ok(Self(target))
+    }
+}
+
+impl From<PerspectiveTarget> for PassageTarget {
+    fn from(target: PerspectiveTarget) -> Self {
+        target.0
+    }
+}
+
 impl PerspectiveTarget {
-    fn error(message: impl Into<String>) -> ThirdPerspectiveError {
-        ThirdPerspectiveError::new(ErrorCode::InvalidTarget, message)
+    /// The whole work. It stays current while the work is published.
+    pub fn work() -> Self {
+        Self(PassageTarget {
+            section: None,
+            selector: PassageSelector::Work,
+        })
+    }
+
+    /// One section: its heading id (`None` for the text before the first
+    /// heading) and, when known, the digest of its text. Unchecked until
+    /// [`PerspectiveTarget::validate`].
+    pub fn section(section: Option<String>, digest: Option<String>) -> Self {
+        Self(PassageTarget {
+            section,
+            selector: PassageSelector::Section { digest },
+        })
+    }
+
+    /// Whether it is about the whole work.
+    pub fn is_work(&self) -> bool {
+        matches!(self.0.selector, PassageSelector::Work)
+    }
+
+    /// The section's heading id, for a section target.
+    pub fn section_id(&self) -> Option<&str> {
+        self.0.section.as_deref()
+    }
+
+    /// The B5 passage target.
+    pub fn passage_target(&self) -> &PassageTarget {
+        &self.0
     }
 
     /// Check B5's anchor and digest rules.
     pub fn validate(&self) -> Result<(), ThirdPerspectiveError> {
-        if let PerspectiveTarget::Section { section, digest } = self {
-            if let Some(anchor) = section {
-                let count = anchor.chars().count();
-                if count == 0
-                    || count > MAX_ANCHOR_CHARS
-                    || anchor
-                        .chars()
-                        .any(|c| c.is_whitespace() || forbidden_in_line(c))
-                {
-                    return Err(Self::error(format!(
-                        "`target.section` must be a heading id of 1 to {MAX_ANCHOR_CHARS} characters without spaces"
-                    )));
-                }
-            }
-            if digest
-                .as_deref()
-                .is_some_and(|digest| !is_digest(digest, 32))
-            {
-                return Err(Self::error(
-                    "`target.digest` must be 32 lowercase hexadecimal digits",
-                ));
-            }
-        }
-        Ok(())
+        self.0.validate().map_err(target_error)
     }
 
-    /// Read a target from its JSON value. Nothing is repaired.
+    /// Read a target from its JSON value: B5's reader plus the refusal of a
+    /// quotation, which is refused by its kind before its fields are read.
+    /// Nothing is repaired.
     pub fn from_value(value: &Value) -> Result<Self, ThirdPerspectiveError> {
-        let object = value
-            .as_object()
-            .ok_or_else(|| Self::error("`target` must be a JSON object"))?;
-        match object.get("version").and_then(Value::as_u64) {
-            Some(TARGET_VERSION) => {}
-            Some(version) if version > TARGET_VERSION => {
-                return Err(ThirdPerspectiveError::new(
-                    ErrorCode::UnsupportedVersion,
-                    format!("`target` is version {version}, newer than the version {TARGET_VERSION} this open.blog reads"),
-                ))
-            }
-            _ => return Err(Self::error("`target` needs `version` 1")),
+        let current = value
+            .get("version")
+            .and_then(Value::as_u64)
+            .is_some_and(|version| version == TARGET_VERSION);
+        if current && value.get("kind").and_then(Value::as_str) == Some("quote") {
+            return Err(quote_refused());
         }
-        let wire: WireTarget = serde_json::from_value(value.clone()).map_err(|_| {
-            Self::error(
-                "`target` has a field this version does not define, or a field of the wrong type",
-            )
-        })?;
-        let quoted = wire.exact.is_some()
-            || wire.prefix.is_some()
-            || wire.suffix.is_some()
-            || wire.start.is_some();
-        let target = match wire.kind.as_str() {
-            "work" if wire.section.is_none() && wire.digest.is_none() && !quoted => {
-                PerspectiveTarget::Work
-            }
-            "work" => {
-                return Err(Self::error(
-                    "a work target has no section or selector fields",
-                ))
-            }
-            "section" if !quoted => PerspectiveTarget::Section {
-                section: wire.section,
-                digest: wire.digest,
-            },
-            "section" => return Err(Self::error("a section target has no quotation fields")),
-            "quote" => {
-                return Err(ThirdPerspectiveError::new(
-                    ErrorCode::TargetNotAllowed,
-                    "a Third Perspective is about the whole work or a section, not a quotation",
-                ))
-            }
-            _ => return Err(Self::error("`target.kind` must be `work` or `section`")),
-        };
-        target.validate()?;
-        Ok(target)
-    }
-
-    fn wire(&self) -> WireTarget {
-        let (kind, section, digest) = match self {
-            PerspectiveTarget::Work => ("work", None, None),
-            PerspectiveTarget::Section { section, digest } => {
-                ("section", section.clone(), digest.clone())
-            }
-        };
-        WireTarget {
-            version: TARGET_VERSION,
-            kind: kind.into(),
-            section,
-            digest,
-            exact: None,
-            prefix: None,
-            suffix: None,
-            start: None,
-        }
+        PassageTarget::from_value(value)
+            .map_err(target_error)
+            .and_then(Self::try_from)
     }
 
     /// The JSON value.
     pub fn to_value(&self) -> Value {
-        serde_json::to_value(self.wire()).expect("a target always serializes")
+        self.0.to_value()
     }
 
     /// Canonical JSON text.
     pub fn to_json(&self) -> String {
-        serde_json::to_string(&self.wire()).expect("a target always serializes")
+        self.0.to_json()
     }
 }
 
-/// Where a target stands in the work as published now, from resolving it
-/// (after B5 merges, `PassageDocument::resolve` from the revision the reader
-/// saw). A work target is always current.
+/// Where a target stands in the work as published now, from B5's
+/// [`Resolution`] of it from the revision the reader saw. A work target is
+/// always current.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TargetStatus {
     /// The section is there with the text the reader saw (perhaps moved or
@@ -465,245 +425,129 @@ pub enum TargetStatus {
     },
 }
 
-// ---------------------------------------------------------------------------
-// Reader identity and provenance (B5's shapes)
-
-/// The reader's choice about their name, exactly B5's `ReaderAttribution`
-/// (`{"name":"Ada","publishName":false}`). Anonymous unless the reader
-/// explicitly agrees to show the name.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct ReaderAttribution {
-    /// The name the reader gave, if any. Moderators see it; the public sees
-    /// it only with `publish_name`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    /// The reader's explicit agreement to show `name`.
-    #[serde(default)]
-    pub publish_name: bool,
-}
-
-impl ReaderAttribution {
-    pub fn anonymous() -> Self {
-        Self::default()
-    }
-
-    pub fn named(name: &str, publish_name: bool) -> Self {
-        Self {
-            name: Some(name.to_string()),
-            publish_name,
-        }
-    }
-
-    /// The name the public may see: only one the reader agreed to show.
-    pub fn public_name(&self) -> Option<&str> {
-        self.name.as_deref().filter(|_| self.publish_name)
-    }
-
-    /// Whitespace collapsed, an empty name dropped.
-    fn normalized(self) -> Self {
-        Self {
-            name: self
-                .name
-                .map(|name| collapse_whitespace(&name))
-                .filter(|name| !name.is_empty()),
-            publish_name: self.publish_name,
-        }
-    }
-
-    fn check(&self) -> Result<(), ErrorCode> {
-        match &self.name {
-            Some(name) => {
-                let count = name.chars().count();
-                if count == 0
-                    || count > MAX_READER_NAME_CHARS
-                    || name.chars().any(forbidden_in_line)
-                    || collapse_whitespace(name) != *name
-                {
-                    Err(ErrorCode::InvalidName)
-                } else {
-                    Ok(())
+impl From<&Resolution> for TargetStatus {
+    fn from(resolution: &Resolution) -> Self {
+        match resolution {
+            Resolution::Current(location) | Resolution::Reanchored(location) => {
+                TargetStatus::Current {
+                    section: location.section.clone(),
                 }
             }
-            None if self.publish_name => Err(ErrorCode::ConsentWithoutName),
-            None => Ok(()),
+            Resolution::Stale(stale) => TargetStatus::Stale {
+                section_present: stale.section_present,
+            },
         }
     }
+}
 
-    fn validate(&self, field: &str) -> Result<(), ThirdPerspectiveError> {
-        self.check().map_err(|code| match code {
-            ErrorCode::ConsentWithoutName => ThirdPerspectiveError::new(
-                code,
-                format!("`{field}.publishName` needs a name to publish"),
-            ),
-            _ => ThirdPerspectiveError::new(
-                code,
-                format!(
-                    "`{field}.name` must be 1 to {MAX_READER_NAME_CHARS} characters of plain text"
-                ),
-            ),
-        })
+// ---------------------------------------------------------------------------
+// Reader identity and provenance (B5's types)
+
+/// Whitespace collapsed, an empty name dropped (B5's normalization).
+fn normalized_attribution(attribution: ReaderAttribution) -> ReaderAttribution {
+    ReaderAttribution {
+        name: attribution
+            .name
+            .map(|name| collapse_whitespace(&name))
+            .filter(|name| !name.is_empty()),
+        publish_name: attribution.publish_name,
     }
 }
 
-/// How a copy reached the site (B5's `FeedbackChannel`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Channel {
-    /// The optional hosted submission endpoint, which stamps the time.
-    Hosted,
-    /// Entered by an Admin user from a reader's message (the copy fallback).
-    Manual,
+/// B5's name rules.
+fn check_attribution(attribution: &ReaderAttribution) -> Result<(), ErrorCode> {
+    match &attribution.name {
+        Some(name) => {
+            let count = name.chars().count();
+            if count == 0
+                || count > MAX_READER_NAME_CHARS
+                || name.chars().any(forbidden_in_line)
+                || collapse_whitespace(name) != *name
+            {
+                Err(ErrorCode::InvalidName)
+            } else {
+                Ok(())
+            }
+        }
+        None if attribution.publish_name => Err(ErrorCode::ConsentWithoutName),
+        None => Ok(()),
+    }
 }
 
-/// Which text the reader saw, when, and how it arrived: B5's feedback
-/// provenance (ADR 0078), with the target restricted to the work or a
-/// section. Its JSON is B5's record, key order aside.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Provenance {
-    /// The published work's site-relative path, such as `/posts/tides/`.
-    pub work: String,
-    /// The passage revision (`p1:` and 32 hex digits) of the page the
-    /// reader saw.
-    pub revision: String,
-    pub target: PerspectiveTarget,
-    /// The reader's own clock; optional, untrusted, never after `received_at`.
-    pub seen_at: Option<DateTime>,
-    /// Stamped by the receiver, never taken from the reader.
-    pub received_at: DateTime,
-    pub channel: Channel,
-    /// The name and choice the reader gave when submitting. Later changes
-    /// are consent records; this stays what was received.
-    pub attribution: ReaderAttribution,
+fn validate_attribution(
+    attribution: &ReaderAttribution,
+    field: &str,
+) -> Result<(), ThirdPerspectiveError> {
+    check_attribution(attribution).map_err(|code| match code {
+        ErrorCode::ConsentWithoutName => ThirdPerspectiveError::new(
+            code,
+            format!("`{field}.publishName` needs a name to publish"),
+        ),
+        _ => ThirdPerspectiveError::new(
+            code,
+            format!("`{field}.name` must be 1 to {MAX_READER_NAME_CHARS} characters of plain text"),
+        ),
+    })
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-struct WireProvenance<T = Value> {
-    version: u64,
-    work: String,
-    revision: String,
-    target: T,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    seen_at: Option<String>,
-    received_at: String,
-    channel: Channel,
-    #[serde(default)]
-    attribution: ReaderAttribution,
-}
-
-/// A site-relative path to a published page (B5's `is_work_path`).
-pub fn is_work_path(path: &str) -> bool {
-    let count = path.chars().count();
-    (2..=MAX_WORK_PATH_CHARS).contains(&count)
-        && path.starts_with('/')
-        && path.ends_with('/')
-        && !path.contains("//")
-        && !path
-            .chars()
-            .any(|c| matches!(c, '\\' | '?' | '#') || c.is_control() || c.is_whitespace())
-        && !path
-            .split('/')
-            .any(|segment| segment == "." || segment == "..")
-}
-
-/// A passage revision of any text model (B5's `is_passage_revision`).
-pub fn is_passage_revision(value: &str) -> bool {
-    let Some((model, digest)) = value.split_once(':') else {
-        return false;
+fn provenance_error(error: ProvenanceError) -> ThirdPerspectiveError {
+    let code = match error.code {
+        ProvenanceErrorCode::TooLarge => ErrorCode::TooLarge,
+        ProvenanceErrorCode::Malformed => ErrorCode::Malformed,
+        ProvenanceErrorCode::UnsupportedVersion => ErrorCode::UnsupportedVersion,
+        ProvenanceErrorCode::InvalidWork => ErrorCode::InvalidWork,
+        ProvenanceErrorCode::InvalidRevision => ErrorCode::InvalidRevision,
+        ProvenanceErrorCode::InvalidTarget => ErrorCode::InvalidTarget,
+        ProvenanceErrorCode::InvalidTime => ErrorCode::InvalidTime,
+        ProvenanceErrorCode::SeenAfterReceived => ErrorCode::SeenAfterReceived,
+        ProvenanceErrorCode::InvalidName => ErrorCode::InvalidName,
+        ProvenanceErrorCode::ConsentWithoutName => ErrorCode::ConsentWithoutName,
     };
-    let Some(number) = model.strip_prefix('p') else {
-        return false;
-    };
-    !number.is_empty()
-        && number.len() <= 4
-        && !number.starts_with('0')
-        && number.bytes().all(|byte| byte.is_ascii_digit())
-        && is_digest(digest, 32)
+    ThirdPerspectiveError::new(code, error.message)
 }
 
 /// A canonical UTC time in years 0001 to 9999 (B5's rule).
 fn parse_time(field: &str, value: &str) -> Result<DateTime, ThirdPerspectiveError> {
-    DateTime::parse(value)
-        .filter(|time| {
-            time.rfc3339() == value
-                && value.starts_with(|c: char| c.is_ascii_digit())
-                && !value.starts_with("0000")
-        })
-        .ok_or_else(|| {
-            ThirdPerspectiveError::new(
-                ErrorCode::InvalidTime,
-                format!("`{field}` must be a UTC time written like 2026-10-26T10:00:00Z"),
-            )
-        })
+    crate::feedback_provenance::parse_canonical_time(value).ok_or_else(|| {
+        ThirdPerspectiveError::new(
+            ErrorCode::InvalidTime,
+            format!("`{field}` must be a UTC time written like 2026-10-26T10:00:00Z"),
+        )
+    })
 }
 
-impl Provenance {
-    pub fn validate(&self) -> Result<(), ThirdPerspectiveError> {
-        if !is_work_path(&self.work) {
-            return Err(ThirdPerspectiveError::new(
-                ErrorCode::InvalidWork,
-                "`work` must be the site-relative path of a published page, such as /posts/tides/",
-            ));
-        }
-        if !is_passage_revision(&self.revision) {
-            return Err(ThirdPerspectiveError::new(
-                ErrorCode::InvalidRevision,
-                "`revision` must be a passage revision such as p1: and 32 hexadecimal digits",
-            ));
-        }
-        self.target.validate()?;
-        if self.seen_at.is_some_and(|seen| seen > self.received_at) {
-            return Err(ThirdPerspectiveError::new(
-                ErrorCode::SeenAfterReceived,
-                "`seenAt` is later than `receivedAt`",
-            ));
-        }
-        self.attribution.validate("attribution")
-    }
+/// Check B5's provenance rules and this kind's target restriction.
+fn validate_provenance(provenance: &Provenance) -> Result<(), ThirdPerspectiveError> {
+    provenance.validate().map_err(provenance_error)?;
+    PerspectiveTarget::try_from(provenance.target.clone())?;
+    Ok(())
+}
 
-    fn from_value(value: &Value) -> Result<Self, ThirdPerspectiveError> {
-        let malformed = |what: &str| ThirdPerspectiveError::new(ErrorCode::Malformed, what);
-        match value.get("version").and_then(Value::as_u64) {
-            Some(PROVENANCE_VERSION) => {}
-            Some(version) if version > PROVENANCE_VERSION => {
-                return Err(ThirdPerspectiveError::new(
-                    ErrorCode::UnsupportedVersion,
-                    format!("`provenance` is version {version}, newer than the version {PROVENANCE_VERSION} this open.blog reads"),
-                ))
-            }
-            _ => return Err(malformed("`provenance` needs `version` 1")),
+/// Read B5's provenance object, refusing a quotation target by its kind
+/// first, as [`PerspectiveTarget::from_value`] does.
+fn provenance_from_value(value: &Value) -> Result<Provenance, ThirdPerspectiveError> {
+    let malformed = |what: &str| ThirdPerspectiveError::new(ErrorCode::Malformed, what);
+    match value.get("version").and_then(Value::as_u64) {
+        Some(PROVENANCE_VERSION) => {}
+        Some(version) if version > PROVENANCE_VERSION => {
+            return Err(ThirdPerspectiveError::new(
+                ErrorCode::UnsupportedVersion,
+                format!("`provenance` is version {version}, newer than the version {PROVENANCE_VERSION} this open.blog reads"),
+            ))
         }
-        let wire: WireProvenance = serde_json::from_value(value.clone()).map_err(|_| {
-            malformed("`provenance` has a field this version does not define, or a field of the wrong type")
-        })?;
-        Ok(Self {
-            target: PerspectiveTarget::from_value(&wire.target)?,
-            seen_at: wire
-                .seen_at
-                .as_deref()
-                .map(|seen| parse_time("provenance.seenAt", seen))
-                .transpose()?,
-            received_at: parse_time("provenance.receivedAt", &wire.received_at)?,
-            work: wire.work,
-            revision: wire.revision,
-            channel: wire.channel,
-            attribution: wire.attribution,
-        })
+        _ => return Err(malformed("`provenance` needs `version` 1")),
     }
+    if let Some(target) = value.get("target") {
+        PerspectiveTarget::from_value(target)?;
+    }
+    let provenance = Provenance::from_json(&value.to_string()).map_err(provenance_error)?;
+    validate_provenance(&provenance)?;
+    Ok(provenance)
+}
 
-    fn wire(&self) -> WireProvenance<WireTarget> {
-        WireProvenance {
-            version: PROVENANCE_VERSION,
-            work: self.work.clone(),
-            revision: self.revision.clone(),
-            target: self.target.wire(),
-            seen_at: self.seen_at.map(DateTime::rfc3339),
-            received_at: self.received_at.rfc3339(),
-            channel: self.channel,
-            attribution: self.attribution.clone(),
-        }
-    }
+/// The provenance as the JSON value a record embeds: B5's record.
+fn provenance_value(provenance: &Provenance) -> Value {
+    serde_json::from_str(&provenance.to_json()).expect("B5's provenance is JSON")
 }
 
 /// Who can act for the submitter, kept for moderation even when the reader
@@ -886,48 +730,10 @@ pub enum ConsentOutcome {
 }
 
 // ---------------------------------------------------------------------------
-// Moderation facts (RD12's shapes)
-
-/// RD12's moderation states, with the same stored ids. Only approved can be
-/// public.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ModerationState {
-    Pending,
-    Clarification,
-    Approved,
-    Rejected,
-    Removed,
-    Withdrawn,
-}
-
-impl ModerationState {
-    pub const ALL: [ModerationState; 6] = [
-        ModerationState::Pending,
-        ModerationState::Clarification,
-        ModerationState::Approved,
-        ModerationState::Rejected,
-        ModerationState::Removed,
-        ModerationState::Withdrawn,
-    ];
-
-    pub fn id(self) -> &'static str {
-        match self {
-            ModerationState::Pending => "pending",
-            ModerationState::Clarification => "clarification",
-            ModerationState::Approved => "approved",
-            ModerationState::Rejected => "rejected",
-            ModerationState::Removed => "removed",
-            ModerationState::Withdrawn => "withdrawn",
-        }
-    }
-
-    pub fn from_id(id: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|state| state.id() == id)
-    }
-}
+// Moderation facts (RD12's)
 
 /// The server-side moderation facts of one copy: the fields of RD12's
-/// `ItemFacts` this module reads, plus the consent record an approval bound.
+/// [`ItemFacts`] this module reads, plus the consent record an approval bound.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ModerationFacts {
     pub state: ModerationState,
@@ -937,8 +743,27 @@ pub struct ModerationFacts {
     pub approved_revision: Option<u32>,
     /// The consent record an approval covers, set only while approved.
     pub approved_consent: Option<u32>,
+    /// The revision a moderator last asked the reader to clarify (RD12's
+    /// `clarification_asked`). While it is the current revision the text is
+    /// never public.
+    pub clarification_asked: Option<u32>,
     /// Whether the text, name and consent are still stored.
     pub content_retained: bool,
+}
+
+impl ModerationFacts {
+    /// RD12's facts of the stored item, with the consent record its approval
+    /// bound (stored with the approval, set only while approved).
+    pub fn from_item(item: &ItemFacts<'_>, approved_consent: Option<u32>) -> Self {
+        Self {
+            state: item.state,
+            revision: item.revision,
+            approved_revision: item.approved_revision,
+            approved_consent: approved_consent.filter(|_| item.state == ModerationState::Approved),
+            clarification_asked: item.clarification_asked,
+            content_retained: item.content_retained,
+        }
+    }
 }
 
 /// Where a reflection is in its lifecycle.
@@ -1074,12 +899,12 @@ fn read_category(id: Option<&str>) -> Result<Option<ResponseCategory>, ThirdPers
 }
 
 fn read_kind(kind: &str) -> Result<(), ThirdPerspectiveError> {
-    if kind == KIND_ID {
+    if kind == KIND.id() {
         Ok(())
     } else {
         Err(ThirdPerspectiveError::new(
             ErrorCode::WrongKind,
-            format!("`kind` must be `{KIND_ID}`"),
+            format!("`kind` must be `{KIND}`"),
         ))
     }
 }
@@ -1219,10 +1044,10 @@ impl SubmissionRequest {
         let reflection = &self.reflection;
         serde_json::to_string(&WireRequest {
             version: THIRD_PERSPECTIVE_VERSION,
-            kind: KIND_ID.into(),
+            kind: KIND.id().into(),
             work: reflection.work.clone(),
             revision: reflection.revision.clone(),
-            target: reflection.target.wire(),
+            target: reflection.target.to_value(),
             category: reflection.category.map(|category| category.id().into()),
             body: reflection.body.clone(),
             seen_at: reflection.seen_at.map(DateTime::rfc3339),
@@ -1254,7 +1079,7 @@ impl SubmissionRequest {
         }
         let reflection = self.reflection;
         let body = normalize_body(&reflection.body).ok_or_else(body_error)?;
-        let attribution = reflection.attribution.normalized();
+        let attribution = normalized_attribution(reflection.attribution);
         let copy = SubmittedCopy {
             category: reflection.category,
             body,
@@ -1263,7 +1088,7 @@ impl SubmissionRequest {
             provenance: Provenance {
                 work: reflection.work,
                 revision: reflection.revision,
-                target: reflection.target,
+                target: reflection.target.into(),
                 seen_at: reflection.seen_at.filter(|seen| *seen <= received_at),
                 received_at,
                 channel: intake.channel(),
@@ -1344,7 +1169,7 @@ impl SubmittedCopy {
         if normalize_body(&self.body).as_deref() != Some(self.body.as_str()) {
             return Err(body_error());
         }
-        self.provenance.validate()?;
+        validate_provenance(&self.provenance)?;
         self.intake.validate()?;
         if self.intake.channel() != self.provenance.channel {
             return Err(ThirdPerspectiveError::new(
@@ -1421,7 +1246,7 @@ impl SubmittedCopy {
                     "`featureRevision` names a revision of this reflection",
                 ));
             }
-            record.attribution.validate("consents.attribution")?;
+            validate_attribution(&record.attribution, "consents.attribution")?;
         }
         Ok(())
     }
@@ -1433,7 +1258,7 @@ impl SubmittedCopy {
         let wire: WireRecord =
             serde_json::from_value(value).map_err(|_| wire_error("Third Perspective record"))?;
         read_kind(&wire.kind)?;
-        let provenance = Provenance::from_value(&wire.provenance)?;
+        let provenance = provenance_from_value(&wire.provenance)?;
         let mut name = provenance.attribution.name.clone();
         let consents = wire
             .consents
@@ -1479,12 +1304,12 @@ impl SubmittedCopy {
     pub fn to_json(&self) -> String {
         serde_json::to_string(&WireRecord {
             version: THIRD_PERSPECTIVE_VERSION,
-            kind: KIND_ID.into(),
+            kind: KIND.id().into(),
             category: self.category.map(|category| category.id().into()),
             body: self.body.clone(),
             revision: self.revision,
             revised_at: self.revised_at.map(DateTime::rfc3339),
-            provenance: self.provenance.wire(),
+            provenance: provenance_value(&self.provenance),
             intake: self.intake.wire(),
             consents: self.wire_consents(),
         })
@@ -1638,8 +1463,8 @@ impl SubmittedCopy {
                 _ => ConsentOutcome::Recorded,
             });
         }
-        let attribution = change.attribution.normalized();
-        attribution.check().map_err(|code| match code {
+        let attribution = normalized_attribution(change.attribution);
+        check_attribution(&attribution).map_err(|code| match code {
             ErrorCode::ConsentWithoutName => LifecycleError::ConsentWithoutName,
             _ => LifecycleError::InvalidName,
         })?;
@@ -1743,19 +1568,24 @@ impl SubmittedCopy {
     /// The one public form of this copy (ADR 0111), or `None` while it may
     /// not be shown: only approved, at the current revision and under a
     /// consent record that still allows publication, with the text kept and
-    /// the kind shown on the work (`shown`, RD12's mode `locked` or `open`).
+    /// the kind shown on the work: `mode` is RD12's
+    /// `effective_mode(config, post, ParticipationKind::ThirdPerspective)`,
+    /// and only a mode that [shows approved items](ParticipationMode::shows_approved)
+    /// shows it. A clarification request about the current text keeps it
+    /// private, so a response here is always one RD12's `is_public` allows.
     /// The name appears only while both the approved and the current
     /// consent show that same name, and never when it matches a name the
     /// work credits.
     pub fn approved_response(
         &self,
         facts: &ModerationFacts,
-        shown: bool,
+        mode: ParticipationMode,
         work: &PublishedWork,
         target: &TargetStatus,
     ) -> Option<ApprovedResponse> {
-        if !shown
+        if !mode.shows_approved()
             || !facts.content_retained
+            || facts.clarification_asked == Some(facts.revision)
             || facts.state != ModerationState::Approved
             || facts.revision != self.revision
             || facts.approved_revision != Some(self.revision)
@@ -1777,22 +1607,18 @@ impl SubmittedCopy {
         }
         .filter(|name| !matches_credit(name, &work.credited))
         .map(str::to_string);
-        let (about, section, stale) = match (&self.provenance.target, target) {
-            (PerspectiveTarget::Work, _) => (About::Work, None, false),
-            (PerspectiveTarget::Section { .. }, TargetStatus::Current { section }) => {
-                (About::Section, section.clone(), false)
-            }
-            (
-                PerspectiveTarget::Section { section, .. },
-                TargetStatus::Stale { section_present },
-            ) => (
+        let anchor = &self.provenance.target.section;
+        let (about, section, stale) = match (&self.provenance.target.selector, target) {
+            (PassageSelector::Work, _) => (About::Work, None, false),
+            (_, TargetStatus::Current { section }) => (About::Section, section.clone(), false),
+            (_, TargetStatus::Stale { section_present }) => (
                 About::Section,
-                section.clone().filter(|_| *section_present),
+                anchor.clone().filter(|_| *section_present),
                 true,
             ),
         };
         Some(ApprovedResponse {
-            kind: KIND_ID,
+            kind: KIND,
             role: READER_ROLE,
             work: self.provenance.work.clone(),
             about,
@@ -1812,12 +1638,12 @@ impl SubmittedCopy {
     pub fn featured(
         &self,
         facts: &ModerationFacts,
-        shown: bool,
+        mode: ParticipationMode,
         work: &PublishedWork,
         target: &TargetStatus,
         selection: &FeatureSelection,
     ) -> Option<FeaturedPublication> {
-        let response = self.approved_response(facts, shown, work, target)?;
+        let response = self.approved_response(facts, mode, work, target)?;
         let covered = crate::collaboration::valid_admin_username(&selection.selected_by)
             && facts.approved_revision == Some(selection.revision)
             && self.consent().feature_revision == Some(selection.revision);
@@ -1919,7 +1745,7 @@ pub enum About {
 #[serde(rename_all = "camelCase")]
 pub struct ApprovedResponse {
     /// Always `third-perspective`.
-    pub kind: &'static str,
+    pub kind: ParticipationKind,
     /// Always `reader`: never an author's perspective.
     pub role: &'static str,
     pub work: String,
@@ -1961,8 +1787,8 @@ impl ApprovedResponse {
     /// author's or a group's.
     pub fn heading(&self) -> String {
         match &self.name {
-            Some(name) => format!("{KIND_LABEL} from {name}, a reader"),
-            None => format!("{KIND_LABEL} from a reader"),
+            Some(name) => format!("{} from {name}, a reader", KIND.label()),
+            None => format!("{} from a reader", KIND.label()),
         }
     }
 

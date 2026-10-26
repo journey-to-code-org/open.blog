@@ -8,8 +8,9 @@
 - Builds on: [ADR 0109](0109-third-perspectives-are-reader-reflections-with-optional-prompts-and-four-distinct-stages.md),
   [ADR 0110](0110-submission-consent-is-an-append-only-record-and-anonymous-display-keeps-provenance.md),
   [ADR 0111](0111-third-perspective-lifecycle-and-its-one-public-projection.md)
-- Coordinates with: `story/b5-passage-feedback` (ADRs 0076 to 0082) and
-  `story/rd12-moderation` (ADRs 0101 to 0104), neither merged into main
+- Coordinates with: B5 ([ADR 0076](0076-passage-targets-are-section-anchors-with-quoted-context.md) to [ADR 0083](0083-feedback-moderation-is-version-checked-and-approved-notes-publish-from-a-versioned-file.md)) and
+  RD12 ([ADR 0101](0101-one-registry-of-participation-kinds-enabled-per-site-and-post.md) to [ADR 0108](0108-retention-runs-from-a-dry-run-and-quotas-keep-only-hourly-digests.md)), both now on main
+- Applied: 2026-10-26, when B5 (v0.33.0) and RD12 (v0.36.0) were merged into this branch
 
 ## Context
 
@@ -42,7 +43,7 @@ order aside, which JSON does not define).
 | `Stage` | `moderation::ModerationState` and `ItemFacts::content_retained` | Unchanged: a pure view over RD12's facts. |
 
 **Storage, a one-way door this task does not open.** No table, column or migration changes here.
-The conservative mapping for #221 is one `openblog_feedback` row per copy (B5's ADR 0080, whose
+The conservative mapping for #221 is one `openblog_feedback` row per copy (B5's [ADR 0080](0080-hosted-feedback-is-one-additive-private-table.md), whose
 `kind` and `status` columns check only the id's shape): `kind` = `third-perspective`; `work`,
 `revision`, `target`, `body`, `seen_at`, `received_at`, `channel`, `reader_name` and
 `publish_name` from the provenance as received; `details` = `{"category"?, "intake",
@@ -52,6 +53,35 @@ four-byte-character names and a 4000-character body is a tested round trip; the 
 alone does not guarantee it, because names repeat); `status` from RD12. The approval's
 revision and consent number, and RD12's version and revision counters, need the additive columns
 RD12 and #226 introduce. Until then nothing is stored, and the static site is unchanged.
+
+## As applied
+
+With B5 and RD12 on main, the table above is applied:
+
+- `KIND_ID` and `KIND_LABEL` are gone; `third_perspective::KIND` is
+  `ParticipationKind::ThirdPerspective`, and its `id()` and `label()` are the id and label.
+  `ApprovedResponse::kind` is that kind, serialized as its id.
+- `PerspectiveTarget` wraps a `PassageTarget`: `TryFrom<PassageTarget>` refuses a quotation
+  with `targetNotAllowed`, `From<PerspectiveTarget> for PassageTarget` gives it back, and
+  `from_value` refuses a `quote` kind before B5 reads its fields, so the error codes stay as
+  they were.
+- `TargetStatus` is `From<&Resolution>`.
+- `ReaderAttribution`, `Channel` (B5's `FeedbackChannel`), `Provenance` (B5's
+  `FeedbackProvenance`), `is_work_path`, `is_passage_revision` and the version and length
+  constants are re-exports. A stored copy's provenance is B5's record, checked by B5 and then
+  by the target restriction.
+- `ModerationState` is RD12's. `ModerationFacts` keeps the stored `approved_consent` and adds
+  RD12's `clarification_asked`, and `ModerationFacts::from_item(&ItemFacts, approved_consent)`
+  builds it. `approved_response` and `featured` take the kind's `ParticipationMode`
+  (`effective_mode(..)`) and show only while `mode.shows_approved()`, never while a
+  clarification request asked about the current text, so a response is always one RD12's
+  `is_public` allows.
+- A hosted copy's `Intake::Hosted` digest is the digest of RD12's reader receipt
+  ([ADR 0107](0107-reader-receipts-deletion-requests-and-anonymous-abuse-reports.md)): the
+  reader withdraws, clarifies and changes consent through that receipt, and a revocation on a
+  hosted copy is RD12's receipt withdrawal (`openblog_erase_feedback` with a withdrawal), which
+  purges the text at once. A manual copy has no receipt: revoking it is a site Admin's `Remove`
+  and a purge, and it cannot be clarified.
 
 ## Considered options
 

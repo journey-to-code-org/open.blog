@@ -2,12 +2,13 @@
 //! the four distinct stages, consent records, the lifecycle on the one
 //! moderation state machine, and the one public projection.
 
+use openblog_core::participation::{ParticipationKind, ParticipationMode};
 use openblog_core::third_perspective::{
     ApprovalRequest, ConsentChange, ConsentChoices, ConsentOutcome, ErrorCode, FeatureSelection,
     Intake, LifecycleError, LocalReflection, ModerationFacts, ModerationState, PerspectiveTarget,
     PublishedWork, ReaderAttribution, ResponseCategory, Stage, SubmissionRequest, SubmittedCopy,
-    TargetStatus, KIND_ID, KIND_LABEL, MAX_BODY_CHARS, MAX_CONSENT_RECORDS, MAX_DETAILS_BYTES,
-    MAX_JSON_BYTES, NARROWING_RESERVE, READER_ROLE,
+    TargetStatus, KIND, MAX_BODY_CHARS, MAX_CONSENT_RECORDS, MAX_DETAILS_BYTES, MAX_JSON_BYTES,
+    NARROWING_RESERVE, READER_ROLE,
 };
 use openblog_core::DateTime;
 use serde_json::{json, Value};
@@ -38,7 +39,7 @@ fn local(attribution: ReaderAttribution) -> LocalReflection {
     LocalReflection {
         work: "/posts/tides/".into(),
         revision: REV_A.into(),
-        target: PerspectiveTarget::Work,
+        target: PerspectiveTarget::work(),
         category: None,
         body: "Another way to read the ending.".into(),
         attribution,
@@ -68,6 +69,7 @@ fn facts(state: ModerationState) -> ModerationFacts {
         revision: 1,
         approved_revision: approved.then_some(1),
         approved_consent: approved.then_some(1),
+        clarification_asked: None,
         content_retained: true,
     }
 }
@@ -78,6 +80,7 @@ fn approved_at(revision: u32, consent: u32) -> ModerationFacts {
         revision,
         approved_revision: Some(revision),
         approved_consent: Some(consent),
+        clarification_asked: None,
         content_retained: true,
     }
 }
@@ -145,6 +148,7 @@ fn fixture_facts(value: &Value) -> ModerationFacts {
         revision: number("revision").unwrap(),
         approved_revision: number("approvedRevision"),
         approved_consent: number("approvedConsent"),
+        clarification_asked: number("clarificationAsked"),
         content_retained: value["contentRetained"].as_bool().unwrap(),
     }
 }
@@ -199,7 +203,23 @@ fn state_fixtures_give_each_copy_its_stage_and_only_its_public_form() {
         assert_eq!(&canonical, record, "{name}: the record is canonical");
 
         let facts = fixture_facts(&case["moderation"]);
-        let shown = case.get("shown").and_then(Value::as_bool).unwrap_or(true);
+        // `shown` is whether the kind's effective mode shows approved items;
+        // `mode` names the mode itself.
+        let mode = match (
+            case.get("mode").and_then(Value::as_str),
+            case.get("shown").and_then(Value::as_bool),
+        ) {
+            (Some(mode), _) => ParticipationMode::from_id(mode).expect("mode id"),
+            (None, Some(false)) => ParticipationMode::Hidden,
+            (None, _) => ParticipationMode::Open,
+        };
+        assert_eq!(
+            mode.shows_approved(),
+            case.get("shown")
+                .and_then(Value::as_bool)
+                .unwrap_or(mode.shows_approved()),
+            "{name}: `shown` agrees with `mode`"
+        );
         let work = fixture_work(case.get("work"));
         let target = fixture_target(case.get("target"), record);
         let expect = &case["expect"];
@@ -209,7 +229,7 @@ fn state_fixtures_give_each_copy_its_stage_and_only_its_public_form() {
             expect["stage"].as_str().unwrap(),
             "{name}: stage"
         );
-        let public = copy.approved_response(&facts, shown, &work, &target);
+        let public = copy.approved_response(&facts, mode, &work, &target);
         let public_json = public
             .as_ref()
             .map(|response| serde_json::from_str::<Value>(&response.to_json()).unwrap())
@@ -254,7 +274,7 @@ fn state_fixtures_give_each_copy_its_stage_and_only_its_public_form() {
                 selected_by: feature["selectedBy"].as_str().unwrap().into(),
                 revision: feature["revision"].as_u64().unwrap() as u32,
             };
-            let featured = copy.featured(&facts, shown, &work, &target, &selection);
+            let featured = copy.featured(&facts, mode, &work, &target, &selection);
             assert_eq!(
                 featured.is_some(),
                 expect["featured"].as_bool().unwrap(),
@@ -300,7 +320,12 @@ fn categories_are_optional_descriptive_prompts_never_scores_or_sides() {
         "a reflection without a category is complete"
     );
     let public = copy
-        .approved_response(&facts(ModerationState::Approved), true, &tides(), &whole())
+        .approved_response(
+            &facts(ModerationState::Approved),
+            ParticipationMode::Open,
+            &tides(),
+            &whole(),
+        )
         .unwrap();
     assert!(!public.to_json().contains("category"));
 
@@ -352,7 +377,7 @@ fn local_reflection_submitted_copy_approved_response_and_featured_publication_ar
     let pending = facts(ModerationState::Pending);
     assert_eq!(Stage::of(&pending), Stage::Submitted);
     assert_eq!(
-        copy.approved_response(&pending, true, &tides(), &whole()),
+        copy.approved_response(&pending, ParticipationMode::Open, &tides(), &whole()),
         None,
         "a submitted copy is private"
     );
@@ -373,7 +398,7 @@ fn local_reflection_submitted_copy_approved_response_and_featured_publication_ar
 
     let approved = approved_at(binding.revision, binding.consent);
     let response = copy
-        .approved_response(&approved, true, &tides(), &whole())
+        .approved_response(&approved, ParticipationMode::Open, &tides(), &whole())
         .expect("an approved response");
     assert_eq!(response.name.as_deref(), Some("Mina Okafor"));
     assert_eq!(
@@ -386,7 +411,13 @@ fn local_reflection_submitted_copy_approved_response_and_featured_publication_ar
         revision: 1,
     };
     assert_eq!(
-        copy.featured(&approved, true, &tides(), &whole(), &selection),
+        copy.featured(
+            &approved,
+            ParticipationMode::Open,
+            &tides(),
+            &whole(),
+            &selection
+        ),
         None,
         "approval alone never features a reflection"
     );
@@ -403,14 +434,20 @@ fn local_reflection_submitted_copy_approved_response_and_featured_publication_ar
     assert_eq!(outcome, ConsentOutcome::Recorded);
     assert_eq!(copy.consent().feature_revision, Some(1));
     let featured = copy
-        .featured(&approved, true, &tides(), &whole(), &selection)
+        .featured(
+            &approved,
+            ParticipationMode::Open,
+            &tides(),
+            &whole(),
+            &selection,
+        )
         .expect("featured with consent for the approved revision");
     assert_eq!(featured.response, response);
     assert!(featured.to_json().starts_with("{\"response\":{"));
     assert_eq!(
         copy.featured(
             &approved,
-            true,
+            ParticipationMode::Open,
             &tides(),
             &whole(),
             &FeatureSelection {
@@ -439,7 +476,12 @@ fn anonymous_display_keeps_full_moderation_provenance() {
     assert_eq!(record["provenance"]["revision"], json!(REV_A));
 
     let public = copy
-        .approved_response(&facts(ModerationState::Approved), true, &tides(), &whole())
+        .approved_response(
+            &facts(ModerationState::Approved),
+            ParticipationMode::Open,
+            &tides(),
+            &whole(),
+        )
         .unwrap();
     assert_eq!(public.name, None);
     assert_eq!(public.heading(), "Third Perspective from a reader");
@@ -641,7 +683,8 @@ fn submissions_are_bounded_plain_text_with_consent_to_publish() {
 fn targets_use_the_passage_target_json_restricted_to_the_work_or_a_section() {
     let read = |value: Value| PerspectiveTarget::from_value(&value);
     let work = read(json!({"version": 1, "kind": "work"})).unwrap();
-    assert_eq!(work, PerspectiveTarget::Work);
+    assert_eq!(work, PerspectiveTarget::work());
+    assert!(work.is_work());
     assert_eq!(work.to_json(), r#"{"version":1,"kind":"work"}"#);
     let section =
         read(json!({"version": 1, "kind": "section", "section": "methods", "digest": DIGEST}))
@@ -653,10 +696,7 @@ fn targets_use_the_passage_target_json_restricted_to_the_work_or_a_section() {
     let opening = read(json!({"version": 1, "kind": "section"})).unwrap();
     assert_eq!(
         opening,
-        PerspectiveTarget::Section {
-            section: None,
-            digest: None
-        },
+        PerspectiveTarget::section(None, None),
         "the text before the first heading"
     );
 
@@ -718,7 +758,7 @@ fn narrowing_consent_takes_effect_at_once_and_widening_waits_for_a_decision() {
     assert_eq!(outcome, ConsentOutcome::Recorded);
     assert_eq!(copy.consent().number, 2);
     let public = copy
-        .approved_response(&approved, true, &tides(), &whole())
+        .approved_response(&approved, ParticipationMode::Open, &tides(), &whole())
         .unwrap();
     assert_eq!(public.name, None, "hiding a name applies at once");
 
@@ -783,11 +823,21 @@ fn consent_revised_before_a_decision_binds_into_the_approval() {
     let binding = copy.check_approval(&pending, &request(1, 2)).unwrap();
     assert_eq!(binding.consent, 2);
     let public = copy
-        .approved_response(&approved_at(1, 2), true, &tides(), &whole())
+        .approved_response(
+            &approved_at(1, 2),
+            ParticipationMode::Open,
+            &tides(),
+            &whole(),
+        )
         .unwrap();
     assert_eq!(public.name.as_deref(), Some("Mina Okafor"));
     let public = copy
-        .approved_response(&approved_at(1, 1), true, &tides(), &whole())
+        .approved_response(
+            &approved_at(1, 1),
+            ParticipationMode::Open,
+            &tides(),
+            &whole(),
+        )
         .unwrap();
     assert_eq!(
         public.name, None,
@@ -816,7 +866,7 @@ fn revoking_publication_is_a_final_withdrawal() {
         assert!(!revoked.publish && !revoked.attribution.publish_name);
         assert_eq!(revoked.attribution.name.as_deref(), Some("Mina Okafor"));
         assert_eq!(
-            copy.approved_response(&facts(state), true, &tides(), &whole()),
+            copy.approved_response(&facts(state), ParticipationMode::Open, &tides(), &whole()),
             None
         );
         assert_eq!(
@@ -913,7 +963,7 @@ fn a_manual_copy_is_revoked_by_an_admin_removal_and_purge_and_cannot_be_clarifie
         assert!(!copy.consent().publish, "the consent change is recorded");
         assert_eq!(copy.consent().number, 2);
         assert_eq!(
-            copy.approved_response(&facts(state), true, &tides(), &whole()),
+            copy.approved_response(&facts(state), ParticipationMode::Open, &tides(), &whole()),
             None
         );
         assert!(SubmittedCopy::from_json(&copy.to_json()).is_ok());
@@ -965,7 +1015,7 @@ fn a_name_that_only_looks_like_a_credit_is_never_shown() {
         submitted(ReaderAttribution::named(name, true))
             .approved_response(
                 &facts(ModerationState::Approved),
-                true,
+                ParticipationMode::Open,
                 &work(credited),
                 &whole(),
             )
@@ -1041,17 +1091,35 @@ fn feature_consent_binds_to_one_approved_revision() {
         revision: 2,
     };
     assert_eq!(
-        copy.featured(&approved, true, &tides(), &whole(), &selection),
+        copy.featured(
+            &approved,
+            ParticipationMode::Open,
+            &tides(),
+            &whole(),
+            &selection
+        ),
         None
     );
     copy.revise_consent(&approved, feature, time("2026-10-28T08:00:00Z"))
         .unwrap();
     assert_eq!(copy.consent().feature_revision, Some(2));
     assert!(copy
-        .featured(&approved, true, &tides(), &whole(), &selection)
+        .featured(
+            &approved,
+            ParticipationMode::Open,
+            &tides(),
+            &whole(),
+            &selection
+        )
         .is_some());
     assert_eq!(
-        copy.featured(&approved, false, &tides(), &whole(), &selection),
+        copy.featured(
+            &approved,
+            ParticipationMode::Hidden,
+            &tides(),
+            &whole(),
+            &selection
+        ),
         None,
         "never featured while the kind is hidden"
     );
@@ -1469,8 +1537,9 @@ fn a_cleared_name_is_stored_and_read_back_as_cleared() {
 
 #[test]
 fn ids_and_json_match_the_participation_and_passage_seams() {
-    assert_eq!(KIND_ID, "third-perspective");
-    assert_eq!(KIND_LABEL, "Third Perspective");
+    assert_eq!(KIND, ParticipationKind::ThirdPerspective);
+    assert_eq!(KIND.id(), "third-perspective");
+    assert_eq!(KIND.label(), "Third Perspective");
     assert_eq!(
         ModerationState::ALL.map(ModerationState::id),
         [
@@ -1560,10 +1629,157 @@ fn stage_ids_follow_the_lifecycle() {
         ..tides()
     };
     let response = submitted(ReaderAttribution::anonymous())
-        .approved_response(&facts(ModerationState::Approved), true, &updated, &whole())
+        .approved_response(
+            &facts(ModerationState::Approved),
+            ParticipationMode::Open,
+            &updated,
+            &whole(),
+        )
         .unwrap();
     assert!(
         response.earlier_revision,
         "read on an earlier revision of the work"
     );
+}
+
+// ---------------------------------------------------------------------------
+// B5 and RD12, as ADR 0112 maps them
+
+#[test]
+fn a_perspective_target_is_a_b5_passage_target_that_refuses_quotations() {
+    use openblog_core::passage_target::{PassageDocument, PassageTarget};
+    let document = PassageDocument::from_sections(vec![
+        (None, "The opening.".into()),
+        (Some("methods".into()), "How the tides were read.".into()),
+    ]);
+    let work = PerspectiveTarget::try_from(document.work_target()).unwrap();
+    assert!(work.is_work());
+    let section = PerspectiveTarget::try_from(document.section_target(1).unwrap()).unwrap();
+    assert_eq!(section.section_id(), Some("methods"));
+    assert_eq!(
+        PassageTarget::from(section.clone()),
+        document.section_target(1).unwrap()
+    );
+    let quote = document.quote(1, 4, 9).unwrap();
+    assert_eq!(
+        PerspectiveTarget::try_from(quote).unwrap_err().code,
+        ErrorCode::TargetNotAllowed
+    );
+    // The same JSON as B5's, field for field.
+    assert_eq!(
+        section.to_json(),
+        document.section_target(1).unwrap().to_json()
+    );
+}
+
+#[test]
+fn target_status_comes_from_b5_resolution() {
+    use openblog_core::passage_target::PassageDocument;
+    let before = PassageDocument::from_sections(vec![
+        (None, "The opening.".into()),
+        (Some("methods".into()), "How the tides were read.".into()),
+    ]);
+    let target = before.section_target(1).unwrap();
+    let current = before.resolve(&target, Some(&before.revision));
+    assert_eq!(
+        TargetStatus::from(&current),
+        TargetStatus::Current {
+            section: Some("methods".into())
+        }
+    );
+    let moved = PassageDocument::from_sections(vec![
+        (None, "The opening.".into()),
+        (Some("method".into()), "How the tides were read.".into()),
+    ]);
+    assert_eq!(
+        TargetStatus::from(&moved.resolve(&target, Some(&before.revision))),
+        TargetStatus::Current {
+            section: Some("method".into())
+        },
+        "re-anchored text is current at its new heading"
+    );
+    let changed = PassageDocument::from_sections(vec![
+        (None, "The opening.".into()),
+        (Some("methods".into()), "Entirely new text.".into()),
+    ]);
+    assert_eq!(
+        TargetStatus::from(&changed.resolve(&target, Some(&before.revision))),
+        TargetStatus::Stale {
+            section_present: true
+        }
+    );
+}
+
+#[test]
+fn moderation_facts_come_from_rd12_item_facts() {
+    use openblog_core::moderation::ItemFacts;
+    let item = ItemFacts {
+        id: "11111111-1111-4111-8111-111111111111",
+        kind: ParticipationKind::ThirdPerspective,
+        work: Some("/posts/tides/"),
+        parent: None,
+        state: ModerationState::Approved,
+        version: 3,
+        revision: 1,
+        approved_revision: Some(1),
+        clarification_asked: None,
+        clarification_consent: true,
+        content_retained: true,
+        state_since: received(),
+    };
+    assert_eq!(
+        ModerationFacts::from_item(&item, Some(1)),
+        facts(ModerationState::Approved)
+    );
+    let pending = ItemFacts {
+        state: ModerationState::Pending,
+        approved_revision: None,
+        ..item
+    };
+    assert_eq!(
+        ModerationFacts::from_item(&pending, Some(1)).approved_consent,
+        None,
+        "an approval's consent is read only while approved"
+    );
+}
+
+#[test]
+fn only_a_mode_that_shows_approved_items_shows_a_response_and_never_text_asked_about() {
+    let copy = submitted(ReaderAttribution::anonymous());
+    let approved = facts(ModerationState::Approved);
+    for (mode, shown) in [
+        (ParticipationMode::Open, true),
+        (ParticipationMode::Locked, true),
+        (ParticipationMode::Hidden, false),
+    ] {
+        assert_eq!(
+            copy.approved_response(&approved, mode, &tides(), &whole())
+                .is_some(),
+            shown,
+            "{}",
+            mode.id()
+        );
+    }
+    let asked = ModerationFacts {
+        clarification_asked: Some(1),
+        ..approved
+    };
+    assert!(copy
+        .approved_response(&asked, ParticipationMode::Open, &tides(), &whole())
+        .is_none());
+}
+
+#[test]
+fn a_public_response_names_its_kind_by_the_registry_id() {
+    let response = submitted(ReaderAttribution::anonymous())
+        .approved_response(
+            &facts(ModerationState::Approved),
+            ParticipationMode::Open,
+            &tides(),
+            &whole(),
+        )
+        .unwrap();
+    assert_eq!(response.kind, ParticipationKind::ThirdPerspective);
+    let value: Value = serde_json::from_str(&response.to_json()).unwrap();
+    assert_eq!(value["kind"], "third-perspective");
 }

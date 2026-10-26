@@ -7,8 +7,8 @@
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
 - Builds on: [ADR 0109](0109-third-perspectives-are-reader-reflections-with-optional-prompts-and-four-distinct-stages.md),
   [ADR 0110](0110-submission-consent-is-an-append-only-record-and-anonymous-display-keeps-provenance.md),
-  RD12's moderation state machine (ADR 0102 on `story/rd12-moderation`), B5's target resolution
-  (ADR 0077 on `story/b5-passage-feedback`)
+  RD12's moderation state machine ([ADR 0102](0102-one-moderation-state-machine-where-everything-starts-pending.md)), B5's target resolution
+  ([ADR 0077](0077-targets-resolve-as-current-reanchored-or-stale.md))
 - Coordinates with: [#225](https://github.com/journey-to-code-org/open.blog/issues/225)
   (moderation inbox), [#222](https://github.com/journey-to-code-org/open.blog/issues/222)
   (status and portable fallback), [#214](https://github.com/journey-to-code-org/open.blog/issues/214)

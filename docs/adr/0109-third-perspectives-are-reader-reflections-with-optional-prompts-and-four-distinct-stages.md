@@ -7,8 +7,8 @@
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
 - Builds on: [ADR 0026](0026-publishing-approved-synthesis-in-the-post.md),
   [ADR 0040](0040-contributor-aware-series-navigation.md), B5's passage targets and feedback
-  provenance (ADRs 0076 and 0078 on `story/b5-passage-feedback`), RD12's participation registry
-  (ADR 0101 on `story/rd12-moderation`)
+  provenance ([ADR 0076](0076-passage-targets-are-section-anchors-with-quoted-context.md) and [ADR 0078](0078-feedback-provenance-records-the-revision-seen-and-consent.md)), RD12's participation registry
+  ([ADR 0101](0101-one-registry-of-participation-kinds-enabled-per-site-and-post.md))
 - Coordinates with: [#221](https://github.com/journey-to-code-org/open.blog/issues/221) and
   [#222](https://github.com/journey-to-code-org/open.blog/issues/222) (RD10 submission and
   status), [#211](https://github.com/journey-to-code-org/open.blog/issues/211) (participation
