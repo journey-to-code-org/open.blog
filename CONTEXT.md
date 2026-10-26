@@ -41,13 +41,6 @@ where a link to the live version follows it). It is plain Markdown with no raw H
 only absolute https links, and is never generated from the demo's behavior.
 _Avoid_: Alt text, caption, placeholder
 
-**Lesson completion mark**:
-A record, set only by the reader pressing a button and only after they opt in to reading history, that
-one lesson of a series is complete. It lives in that reader's browser, never counts a visit, and is
-what themes may respond to (progress, levels). It is not reading history ("last visited") and it is
-not a score.
-_Avoid_: Progress when a visit or scroll is meant, read, viewed
-
 ## Shared publication collaboration
 
 These terms describe private collaboration before publication. They do not replace the public
