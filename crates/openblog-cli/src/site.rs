@@ -908,7 +908,8 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
             preview_source: None,
         },
     )?;
-    let (files, boundary) = generate_site_with_boundary(root, &mut site, &themes)?;
+    let (files, boundary) = generate_site_with_boundary(root, &mut site, &themes)
+        .map_err(|error| crate::readiness::alongside(root, &site, error))?;
     // The one research report, read before anything is written: a failure of a
     // private file the build reads refuses the build while the output folder is
     // still exactly as it was (ADR 0148). Every other finding is for the

@@ -236,6 +236,11 @@ fn a_failure_of_a_file_the_build_reads_is_reported_by_check_and_stops_build_befo
 
     let refused = run(&root, &["build"]);
     assert!(!refused.status.success());
+    let refusal = text(&refused.stderr);
+    assert!(
+        refusal.contains("research blocking") && refusal.contains("[atlas: "),
+        "a refused build prints the report beside the error: {refusal}"
+    );
     assert_eq!(
         snapshot(&root),
         before,

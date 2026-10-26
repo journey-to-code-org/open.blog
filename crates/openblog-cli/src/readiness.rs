@@ -157,6 +157,23 @@ pub fn report_of_all(root: &Path, site: &Site) -> Readiness {
     }
 }
 
+/// A build error with the research report beside it, for a site that has
+/// research, so the findings behind a refusal are listed with the same codes
+/// and order `check` and Admin show (ADR 0148). The error is unchanged, and
+/// a site without research gets exactly the error it always got.
+pub fn alongside(root: &Path, site: &Site, error: String) -> String {
+    let report = report(root, site);
+    let text = report.text();
+    if !report.applies || text.is_empty() {
+        return error;
+    }
+    format!(
+        "{error}
+{}",
+        text.trim_end()
+    )
+}
+
 /// Everything the research checks say about the site: each owning validator's
 /// findings, in the contract's shape. The order is the contract's, whatever
 /// order they are gathered in.
