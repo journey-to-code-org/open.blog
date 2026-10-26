@@ -2120,6 +2120,7 @@ mod tests {
                 credits: Vec::new(),
                 series: vec![src("series/s.md", "---\nname: Series S\ntheme: loud\n---\nAbout S")],
                 pages: vec![src("pages/about.md", "---\ntitle: About\nnav: true\n---\nHi")],
+                source_library: None,
             },
             LoadOptions::default(),
         )

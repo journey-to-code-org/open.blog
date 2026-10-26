@@ -71,6 +71,10 @@ pub struct RenderOptions<'a> {
     pub code_runner: Option<CodeRunnerRenderOptions<'a>>,
     /// Site-hosted libraries `web runnable` fences may name with `libs=`.
     pub web_libraries: Option<&'a BTreeMap<String, Vec<String>>>,
+    /// Set for a post whose citations were published as notes: the native
+    /// page gives those generated notes accessible citation anchors and links
+    /// back to each citation. `None` renders every footnote as before.
+    pub citation_notes: Option<crate::bibliography::CitationNoteLabels<'a>>,
 }
 
 impl Default for RenderOptions<'_> {
@@ -83,6 +87,7 @@ impl Default for RenderOptions<'_> {
             recipe: false,
             code_runner: None,
             web_libraries: None,
+            citation_notes: None,
         }
     }
 }
@@ -1269,6 +1274,90 @@ fn apply_portable_footnotes<'a>(
         .collect()
 }
 
+/// Give generated citation notes accessible anchors on the native page: each
+/// marker is a `doc-noteref` link with a visually hidden "Citation" before its
+/// number and an id of its own, and each note ends with a `doc-backlink` to
+/// every place it is cited. The author's own footnotes are written exactly as
+/// the HTML writer writes them, with the same numbers (first use), because
+/// every footnote in the post shares one numbering.
+fn apply_citation_notes<'a>(
+    events: Vec<Event<'a>>,
+    labels: crate::bibliography::CitationNoteLabels<'_>,
+) -> Vec<Event<'a>> {
+    let mut uses: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for event in &events {
+        if let Event::FootnoteReference(name) = event {
+            if labels.number(name).is_some() {
+                *uses.entry(name.to_string()).or_default() += 1;
+            }
+        }
+    }
+    let mut numbers: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut open_note: Option<(String, usize)> = None;
+    let mut out = Vec::with_capacity(events.len());
+    for event in events {
+        let (name, reference) = match &event {
+            Event::FootnoteReference(name) => (name.to_string(), true),
+            Event::Start(Tag::FootnoteDefinition(name)) => (name.to_string(), false),
+            Event::End(TagEnd::Paragraph) => {
+                // The note's text is one paragraph; its links back close it.
+                if let Some((name, number)) = open_note.take() {
+                    let count = uses.get(&name).copied().unwrap_or(0);
+                    for occurrence in 1..=count {
+                        let which = if count > 1 {
+                            format!(" ({occurrence})")
+                        } else {
+                            String::new()
+                        };
+                        out.push(Event::Html(CowStr::from(format!(
+                            " <a class=\"ob-citation-back\" href=\"#{}-ref-{occurrence}\" role=\"doc-backlink\"><span aria-hidden=\"true\">\u{21a9}\u{fe0e}</span><span class=\"ob-visually-hidden\">{} {number}{which}</span></a>",
+                            escape::attr(&name),
+                            escape::text(labels.locale.back_words())
+                        ))));
+                    }
+                }
+                out.push(event);
+                continue;
+            }
+            _ => {
+                out.push(event);
+                continue;
+            }
+        };
+        let next = numbers.len() + 1;
+        let number = *numbers.entry(name.clone()).or_insert(next);
+        let generated = labels.number(&name).is_some();
+        let html = match (reference, generated) {
+            (true, true) => {
+                let occurrence = seen.entry(name.clone()).or_default();
+                *occurrence += 1;
+                format!(
+                    "<sup class=\"footnote-reference ob-citation\"><a href=\"#{name}\" id=\"{name}-ref-{occurrence}\" role=\"doc-noteref\"><span class=\"ob-visually-hidden\">{} </span>{number}</a></sup>",
+                    escape::text(labels.locale.citation_word()),
+                    name = escape::attr(&name),
+                )
+            }
+            (true, false) => format!(
+                "<sup class=\"footnote-reference\"><a href=\"#{}\">{number}</a></sup>",
+                escape::attr(&name)
+            ),
+            (false, generated) => {
+                if generated {
+                    open_note = Some((name.clone(), number));
+                }
+                format!(
+                    "<div class=\"footnote-definition{}\" id=\"{}\"><sup class=\"footnote-definition-label\">{number}</sup>",
+                    if generated { " ob-citation-note" } else { "" },
+                    escape::attr(&name)
+                )
+            }
+        };
+        out.push(Event::Html(CowStr::from(html)));
+    }
+    out
+}
+
 /// A chapter list for a tight bulleted list whose items are all timestamp
 /// lines (`- 00:00 Intro`), with the number of events it replaces.
 fn chapter_list(events: &[Event<'_>], video_id: Option<&str>) -> Option<(usize, String)> {
@@ -1824,6 +1913,11 @@ fn render_events<'a>(
         options.web_libraries,
         portable,
     );
+    // After block transforms, which track footnote containers by their events.
+    let events = match (portable, options.citation_notes) {
+        (None, Some(labels)) => apply_citation_notes(events, labels),
+        _ => events,
+    };
     let mut html = String::with_capacity(source_length * 2);
     pulldown_cmark::html::push_html(&mut html, events.into_iter());
     if options.lazy_images {

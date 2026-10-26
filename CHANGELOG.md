@@ -11,6 +11,50 @@ All notable changes to open.blog are recorded here. Releases follow
   have a defined home in concept entries; existing notebooks are unchanged. Nothing reads or writes
   an atlas yet, so no site output changes.
 
+## [0.27.0] - 2026-10-25
+
+- Defined how citations work, ahead of in-post citations: a citation is `[@key]` or
+  `[@key, page 514; canonical 514a to 520a]`, where the key is a source library id and the
+  locators are the notebook's. It is opt-in, so existing posts, links and footnotes render exactly
+  as before. Only the key, the locators and the formatted reference can become public, never
+  notebook text. CSL import and export now state what is stored, kept as-is, or reported as lost,
+  including citation locators. Nothing on your site changes yet.
+- You can now insert and edit citations from the Admin Write view. **Cite** searches your source
+  library, takes optional locators or copies them from a notebook passage (never its quotation or
+  notes), and inserts `[@key, page 514]` only after the server checks it the way a build will read
+  it. In Visual mode every citation, including hand-written ones, is a chip that keeps its exact
+  Markdown, and Ctrl+Z right after inserting restores the draft and caret exactly. If the library
+  changed meanwhile, nothing is inserted and your choices are kept.
+- Citations are now found with the same Markdown parser the renderer uses, so code, comments,
+  defined `[@label]` links and list continuations are read the same way everywhere. Identifiers in
+  private schemes (such as a local file path) and extra fields on notebook locators are never
+  published with a citation, and CSL citation items keep custom labels and normalise ids the way
+  reference import does.
+- Citations typed or pasted in Visual mode now become chips, and a line whose citations the
+  visual editor cannot read exactly as a build does (such as one inside link text) is kept
+  verbatim instead of being rewritten. Cite refuses a caret inside code or a link in either mode
+  and explains why in the still-open dialog. CSL export writes the current `sub-verbo` label.
+- Posts can now publish their citations. Add `citations: notes` or `citations: bibliography` to a
+  post's front matter and each `[@key, locator]` becomes a numbered note (or a reference list
+  entry) built from the source library, in English, German, French or Spanish. The page, portable
+  copies, feeds and `llms.txt` all show the same notes, and on the page each marker and note link
+  to each other for keyboard and screen-reader users. Only the cited sources' public description
+  is published. An unknown key or ambiguous page stops that post with its line and a fix. Posts
+  without `citations` are unchanged.
+- A draft (or a post waiting for its date) with an unresolved citation no longer stops the build
+  or previews of other posts: it gets a warning and keeps the citation as text until it publishes.
+  A source library edit that would break a published post's citations is refused and names the
+  post and line. `citations: yes` and `on` now work like `true`. **Cite** also refuses a caret
+  inside an autolink, indented code, HTML, a comment, or a code span or link that spans lines.
+- `openblog check`, builds and Evidence Studio now review a post's citations offline in four
+  separate kinds of finding: citations that cannot be read, keys or pages that do not resolve,
+  cited sources missing a detail readers need (such as a title, date or journal), and the cited
+  locations only you can check against the source. Nothing is looked up online, and no finding
+  says whether a source is right or supports a claim. `openblog export <slug> --format
+  csl-json` (or `bibtex`) and Evidence Studio's **Download cited references** save a post's
+  cited references for reference managers, holding only what its notes show and listing
+  anything the format cannot carry.
+
 ## [0.26.1] - 2026-10-25
 
 - Two people saving to the same shared reflection at once (drafts, invitations, members, reveal

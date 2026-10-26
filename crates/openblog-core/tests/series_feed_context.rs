@@ -146,6 +146,7 @@ fn sources(collaborative: bool) -> Sources {
             series_file("letters", "Letters"),
         ],
         pages: vec![],
+        ..Default::default()
     }
 }
 

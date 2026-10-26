@@ -14,7 +14,7 @@ use std::fmt;
 use serde_json::{Map, Value};
 
 use crate::research_notes::{
-    bidi_override, locator_problem, resolved_kind, Locator, LocatorKind, Notebook,
+    bidi_override, locator_ambiguity, resolved_kind, Locator, LocatorKind, Notebook,
 };
 use crate::source_library::{
     valid_source_id, valid_timestamp, ResearchSourceKind, SourceLibrary, LOCATION_SCHEMES,
@@ -2086,7 +2086,7 @@ fn check_evidence(
     } else {
         let target = resolved_kind(links.library, &evidence.source);
         for (position, locator) in evidence.locators.iter().enumerate() {
-            if let Some(message) = locator_problem(target, &locator.kind, &evidence.source) {
+            if let Some(message) = locator_ambiguity(target, &evidence.source, locator) {
                 diagnostics.push(report(
                     AtlasDiagnosticCode::AmbiguousLocator,
                     &format!("{path}.locators[{position}].kind"),

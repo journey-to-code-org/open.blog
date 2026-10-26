@@ -845,6 +845,25 @@ fn parse_note(
     }
 }
 
+/// Why a locator cannot address the source it is attached to, if it cannot.
+/// Shared by notebook passages and citations so both refuse the same
+/// ambiguous page and folio locators.
+pub(crate) fn locator_ambiguity(
+    target: Option<ResearchSourceKind>,
+    source: &str,
+    locator: &Locator,
+) -> Option<String> {
+    match locator.kind {
+        LocatorKind::Page if target == Some(ResearchSourceKind::Work) => Some(format!(
+            "pages differ between editions of a work; point the passage at the edition, translation, or witness whose pages are cited, not `{source}`"
+        )),
+        LocatorKind::Folio if target != Some(ResearchSourceKind::Witness) => Some(format!(
+            "folios belong to one manuscript or copy; point the passage at a witness, not `{source}`"
+        )),
+        _ => None,
+    }
+}
+
 /// The kind of source record a locator is checked against: a reference stands
 /// for the edition, translation, witness, or work it points at.
 pub(crate) fn resolved_kind(library: &SourceLibrary, id: &str) -> Option<ResearchSourceKind> {
@@ -856,24 +875,6 @@ pub(crate) fn resolved_kind(library: &SourceLibrary, id: &str) -> Option<Researc
         record = library.get(record.of.as_deref()?)?;
     }
     Some(record.kind)
-}
-
-/// Why a locator kind cannot address the record it is paired with, if so:
-/// pages differ between editions of a work and folios belong to one witness.
-pub(crate) fn locator_problem(
-    target: Option<ResearchSourceKind>,
-    kind: &LocatorKind,
-    source: &str,
-) -> Option<String> {
-    match kind {
-        LocatorKind::Page if target == Some(ResearchSourceKind::Work) => Some(format!(
-            "pages differ between editions of a work; point the passage at the edition, translation, or witness whose pages are cited, not `{source}`"
-        )),
-        LocatorKind::Folio if target != Some(ResearchSourceKind::Witness) => Some(format!(
-            "folios belong to one manuscript or copy; point the passage at a witness, not `{source}`"
-        )),
-        _ => None,
-    }
 }
 
 fn entry_diagnostic(
@@ -1267,7 +1268,7 @@ fn check_relationships(
         let target = resolved_kind(library, &passage.source);
         for (position, locator) in passage.locators.iter().enumerate() {
             let field = format!("locators[{position}].kind");
-            let message = locator_problem(target, &locator.kind, &passage.source);
+            let message = locator_ambiguity(target, &passage.source, locator);
             if let Some(message) = message {
                 diagnostics.push(report(
                     NoteDiagnosticCode::AmbiguousLocator,
