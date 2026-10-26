@@ -311,12 +311,13 @@ test("hostile or malformed requests are refused without echoing what was written
 
 // ---- Moderation through the one inbox
 
-const decide = async (row, body, { env = environment, parent = perspective(), modes = {} } = {}) => {
+const decide = async (row, body, { env = environment, parent = perspective(), modes = {}, shown = [] } = {}) => {
   const database = fakeDatabase((entry) => {
     if (entry.path.endsWith("/rpc/openblog_moderate_feedback_item")) return [{ ...row, status: entry.body.p_to, version: row.version + 1, approved_revision: entry.body.p_to === "approved" ? 1 : null }];
     if (entry.method === "GET" && entry.path.endsWith("/openblog_feedback")) {
       if (entry.params.id === `eq.${row.id}`) return [row];
       if (entry.params.id === `eq.${ID(1)}`) return parent ? [parent] : [];
+      if (entry.params["details->>parent"]) return shown;
     }
     return [];
   });
@@ -380,6 +381,36 @@ test("nobody approves their own answer, and an answer never outlives or contradi
   assert.equal(writes(rejected.database)[0].body.p_to, "rejected");
   const removed = await decide(answerRow({ status: "approved", approved_revision: 1, version: 2 }), { action: "remove", reason: "other", from: "approved", expectedVersion: 2, actor: "mina-admin" }, { parent: null });
   assert.equal(removed.response.statusCode, 200, "the author may take their own words down");
+});
+
+test("a report about an answer whose parent is hidden answers as an answer that does not exist", async () => {
+  const shown = answerRow({ status: "approved", approved_revision: 1, version: 2 });
+  const report = async (parent, { database = fakeDatabase(store({ parent, answer: shown })) } = {}) => ({
+    database,
+    response: await handlerFor(database, { modes: { "abuse-report": "open" } })(event("reports", "POST", { headers: ORIGIN, body: { source: "feedback", id: ID(2), ground: "spam" } })),
+  });
+  const accepted = await report(perspective());
+  assert.equal(accepted.response.statusCode, 202);
+  for (const [name, parent] of [
+    ["a parent taken down", perspective({ status: "removed" })],
+    ["a parent whose reader revoked consent", perspective({ details: { consents: [...perspective().details.consents, { number: 2, givenAt: "2026-10-27T00:00:00Z", publish: false, attribution: { publishName: false }, clarification: false }] } })],
+    ["a parent about another author's section", perspective({ target: { ...MINA_TARGET, section: "ob-by-joe-0" } })],
+    ["no parent at all", null],
+  ]) {
+    const refused = await report(parent);
+    assert.equal(refused.response.statusCode, 404, name);
+    assert.equal(JSON.parse(refused.response.body).code, "unavailable", name);
+    assert.equal(writes(refused.database).filter((entry) => entry.path.endsWith("/openblog_abuse_reports")).length, 0, name);
+  }
+});
+
+test("two answers stored in the same instant are never both shown", async () => {
+  const racing = await decide(answerRow(), {}, { shown: [{ id: ID(9) }] });
+  assert.equal(racing.response.statusCode, 409);
+  assert.equal(racing.answer.code, "alreadyAnswered");
+  assert.equal(writes(racing.database).length, 0);
+  const query = racing.database.requests.find((entry) => entry.params["details->>parent"] && entry.params.status === "eq.approved");
+  assert.equal(query.params.id, `neq.${ID(2)}`);
 });
 
 test("an author is never asked to clarify, and a stale decision is a conflict", async () => {

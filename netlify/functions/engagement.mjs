@@ -876,6 +876,11 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
           : facts.state === "approved" && target.approved_revision === facts.revision && facts.clarificationAsked !== facts.revision
             && (facts.kind !== THIRD_PERSPECTIVE_KIND || perspectivePublic(target) !== false) && await feedbackPolicy(settings, work, facts.kind) !== "hidden";
         if (!facts.retained || !shown) return unavailable();
+        // An answer is shown only under a Third Perspective shown now and about its own responder's
+        // section (ADR 0168), so a hidden answer, whose parent is gone, answers `unavailable` exactly
+        // as an answer that does not exist and its existence does not leak.
+        if (source === "feedback" && facts.kind === AUTHOR_RESPONSE_KIND
+          && (await answerParentCode(settings, work, target.details?.parent, target.details?.responder?.contributor)).code !== null) return unavailable();
         const mode = await feedbackPolicy(settings, work, "abuse-report");
         if (mode !== "open") return unavailable();
         if (!await consumeQuota(settings, event, "reports", 5, 500)) return json(429, { error: "Too many reports from here. Please try again later.", code: "rateLimited" }, corsOrigin);
@@ -1072,6 +1077,17 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
               if (!mayDecideResponse(row.details?.binding?.account, auditActor(body.actor), "approve")) return refused("denied");
               const { code } = await answerParentCode(settings, row.work, row.details?.parent, row.details?.responder?.contributor);
               if (code) return answerParentRefusal(code, corsOrigin, await itemOf(row));
+              // Two answers written in the same instant can both be stored pending (no constraint
+              // stops it without a schema change), so at most one is ever shown: approving one while
+              // another is shown under the same parent is refused (ADR 0166).
+              const shown = new URLSearchParams({
+                site_id: `eq.${settings.siteId}`, kind: `eq.${AUTHOR_RESPONSE_KIND}`, "details->>parent": `eq.${row.details?.parent}`,
+                status: "eq.approved", purged_at: "is.null", id: `neq.${row.id}`, select: "id", limit: "1",
+              });
+              const others = await database(settings, `/rest/v1/openblog_feedback?${shown}`);
+              if (Array.isArray(others) && others.length) {
+                return json(409, { error: "Another answer to this reflection is already shown. Reject or remove one of them.", code: "alreadyAnswered" }, corsOrigin);
+              }
             }
             return changed(await applyInboxChange(settings, source, id, plan.change, version, auditActor(body.actor), role));
           }

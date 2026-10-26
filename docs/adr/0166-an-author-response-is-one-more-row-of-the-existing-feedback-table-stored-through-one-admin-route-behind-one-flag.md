@@ -53,13 +53,25 @@ make the whole feature opt-in.
   Nothing a refusal says repeats what anyone wrote.
 - **B5's own route never decides an answer.** `/admin/feedback` answers `409 useModerationInbox`,
   as it does for a Third Perspective, so no decision skips the checks of ADR 0168.
-- **Withdrawal keeps the row.** The author takes an answer back (`PATCH`, the account that wrote
-  it, while pending or approved) through RD12's `withdraw` as the submitter, by the same moderation
-  function as every other change; the text, responder and audit event stay until retention purges
-  the text like any closed item, and it is never public again. This is the "edits and removals
-  preserve provenance" rule: an answer is never edited in place (the author withdraws and writes
-  another), and neither a coordinator's removal nor a withdrawal discards who wrote it before the
-  retention period; the audit event (account, role, action, time) outlives the text.
+- **Withdrawal keeps the row until retention purges it.** The author takes an answer back
+  (`PATCH`, the account that wrote it, while pending or approved) through RD12's `withdraw` as the
+  submitter, by the same moderation function as every other change, and it is never public again.
+  An answer is never edited in place (the author withdraws and writes another). While the row is
+  retained, its text, `details` (so the responder and the binding) and audit event stay, which is
+  the "edits and removals preserve provenance" rule. Retention then purges it like any closed
+  item: `openblog_purge_feedback_item` (`supabase/feedback.sql`) empties `body` and sets `details`
+  to `'{}'`, so the responder's contributor, name, standing and binding go with the text. What
+  outlives the purge is the row's own facts (kind, work, state, times, version) and the audit
+  events (account, role, action, time), which hold no text. This decision does not keep the public
+  responder fields past the purge: that would take a schema or function change, which this feature
+  avoids (nothing here changes `supabase/`).
+- **A race is possible and is accepted.** "One answer pending or approved per reflection" is
+  checked by reading the rows (`409 alreadyAnswered`) and then inserting, with no database
+  constraint, because adding one would be a schema change. Two answers sent in the same instant
+  (the same author on two devices, or two contributors) can both pass the read and both be stored,
+  both pending. Nothing becomes public by it: each is still moderated on its own, and approving a
+  second answer under a parent that already shows one is refused at approval by the same check
+  (`409 alreadyAnswered`), so at most one is ever shown. The moderator rejects the extra one.
 
 ## Considered options
 
