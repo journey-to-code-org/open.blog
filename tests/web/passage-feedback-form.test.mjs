@@ -252,7 +252,8 @@ for (const name of ["localStorage", "sessionStorage", "indexedDB"]) {
   });
 }
 const { locateSelection, offeredKinds, quoteFromSelection, readPassages, safeContact } = await import("../../web/components/ob-passage-feedback.js");
-const { feedbackCopyText, readFeedbackSubmissionJson } = await import("../../web/components/passage-feedback.js");
+const { feedbackCopyText, readEvidenceSubmissionJson, readFeedbackSubmissionJson } = await import("../../web/components/passage-feedback.js");
+const { readEvidenceChoices } = await import("../../web/components/ob-passage-feedback.js");
 
 const HOSTILE = "<img src=x onerror=alert(1)> & </script>";
 const REVISION = "p1:0123456789abcdef0123456789abcdef";
@@ -273,12 +274,17 @@ const DATA = {
  * A post page: the article's prose (with a heading anchor link and a note
  * marker the build's text leaves out), the feedback region and the data.
  */
-function page({ data = JSON.stringify(DATA), endpoint = "https://t.dev/api", contact, kinds, connect = true } = {}) {
+function page({ data = JSON.stringify(DATA), endpoint = "https://t.dev/api", contact, kinds, evidence, connect = true } = {}) {
   globalThis.document = new FakeDocument();
   globalThis.window = new Target();
   const script = new Element("script");
   script.id = "ob-passages";
   script.textContent = data;
+  const evidenceScript = new Element("script");
+  if (evidence !== undefined) {
+    evidenceScript.id = "ob-evidence-references";
+    evidenceScript.textContent = typeof evidence === "string" ? evidence : JSON.stringify(evidence);
+  }
   const article = new Element("article");
   const prose = new Element("div");
   prose.className = "ob-prose e-content";
@@ -317,6 +323,7 @@ function page({ data = JSON.stringify(DATA), endpoint = "https://t.dev/api", con
   host.setAttribute("page", "https://t.dev/tides/");
   if (contact !== undefined) host.setAttribute("contact", contact);
   if (kinds !== undefined) host.setAttribute("kinds", kinds);
+  if (evidence !== undefined) host.setAttribute("evidence", "");
   const intro = new Element("p");
   intro.textContent = "Ask a question about a passage.";
   const fallback = new Element("p");
@@ -325,7 +332,7 @@ function page({ data = JSON.stringify(DATA), endpoint = "https://t.dev/api", con
   host.append(intro, fallback);
   section.append(host);
   article.append(prose, section);
-  document.body.append(script, article);
+  document.body.append(script, ...(evidence !== undefined ? [evidenceScript] : []), article);
   if (connect) host.connectedCallback();
   return { host, prose, node, article, intro, fallback, articleText: prose.textContent };
 }
@@ -889,4 +896,137 @@ test("the element shim mirrors the browser's own reflected properties", () => {
   for (const property of ["title", "hidden", "popover", "lang", "dir", "role", "id"]) {
     assert.ok(!Object.hasOwn(view.host, property), property);
   }
+});
+
+// ---- The evidence offer (ADR 0138)
+
+const CHOICES = {
+  version: 1,
+  claims: [
+    { id: "tide-height", label: "Claim 1: The tide rises 3 m", links: [{ id: "tide-height-noaa", label: "Supported by NOAA 2020" }] },
+    { id: "moon", label: `Claim 2: ${HOSTILE}`, links: [] },
+  ],
+  citations: [{ id: "noaa-2020", label: "NOAA tide tables (2020)" }],
+  sources: [{ id: "admiralty-1990", label: "Admiralty tide tables (1990)" }, { id: "noaa-2020", label: "NOAA tide tables (2020)" }],
+};
+
+test("evidence is offered only for a suggested source or correction, labelled, from published choices only", () => {
+  const view = page({ evidence: CHOICES });
+  const ui = parts(view.host);
+  const fieldset = view.host.find("ob-passage-feedback-evidence");
+  assert.ok(fieldset, "the evidence fieldset is built");
+  assert.equal(fieldset.children[0].localName, "legend");
+  assert.ok(fieldset.hidden, "a question offers no evidence");
+  for (const kind of ["source-suggestion", "correction-suggestion"]) {
+    fill(view, { kind });
+    assert.ok(!fieldset.hidden, kind);
+  }
+  fill(view, { kind: "alternative-interpretation" });
+  assert.ok(fieldset.hidden);
+  fill(view, { kind: "correction-suggestion" });
+  // Every control has one label; hostile labels stay text.
+  for (const control of fieldset.all().filter((node) => ["input", "select"].includes(node.localName))) {
+    assert.equal(view.host.all().filter((node) => node.localName === "label" && node.htmlFor === control.id).length, 1, control.id);
+  }
+  const claim = ui.control("claim");
+  assert.deepEqual(claim.options.map((option) => option.value), ["", "tide-height", "moon"]);
+  assert.equal(claim.options[2].textContent, `Claim 2: ${HOSTILE}`);
+  // The evidence links follow the claim chosen; none until then.
+  const link = ui.control("evidence-link");
+  assert.ok(link.disabled);
+  claim.value = "tide-height";
+  claim.dispatch("change");
+  assert.ok(!link.disabled);
+  assert.deepEqual(link.options.map((option) => option.value), ["", "tide-height-noaa"]);
+  claim.value = "moon";
+  claim.dispatch("change");
+  assert.ok(link.disabled, "a claim without published links offers none");
+  // Where in the source waits for a source.
+  assert.ok(ui.control("locator").disabled);
+  ui.control("offered").value = "admiralty-1990";
+  ui.control("offered").dispatch("change");
+  assert.ok(!ui.control("locator").disabled);
+  // The stance is one radio group, "not saying" first and chosen.
+  const stances = fieldset.all().filter((node) => node.type === "radio");
+  assert.deepEqual(stances.map((radio) => radio.value), ["", "supports", "contradicts", "contextualizes"]);
+  assert.equal(new Set(stances.map((radio) => radio.name)).size, 1);
+  assert.ok(stances[0].checked);
+});
+
+test("the chosen evidence is sent as a validated version 2 submission, and nothing chosen stays version 1", async () => {
+  const view = page({ evidence: CHOICES });
+  const calls = fakeFetch(...Array(2).fill({ status: 202 }));
+  const ui = fill(view, { kind: "correction-suggestion", passage: "section", body: "The height is wrong." });
+  ui.control("claim").value = "tide-height";
+  ui.control("claim").dispatch("change");
+  ui.control("evidence-link").value = "tide-height-noaa";
+  ui.control("offered").value = "admiralty-1990";
+  ui.control("offered").dispatch("change");
+  ui.control("locator").value = " 40 ";
+  ui.control("locator-to").value = "41";
+  view.host.all().find((node) => node.type === "radio" && node.value === "contradicts").checked = true;
+  submit(view);
+  await tick();
+  const [call] = calls;
+  assert.equal(call.body.version, 2);
+  assert.deepEqual(call.body.evidence, {
+    claim: "tide-height", evidenceLink: "tide-height-noaa", source: "admiralty-1990",
+    locators: [{ kind: "page", value: "40", to: "41" }], stance: "contradicts",
+  });
+  assert.ok(readEvidenceSubmissionJson(call.options.body).ok);
+  // After success the offer is cleared, so the next note starts with nothing named.
+  assert.equal(ui.control("claim").value, "");
+  assert.ok(view.host.all().find((node) => node.type === "radio" && node.value === "").checked);
+  fill(view, { kind: "correction-suggestion", passage: "section", body: "Another." });
+  submit(view);
+  await tick();
+  assert.equal(calls[1].body.version, 1);
+  assert.equal(calls[1].body.evidence, undefined);
+});
+
+test("evidence problems are announced on their own field, and nothing is sent", () => {
+  const view = page({ evidence: CHOICES });
+  noFetch();
+  let ui = fill(view, { kind: "correction-suggestion", passage: "section", source: "" });
+  const contradicts = view.host.all().find((node) => node.type === "radio" && node.value === "contradicts");
+  contradicts.checked = true;
+  submit(view);
+  assert.match(ui.alert.textContent, /only when you offer one/);
+  assert.equal(document.activeElement, contradicts);
+  assert.equal(contradicts.getAttribute("aria-invalid"), "true");
+  assert.ok(contradicts.closest("fieldset").getAttribute("aria-describedby").includes(ui.error("stance").id));
+  ui = fill(view, { kind: "correction-suggestion", passage: "section", source: "" });
+  view.host.all().find((node) => node.type === "radio" && node.value === "").checked = true;
+  ui.control("offered").value = "admiralty-1990";
+  ui.control("offered").dispatch("change");
+  ui.control("locator").value = "4\n5";
+  submit(view);
+  assert.match(ui.alert.textContent, /Say where in the source/);
+  assert.equal(document.activeElement, ui.control("locator"));
+  assert.equal(ui.control("locator").getAttribute("aria-invalid"), "true");
+});
+
+test("a site whose service does not store evidence yet falls back to a copy that keeps the evidence", async () => {
+  const view = page({ evidence: CHOICES });
+  fakeFetch({ status: 422, body: { code: "unsupportedVersion", error: "newer" } });
+  const ui = fill(view, { kind: "correction-suggestion", passage: "section", body: "The height is wrong." });
+  ui.control("claim").value = "tide-height";
+  ui.control("claim").dispatch("change");
+  submit(view);
+  await tick();
+  assert.ok(!ui.fallback.hidden);
+  assert.match(ui.fallbackMessage.textContent, /does not take evidence through the form/);
+  assert.equal(document.activeElement, ui.fallbackMessage);
+  const copy = view.host.all().find((node) => node.localName === "textarea" && node.readOnly);
+  assert.match(copy.value, /Claim: tide-height/);
+  assert.ok(readEvidenceSubmissionJson(copy.value.split("\n").at(-1)).ok);
+});
+
+test("without the site's evidence switch or readable choices, the form is what it was", () => {
+  for (const options of [{}, { evidence: "{not json" }, { evidence: { ...CHOICES, version: 2 } }, { evidence: { ...CHOICES, sources: [{ id: "Bad Id", label: "x" }] } }, { evidence: CHOICES, kinds: "question" }]) {
+    const view = page(options);
+    assert.equal(view.host.find("ob-passage-feedback-evidence"), null, JSON.stringify(options).slice(0, 60));
+  }
+  assert.equal(readEvidenceChoices("x".repeat(2_000_001)), null);
+  assert.deepEqual(readEvidenceChoices(JSON.stringify(CHOICES)).claims[0].links[0], { id: "tide-height-noaa", label: "Supported by NOAA 2020" });
 });

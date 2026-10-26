@@ -143,6 +143,9 @@ fn resolve_social_metadata(config: &SiteConfig, input: SocialMetadataInput<'_>) 
 const FEEDBACK_ANCHOR: &str = "ob-feedback";
 /// The id of the page data element that holds a post's passage text.
 pub const PASSAGE_DATA_ELEMENT_ID: &str = "ob-passages";
+/// The page data element holding what a reader may name in an evidence
+/// offer (ADR 0138): only what the site publishes.
+pub const EVIDENCE_DATA_ELEMENT_ID: &str = "ob-evidence-references";
 
 /// A post's passage text as the feedback form reads it (ADRs 0076, 0082):
 /// the work's path, the passage revision and each section's index, anchor,
@@ -184,6 +187,15 @@ fn passage_data_element(post: &Post, document: &crate::passage_target::PassageDo
         "revision": document.revision,
         "sections": sections,
     });
+    format!(
+        "<script type=\"application/json\" id=\"{PASSAGE_DATA_ELEMENT_ID}\">{}</script>",
+        script_json(&data)
+    )
+}
+
+/// JSON for a data element: `<`, `>`, `&` and the line separators written
+/// as escapes, so no published text can end or confuse the element.
+fn script_json(data: &serde_json::Value) -> String {
     let mut json = String::new();
     for character in data.to_string().chars() {
         match character {
@@ -193,7 +205,7 @@ fn passage_data_element(post: &Post, document: &crate::passage_target::PassageDo
             _ => json.push(character),
         }
     }
-    format!("<script type=\"application/json\" id=\"{PASSAGE_DATA_ELEMENT_ID}\">{json}</script>")
+    json
 }
 
 fn resolved_post_canonical(config: &SiteConfig, post: &Post) -> Option<String> {
@@ -856,13 +868,29 @@ impl<'a> Renderer<'a> {
         } else {
             ""
         };
+        // The evidence offer (ADR 0138), once the site says the hosted
+        // service stores it, on a post open to a suggested source or
+        // correction: the form lists only what the site publishes.
+        let evidence = c.engagement.evidence
+            && offered
+                .iter()
+                .any(|kind| crate::evidence_submission::is_evidence_kind(*kind));
+        let evidence_attr = if evidence { " evidence" } else { "" };
         let region = format!(
-            "<section id=\"{FEEDBACK_ANCHOR}\" class=\"ob-feedback\" aria-labelledby=\"{FEEDBACK_ANCHOR}-title\">\n<h2 id=\"{FEEDBACK_ANCHOR}-title\">Questions and corrections</h2>\n<ob-passage-feedback endpoint=\"{}\" page=\"{}\"{kinds_attr}{contact_attr}{receipts_attr}>\n<p>{invitation} The author reviews every note, and nothing is published without their approval.</p>\n<p class=\"ob-passage-feedback-static\">The feedback form needs JavaScript. Without it, you can send your note to the author{contact_words}: name the section by its link, quote the words you mean, and give this page’s passage revision, <code>{}</code>, so the author can find the text you read.</p>\n</ob-passage-feedback>\n</section>\n",
+            "<section id=\"{FEEDBACK_ANCHOR}\" class=\"ob-feedback\" aria-labelledby=\"{FEEDBACK_ANCHOR}-title\">\n<h2 id=\"{FEEDBACK_ANCHOR}-title\">Questions and corrections</h2>\n<ob-passage-feedback endpoint=\"{}\" page=\"{}\"{kinds_attr}{contact_attr}{receipts_attr}{evidence_attr}>\n<p>{invitation} The author reviews every note, and nothing is published without their approval.</p>\n<p class=\"ob-passage-feedback-static\">The feedback form needs JavaScript. Without it, you can send your note to the author{contact_words}: name the section by its link, quote the words you mean, and give this page’s passage revision, <code>{}</code>, so the author can find the text you read.</p>\n</ob-passage-feedback>\n</section>\n",
             attr(endpoint),
             attr(&c.absolute(&post.url)),
             text(&document.revision),
         );
-        Some((region, passage_data_element(post, &document)))
+        let mut data = passage_data_element(post, &document);
+        if evidence {
+            let choices = crate::evidence_submission::reference_choices(post, self.site);
+            data.push_str(&format!(
+                "\n<script type=\"application/json\" id=\"{EVIDENCE_DATA_ELEMENT_ID}\">{}</script>",
+                script_json(&choices)
+            ));
+        }
+        Some((region, data))
     }
 
     fn site_header(&self, theme: &Theme, current: &str) -> String {

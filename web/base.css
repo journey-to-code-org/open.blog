@@ -1721,6 +1721,19 @@ ob-passage-feedback {
   align-items: baseline;
 }
 
+/* Where in an offered source (ADR 0138): side by side when they fit, stacked on a phone. */
+.ob-passage-feedback-locator {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+}
+
+.ob-passage-feedback-locator > .ob-passage-feedback-subfield {
+  flex: 1 1 8rem;
+  min-inline-size: 0;
+  margin-inline-start: 0;
+}
+
 .ob-passage-feedback-form input:not([type="radio"], [type="checkbox"]),
 .ob-passage-feedback-form select,
 .ob-passage-feedback-form textarea,
