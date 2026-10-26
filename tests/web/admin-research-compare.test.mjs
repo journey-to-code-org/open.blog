@@ -364,6 +364,17 @@ test("text direction comes from the language tag, and unknown text lets the brow
   assert.equal(textDirection("grc"), "ltr");
   assert.equal(textDirection("en"), "ltr");
   assert.equal(textDirection(""), "auto");
+  for (const language of ["hbo", "arz", "ary", "aeb", "apc", "acm", "ajp", "azb", "ota", "prs", "glk", "lrc", "bal", "jrb", "jpr", "sam", "phn"]) {
+    assert.equal(textDirection(language), "rtl", `${language} is written right to left`);
+  }
+  for (const script of ["Armi", "Avst", "Chrs", "Elym", "Hatr", "Khar", "Mani", "Merc", "Mero", "Narb", "Nbat", "Ougr", "Palm", "Phli", "Phlp", "Phnx", "Prti", "Sarb", "Sogd", "Sogo", "Lydi", "Cprt", "Hung"]) {
+    assert.equal(textDirection(`und-${script}`), "rtl", `${script} runs right to left`);
+  }
+  assert.equal(textDirection("hbo-Hebr"), "rtl");
+  assert.equal(textDirection("arc-Latn"), "ltr", "a known left-to-right script decides");
+  assert.equal(textDirection("grc-Grek"), "ltr");
+  assert.equal(textDirection("xx-Zzzz"), "auto", "an unknown script subtag is left to the browser, never assumed left to right");
+  assert.equal(textDirection("he-Qaaa"), "auto");
   assert.equal(textDirection(undefined), "auto");
   assert.equal(textDirection('he" onmouseover="x'), "auto", "a hostile tag is no tag");
   assert.equal(languageTag(" grc "), "grc");

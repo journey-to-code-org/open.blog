@@ -2646,8 +2646,25 @@ const MAX_ALIGNMENT_NORMALIZED_CHARS = 20000;
  */
 export const RIGHTS_NEEDING_CONFIRMATION = Object.freeze(["unknown", "rightsReserved"]);
 const UNKNOWN_RIGHTS = Object.freeze({ status: "unknown", label: "Rights not checked yet", declared: false });
-const RTL_LANGUAGES = new Set(["ar", "arc", "ckb", "dv", "fa", "he", "iw", "ji", "ks", "mzn", "nqo", "pnb", "ps", "sd", "syc", "syr", "ug", "ur", "yi"]);
-const RTL_SCRIPTS = new Set(["adlm", "arab", "aran", "hebr", "mand", "mend", "nkoo", "rohg", "samr", "syrc", "thaa", "yezi"]);
+const RTL_LANGUAGES = new Set([
+  "acm", "aeb", "ajp", "apc", "ar", "arc", "ary", "arz", "azb", "bal", "ckb", "dv", "fa", "glk", "hbo", "he", "iw", "ji", "jpr", "jrb",
+  "ks", "lrc", "mzn", "nqo", "ota", "phn", "pnb", "prs", "ps", "sam", "sd", "syc", "syr", "ug", "ur", "yi",
+]);
+const RTL_SCRIPTS = new Set([
+  "adlm", "arab", "aran", "armi", "avst", "chrs", "cprt", "elym", "hatr", "hebr", "hung", "khar", "lydi", "mand", "mani", "mend", "merc",
+  "mero", "narb", "nbat", "nkoo", "ougr", "palm", "phli", "phlp", "phnx", "prti", "rohg", "samr", "sarb", "sogd", "sogo", "syrc", "thaa", "yezi",
+]);
+/** Script subtags known to run left to right. Any other script subtag leaves the direction to the browser. */
+const LTR_SCRIPTS = new Set([
+  "ahom", "armn", "bali", "bamu", "batk", "beng", "bopo", "brah", "brai", "bugi", "buhd", "cakm", "cans", "cari", "cham", "cher", "copt",
+  "cyrl", "cyrs", "deva", "dogr", "dsrt", "dupl", "egyp", "ethi", "geok", "geor", "glag", "gong", "gonm", "goth", "gran", "grek", "gujr",
+  "guru", "hang", "hani", "hano", "hans", "hant", "hira", "hmng", "hrkt", "ital", "java", "jpan", "kali", "kana", "kawi", "khmr", "khoj",
+  "knda", "kore", "kthi", "lana", "laoo", "latf", "latg", "latn", "lepc", "limb", "lina", "linb", "lisu", "lyci", "mahj", "maka", "marc",
+  "medf", "mlym", "modi", "mong", "mroo", "mtei", "mult", "mymr", "nagm", "nand", "newa", "nshu", "ogam", "olck", "orkh", "orya", "osge",
+  "osma", "perm", "phag", "plrd", "runr", "saur", "sgnw", "shaw", "shrd", "sidd", "sind", "sinh", "sora", "soyo", "sund", "sylo", "tagb",
+  "takr", "tale", "talu", "taml", "tang", "tavt", "telu", "tfng", "tglg", "thai", "tibt", "tirh", "toto", "ugar", "vaii", "vith", "wara",
+  "wcho", "xpeo", "xsux", "yiii", "zanb",
+]);
 const VERSION_MAKERS = Object.freeze({
   edition: { role: "editor", one: "Editor", many: "Editors" },
   translation: { role: "translator", one: "Translator", many: "Translators" },
@@ -2663,15 +2680,16 @@ export function languageTag(value) {
 
 /**
  * The base direction for text in a language: a script subtag decides first,
- * then the language. Text with no usable tag gets `auto`, so the browser
- * decides from its first strong character instead of guessing left to right.
+ * then the language. Text with no usable tag, or a script subtag this list
+ * does not know, gets `auto`, so the browser decides from its first strong
+ * character instead of guessing left to right.
  */
 export function textDirection(language) {
   const tag = languageTag(language).toLowerCase();
   if (!tag) return "auto";
   const [base, ...subtags] = tag.split("-");
   const script = subtags.find((part) => /^[a-z]{4}$/.test(part));
-  if (script) return RTL_SCRIPTS.has(script) ? "rtl" : "ltr";
+  if (script) return RTL_SCRIPTS.has(script) ? "rtl" : LTR_SCRIPTS.has(script) ? "ltr" : "auto";
   return RTL_LANGUAGES.has(base) ? "rtl" : "ltr";
 }
 
