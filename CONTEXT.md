@@ -713,8 +713,143 @@ _Avoid_: Source identifier; treating syntax checks as proof the identifier resol
 
 **Source location**:
 A scheme-qualified position, such as a page, folio, line, or timestamp, inside the specific
-work, edition, translation, or witness a reference points at.
+work, edition, translation, or witness a reference points at. In a multi-volume edition or
+witness it also names its volume.
 _Avoid_: Citation, URL fragment
+
+**Realization chain**:
+A record and the records it realizes, followed through `of` up to the work, each keeping its
+own kind: a reference, the edition it points into, the translation that edition prints, and the
+work. A translation in the chain is never read as an edition or as the original work (ADR 0084).
+_Avoid_: Version history, lineage when a revision is meant
+
+**Revision**:
+An edition that revises an earlier edition of the same text, recorded with `revises`. A new
+translation is never a revision; it is its own translation (ADR 0084).
+_Avoid_: Reprint, version, new translation
+
+**Witness identity**:
+The repository and shelfmark that identify one held copy. Two witnesses never share both
+(ADR 0084).
+_Avoid_: Call number alone, CSL archive
+
+**Volume**:
+One physical part of an edition or witness that declares several. A page or folio in such a
+record must name its volume, because pages restart in each (ADR 0084).
+_Avoid_: Issue, part, tome when a separate edition is meant
+
+**Rights declaration**:
+The author's own statement of the rights in one version's text, or in an interpretation's text:
+a rights status, an optional one-line note and, for an open licence, the licence's name. It is
+private and never a legal determination (ADR 0085).
+_Avoid_: Licence check, clearance, permission
+
+**Rights status**:
+One of unknown, rights reserved, permission, open licence, public domain, or own work, as the
+author states it. A version that declares none is unknown, and no version inherits a status
+from the work, edition, or translation it comes from (ADR 0085).
+_Avoid_: Allowed, cleared, copyright status as a fact
+
+**Attribution certainty**:
+How firmly a name is tied to a source or interpretation, as the author records it: stated by the
+source, attributed by tradition or scholarship, uncertain, or disputed. Absent means not recorded,
+never "stated" by inference (ADR 0086).
+_Avoid_: Confidence score, authorship verdict
+
+**Anonymous source**:
+A work, edition, translation, or witness whose source names no maker. Names tradition assigns may
+still be recorded as attributed, uncertain, or disputed, but never as stated (ADR 0086).
+_Avoid_: Unknown author when the creators are simply not filled in
+
+**Interpretation**:
+An attributed rendering or reading of one located place in one exact text in the source library,
+kept beside the library's records. It is private research, never a source, never cited, and
+never a credit (ADR 0087).
+_Avoid_: Translation (a published version), annotation, research note, claim
+
+**Rendering**:
+An interpretation that translates one located place into another language. It names the edition,
+translation, or witness it was made from.
+_Avoid_: Translation when the library's published translation record is meant
+
+**Reading**:
+An interpretation of what one located place means.
+_Avoid_: Claim, evidence, commentary when a library source is meant
+
+**Interpreter**:
+Who made an interpretation: a contributor named by registry key, which reuses their identity
+without creating a work credit, or anyone else by a descriptive name, each with an optional
+attribution certainty. An interpretation with no interpreter is explicitly anonymous (ADR 0087).
+_Avoid_: Credit, author, creator
+
+**Passage alignment**:
+The author's private record that places in two or more versions or interpretations correspond,
+attributed and optionally evidenced. It never says the places mean the same thing and never
+treats a version as authoritative (ADR 0088). It is published only once approved, through the
+comparison projection (ADR 0092).
+_Avoid_: Equivalence, parallel text, translation memory, automatic alignment
+
+**Alignment member**:
+One place in a passage alignment: a version and its own locators, optionally the notebook passage
+quoting it, or an interpretation aligned as it is. Several members may come from one version, and
+a place may belong to several alignments.
+_Avoid_: Segment pair, row, one-to-one match
+
+**Absent member**:
+An alignment member recording that a version lacks the passage (an omission, a lost leaf, or a
+gap), so a missing passage is stated rather than inferred from silence.
+_Avoid_: Empty member, null match
+
+**Correspondence**:
+How the author reads an alignment's places: corresponding, corresponding in part, or
+corresponding but differing. There is deliberately no "equivalent".
+_Avoid_: Equivalence, similarity score
+
+**Normalization**:
+The author's normalized form of a member's original wording (for example, composed accents or
+expanded abbreviations), stored beside and never in place of the passage or interpretation text.
+_Avoid_: Correction, the text, cleaned excerpt
+
+**Comparison workspace**:
+The Admin research tool that reads one passage alignment as its versions' places side by side or
+in a single column, in the author's member order, with original wording exact and normalizations
+shown only on request (ADR 0090). It reads and edits alignments, previews what a public page
+would show for each place, and records approval; it publishes only through the comparison
+projection.
+_Avoid_: Parallel text viewer, diff, translation comparison score
+
+**Place identification**:
+The visible line on every compared place naming its version (kind and language), its maker in the
+version's own role (editor, translator, scribe, or interpreters, with attribution certainty), and
+its locator, so a place read or copied alone stays attributed.
+_Avoid_: Caption, citation
+
+**Comparison export**:
+Copying or downloading the places the author explicitly selected in the comparison workspace,
+each with its place identification and rights statement and its wording exactly. Copying waits
+for confirmation when a selected version's rights are unchecked or reserved, and a rights status
+never means permission. The author's private notes on places are left out unless the author ticks
+"Include my notes on places" (ADR 0091).
+_Avoid_: Publishing, sharing, licence check
+
+**Comparison projection**:
+The one public form of passage comparisons: approved alignments, each reduced to an explicit
+allowlist of fields, with every place identified and its wording passed through the rights gate.
+The comparison pages and `comparisons.json` are both rendered from it (ADR 0092).
+_Avoid_: Public alignments, parallel text export
+
+**Comparison publication switch**:
+The site setting `comparisons.publish`. Off by default, when no build reads the alignments file;
+on, the build publishes the comparison projection. Each alignment still needs the author's
+approval.
+_Avoid_: Treating approval alone as publication
+
+**Rights gate**:
+The rule that a compared place's wording is published only when the author's rights statement
+for its version or interpretation is permission, open licence, public domain, or own work, and the
+wording is a brief excerpt (at most 1,000 characters). Otherwise the place is identified and
+located, never quoted. It follows the author's declaration and is never a legal judgement.
+_Avoid_: Licence check, copyright clearance, fair-use test
 
 **Knowledge Atlas**:
 An author's private, versioned map of contextual entries and the attributed relationships between
@@ -748,12 +883,115 @@ publication projection may copy. An approved relationship touching a private ent
 private and is reported as a notice, never refused.
 _Avoid_: Public relationship, approved relationship when a private endpoint is possible
 
+**Dating**:
+One party's attributed claim about when one aspect of an atlas entry or relationship happened,
+resting on cited evidence (or explicitly unsourced), with a confidence and a note. It is private
+until approved and is never a fact.
+_Avoid_: Date field, the date of something; a date without who gives it
+
+**Dated aspect**:
+What a dating dates: an entry's `span`, a person's `birth`, `death` or `active` period, a work's
+`composition` or `publication`, a concept's or movement's `emergence`, or the `span` during which
+a relationship held. Only span, active and composition last. The chronology explorer lists one
+item's dated aspect (Plato's birth) as one row holding all its competing datings, and its filters
+show or hide a whole dated aspect, never one of its datings.
+_Avoid_: Event type, role; a timeline bar or merged date range for one aspect
+
+**Date expression**:
+The one form a dating takes: a point (`at`), a duration (`from`/`to`), a date window
+(`notBefore`/`notAfter`), unknown, or a relative dating.
+_Avoid_: Date string, parsed date
+
+**Date precision**:
+How finely a point is stated: day, month, year, decade or century. A point is read back exactly
+as written; nothing rounds, widens or narrows it.
+_Avoid_: Accuracy, granularity guessed from text
+
+**Circa**:
+A point the party gives as approximate. It is kept beside the point and does not move it.
+_Avoid_: Fuzzy date, estimated (when the party did not say so)
+
+**Date window**:
+The time inside which something happened, with an inclusive earliest (`notBefore`) and latest
+(`notAfter`) point; an open end is what "after" or "before" a date means.
+_Avoid_: Range (ambiguous with a duration), terminus as a stored word
+
+**Unknown date**:
+A party's explicit statement that a date is unknown. It is never coerced to a point and sorts
+after every dated item; having no dating at all simply means undated.
+_Avoid_: Null date, year 0, a placeholder year
+
+**Competing datings**:
+Two or more datings of the same aspect, by different parties or as one party's alternatives.
+They stand side by side in file order; nothing prefers, merges or resolves them.
+_Avoid_: Correct date, consensus date, resolved date
+
+**Relative dating**:
+A dating that places an aspect before, after or during another entry's aspect. It is the atlas's
+only temporal relationship: asserted and cited like any dating, never inferred from absolute
+dates, and never a relationship kind or a reason for one.
+_Avoid_: Preceded or contemporary-of relationship; order inferred from years
+
+**Calendar policy**:
+Years are historical BCE/CE years with no year 0. A month and day may name the calendar they
+are stated in (Gregorian or Julian); nothing converts calendars, and points in different
+calendars are compared by year only.
+_Avoid_: Normalized date, proleptic conversion
+
+**Projected dating**:
+An approved, cited dating with no notebook passage whose entry or relationship is published and,
+if relative, whose other entry is approved. Anything else stays private and is reported as a
+notice, never refused.
+_Avoid_: Public date; approved dating when its owner may be private
+
+**Chronology index**:
+Every dating of the atlas, private or approved, placed by the entry or relationship it dates, by
+aspect and on one timeline, in one deterministic display order that does not depend on file
+order. Competing, circa, relative and unknown datings are all kept; nothing is chosen, merged or
+linked by closeness in time. It is for the author's tools and is never published.
+_Avoid_: Canonical timeline, resolved dates, contemporaries
+
+**Chronology prompt**:
+A structural, non-blocking notice that some recorded datings cannot all hold as stated, such as a
+death dated before a birth or relative datings ordering two works both ways round. It names
+dating ids and their stated values, asks the author to check them against the cited evidence, and
+never says which dating is right; only relationships and relative datings someone asserted are
+followed across entries.
+_Avoid_: Chronology error, conflict resolution, verdict, inferred influence
+
+**Chronology explorer**:
+Admin Studio's text view of the chronology index: dated aspects in one display order, grouped by
+century, decade or year at the author's choice, with relative datings as sentences and
+chronology prompts as checks that link to the dating. It is lists and words only, private to the
+author, and never resolves or ranks datings.
+_Avoid_: Timeline chart, canonical chronology, zoomable graph
+
 **Atlas projection**:
 The one public form of the Knowledge Atlas: approved entries and projected relationships, each
 reduced to an explicit allowlist of fields, with the public description of the sources they use.
 Both the atlas pages and `atlas.json` are rendered from it, and nothing public reads the private
 atlas. Withdrawing approval removes an item from the next build.
 _Avoid_: Public atlas export, public graph; filtering the private atlas per surface
+
+**Published dating**:
+A projected dating as the atlas projection publishes it: who dates what, on which cited evidence,
+how firmly and with what note, at the precision stated and read back in words with BCE written
+out. Competing published datings appear side by side, in the chronology's one order, and none is
+preferred.
+_Avoid_: Public date, the date of an entry, resolved date
+
+**Public timeline**:
+The `/atlas/` section that lists every published dating as text, by the century in which each
+dated aspect's earliest dating begins, with aspects not placed in time listed apart. It reads
+completely without JavaScript; its component only filters whole dated aspects and moves focus to
+a period. Order on it never means cause or influence.
+_Avoid_: Timeline chart, canonical chronology, contemporaries list
+
+**Chronology trail**:
+The path a reader follows from one entry to another through published relative datings, one
+asserted, attributed and cited step at a time, each linked both ways. Nothing chains steps, infers
+an order from dates, or turns a step into a relationship.
+_Avoid_: Influence chain, inferred sequence, derived timeline
 
 **Atlas publication switch**:
 The site setting `knowledgeAtlas.publish`. Off by default, when no build reads the atlas at all;
@@ -775,6 +1013,334 @@ _Avoid_: Graph view, network map; a picture as the only way to read relationship
 How a relationship reads from one of its entries: its kind going out (`authored`), its inverse
 label coming in (`authored by`). A label for display, never a second stored assertion.
 _Avoid_: Reverse edge, inferred relationship
+
+**Claim**:
+A statement made in one draft post, optionally anchored to a UTF-8 byte span of its anchor text.
+It is private until the author approves it and carries no truth value.
+_Avoid_: Fact, finding; treating a cited sentence as a claim automatically
+
+**Anchor text**:
+The text a claim anchor indexes: the post body after a leading byte-order mark and the front
+matter are removed, with every CRLF folded to LF and then any leading line breaks dropped, so the
+blank line Admin's save writes after the front matter counts for nothing. Offsets are UTF-8 bytes
+into it.
+_Avoid_: Offsets into the raw file, character or UTF-16 offsets
+
+**Evidence link**:
+The author's recorded relation (supports, contradicts or contextualizes) between one claim and one
+source, with optional locators and notebook passage, rationale, uncertainty, review state and
+provenance. A citation alone is not one.
+_Avoid_: Citation, proof, verdict; defaulting a relation to supports
+
+**Projected evidence link**:
+An approved link on an approved claim with no private passage and, if it supports the claim, no
+private contradicting link beside it. Anything else stays private and is reported as a notice,
+never refused, so withdrawing consent is an ordinary edit.
+_Avoid_: Public link, approved link when its claim or a contradiction may be private
+
+**Claim anchor check**:
+Comparing a claim's recorded span with the current anchor text: verified, moved, stale or
+ambiguous. It reports and never repairs.
+_Avoid_: Auto-relocation
+
+**Evidence gap**:
+A finding about what a claim's record lacks or what only the author can check: no evidence,
+contradicting evidence the post may not address, only support for a claim marked uncertain, an
+archived source or passage, a missing location or rationale, an unchecked location, an
+unreviewed suggestion, or words no longer where they were anchored. It is a prompt with a next
+action, in the same finding contract as citation checks, and never a verdict on truth.
+_Avoid_: Evidence score, weak claim, unsupported claim, verification
+
+**Saved draft**:
+A post's text as stored in its file, which every claim anchor is checked against. Unsaved editor
+text never is; the author saves the post before anchoring a claim in new words.
+_Avoid_: Editor buffer, live text
+
+**Re-anchor**:
+The author choosing a claim's words again in the saved draft, after they moved, went stale or
+became ambiguous. Evidence cannot be added to a stale or ambiguous claim until it is re-anchored.
+_Avoid_: Auto-fix, relocation by the software
+
+**Claim evidence projection**:
+The one public form of a post's claims: approved claims and projected evidence links, each
+reduced to an explicit allowlist of fields, with the public description of the sources they cite.
+It is published as a section of the post's publication Markdown and as `claim-evidence.json`;
+supporting and contradicting evidence sit side by side under each claim and are never combined.
+Withdrawing approval removes an item from the next build.
+_Avoid_: Public claims export, verdict, fact check; filtering the private claims file per surface
+
+**Claim evidence publication switch**:
+The site setting `claimEvidence.publish`. Off by default, when no build reads the claims file and
+every post is published as before; on, the build publishes the claim evidence projection. Approval
+is still required for each claim and each link.
+_Avoid_: Treating approval alone as publication
+
+**Evidence revision note**:
+A dated public note, written by the author in a post's front matter (`evidenceRevisions`), saying
+how the post's evidence changed, optionally naming one claim. It is versioned with the post, so
+removing private research or withdrawing a claim never removes it.
+_Avoid_: Changelog entry, correction notice from a reader; storing the note in private research
+
+## Reader participation
+
+These terms describe how readers point at published text, where their feedback came from, and
+the one policy that governs everything readers and authors add to a published post (ADRs 0101 to
+0104).
+Reader data is never research: a notebook **Passage** is an author's excerpt of a source, while a
+**Passage target** points into a published post.
+
+**Passage text**:
+A post's published prose as a reader can quote it, section by section: the text before the first
+heading, then each heading's id with its title and the text up to the next heading. Generated
+markers, labels, image alternative text, raw HTML, embed frames, code blocks and the generated
+citation notes are not part of it; only whitespace is normalized. The build publishes it as page
+data; the browser maps a selection onto it rather than reading the page.
+_Avoid_: Plain text, search text, body when the quotable published text is meant
+
+**Passage revision**:
+The fingerprint of a post's passage text, written `p1:` and 32 hex digits, whose number names the
+text model. Feedback records the passage revision the reader saw.
+_Avoid_: Version, commit, notebook revision
+
+**Section digest**:
+The fingerprint of one section's passage text, so a target for a whole section can tell an
+unchanged section from an edited one.
+_Avoid_: Section id, hash of the Markdown
+
+**Passage target**:
+A durable, versioned pointer at published text: the whole post, or a section anchor (the heading
+id) and either the whole section, optionally with its digest, or a quotation of at most 500
+characters with up to 64 characters of context on each side and a position hint. Never a
+positional element id.
+_Avoid_: Passage (the notebook term), anchor, highlight, marker id, selector when the whole
+target is meant
+
+**Target resolution**:
+The outcome of reading a passage target against the current passage text: current (seen at this
+revision, text in place), re-anchored (the identical text found again, uniquely, as the same
+passage) or stale with a reason. It never points at text the reader did not quote.
+_Avoid_: Fuzzy match, retargeting, best guess
+
+**Feedback provenance**:
+Where one piece of reader feedback came from: the published work, the passage revision the
+reader saw, the passage target, when the reader saw it by their own clock, when the site received
+it, the channel and the reader's attribution choice. Reader data, never a research note.
+_Avoid_: Metadata, submission log, research note, audit trail when moderation decisions are meant
+
+**Reader attribution**:
+The name a reader optionally gives with feedback and their explicit agreement to show it. Without
+that agreement the name is private to moderation; anonymous is the default.
+_Avoid_: Author, contributor, credit, account
+
+**Public provenance**:
+The only public form of feedback provenance: the work, the revision seen, the day received,
+whether the passage is stale, its section, the quoted text only while it is still published, and
+a name only with consent.
+_Avoid_: Feedback export, moderation record
+
+**Feedback kind**:
+What a reader says they are offering about a passage: a question, a suggested source, a suggested
+correction or another interpretation. The reader's stated intent, never a verdict: a suggested
+correction is not a correction until an author decides.
+_Avoid_: Correction (for a submission), category, vote, rating
+
+**Feedback submission**:
+What a reader sends: the kind, the work, the passage revision seen, the passage target, the text,
+the kind's details (a source link, suggested wording) and the reader's attribution choice. Nothing
+else about the reader.
+_Avoid_: Comment, message, report
+
+**Scholarly feedback record**:
+A received submission: its kind, text and details with the feedback provenance, including when the
+receiver got it and by which channel. Reader data, never research, and never published except
+through its public projection after moderation.
+_Avoid_: Comment row, research note, correction
+
+**Hosted feedback transport**:
+The optional, opt-in path that carries feedback submissions to the site's hosted function and
+stores them pending moderation. Without it, the canonical page and a copy-and-send fallback
+remain.
+_Avoid_: Feedback service, comment system, backend when the opt-in path is meant
+
+**Passage data**:
+A post's passage text as page data, built by the build: the work, the passage revision and each
+section's index, anchor, heading title, text and digest, in one inert JSON element. Only an open
+post on a site that opts in to feedback carries it; the browser maps selections onto it and never
+re-derives text from the page (ADRs 0076, 0082).
+_Avoid_: Page text, DOM text, scraped text
+
+**Feedback region**:
+The section after a post's navigation where a reader sends a passage-specific note. Its static
+text tells a reader without JavaScript how to name a passage and reach the author; the feedback
+form enhances it, and a failed submission falls back to a copy of the note to send (ADR 0082).
+_Avoid_: Comment box, discussion when the hosted comments are meant
+
+**Feedback moderation**:
+A moderator's decision about one feedback item, taken in the moderation inbox: approve, ask to
+clarify, reject or remove with a reason, or reopen, in the participation policy's state names
+(pending, clarification, approved, rejected, removed, withdrawn). Each change names the state and
+version the moderator saw and is recorded as an audit event; approval never edits the post (ADRs
+0083, 0105).
+_Avoid_: Accepting a correction, verdict, review when a moderation decision is meant
+
+**Passage check**:
+What a moderator sees about a feedback item's passage before acting: current, re-anchored after
+the post changed, stale with its reason, or no post at that address. Approving anything but a
+current passage needs the moderator to confirm the check they read (ADR 0083).
+_Avoid_: Fuzzy match, auto-fix
+
+**Published reader feedback**:
+The public part of approved feedback, kept in `reader-feedback.json` in the content folder: the
+kind, text, details, target and revision seen, the days received and approved, a name only with
+consent, and the author's response. Shown on the post's canonical page only, through the public
+provenance; portable copies and feeds carry a labelled link instead (ADR 0083).
+_Avoid_: Comments, feedback export, moderation record
+
+**Participation kind**:
+One entry in the closed registry of ways to participate: comment, question, suggested source,
+suggested correction, another interpretation, Third Perspective, author response or abuse report.
+Each has fixed rules: who creates it, what it targets, whether an approved item may be shown, and
+whether a moderator may ask its submitter to clarify. Every kind but comments starts `off`.
+_Avoid_: Comment type, feedback type, category (a Third Perspective prompt), channel
+
+**Participation mode**:
+How one kind behaves on one post: `hidden` (nothing shown or accepted), `locked` (approved items
+shown, nothing accepted) or `open` (approved items shown, new items accepted pending moderation).
+The comment modes, applied to every kind; resolved from the site setting and the post's front
+matter by one resolver.
+_Avoid_: Comment policy when a kind other than comments is meant, visibility, status
+
+**Site participation setting**:
+A kind's value in `participation.kinds`: `off`, `follow-comments`, or the default mode for posts
+that do not name the kind. `off` cannot be overridden by a post.
+_Avoid_: Feature flag, opt-in when the per-post mode is meant
+
+**Participation item**:
+One stored submission of any kind, with its moderation state, version, revision and the text it
+carries. Reader data, never research and never an author's contribution.
+_Avoid_: Comment (unless the kind is comment), post, contribution, message
+
+**Moderation state**:
+Where an item is: pending, clarification requested, approved, rejected, removed or withdrawn.
+Every item starts pending; only approved, at its current revision, can be public.
+_Avoid_: Status when the comment column's three values are meant, published, visible
+
+**Clarification request**:
+A moderator's request, with a reason and only with the submitter's clarification consent, that a
+submitter revise an item. The revision it asks about is never approved or published, even after
+the item is rejected, expires or is reopened (reopening returns it to clarification); only the
+answer, which replaces the text as a new revision and returns to pending, can be. Never sent by
+e-mail.
+_Avoid_: Reply, comment thread, rejection with feedback
+
+**Clarification consent**:
+A submitter's agreement, given when submitting, to be asked to clarify. Without it a moderator can
+only approve or reject.
+_Avoid_: Contact consent, publication consent, feature consent
+
+**Removal**:
+Taking an approved item out of public view, with a reason, by a moderator or by an upheld abuse
+report. Distinct from rejection (never approved) and withdrawal (by the submitter).
+_Avoid_: Deletion, purge, unpublish when retention is meant
+
+**Withdrawal**:
+A submitter taking back their own item, pending, in clarification or approved. Final: a withdrawn
+item is never reopened, and its text is purged at once.
+_Avoid_: Removal, retraction by the author, consent change for display only
+
+**Abuse report**:
+A reader's report that a public item is abusive. Never public, never counted, and never changes
+its target by itself; upholding it removes the target in the same decision or changes nothing.
+_Avoid_: Flag, vote, downvote, complaint
+
+**Author response**:
+An author's public reply to one approved item, written by the site Admin, a coordinator or a
+contributing author of the work. A response to a published note is stored with it in
+`reader-feedback.json` and shown under it (ADR 0083); a response kept as its own participation
+item starts pending like everything else. Replying sends nothing to the reader.
+_Avoid_: Revision note, correction, comment by the author, reply notification
+
+**Moderator**:
+The site Admin, or a coordinator for the works of their publications. Contributing authors read
+and respond but do not moderate; readers act only on their own items as submitters.
+_Avoid_: Admin user when a publication coordinator is meant, editor, owner
+
+**Site Admin (moderation)**:
+The hosted moderation token, or an Admin session acting on a work outside every shared publication
+in which that account holds a binding. On a shared work a bound co-writer is that publication's
+coordinator (site owners included) or contributing author instead. Only the site Admin and the
+submitter see a reader's private name.
+_Avoid_: Admin user, site owner (a publication role), owner
+
+**Reason code**:
+The ground for a moderation decision, such as spam, abusive, personal data, off topic, duplicate,
+rights, unclear or needs source. Never a verdict on whether a reader was right.
+_Avoid_: Verdict, label, rating, "incorrect"
+
+**Moderation audit event**:
+The private record of one submission, transition or purge: item, kind, action, states, actor role,
+the Admin account where there is one, reason, time, revision and version. It never holds text or
+anything identifying a reader, and it outlives purged text.
+_Avoid_: Feedback provenance, log line, history of the text
+
+**Participation retention**:
+How long moderation keeps what it does not publish: pending and clarification items expire,
+rejected and removed text and upheld abuse reports are purged after a period, withdrawn text at
+once, and audit events last longer than any text. Comments are covered only once the site sets
+`participation.retention` itself.
+_Avoid_: Archive, backup, analytics retention
+
+**Moderation inbox**:
+Admin's one list of every hosted participation item, comments and passage feedback today, by
+state and kind, oldest first. Each item is shown, and offered the decisions the one policy accepts
+now, for the role the signed-in account has on that item's work; an item it may not see is left
+out and never counted (ADR 0105).
+_Avoid_: Comment moderation, Reader feedback view, queue when the whole inbox is meant
+
+**Inbox decision**:
+Approve, ask to clarify, reject, remove or reopen one item, naming the state and version the
+moderator loaded. Admin and the hosted function each decide it with the same rules before one
+conditional write records it with its audit event (ADR 0105).
+_Avoid_: Status change, bulk action, verdict
+
+**Reader receipt**:
+A random secret the hosted function returns once when it takes a reader's note, kept only as its
+digest. Holding it is the only proof of submission: with it the reader reads the note, agrees to
+be asked to clarify, answers a clarification request, or withdraws the note. Comments and abuse
+reports get none (ADR 0107).
+_Avoid_: Account, login, confirmation e-mail, ticket number
+
+**Deletion request**:
+A request that an item's text, details and name be deleted now, by its submitter's receipt (which
+withdraws an open or approved note first) or by the site Admin on an item already closed. Only the
+state and an audit trail without text remain (ADR 0107).
+_Avoid_: Delete row, unpublish, removal
+
+**Purge**:
+Overwriting an item's text, details and reader name, setting when it happened and raising its
+version, with a `purge-content` audit event. A purged item is never approved again and takes no
+further decision.
+_Avoid_: Delete, archive, redact when the text is kept
+
+**Retention run**:
+The site Admin's confirmed application of `participation.retention`: a dry run lists what would
+expire or be purged and how many audit events are old enough, then the run applies exactly the
+items still due as they were. Never scheduled, and never touches comments unless the site set
+retention itself (ADR 0108).
+_Avoid_: Cron job, cleanup script, automatic purge
+
+**Engagement protection**:
+The opt-in hosted schema and switch (`supabase/protection.sql`, `OPENBLOG_PROTECTION_ENABLED`) that
+add receipts, stored abuse reports, purging and the retention run, with replay bounds, all
+additive and rolled back by `protection-rollback.sql` (ADR 0108).
+_Avoid_: Security mode, hardening flag
+
+**Inbox schema**:
+The hosted columns, comment audit table and conditional moderation functions every inbox decision
+needs, added by `supabase/moderation.sql` and `supabase/feedback.sql` and switched on with
+`OPENBLOG_MODERATION_ENABLED`. Without it the inbox offers only what the older schema can store
+(ADR 0106).
+_Avoid_: Migration (it is additive and optional), new comment system
 
 ## Admin workspace
 

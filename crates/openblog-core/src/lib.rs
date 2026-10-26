@@ -19,11 +19,23 @@
 //! - [`citations`]: the opt-in `[@key, locator]` syntax, its resolver and CSL citation items
 //! - [`bibliography`]: opt-in publication of citations as numbered notes or a bibliography
 //! - [`citation_review`]: offline syntax, resolution, completeness and location checks of citations
+//! - [`claims`]: private claims in draft posts and the author's evidence links to sources and passages
+//! - [`claim_publication`]: the one public projection of approved claims and evidence, with revision notes
 //! - [`knowledge_atlas`]: the private Knowledge Atlas of entries and attributed relationships
+//! - [`chronology`]: uncertain, attributed and cited datings of atlas entries and relationships
+//! - [`chronology_index`]: deterministic chronology indexes and structural prompts to check datings
 //! - [`atlas_publication`]: the one public projection of its approved items, for pages and `atlas.json`
+//! - [`comparison_publication`]: the one public projection of approved passage alignments, rights-gated, for pages and `comparisons.json`
+//! - [`passage_target`]: stable passage targets in published text, resolved as current, re-anchored or stale
+//! - [`feedback_provenance`]: which revision a reader's feedback was about and when, with consent-gated attribution
+//! - [`scholarly_feedback`]: typed reader questions, suggested sources and corrections and other interpretations, as submitted and as received
+//! - [`participation`]: the closed registry of participation kinds and their site and post modes
+//! - [`moderation`]: the one moderation state machine, roles, audit events and retention for them
+//! - [`moderation_inbox`]: the one moderation inbox over every hosted participation store
 //! - [`third_perspective`]: a reader's consented, moderated reflection on a published work, and its one public form
 
 pub mod accessibility;
+pub mod alignment;
 pub mod approval;
 pub mod arrangement;
 pub mod assembly;
@@ -31,24 +43,38 @@ pub mod assistant_guide;
 pub mod atlas_publication;
 pub mod bibliography;
 pub mod capability;
+pub mod chronology;
+pub mod chronology_index;
 pub mod citation_review;
 pub mod citations;
+pub mod claim_publication;
+pub mod claim_review;
+pub mod claims;
 pub mod collaboration;
+pub mod comparison_publication;
 pub mod config;
 pub mod contributor;
 pub mod date;
 pub mod draft;
 pub mod embed;
 pub mod escape;
+pub mod feedback_moderation;
+pub mod feedback_provenance;
+pub mod feedback_publication;
 pub mod feeds;
 pub mod field_journal;
 pub mod frontmatter;
+pub mod interpretation;
 pub mod invitation;
 pub mod knowledge_atlas;
 pub mod markdown;
 pub mod media_moment;
 pub mod members;
 pub mod model;
+pub mod moderation;
+pub mod moderation_inbox;
+pub mod participation;
+pub mod passage_target;
 pub mod portability;
 pub mod preview;
 pub mod profile;
@@ -62,6 +88,7 @@ pub mod research;
 pub mod research_bundle;
 pub mod research_notes;
 pub mod research_search;
+pub mod scholarly_feedback;
 pub mod search;
 pub mod shared_series;
 pub mod shared_source;

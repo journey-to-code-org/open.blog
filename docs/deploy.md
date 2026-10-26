@@ -13,6 +13,7 @@ automatic publishing of scheduled posts).
 | View counter and analytics | no (`<ob-views>` hides itself) | yes |
 | HTTPS | provided | put a reverse proxy in front |
 | Published Knowledge Atlas | only if you build locally and upload `dist/` | yes |
+| Published claim evidence | only if you build locally and upload `dist/` (revision notes always) | yes |
 
 A blog made with `openblog init` is a folder of Markdown, settings, and themes. It has
 no Rust code of its own: the `openblog` command does the building. The instructions below
@@ -27,6 +28,16 @@ CI) cannot read it and publishes an empty atlas; `openblog build` and `openblog 
 that happens. Only a build that can read the private atlas publishes it: `openblog serve` and
 Admin on the machine that holds it, or an `openblog build` run there whose `dist/` you then
 upload.
+
+**Passage comparisons are not in the repository either.** With `comparisons.publish` on,
+`/comparisons/` and `/comparisons.json` come from `.openblog/private/research/alignments.json`,
+the library and the notebook, which are Git-ignored. A build from a clone publishes empty
+comparisons and warns.
+
+**Claim evidence is not in the repository either.** With `claimEvidence.publish` on, the "Claims
+and evidence" sections and `/claim-evidence.json` come from `.openblog/private/research/claims.json`,
+which is Git-ignored. A build from a clone publishes no claims and warns; the revision notes
+written in posts' front matter are published either way.
 
 ## GitHub Pages
 
@@ -105,12 +116,36 @@ public-site setting. Existing `SUPABASE_SERVICE_ROLE_KEY` deployments remain sup
 
 After deployment, open **Admin → Analytics**, enable hosted engagement, enter the public `/api`
 endpoint, and save the matching write-only moderation token. New comments remain pending until an
-Admin user approves them. Tokens saved by Admin are bound to the endpoint origin, redirects are not
+Admin user approves them in the **Moderation inbox**, which also lists passage feedback (ADR 0105).
+To offer every moderation decision, with versions and an audit trail for comments, run the
+additive [`supabase/moderation.sql`](../supabase/moderation.sql) (and `feedback.sql` again if you
+use feedback) and set `OPENBLOG_MODERATION_ENABLED=true` (ADR 0106); see the
+[function setup guide](../netlify/functions/README.md#moderation-inbox). Reader receipts, abuse
+reports, deletion requests and the retention run are a further opt-in step,
+[engagement protection](../netlify/functions/README.md#engagement-protection-optional) (ADR 0108). Tokens saved by Admin are bound to the endpoint origin, redirects are not
 followed, and Supabase-backed quotas limit public writes. The function also reads the generated
 comment-policy manifest from `OPENBLOG_SITE_ORIGIN` before comment access, so locked and hidden
 policies are enforced on the server as well as in the page UI. Set `OPENBLOG_SITE_BASE_PATH` when
 the published site lives below `/`. The existing local counter stays the default when hosted
 engagement is off.
+
+#### Optional passage feedback
+
+Typed passage feedback (reader questions, suggested sources and corrections, and other
+interpretations, ADRs 0079 to 0081) is off by default and needs three explicit steps: run the
+additive migration [`supabase/feedback.sql`](../supabase/feedback.sql), set
+`OPENBLOG_FEEDBACK_ENABLED=true` in Netlify, and set `engagement.feedback` to `true` in
+`openblog.json`. The migration only creates the private `openblog_feedback` table; existing comments,
+analytics and their tables are not changed. It also adds the private moderation audit table
+`openblog_feedback_events` and the function `openblog_moderate_feedback` (ADR 0083). Approved notes
+are published from `content/reader-feedback.json` in the repository, so the build needs no access
+to the hosted service. To roll back, unset `OPENBLOG_FEEDBACK_ENABLED` and redeploy, then, if you
+also want the data gone, export it and run
+[`supabase/feedback-rollback.sql`](../supabase/feedback-rollback.sql), which drops only what the
+migration created.
+The [function setup guide](../netlify/functions/README.md#passage-feedback-optional) has the
+details. The engagement function is bundled with esbuild (`[functions."engagement"]` in `netlify.toml`) so it can share
+the feedback validator in `web/components/`.
 
 ### Durable editorial workspace on ephemeral hosts
 

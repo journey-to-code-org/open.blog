@@ -80,6 +80,10 @@ pub struct RenderOptions<'a> {
     /// page gives those generated notes accessible citation anchors and links
     /// back to each citation. `None` renders every footnote as before.
     pub citation_notes: Option<crate::bibliography::CitationNoteLabels<'a>>,
+    /// Set for a post whose publication Markdown carries a claim evidence
+    /// section (ADR 0075): its prose (description, word count, reading time)
+    /// ends at that section's heading, as it ends at generated citation notes.
+    pub claim_evidence_section: bool,
 }
 
 impl Default for RenderOptions<'_> {
@@ -93,6 +97,7 @@ impl Default for RenderOptions<'_> {
             code_runner: None,
             web_libraries: None,
             citation_notes: None,
+            claim_evidence_section: false,
         }
     }
 }
@@ -1671,6 +1676,25 @@ fn generated_notes_heading(
         .rposition(|event| matches!(event, Event::Start(Tag::Heading { .. })))
 }
 
+/// Where the claim evidence section starts: the last level-two heading that
+/// reads exactly "Claims and evidence", which `claim_publication::check_section`
+/// has already confirmed is the composed section's.
+fn claim_section_heading(events: &[Event<'_>]) -> Option<usize> {
+    events.windows(3).rposition(|window| {
+        matches!(
+            window,
+            [
+                Event::Start(Tag::Heading {
+                    level: HeadingLevel::H2,
+                    ..
+                }),
+                Event::Text(title),
+                Event::End(TagEnd::Heading(HeadingLevel::H2)),
+            ] if title.as_ref() == crate::claim_publication::SECTION_HEADING
+        )
+    })
+}
+
 /// The element ids a post's own markup writes: each heading's `{#id}`, each
 /// footnote definition's label (its note's id) and each `id` attribute found
 /// in raw HTML, read as a browser reads it ([`crate::raw_html::id_attributes`]).
@@ -1718,6 +1742,77 @@ pub(crate) fn heading_ids(markdown: &str) -> Vec<String> {
             _ => None,
         })
         .collect()
+}
+
+/// The passage text of a publication body (ADR 0076), section by section:
+/// the text before the first heading (no anchor), then each heading's id
+/// with its title and the text up to the next heading of any level. Text is
+/// read from the same events and with the same heading ids as [`render`],
+/// so it is the text the native page shows, without what the page generates
+/// around it: footnote and citation markers, image alternative text, raw
+/// HTML, code blocks and the generated citation notes region. Whitespace is
+/// not yet collapsed; [`crate::passage_target`] does that. With `embeds`
+/// on, a paragraph that is only an embeddable link is left out, as
+/// [`apply_embeds`] replaces it with a frame that has no prose.
+pub(crate) fn passage_sections(
+    markdown: &str,
+    smart_punctuation: bool,
+    embeds: bool,
+    notes: Option<&crate::bibliography::CitationNoteLabels<'_>>,
+) -> Vec<(Option<String>, String)> {
+    let mut events =
+        Parser::new_ext(markdown, parser_options(smart_punctuation)).collect::<Vec<_>>();
+    assign_heading_ids(&mut events, notes);
+    let notes_start = notes.and_then(|labels| generated_notes_heading(&events, labels));
+    let mut sections: Vec<(Option<String>, String)> = vec![(None, String::new())];
+    let mut in_code_block = false;
+    let mut images = 0usize;
+    let mut index = 0;
+    while index < events.len() {
+        let event = &events[index];
+        let position = index;
+        index += 1;
+        if notes_start == Some(position) {
+            break;
+        }
+        if embeds && matches!(event, Event::Start(Tag::Paragraph)) {
+            if let Some(len) = events[index..]
+                .iter()
+                .position(|e| matches!(e, Event::End(TagEnd::Paragraph)))
+            {
+                if standalone_embed(&events[index..index + len]).is_some() {
+                    index += len + 1;
+                    continue;
+                }
+            }
+        }
+        if let Event::Start(Tag::Heading { id, .. }) = event {
+            sections.push((id.as_ref().map(|id| id.to_string()), String::new()));
+            continue;
+        }
+        let text = &mut sections
+            .last_mut()
+            .expect("the lead section is always there")
+            .1;
+        match event {
+            Event::Start(Tag::CodeBlock(_)) => in_code_block = true,
+            Event::End(TagEnd::CodeBlock) => in_code_block = false,
+            Event::Start(Tag::Image { .. }) => images += 1,
+            Event::End(TagEnd::Image) => images = images.saturating_sub(1),
+            Event::Text(t) | Event::Code(t) if !in_code_block && images == 0 => text.push_str(t),
+            Event::SoftBreak | Event::HardBreak => text.push(' '),
+            Event::End(
+                TagEnd::Heading(_)
+                | TagEnd::Paragraph
+                | TagEnd::Item
+                | TagEnd::TableCell
+                | TagEnd::BlockQuote(_)
+                | TagEnd::FootnoteDefinition,
+            ) => text.push(' '),
+            _ => {}
+        }
+    }
+    sections
 }
 
 pub fn render_portable(
@@ -1995,12 +2090,18 @@ fn render_events<'a>(
         (None, Some(labels)) => generated_notes_heading(&parsed_events, labels),
         _ => None,
     };
+    // The claim evidence section comes before any notes, and ends the prose
+    // too: it records the author's reading, not the post's own words.
+    let claims_start = match portable {
+        None if options.claim_evidence_section => claim_section_heading(&parsed_events),
+        _ => None,
+    };
     let mut prose_end = None;
     let mut after_marker = false;
 
     for (index, event) in parsed_events.into_iter().enumerate() {
-        if notes_start == Some(index) {
-            prose_end = Some(text.len());
+        if notes_start == Some(index) || claims_start == Some(index) {
+            prose_end.get_or_insert(text.len());
         }
         let followed_marker = std::mem::take(&mut after_marker);
         match &event {

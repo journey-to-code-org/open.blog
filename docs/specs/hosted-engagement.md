@@ -58,6 +58,39 @@ function. Admin stores the public endpoint in `openblog.json` and a write-only m
 - The local built-in analytics store remains the default and remains available when hosted
   engagement is disabled.
 
+## Participation policy
+
+Comments are the first kind in the one participation and moderation policy
+(`openblog_core::participation` and `openblog_core::moderation`, ADRs 0101 to 0104). The comment
+manifest and `<ob-comments>` come from the policy's comment row, which keeps the rule above
+unchanged. Further kinds (passage feedback, Third Perspectives, author responses, abuse reports)
+are off until `participation.kinds` switches them on, then share this function, its quotas and its
+moderation token, read their modes from `openblog-participation.json`, and start pending.
+
+## Moderation inbox
+
+Comments and passage feedback are moderated in one Admin inbox through `GET` and `PATCH
+/admin/moderation` (ADR 0105): a keyset-paged list by state and kind, each item offered the
+decisions the one policy accepts for the signed-in account's role on its work, every decision
+decided again by the function from the stored row (`netlify/lib/participation-moderation.mjs`,
+checked against `tests/fixtures/participation-transitions.json`) and written once, conditionally,
+with its audit event. The hosted schema for every decision is opt in (ADR 0106): `moderation.sql`
+adds a version, the full state and a reason beside the comment `status` column, which keeps its
+three values for public reads, and a comment audit table; `feedback.sql` adds the item's
+revisions and the audit fields ADR 0083 left. Without `OPENBLOG_MODERATION_ENABLED` the inbox offers
+what the older schema can store. With engagement protection (ADRs 0107 and 0108) the inbox also
+lists abuse reports with the item each names, upholds them in one transaction, deletes a closed
+item's text for the site Admin, and runs retention from a confirmed dry run.
+
+## Engagement protection
+
+Reader receipts, anonymous abuse reports, deletion requests and the retention run (ADRs 0107 and
+0108) are opt in behind `supabase/protection.sql` and `OPENBLOG_PROTECTION_ENABLED`. Quotas store
+only hourly digests of the client, receipts only their digest, and reports no reporter identity;
+purging overwrites text and keeps state and audit events without it. The rules the function
+applies (`retentionStep`, `planErasure`, `planUphold`) are checked against
+`tests/fixtures/participation-protection.json`, which the Rust policy generates.
+
 ## Testing decisions
 
 - Exercise the Netlify handler through HTTP-shaped events with a fake Supabase fetch seam.
@@ -67,6 +100,26 @@ function. Admin stores the public endpoint in `openblog.json` and a write-only m
 - Exercise comment submission and text-only rendering through the mounted web component.
 - Exercise Admin settings through authenticated/CSRF-protected routes and browser settings controls.
 - Run the full Rust, browser, documentation-link, formatting, lint, and locked release-build gates.
+- For protection (`tests/web/netlify-protection.test.mjs`): the shared fixture, stored digests
+  that change every hour, credentials absent from every answer, a disabled service, origin and
+  token checks, malformed JSON, floods and replays, races, receipts, reports, upholding, deletion,
+  the retention dry run and run, and the SQL with its rollback.
+
+## Typed passage feedback
+
+The same function carries typed scholarly feedback (questions, suggested sources, suggested
+corrections and other interpretations of a passage) as an opt-in extension of this seam, not a
+second comment system. The submission format and kinds are [ADR 0079](../adr/0079-typed-scholarly-feedback-kinds-and-one-submission-format.md),
+the additive `openblog_feedback` table and its rollback are [ADR 0080](../adr/0080-hosted-feedback-is-one-additive-private-table.md),
+and the transport, its double opt-in, quotas and fallback are [ADR 0081](../adr/0081-hosted-feedback-transport-is-opt-in-and-reuses-the-engagement-seam.md).
+The reader form on each open post, its passage data and its copy-and-send fallback are
+[ADR 0082](../adr/0082-passage-feedback-forms-are-one-progressive-region-over-the-build-passage-text.md).
+Moderation, author responses, revision notes and the published notes are
+[ADR 0083](../adr/0083-feedback-moderation-is-version-checked-and-approved-notes-publish-from-a-versioned-file.md):
+`PATCH /admin/feedback` takes `{id, action, from, expectedVersion, reason?, actor?}` and applies
+the change with its audit event only while the item still has that state and version (`409`
+otherwise), and approved notes are published from `content/reader-feedback.json`, never read back
+from the hosted service by a build. Comments, their table and their routes are unchanged.
 
 ## Out of scope
 

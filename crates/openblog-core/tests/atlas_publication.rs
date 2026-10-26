@@ -190,7 +190,8 @@ fn only_approved_items_and_allowlisted_fields_are_published() {
         value["entries"][1],
         json!({"id": "plato", "kind": "person", "label": "Plato", "aliases": ["Aristocles"],
             "summary": "An Athenian philosopher.\n\nHe wrote dialogues.",
-            "bounds": {"from": -428, "until": -348}, "url": "/atlas/plato/"})
+            "url": "/atlas/plato/"}),
+        "a version 1 `bounds` is now a private, unsourced dating and is not published"
     );
     assert_eq!(
         value["relationships"][1],
@@ -254,7 +255,10 @@ fn a_contested_relationship_keeps_provenance_direction_and_every_dissenting_part
     assert!(plato.contains("<cite>Platonis Rempublicam. 2003, pp. 514–520</cite>"));
     assert!(plato.contains("<dt>Uncertain</dt><dd>The dating is unsettled.</dd>"));
     assert!(plato.contains("Also known as Aristocles"));
-    assert!(plato.contains("428 BCE to 348 BCE"));
+    assert!(
+        !plato.contains("BCE") && !plato.contains("348"),
+        "migrated years are the author's private, unsourced draft"
+    );
     let republic = &files["atlas/republic/index.html"];
     assert!(republic.contains("<strong>Contested:</strong> <a href=\"/atlas/plato/\">Plato</a> authored <strong>Republic</strong>."));
     assert!(republic.contains("data-standing=\"asserted\""));
@@ -460,4 +464,104 @@ fn an_empty_projection_publishes_an_empty_atlas_and_urls_follow_the_base_path() 
     ));
     assert!(files["atlas.json"].contains(r#""url":"/blog/atlas/plato/""#));
     assert!(files["atlas/index.html"].contains("href=\"/blog/atlas/plato/\""));
+}
+
+#[test]
+fn approved_datings_publish_through_the_allowlist_and_nothing_else_does() {
+    let mut value = atlas_value();
+    value["version"] = json!(2);
+    value["entries"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("bounds");
+    value["entries"][0]["dates"] = json!([
+        {"id": "plato-birth-public", "aspect": "birth",
+         "date": {"notBefore": {"year": -428, "circa": true, "hint": format!("{PRIVATE} point extra")},
+                  "notAfter": {"year": -427}, "fuzz": format!("{PRIVATE} date extra")},
+         "assertedBy": {"kind": "source", "source": "scholar-book", "why": format!("{PRIVATE} party extra")},
+         "evidence": [{"source": "republic-slings",
+             "locators": [{"kind": "page", "value": "9", "hint": format!("{PRIVATE} locator extra")}],
+             "margin": format!("{PRIVATE} evidence extra")}],
+         "note": "Reckoned from the archon list.", "visibility": "approved",
+         "shelf": format!("{PRIVATE} dating extra")},
+        {"id": "plato-death-private-marker", "aspect": "death",
+         "date": {"relative": {"order": "after", "entry": "republic", "aspect": "composition",
+             "tag": format!("{PRIVATE} relative extra")}},
+         "assertedBy": {"kind": "named", "name": format!("{PRIVATE} dating party")},
+         "unsourced": true},
+        {"id": "plato-cited-private-marker", "aspect": "death", "date": {"at": {"year": -347}},
+         "assertedBy": {"kind": "author"}, "evidence": [{"source": "scholar-book"}],
+         "note": format!("{PRIVATE} private dating note")},
+        {"id": "plato-passage-marker", "aspect": "death", "date": {"at": {"year": -348}},
+         "assertedBy": {"kind": "author"},
+         "evidence": [{"source": "republic-slings", "passage": "p-cave"}],
+         "note": format!("{PRIVATE} passage dating note")},
+        {"id": "plato-to-secret-marker", "aspect": "death",
+         "date": {"relative": {"order": "after", "entry": "secret", "aspect": "span"}},
+         "assertedBy": {"kind": "author"}, "evidence": [{"source": "scholar-book"}],
+         "note": format!("{PRIVATE} relative to a private entry"), "visibility": "approved"}
+    ]);
+    value["entries"][4]["dates"] = json!([
+        {"id": "secret-span-marker", "aspect": "span", "date": {"at": {"century": -4}},
+         "assertedBy": {"kind": "author"}, "evidence": [{"source": "scholar-book"}],
+         "note": format!("{PRIVATE} dating of a private entry"), "visibility": "approved"}
+    ]);
+    value["relationships"][0]["dates"] = json!([
+        {"id": "r-authored-held", "aspect": "span",
+         "date": {"from": {"decade": -380}, "to": {"century": -4}},
+         "assertedBy": {"kind": "author"}, "evidence": [{"source": "scholar-book"}],
+         "visibility": "approved"}
+    ]);
+    value["relationships"][4]["dates"] = json!([
+        {"id": "r-to-secret-held-marker", "aspect": "span", "date": {"at": {"year": -380}},
+         "assertedBy": {"kind": "author"}, "evidence": [{"source": "scholar-book"}],
+         "note": format!("{PRIVATE} dating of an unpublished relationship"), "visibility": "approved"}
+    ]);
+    let atlas = project(&value);
+    assert_eq!(
+        ids(&atlas.datings, |d| &d.id),
+        ["plato-birth-public", "r-authored-held"],
+        "only approved, cited datings of published items with no passage and no private target"
+    );
+    let parsed: Value = serde_json::from_str(&atlas.to_json()).unwrap();
+    assert_eq!(
+        parsed["datings"][0],
+        json!({"id": "plato-birth-public", "owner": "plato", "ownerType": "entry",
+            "aspect": "birth",
+            "date": {"notBefore": {"year": -428, "circa": true}, "notAfter": {"year": -427}},
+            "text": "between c. 428 BCE and 427 BCE", "placement": "dated",
+            "startYear": -428, "endYear": -427,
+            "assertedBy": {"kind": "source", "source": "scholar-book"},
+            "confidence": "tentative",
+            "evidence": [{"source": "republic-slings", "locators": [{"kind": "page", "value": "9"}]}],
+            "note": "Reckoned from the archon list."}),
+        "exactly the allowlisted fields"
+    );
+    assert_eq!(parsed["datings"][1]["ownerType"], "relationship");
+    assert_eq!(
+        parsed["datings"][1]["text"],
+        "from the 380s BCE to 4th century BCE"
+    );
+    let files = build(&site(config("https://example.test"), vec![], Some(atlas)));
+    for (path, contents) in &files {
+        assert!(
+            !contents.contains(PRIVATE),
+            "{path} carries a private value"
+        );
+        assert!(
+            !contents.contains("marker"),
+            "{path} carries a private dating"
+        );
+        assert!(!contents.contains("p-cave"), "{path} carries a passage id");
+    }
+    let published: Vec<&String> = files
+        .iter()
+        .filter(|(_, contents)| contents.contains("Reckoned from the archon list."))
+        .map(|(path, _)| path)
+        .collect();
+    assert_eq!(
+        published,
+        ["atlas.json", "atlas/index.html", "atlas/plato/index.html"],
+        "a dating reaches only the atlas pages and atlas.json"
+    );
 }

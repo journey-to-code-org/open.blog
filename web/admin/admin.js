@@ -286,10 +286,169 @@ export function normalizeStatusFilter(value) {
   return ["published", "scheduled", "draft", "error"].includes(value) ? value : "all";
 }
 
-export const COMMENT_MODERATION_STATUSES = ["pending", "approved", "rejected"];
+// The moderation inbox (ADR 0105): comments and reader feedback in one list, in the participation
+// policy's states (ADR 0102). The server decides who the signed-in account is on each item's work
+// and sends only what that account may see, with the decisions it may take; these helpers only
+// word and shape what it sent.
+export const MODERATION_STATES = ["pending", "clarification", "approved", "rejected", "removed", "withdrawn"];
+export const MODERATION_STATE_LABELS = { pending: "Pending", clarification: "Waiting for clarification", approved: "Approved", rejected: "Rejected", removed: "Removed", withdrawn: "Withdrawn" };
+export const MODERATION_KINDS = [
+  ["", "All kinds"],
+  ["comment", "Comments"],
+  ["question", "Questions"],
+  ["source-suggestion", "Suggested sources"],
+  ["correction-suggestion", "Suggested corrections"],
+  ["alternative-interpretation", "Other interpretations"],
+  ["abuse-report", "Abuse reports"],
+];
+const MODERATION_STATE_NOTES = {
+  clarification: "These wait for the reader’s answer through their private receipt. The text asked about can never be approved; you can still reject it.",
+  withdrawn: "Readers took these back through their private receipts, and their text was deleted at once. They are never published and cannot be changed.",
+};
 
-export function commentModerationActions(status) {
-  return ["approved", "rejected"].filter((decision) => decision !== status);
+/** The inbox's address for one state and kind filter. */
+export function moderationHash(state, kind = "") {
+  const known = MODERATION_STATES.includes(state) ? state : "pending";
+  return `#/moderation/${known}${kind && MODERATION_KINDS.some(([id]) => id === kind) ? `?kind=${encodeURIComponent(kind)}` : ""}`;
+}
+
+/** The state and kind an inbox address asks for, anything unknown read as the defaults. */
+export function parseModerationRoute(tail, params) {
+  const state = MODERATION_STATES.includes(tail) ? tail : "pending";
+  const kind = params?.get?.("kind") || "";
+  return { state, kind: MODERATION_KINDS.some(([id]) => id === kind) ? kind : "" };
+}
+
+/** The inbox's status line: how many items are shown, never how many exist unseen. */
+export function inboxSummary(state, count, more) {
+  const items = `item${count === 1 ? "" : "s"}`;
+  const tail = more ? " More are listed after these." : "";
+  if (!count) return state === "clarification" ? "Nothing is waiting for clarification." : `No ${MODERATION_STATE_LABELS[state].toLowerCase()} items.`;
+  if (state === "clarification") return `${count} ${items} waiting for clarification.${tail}`;
+  return `${count} ${MODERATION_STATE_LABELS[state].toLowerCase()} ${items}.${tail}`;
+}
+
+/**
+ * The body of one decision: the item's source, id, state and version as loaded, a reason when the
+ * action takes one, and, to approve feedback whose passage is not current, the passage check the
+ * moderator confirmed. Nothing says who is acting: the server knows.
+ */
+export function moderationRequest(item, action, reason, acknowledged) {
+  const request = { source: item.source, id: item.id, action, from: item.status, version: item.version };
+  if (reason) request.reason = reason;
+  if (action === "approve" && item.passage?.acknowledge && acknowledged) request.acknowledge = item.passage.check;
+  return request;
+}
+
+/** What the signed-in account can do with an item, from the role the server resolved. */
+export function moderationRoleLine(role) {
+  if (role === "coordinator") return "You moderate this as a coordinator of its shared publication. Only the site Admin sees a reader’s private name or reopens a decision.";
+  if (role === "contributing-author") return "You can read this as a contributing author of the work. A coordinator or the site Admin decides.";
+  return "You moderate this as the site Admin.";
+}
+
+/**
+ * Who sent an item, for moderators only. A comment's name is always shown with it; a reader of
+ * feedback chose whether to show theirs, and a private name reaches only the site Admin.
+ */
+export function moderationReaderLine(reader, source = "feedback") {
+  if (source === "report") return "Reports are anonymous: nothing about the reader who sent it is kept.";
+  if (source === "comment") return reader?.name ? `From ${reader.name}, shown with the comment.` : "From an unnamed commenter.";
+  if (reader?.private) return "The reader gave a name that only the site Admin can see.";
+  if (!reader?.name) return "From an anonymous reader.";
+  return reader.publishName
+    ? `From ${reader.name}, who agreed to show this name if you publish the note.`
+    : `From ${reader.name}. The name stays private: the reader did not agree to show it.`;
+}
+
+/** What a decision did, for the status line after the list reloads. */
+export function moderationOutcome(item, action, result) {
+  const where = item.post ? `“${item.post.title}”` : item.work;
+  if (action === "approve") {
+    if (item.source === "comment") return `Approved. The comment is shown on ${where}.`;
+    return result.published ? `Approved and published on ${where}. Rebuild or publish to update the live site.` : `Approved. ${result.publishError || ""}`.trim();
+  }
+  if (action === "reject") return "Rejected. Nothing was published.";
+  if (action === "request-clarification") return "Asked the reader to clarify. Nothing was published or e-mailed.";
+  if (action === "reopen") return `Reopened. It is ${result.item?.status === "clarification" ? "waiting for clarification" : "pending"} again.`;
+  if (action === "uphold-report") {
+    if (!result.removedTarget) return "Report upheld. The reported item was already out of public view, so nothing else changed.";
+    if (result.published) return `Report upheld and the item removed, but the note is still on the post. ${result.publishError || ""} Take it off the post from the Removed list.`.trim();
+    return `Report upheld. The reported item was removed from ${where}.`;
+  }
+  if (action === "erase") {
+    if (result.published) return `Its text and name were deleted, but the note is still on the post. ${result.publishError || ""}`.trim();
+    return "Its text and name were deleted. Only the private record of decisions remains.";
+  }
+  if (item.source === "comment") return `Removed from ${where}.`;
+  if (result.published) return `Removed, but still on the post. ${result.publishError || ""} Take it off the post from the Removed list.`;
+  return result.publishError ? `Removed. ${result.publishError}` : `Removed from ${where}.`;
+}
+
+/**
+ * What a card says when a feedback item's state and the published file disagree, and the fix it
+ * offers: an approved note that is not on its post yet, or a removed or rejected one that still is
+ * (a removal whose file write failed, or a decision made outside Admin). `published` is null when
+ * unknown.
+ */
+export function feedbackPublicationMismatch(item) {
+  if (item.status === "approved" && item.published === false) return { notice: "Approved, but not on the site yet.", action: "publish", label: "Publish on the post" };
+  if (item.status === "removed" && item.published === true) return { notice: "Removed, but still on the post.", action: "unpublish", label: "Take it off the post" };
+  if (item.status === "rejected" && item.published === true) return { notice: "Rejected, but still on the post.", action: "unpublish", label: "Take it off the post" };
+  if (item.status === "withdrawn" && item.published === true) return { notice: "The reader withdrew this note and asked for it to be deleted, but it is still on the post. Take it off now.", action: "unpublish", label: "Take it off the post" };
+  return null;
+}
+
+/** The retention dry run's summary, in words: what would expire or be purged, by kind. */
+export function retentionSummaryLines(report) {
+  const lines = (report?.summary || []).map((entry) => {
+    const what = entry.step === "expire" ? "expire without a decision" : "have their text, details and names deleted";
+    return `${entry.count} ${entry.kindLabel.toLowerCase()} ${entry.count === 1 ? "item" : "items"} would ${what}.`;
+  });
+  const audit = Object.values(report?.audit || {}).reduce((total, count) => total + (Number(count) || 0), 0);
+  if (audit) lines.push(`${audit} private record${audit === 1 ? "" : "s"} of decisions older than ${report.periods.auditDays} days would be deleted.`);
+  if (!lines.length) lines.push("Nothing is due: retention would change nothing now.");
+  if (!report?.periods?.comments) lines.push("Comments are kept until you act, because participation.retention is not set in openblog.json.");
+  if (report?.truncated) lines.push("More items are due than one run takes; run it again afterwards.");
+  return lines;
+}
+
+/** How the published note would read its passage, in words. */
+export function feedbackPreviewText(preview) {
+  if (!preview) return "";
+  const passage = preview.quote ? `quoting “${preview.quote}”` : preview.stale ? "without a quotation, because the passage has changed" : "without a quotation";
+  return `On the post it is shown ${passage}, as from ${preview.name || "a reader"}, received ${preview.received}.`;
+}
+
+const FEEDBACK_CHECK_LABELS = { current: "Current", reanchored: "Re-anchored", stale: "Stale", "unknown-work": "Post not found" };
+
+function feedbackPassage(passage) {
+  if (!passage) return null;
+  return h(
+    "div",
+    { class: "oba-feedback-passage", "data-check": passage.check },
+    h("h4", {}, "Passage check"),
+    h("p", {}, h("strong", {}, `${FEEDBACK_CHECK_LABELS[passage.check] || passage.check}. `), passage.explanation),
+    passage.quoted ? h("p", {}, "Words the reader quoted, as they saw them:") : null,
+    passage.quoted ? h("blockquote", { class: "oba-feedback-body" }, passage.quoted) : null,
+    h("p", { class: "oba-small" }, `Seen on passage revision ${passage.revisionSeen}${passage.revisionNow ? `; published now: ${passage.revisionNow}` : ""}.`),
+  );
+}
+
+/** The item an abuse report names, for moderators: its kind and state, its author if a comment, and its text unless deleted. */
+function reportedItem(target) {
+  if (!target) return h("p", { class: "oba-notice" }, "The reported item no longer exists, so upholding the report changes only the report.");
+  return h(
+    "div",
+    { class: "oba-feedback-passage" },
+    h("h4", {}, "Reported item"),
+    h("p", {}, `${target.kindLabel}${target.authorName ? ` by ${target.authorName}` : ""} · ${target.statusLabel}`),
+    target.body ? h("blockquote", { class: "oba-feedback-body" }, target.body) : h("p", { class: "oba-small" }, "Its text was deleted."),
+  );
+}
+
+function feedbackPreview(preview) {
+  return preview ? h("p", { class: "oba-small oba-feedback-preview" }, feedbackPreviewText(preview)) : null;
 }
 
 export function saveStateForVersions(saveVersion, editVersion) {
@@ -538,7 +697,7 @@ export function filterSources(sources, { query = "", kind = "all", archived = "a
 
 /** Records that point at this one, so archiving or editing can say what depends on it. */
 export function sourceDependents(sources, id) {
-  return (Array.isArray(sources) ? sources : []).filter((source) => source.of === id || source.basedOn === id);
+  return (Array.isArray(sources) ? sources : []).filter((source) => source.of === id || source.basedOn === id || source.revises === id);
 }
 
 export function sourceDraft(record = null, kind = "work") {
@@ -558,6 +717,7 @@ export function sourceDraft(record = null, kind = "work") {
     identifiers: (Array.isArray(source.identifiers) ? source.identifiers : []).map((entry) => `${entry?.scheme ?? ""}: ${entry?.value ?? ""}`).join("\n"),
     locationScheme: typeof source.location?.scheme === "string" ? source.location.scheme : "",
     locationValue: typeof source.location?.value === "string" ? source.location.value : "",
+    locationVolume: typeof source.location?.volume === "string" ? source.location.volume : "",
   };
 }
 
@@ -589,6 +749,64 @@ function keepUnchanged(parsed, original, same) {
   return parsed.map((entry, index) => (Array.isArray(original) && original[index] && same(original[index], entry) ? original[index] : entry));
 }
 
+// CSL name parts describe the stored display name, so they no longer apply once it changes.
+const SOURCE_CREATOR_NAME_PARTS = Object.freeze(["family", "given", "dropping-particle", "non-dropping-particle", "suffix"]);
+
+/**
+ * Creators from the text box, each built on the stored creator it edits: the
+ * one with the same name, otherwise the one at the same position. The text box
+ * edits only the name and role, so attribution, note, and unknown fields carry
+ * over; a role removed from the line is removed, and CSL name parts are dropped
+ * when the name itself changes.
+ */
+export function mergeSourceCreators(parsed, original) {
+  const stored = Array.isArray(original) ? original.filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry)) : [];
+  const claimed = new Set();
+  const bases = parsed.map((entry) => {
+    const index = stored.findIndex((candidate, at) => !claimed.has(at) && candidate.name === entry.name);
+    if (index >= 0) claimed.add(index);
+    return index;
+  });
+  return parsed.map((entry, position) => {
+    let index = bases[position];
+    if (index < 0 && position < stored.length && !claimed.has(position)) {
+      index = position;
+      claimed.add(position);
+    }
+    if (index < 0) return entry;
+    const base = stored[index];
+    if (base.name === entry.name && (base.role ?? "") === (entry.role ?? "")) return base;
+    const merged = { ...base, name: entry.name };
+    if (entry.role) merged.role = entry.role;
+    else delete merged.role;
+    if (base.name !== entry.name) for (const part of SOURCE_CREATOR_NAME_PARTS) delete merged[part];
+    return merged;
+  });
+}
+
+/**
+ * The reference location from the form, built on the stored one so its volume
+ * and unknown fields survive an edit; a volume the author cleared is removed.
+ */
+export function mergeSourceLocation(draft, stored) {
+  const scheme = draft.locationScheme || "";
+  const value = String(draft.locationValue || "").trim();
+  const volume = String(draft.locationVolume ?? stored?.volume ?? "").trim();
+  if (!scheme && !value) return undefined;
+  const base = stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {};
+  if (base.scheme === scheme && base.value === value && (base.volume ?? "") === volume) return base;
+  const location = { ...base, scheme, value };
+  if (volume) location.volume = volume;
+  else delete location.volume;
+  return location;
+}
+
+/** The number of volumes the record a reference points at declares, or 0. */
+export function sourceTargetVolumes(sources, id) {
+  const target = (Array.isArray(sources) ? sources : []).find((source) => source.id === id);
+  return Number.isInteger(target?.volumes) ? target.volumes : 0;
+}
+
 /** The full record to send. Unknown fields of the stored record are carried over unchanged. */
 export function sourceDraftPayload(draft) {
   const original = draft.original || {};
@@ -606,14 +824,13 @@ export function sourceDraftPayload(draft) {
   if (fields.basedOn) set("basedOn", draft.basedOn);
   set("language", draft.language);
   set("issued", draft.issued);
-  const creators = keepUnchanged(parseSourceCreators(draft.creators), original.creators, (a, b) => a.name === b.name && (a.role ?? "") === (b.role ?? ""));
+  const creators = mergeSourceCreators(parseSourceCreators(draft.creators), original.creators);
   if (creators.length) record.creators = creators;
   const identifiers = keepUnchanged(parseSourceIdentifiers(draft.identifiers), original.identifiers, (a, b) => a.scheme === b.scheme && a.value === b.value);
   if (identifiers.length) record.identifiers = identifiers;
-  const locationValue = String(draft.locationValue || "").trim();
-  if (fields.location && (draft.locationScheme || locationValue)) {
-    const stored = original.location;
-    record.location = stored && stored.scheme === draft.locationScheme && stored.value === locationValue ? stored : { scheme: draft.locationScheme, value: locationValue };
+  if (fields.location) {
+    const location = mergeSourceLocation(draft, original.location);
+    if (location) record.location = location;
   }
   return record;
 }
@@ -630,11 +847,15 @@ export function validateSourceDraft(draft, sources = []) {
   if (fields.location && Boolean(draft.locationScheme) !== Boolean(String(draft.locationValue || "").trim())) {
     return { field: "locationValue", message: "Choose a location type and enter its value, or clear both." };
   }
+  if (fields.location && !draft.locationScheme && String(draft.locationVolume || "").trim()) {
+    return { field: "locationVolume", message: "A volume belongs with a location; choose a location type and value, or clear the volume." };
+  }
   return null;
 }
 
 /** Map a server diagnostic's field path (`identifiers[0]`) to the form control that edits it. */
 export function sourceDiagnosticControl(field) {
+  if (String(field || "") === "location.volume") return "locationVolume";
   const name = String(field || "").replace(/\[\d+\].*$/, "").split(".")[0];
   return { creators: "creators", identifiers: "identifiers", location: "locationValue", id: "id", kind: "kind-field", title: "title", of: "of", basedOn: "basedOn", language: "language", issued: "issued" }[name] || "";
 }
@@ -1605,7 +1826,7 @@ export function createCaptureForm({ api, state, entry = null, entryType = "passa
           savedNote = (await send("POST", "research/notes", "note", noteDraftPayload(draft))).note;
         }
         busy = false;
-        onSaved?.({ type: "passage", passage: result.passage, note: savedNote });
+        onSaved?.({ type: "passage", passage: result.passage, note: savedNote, build: result.build });
       } else {
         if (!editing) note.id = suggestEntryId("note", [...state.passages, ...state.notes].map((item) => item.id));
         say("Saving…");
@@ -1792,15 +2013,31 @@ export function atlasRelationshipSentence(relationship, entries = []) {
 export function atlasDiagnosticControl(field, type = "entry") {
   const path = String(field || "");
   const name = path.replace(/\[\d+\].*$/, "").split(".")[0];
-  if (type === "entry") {
-    if (name === "bounds") return path.endsWith("until") ? "until-year" : "from-year";
-    return { id: "id", kind: "kind", label: "label", aliases: "aliases", summary: "summary", source: "source", visibility: "approved" }[name] || "";
-  }
   const evidenceControl = (prefix, rest) => {
     const found = rest.match(/^evidence\[(\d+)\]\.?(source|passage|locators)?/);
     return found ? `${prefix}evidence-${found[1]}-${found[2] || "source"}` : "";
   };
   const party = (prefix, rest) => (rest.endsWith("source") ? `${prefix}-source` : rest.endsWith("name") ? `${prefix}-name` : prefix);
+  if (name === "dates") {
+    const dating = path.match(/^dates\[(\d+)\](?:\.(.*))?$/);
+    if (!dating) return "dates";
+    const [, index, rest = ""] = dating;
+    const prefix = `dating-${index}`;
+    if (["id", "aspect", "confidence", "unsourced", "note"].includes(rest)) return `${prefix}-${rest}`;
+    if (rest === "visibility") return `${prefix}-approved`;
+    if (rest.startsWith("assertedBy")) return party(`${prefix}-asserted`, rest);
+    if (rest.startsWith("evidence")) return evidenceControl(`${prefix}-`, rest) || `${prefix}-evidence`;
+    const date = rest.match(/^date(?:\.(at|from|to|notBefore|notAfter|unknown|relative)(?:\.(\w+))?)?/);
+    if (!date) return prefix;
+    const [, slot, key] = date;
+    if (!slot || slot === "unknown") return `${prefix}-form`;
+    if (slot === "relative") return `${prefix}-relative-${["order", "entry", "aspect"].includes(key) ? key : "entry"}`;
+    const base = `${prefix}-${DATE_SLOT_IDS[slot]}`;
+    if (["month", "day", "calendar", "circa"].includes(key)) return `${base}-${key}`;
+    if (["year", "decade", "century"].includes(key)) return `${base}-value`;
+    return `${base}-precision`;
+  }
+  if (type === "entry") return { id: "id", kind: "kind", label: "label", aliases: "aliases", summary: "summary", source: "source", visibility: "approved" }[name] || "";
   const dissent = path.match(/^contestedBy\[(\d+)\](?:\.(.*))?$/);
   if (dissent) {
     const [, index, rest = ""] = dissent;
@@ -1832,10 +2069,11 @@ export function atlasErrorMessage(error) {
 
 /** Copy the parts of an atlas response that describe the stored atlas into the view state. */
 export function applyAtlasState(state, result) {
-  for (const key of ["revision", "file", "entries", "relationships", "sources", "passages", "kinds", "notices", "missingConcepts"]) {
+  for (const key of ["revision", "file", "entries", "relationships", "sources", "passages", "kinds", "notices", "chronology", "missingConcepts"]) {
     if (result && result[key] !== undefined) state[key] = result[key];
   }
   for (const key of ["entries", "relationships", "sources", "passages", "notices", "missingConcepts"]) if (!Array.isArray(state[key])) state[key] = [];
+  if (!state.chronology || typeof state.chronology !== "object") state.chronology = { timeline: [], prompts: [], unlisted: 0 };
   return state;
 }
 
@@ -1879,7 +2117,6 @@ function atlasEvidencePayload(draft) {
 
 export function atlasEntryDraft(record = null, prefill = {}) {
   const entry = record && typeof record === "object" ? record : {};
-  const year = (value) => (Number.isInteger(value) ? String(value) : "");
   return {
     original: record ? structuredClone(record) : null,
     id: typeof entry.id === "string" ? entry.id : String(prefill.id || ""),
@@ -1888,17 +2125,16 @@ export function atlasEntryDraft(record = null, prefill = {}) {
     aliases: (Array.isArray(entry.aliases) ? entry.aliases : []).join("\n"),
     summary: typeof entry.summary === "string" ? entry.summary : "",
     source: typeof entry.source === "string" ? entry.source : "",
-    fromYear: year(entry.bounds?.from),
-    untilYear: year(entry.bounds?.until),
+    datings: (Array.isArray(entry.dates) ? entry.dates : []).map((dating) => atlasDatingDraft(dating)),
     approved: entry.visibility === "approved",
   };
 }
 
-/** The full entry to send. Unknown stored fields, including those inside `bounds`, are carried over. */
+/** The full entry to send, carrying unknown fields on the entry and at every level of its datings. */
 export function atlasEntryPayload(draft) {
   const original = draft.original || {};
   const record = { ...original };
-  for (const field of ["aliases", "summary", "source", "bounds"]) delete record[field];
+  for (const field of ["aliases", "summary", "source", "dates"]) delete record[field];
   record.id = String(draft.id || "").trim();
   record.kind = draft.kind;
   record.label = String(draft.label ?? "").trim();
@@ -1906,22 +2142,11 @@ export function atlasEntryPayload(draft) {
   if (aliases.length) record.aliases = aliases;
   if (String(draft.summary ?? "").trim()) record.summary = draft.summary;
   if (draft.kind === "work" && draft.source) record.source = draft.source;
-  const bounds = { ...(original.bounds || {}) };
-  delete bounds.from;
-  delete bounds.until;
-  if (String(draft.fromYear ?? "").trim()) bounds.from = Number(String(draft.fromYear).trim());
-  if (String(draft.untilYear ?? "").trim()) bounds.until = Number(String(draft.untilYear).trim());
-  if (Object.keys(bounds).length) record.bounds = bounds;
+  const dates = (draft.datings || []).map(atlasDatingPayload);
+  if (dates.length) record.dates = dates;
   record.visibility = draft.approved ? "approved" : "private";
   return record;
 }
-
-const atlasYearProblem = (value, field, label) => {
-  const text = String(value ?? "").trim();
-  if (!text) return null;
-  const year = /^-?\d{1,6}$/.test(text) ? Number(text) : NaN;
-  return Number.isInteger(year) && year !== 0 && Math.abs(year) <= 100000 ? null : { field, message: `${label} must be a whole year between -100000 and 100000; negative is BCE and there is no year 0.` };
-};
 
 /** A quick, advisory check; the server's validation stays authoritative. */
 export function validateAtlasEntryDraft(draft, { sources = [], used = [], creating = false } = {}) {
@@ -1938,9 +2163,6 @@ export function validateAtlasEntryDraft(draft, { sources = [], used = [], creati
   if (new Set(aliases).size !== aliases.length) return { field: "aliases", message: "Each other name may appear only once." };
   if (codePoints(draft.summary) > MAX_ATLAS_SUMMARY_CHARS) return { field: "summary", message: `A summary is limited to ${MAX_ATLAS_SUMMARY_CHARS} characters.` };
   if (draft.kind === "work" && draft.source && !sources.some((source) => source.id === draft.source && source.kind === "work")) return { field: "source", message: "Choose a work from your source library, or none." };
-  const year = atlasYearProblem(draft.fromYear, "from-year", "The start year") || atlasYearProblem(draft.untilYear, "until-year", "The end year");
-  if (year) return year;
-  if (String(draft.fromYear).trim() && String(draft.untilYear).trim() && Number(draft.fromYear) > Number(draft.untilYear)) return { field: "until-year", message: "The end year must not be earlier than the start year." };
   return null;
 }
 
@@ -1958,6 +2180,7 @@ export function atlasRelationshipDraft(record = null, prefill = {}) {
     unsourced: Boolean(value.unsourced),
     uncertainty: typeof value.uncertainty === "string" ? value.uncertainty : "",
     contestedBy: (Array.isArray(value.contestedBy) ? value.contestedBy : []).map((item, index) => atlasDissentDraft(item, index)),
+    datings: (Array.isArray(value.dates) ? value.dates : []).map((dating) => atlasDatingDraft(dating)),
     approved: value.visibility === "approved",
   };
 }
@@ -1978,43 +2201,65 @@ export function atlasDissentDraft(record = {}, from = null) {
  * Rests a relationship draft on a newer stored copy. Every nested item read
  * from the store takes the newer copy of the item it came from, wherever that
  * item still exists, so fields added elsewhere at any level survive the save.
- * An item rests on the newer copy only while the stored item at its index is
- * still the same item (evidence: the same source and passage; a dissent: the
- * same party). When items were removed elsewhere, the index points at another
- * item, and the draft keeps its own copy rather than take that item's fields.
+ * A dissent rests on the newer dissent known by its party while that party is
+ * unique in the opened and the newer lists; when several share a party, the
+ * same opened note or evidence must also match, and if that still leaves
+ * several, only the one at the dissent's own index qualifies. Evidence rests on the newer item known by its
+ * source and passage (see `rebaseAtlasEvidence`). When an item cannot be told
+ * apart from another, the draft keeps its own copy rather than take that
+ * item's fields.
  */
 export function rebaseAtlasRelationshipDraft(draft, current) {
-  const stored = (list, from) => (Array.isArray(list) && Number.isInteger(from) && list[from] && typeof list[from] === "object" ? list[from] : null);
   const text = (value) => (typeof value === "string" ? value : "");
-  const sameEvidence = (a = {}, b = {}) => text(a.source) === text(b.source) && text(a.passage) === text(b.passage);
-  const party = (value) => (value && typeof value === "object" ? value : {});
-  const sameDissent = (a = {}, b = {}) => {
-    const [x, y] = [party(a.by), party(b.by)];
-    return text(x.kind) === text(y.kind) && text(x.source) === text(y.source) && text(x.name) === text(y.name);
+  const object = (value) => value && typeof value === "object";
+  const party = (value) => (object(value) ? value : {});
+  const partyKey = (dissent) => {
+    const by = party(dissent?.by);
+    return JSON.stringify([text(by.kind), text(by.source), text(by.name)]);
   };
-  const rebaseEvidence = (drafts, list) => {
-    for (const item of drafts) {
-      const newer = stored(list, item.from);
-      if (newer && sameEvidence(newer, item.original)) item.original = structuredClone(newer);
-    }
-  };
+  const evidenceKey = (dissent) =>
+    JSON.stringify((Array.isArray(dissent?.evidence) ? dissent.evidence : []).map((item) => [text(item?.source), text(item?.passage), JSON.stringify(Array.isArray(item?.locators) ? item.locators : [])]));
+  const openedFrom = draft.original?.dates;
+  const openedEvidence = draft.original?.evidence;
+  const openedDissents = Array.isArray(draft.original?.contestedBy)
+    ? draft.original.contestedBy
+    : draft.contestedBy.filter((item) => Number.isInteger(item.from)).map((item) => item.original);
   draft.original = structuredClone(current);
   draft.assertedBy.original = structuredClone(current.assertedBy || { kind: "author" });
-  rebaseEvidence(draft.evidence, current.evidence);
+  rebaseAtlasEvidence(draft.evidence, current.evidence, openedEvidence);
+  const newerList = Array.isArray(current.contestedBy) ? current.contestedBy : [];
   for (const dissent of draft.contestedBy) {
-    const newer = stored(current.contestedBy, dissent.from);
-    if (!newer || !sameDissent(newer, dissent.original)) continue;
+    if (!Number.isInteger(dissent.from) || !object(dissent.original)) continue;
+    const key = partyKey(dissent.original);
+    const sameParty = (list) => list.filter((value) => object(value) && partyKey(value) === key);
+    const candidates = sameParty(newerList);
+    const openedSame = sameParty(openedDissents);
+    let newer = null;
+    if (candidates.length === 1 && openedSame.length === 1) newer = candidates[0];
+    else {
+      // Several dissents share the party: the same opened note or evidence must tell them apart.
+      const alike = (value) => (text(dissent.original.note) ? text(value.note) === text(dissent.original.note) : !text(value.note) && evidenceKey(value) === evidenceKey(dissent.original));
+      const matching = candidates.filter(alike);
+      const openedMatching = openedSame.filter(alike);
+      if (matching.length === 1 && openedMatching.length === 1) newer = matching[0];
+      else if (matching.length === openedMatching.length && matching.includes(newerList[dissent.from])) newer = newerList[dissent.from];
+    }
+    if (!newer) continue;
+    const opened = dissent.original?.evidence;
     dissent.original = structuredClone(newer);
+    dissent.from = newerList.indexOf(newer);
     dissent.by.original = structuredClone(newer.by || { kind: "author" });
-    rebaseEvidence(dissent.evidence, newer.evidence);
+    rebaseAtlasEvidence(dissent.evidence, newer.evidence, opened);
   }
+  // Datings carry ids, so they rest on the newer copy by identity, never by position.
+  rebaseAtlasDatings(draft.datings || [], current.dates, openedFrom);
   return draft;
 }
 
 /** The full relationship to send, carrying unknown fields at every level the form edits. */
 export function atlasRelationshipPayload(draft) {
   const record = { ...(draft.original || {}) };
-  for (const field of ["evidence", "unsourced", "uncertainty", "contestedBy"]) delete record[field];
+  for (const field of ["evidence", "unsourced", "uncertainty", "contestedBy", "dates"]) delete record[field];
   record.id = String(draft.id || "").trim();
   record.kind = draft.kind;
   record.from = draft.from;
@@ -2036,6 +2281,8 @@ export function atlasRelationshipPayload(draft) {
     return item;
   });
   if (dissents.length) record.contestedBy = dissents;
+  const dates = (draft.datings || []).map(atlasDatingPayload);
+  if (dates.length) record.dates = dates;
   record.visibility = draft.approved ? "approved" : "private";
   return record;
 }
@@ -2101,6 +2348,559 @@ export function validateAtlasRelationshipDraft(draft, { entries = [], kinds = nu
     if (notebookPointer) return { field: "approved", message: "An approved relationship cannot point into your private notebook; clear the passage and keep the source and locators." };
   }
   return null;
+}
+
+// ---- chronology: datings authored in the editors, and the explorer (ADR 0093 to 0097, 0098)
+
+/** The five date forms, exactly one per dating. A competing date is its own dating. */
+export const ATLAS_DATE_FORMS = Object.freeze([
+  { form: "at", label: "At one point" },
+  { form: "range", label: "Lasting from one point to another" },
+  { form: "window", label: "At some time within a window" },
+  { form: "unknown", label: "Unknown: the party says it is not known" },
+  { form: "relative", label: "Before, after or during another entry's dated aspect" },
+]);
+export const ATLAS_PRECISIONS = Object.freeze([
+  { value: "year", label: "Year" },
+  { value: "month", label: "Month" },
+  { value: "day", label: "Day" },
+  { value: "decade", label: "Decade" },
+  { value: "century", label: "Century" },
+]);
+const ATLAS_ASPECT_LABELS = Object.freeze({
+  span: "Span (a lifetime, a duration, or when it held)",
+  birth: "Birth",
+  death: "Death",
+  active: "Activity (floruit)",
+  composition: "Composition",
+  publication: "Publication",
+  emergence: "Emergence",
+});
+const ATLAS_ASPECT_NOUNS = Object.freeze({ span: "span", birth: "birth", death: "death", active: "activity", composition: "composition", publication: "publication", emergence: "emergence" });
+const ATLAS_ORDER_LABELS = Object.freeze({ before: "Before", after: "After", during: "During (within an aspect that lasts)" });
+const SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const DATE_SLOTS = ["at", "from", "to", "notBefore", "notAfter"];
+const DATE_SLOT_IDS = Object.freeze({ at: "at", from: "from", to: "to", notBefore: "not-before", notAfter: "not-after" });
+const FORM_SLOTS = Object.freeze({ at: ["at"], range: ["from", "to"], window: ["notBefore", "notAfter"], unknown: [], relative: [] });
+const DATE_FORM_KEYS = ["at", "from", "to", "notBefore", "notAfter", "unknown", "relative"];
+const POINT_KEYS = ["year", "month", "day", "decade", "century", "circa", "calendar"];
+const RELATIVE_KEYS = ["order", "entry", "aspect"];
+const DATING_KEYS = ["id", "aspect", "date", "assertedBy", "confidence", "evidence", "unsourced", "note", "visibility"];
+const DEFAULT_MAX_DATINGS = 20;
+const DEFAULT_MAX_YEAR = 100000;
+
+export const atlasAspectLabel = (aspect) => ATLAS_ASPECT_LABELS[aspect] || String(aspect || "");
+const aspectNoun = (aspect) => ATLAS_ASPECT_NOUNS[aspect] || String(aspect || "");
+const capitalize = (text) => (text ? text[0].toUpperCase() + text.slice(1) : text);
+const extrasOf = (value, known) => {
+  const extras = {};
+  if (value && typeof value === "object" && !Array.isArray(value)) for (const [key, item] of Object.entries(value)) if (!known.includes(key)) extras[key] = structuredClone(item);
+  return extras;
+};
+/** A whole number typed as digits only, or NaN. */
+const wholeNumber = (text) => (/^\d+$/.test(String(text ?? "").trim()) ? Number(String(text).trim()) : NaN);
+const daysInMonth = (month) => (month === 2 ? 29 : [4, 6, 9, 11].includes(month) ? 30 : 31);
+
+/** The aspects an owner may be dated by, read from the server's table: an entry kind, or "relationship". */
+export function atlasAspects(kinds, owner) {
+  return (kinds?.aspects || []).filter((spec) => (owner === "relationship" ? spec.relationship : (spec.entries || []).includes(owner)));
+}
+
+/** A historical year as text: negative is BCE, and there is no year 0. */
+export function atlasYearText(year) {
+  return year < 0 ? `${-year} BCE` : `${year} CE`;
+}
+
+const ordinal = (n) => {
+  const tens = n % 100;
+  const suffix = tens >= 11 && tens <= 13 ? "th" : { 1: "st", 2: "nd", 3: "rd" }[n % 10] || "th";
+  return `${n}${suffix}`;
+};
+
+/** A point read back at its own precision, exactly as the core writes it: "c. 428 BCE", "the 380s BCE". */
+export function atlasPointText(point) {
+  if (!point || typeof point !== "object") return "";
+  let text = point.circa ? "c. " : "";
+  if (Number.isInteger(point.year) && point.year !== 0) {
+    if (Number.isInteger(point.month) && Number.isInteger(point.day)) text += `${point.day} `;
+    if (Number.isInteger(point.month)) text += `${SHORT_MONTHS[point.month - 1] || "?"} `;
+    text += atlasYearText(point.year);
+  } else if (Number.isInteger(point.decade) && point.decade !== 0) {
+    text += `${point.circa ? "" : "the "}${Math.abs(point.decade)}s ${point.decade < 0 ? "BCE" : "CE"}`;
+  } else if (Number.isInteger(point.century) && point.century !== 0) {
+    text += `${ordinal(Math.abs(point.century))} century ${point.century < 0 ? "BCE" : "CE"}`;
+  } else return "";
+  if (point.calendar === "gregorian" || point.calendar === "julian") text += ` (${point.calendar})`;
+  return text;
+}
+
+/** A date expression as stated, mirroring the core's text; a relative dating names the other entry by label when `entries` are given. */
+export function atlasDateText(date, entries = null) {
+  const value = date && typeof date === "object" ? date : {};
+  const ends = (a, b, both, and, first, last) => {
+    if (a && b) return `${both}${atlasPointText(a)} ${and} ${atlasPointText(b)}`;
+    if (a) return `${first} ${atlasPointText(a)}`;
+    if (b) return `${last} ${atlasPointText(b)}`;
+    return "open";
+  };
+  if (value.at) return atlasPointText(value.at);
+  if (value.from || value.to) return ends(value.from, value.to, "from ", "to", "from", "until");
+  if (value.notBefore || value.notAfter) return ends(value.notBefore, value.notAfter, "between ", "and", "not before", "not after");
+  if (value.unknown === true) return "unknown";
+  const relative = value.relative;
+  if (relative && typeof relative === "object") {
+    if (!entries) return `${relative.order} \`${relative.entry}\` ${relative.aspect}`;
+    return `${relative.order} the ${aspectNoun(relative.aspect)} of ${atlasEntryName(entries, relative.entry)}`;
+  }
+  return "";
+}
+
+/** `fallback` is the precision of a point the record does not state: "open" (an omitted end) or a precision for a new point. */
+export function atlasPointDraft(point = null, fallback = "open") {
+  const value = point && typeof point === "object" && !Array.isArray(point) ? point : null;
+  const draft = { extras: extrasOf(value, POINT_KEYS), precision: value ? "year" : fallback, magnitude: "", era: "ce", month: "", day: "", circa: Boolean(value?.circa), calendar: ["gregorian", "julian"].includes(value?.calendar) ? value.calendar : "" };
+  const signed = (n) => {
+    draft.magnitude = String(Math.abs(n));
+    draft.era = n < 0 ? "bce" : "ce";
+  };
+  if (Number.isInteger(value?.year)) {
+    signed(value.year);
+    if (Number.isInteger(value.month)) {
+      draft.month = String(value.month);
+      draft.precision = "month";
+      if (Number.isInteger(value.day)) {
+        draft.day = String(value.day);
+        draft.precision = "day";
+      }
+    }
+  } else if (Number.isInteger(value?.decade)) {
+    signed(value.decade);
+    draft.precision = "decade";
+  } else if (Number.isInteger(value?.century)) {
+    signed(value.century);
+    draft.precision = "century";
+  }
+  return draft;
+}
+
+/** The point to send, or undefined for an open end. Unknown fields the point carried are kept. */
+export function atlasPointPayload(draft) {
+  if (!draft || draft.precision === "open") return undefined;
+  const sign = draft.era === "bce" ? -1 : 1;
+  const record = {};
+  if (draft.precision === "decade") record.decade = sign * wholeNumber(draft.magnitude);
+  else if (draft.precision === "century") record.century = sign * wholeNumber(draft.magnitude);
+  else {
+    record.year = sign * wholeNumber(draft.magnitude);
+    if (draft.precision === "month" || draft.precision === "day") {
+      record.month = wholeNumber(draft.month);
+      if (draft.precision === "day") record.day = wholeNumber(draft.day);
+    }
+  }
+  if (draft.circa) record.circa = true;
+  if (draft.calendar && (draft.precision === "month" || draft.precision === "day")) record.calendar = draft.calendar;
+  for (const [key, value] of Object.entries(draft.extras || {})) if (!(key in record)) record[key] = structuredClone(value);
+  return record;
+}
+
+/**
+ * One dating as the editor holds it. `storedId` is the identity of the stored
+ * dating it was read from (null for a new one): a draft rests on a newer
+ * stored copy by that identity, never by its position in the list.
+ */
+export function atlasDatingDraft(record = null, defaults = {}) {
+  const value = record && typeof record === "object" ? record : {};
+  const date = value.date && typeof value.date === "object" ? value.date : {};
+  const form = date.at ? "at" : date.from || date.to ? "range" : date.notBefore || date.notAfter ? "window" : date.unknown === true ? "unknown" : date.relative ? "relative" : "at";
+  const relative = date.relative && typeof date.relative === "object" ? date.relative : {};
+  const points = {};
+  for (const slot of DATE_SLOTS) {
+    // A slot of the stored form that is absent is an open end; other slots wait, blank, in case the form changes.
+    const stated = Boolean(record) && FORM_SLOTS[form].includes(slot);
+    points[slot] = atlasPointDraft(date[slot], slot === "at" || (!stated && (slot === "from" || slot === "notBefore")) ? "year" : "open");
+  }
+  return {
+    storedId: record && typeof value.id === "string" ? value.id : null,
+    original: record ? structuredClone(record) : {},
+    id: typeof value.id === "string" ? value.id : String(defaults.id || ""),
+    idTouched: Boolean(record),
+    aspect: typeof value.aspect === "string" ? value.aspect : String(defaults.aspect || ""),
+    form,
+    points,
+    dateExtras: extrasOf(date, DATE_FORM_KEYS),
+    relative: {
+      extras: extrasOf(relative, RELATIVE_KEYS),
+      order: ["before", "after", "during"].includes(relative.order) ? relative.order : "after",
+      entry: typeof relative.entry === "string" ? relative.entry : "",
+      aspect: typeof relative.aspect === "string" ? relative.aspect : "",
+    },
+    assertedBy: atlasAttributionDraft(value.assertedBy),
+    confidence: ATLAS_CONFIDENCE.some((item) => item.value === value.confidence) ? value.confidence : "tentative",
+    evidence: (Array.isArray(value.evidence) ? value.evidence : []).map((item, index) => atlasEvidenceDraft(item, index)),
+    unsourced: Boolean(value.unsourced),
+    note: typeof value.note === "string" ? value.note : "",
+    approved: value.visibility === "approved",
+  };
+}
+
+/** The full dating to send, carrying unknown fields on the dating, its date, its points and its relative target. */
+export function atlasDatingPayload(draft) {
+  const date = {};
+  if (draft.form === "unknown") date.unknown = true;
+  else if (draft.form === "relative") {
+    date.relative = { order: draft.relative.order, entry: draft.relative.entry, aspect: draft.relative.aspect };
+    for (const [key, value] of Object.entries(draft.relative.extras || {})) if (!(key in date.relative)) date.relative[key] = structuredClone(value);
+  } else {
+    for (const slot of FORM_SLOTS[draft.form] || []) {
+      const point = atlasPointPayload(draft.points[slot]);
+      if (point) date[slot] = point;
+    }
+  }
+  for (const [key, value] of Object.entries(draft.dateExtras || {})) if (!(key in date)) date[key] = structuredClone(value);
+  const record = { id: String(draft.id || "").trim(), aspect: draft.aspect, date, assertedBy: atlasAttributionPayload(draft.assertedBy), confidence: draft.confidence };
+  const evidence = draft.evidence.map(atlasEvidencePayload);
+  if (evidence.length) record.evidence = evidence;
+  else if (draft.unsourced) record.unsourced = true;
+  if (String(draft.note ?? "").trim()) record.note = draft.note;
+  record.visibility = draft.approved ? "approved" : "private";
+  for (const [key, value] of Object.entries(draft.original || {})) if (!DATING_KEYS.includes(key) && !(key in record)) record[key] = structuredClone(value);
+  return record;
+}
+
+/** What a dating draft reads as, for the editor's live text; incomplete points say so rather than guess. */
+export function atlasDatingReading(draft, entries = []) {
+  if (draft.form === "unknown") return "unknown";
+  if (draft.form === "relative") {
+    const { order, entry, aspect } = draft.relative;
+    if (!entry || !aspect) return "not complete yet: choose the other entry and its aspect";
+    return atlasDateText({ relative: { order, entry, aspect } }, entries);
+  }
+  const date = atlasDatingPayload({ ...draft, original: {}, dateExtras: {}, evidence: [], assertedBy: { original: {}, kind: "author" } }).date;
+  const slots = FORM_SLOTS[draft.form] || [];
+  if (slots.some((slot) => date[slot] && !atlasPointText(date[slot]))) return "not complete yet";
+  if (draft.form === "at" && !date.at) return "not complete yet";
+  return atlasDateText(date);
+}
+
+function pointKeys(point) {
+  const years = Number.isInteger(point.year) ? [point.year, point.year] : Number.isInteger(point.decade) ? (point.decade > 0 ? [point.decade, point.decade + 9] : [point.decade - 9, point.decade]) : point.century > 0 ? [(point.century - 1) * 100 + 1, point.century * 100] : [point.century * 100, point.century * 100 + 99];
+  const month = Number.isInteger(point.month) ? point.month : null;
+  return {
+    years,
+    first: month ? [point.year, month, point.day || 1] : [years[0], 1, 1],
+    last: month ? [point.year, month, point.day || daysInMonth(month)] : [years[1], 12, 31],
+  };
+}
+const compareKeys = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+
+/** Whether `start` can begin no later than `end` ends, as the core decides it: months and days only within one calendar. */
+function notReversed(start, end) {
+  const [a, b] = [pointKeys(start), pointKeys(end)];
+  return (start.calendar || "") === (end.calendar || "") ? compareKeys(a.first, b.last) <= 0 : a.years[0] <= b.years[1];
+}
+
+function atlasPointProblem(point, base, name, maxYear) {
+  if (point.precision === "open") return null;
+  const n = wholeNumber(point.magnitude);
+  if (point.precision === "decade") {
+    if (!(n >= 10 && n % 10 === 0 && n + 9 <= maxYear)) return { field: `${base}-value`, message: `${name}: enter a decade as a multiple of 10, such as 1380 for 1380 to 1389 CE, or 380 with BCE for 389 to 380 BCE.` };
+    return null;
+  }
+  if (point.precision === "century") {
+    if (!(n >= 1 && n <= maxYear / 100)) return { field: `${base}-value`, message: `${name}: enter a century as a number from 1 to ${maxYear / 100}, such as 4 for the 4th century.` };
+    return null;
+  }
+  if (!(n >= 1 && n <= maxYear)) return { field: `${base}-value`, message: `${name}: enter a year from 1 to ${maxYear} without a minus sign, and choose BCE or CE. There is no year 0.` };
+  if (point.precision === "month" || point.precision === "day") {
+    const month = wholeNumber(point.month);
+    if (!(month >= 1 && month <= 12)) return { field: `${base}-month`, message: `${name}: choose a month.` };
+    if (point.precision === "day") {
+      const day = wholeNumber(point.day);
+      if (!(day >= 1 && day <= daysInMonth(month))) return { field: `${base}-day`, message: `${name}: enter a day of ${MONTH_NAMES[month - 1]}, from 1 to ${daysInMonth(month)}.` };
+    }
+  }
+  return null;
+}
+
+/**
+ * A quick, advisory check of an item's datings; the server stays
+ * authoritative. Fields name the dating's controls (`dating-1-at-value`).
+ * `used` lists every identifier a new dating may not take.
+ */
+export function validateAtlasDatings(datings, { owner = "", ownerId = "", kinds = null, entries = [], sources = [], passages = [], used = [] } = {}) {
+  const max = kinds?.maxDatings || DEFAULT_MAX_DATINGS;
+  const maxYear = kinds?.maxYear || DEFAULT_MAX_YEAR;
+  if (datings.length > max) return { field: "dates", message: `An entry or relationship may have at most ${max} datings.` };
+  const allowed = atlasAspects(kinds, owner);
+  const seen = new Set();
+  for (const [index, dating] of datings.entries()) {
+    const p = `dating-${index}`;
+    const name = `Dating ${index + 1}`;
+    const id = String(dating.id || "").trim();
+    if (!validAtlasId(id)) return { field: `${p}-id`, message: `${name} needs an identifier of lowercase letters, digits and single hyphens, at most 64 characters.` };
+    if (used.includes(id) || seen.has(id)) return { field: `${p}-id`, message: `${name}'s identifier is already used in the atlas; choose another.` };
+    seen.add(id);
+    const spec = allowed.find((item) => item.aspect === dating.aspect);
+    if (!spec) return { field: `${p}-aspect`, message: `Choose what ${name.toLowerCase()} dates.` };
+    if (dating.form === "range" && !spec.durative) return { field: `${p}-form`, message: `${name}: a ${dating.aspect} happens at one time; give a window instead of a duration.` };
+    const slots = FORM_SLOTS[dating.form] || [];
+    for (const slot of slots) {
+      const problem = atlasPointProblem(dating.points[slot], `${p}-${DATE_SLOT_IDS[slot]}`, name, maxYear);
+      if (problem) return problem;
+    }
+    if (slots.length === 2) {
+      const [start, end] = slots.map((slot) => atlasPointPayload(dating.points[slot]));
+      if (!start && !end) return { field: `${p}-${DATE_SLOT_IDS[slots[0]]}-precision`, message: `${name} needs at least one end; leave only the other one open.` };
+      if (start && end && !notReversed(start, end)) return { field: `${p}-${DATE_SLOT_IDS[slots[1]]}-value`, message: `${name}: the start is later than the end. Check the years and BCE or CE.` };
+    }
+    if (dating.form === "relative") {
+      const target = entries.find((entry) => entry.id === dating.relative.entry);
+      if (!target) return { field: `${p}-relative-entry`, message: `${name}: choose the entry it is dated against.` };
+      const aspect = atlasAspects(kinds, target.kind).find((item) => item.aspect === dating.relative.aspect);
+      if (!aspect) return { field: `${p}-relative-aspect`, message: `${name}: choose an aspect a ${target.kind} has.` };
+      if (dating.relative.order === "during" && !aspect.durative) return { field: `${p}-relative-aspect`, message: `${name}: during needs an aspect that lasts: span, activity or composition.` };
+      if (target.id === ownerId && aspect.aspect === dating.aspect) return { field: `${p}-relative-aspect`, message: `${name} cannot be dated against the aspect it dates.` };
+    }
+    const party = atlasPartyProblem(dating.assertedBy, sources, `${p}-asserted`);
+    if (party) return party;
+    if (dating.evidence.length > MAX_ATLAS_EVIDENCE) return { field: `${p}-evidence`, message: `A dating may cite at most ${MAX_ATLAS_EVIDENCE} pieces of evidence.` };
+    const evidence = atlasEvidenceProblem(dating.evidence, sources, passages, `${p}-`, `${name.toLowerCase()} evidence`);
+    if (evidence) return evidence;
+    if (!dating.evidence.length && !dating.unsourced) return { field: `${p}-evidence`, message: `Add evidence to ${name.toLowerCase()}, or mark it as an unsourced draft.` };
+    if (!dating.evidence.length && dating.confidence === "strong") return { field: `${p}-confidence`, message: `${name}: an unsourced dating cannot be strong; cite evidence first.` };
+    if (codePoints(dating.note) > MAX_ATLAS_UNCERTAINTY_CHARS) return { field: `${p}-note`, message: `A dating's note is limited to ${MAX_ATLAS_UNCERTAINTY_CHARS} characters.` };
+    if (dating.approved) {
+      if (!dating.evidence.length) return { field: `${p}-approved`, message: `${name}: an unsourced dating cannot be approved; cite evidence first.` };
+      if (dating.evidence.some((item) => item.passage)) return { field: `${p}-approved`, message: `${name}: an approved dating cannot point into your private notebook; clear the passage and keep the source and locators.` };
+    }
+  }
+  return null;
+}
+
+/**
+ * Rests nested evidence drafts on a newer stored list. Evidence has no id, so
+ * an item is known by its source and passage, but only while that pair is
+ * unambiguous: exactly one item in the copy the draft was opened from
+ * (`opened`) and exactly one in the newer list share it, and the draft rests
+ * on that newer item wherever it now sits. When several items share the pair,
+ * the newer item must also carry the opened copy's locators; if that still
+ * leaves several, only the one at the draft's own index qualifies. Otherwise
+ * the draft keeps its own copy rather than borrow another item's fields.
+ */
+function rebaseAtlasEvidence(drafts, list, opened) {
+  const text = (value) => (typeof value === "string" ? value : "");
+  const object = (value) => value && typeof value === "object";
+  const pair = (value) => (object(value) ? JSON.stringify([text(value.source), text(value.passage)]) : null);
+  const locators = (value) => (Array.isArray(value?.locators) ? value.locators : []);
+  const sameLocators = (a, b) => {
+    const [x, y] = [locators(a), locators(b)];
+    return x.length === y.length && x.every((item, index) => object(item) && object(y[index]) && sameLocator(item, y[index]));
+  };
+  const items = Array.isArray(list) ? list : [];
+  const before = Array.isArray(opened) ? opened : drafts.filter((item) => Number.isInteger(item.from)).map((item) => item.original);
+  const count = (values, key) => values.filter((value) => pair(value) === key).length;
+  for (const item of drafts) {
+    if (!Number.isInteger(item.from) || !object(item.original)) continue;
+    const key = pair(item.original);
+    const candidates = items.filter((value) => pair(value) === key);
+    let newer = null;
+    if (candidates.length === 1 && count(before, key) === 1) newer = candidates[0];
+    else {
+      const matching = candidates.filter((value) => sameLocators(value, item.original));
+      const openedMatching = before.filter((value) => pair(value) === key && sameLocators(value, item.original));
+      // Identical opened items cannot be told apart by content: the position
+      // counts only while the group of identical items is the same size.
+      if (matching.length === 1 && openedMatching.length === 1) newer = matching[0];
+      else if (matching.length === openedMatching.length && matching.includes(items[item.from])) newer = items[item.from];
+    }
+    if (!newer) continue;
+    item.original = structuredClone(newer);
+    item.from = items.indexOf(newer);
+  }
+}
+
+/**
+ * Rests an item's dating drafts on the newer stored datings, by identity:
+ * each draft read from the store takes the newer copy of the dating with the
+ * same id, wherever it now sits, so fields added elsewhere at every level
+ * survive. A dating removed elsewhere keeps the draft's copy. A dating added
+ * elsewhere (not in the copy the draft was opened from) joins the draft, so
+ * keeping the draft never drops it. Returns how many were added.
+ */
+export function rebaseAtlasDatings(datings, stored, openedFrom = []) {
+  const list = (Array.isArray(stored) ? stored : []).filter((item) => item && typeof item === "object" && typeof item.id === "string");
+  const byId = new Map(list.map((item) => [item.id, item]));
+  for (const dating of datings) {
+    const newer = dating.storedId ? byId.get(dating.storedId) : null;
+    if (!newer) continue;
+    const date = newer.date && typeof newer.date === "object" ? newer.date : {};
+    const opened = dating.original?.evidence;
+    dating.original = structuredClone(newer);
+    dating.dateExtras = extrasOf(date, DATE_FORM_KEYS);
+    for (const slot of DATE_SLOTS) if (date[slot] && typeof date[slot] === "object") dating.points[slot].extras = extrasOf(date[slot], POINT_KEYS);
+    if (date.relative && typeof date.relative === "object") dating.relative.extras = extrasOf(date.relative, RELATIVE_KEYS);
+    dating.assertedBy.original = structuredClone(newer.assertedBy || { kind: "author" });
+    rebaseAtlasEvidence(dating.evidence, newer.evidence, opened);
+  }
+  const known = new Set([...(Array.isArray(openedFrom) ? openedFrom : []).map((item) => item?.id), ...datings.map((dating) => dating.storedId).filter(Boolean)]);
+  const added = list.filter((item) => !known.has(item.id)).map((item) => atlasDatingDraft(item));
+  datings.push(...added);
+  return added.length;
+}
+
+/** Rests an entry draft on a newer stored copy: its own unknown fields, and its datings by identity. */
+export function rebaseAtlasEntryDraft(draft, current) {
+  const openedFrom = draft.original?.dates;
+  draft.original = structuredClone(current);
+  rebaseAtlasDatings(draft.datings, current?.dates, openedFrom);
+  return draft;
+}
+
+/** What the editor says about an item's datings. */
+export function atlasDatesText(count) {
+  const n = Number.isInteger(count) && count > 0 ? count : 0;
+  const kept = n ? `${plural(n, "dating")}. ` : "No datings yet. ";
+  return `${kept}Each dating records who dates what, on which evidence, at the precision they state. Competing datings stay side by side; nothing picks one, averages them or converts calendars.`;
+}
+
+/** A dating's standing for publication, in words. Approved datings publish only while the site publishes its atlas. */
+export function atlasDatingVisibilityText(record, projected) {
+  if (record?.visibility !== "approved") return "Private";
+  return projected ? "Approved for the publication projection; published with the atlas while the site publishes it" : "Approved, but stays private while what it dates, or the entry it is dated against, is private";
+}
+
+/** The explorer's time window from the filter fields, in historical years (negative is BCE). */
+export function atlasChronologyWindow(filters = {}, maxYear = DEFAULT_MAX_YEAR) {
+  const read = (text, era) => {
+    if (!String(text ?? "").trim()) return { year: null };
+    const n = wholeNumber(text);
+    if (!(n >= 1 && n <= maxYear)) return { problem: true };
+    return { year: era === "bce" ? -n : n };
+  };
+  const from = read(filters.fromYear, filters.fromEra || "bce");
+  const to = read(filters.toYear, filters.toEra || "ce");
+  if (from.problem || to.problem) return { active: false, from: null, to: null, problem: "Enter whole years from 1 without a minus sign, and choose BCE or CE; there is no year 0. The time window is not applied." };
+  if (from.year !== null && to.year !== null && from.year > to.year) return { active: false, from: from.year, to: to.year, problem: "The time window starts after it ends, so it is not applied." };
+  return { active: from.year !== null || to.year !== null, from: from.year, to: to.year, problem: "" };
+}
+
+/** The heading a dated aspect is listed under at a zoom level: by century, decade or year it begins in. */
+export function atlasChronologyGroupLabel(year, zoom = "century") {
+  if (zoom === "none") return "";
+  if (!Number.isInteger(year)) return "No earliest point stated (open start)";
+  const era = year < 0 ? "BCE" : "CE";
+  const magnitude = Math.abs(year);
+  if (zoom === "year") return atlasYearText(year);
+  if (zoom === "decade") {
+    const decade = Math.floor(magnitude / 10) * 10;
+    return decade ? `the ${decade}s ${era}` : `1 to 9 ${era}`;
+  }
+  return `${ordinal(Math.ceil(magnitude / 100))} century ${era}`;
+}
+
+/** The name of a dated item: an entry's label, or a relationship read in its stored direction. */
+function atlasOwnerName(state, collection, id) {
+  if (collection === "entries") return atlasEntryName(state.entries, id);
+  const relationship = (state.relationships || []).find((item) => item.id === id);
+  return relationship ? atlasRelationshipSentence(relationship, state.entries) : `${id} (missing)`;
+}
+
+/**
+ * The chronology explorer's model, from the server's chronology index. A
+ * dated aspect (one item's datings of one aspect) keeps all its competing
+ * datings together, in the index's one display order. Filters show or hide a
+ * whole dated aspect and never one of its competing datings: a dating outside
+ * the time window is kept and marked when a competitor falls inside it. A
+ * dated aspect with no absolute dating is listed apart, never placed in time.
+ */
+export function atlasChronologyModel(state, filters = {}) {
+  const chronology = state.chronology || {};
+  const timeline = Array.isArray(chronology.timeline) ? chronology.timeline : [];
+  const prompts = Array.isArray(chronology.prompts) ? chronology.prompts : [];
+  const promptCount = new Map();
+  for (const prompt of prompts) for (const id of prompt.datings || []) promptCount.set(id, (promptCount.get(id) || 0) + 1);
+  const records = new Map();
+  for (const item of [...(state.entries || []), ...(state.relationships || [])]) for (const dating of item.dates || []) records.set(dating.id, dating);
+  const rows = [];
+  const byKey = new Map();
+  for (const item of timeline) {
+    const key = `${item.collection}:${item.owner}:${item.aspect}`;
+    let row = byKey.get(key);
+    if (!row) {
+      row = { key, owner: item.owner, collection: item.collection, aspect: item.aspect, name: atlasOwnerName(state, item.collection, item.owner), datings: [] };
+      byKey.set(key, row);
+      rows.push(row);
+    }
+    row.datings.push({ ...item, record: records.get(item.id) || null, prompts: promptCount.get(item.id) || 0, inWindow: null });
+  }
+  const window = atlasChronologyWindow(filters, state.kinds?.maxYear);
+  const overlaps = (dating) => (dating.endYear ?? Infinity) >= (window.from ?? -Infinity) && (dating.startYear ?? -Infinity) <= (window.to ?? Infinity);
+  for (const row of rows) {
+    row.placed = row.datings.find((dating) => dating.placement === "dated") || null;
+    row.startYear = row.placed ? row.placed.startYear : null;
+    for (const dating of row.datings) dating.inWindow = window.active && dating.placement === "dated" ? overlaps(dating) : null;
+  }
+  const words = foldAtlasText(filters.query).split(" ").filter(Boolean);
+  const matches = (row) => {
+    if (filters.aspect && row.aspect !== filters.aspect) return false;
+    if (filters.competing && row.datings.length < 2) return false;
+    if (filters.prompted && !row.datings.some((dating) => dating.prompts)) return false;
+    if (words.length) {
+      const haystack = foldAtlasText(`${row.owner} ${row.name}`);
+      if (!words.every((word) => haystack.includes(word))) return false;
+    }
+    if (window.active && row.placed) return row.datings.some((dating) => dating.inWindow);
+    return true;
+  };
+  const shown = rows.filter(matches);
+  const zoom = ["century", "decade", "year", "none"].includes(filters.zoom) ? filters.zoom : "century";
+  const groups = [];
+  for (const row of shown.filter((item) => item.placed)) {
+    const label = atlasChronologyGroupLabel(row.startYear, zoom);
+    if (groups.length && groups[groups.length - 1].label === label) groups[groups.length - 1].rows.push(row);
+    else groups.push({ label, rows: [row] });
+  }
+  const relative = shown.flatMap((row) => row.datings.filter((dating) => dating.placement === "relative").map((dating) => ({ row, dating })));
+  return {
+    rows,
+    groups,
+    unplaced: shown.filter((row) => !row.placed),
+    relative,
+    prompts,
+    unlisted: Number.isInteger(chronology.unlisted) ? chronology.unlisted : 0,
+    window,
+    zoom,
+    total: { rows: rows.length, datings: timeline.length },
+    shown: { rows: shown.length, datings: shown.reduce((sum, row) => sum + row.datings.length, 0) },
+  };
+}
+
+/** The explorer's visible state in words: what is shown, and every filter and the zoom level in force. */
+export function atlasChronologyStatus(model, filters = {}) {
+  const parts = [`Showing ${model.shown.rows} of ${plural(model.total.rows, "dated aspect")} (${model.shown.datings} of ${plural(model.total.datings, "dating")})`];
+  if (filters.aspect) parts.push(`${aspectNoun(filters.aspect)} only`);
+  if (String(filters.query ?? "").trim()) parts.push(`matching “${String(filters.query).trim()}”`);
+  if (model.window.active) {
+    if (model.window.from !== null) parts.push(`from ${atlasYearText(model.window.from)}`);
+    if (model.window.to !== null) parts.push(`to ${atlasYearText(model.window.to)}`);
+  }
+  if (filters.competing) parts.push("only aspects with competing datings");
+  if (filters.prompted) parts.push("only datings with a check prompt");
+  parts.push(model.zoom === "none" ? "not grouped" : `grouped by the ${model.zoom} each begins in`);
+  return `${parts.join("; ")}.${model.window.problem ? ` ${model.window.problem}` : ""}`;
+}
+
+/** A dating as read in the explorer: the index's text, a relative dating with the other entry's label, or unknown said plainly. */
+export function atlasChronologyReading(dating, entries = []) {
+  if (dating.placement === "relative" && dating.record?.date?.relative) return atlasDateText(dating.record.date, entries);
+  if (dating.placement === "unknown") return "Unknown, as the party states";
+  return String(dating.text || "");
+}
+
+/** "Composition of Laws: after the activity of Plato". */
+export function atlasRelativeSentence(rowName, aspect, dating, entries = []) {
+  return `${capitalize(aspectNoun(aspect))} of ${rowName}: ${atlasChronologyReading(dating, entries)}`;
 }
 
 /**
@@ -2209,7 +3009,7 @@ export function createAtlasForm({ api, state, type = "entry", item = null, prefi
   };
 
   /** One list of evidence: library source, optional notebook passage, locators. */
-  const evidenceEditor = (list, prefix, names) => {
+  const evidenceEditor = (list, prefix, names, onAdd = null) => {
     const items = list.map((evidence, index) => {
       const base = `${prefix}evidence-${index}`;
       const passages = (state.passages || []).filter((passage) => (!evidence.source || passage.source === evidence.source) && (!passage.archived || passage.id === evidence.passage));
@@ -2248,6 +3048,7 @@ export function createAtlasForm({ api, state, type = "entry", item = null, prefi
         onClick: () => {
           list.push(atlasEvidenceDraft());
           if (list === draft.evidence) draft.unsourced = false;
+          onAdd?.();
           rerender(`${prefix}evidence-${list.length - 1}-source`);
         },
       }, names.add),
@@ -2271,11 +3072,198 @@ export function createAtlasForm({ api, state, type = "entry", item = null, prefi
     );
   };
 
+
+  // ---- dating parts (ADR 0093, ADR 0098)
+  const datingOwner = () => (isEntry ? draft.kind : "relationship");
+  const datingAspects = () => atlasAspects(state.kinds, datingOwner());
+  /** Every identifier a new dating may not take: the atlas's entries, relationships and other items' datings. */
+  const datingIdsInUse = () => {
+    const own = new Set((draft.original?.dates || []).map((dating) => dating?.id));
+    const others = [...(state.entries || []), ...(state.relationships || [])].flatMap((record) => (Array.isArray(record.dates) ? record.dates : []).map((dating) => dating.id)).filter((id) => !own.has(id));
+    return [...used(), ...others, ...(!editing && draft.id ? [draft.id] : [])];
+  };
+  const suggestDatingId = (dating) => {
+    const others = draft.datings.filter((item) => item !== dating).map((item) => item.id);
+    const owner = String(draft.id || "").trim() || (isEntry ? "entry" : "relationship");
+    return suggestAtlasId(`${owner}-${dating.aspect || "date"}`, [...datingIdsInUse(), ...others], "dating");
+  };
+  const refreshReading = (index) => {
+    const target = control(`dating-${index}-reads`);
+    if (target) target.textContent = `Reads: ${atlasDatingReading(draft.datings[index], state.entries || [])}`;
+  };
+
+  /** One point at its own precision: a year (with month and day), a decade or a century, BCE or CE, optionally circa. */
+  const pointEditor = (dating, index, slot, legend, openLabel = "") => {
+    const point = dating.points[slot];
+    const base = `dating-${index}-${DATE_SLOT_IDS[slot]}`;
+    const parts = [
+      field(
+        `${base}-precision`,
+        "Precision",
+        h(
+          "select",
+          { onChange: (event) => { point.precision = event.target.value; rerender(`${base}-precision`); } },
+          openLabel ? h("option", { value: "open", selected: point.precision === "open" }, openLabel) : null,
+          ATLAS_PRECISIONS.map((item) => h("option", { value: item.value, selected: point.precision === item.value }, item.label)),
+        ),
+        openLabel ? "Open leaves this end unstated. Nothing widens, narrows or rounds what you state." : "State it as finely as the party does, and no finer.",
+      ),
+    ];
+    if (point.precision !== "open") {
+      const valueLabel = { decade: "Decade", century: "Century" }[point.precision] || "Year";
+      const valueHint = {
+        decade: "Named as decades are: 1380 with CE is 1380 to 1389 CE; 380 with BCE is 389 to 380 BCE.",
+        century: "An ordinal number: 4 is the 4th century, 301 to 400 CE or 400 to 301 BCE.",
+      }[point.precision] || "Digits only, with no minus sign; choose BCE or CE below. There is no year 0: 1 BCE is followed by 1 CE.";
+      parts.push(
+        field(`${base}-value`, valueLabel, h("input", { type: "text", inputmode: "numeric", autocomplete: "off", spellcheck: "false", value: point.magnitude, onInput: (event) => { point.magnitude = event.target.value.trim(); refreshReading(index); } }), valueHint),
+        field(`${base}-era`, "Era", h("select", { onChange: (event) => { point.era = event.target.value; refreshReading(index); } }, h("option", { value: "bce", selected: point.era === "bce" }, "BCE (before the Common Era)"), h("option", { value: "ce", selected: point.era === "ce" }, "CE (the Common Era)"))),
+      );
+      if (point.precision === "month" || point.precision === "day") {
+        parts.push(field(`${base}-month`, "Month", h("select", { onChange: (event) => { point.month = event.target.value; refreshReading(index); } }, h("option", { value: "", selected: !point.month }, "Choose a month"), MONTH_NAMES.map((name, position) => h("option", { value: String(position + 1), selected: point.month === String(position + 1) }, name)))));
+        if (point.precision === "day") parts.push(field(`${base}-day`, "Day", h("input", { type: "text", inputmode: "numeric", autocomplete: "off", value: point.day, onInput: (event) => { point.day = event.target.value.trim(); refreshReading(index); } })));
+        parts.push(field(`${base}-calendar`, "Calendar of the month and day", h("select", { onChange: (event) => { point.calendar = event.target.value; refreshReading(index); } }, h("option", { value: "", selected: !point.calendar }, "As the cited party gives it (unspecified)"), h("option", { value: "gregorian", selected: point.calendar === "gregorian" }, "Gregorian"), h("option", { value: "julian", selected: point.calendar === "julian" }, "Julian")), "Nothing converts calendars. Points stated in different calendars are compared by year only; record any other reckoning in the note."));
+      }
+      parts.push(check(`${base}-circa`, "Circa: the party gives it as approximate", point.circa, (on) => { point.circa = on; refreshReading(index); }));
+    }
+    return h("fieldset", { class: "oba-atlas-point", id: `${idPrefix}-${base}`, tabindex: "-1" }, h("legend", {}, legend), parts);
+  };
+
+  /** A relative dating: before, after or during another entry's dated aspect, only as asserted. */
+  const relativeEditor = (dating, index) => {
+    const base = `dating-${index}-relative`;
+    const relative = dating.relative;
+    const entries = state.entries || [];
+    const target = entries.find((entry) => entry.id === relative.entry) || null;
+    const fits = (spec) => relative.order !== "during" || spec.durative;
+    const aspects = target ? atlasAspects(state.kinds, target.kind).filter(fits) : [];
+    const keepAspect = () => {
+      const now = entries.find((entry) => entry.id === relative.entry) || null;
+      if (relative.aspect && !(now && atlasAspects(state.kinds, now.kind).filter(fits).some((spec) => spec.aspect === relative.aspect))) {
+        relative.aspect = "";
+        return true;
+      }
+      return false;
+    };
+    return h(
+      "fieldset",
+      { class: "oba-atlas-point", id: `${idPrefix}-${base}`, tabindex: "-1" },
+      h("legend", {}, "Dated against"),
+      field(`${base}-order`, "Order", h("select", { onChange: (event) => { relative.order = event.target.value; const cleared = keepAspect(); rerender(`${base}-order`); if (cleared) say("The other entry's aspect does not last, so it was cleared; during needs one that lasts."); } }, (state.kinds?.orders || ["before", "after", "during"]).map((order) => h("option", { value: order, selected: relative.order === order }, ATLAS_ORDER_LABELS[order] || order))), "Asserted and cited like any dating. Nothing infers an order from absolute dates, and it never makes a relationship."),
+      field(`${base}-entry`, "Other entry", h("select", { onChange: (event) => { relative.entry = event.target.value; const cleared = keepAspect(); rerender(`${base}-entry`); if (cleared) say("That entry does not have the chosen aspect, so it was cleared."); } }, h("option", { value: "", selected: !relative.entry }, "Choose an entry"), entries.map((entry) => h("option", { value: entry.id, selected: relative.entry === entry.id }, `${entry.label} (${atlasKindLabel(entry.kind).toLowerCase()}, ${entry.id})`)))),
+      field(`${base}-aspect`, "Its dated aspect", h("select", { onChange: (event) => { relative.aspect = event.target.value; refreshReading(index); } }, h("option", { value: "", selected: !relative.aspect }, target ? "Choose an aspect" : "Choose the entry first"), aspects.map((spec) => h("option", { value: spec.aspect, selected: relative.aspect === spec.aspect }, atlasAspectLabel(spec.aspect)))), "Only aspects that entry's kind has are offered; during offers only aspects that last."),
+    );
+  };
+
+  const datingEditor = (dating, index) => {
+    const p = `dating-${index}`;
+    const number = index + 1;
+    const aspects = datingAspects();
+    const spec = aspects.find((item) => item.aspect === dating.aspect) || null;
+    const forms = {
+      at: () => [pointEditor(dating, index, "at", "The point")],
+      range: () => [pointEditor(dating, index, "from", "From", "Open: no stated start"), pointEditor(dating, index, "to", "To", "Open: no stated end")],
+      window: () => [pointEditor(dating, index, "notBefore", "Not before (the earliest it can be)", "Open: no earliest point, so before the latest"), pointEditor(dating, index, "notAfter", "Not after (the latest it can be)", "Open: no latest point, so after the earliest")],
+      unknown: () => [h("p", { class: "oba-small" }, "Recorded as the party's statement that the date is unknown: never a missing value or a placeholder year.")],
+      relative: () => [relativeEditor(dating, index)],
+    };
+    return h(
+      "fieldset",
+      { class: "oba-atlas-dating", id: `${idPrefix}-${p}`, tabindex: "-1", "data-atlas-dating": String(index) },
+      h("legend", {}, `Dating ${number}`),
+      dating.storedId
+        ? h("p", { class: "oba-small" }, `Identifier: ${dating.id}. It cannot change; prompts and pages name the dating by it.`)
+        : field(`${p}-id`, "Identifier", h("input", { type: "text", value: dating.id, autocomplete: "off", spellcheck: "false", onInput: (event) => { dating.idTouched = true; dating.id = event.target.value.trim(); } }), "Lowercase letters, digits and hyphens, unique across the atlas. It cannot change once saved."),
+      field(
+        `${p}-aspect`,
+        "What it dates",
+        h(
+          "select",
+          { onChange: (event) => {
+            dating.aspect = event.target.value;
+            if (!dating.storedId && !dating.idTouched) dating.id = suggestDatingId(dating);
+            const lasts = datingAspects().find((item) => item.aspect === dating.aspect)?.durative;
+            if (dating.form === "range" && !lasts) {
+              dating.form = "window";
+              dating.points.notBefore = dating.points.from;
+              dating.points.notAfter = dating.points.to;
+              rerender(`${p}-aspect`);
+              say(`A ${dating.aspect} happens at one time, so the duration became a window with the same ends.`);
+              return;
+            }
+            rerender(`${p}-aspect`);
+          } },
+          spec ? null : h("option", { value: "", selected: true }, "Choose an aspect"),
+          aspects.map((item) => h("option", { value: item.aspect, selected: dating.aspect === item.aspect }, atlasAspectLabel(item.aspect))),
+        ),
+        isEntry ? `Only aspects a ${draft.kind} can have are offered. Several datings may date the same aspect.` : "A relationship is dated only by its span: when it held. It dates the relationship and is not evidence for it.",
+      ),
+      h(
+        "fieldset",
+        { class: "oba-atlas-date-form", id: `${idPrefix}-${p}-form`, tabindex: "-1" },
+        h("legend", {}, "When"),
+        ATLAS_DATE_FORMS.map(({ form, label }) => {
+          const id = `${idPrefix}-${p}-form-${form}`;
+          const blocked = form === "range" && spec && !spec.durative;
+          return h("div", { class: "oba-capture-check" }, h("input", { id, type: "radio", name: `${idPrefix}-${p}-form`, value: form, checked: dating.form === form, disabled: Boolean(blocked) && dating.form !== form, onChange: () => { dating.form = form; rerender(`${p}-form-${form}`); } }), h("label", { for: id }, label));
+        }),
+        spec && !spec.durative ? h("p", { class: "oba-small" }, `A ${dating.aspect} happens at one time, so its uncertainty is a window, not a duration.`) : null,
+      ),
+      forms[dating.form] ? forms[dating.form]() : null,
+      h("p", { class: "oba-atlas-reads", id: `${idPrefix}-${p}-reads`, "data-atlas-reads": String(index) }, `Reads: ${atlasDatingReading(dating, state.entries || [])}`),
+      partyEditor(`${p}-asserted`, "Dated by", dating.assertedBy, "Who gives this date. It is attribution, not a contributor credit."),
+      field(`${p}-confidence`, "Confidence", h("select", { onChange: (event) => { dating.confidence = event.target.value; } }, ATLAS_CONFIDENCE.map((item) => h("option", { value: item.value, selected: dating.confidence === item.value }, item.label))), "How firmly that party holds this date, never how widely it is accepted. An unsourced draft cannot be strong."),
+      h(
+        "fieldset",
+        { class: "oba-atlas-evidence-list", id: `${idPrefix}-${p}-evidence`, tabindex: "-1" },
+        h("legend", {}, `Evidence for dating ${number}`),
+        evidenceEditor(dating.evidence, `${p}-`, { item: (n) => `Dating ${number} evidence ${n}`, add: `Add evidence to dating ${number}`, remove: (n) => `Remove evidence ${n} from dating ${number}` }, () => { dating.unsourced = false; }),
+        check(`${p}-unsourced`, "Unsourced draft: no evidence yet", dating.unsourced && !dating.evidence.length, (on) => { dating.unsourced = on; }, dating.evidence.length ? "Remove all evidence to mark this dating as an unsourced draft." : "The explicit draft state for a dating that cites nothing yet. It can be neither strong nor approved.", dating.evidence.length > 0),
+      ),
+      field(`${p}-note`, "Note (optional)", h("textarea", { rows: 2, value: dating.note, onInput: (event) => { dating.note = event.target.value; } }), "What is doubtful, or how the party reckons the date (a regnal year, an Olympiad). Stored as text."),
+      check(`${p}-approved`, "Approved for the publication projection", dating.approved, (on) => { dating.approved = on; }, "Your consent for this dating alone. It needs cited evidence and no notebook passage, and it stays private while what it dates, or the entry it is dated against, is private. While the site publishes its atlas, an approved dating appears on the entry's page, the timeline and atlas.json with who dates it, the evidence and the note."),
+      h("button", { class: "oba-btn oba-btn-danger", type: "button", "data-atlas-remove-dating": String(index), onClick: () => { draft.datings.splice(index, 1); rerender("add-dating"); say(`Dating ${number} removed. Nothing is stored until you save.`); } }, `Remove dating ${number}`),
+    );
+  };
+
+  const datingsEditor = () => {
+    const aspects = datingAspects();
+    const max = state.kinds?.maxDatings || DEFAULT_MAX_DATINGS;
+    return h(
+      "fieldset",
+      { class: "oba-atlas-dates", id: `${idPrefix}-dates`, tabindex: "-1" },
+      h("legend", {}, "Dates"),
+      h("p", { class: "oba-small", "data-atlas-dates-summary": "true" }, atlasDatesText(draft.datings.length)),
+      draft.datings.map(datingEditor),
+      h("button", {
+        class: "oba-btn",
+        type: "button",
+        id: `${idPrefix}-add-dating`,
+        "data-atlas-add-dating": "true",
+        disabled: draft.datings.length >= max || !aspects.length,
+        onClick: () => {
+          const dating = atlasDatingDraft(null, { aspect: aspects[0]?.aspect || "" });
+          draft.datings.push(dating);
+          dating.id = suggestDatingId(dating);
+          rerender(`dating-${draft.datings.length - 1}-aspect`);
+        },
+      }, "Add a dating"),
+    );
+  };
+
   const entryFields = () => {
     const fields = [];
     if (editing) fields.push(h("p", { class: "oba-small" }, `Kind: ${atlasKindLabel(draft.kind)}. An entry keeps its kind; record a different kind of thing as a new entry. Identifier: ${draft.id}.`));
     else {
-      fields.push(field("kind", "Kind", h("select", { onChange: (event) => { draft.kind = event.target.value; if (draft.kind !== "work") draft.source = ""; rerender("kind"); } }, ATLAS_ENTRY_KINDS.map((kind) => h("option", { value: kind.kind, selected: draft.kind === kind.kind }, kind.label))), "It decides which relationships the entry may join, and it cannot change later."));
+      fields.push(field("kind", "Kind", h("select", { onChange: (event) => {
+        draft.kind = event.target.value;
+        if (draft.kind !== "work") draft.source = "";
+        const allowed = datingAspects();
+        const moved = draft.datings.filter((dating) => dating.aspect && !allowed.some((item) => item.aspect === dating.aspect));
+        for (const dating of moved) dating.aspect = "";
+        rerender("kind");
+        if (moved.length) say(`${plural(moved.length, "dating")} dated an aspect a ${draft.kind} does not have, so ${moved.length === 1 ? "its aspect was" : "their aspects were"} cleared.`);
+      } }, ATLAS_ENTRY_KINDS.map((kind) => h("option", { value: kind.kind, selected: draft.kind === kind.kind }, kind.label))), "It decides which relationships the entry may join, and it cannot change later."));
     }
     fields.push(field("label", "Label", h("input", { type: "text", value: draft.label, autocomplete: "off", onInput: (event) => {
       draft.label = event.target.value;
@@ -2292,15 +3280,8 @@ export function createAtlasForm({ api, state, type = "entry", item = null, prefi
     );
     if (draft.kind === "work") fields.push(field("source", "Source-library work (optional)", sourceSelect(draft.source, (value) => { draft.source = value; }, "work"), "Editions, translations and witnesses are cited as evidence, never made entries."));
     fields.push(
-      h(
-        "fieldset",
-        { class: "oba-atlas-dates" },
-        h("legend", {}, "Dates (optional)"),
-        h("p", { class: "oba-small", id: `${idPrefix}-dates-hint` }, "Whole years; negative is BCE and there is no year 0. Dates are context only: nothing is ordered or related by them."),
-        field("from-year", "From year", h("input", { type: "text", inputmode: "numeric", value: draft.fromYear, autocomplete: "off", onInput: (event) => { draft.fromYear = event.target.value; } })),
-        field("until-year", "Until year", h("input", { type: "text", inputmode: "numeric", value: draft.untilYear, autocomplete: "off", onInput: (event) => { draft.untilYear = event.target.value; } })),
-      ),
-      check("approved", "Approved for the publication projection", draft.approved, (on) => { draft.approved = on; }, "Your consent to publish this entry on the site's Knowledge Atlas pages and atlas.json, once the site turns on knowledgeAtlas.publish. Only its label, other names, summary, years and work source are published. Clearing it removes the entry from the next build."),
+      datingsEditor(),
+      check("approved", "Approved for the publication projection", draft.approved, (on) => { draft.approved = on; }, "Your consent to publish this entry on the site's Knowledge Atlas pages and atlas.json, once the site turns on knowledgeAtlas.publish. Only its label, other names, summary and work source are published, with the datings you approve one by one. Clearing it removes the entry and its datings from the next build."),
     );
     return fields;
   };
@@ -2374,6 +3355,7 @@ export function createAtlasForm({ api, state, type = "entry", item = null, prefi
         draft.contestedBy.map(dissentEditor),
         h("button", { class: "oba-btn", type: "button", id: `${idPrefix}-add-dissent`, "data-atlas-add-dissent": "true", disabled: draft.contestedBy.length >= MAX_ATLAS_DISSENTS, onClick: () => { draft.contestedBy.push(atlasDissentDraft({ by: { kind: "named" } })); rerender(`dissent-${draft.contestedBy.length - 1}-name`); } }, "Add a dissent"),
       ),
+      datingsEditor(),
       check("approved", "Approved for the publication projection", draft.approved, (on) => { draft.approved = on; }, "Your consent to publish it with the Knowledge Atlas, only while both entries are approved too, with who asserts it, its evidence, confidence, doubt and dissents. An unsourced draft or evidence pointing into the private notebook cannot be approved. Clearing it removes it from the next build."),
     ];
     return fields;
@@ -2412,9 +3394,11 @@ export function createAtlasForm({ api, state, type = "entry", item = null, prefi
       say("Showing the stored copy.");
     } else {
       // The author has seen the newer copy: the draft now rests on it, and its unknown fields carry over.
-      if (isEntry) draft.original = structuredClone(current);
+      const before = draft.datings.length;
+      if (isEntry) rebaseAtlasEntryDraft(draft, current);
       else rebaseAtlasRelationshipDraft(draft, current);
-      say("Your draft now rests on the latest copy. Review it, then save.");
+      const added = draft.datings.length - before;
+      say(`Your draft now rests on the latest copy.${added ? ` ${plural(added, "dating")} added elsewhere ${added === 1 ? "was" : "were"} added to your draft.` : ""} Review it, then save.`);
     }
     rerender(isEntry ? "label" : "kind");
   };
@@ -2448,6 +3432,8 @@ export function createAtlasForm({ api, state, type = "entry", item = null, prefi
       ? validateAtlasEntryDraft(draft, { sources: state.sources || [], used: used(), creating: !editing })
       : validateAtlasRelationshipDraft(draft, { entries: state.entries || [], kinds: state.kinds, sources: state.sources || [], passages: state.passages || [] });
     if (problem) return fail(problem.message, problem.field);
+    const datingProblem = validateAtlasDatings(draft.datings, { owner: datingOwner(), ownerId: isEntry ? draft.id : "", kinds: state.kinds, entries: state.entries || [], sources: state.sources || [], passages: state.passages || [], used: datingIdsInUse() });
+    if (datingProblem) return fail(datingProblem.message, datingProblem.field);
     if (!isEntry && !editing) draft.id = suggestAtlasId(`${draft.from}-${draft.kind}-${draft.to}`, used(), "relationship");
     busy = true;
     root.querySelector("[data-atlas-save]")?.setAttribute("disabled", "");
@@ -2486,9 +3472,1601 @@ export function createAtlasForm({ api, state, type = "entry", item = null, prefi
   return {
     element: root,
     isDirty: () => touched && !busy,
+    /** Moves focus to one dating's fieldset, as a check prompt's link does. */
+    focusDating(index) {
+      const target = control(`dating-${index}`);
+      target?.focus();
+      return Boolean(target);
+    },
     focus() {
       (control(isEntry ? (editing ? "label" : "kind") : "kind") || root.querySelector("input,select,textarea,button"))?.focus();
     },
+  };
+}
+
+// ---------------------------------------------------------------- comparison workspace
+
+/** How aligned places correspond, in the author's reading. The server's labels replace these when it sends them. */
+export const ALIGNMENT_CORRESPONDENCES = Object.freeze([
+  { value: "corresponding", label: "The author reads these places as corresponding" },
+  { value: "partial", label: "The author reads these places as corresponding in part" },
+  { value: "divergent", label: "The author reads these places as corresponding but differing" },
+]);
+const ALIGNMENT_NOTICE_TEXT = "An alignment records where its author reads these places as corresponding. It does not say they mean the same thing, and no version is treated as authoritative.";
+const MAX_ALIGNMENT_MEMBERS = 32;
+const MAX_ALIGNMENT_RATIONALE_CHARS = 4000;
+const MAX_ALIGNMENT_NORMALIZED_CHARS = 20000;
+/**
+ * Rights statuses that ask the author to confirm before copying: nobody has
+ * checked yet, or the author states the text is under copyright. No status
+ * ever means a use is allowed; the others only skip the extra confirmation.
+ */
+export const RIGHTS_NEEDING_CONFIRMATION = Object.freeze(["unknown", "rightsReserved"]);
+const UNKNOWN_RIGHTS = Object.freeze({ status: "unknown", label: "Rights not checked yet", declared: false });
+const RTL_LANGUAGES = new Set([
+  "acm", "aeb", "ajp", "apc", "ar", "arc", "ary", "arz", "azb", "bal", "ckb", "dv", "fa", "glk", "hbo", "he", "iw", "ji", "jpr", "jrb",
+  "ks", "lrc", "mzn", "nqo", "ota", "phn", "pnb", "prs", "ps", "sam", "sd", "syc", "syr", "ug", "ur", "yi",
+]);
+const RTL_SCRIPTS = new Set([
+  "adlm", "arab", "aran", "armi", "avst", "chrs", "cprt", "elym", "hatr", "hebr", "hung", "khar", "lydi", "mand", "mani", "mend", "merc",
+  "mero", "narb", "nbat", "nkoo", "ougr", "palm", "phli", "phlp", "phnx", "prti", "rohg", "samr", "sarb", "sogd", "sogo", "syrc", "thaa", "yezi",
+]);
+/** Script subtags known to run left to right. Any other script subtag leaves the direction to the browser. */
+const LTR_SCRIPTS = new Set([
+  "ahom", "armn", "bali", "bamu", "batk", "beng", "bopo", "brah", "brai", "bugi", "buhd", "cakm", "cans", "cari", "cham", "cher", "copt",
+  "cyrl", "cyrs", "deva", "dogr", "dsrt", "dupl", "egyp", "ethi", "geok", "geor", "glag", "gong", "gonm", "goth", "gran", "grek", "gujr",
+  "guru", "hang", "hani", "hano", "hans", "hant", "hira", "hmng", "hrkt", "ital", "java", "jpan", "kali", "kana", "kawi", "khmr", "khoj",
+  "knda", "kore", "kthi", "lana", "laoo", "latf", "latg", "latn", "lepc", "limb", "lina", "linb", "lisu", "lyci", "mahj", "maka", "marc",
+  "medf", "mlym", "modi", "mong", "mroo", "mtei", "mult", "mymr", "nagm", "nand", "newa", "nshu", "ogam", "olck", "orkh", "orya", "osge",
+  "osma", "perm", "phag", "plrd", "runr", "saur", "sgnw", "shaw", "shrd", "sidd", "sind", "sinh", "sora", "soyo", "sund", "sylo", "tagb",
+  "takr", "tale", "talu", "taml", "tang", "tavt", "telu", "tfng", "tglg", "thai", "tibt", "tirh", "toto", "ugar", "vaii", "vith", "wara",
+  "wcho", "xpeo", "xsux", "yiii", "zanb",
+]);
+const VERSION_MAKERS = Object.freeze({
+  edition: { role: "editor", one: "Editor", many: "Editors" },
+  translation: { role: "translator", one: "Translator", many: "Translators" },
+  witness: { role: "scribe", one: "Scribe", many: "Scribes" },
+});
+const VERSION_KIND_LABELS = Object.freeze({ work: "Work", edition: "Edition", translation: "Translation", witness: "Witness", reference: "Reference" });
+
+/** A language tag safe to put in a `lang` attribute, or "" for anything else. */
+export function languageTag(value) {
+  const tag = String(value ?? "").trim();
+  return /^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8}){0,7}$/.test(tag) ? tag : "";
+}
+
+/**
+ * The base direction for text in a language: a script subtag decides first,
+ * then the language. Text with no usable tag, or a script subtag this list
+ * does not know, gets `auto`, so the browser decides from its first strong
+ * character instead of guessing left to right.
+ */
+export function textDirection(language) {
+  const tag = languageTag(language).toLowerCase();
+  if (!tag) return "auto";
+  const [base, ...subtags] = tag.split("-");
+  const script = subtags.find((part) => /^[a-z]{4}$/.test(part));
+  if (script) return RTL_SCRIPTS.has(script) ? "rtl" : LTR_SCRIPTS.has(script) ? "ltr" : "auto";
+  return RTL_LANGUAGES.has(base) ? "rtl" : "ltr";
+}
+
+/** Locators as a reader says them: `canonical 514a, volume 2`. */
+export function locatorText(locators) {
+  return (Array.isArray(locators) ? locators : [])
+    .map((locator) => `${String(locator?.kind ?? "").replace(/^x-csl-/, "").replace(/^x-/, "")} ${locator?.value ?? ""}${locator?.to ? ` to ${locator.to}` : ""}`.trim())
+    .filter(Boolean)
+    .join(", ");
+}
+
+const certaintyText = (name, certainty, note) => `${name}${certainty || note ? ` (${[certainty, note].filter(Boolean).join(": ")})` : ""}`;
+
+/** Who made a version, in its maker role, saying so when the source names nobody or nothing is recorded. */
+export function versionMakerText(source) {
+  const maker = VERSION_MAKERS[source?.kind];
+  if (!maker) return "";
+  const creators = (Array.isArray(source.creators) ? source.creators : []).filter((creator) => creator && creator.role === maker.role && typeof creator.name === "string");
+  if (creators.length) return `${creators.length === 1 ? maker.one : maker.many}: ${creators.map((creator) => certaintyText(creator.name, creator.attribution, creator.note)).join("; ")}`;
+  if (source.anonymous) return `${maker.one}: anonymous; the source names nobody`;
+  return `${maker.one}: not recorded`;
+}
+
+/** Who made an interpretation, with each name's attribution certainty. */
+export function interpretersText(interpretation) {
+  const interpreters = Array.isArray(interpretation?.interpreters) ? interpretation.interpreters : [];
+  if (!interpreters.length) return interpretation?.anonymous ? "Interpreted by: anonymous; nobody is named" : "Interpreted by: not recorded";
+  const names = interpreters.map((person) => certaintyText(String(person?.display || person?.name || person?.contributor || "Unnamed"), person?.attribution));
+  return `Interpreted by: ${names.join("; ")}${interpretation.anonymous ? " (recorded as anonymous)" : ""}`;
+}
+
+const rightsOf = (value) => (value && typeof value === "object" && typeof value.status === "string" ? value : UNKNOWN_RIGHTS);
+
+/** One line for a rights declaration: the author's statement, a licence name, and the note, never a permission. */
+export function rightsText(rights) {
+  const value = rightsOf(rights);
+  return `${value.label || UNKNOWN_RIGHTS.label}${value.license ? ` (${value.license})` : ""}${value.note ? `. ${value.note}` : ""}`;
+}
+
+const kindLanguage = (kind, language) => `${VERSION_KIND_LABELS[kind] || "Source"}${languageTag(language) ? `, language ${languageTag(language)}` : ""}`;
+
+/**
+ * The comparison of one alignment: one column per version or interpretation,
+ * in the order the author first placed them, each holding that version's
+ * places in member order. Every place carries what identifies it on its own
+ * (version, maker, locator) so it can be read, or copied, out of its column.
+ * Text is passed through exactly; nothing here normalizes or rewrites it.
+ */
+export function comparisonColumns(alignment, context = {}) {
+  const list = (value) => (Array.isArray(value) ? value : []);
+  const sources = list(context.sources);
+  const passages = list(context.passages);
+  const interpretations = list(context.interpretations);
+  const notices = list(context.notices).filter((notice) => notice?.id === alignment?.id);
+  const sourceById = (id) => sources.find((source) => source.id === id) || null;
+  const named = (id) => {
+    const source = sourceById(id);
+    return source ? `${sourceLabel(source)} (${String(source.kind || "").toLowerCase()})` : `${id} (missing)`;
+  };
+  const columns = [];
+  const sourceColumn = (id) => {
+    const source = sourceById(id);
+    const facts = [];
+    if (source) {
+      const chain = list(source.chain);
+      if (chain.length) facts.push({ label: "Realizes", parts: chain.flatMap((link, index) => [index ? ", which realizes " : "", { text: `${String(link.title || link.id)}` }, ` (${link.kind})`]).filter(Boolean) });
+      if (source.basedOn) facts.push({ label: "Made from", parts: [{ text: named(source.basedOn) }] });
+      if (source.revises) facts.push({ label: "Revises", parts: [{ text: named(source.revises) }] });
+      if (source.repository || source.shelfmark) facts.push({ label: "Held at", parts: [{ text: [source.repository, source.shelfmark].filter(Boolean).join(", ") }] });
+      if (Number.isInteger(source.volumes)) facts.push({ label: "Volumes", parts: [String(source.volumes)] });
+      if (source.issued) facts.push({ label: "Issued", parts: [{ text: String(source.issued) }] });
+      if (source.archived) facts.push({ label: "Library", parts: ["Archived"] });
+    }
+    return {
+      key: `source:${id}`,
+      type: "source",
+      id,
+      missing: !source,
+      title: source ? sourceLabel(source) : `Missing source ${id}`,
+      kindText: source ? kindLanguage(source.kind, source.language) : "Not in the library",
+      maker: source ? versionMakerText(source) : "",
+      facts,
+      rights: rightsOf(source?.rightsStatus),
+      places: [],
+    };
+  };
+  const interpretationColumn = (id) => {
+    const interpretation = interpretations.find((item) => item.id === id) || null;
+    const facts = [];
+    if (interpretation) {
+      facts.push({ label: "Interprets", parts: [{ text: named(interpretation.source) }] });
+      if (interpretation.uncertainty) facts.push({ label: "Uncertain", parts: [{ text: interpretation.uncertainty }] });
+    }
+    const kind = interpretation?.kind === "rendering" ? "Rendering" : "Reading";
+    return {
+      key: `interpretation:${id}`,
+      type: "interpretation",
+      id,
+      missing: !interpretation,
+      title: interpretation ? `${kind} ${id}` : `Missing interpretation ${id}`,
+      kindText: interpretation ? `Interpretation (${kind.toLowerCase()})${languageTag(interpretation.language) ? `, language ${languageTag(interpretation.language)}` : ""}` : "Not in the library",
+      maker: interpretation ? interpretersText(interpretation) : "",
+      facts,
+      rights: rightsOf(interpretation?.rightsStatus),
+      places: [],
+      interpretation,
+    };
+  };
+  list(alignment?.members).forEach((member, index) => {
+    const isInterpretation = typeof member?.interpretation === "string";
+    const key = isInterpretation ? `interpretation:${member.interpretation}` : `source:${member?.source}`;
+    let column = columns.find((item) => item.key === key);
+    if (!column) {
+      column = isInterpretation ? interpretationColumn(member.interpretation) : sourceColumn(member?.source);
+      columns.push(column);
+    }
+    const passage = typeof member?.passage === "string" ? passages.find((item) => item.id === member.passage) || null : null;
+    let original = null;
+    if (passage && typeof passage.excerpt?.text === "string") original = { text: passage.excerpt.text, language: languageTag(passage.excerpt.language), from: `notebook passage ${passage.id}` };
+    else if (isInterpretation && column.interpretation) original = { text: String(column.interpretation.text ?? ""), language: languageTag(column.interpretation.language), from: `interpretation ${column.id}` };
+    const locators = list(member?.locators).length ? member.locators : passage ? passage.locators : isInterpretation ? column.interpretation?.locators : [];
+    const normalized = member?.normalized && typeof member.normalized.text === "string" ? { text: member.normalized.text, note: typeof member.normalized.note === "string" ? member.normalized.note : "", language: original?.language || "" } : null;
+    column.places.push({
+      index,
+      absent: Boolean(member?.absent),
+      locator: locatorText(locators),
+      original,
+      missingPassage: typeof member?.passage === "string" && !passage,
+      normalized,
+      note: typeof member?.note === "string" ? member.note : "",
+      notices: notices.filter((notice) => String(notice.field || "").startsWith(`members[${index}]`)).map((notice) => String(notice.message || "")),
+    });
+  });
+  return columns;
+}
+
+/** Columns whose selected places quote text under a status that asks for confirmation before copying. */
+export function rightsToConfirm(columns, selected) {
+  return (Array.isArray(columns) ? columns : []).filter(
+    (column) => RIGHTS_NEEDING_CONFIRMATION.includes(rightsOf(column.rights).status) && column.places.some((place) => selected.has(place.index) && place.original),
+  );
+}
+
+/**
+ * Plain text for the places the author selected, each identified by version,
+ * maker, locator and rights statement, with the original wording exactly as
+ * stored. A normalization is included only when asked for, and labelled; the
+ * author's private notes on places only when `notes` is set.
+ */
+export function comparisonExportText(alignment, columns, selected, { normalized = false, notes = false, correspondence = "", notice = ALIGNMENT_NOTICE_TEXT } = {}) {
+  const lines = [`Alignment: ${alignment?.label || alignment?.id || ""}`];
+  if (correspondence) lines.push(correspondence);
+  lines.push(notice, "");
+  for (const column of Array.isArray(columns) ? columns : []) {
+    for (const place of column.places.filter((item) => selected.has(item.index))) {
+      lines.push(`${column.title} (${column.kindText})`);
+      if (column.maker) lines.push(column.maker);
+      lines.push(`Locator: ${place.locator || "none recorded"}`);
+      lines.push(`Rights: ${rightsText(column.rights)}`);
+      if (place.absent) lines.push("Absent: this version lacks the passage.");
+      else if (place.original) lines.push(`Original wording, from ${place.original.from}:`, place.original.text);
+      else lines.push("No wording quoted for this place.");
+      if (normalized && place.normalized) {
+        lines.push("The author's normalization, not the source text:", place.normalized.text);
+        if (place.normalized.note) lines.push(`Normalized: ${place.normalized.note}`);
+      }
+      if (notes && place.note) lines.push(`Author's note: ${place.note}`);
+      lines.push("");
+    }
+  }
+  lines.push("Private research copied from open.blog Admin. Rights statements are the author's own; open.blog does not decide what is permitted.");
+  return `${lines.join("\n")}\n`;
+}
+
+/** Copy the parts of an alignments response that describe the stored file into the view state. */
+export function applyAlignmentState(state, result) {
+  for (const key of ["revision", "file", "stored", "alignments", "sources", "passages", "interpretations", "notices", "notice", "correspondences", "publication"]) {
+    if (result && result[key] !== undefined) state[key] = result[key];
+  }
+  for (const key of ["alignments", "sources", "passages", "interpretations", "notices"]) if (!Array.isArray(state[key])) state[key] = [];
+  if (!Array.isArray(state.correspondences) || !state.correspondences.length) state.correspondences = ALIGNMENT_CORRESPONDENCES.map((item) => ({ ...item }));
+  if (typeof state.notice !== "string" || !state.notice) state.notice = ALIGNMENT_NOTICE_TEXT;
+  if (!state.publication || typeof state.publication !== "object") state.publication = {};
+  if (!state.publication.places || typeof state.publication.places !== "object") state.publication.places = {};
+  state.publication.publish = state.publication.publish === true;
+  if (typeof state.publication.url !== "string") state.publication.url = "/comparisons/";
+  if (!Number.isInteger(state.publication.maxExcerptChars)) state.publication.maxExcerptChars = 1000;
+  return state;
+}
+
+export function correspondenceLabel(state, value) {
+  const list = Array.isArray(state?.correspondences) && state.correspondences.length ? state.correspondences : ALIGNMENT_CORRESPONDENCES;
+  return (list.find((item) => item.value === (value || "corresponding")) || list[0]).label;
+}
+
+/** Sources a member may name: editions, translations and witnesses, never a work or reference. */
+export function alignableSources(sources) {
+  return (Array.isArray(sources) ? sources : []).filter((source) => ["edition", "translation", "witness"].includes(source?.kind));
+}
+
+/**
+ * A member's draft. `from` is the index of the stored member it edits, or
+ * null for a new place, so a later rebase can find that member again.
+ */
+export function alignmentMemberDraft(record = null, from = null) {
+  const member = record && typeof record === "object" ? record : {};
+  return {
+    original: record ? structuredClone(record) : {},
+    from: record && Number.isInteger(from) ? from : null,
+    type: typeof member.interpretation === "string" ? "interpretation" : "source",
+    source: typeof member.source === "string" ? member.source : "",
+    interpretation: typeof member.interpretation === "string" ? member.interpretation : "",
+    passage: typeof member.passage === "string" ? member.passage : "",
+    locators: formatLocatorLines(member.locators),
+    absent: Boolean(member.absent),
+    normalized: typeof member.normalized?.text === "string" ? member.normalized.text : "",
+    normalizedNote: typeof member.normalized?.note === "string" ? member.normalized.note : "",
+    note: typeof member.note === "string" ? member.note : "",
+  };
+}
+
+export function alignmentDraft(record = null) {
+  const alignment = record && typeof record === "object" ? record : {};
+  const members = Array.isArray(alignment.members) ? alignment.members.map((member, index) => alignmentMemberDraft(member, index)) : [alignmentMemberDraft(), alignmentMemberDraft()];
+  return {
+    original: record ? structuredClone(record) : null,
+    id: typeof alignment.id === "string" ? alignment.id : "",
+    label: typeof alignment.label === "string" ? alignment.label : "",
+    correspondence: ALIGNMENT_CORRESPONDENCES.some((item) => item.value === alignment.correspondence) ? alignment.correspondence : "corresponding",
+    members,
+    rationale: typeof alignment.rationale === "string" ? alignment.rationale : "",
+    confidence: ATLAS_CONFIDENCE.some((item) => item.value === alignment.confidence) ? alignment.confidence : "tentative",
+    uncertainty: typeof alignment.uncertainty === "string" ? alignment.uncertainty : "",
+    recordedBy: atlasAttributionDraft(alignment.recordedBy),
+    approved: alignment.visibility === "approved",
+    publishNormalized: alignment.publishNormalized === true,
+  };
+}
+
+/** One member to send, built on the stored member it edits so unknown fields carry over. Text is sent exactly as typed. */
+export function alignmentMemberPayload(draft) {
+  const original = draft.original || {};
+  const record = { ...original };
+  for (const field of ["source", "interpretation", "passage", "locators", "absent", "normalized", "note"]) delete record[field];
+  if (draft.type === "interpretation") record.interpretation = draft.interpretation;
+  else {
+    record.source = draft.source;
+    if (draft.absent) record.absent = true;
+    else {
+      if (draft.passage) record.passage = draft.passage;
+      const locators = keepUnchanged(parseLocatorLines(draft.locators), original.locators, sameLocator);
+      if (locators.length) record.locators = locators;
+    }
+  }
+  const wording = draft.type === "interpretation" || (!draft.absent && draft.passage);
+  if (wording && String(draft.normalized ?? "").length && String(draft.normalized).trim()) {
+    const normalized = { ...(original.normalized || {}), text: String(draft.normalized) };
+    delete normalized.note;
+    if (String(draft.normalizedNote ?? "").trim()) normalized.note = String(draft.normalizedNote);
+    record.normalized = normalized;
+  }
+  if (String(draft.note ?? "").trim()) record.note = String(draft.note);
+  return record;
+}
+
+/**
+ * What a public comparison page would show for each place, as the server
+ * previews it (ADR 0092). The statuses follow the author's rights statement
+ * and the excerpt limit; none of them is a judgement of what is permitted.
+ */
+export function publicPlaceText(status, maxChars = 1000) {
+  switch (status) {
+    case "shown":
+      return "On a public page: its wording is shown, with the version's rights statement.";
+    case "withheld-rights":
+      return "On a public page: identified and located only, because the version's rights are unknown or reserved.";
+    case "withheld-length":
+      return `On a public page: identified and located only, because its wording is longer than the ${maxChars}-character excerpt limit.`;
+    case "unquoted":
+      return "On a public page: located only; no wording is quoted for it.";
+    case "absent":
+      return "On a public page: recorded as absent from this version.";
+    default:
+      return "";
+  }
+}
+
+/** What a save or removal did to the published site, when the site publishes comparisons. */
+export function comparisonBuildText(build) {
+  if (!build || typeof build !== "object") return "";
+  if (build.ok) return " The published comparisons were rebuilt.";
+  return ` The change is saved, but the site could not be rebuilt: ${String(build.error || "unknown error")}`;
+}
+
+/** The full alignment to send. Evidence and unknown stored fields, which this form does not edit, are carried over. */
+export function alignmentPayload(draft) {
+  const record = { ...(draft.original || {}) };
+  for (const field of ["label", "rationale", "uncertainty"]) delete record[field];
+  record.id = String(draft.id || "").trim();
+  if (String(draft.label ?? "").trim()) record.label = String(draft.label).trim();
+  record.correspondence = draft.correspondence;
+  record.members = draft.members.map(alignmentMemberPayload);
+  if (String(draft.rationale ?? "").trim()) record.rationale = draft.rationale;
+  record.confidence = draft.confidence;
+  if (String(draft.uncertainty ?? "").trim()) record.uncertainty = draft.uncertainty;
+  record.recordedBy = atlasAttributionPayload(draft.recordedBy);
+  record.visibility = draft.approved ? "approved" : "private";
+  delete record.publishNormalized;
+  if (draft.publishNormalized) record.publishNormalized = true;
+  return record;
+}
+
+/** The draft now rests on the newer stored copy: fields it does not edit come from that copy. */
+export function rebaseAlignmentDraft(draft, current) {
+  draft.original = structuredClone(current);
+  draft.recordedBy.original = structuredClone(current.recordedBy || { kind: "author" });
+  const stored = Array.isArray(current.members) ? current.members : [];
+  const claimed = new Set();
+  const twins = new Map();
+  // A member rests on the stored member it was read from while that member is
+  // still the same place; otherwise on the first unclaimed member with the same
+  // identity. Each stored member is claimed once, and a member matches only by
+  // what it was read as, never by what the author has since typed.
+  for (const member of draft.members) {
+    const identity = alignmentMemberIdentity(member.original);
+    if (identity && Number.isInteger(member.from) && member.from < stored.length && alignmentMemberIdentity(stored[member.from]) === identity) {
+      claimed.add(member.from);
+      twins.set(member, member.from);
+    }
+  }
+  for (const member of draft.members) {
+    if (twins.has(member)) continue;
+    const identity = alignmentMemberIdentity(member.original);
+    const index = identity ? stored.findIndex((item, at) => !claimed.has(at) && alignmentMemberIdentity(item) === identity) : -1;
+    if (index >= 0) {
+      claimed.add(index);
+      twins.set(member, index);
+    }
+  }
+  for (const member of draft.members) {
+    const index = twins.get(member);
+    if (index === undefined) member.from = null;
+    else {
+      member.original = structuredClone(stored[index]);
+      member.from = index;
+    }
+  }
+  return draft;
+}
+
+/** What place a stored member is: its version or interpretation, passage and locators. "" for a new member. */
+export function alignmentMemberIdentity(member) {
+  if (!member || typeof member !== "object" || (typeof member.source !== "string" && typeof member.interpretation !== "string")) return "";
+  const locators = (Array.isArray(member.locators) ? member.locators : []).map((locator) => [locator?.kind ?? "", locator?.value ?? "", locator?.to ?? ""]);
+  return JSON.stringify([typeof member.interpretation === "string" ? `i:${member.interpretation}` : `s:${member.source}`, member.passage ?? "", locators]);
+}
+
+/** A quick, advisory check; the server's validation stays authoritative. */
+export function validateAlignmentDraft(draft, { used = [], creating = false, sources = [], passages = [], interpretations = [] } = {}) {
+  if (creating) {
+    if (!validAtlasId(draft.id)) return { field: "id", message: "Use an identifier of lowercase letters, digits and single hyphens, such as cave-opening, at most 64 characters." };
+    if (used.includes(draft.id)) return { field: "id", message: "That identifier is already used by another alignment; choose another." };
+  }
+  if (codePoints(draft.label) > MAX_ATLAS_SHORT_CHARS) return { field: "label", message: `A label is limited to ${MAX_ATLAS_SHORT_CHARS} characters.` };
+  if (draft.members.length > MAX_ALIGNMENT_MEMBERS) return { field: "members", message: `An alignment may have at most ${MAX_ALIGNMENT_MEMBERS} places.` };
+  for (const [index, member] of draft.members.entries()) {
+    const at = `Place ${index + 1}`;
+    if (member.type === "interpretation") {
+      if (!member.interpretation) return { field: `member-${index}-interpretation`, message: `${at}: choose the interpretation.` };
+      if (!interpretations.some((item) => item.id === member.interpretation)) return { field: `member-${index}-interpretation`, message: `${at}: that interpretation is no longer in the library.` };
+    } else {
+      if (!member.source) return { field: `member-${index}-source`, message: `${at}: choose the version this place is in.` };
+      if (!alignableSources(sources).some((source) => source.id === member.source)) return { field: `member-${index}-source`, message: `${at}: choose an edition, translation or witness; a work has no text of its own.` };
+      const locators = member.absent ? [] : parseLocatorLines(member.locators);
+      if (locators.length > MAX_PASSAGE_LOCATORS) return { field: `member-${index}-locators`, message: `${at}: give at most ${MAX_PASSAGE_LOCATORS} locators.` };
+      const bad = locators.findIndex((locator) => !locator.kind || !locator.value);
+      if (bad >= 0) return { field: `member-${index}-locators`, message: `${at}: locator ${bad + 1} must look like page: 514 or canonical: 514a to 520a.` };
+      if (!member.absent && !member.passage && !textLines(member.locators).length) return { field: `member-${index}-locators`, message: `${at}: say where the passage is in this version with locators or a notebook passage, or mark it absent.` };
+      if (!member.absent && member.passage && !passages.some((passage) => passage.id === member.passage && passage.source === member.source)) return { field: `member-${index}-passage`, message: `${at}: that passage was not quoted from this version.` };
+    }
+    if (codePoints(member.normalized) > MAX_ALIGNMENT_NORMALIZED_CHARS) return { field: `member-${index}-normalized`, message: `${at}: a normalization is limited to ${MAX_ALIGNMENT_NORMALIZED_CHARS} characters.` };
+    if (codePoints(member.note) > MAX_ATLAS_SHORT_CHARS) return { field: `member-${index}-note`, message: `${at}: a note is limited to ${MAX_ATLAS_SHORT_CHARS} characters.` };
+  }
+  const versions = new Set(draft.members.map((member) => (member.type === "interpretation" ? `i:${member.interpretation}` : `s:${member.source}`)));
+  const present = draft.members.some((member) => member.type === "interpretation" || !member.absent);
+  if (versions.size < 2 || !present) return { field: "members", message: "An alignment relates places in at least two versions or interpretations, and at least one must have the passage." };
+  if (codePoints(draft.rationale) > MAX_ALIGNMENT_RATIONALE_CHARS) return { field: "rationale", message: `The rationale is limited to ${MAX_ALIGNMENT_RATIONALE_CHARS} characters.` };
+  if (codePoints(draft.uncertainty) > MAX_ATLAS_UNCERTAINTY_CHARS) return { field: "uncertainty", message: `The uncertainty note is limited to ${MAX_ATLAS_UNCERTAINTY_CHARS} characters.` };
+  const party = atlasPartyProblem(draft.recordedBy, sources, "recorded");
+  if (party) return party;
+  return null;
+}
+
+/** Map a server diagnostic's field path to the alignment form control that edits it. */
+export function alignmentDiagnosticControl(field) {
+  const path = String(field || "");
+  const member = path.match(/^members\[(\d+)\](?:\.([A-Za-z]+))?/);
+  if (member) {
+    const [, index, key = ""] = member;
+    if (key === "normalized") return path.endsWith(".note") ? `member-${index}-normalized-note` : `member-${index}-normalized`;
+    return ["source", "interpretation", "passage", "locators", "absent", "note"].includes(key) ? `member-${index}-${key}` : `member-${index}`;
+  }
+  const name = path.replace(/\[\d+\].*$/, "").split(".")[0];
+  if (name === "recordedBy") return path.endsWith("source") ? "recorded-source" : path.endsWith("name") ? "recorded-name" : "recorded";
+  return { id: "id", label: "label", correspondence: "correspondence", members: "members", rationale: "rationale", confidence: "confidence", uncertainty: "uncertainty" }[name] || "";
+}
+
+export function alignmentErrorMessage(error) {
+  const diagnostics = Array.isArray(error?.data?.diagnostics) ? error.data.diagnostics : [];
+  if (!diagnostics.length) return error?.data?.error || error?.message || "The alignment could not be changed.";
+  return diagnostics.map((item) => `${item.field ? `${item.field}: ` : ""}${item.message}`).join(" ");
+}
+
+/**
+ * The editor for one alignment. `state` is the alignments file as last read
+ * and is updated in place after every save or conflict. Nothing is saved
+ * until the author submits; a save that meets a newer file keeps the draft
+ * until the author chooses the stored copy or keeps the draft on top of it.
+ */
+export function createAlignmentForm({ api, state, item = null, idPrefix = "oba-alignment-form", onSaved, onCancel, onRefreshed }) {
+  const editing = Boolean(item);
+  let draft = alignmentDraft(item);
+  let idTouched = false;
+  let busy = false;
+  // null, or { current } once a save met a newer file: the author chooses before anything is sent again.
+  let conflict = null;
+  let touched = false;
+  const root = h("form", { class: "oba-capture-form oba-atlas-form oba-alignment-form", novalidate: true, "data-alignment-form": editing ? "edit" : "new" });
+  const errorBox = h("p", { class: "oba-error", id: `${idPrefix}-error`, role: "alert", hidden: true, tabindex: "-1" });
+  const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+  const control = (name) => root.querySelector(`#${idPrefix}-${name}`);
+  const used = () => (state.alignments || []).map((alignment) => alignment.id);
+  const say = (text, kind = "oba-small") => {
+    status.className = kind;
+    status.textContent = text;
+  };
+  const field = (name, labelText, input, hint) => {
+    input.id = `${idPrefix}-${name}`;
+    if (hint) {
+      input.setAttribute("aria-describedby", `${idPrefix}-${name}-hint`);
+      input.setAttribute("data-hint-id", `${idPrefix}-${name}-hint`);
+    }
+    return h("div", { class: "oba-field", "data-alignment-field": name }, h("label", { for: input.id }, labelText), input, hint ? h("p", { class: "oba-small", id: `${idPrefix}-${name}-hint` }, hint) : null);
+  };
+  const fail = (message, name = "") => {
+    errorBox.hidden = false;
+    errorBox.textContent = message;
+    const target = name ? control(name) : null;
+    if (target) {
+      target.setAttribute("aria-invalid", "true");
+      target.setAttribute("aria-describedby", [target.getAttribute("data-hint-id"), errorBox.id].filter(Boolean).join(" "));
+      target.focus();
+    } else errorBox.focus();
+  };
+  const clearInvalid = () => {
+    for (const target of root.querySelectorAll("[aria-invalid]")) {
+      target.removeAttribute("aria-invalid");
+      const hint = target.getAttribute("data-hint-id");
+      if (hint) target.setAttribute("aria-describedby", hint);
+      else target.removeAttribute("aria-describedby");
+    }
+  };
+  const rerender = (focusName) => {
+    render();
+    control(focusName)?.focus();
+  };
+  const sourceById = (id) => (state.sources || []).find((source) => source.id === id) || null;
+
+  const partyEditor = () => {
+    const party = draft.recordedBy;
+    const sourceChoices = [...captureSources(state.sources), ...(state.sources || []).filter((source) => source.archived && source.id === party.source)];
+    return h(
+      "fieldset",
+      { class: "oba-atlas-party", id: `${idPrefix}-recorded`, tabindex: "-1" },
+      h("legend", {}, "Recorded by"),
+      h("p", { class: "oba-small" }, "Who reads these places as corresponding: you, a concordance or apparatus in your library, or a named person. It is attribution, not a contributor credit."),
+      ATLAS_ATTRIBUTIONS.map(({ kind, label }) => {
+        const id = `${idPrefix}-recorded-is-${kind}`;
+        return h("div", { class: "oba-capture-check" }, h("input", { id, type: "radio", name: `${idPrefix}-recorded-kind`, value: kind, checked: party.kind === kind, onChange: () => { party.kind = kind; rerender(`recorded-is-${kind}`); } }), h("label", { for: id }, label));
+      }),
+      party.kind === "source"
+        ? field("recorded-source", "Source that records the alignment", h("select", { onChange: (event) => { party.source = event.target.value; } }, h("option", { value: "", selected: !party.source }, "Choose a source"), sourceChoices.map((source) => h("option", { value: source.id, selected: party.source === source.id }, `${sourceLabel(source)} (${source.kind})`))))
+        : null,
+      party.kind === "named" ? field("recorded-name", "Who records it", h("input", { type: "text", value: party.name, autocomplete: "off", dir: "auto", onInput: (event) => { party.name = event.target.value; } }), "A person or group outside your library. Stored as text.") : null,
+    );
+  };
+
+  const publicationEditor = () => {
+    const publication = state.publication || {};
+    const where = `${publication.url || "/comparisons/"}${draft.id || "<identifier>"}/`;
+    const check = (name, labelText, checked, onChange, hint) =>
+      h(
+        "div",
+        { "data-alignment-field": name },
+        h("div", { class: "oba-capture-check" }, h("input", { id: `${idPrefix}-${name}`, type: "checkbox", checked, "aria-describedby": `${idPrefix}-${name}-hint`, "data-hint-id": `${idPrefix}-${name}-hint`, onChange: (event) => onChange(event.target.checked) }), h("label", { for: `${idPrefix}-${name}` }, labelText)),
+        h("p", { class: "oba-small", id: `${idPrefix}-${name}-hint` }, hint),
+      );
+    return h(
+      "fieldset",
+      { class: "oba-alignment-publication", id: `${idPrefix}-publication`, tabindex: "-1" },
+      h("legend", {}, "Publication"),
+      check(
+        "approved",
+        "Approve this comparison for publication",
+        draft.approved,
+        (on) => { draft.approved = on; },
+        `Your consent to publish it at ${where} and in comparisons.json once the site turns on comparisons.publish: its label, how the places correspond, who aligned them, confidence, rationale, uncertainty and evidence, and each place's version, makers, locators and rights statement. Wording is shown only where you state a version's rights allow it, and only up to ${publication.maxExcerptChars || 1000} characters a place. Your notes on places are never published. Clearing it removes the comparison from the next build.`,
+      ),
+      check(
+        "publish-normalized",
+        "Also publish my normalizations, labelled",
+        draft.publishNormalized,
+        (on) => { draft.publishNormalized = on; },
+        "Each normalization appears beside the original wording, labelled as yours and not the source text, only where that wording is itself shown.",
+      ),
+    );
+  };
+
+  const memberEditor = (member, index) => {
+    const base = `member-${index}`;
+    const number = index + 1;
+    const versions = alignableSources(state.sources).filter((source) => !source.archived || source.id === member.source);
+    const passages = (state.passages || []).filter((passage) => passage.source === member.source && (!passage.archived || passage.id === member.passage));
+    const interpretations = state.interpretations || [];
+    const typeRadio = (type, label) => {
+      const id = `${idPrefix}-${base}-is-${type}`;
+      return h("div", { class: "oba-capture-check" }, h("input", { id, type: "radio", name: `${idPrefix}-${base}-type`, value: type, checked: member.type === type, onChange: () => { member.type = type; rerender(`${base}-is-${type}`); } }), h("label", { for: id }, label));
+    };
+    const wording = member.type === "interpretation" || (!member.absent && member.passage);
+    const move = (offset) => {
+      const target = index + offset;
+      draft.members.splice(target, 0, ...draft.members.splice(index, 1));
+      render();
+      const same = control(`member-${target}-${offset < 0 ? "up" : "down"}`);
+      (same && !same.disabled ? same : control(`member-${target}-${offset < 0 ? "down" : "up"}`) || control(`member-${target}`))?.focus();
+      say(`Place ${number} moved to position ${target + 1}.`);
+    };
+    return h(
+      "fieldset",
+      { class: "oba-alignment-member", id: `${idPrefix}-${base}`, tabindex: "-1", "data-alignment-member": String(index) },
+      h("legend", {}, `Place ${number}`),
+      h("fieldset", { class: "oba-alignment-member-type" }, h("legend", {}, `Place ${number} is in`), typeRadio("source", "A version: an edition, translation or witness"), typeRadio("interpretation", "An interpretation in your library")),
+      member.type === "source"
+        ? [
+            field(`${base}-source`, "Version", h(
+              "select",
+              { onChange: (event) => {
+                member.source = event.target.value;
+                if (member.passage && !(state.passages || []).some((passage) => passage.id === member.passage && passage.source === member.source)) member.passage = "";
+                rerender(`${base}-source`);
+              } },
+              h("option", { value: "", selected: !member.source }, "Choose a version"),
+              versions.map((source) => h("option", { value: source.id, selected: member.source === source.id }, `${sourceLabel(source)} (${source.kind}${source.language ? `, ${source.language}` : ""}${source.archived ? ", archived" : ""})`)),
+            ), "Only editions, translations and witnesses have a text of their own."),
+            h("div", { "data-alignment-field": `${base}-absent` }, h("div", { class: "oba-capture-check" }, h("input", { id: `${idPrefix}-${base}-absent`, type: "checkbox", checked: member.absent, "aria-describedby": `${idPrefix}-${base}-absent-hint`, "data-hint-id": `${idPrefix}-${base}-absent-hint`, onChange: (event) => { member.absent = event.target.checked; rerender(`${base}-absent`); } }), h("label", { for: `${idPrefix}-${base}-absent` }, "This version lacks the passage (absent)")), h("p", { class: "oba-small", id: `${idPrefix}-${base}-absent-hint` }, "An omission, a lost leaf, or a gap. An absent place has no locator or wording.")),
+            member.absent
+              ? null
+              : [
+                  field(`${base}-passage`, "Notebook passage quoting it (optional)", h(
+                    "select",
+                    { onChange: (event) => {
+                      member.passage = event.target.value;
+                      const passage = (state.passages || []).find((candidate) => candidate.id === member.passage);
+                      if (passage && !String(member.locators).trim() && passage.locators?.length) member.locators = formatLocatorLines(passage.locators);
+                      rerender(`${base}-passage`);
+                    } },
+                    h("option", { value: "", selected: !member.passage }, passages.length ? "No passage" : member.source ? "No passages from this version" : "Choose a version first"),
+                    passages.map((passage) => h("option", { value: passage.id, selected: member.passage === passage.id }, `${[...String(passage.excerpt?.text ?? "")].slice(0, 60).join("")} (${passage.id})`)),
+                  ), "Its excerpt is the original wording, shown exactly as quoted. Choosing one fills in its locators."),
+                  field(`${base}-locators`, "Locators", h("textarea", { rows: 2, value: member.locators, spellcheck: "false", onInput: (event) => { member.locators = event.target.value; } }), "Where the place is in this version, one per line, such as canonical: 514a or page: 12. Each version keeps its own."),
+                ],
+          ].flat()
+        : field(`${base}-interpretation`, "Interpretation", h(
+            "select",
+            { onChange: (event) => { member.interpretation = event.target.value; rerender(`${base}-interpretation`); } },
+            h("option", { value: "", selected: !member.interpretation }, interpretations.length ? "Choose an interpretation" : "No interpretations in the library"),
+            interpretations.map((interpretation) => h("option", { value: interpretation.id, selected: member.interpretation === interpretation.id }, `${interpretation.kind === "rendering" ? "Rendering" : "Reading"} of ${sourceById(interpretation.source) ? sourceLabel(sourceById(interpretation.source)) : interpretation.source}, ${interpretersText(interpretation).replace(/^Interpreted by: /, "by ")} (${interpretation.id})`)),
+          ), "Aligned as it is: it already names its source, place and interpreters."),
+      wording
+        ? [
+            field(`${base}-normalized`, "Your normalization (optional)", h("textarea", { rows: 2, value: member.normalized, dir: "auto", onInput: (event) => { member.normalized = event.target.value; } }), "For example composed accents, expanded abbreviations or removed vowel points. Stored exactly as typed and always shown apart from the original."),
+            field(`${base}-normalized-note`, "What you normalized (optional)", h("input", { type: "text", value: member.normalizedNote, autocomplete: "off", dir: "auto", onInput: (event) => { member.normalizedNote = event.target.value; } })),
+          ]
+        : null,
+      field(`${base}-note`, "Note on this place (optional)", h("input", { type: "text", value: member.note, autocomplete: "off", dir: "auto", onInput: (event) => { member.note = event.target.value; } })),
+      h(
+        "div",
+        { class: "oba-toolbar" },
+        h("button", { class: "oba-btn", type: "button", id: `${idPrefix}-${base}-up`, "aria-label": `Move place ${number} up`, disabled: index === 0, onClick: () => move(-1) }, "Move up"),
+        h("button", { class: "oba-btn", type: "button", id: `${idPrefix}-${base}-down`, "aria-label": `Move place ${number} down`, disabled: index === draft.members.length - 1, onClick: () => move(1) }, "Move down"),
+        h("button", { class: "oba-btn oba-btn-danger", type: "button", "data-alignment-remove-member": String(index), onClick: () => { draft.members.splice(index, 1); rerender("add-member"); say(`Place ${number} removed.`); } }, `Remove place ${number}`),
+      ),
+    );
+  };
+
+  const fields = () => [
+    editing ? h("p", { class: "oba-small" }, `Identifier: ${draft.id}. It cannot change.`) : null,
+    field("label", "Label (optional)", h("input", { type: "text", value: draft.label, autocomplete: "off", dir: "auto", onInput: (event) => {
+      draft.label = event.target.value;
+      if (!editing && !idTouched) {
+        draft.id = suggestAtlasId(draft.label, used(), "alignment");
+        const idInput = control("id");
+        if (idInput) idInput.value = draft.id;
+      }
+    } }), "Your name for it, such as The cave: opening image. It becomes the public title only if you approve the comparison for publication."),
+    editing ? null : field("id", "Identifier", h("input", { type: "text", value: draft.id, autocomplete: "off", spellcheck: "false", onInput: (event) => { idTouched = true; draft.id = event.target.value.trim(); } }), "Lowercase letters, digits and hyphens. It cannot change later."),
+    field("correspondence", "How the places correspond", h("select", { onChange: (event) => { draft.correspondence = event.target.value; } }, (state.correspondences || ALIGNMENT_CORRESPONDENCES).map((item) => h("option", { value: item.value, selected: draft.correspondence === item.value }, item.label))), "Your reading. There is no choice for “the same”: aligning places never says they mean the same thing."),
+    h(
+      "fieldset",
+      { class: "oba-alignment-members", id: `${idPrefix}-members`, tabindex: "-1" },
+      h("legend", {}, "Places"),
+      h("p", { class: "oba-small" }, "Two or more versions or interpretations, at least one with the passage. Several places may come from one version (a split), and the order is yours."),
+      draft.members.map(memberEditor),
+      h("button", { class: "oba-btn", type: "button", id: `${idPrefix}-add-member`, "data-alignment-add-member": "true", disabled: draft.members.length >= MAX_ALIGNMENT_MEMBERS, onClick: () => { draft.members.push(alignmentMemberDraft()); rerender(`member-${draft.members.length - 1}-source`); } }, "Add a place"),
+    ),
+    field("rationale", "Why you align them (optional)", h("textarea", { rows: 3, value: draft.rationale, dir: "auto", onInput: (event) => { draft.rationale = event.target.value; } })),
+    field("confidence", "Confidence", h("select", { onChange: (event) => { draft.confidence = event.target.value; } }, ATLAS_CONFIDENCE.map((item) => h("option", { value: item.value, selected: draft.confidence === item.value }, item.label))), "How firmly the recorder holds this reading, never how widely it is accepted."),
+    field("uncertainty", "What is uncertain (optional)", h("textarea", { rows: 2, value: draft.uncertainty, dir: "auto", onInput: (event) => { draft.uncertainty = event.target.value; } })),
+    partyEditor(),
+    publicationEditor(),
+  ];
+
+  const conflictNotice = () => {
+    if (!editing) return h("p", { class: "oba-notice", role: "alert", "data-alignment-conflict": "true" }, "The alignments changed after you opened them, so nothing was saved. Your draft is still here; save again to add it to the latest file.");
+    const removed = !conflict.current;
+    return h(
+      "div",
+      { class: "oba-notice", role: "alert", "data-alignment-conflict": "true" },
+      h("p", {}, removed ? "This alignment was removed after you opened it, so nothing was saved. Your draft is still here." : "This alignment was changed after you opened it, so nothing was saved. Your draft is still here. Choose which copy to continue with; nothing is overwritten until you save."),
+      h(
+        "div",
+        { class: "oba-toolbar" },
+        h("button", { class: "oba-btn", type: "button", "data-alignment-conflict-use": "stored", onClick: () => resolveConflict(true) }, removed ? "Discard my draft" : "Use the stored copy"),
+        removed ? null : h("button", { class: "oba-btn", type: "button", "data-alignment-conflict-use": "draft", onClick: () => resolveConflict(false) }, "Keep my draft"),
+      ),
+    );
+  };
+
+  const resolveConflict = (useStored) => {
+    if (!conflict) return;
+    const { current } = conflict;
+    conflict = null;
+    errorBox.hidden = true;
+    clearInvalid();
+    if (useStored) {
+      if (!current) {
+        touched = false;
+        onCancel?.();
+        return;
+      }
+      draft = alignmentDraft(current);
+      touched = false;
+      say("Showing the stored copy.");
+    } else {
+      rebaseAlignmentDraft(draft, current);
+      say("Your draft now rests on the latest copy. Review it, then save.");
+    }
+    rerender("label");
+  };
+
+  const render = () => {
+    const save = h("button", { class: "oba-btn oba-btn-primary", type: "submit", "data-alignment-save": "true", disabled: busy || Boolean(conflict && editing) }, editing ? "Save changes" : "Add alignment");
+    const cancel = h("button", { class: "oba-btn", type: "button", "data-alignment-cancel": "true", onClick: () => onCancel?.() }, "Cancel");
+    root.replaceChildren(...fields(), errorBox, conflict ? conflictNotice() : null, h("div", { class: "oba-toolbar" }, save, cancel), status);
+  };
+
+  const refresh = async () => {
+    applyAlignmentState(state, await api.call("GET", "research/alignments"));
+  };
+
+  root.addEventListener("input", () => { touched = true; });
+  root.addEventListener("change", () => { touched = true; });
+  root.addEventListener("click", (event) => {
+    if (event.target?.tagName === "BUTTON" && event.target.type === "button" && !event.target.dataset?.alignmentCancel && !event.target.dataset?.alignmentConflictUse) touched = true;
+  });
+  root.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (busy) return;
+    if (conflict && editing) {
+      fail("Choose the stored copy or keep your draft before saving.");
+      return;
+    }
+    errorBox.hidden = true;
+    clearInvalid();
+    conflict = null;
+    const problem = validateAlignmentDraft(draft, { used: used(), creating: !editing, sources: state.sources || [], passages: state.passages || [], interpretations: state.interpretations || [] });
+    if (problem) return fail(problem.message, problem.field);
+    busy = true;
+    root.querySelector("[data-alignment-save]")?.setAttribute("disabled", "");
+    say("Saving…");
+    try {
+      const result = await api.call(editing ? "PUT" : "POST", "research/alignments", { json: { revision: state.revision, alignment: alignmentPayload(draft) } });
+      applyAlignmentState(state, result);
+      busy = false;
+      touched = false;
+      say("");
+      onSaved?.({ item: result.alignment || null, build: result.build });
+    } catch (error) {
+      busy = false;
+      if (error.status === 409 && error.data?.conflict) {
+        try {
+          await refresh();
+        } catch {
+          // The next save reports whatever is wrong.
+        }
+        conflict = { current: error.data.current ?? null };
+        say("Not saved: the alignments changed elsewhere.", "oba-error");
+        render();
+        onRefreshed?.();
+        (editing ? root.querySelector("[data-alignment-conflict-use]") : root.querySelector("[data-alignment-save]"))?.focus();
+        return;
+      }
+      say("Not saved. The stored alignments are unchanged.", "oba-error");
+      render();
+      const first = error.data?.diagnostics?.[0];
+      fail(alignmentErrorMessage(error), first ? alignmentDiagnosticControl(first.field) : "");
+    }
+  });
+
+  render();
+  return {
+    element: root,
+    isDirty: () => touched && !busy,
+    focus() {
+      (control("label") || root.querySelector("input,select,textarea,button"))?.focus();
+    },
+  };
+}
+
+// ---------------------------------------------------------------- claims and evidence links
+
+/** How a source bears on a claim, as the author reads it. Never defaulted: a citation alone asserts none. */
+export const CLAIM_RELATIONS = Object.freeze([
+  { value: "supports", label: "Supports", heading: "Supporting" },
+  { value: "contradicts", label: "Contradicts", heading: "Contradicting" },
+  { value: "contextualizes", label: "Contextualizes", heading: "Contextualizing" },
+]);
+/** What a person, never the software, has done to check a link. */
+export const CLAIM_REVIEW_STATES = Object.freeze([
+  { value: "unreviewed", label: "Not compared with the source yet" },
+  { value: "location-checked", label: "Location checked against the source" },
+  { value: "reviewed", label: "Read, and I stand behind this relation" },
+]);
+const MAX_CLAIM_STATEMENT_CHARS = 2000;
+const MAX_CLAIM_RATIONALE_CHARS = 4000;
+const CLAIM_UNSAFE_TEXT = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u;
+const claimEncoder = typeof TextEncoder === "function" ? new TextEncoder() : null;
+
+/** The UTF-8 length of a string, which is how claim anchors count. */
+export function utf8Length(text) {
+  const value = String(text ?? "");
+  if (claimEncoder) return claimEncoder.encode(value).length;
+  let bytes = 0;
+  for (const char of value) {
+    const code = char.codePointAt(0);
+    bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
+  }
+  return bytes;
+}
+
+/**
+ * The anchor for a selection in the Markdown body, in the server's terms: UTF-8 byte offsets into
+ * the saved draft's anchor text (CRLF folded to LF, leading newlines dropped as a save drops them),
+ * with surrounding spaces trimmed. Returns `{ anchor }` or `{ error }`; the server checks it again.
+ */
+export function claimSelectionAnchor(body, start, end) {
+  const raw = String(body ?? "");
+  let from = Math.max(0, Math.min(Number(start) || 0, raw.length));
+  let to = Math.max(from, Math.min(Number(end) || 0, raw.length));
+  while (from < to && /\s/.test(raw[from])) from += 1;
+  while (to > from && /\s/.test(raw[to - 1])) to -= 1;
+  if (from === to) return { error: "Select the words of the claim in the draft first." };
+  const lead = raw.match(/^[\r\n]*/)[0].length;
+  if (from < lead) return { error: "Select the words of the claim in the draft first." };
+  const fold = (text) => text.replace(/\r\n/g, "\n");
+  const text = fold(raw.slice(from, to));
+  if (CLAIM_UNSAFE_TEXT.test(text) || text.includes("\r")) return { error: "The selection contains control or direction-override characters; select plain words." };
+  if ([...text].length > MAX_CLAIM_STATEMENT_CHARS) return { error: `Select at most ${MAX_CLAIM_STATEMENT_CHARS} characters for one claim.` };
+  const offset = utf8Length(fold(raw.slice(lead, from)));
+  return { anchor: { start: offset, end: offset + utf8Length(text), text } };
+}
+
+/**
+ * The source span of each block the visual editor shows, in display order (blank runs skipped),
+ * as `{ type, start, end }` offsets into `body`. The visual editor renders one element per block,
+ * so the nth `[data-visual-block]` or protected card is the nth span here.
+ */
+export function visualBlockSpans(body) {
+  const spans = [];
+  let offset = 0;
+  for (const block of parseVisualMarkdown(String(body ?? ""))) {
+    const end = offset + block.source.length;
+    if (block.type !== "space") spans.push({ type: block.type, start: offset, end });
+    offset = end;
+  }
+  return spans;
+}
+
+/**
+ * The anchor for words selected in the visual editor, which shows formatted text rather than the
+ * Markdown. `block` names the visual block holding the whole selection (`{ index, type }`, its
+ * position among the draft's blocks, with `markdown` or `count` to check the editor lines up with
+ * the draft, and `text`, what the block shows); the words are looked for only in that block's Markdown,
+ * spaces matching any run of whitespace, and accepted only when they occur there exactly once, so
+ * formatting elsewhere in the draft can never move the anchor to other words.
+ */
+export function visualSelectionAnchor(body, selected, block) {
+  const words = String(selected ?? "").replace(/\s+/g, " ").trim();
+  if (!words) return { error: "Select the words of the claim in the draft first." };
+  const markdownMode = "Switch to Markdown and select the words there.";
+  const raw = String(body ?? "");
+  // The visual editor reads CRLF and lone CR as LF; only CRLF folds the same way on both sides.
+  if (raw.replace(/\r\n/g, "\n").includes("\r")) return { error: `The draft has line endings the visual editor cannot map back. ${markdownMode}` };
+  const text = raw.replace(/\r\n/g, "\n");
+  const index = Number.isInteger(block?.index) ? block.index : -1;
+  const spans = visualBlockSpans(text);
+  const span = spans[index];
+  if (!span || (block?.type && block.type !== span.type)) return { error: `Select words inside one paragraph, heading, list or quote. ${markdownMode}` };
+  const source = text.slice(span.start, span.end);
+  // The editor's blocks must line up with the draft's: either the draft was written from the editor
+  // (`markdown`, the block's own Markdown, is that span exactly), or the editor was drawn from the
+  // draft (`count`, one editor block per span). Anything else could name the wrong block.
+  const mismatch = (typeof block?.markdown === "string" && block.markdown !== source.replace(/\n+$/, "")) || (Number.isInteger(block?.count) && block.count !== spans.length);
+  if (mismatch) return { error: `The editor and the draft no longer line up block for block. ${markdownMode}` };
+  // The words must also read once in the block as shown, so formatting cannot hide another
+  // occurrence (a selected "*big* cave" next to a plain "big cave").
+  if (typeof block?.text === "string" && visualOccurrences(block.text.replace(/\s+/g, " "), words) > 1) return { error: `Those words occur more than once in that block. ${markdownMode}` };
+  const pattern = new RegExp(words.split(" ").map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s+"), "gu");
+  const found = [];
+  for (let match = pattern.exec(source); match && found.length < 2; match = pattern.exec(source)) {
+    found.push(match);
+    // Resume one character after this hit, so an overlapping occurrence is still found.
+    pattern.lastIndex = match.index + String.fromCodePoint(source.codePointAt(match.index)).length;
+  }
+  if (found.length === 0) return { error: `Those words are formatted differently in the Markdown. ${markdownMode}` };
+  if (found.length > 1) return { error: `Those words occur more than once in that block. ${markdownMode}` };
+  const start = span.start + found[0].index;
+  return claimSelectionAnchor(text, start, start + found[0][0].length);
+}
+
+/** How many times `words` occur in `text`, overlapping occurrences counted, stopping at two. */
+function visualOccurrences(text, words) {
+  let count = 0;
+  for (let at = text.indexOf(words); at >= 0 && count < 2; at = text.indexOf(words, at + 1)) count += 1;
+  return count;
+}
+
+/** The text a visual-editor block shows, a line break read as a space, as a selection reads it. */
+function visualBlockText(node) {
+  if (node.nodeType === Node.TEXT_NODE) return node.nodeValue || "";
+  if (node.nodeType !== Node.ELEMENT_NODE) return "";
+  if (node.tagName.toLowerCase() === "br") return " ";
+  return [...node.childNodes].map(visualBlockText).join("");
+}
+
+export function claimAnchorStatusText(status) {
+  switch (status?.status) {
+    case "verified":
+      return "In place: the words are still where you selected them in the saved draft. This compares text positions only, not whether the claim is true.";
+    case "moved":
+      return "Moved: the words now appear once, elsewhere in the saved draft. Re-anchor to keep evidence on them.";
+    case "stale":
+      return status.missingPost ? "Stale: no saved post has this claim's slug." : "Stale: the words are no longer in the saved draft. Select them again to re-anchor; evidence cannot be added until then.";
+    case "ambiguous":
+      return "Ambiguous: the words occur more than once in the saved draft. Select the ones you mean to re-anchor; evidence cannot be added until then.";
+    default:
+      return "No anchor: a statement about the post, not tied to particular words.";
+  }
+}
+
+/** Links of one claim grouped by relation, each in file order. Nothing is netted, ranked or hidden. */
+export function claimLinkColumns(links, claimId) {
+  const columns = { supports: [], contradicts: [], contextualizes: [] };
+  for (const link of Array.isArray(links) ? links : []) if (link.claim === claimId && columns[link.relation]) columns[link.relation].push(link);
+  return columns;
+}
+
+/**
+ * The evidence gaps and review prompts (ADR 0074) about one claim and its links, in the order the
+ * server reviewed them, which is the order `openblog check` prints. Only well-formed findings are kept.
+ */
+export function claimFindings(findings, claimId) {
+  return (Array.isArray(findings) ? findings : []).filter(
+    (finding) => finding && finding.object?.claim === claimId && typeof finding.code === "string" && typeof finding.message === "string" && typeof finding.repair === "string",
+  );
+}
+
+const CLAIM_FINDING_OUTCOMES = [
+  { outcome: "detected", label: "detected" },
+  { outcome: "potential", label: "potential" },
+  { outcome: "needs-review", label: "needing review" },
+];
+
+/** A post's findings as words: one total with each outcome counted apart, framed as gaps, never as a verdict. */
+export function claimFindingsSummary(findings) {
+  const list = Array.isArray(findings) ? findings : [];
+  if (!list.length) return "No evidence gaps or review prompts for this post's claims from the checks that ran.";
+  const parts = CLAIM_FINDING_OUTCOMES.map(({ outcome, label }) => `${list.filter((finding) => finding.outcome === outcome).length} ${label}`);
+  return `${plural(list.length, "evidence gap or review prompt", "evidence gaps and review prompts")} for this post's claims: ${parts.join(", ")}. They show what the record lacks or what only you can check, never whether a claim is true.`;
+}
+
+/** Counts per relation as words, deliberately three figures that are never combined. */
+export function claimCountsText(counts = {}) {
+  return `${plural(counts.supports || 0, "supporting link")}, ${plural(counts.contradicts || 0, "contradicting link")}, ${plural(counts.contextualizes || 0, "contextualizing link")}`;
+}
+
+export function claimDraft(record = null, prefill = {}) {
+  const value = record && typeof record === "object" ? record : {};
+  return {
+    original: record ? structuredClone(record) : null,
+    id: typeof value.id === "string" ? value.id : prefill.id || "",
+    post: typeof value.post === "string" ? value.post : prefill.post || "",
+    statement: typeof value.statement === "string" ? value.statement : prefill.statement || "",
+    anchor: value.anchor && typeof value.anchor === "object" ? structuredClone(value.anchor) : prefill.anchor || null,
+    uncertainty: typeof value.uncertainty === "string" ? value.uncertainty : "",
+    approved: value.visibility === "approved",
+  };
+}
+
+/** The full claim to send. Unknown fields of the stored record, and its attribution and origin, carry over. */
+export function claimPayload(draft) {
+  const record = { ...(draft.original || {}) };
+  for (const field of ["anchor", "uncertainty"]) delete record[field];
+  record.id = draft.id;
+  record.post = draft.post;
+  record.statement = String(draft.statement ?? "").trim();
+  if (draft.anchor) record.anchor = { ...(draft.original?.anchor || {}), ...draft.anchor };
+  const uncertainty = String(draft.uncertainty ?? "").trim();
+  if (uncertainty) record.uncertainty = uncertainty;
+  record.visibility = draft.approved ? "approved" : "private";
+  return record;
+}
+
+export function validateClaimDraft(draft) {
+  const statement = String(draft.statement ?? "").trim();
+  if (!statement) return { field: "statement", message: "Write the claim in your own words." };
+  if ([...statement].length > MAX_CLAIM_STATEMENT_CHARS) return { field: "statement", message: `A claim is at most ${MAX_CLAIM_STATEMENT_CHARS} characters.` };
+  if (CLAIM_UNSAFE_TEXT.test(statement.replace(/[\n\t]/g, " "))) return { field: "statement", message: "Remove control or direction-override characters from the claim." };
+  if (CLAIM_UNSAFE_TEXT.test(String(draft.uncertainty ?? "").replace(/[\n\t]/g, " "))) return { field: "uncertainty", message: "Remove control or direction-override characters." };
+  if (draft.approved && draft.original?.origin === "suggested") return { field: "approved", message: "A suggested claim cannot be approved; edit it as your own first." };
+  return null;
+}
+
+export function evidenceLinkDraft(record = null, prefill = {}) {
+  const value = record && typeof record === "object" ? record : {};
+  return {
+    original: record ? structuredClone(record) : null,
+    id: typeof value.id === "string" ? value.id : prefill.id || "",
+    claim: typeof value.claim === "string" ? value.claim : prefill.claim || "",
+    // Never defaulted: the author names how the source bears on the claim.
+    relation: CLAIM_RELATIONS.some((item) => item.value === value.relation) ? value.relation : "",
+    evidence: atlasEvidenceDraft(value.evidence || {}, record ? 0 : null),
+    rationale: typeof value.rationale === "string" ? value.rationale : "",
+    confidence: ATLAS_CONFIDENCE.some((item) => item.value === value.confidence) ? value.confidence : "tentative",
+    uncertainty: typeof value.uncertainty === "string" ? value.uncertainty : "",
+    reviewState: CLAIM_REVIEW_STATES.some((item) => item.value === value.reviewState) ? value.reviewState : "unreviewed",
+    approved: value.visibility === "approved",
+  };
+}
+
+export function evidenceLinkPayload(draft) {
+  const record = { ...(draft.original || {}) };
+  for (const field of ["rationale", "uncertainty"]) delete record[field];
+  record.id = draft.id;
+  record.claim = draft.claim;
+  record.relation = draft.relation;
+  record.evidence = atlasEvidencePayload(draft.evidence);
+  const rationale = String(draft.rationale ?? "").trim();
+  if (rationale) record.rationale = rationale;
+  record.confidence = draft.confidence;
+  const uncertainty = String(draft.uncertainty ?? "").trim();
+  if (uncertainty) record.uncertainty = uncertainty;
+  record.reviewState = draft.reviewState;
+  record.visibility = draft.approved ? "approved" : "private";
+  return record;
+}
+
+export function validateEvidenceLinkDraft(draft, { sources = [], passages = [] } = {}) {
+  if (!CLAIM_RELATIONS.some((item) => item.value === draft.relation)) return { field: "relation", message: "Choose whether the source supports, contradicts or contextualizes the claim. A citation alone asserts none of these." };
+  const source = draft.evidence.source;
+  if (!source) return { field: "source", message: "Choose the source this link rests on." };
+  if (!sources.some((item) => item.id === source)) return { field: "source", message: "That source is not in your library." };
+  if (draft.evidence.passage) {
+    const passage = passages.find((item) => item.id === draft.evidence.passage);
+    if (!passage) return { field: "passage", message: "That passage is not in your notebook." };
+    if (passage.source !== source) return { field: "passage", message: "A passage must be quoted from the source this link names." };
+    if (draft.approved) return { field: "passage", message: "An approved link cites the source and locators, never a private notebook passage. Remove the passage or keep the link private." };
+  }
+  if (parseLocatorLines(draft.evidence.locators).some((locator) => !locator.kind || !locator.value)) return { field: "locators", message: "Write each location as kind: value, such as page: 514." };
+  for (const [field, text, max] of [["rationale", draft.rationale, MAX_CLAIM_RATIONALE_CHARS], ["uncertainty", draft.uncertainty, 2000]]) {
+    if ([...String(text ?? "")].length > max) return { field, message: `At most ${max} characters.` };
+    if (CLAIM_UNSAFE_TEXT.test(String(text ?? "").replace(/[\n\t]/g, " "))) return { field, message: "Remove control or direction-override characters." };
+  }
+  if (draft.approved && draft.original?.origin === "suggested" && draft.reviewState !== "reviewed") return { field: "approved", message: "Review a suggested link yourself before approving it." };
+  return null;
+}
+
+/** A server diagnostic's field, mapped to the claims form control that edits it. */
+export function claimDiagnosticControl(field, type = "claim") {
+  const path = String(field || "");
+  if (type === "claim") return { statement: "statement", uncertainty: "uncertainty", visibility: "approved", post: "statement", anchor: "statement" }[path.split(".")[0]] || "";
+  if (path.startsWith("evidence.passage")) return "passage";
+  if (path.startsWith("evidence.locators")) return "locators";
+  if (path.startsWith("evidence")) return "source";
+  return { relation: "relation", rationale: "rationale", confidence: "confidence", uncertainty: "uncertainty", reviewState: "review", visibility: "approved", claim: "relation" }[path.split(".")[0]] || "";
+}
+
+export function claimsErrorMessage(error) {
+  const diagnostics = Array.isArray(error?.data?.diagnostics) ? error.data.diagnostics : [];
+  if (!diagnostics.length) return error?.data?.error || error?.message || "The claims could not be changed.";
+  return diagnostics.map((item) => `${item.field ? `${item.field}: ` : ""}${item.message}`).join(" ");
+}
+
+export function applyClaimsState(state, result) {
+  for (const key of ["revision", "file", "claims", "links", "sources", "passages", "notices", "findings", "anchors", "counts", "projected", "post"]) {
+    if (result && result[key] !== undefined) state[key] = result[key];
+  }
+  for (const key of ["claims", "links", "sources", "passages", "notices", "findings", "projected"]) if (!Array.isArray(state[key])) state[key] = [];
+  for (const key of ["anchors", "counts"]) if (!state[key] || typeof state[key] !== "object") state[key] = {};
+  return state;
+}
+
+/**
+ * Claims and evidence links for one saved post, inside Evidence Studio. `post()` gives the post's
+ * path and the revision the editor loaded; `selection()` gives `{ anchor }` or `{ error }` for the
+ * words selected in the draft. Every save names the claims revision; a conflict keeps the draft
+ * until the author uses the stored copy or keeps theirs. Supporting and contradicting links are
+ * listed side by side and never combined.
+ */
+export function createClaimsStudio({ api, post, selection, idPrefix = "oba-claims" }) {
+  const state = applyClaimsState({ post: "" }, {});
+  let form = null; // null, or { type: "claim" | "link", draft, editing, conflict }
+  let busy = false;
+  let lastRemoved = null; // { type, record } for undo
+  // Claims are stored apart from the post: typing in their forms is not an edit of the post, so it
+  // must not mark the post unsaved (which would refuse the next claim until a needless save).
+  const root = h("section", { class: "oba-claims", "aria-labelledby": `${idPrefix}-heading`, "data-claims": "true", onInput: (event) => event.stopPropagation() });
+  const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-claims-status": "true" });
+  const errorBox = h("p", { class: "oba-error", id: `${idPrefix}-error`, role: "alert", hidden: true, tabindex: "-1" });
+  const list = h("div", { class: "oba-claim-list", "data-claims-list": "true" });
+  const formRegion = h("div", { class: "oba-claim-form-region" });
+  const undoRegion = h("div", { class: "oba-claim-undo", "data-claims-undo": "true" });
+  const noticeRegion = h("div", { class: "oba-claim-notices", "data-claims-notices": "true" });
+  const findingsSummary = h("p", { class: "oba-small", "data-claims-findings-summary": "true", hidden: true });
+  const say = (text, kind = "oba-small") => {
+    status.className = kind;
+    status.textContent = text;
+  };
+  const control = (name) => root.querySelector(`#${idPrefix}-${name}`);
+  const used = () => [...state.claims, ...state.links].map((record) => record.id);
+  const claimById = (id) => state.claims.find((claim) => claim.id === id) || null;
+  const linkById = (id) => state.links.find((link) => link.id === id) || null;
+  const sourceById = (id) => state.sources.find((source) => source.id === id) || null;
+  const passageById = (id) => state.passages.find((passage) => passage.id === id) || null;
+  const postClaims = () => state.claims.filter((claim) => claim.post === state.post);
+
+  const fail = (message, name = "") => {
+    errorBox.hidden = false;
+    errorBox.textContent = message;
+    const target = name ? control(name) : null;
+    if (target) {
+      target.setAttribute("aria-invalid", "true");
+      target.setAttribute("aria-describedby", errorBox.id);
+      target.focus();
+    } else errorBox.focus();
+  };
+  const clearError = () => {
+    errorBox.hidden = true;
+    errorBox.textContent = "";
+    for (const target of root.querySelectorAll("[aria-invalid]")) {
+      target.removeAttribute("aria-invalid");
+      target.removeAttribute("aria-describedby");
+    }
+  };
+  const field = (name, labelText, input, hint) => {
+    input.id = `${idPrefix}-${name}`;
+    if (hint) input.setAttribute("aria-describedby", `${idPrefix}-${name}-hint`);
+    return h("div", { class: "oba-field", "data-claims-field": name }, h("label", { for: input.id }, labelText), input, hint ? h("p", { class: "oba-small", id: `${idPrefix}-${name}-hint` }, hint) : null);
+  };
+  const check = (name, labelText, checked, onToggle, hint) => {
+    const id = `${idPrefix}-${name}`;
+    return h(
+      "div",
+      { "data-claims-field": name },
+      h("div", { class: "oba-capture-check" }, h("input", { id, type: "checkbox", checked, "aria-describedby": hint ? `${id}-hint` : null, onChange: (event) => onToggle(event.target.checked) }), h("label", { for: id }, labelText)),
+      hint ? h("p", { class: "oba-small", id: `${id}-hint` }, hint) : null,
+    );
+  };
+
+  const refresh = async () => {
+    const current = post();
+    applyClaimsState(state, await api.call("GET", current?.path ? `research/claims?path=${encodeURIComponent(current.path)}` : "research/claims"));
+    if (!state.post && current?.slug) state.post = current.slug;
+  };
+
+  /** Ask the server to check a selection against the saved draft it was made in. */
+  const checkSelection = async () => {
+    const current = post();
+    if (!current?.path || !current.etag) return { error: "Save the post first: claims are checked against the saved draft." };
+    if (current.dirty) return { error: "Save the post first: claims are checked against the saved draft, not unsaved changes." };
+    const picked = selection();
+    if (picked.error) return picked;
+    try {
+      const checked = await api.call("POST", "research/claims/anchor", { json: { path: current.path, etag: current.etag, ...picked.anchor } });
+      if (checked.status !== "verified") return { error: `Not anchored. ${claimAnchorStatusText(checked)}` };
+      state.post = checked.post;
+      return { anchor: checked.anchor, post: checked.post };
+    } catch (error) {
+      if (error.status === 401) throw error;
+      return { error: error.data?.error || error.message || "The selection could not be checked." };
+    }
+  };
+
+  // ---- forms
+
+  const claimFields = (draft) => [
+    field("statement", "Claim, in your words", h("textarea", { rows: 3, value: draft.statement, onInput: (event) => { draft.statement = event.target.value; } }), draft.anchor ? null : "Not tied to particular words of the draft."),
+    draft.anchor ? h("p", { class: "oba-small", "data-claims-anchor-text": "true" }, "Anchored to the words: ", h("q", {}, draft.anchor.text)) : null,
+    field("uncertainty", "What is doubtful or unsettled about it (optional)", h("textarea", { rows: 2, value: draft.uncertainty, onInput: (event) => { draft.uncertainty = event.target.value; } })),
+    check("approved", "Approve this claim for publication with the post", draft.approved, (value) => { draft.approved = value; }, "Your consent to publish this claim's statement and uncertainty in the post's Claims and evidence section and claim-evidence.json, once the site turns on claimEvidence.publish. Its words in the post are quoted only while they are still where you anchored them. Withdrawing approval is always allowed and removes the claim and its evidence from the next build."),
+  ];
+
+  const sourceOptions = (current) => {
+    const live = captureSources(state.sources);
+    const kept = state.sources.filter((source) => source.archived && source.id === current);
+    return [h("option", { value: "", selected: !current }, "Choose a source"), ...[...live, ...kept].map((source) => h("option", { value: source.id, selected: current === source.id }, `${sourceLabel(source)}${source.archived ? " (archived)" : ""} (${source.kind})`))];
+  };
+
+  const linkFields = (draft) => {
+    const evidence = draft.evidence;
+    const passages = state.passages.filter((passage) => !passage.archived || passage.id === evidence.passage);
+    const sourceSelect = h("select", { onChange: (event) => { evidence.source = event.target.value; if (evidence.passage && passageById(evidence.passage)?.source !== evidence.source) evidence.passage = ""; render(); control("source")?.focus(); } }, sourceOptions(evidence.source));
+    const passageSelect = h(
+      "select",
+      {
+        onChange: (event) => {
+          evidence.passage = event.target.value;
+          const passage = passageById(evidence.passage);
+          if (passage) {
+            evidence.source = passage.source;
+            if (!evidence.locators.trim()) evidence.locators = formatLocatorLines(passage.locators);
+          }
+          render();
+          control("passage")?.focus();
+        },
+      },
+      h("option", { value: "", selected: !evidence.passage }, "None: cite the library source"),
+      passages.map((passage) => h("option", { value: passage.id, selected: evidence.passage === passage.id }, `${passage.preview || passage.id} (${sourceById(passage.source) ? sourceLabel(sourceById(passage.source)) : passage.source}${passage.locators?.length ? `, ${formatLocatorLines(passage.locators).replace(/\n/g, "; ")}` : ""})`)),
+    );
+    return [
+      h(
+        "fieldset",
+        { class: "oba-claims-relation", id: `${idPrefix}-relation`, tabindex: "-1" },
+        h("legend", {}, "How does this source bear on the claim?"),
+        CLAIM_RELATIONS.map(({ value, label }) => {
+          const id = `${idPrefix}-relation-${value}`;
+          return h("div", { class: "oba-capture-check" }, h("input", { id, type: "radio", name: `${idPrefix}-relation`, value, checked: draft.relation === value, onChange: () => { draft.relation = value; } }), h("label", { for: id }, label));
+        }),
+        h("p", { class: "oba-small" }, "Your reading of the source. Nothing here checks whether it is true."),
+      ),
+      field("passage", "Notebook passage (optional)", passageSelect, "A quoted passage stays private; it is pointed to, never copied."),
+      field("source", "Source", sourceSelect),
+      field("locators", "Where in the source (optional)", h("textarea", { rows: 2, value: evidence.locators, spellcheck: "false", onInput: (event) => { evidence.locators = event.target.value; } }), "One per line, such as page: 514."),
+      field("rationale", "Why you read it this way (optional)", h("textarea", { rows: 3, value: draft.rationale, onInput: (event) => { draft.rationale = event.target.value; } })),
+      field("confidence", "How firmly you hold this reading", h("select", { onChange: (event) => { draft.confidence = event.target.value; } }, ATLAS_CONFIDENCE.map((item) => h("option", { value: item.value, selected: draft.confidence === item.value }, item.label)))),
+      field("uncertainty", "What is uncertain about it (optional)", h("textarea", { rows: 2, value: draft.uncertainty, onInput: (event) => { draft.uncertainty = event.target.value; } })),
+      field("review", "What you have checked", h("select", { onChange: (event) => { draft.reviewState = event.target.value; } }, CLAIM_REVIEW_STATES.map((item) => h("option", { value: item.value, selected: draft.reviewState === item.value }, item.label)))),
+      check("approved", "Approve this link for publication with the post", draft.approved, (value) => { draft.approved = value; }, "Your consent to publish its source, locations, relation, rationale, confidence and uncertainty beside the claim, once the claim is approved and the site turns on claimEvidence.publish. Support is never published while a contradicting link on the claim stays private. Clearing it removes the link from the next build."),
+    ];
+  };
+
+  const conflictNotice = () => {
+    const { current, editing } = form.conflict;
+    if (!editing) return h("p", { class: "oba-notice", role: "alert", "data-claims-conflict": "true" }, "The claims changed after you opened them, so nothing was saved. Your draft is still here; save again to add it to the latest claims.");
+    return h(
+      "div",
+      { class: "oba-notice", role: "alert", "data-claims-conflict": "true" },
+      h("p", {}, current ? "This was changed elsewhere after you opened it, so nothing was saved. Your draft is still here. Choose which copy to continue with." : "This was removed elsewhere after you opened it, so nothing was saved."),
+      h(
+        "div",
+        { class: "oba-toolbar" },
+        h("button", { class: "oba-btn", type: "button", "data-claims-conflict-use": "stored", onClick: () => resolveConflict(true) }, current ? "Use the stored copy" : "Discard my draft"),
+        current ? h("button", { class: "oba-btn", type: "button", "data-claims-conflict-use": "draft", onClick: () => resolveConflict(false) }, "Keep my draft") : null,
+      ),
+    );
+  };
+
+  const resolveConflict = (useStored) => {
+    const { current } = form.conflict;
+    const type = form.type;
+    form.conflict = null;
+    clearError();
+    if (useStored) {
+      if (!current) {
+        form = null;
+        render();
+        return;
+      }
+      form.draft = type === "claim" ? claimDraft(current) : evidenceLinkDraft(current);
+      say("Showing the stored copy.");
+    } else {
+      // The draft now rests on the newer copy, so fields added elsewhere carry over.
+      form.draft.original = structuredClone(current);
+      if (type === "link") form.draft.evidence.original = structuredClone(current.evidence || {});
+      say("Your draft now rests on the latest copy. Review it, then save.");
+    }
+    render();
+    control(type === "claim" ? "statement" : "relation-supports")?.focus();
+  };
+
+  const openForm = (type, draft, editing) => {
+    form = { type, draft, editing, conflict: null };
+    clearError();
+    render();
+    control(type === "claim" ? "statement" : `relation-${draft.relation || "supports"}`)?.focus();
+  };
+
+  const submit = async (event) => {
+    event.preventDefault();
+    if (busy || !form) return;
+    if (form.conflict?.editing) return fail("Choose the stored copy or keep your draft before saving.");
+    clearError();
+    const { type, draft, editing } = form;
+    const problem = type === "claim" ? validateClaimDraft(draft) : validateEvidenceLinkDraft(draft, state);
+    if (problem) return fail(problem.message, problem.field === "relation" ? "relation-supports" : problem.field);
+    if (!editing) draft.id = draft.id || suggestAtlasId(type === "claim" ? draft.statement : `${draft.claim}-${draft.relation}`, used(), type);
+    busy = true;
+    say("Saving…");
+    const key = type === "claim" ? "claim" : "link";
+    try {
+      const result = await api.call(editing ? "PUT" : "POST", `research/claims/${type === "claim" ? "claims" : "links"}`, { json: { revision: state.revision, [key]: type === "claim" ? claimPayload(draft) : evidenceLinkPayload(draft) } });
+      applyClaimsState(state, result);
+      busy = false;
+      form = null;
+      render();
+      say(type === "claim" ? "Claim saved privately." : "Evidence link saved privately.");
+      const saved = type === "claim" ? draft.id : draft.claim;
+      root.querySelector(`#${idPrefix}-claim-${saved}`)?.focus();
+    } catch (error) {
+      busy = false;
+      if (error.status === 401) throw error;
+      if (error.status === 409 && error.data?.conflict) {
+        try {
+          await refresh();
+        } catch {
+          // The next save reports whatever is wrong.
+        }
+        form.conflict = { current: error.data.current ?? null, editing };
+        render();
+        say("Not saved: the claims changed elsewhere.", "oba-error");
+        (root.querySelector("[data-claims-conflict-use]") || root.querySelector("[data-claims-save]"))?.focus();
+        return;
+      }
+      say("Not saved. The stored claims and the draft are unchanged.", "oba-error");
+      render();
+      const first = error.data?.diagnostics?.[0];
+      const name = first ? claimDiagnosticControl(first.field, type) : "";
+      fail(claimsErrorMessage(error), name === "relation" ? "relation-supports" : name);
+    }
+  };
+
+  const renderForm = () => {
+    if (!form) {
+      formRegion.replaceChildren();
+      return;
+    }
+    const { type, draft, editing } = form;
+    const claim = type === "link" ? claimById(draft.claim) : null;
+    const heading = type === "claim" ? (editing ? "Edit claim" : "New claim") : editing ? "Edit evidence link" : "Link evidence";
+    formRegion.replaceChildren(
+      h(
+        "form",
+        { class: "oba-capture-form oba-claim-form", novalidate: true, "data-claims-form": type, "aria-labelledby": `${idPrefix}-form-heading`, onSubmit: submit },
+        h("h4", { id: `${idPrefix}-form-heading` }, heading),
+        claim ? h("p", { class: "oba-small" }, "For the claim: ", h("q", {}, claim.statement)) : null,
+        ...(type === "claim" ? claimFields(draft) : linkFields(draft)),
+        errorBox,
+        form.conflict ? conflictNotice() : null,
+        h(
+          "div",
+          { class: "oba-toolbar" },
+          h("button", { class: "oba-btn oba-btn-primary", type: "submit", "data-claims-save": "true", disabled: busy || Boolean(form.conflict?.editing) }, editing ? "Save changes" : type === "claim" ? "Save claim" : "Save link"),
+          h("button", { class: "oba-btn", type: "button", "data-claims-cancel": "true", onClick: () => { form = null; clearError(); render(); root.querySelector("[data-claims-new]")?.focus(); } }, "Cancel"),
+        ),
+      ),
+    );
+  };
+
+  // ---- actions
+
+  const newClaim = async () => {
+    clearError();
+    say("Checking the selected words against the saved draft…");
+    const checked = await checkSelection();
+    if (checked.error) {
+      say(checked.error, "oba-error");
+      return;
+    }
+    say("");
+    openForm("claim", claimDraft(null, { post: checked.post, statement: checked.anchor.text, anchor: checked.anchor }), false);
+  };
+
+  const saveClaimAnchor = async (claim, anchor, message) => {
+    busy = true;
+    try {
+      const result = await api.call("PUT", "research/claims/claims", { json: { revision: state.revision, claim: { ...claim, anchor: { ...(claim.anchor || {}), ...anchor } } } });
+      applyClaimsState(state, result);
+      busy = false;
+      render();
+      say(message);
+      root.querySelector(`#${idPrefix}-claim-${claim.id}`)?.focus();
+    } catch (error) {
+      busy = false;
+      if (error.status === 401) throw error;
+      if (error.status === 409) await refresh().catch(() => {});
+      render();
+      say(`Not re-anchored. ${error.status === 409 ? "The claims changed elsewhere; try again." : claimsErrorMessage(error)}`, "oba-error");
+    }
+  };
+
+  const reanchor = async (claim) => {
+    const anchorState = state.anchors[claim.id];
+    if (anchorState?.status === "moved" && Number.isInteger(anchorState.start)) {
+      const start = anchorState.start;
+      await saveClaimAnchor(claim, { start, end: start + utf8Length(claim.anchor.text), text: claim.anchor.text }, "Claim re-anchored to where its words now are.");
+      return;
+    }
+    say("Checking the selected words against the saved draft…");
+    const checked = await checkSelection();
+    if (checked.error) {
+      say(checked.error, "oba-error");
+      return;
+    }
+    if (checked.post !== claim.post) {
+      say("The selection is in another post; open this claim's post to re-anchor it.", "oba-error");
+      return;
+    }
+    await saveClaimAnchor(claim, checked.anchor, "Claim re-anchored to the selected words.");
+  };
+
+  const remove = async (type, record) => {
+    const label = type === "claim" ? "claim" : "evidence link";
+    if (globalThis.confirm?.(`Remove this ${label}? You can undo right after.`) === false) return;
+    busy = true;
+    try {
+      const result = await api.call("DELETE", `research/claims/${type === "claim" ? "claims" : "links"}`, { json: { revision: state.revision, id: record.id } });
+      applyClaimsState(state, result);
+      busy = false;
+      lastRemoved = { type, record: structuredClone(record) };
+      render();
+      say(`Removed the ${label}.`);
+      undoRegion.querySelector("button")?.focus();
+    } catch (error) {
+      busy = false;
+      if (error.status === 401) throw error;
+      if (error.status === 409) await refresh().catch(() => {});
+      render();
+      say(`Not removed. ${error.status === 409 ? "The claims changed elsewhere; review them and try again." : claimsErrorMessage(error)}`, "oba-error");
+    }
+  };
+
+  const undo = async () => {
+    if (!lastRemoved || busy) return;
+    const { type, record } = lastRemoved;
+    busy = true;
+    try {
+      const result = await api.call("POST", `research/claims/${type === "claim" ? "claims" : "links"}`, { json: { revision: state.revision, [type === "claim" ? "claim" : "link"]: record } });
+      applyClaimsState(state, result);
+      busy = false;
+      lastRemoved = null;
+      render();
+      say(type === "claim" ? "Claim restored." : "Evidence link restored.");
+      root.querySelector(`#${idPrefix}-claim-${type === "claim" ? record.id : record.claim}`)?.focus();
+    } catch (error) {
+      busy = false;
+      if (error.status === 401) throw error;
+      if (error.status === 409) await refresh().catch(() => {});
+      render();
+      say(`Not restored. ${error.status === 409 ? "The claims changed elsewhere; try again." : claimsErrorMessage(error)}`, "oba-error");
+    }
+  };
+
+  // ---- the list
+
+  const linkItem = (link) => {
+    const source = sourceById(link.evidence?.source);
+    const passage = link.evidence?.passage ? passageById(link.evidence.passage) : null;
+    const where = formatLocatorLines(link.evidence?.locators).replace(/\n/g, "; ");
+    const confidence = ATLAS_CONFIDENCE.find((item) => item.value === link.confidence)?.label || "Tentative";
+    const review = CLAIM_REVIEW_STATES.find((item) => item.value === link.reviewState)?.label || CLAIM_REVIEW_STATES[0].label;
+    const name = `${source ? sourceLabel(source) : link.evidence?.source}${where ? `, ${where}` : ""}`;
+    return h(
+      "li",
+      { class: "oba-claim-link", "data-claims-link": link.id, "data-relation": link.relation },
+      h("p", {}, h("strong", {}, name)),
+      passage ? h("p", { class: "oba-small" }, "Passage: ", h("q", {}, passage.preview || passage.id)) : null,
+      link.rationale ? h("p", {}, link.rationale) : null,
+      h("p", { class: "oba-small" }, `${confidence} confidence, as you hold it. ${review}.`),
+      link.uncertainty ? h("p", { class: "oba-small" }, `Uncertain: ${link.uncertainty}`) : null,
+      h("p", { class: "oba-small", "data-claims-visibility": link.visibility }, link.visibility === "approved" ? (state.projected.includes(link.id) ? "Approved; a future publication may include it." : "Approved, but held back until its claim and every contradicting link on it are approved.") : "Private."),
+      link.origin === "suggested" ? h("p", { class: "oba-small" }, "Suggested, not yet your own reading.") : null,
+      h(
+        "div",
+        { class: "oba-toolbar" },
+        h("button", { class: "oba-btn", type: "button", "aria-label": `Edit link: ${name}`, onClick: () => openForm("link", evidenceLinkDraft(link), true) }, "Edit"),
+        h("button", { class: "oba-btn", type: "button", "aria-label": `Remove link: ${name}`, "data-claims-remove-link": link.id, onClick: () => remove("link", link) }, "Remove"),
+      ),
+    );
+  };
+
+  const claimItem = (claim) => {
+    const anchorState = state.anchors[claim.id] || null;
+    const columns = claimLinkColumns(state.links, claim.id);
+    const column = (relation) => {
+      const { heading } = CLAIM_RELATIONS.find((item) => item.value === relation);
+      const links = columns[relation];
+      return h(
+        "section",
+        { class: "oba-claim-column", "data-claims-column": relation, "aria-label": `${heading} evidence` },
+        h("h5", {}, `${heading} (${links.length})`),
+        links.length ? h("ul", { class: "oba-claim-links" }, links.map(linkItem)) : h("p", { class: "oba-small" }, `No ${heading.toLowerCase()} evidence recorded.`),
+      );
+    };
+    const blocked = anchorState && ["stale", "ambiguous"].includes(anchorState.status);
+    const findings = claimFindings(state.findings, claim.id);
+    const prompts = findings.length
+      ? h(
+          "section",
+          { class: "oba-claim-findings", "data-claims-findings": claim.id, "aria-label": `Evidence gaps and prompts for the claim: ${claim.statement}` },
+          h("h5", {}, `Gaps and prompts (${findings.length})`),
+          h(
+            "ul",
+            {},
+            findings.map((finding) =>
+              h(
+                "li",
+                { class: `oba-claim-finding is-${finding.outcome}`, "data-claims-finding": finding.code },
+                h("p", {}, h("code", {}, finding.code), ` (${CLAIM_FINDING_OUTCOMES.find((item) => item.outcome === finding.outcome)?.label || finding.outcome}): `, finding.message),
+                h("p", { class: "oba-small" }, h("strong", {}, "Next: "), finding.repair),
+              ),
+            ),
+          ),
+        )
+      : null;
+    return h(
+      "article",
+      { class: "oba-claim", "data-claims-claim": claim.id, "aria-labelledby": `${idPrefix}-claim-${claim.id}` },
+      h("h4", { id: `${idPrefix}-claim-${claim.id}`, tabindex: "-1" }, claim.statement),
+      claim.anchor ? h("p", { class: "oba-small" }, "Words: ", h("q", {}, claim.anchor.text)) : null,
+      h("p", { class: "oba-small", "data-claims-anchor": anchorState?.status || "none" }, claimAnchorStatusText(anchorState)),
+      claim.uncertainty ? h("p", { class: "oba-small" }, `Uncertain: ${claim.uncertainty}`) : null,
+      h("p", { class: "oba-small", "data-claims-counts": claim.id }, claimCountsText(state.counts[claim.id])),
+      h("div", { class: "oba-claim-columns" }, column("supports"), column("contradicts")),
+      column("contextualizes"),
+      prompts,
+      h(
+        "div",
+        { class: "oba-toolbar" },
+        h("button", { class: "oba-btn", type: "button", disabled: Boolean(blocked), "aria-label": `Link evidence to the claim: ${claim.statement}`, "data-claims-add-link": claim.id, onClick: () => openForm("link", evidenceLinkDraft(null, { claim: claim.id }), false) }, "Link evidence"),
+        anchorState && anchorState.status !== "verified" && !anchorState.missingPost
+          ? h("button", { class: "oba-btn", type: "button", "data-claims-reanchor": claim.id, "aria-label": `${anchorState.status === "moved" ? "Re-anchor to its new position" : "Re-anchor to the selected words"}: ${claim.statement}`, onClick: () => reanchor(claim) }, anchorState.status === "moved" ? "Re-anchor to its new position" : "Re-anchor to the selected words")
+          : null,
+        h("button", { class: "oba-btn", type: "button", "aria-label": `Edit claim: ${claim.statement}`, onClick: () => openForm("claim", claimDraft(claim), true) }, "Edit"),
+        h("button", { class: "oba-btn", type: "button", "aria-label": `Remove claim: ${claim.statement}`, "data-claims-remove-claim": claim.id, onClick: () => remove("claim", claim) }, "Remove"),
+      ),
+      blocked ? h("p", { class: "oba-small" }, "Re-anchor the claim before adding evidence, so evidence never attaches to words you did not choose.") : null,
+    );
+  };
+
+  const render = () => {
+    renderForm();
+    const claims = postClaims();
+    // replaceChildren takes nodes only: an array or a null would be shown as text.
+    list.replaceChildren(
+      ...(claims.length
+        ? claims.map(claimItem)
+        : [h("p", { class: "oba-small", "data-claims-empty": "true" }, "No claims about this post yet. Select words in the draft, then make a claim from them.")]),
+    );
+    undoRegion.replaceChildren(
+      ...(lastRemoved ? [h("button", { class: "oba-btn", type: "button", "data-claims-undo-button": "true", onClick: undo }, lastRemoved.type === "claim" ? "Undo removing the claim" : "Undo removing the link")] : []),
+    );
+    const notices = state.notices.filter((notice) => {
+      const link = linkById(notice.id);
+      return link && claimById(link.claim)?.post === state.post;
+    });
+    noticeRegion.replaceChildren(...notices.map((notice) => h("p", { class: "oba-small", "data-claims-notice": notice.code }, `Link ${notice.id}: ${notice.message}`)));
+    const ids = new Set(claims.map((claim) => claim.id));
+    findingsSummary.hidden = claims.length === 0;
+    findingsSummary.textContent = claims.length ? claimFindingsSummary(state.findings.filter((finding) => ids.has(finding.object?.claim))) : "";
+  };
+  root.append(
+    h("h3", { id: `${idPrefix}-heading` }, "Claims and evidence"),
+    h("p", { class: "oba-small" }, "Private to you. A claim is your statement about this post; an evidence link records how one source bears on it. Nothing here scores evidence or decides what is true, and a citation alone links nothing."),
+    h("div", { class: "oba-toolbar" }, h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-claims-new": "true", onClick: () => newClaim() }, "Make a claim from the selected words")),
+    status,
+    undoRegion,
+    formRegion,
+    noticeRegion,
+    findingsSummary,
+    list,
+  );
+
+  return {
+    element: root,
+    state,
+    async load() {
+      try {
+        await refresh();
+        render();
+        say(state.file ? `Stored privately in ${state.file}.` : "");
+      } catch (error) {
+        if (error.status === 401) throw error;
+        list.replaceChildren(
+          h("p", { class: "oba-error", role: "alert" }, `The claims could not be read. ${claimsErrorMessage(error)}`),
+          ...(error.data?.file ? [h("p", { class: "oba-small" }, `Repair ${error.data.file} by hand, then open this view again. Nothing was changed.`)] : []),
+        );
+      }
+    },
+    isDirty: () => Boolean(form) && !busy,
+    newClaim,
   };
 }
 
@@ -4407,6 +6985,33 @@ function visualChildrenMarkdown(node) {
   return out;
 }
 
+/**
+ * The Markdown one visual-editor block (a direct child of the rich editor) writes into the draft.
+ * An empty string means the block writes nothing, so the draft has no block for it.
+ */
+function visualBlockMarkdown(element) {
+  if (element.classList.contains("oba-protected-block")) return (element.dataset.markdown || "").replace(/\n+$/, "");
+  const tag = element.tagName.toLowerCase();
+  const inline = () => visualChildrenMarkdown(element).trim();
+  if (/^h[1-6]$/.test(tag)) return `${"#".repeat(Number(tag[1]))} ${inline()}`;
+  if (tag === "ul" || tag === "ol") {
+    const listStart = tag === "ol" ? Number(element.getAttribute("start") || 1) : 1;
+    return [...element.children]
+      .filter((item) => item.tagName.toLowerCase() === "li")
+      .map((item, index) => `${tag === "ol" ? `${listStart + index}.` : "-"} ${visualChildrenMarkdown(item).trim()}`)
+      .join("\n");
+  }
+  if (tag === "blockquote") return inline().split("\n").map((line) => `> ${line}`).join("\n");
+  if (tag === "pre") {
+    const text = element.textContent || "";
+    const longest = Math.max(0, ...(text.match(/`+/g) || []).map((run) => run.length));
+    const fence = "`".repeat(Math.max(3, longest + 1));
+    return `${fence}${element.dataset.language || ""}\n${text}\n${fence}`;
+  }
+  if (tag === "img") return visualInlineMarkdown(element);
+  return inline().replace(/^(#{1,6}|>|[-+*]|\d+[.)])\s/, "\\$&");
+}
+
 function visualInlineMarkdown(node) {
   if (node.nodeType === Node.TEXT_NODE) return markdownText(node.nodeValue);
   if (node.nodeType !== Node.ELEMENT_NODE) return "";
@@ -4673,7 +7278,8 @@ export class ObAdmin extends AdminElement {
   shownShellModules() {
     const visible = new Set(visibleAdminModules(this.preferences));
     if (["analytics", "contributors"].includes(this.activeRoute)) visible.add(this.activeRoute);
-    if (["sources", "research", "atlas"].includes(this.activeRoute)) visible.add("evidence");
+    if (["sources", "research", "atlas", "compare"].includes(this.activeRoute)) visible.add("evidence");
+    if (this.activeRoute === "moderation") visible.add("analytics");
     return visible;
   }
 
@@ -4813,12 +7419,16 @@ export class ObAdmin extends AdminElement {
     ];
     const activeInfo = active === "analytics"
       ? { title: "Analytics", detail: "Understand readership without tracking individual readers." }
+      : active === "moderation"
+        ? { title: "Moderation inbox", detail: "Decide on comments and reader feedback in one list, respond, and record what changed." }
       : active === "sources"
         ? { title: "Sources", detail: "Keep private research sources, editions, translations, and references in one library." }
       : active === "research"
         ? { title: "Research notebook", detail: "Capture quoted passages and your own notes about them, privately, tied to your sources." }
       : active === "atlas"
         ? { title: "Knowledge Atlas", detail: "Relate people, works, concepts, movements and events privately, with who asserts each link and on what evidence." }
+      : active === "compare"
+        ? { title: "Compare versions", detail: "Read aligned passages across editions, translations, witnesses and interpretations, side by side or in one column." }
       : active === "contributors"
         ? { title: "Contributors", detail: "Manage reusable public identities for bylines and contribution credits." }
       : active === "shared"
@@ -4850,8 +7460,8 @@ export class ObAdmin extends AdminElement {
         "nav",
         { class: "oba-toolbelt", "aria-label": "Admin tools" },
         toolGroup("Content", ...contentTabs),
-        h("div", { class: "oba-progressive-tools", "data-admin-module": "analytics", hidden: !visibleModules.has("analytics") }, toolGroup("Observe", h("a", { class: "oba-tab", "aria-current": active === "analytics" ? "page" : null, href: "#/analytics" }, "Analytics"))),
-        h("div", { class: "oba-progressive-tools", "data-admin-module": "evidence", hidden: !visibleModules.has("evidence") }, toolGroup("Research", h("a", { class: "oba-tab", "aria-current": active === "sources" ? "page" : null, href: "#/sources" }, "Sources"), h("a", { class: "oba-tab", "aria-current": active === "research" ? "page" : null, href: "#/research" }, "Notebook"), h("a", { class: "oba-tab", "aria-current": active === "atlas" ? "page" : null, href: "#/atlas" }, "Atlas"))),
+        h("div", { class: "oba-progressive-tools", "data-admin-module": "analytics", hidden: !visibleModules.has("analytics") }, toolGroup("Observe", h("a", { class: "oba-tab", "aria-current": active === "analytics" ? "page" : null, href: "#/analytics" }, "Analytics"), h("a", { class: "oba-tab", "aria-current": active === "moderation" ? "page" : null, href: "#/moderation" }, "Moderation inbox"))),
+        h("div", { class: "oba-progressive-tools", "data-admin-module": "evidence", hidden: !visibleModules.has("evidence") }, toolGroup("Research", h("a", { class: "oba-tab", "aria-current": active === "sources" ? "page" : null, href: "#/sources" }, "Sources"), h("a", { class: "oba-tab", "aria-current": active === "research" ? "page" : null, href: "#/research" }, "Notebook"), h("a", { class: "oba-tab", "aria-current": active === "atlas" ? "page" : null, href: "#/atlas" }, "Atlas"), h("a", { class: "oba-tab", "aria-current": active === "compare" ? "page" : null, href: "#/compare" }, "Compare"))),
         h("div", { class: "oba-progressive-tools", "data-admin-module-group": "contributors public-site", hidden: !visibleModules.has("contributors") && !visibleModules.has("public-site") }, toolGroup(
           "Site",
           h("a", { class: "oba-tab", "data-admin-module": "contributors", hidden: !visibleModules.has("contributors"), "aria-current": active === "contributors" ? "page" : null, href: "#/contributors" }, "Contributors"),
@@ -5032,9 +7642,11 @@ export class ObAdmin extends AdminElement {
       { label: "Pages", category: "Content", run: () => go("#/pages") },
       { label: "Series", category: "Content", run: () => go("#/series") },
       { label: "Analytics", category: "Observe", keywords: "views visitors", run: () => go("#/analytics") },
+      { label: "Moderation inbox", category: "Observe", keywords: "moderation comments reader feedback questions corrections clarification remove responses revision notes", run: () => go("#/moderation") },
       { label: "Sources", category: "Research", keywords: "library bibliography citations editions translations witnesses references", run: () => go("#/sources") },
       { label: "Research notebook", category: "Research", keywords: "passages notes quotations excerpts observations questions capture", run: () => go("#/research") },
       { label: "Knowledge Atlas", category: "Research", keywords: "atlas people works concepts movements events relationships influence explore", run: () => go("#/atlas") },
+      { label: "Compare versions", category: "Research", keywords: "compare alignments editions translations witnesses interpretations passages side by side", run: () => go("#/compare") },
       { label: "Contributors", category: "Site", keywords: "authors credits orcid identity", run: () => go("#/contributors") },
       { label: "View site", category: "Site", keywords: "public blog", run: () => open("/", "_blank", "noopener") },
       { label: "Advanced tools", category: "Workspace", keywords: "more optional hidden ai assistant research distribution", run: () => this.openAdvancedTools() },
@@ -5191,10 +7803,12 @@ export class ObAdmin extends AdminElement {
       if (head === "edit" && tail) await this.showEditor(decodeURIComponent(tail));
       else if (head === "new" && KINDS[tail]) await this.showEditor(null, tail);
       else if (head === "analytics") await this.showAnalytics(Number(tail) || 30);
+      else if (head === "moderation" || head === "feedback") await this.showModeration(tail, params);
       else if (head === "contributors") await this.showContributors();
       else if (head === "sources") await this.showSources();
       else if (head === "research") await this.showResearch();
       else if (head === "atlas") await this.showAtlas(safeDecodeURIComponent(tail));
+      else if (head === "compare") await this.showCompare(safeDecodeURIComponent(tail));
       else if (head === "shared" && tail === "new") await this.showSharedReflectionForm();
       else if (head === "shared" && tail.startsWith("accept/")) await this.showInvitationAccept(invitationTokenFromHash(location.hash));
       else if (head === "shared") await this.showSharedReflections();
@@ -5692,10 +8306,10 @@ export class ObAdmin extends AdminElement {
       const text = (name, props = {}) =>
         h("input", { type: "text", value: draft[name], autocomplete: "off", onInput: (event) => { draft[name] = event.target.value; touch(); }, ...props });
       const area = (name, rows) => h("textarea", { rows, spellcheck: "false", value: draft[name], onInput: (event) => { draft[name] = event.target.value; touch(); } });
-      const select = (name, options, emptyLabel) =>
+      const select = (name, options, emptyLabel, after) =>
         h(
           "select",
-          { onChange: (event) => { draft[name] = event.target.value; touch(); } },
+          { onChange: (event) => { draft[name] = event.target.value; touch(); after?.(); } },
           emptyLabel ? h("option", { value: "", selected: !draft[name] }, emptyLabel) : null,
           options.map(([value, label]) => h("option", { value, selected: draft[name] === value }, label)),
         );
@@ -5704,6 +8318,13 @@ export class ObAdmin extends AdminElement {
           name,
           sourceRelationOptions(sources, draft.kind, name, draft.id).map((source) => [source.id, `${sourceLabel(source)} (${source.kind})`]),
           name === "of" ? "Choose a source" : "None",
+          // A reference's volume control depends on the record it points at.
+          name === "of" && fields.location
+            ? () => {
+                renderPanel();
+                document.getElementById?.("oba-source-of")?.focus?.();
+              }
+            : undefined,
         );
       const kindControl = h(
         "select",
@@ -5757,6 +8378,9 @@ export class ObAdmin extends AdminElement {
                 { class: "oba-source-location", "data-source-field": "location" },
                 field("locationScheme", "Location type", select("locationScheme", SOURCE_LOCATION_SCHEMES.map((scheme) => [scheme, scheme]), "None")),
                 field("locationValue", "Location", text("locationValue", { spellcheck: "false" }), "For example 514a, 12r, or 1:02:30."),
+                sourceTargetVolumes(sources, draft.of) > 1 || String(draft.locationVolume || "").trim()
+                  ? field("locationVolume", "Volume", text("locationVolume", { spellcheck: "false" }), "Pages and folios restart in each volume, so name the volume, such as 2.")
+                  : null,
               )
             : null,
           field("creators", "Creators (optional)", area("creators", 3), "One per line. Add a role after a bar, such as Plato | author. Creators are descriptive only and are not site contributors."),
@@ -5799,7 +8423,7 @@ export class ObAdmin extends AdminElement {
           this.dirty = false;
           renderList();
           renderPanel();
-          say(`${sourceLabel(result.source)} saved.`, "oba-ok");
+          say(`${sourceLabel(result.source)} saved.${comparisonBuildText(result.build)}`, result.build && !result.build.ok ? "oba-error" : "oba-ok");
         } catch (error) {
           if (this.viewVersion !== mountedView) return;
           if (error.status === 409 && error.data?.conflict) {
@@ -5873,7 +8497,7 @@ export class ObAdmin extends AdminElement {
         this.dirty = false;
         renderList();
         renderPanel();
-        say(`${sourceLabel(result.source)} ${archived ? "archived" : "restored"}.`, "oba-ok");
+        say(`${sourceLabel(result.source)} ${archived ? "archived" : "restored"}.${comparisonBuildText(result.build)}`, result.build && !result.build.ok ? "oba-error" : "oba-ok");
       } catch (error) {
         if (this.viewVersion !== mountedView) return;
         if (error.status === 409 && error.data?.conflict) {
@@ -6223,7 +8847,7 @@ export class ObAdmin extends AdminElement {
           selected = target;
           refreshSearch();
           renderPanel(true);
-          say("Saved to the private notebook.", "oba-ok");
+          say(`Saved to the private notebook.${comparisonBuildText(result.build)}`, result.build && !result.build.ok ? "oba-error" : "oba-ok");
         },
         onCancel: () => close(),
       });
@@ -6350,7 +8974,7 @@ export class ObAdmin extends AdminElement {
         Object.assign(state, { revision: result.revision, sources: result.sources, passages: result.passages, notes: result.notes });
         refreshSearch();
         renderPanel(true);
-        say(archived ? (filters.archived ? "Archived. It stays in the notebook and in exports." : "Archived. It stays in the notebook and in exports; tick Show archived to see it in lists.") : "Restored from the archive.", "oba-ok");
+        say(`${archived ? (filters.archived ? "Archived. It stays in the notebook and in exports." : "Archived. It stays in the notebook and in exports; tick Show archived to see it in lists.") : "Restored from the archive."}${comparisonBuildText(result.build)}`, result.build && !result.build.ok ? "oba-error" : "oba-ok");
       } catch (error) {
         if (this.viewVersion !== mountedView) return;
         say(error.status === 409 ? "Not changed: the notebook changed elsewhere. Reload this view and try again." : `${notebookErrorMessage(error)} The stored notebook is unchanged.`, "oba-error");
@@ -6601,6 +9225,7 @@ export class ObAdmin extends AdminElement {
     const panel = h("section", { class: "oba-source-editor", "aria-labelledby": "oba-atlas-heading" });
     const newEntryButton = h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-atlas-new": "entry", onClick: () => open({ type: "entry", id: null }) }, "New entry");
     const newRelationshipButton = h("button", { class: "oba-btn", type: "button", "data-atlas-new": "relationship", onClick: () => open({ type: "relationship", id: null }) }, "New relationship");
+    const chronologyButton = h("button", { class: "oba-btn", type: "button", "data-atlas-chronology": "true", onClick: () => open({ type: "chronology", id: null }) }, "Chronology");
     const entryById = (id) => state.entries.find((entry) => entry.id === id) || null;
     const relationshipById = (id) => state.relationships.find((relationship) => relationship.id === id) || null;
     const joinCount = (id) => state.relationships.filter((relationship) => relationship.from === id || relationship.to === id).length;
@@ -6614,7 +9239,7 @@ export class ObAdmin extends AdminElement {
             "section",
             { class: "oba-notice", "aria-labelledby": "oba-atlas-notices-heading" },
             h("h2", { class: "oba-small-heading", id: "oba-atlas-notices-heading" }, "Notices"),
-            h("ul", {}, state.notices.map((notice) => h("li", {}, `Relationship ${notice.id}, ${notice.field}: ${notice.message}`))),
+            h("ul", {}, state.notices.map((notice) => h("li", { "data-atlas-notice": notice.code }, `${notice.collection === "entries" ? "Entry" : "Relationship"} ${notice.id}, ${notice.field}: ${notice.message}`))),
           ),
         );
       }
@@ -6737,6 +9362,210 @@ export class ObAdmin extends AdminElement {
       );
     };
 
+
+    // ---- chronology explorer (ADR 0098): lists only, competing datings side by side, never resolved
+    const chronologyFilters = { query: "", aspect: "", fromYear: "", fromEra: "bce", toYear: "", toEra: "ce", zoom: "century", competing: false, prompted: false };
+    const openItem = (collection, id, focusDating = null) => open({ type: collection === "entries" ? "entry" : "relationship", id, focusDating });
+    const datingPosition = (field) => {
+      const found = String(field || "").match(/^dates\[(\d+)\]$/);
+      return found ? Number(found[1]) : null;
+    };
+
+    const chronologyDatingItem = (dating) => {
+      const record = dating.record || {};
+      const confidence = ATLAS_CONFIDENCE.find((item) => item.value === (record.confidence || "tentative")) || ATLAS_CONFIDENCE[0];
+      const facts = [
+        `Dated by ${atlasAttributionText(record.assertedBy, state.sources)}`,
+        `${confidence.label} confidence, as held by that party`,
+        record.unsourced ? "Unsourced draft: no evidence cited yet" : `Rests on ${plural(Array.isArray(record.evidence) ? record.evidence.length : 0, "piece")} of evidence`,
+        record.note ? `Note: ${record.note}` : null,
+        atlasDatingVisibilityText(record, dating.projected),
+        dating.inWindow === false ? "Outside the time window; listed because a competing dating falls inside it" : null,
+        dating.prompts ? `${plural(dating.prompts, "check prompt")}: see Datings to check` : null,
+      ];
+      return h(
+        "li",
+        { class: "oba-chronology-dating", "data-chronology-dating": dating.id, "data-placement": dating.placement, "data-in-window": dating.inWindow === false ? "false" : null },
+        h("p", {}, h("strong", {}, atlasChronologyReading(dating, state.entries)), h("span", { class: "oba-small" }, ` (dating ${dating.id})`)),
+        h("ul", { class: "oba-atlas-facts" }, facts.filter(Boolean).map((fact) => h("li", {}, fact))),
+      );
+    };
+
+    /** One dated aspect: every dating of it, side by side, with how many compete. */
+    const chronologyRow = (row, { withOwner = true } = {}) => {
+      const competing = row.datings.length > 1;
+      const title = withOwner ? `${row.name}: ${aspectNoun(row.aspect)}` : capitalize(aspectNoun(row.aspect));
+      return h(
+        "li",
+        { class: "oba-chronology-row", "data-chronology-row": row.key },
+        h("p", { class: "oba-chronology-title" }, h("strong", {}, title)),
+        h(
+          "p",
+          { class: "oba-small", "data-chronology-competing": String(row.datings.length) },
+          competing ? `${row.datings.length} competing datings, side by side. None is preferred, and nothing here resolves them.` : "1 dating; no competing dating is recorded.",
+        ),
+        h("ul", { class: competing ? "oba-chronology-competing" : "oba-chronology-single", "aria-label": `Datings of the ${aspectNoun(row.aspect)} of ${row.name}` }, row.datings.map(chronologyDatingItem)),
+        withOwner
+          ? h("div", { class: "oba-toolbar" }, h("button", { class: "oba-btn", type: "button", "data-atlas-open-dated": row.owner, onClick: () => openItem(row.collection, row.owner, datingPosition(row.datings[0]?.field)) }, row.collection === "entries" ? `Open ${row.name}` : `Open relationship: ${row.name}`))
+          : null,
+      );
+    };
+
+    const chronologyPrompt = (prompt) => {
+      const name = atlasOwnerName(state, prompt.collection, prompt.id);
+      const first = Array.isArray(prompt.datings) ? prompt.datings[0] : "";
+      return h(
+        "li",
+        { class: "oba-chronology-prompt", "data-chronology-prompt": prompt.code },
+        h("p", {}, h("strong", {}, "Check: "), String(prompt.message || "")),
+        h("button", { class: "oba-btn", type: "button", "data-atlas-check": first, onClick: () => openItem(prompt.collection, prompt.id, datingPosition(prompt.field)) }, `Check dating ${first} of ${name}`),
+      );
+    };
+
+    const chronologyPrompts = (prompts, unlisted, headingId, scoped = false) =>
+      h(
+        "section",
+        { class: "oba-chronology-prompts", "aria-labelledby": headingId, "data-chronology-prompts": "true" },
+        h("h3", { class: "oba-small-heading", id: headingId }, `Datings to check (${prompts.length + unlisted})`),
+        h("p", { class: "oba-small" }, "Prompts, never verdicts: each names recorded datings that cannot all hold as stated. None says which is right, and a recorded disagreement can stay side by side as it is. They never block a save."),
+        prompts.length ? h("ul", { class: "oba-atlas-incidents" }, prompts.map(chronologyPrompt)) : h("p", { class: "oba-small" }, scoped ? "Nothing to check here." : "Nothing to check: no recorded datings contradict each other as stated."),
+        unlisted ? h("p", { class: "oba-small" }, `${plural(unlisted, "more prompt")} not listed.`) : null,
+      );
+
+    const relativeList = (items, headingId, empty) =>
+      h(
+        "section",
+        { "aria-labelledby": headingId, "data-chronology-relative": "true" },
+        h("h3", { class: "oba-small-heading", id: headingId }, `Relative datings (${items.length})`),
+        h("p", { class: "oba-small" }, "Each is one party's assertion, never inferred from absolute dates, and none makes or supports a relationship."),
+        items.length
+          ? h(
+              "ul",
+              { class: "oba-atlas-incidents" },
+              items.map(({ row, dating }) => {
+                const target = dating.record?.date?.relative?.entry;
+                return h(
+                  "li",
+                  { "data-chronology-relative-dating": dating.id },
+                  h("p", {}, atlasRelativeSentence(row.name, row.aspect, dating, state.entries)),
+                  h("p", { class: "oba-small" }, `Dated by ${atlasAttributionText(dating.record?.assertedBy, state.sources)} (dating ${dating.id}).`),
+                  h(
+                    "div",
+                    { class: "oba-toolbar" },
+                    h("button", { class: "oba-btn", type: "button", "aria-label": `Open ${row.name} at dating ${dating.id}`, onClick: () => openItem(row.collection, row.owner, datingPosition(dating.field)) }, `Open ${row.name}`),
+                    target && entryById(target) ? h("button", { class: "oba-btn", type: "button", "data-atlas-go": target, onClick: () => open({ type: "entry", id: target }) }, `Explore ${atlasEntryName(state.entries, target)}`) : null,
+                  ),
+                );
+              }),
+            )
+          : h("p", { class: "oba-small" }, empty),
+      );
+
+    /** The datings of one entry or relationship, and the relative datings and prompts that concern it. */
+    const ownChronology = (collection, id, name) => {
+      const model = atlasChronologyModel(state, { zoom: "none" });
+      const rows = model.rows.filter((row) => row.collection === collection && row.owner === id);
+      const pointing = collection === "entries" ? model.rows.flatMap((row) => row.datings.filter((dating) => dating.placement === "relative" && dating.record?.date?.relative?.entry === id && row.owner !== id).map((dating) => ({ row, dating }))) : [];
+      const prompts = model.prompts.filter((prompt) => prompt.collection === collection && prompt.id === id);
+      const headingId = `oba-atlas-chronology-of-${collection}`;
+      return h(
+        "section",
+        { class: "oba-atlas-explorer oba-chronology", "aria-labelledby": headingId, "data-atlas-chronology-of": id },
+        h("h3", { id: headingId }, collection === "entries" ? `Chronology of ${name}` : "When this relationship held"),
+        rows.length ? h("ul", { class: "oba-chronology-rows" }, rows.map((row) => chronologyRow(row, { withOwner: false }))) : h("p", { class: "oba-small" }, "No datings yet. Add one under Dates in the editor below."),
+        collection === "entries" && pointing.length ? relativeList(pointing, `${headingId}-relative`, "") : null,
+        prompts.length ? chronologyPrompts(prompts, 0, `${headingId}-prompts`, true) : null,
+      );
+    };
+
+    const renderChronologyPanel = () => {
+      const filters = chronologyFilters;
+      const results = h("div", { class: "oba-chronology-results", id: "oba-chronology-results" });
+      const status = h("p", { class: "oba-small", id: "oba-chronology-status", role: "status", "aria-live": "polite", "data-chronology-status": "true" });
+      const aspects = [...new Set((state.kinds?.aspects || []).map((spec) => spec.aspect))];
+      const control = (id, labelText, input, hint) => {
+        input.id = id;
+        input.setAttribute("aria-controls", "oba-chronology-results");
+        if (hint) input.setAttribute("aria-describedby", `${id}-hint`);
+        return h("div", { class: "oba-field" }, h("label", { for: id }, labelText), input, hint ? h("p", { class: "oba-small", id: `${id}-hint` }, hint) : null);
+      };
+      const era = (key) => h("select", { onChange: (event) => { filters[key] = event.target.value; renderResults(); } }, h("option", { value: "bce", selected: filters[key] === "bce" }, "BCE"), h("option", { value: "ce", selected: filters[key] === "ce" }, "CE"));
+      const toggle = (id, key, labelText) => {
+        const input = h("input", { id, type: "checkbox", checked: filters[key], "aria-controls": "oba-chronology-results", onChange: (event) => { filters[key] = event.target.checked; renderResults(); } });
+        return h("div", { class: "oba-capture-check" }, input, h("label", { for: id }, labelText));
+      };
+      const renderResults = () => {
+        const model = atlasChronologyModel(state, filters);
+        status.textContent = atlasChronologyStatus(model, filters);
+        const parts = [chronologyPrompts(model.prompts, model.unlisted, "oba-chronology-prompts-heading")];
+        const rowList = (rows) => h("ol", { class: "oba-chronology-rows" }, rows.map((row) => chronologyRow(row)));
+        const empty = model.total.datings ? "No dated aspect matches these filters. Clear them to see every dating." : "No datings yet. Add one under Dates when you edit an entry or relationship.";
+        parts.push(
+          h(
+            "section",
+            { "aria-labelledby": "oba-chronology-timeline-heading", "data-chronology-timeline": "true" },
+            h("h3", { class: "oba-small-heading", id: "oba-chronology-timeline-heading" }, "Timeline"),
+            h("p", { class: "oba-small" }, "In one display order: by the earliest day each states, an open start first. Order is for reading only; it never relates two datings or the things they date, and circa never moves a point."),
+            !model.groups.length
+              ? h("p", { class: "oba-notice", "data-chronology-empty": "true" }, empty)
+              : model.zoom === "none"
+                ? rowList(model.groups.flatMap((group) => group.rows))
+                : h(
+                    "ol",
+                    { class: "oba-chronology-groups" },
+                    model.groups.map((group, position) => {
+                      const id = `oba-chronology-group-${position}`;
+                      return h("li", { "aria-labelledby": id, "data-chronology-group": group.label }, h("h4", { class: "oba-small-heading", id }, `${group.label} (${plural(group.rows.length, "dated aspect")})`), rowList(group.rows));
+                    }),
+                  ),
+          ),
+        );
+        if (model.unplaced.length) {
+          parts.push(
+            h(
+              "section",
+              { "aria-labelledby": "oba-chronology-unplaced-heading", "data-chronology-unplaced": "true" },
+              h("h3", { class: "oba-small-heading", id: "oba-chronology-unplaced-heading" }, `Not placed in time (${model.unplaced.length})`),
+              h("p", { class: "oba-small" }, "Dated only relative to another entry, or stated as unknown, so they have no position on the timeline and the time window does not filter them."),
+              rowList(model.unplaced),
+            ),
+          );
+        }
+        parts.push(relativeList(model.relative, "oba-chronology-relative-heading", model.total.datings ? "No relative dating among the datings shown." : "No relative datings yet."));
+        results.replaceChildren(...parts);
+      };
+      const query = h("input", { type: "search", autocomplete: "off", spellcheck: "false", value: filters.query, placeholder: "Label or ID", onInput: (event) => { filters.query = event.target.value; renderResults(); } });
+      const fromYear = h("input", { type: "text", inputmode: "numeric", autocomplete: "off", value: filters.fromYear, onInput: (event) => { filters.fromYear = event.target.value; renderResults(); } });
+      const toYear = h("input", { type: "text", inputmode: "numeric", autocomplete: "off", value: filters.toYear, onInput: (event) => { filters.toYear = event.target.value; renderResults(); } });
+      const controls = h(
+        "div",
+        { class: "oba-chronology-filters", role: "search", "aria-label": "Filter the chronology" },
+        control("oba-chronology-query", "Entry or relationship", query),
+        control("oba-chronology-aspect", "Aspect", h("select", { onChange: (event) => { filters.aspect = event.target.value; renderResults(); } }, h("option", { value: "", selected: !filters.aspect }, "All aspects"), aspects.map((aspect) => h("option", { value: aspect, selected: filters.aspect === aspect }, atlasAspectLabel(aspect))))),
+        h(
+          "fieldset",
+          { class: "oba-chronology-window" },
+          h("legend", {}, "Time window"),
+          h("p", { class: "oba-small", id: "oba-chronology-window-hint" }, "Whole years without a minus sign; choose BCE or CE. Leave either end empty to keep it open. A dated aspect is listed when any of its datings overlaps the window, with all its competing datings."),
+          h("div", { class: "oba-toolbar" }, control("oba-chronology-from", "From year", fromYear), control("oba-chronology-from-era", "From era", era("fromEra")), control("oba-chronology-to", "To year", toYear), control("oba-chronology-to-era", "To era", era("toEra"))),
+        ),
+        control("oba-chronology-zoom", "Group by (zoom)", h("select", { onChange: (event) => { filters.zoom = event.target.value; renderResults(); } }, [["century", "Century"], ["decade", "Decade"], ["year", "Year"], ["none", "No grouping"]].map(([value, text]) => h("option", { value, selected: filters.zoom === value }, text))), "Groups each dated aspect under the century, decade or year its earliest dating begins in."),
+        toggle("oba-chronology-competing", "competing", "Only aspects with competing datings"),
+        toggle("oba-chronology-prompted", "prompted", "Only datings with a check prompt"),
+        h("div", { class: "oba-toolbar" }, h("button", { class: "oba-btn", type: "button", "data-chronology-clear": "true", onClick: () => { Object.assign(filters, { query: "", aspect: "", fromYear: "", fromEra: "bce", toYear: "", toEra: "ce", zoom: "century", competing: false, prompted: false }); renderPanel(); panel.querySelector("#oba-chronology-query")?.focus(); say("Chronology filters cleared."); } }, "Clear filters")),
+      );
+      fromYear.setAttribute("aria-describedby", "oba-chronology-window-hint");
+      toYear.setAttribute("aria-describedby", "oba-chronology-window-hint");
+      renderResults();
+      panel.replaceChildren(
+        heading("Chronology"),
+        h("p", { class: "oba-small" }, "Every dating in the private atlas, as text. Competing datings stand side by side and nothing is preferred, merged or averaged; relative and unknown datings are kept. Only you see this view."),
+        controls,
+        status,
+        results,
+      );
+    };
+
     const renderEntryPanel = () => {
       const entry = selected.id ? entryById(selected.id) : null;
       if (selected.id && !entry) {
@@ -6768,6 +9597,7 @@ export class ObAdmin extends AdminElement {
           h("button", { class: "oba-btn", type: "button", "data-atlas-relate": "to", disabled: lonely, onClick: () => open({ type: "relationship", id: null, prefill: { to: entry.id } }) }, "Add a relationship to this entry"),
         ),
         explorer,
+        ownChronology("entries", entry.id, entry.label),
         h("section", { class: "oba-atlas-edit", "aria-labelledby": "oba-atlas-edit-heading" }, h("h3", { id: "oba-atlas-edit-heading" }, "Edit entry"), form.element),
         joins ? h("p", { class: "oba-small" }, `${plural(joins, "relationship")} ${joins === 1 ? "joins" : "join"} this entry, so it cannot be removed until ${joins === 1 ? "it is" : "they are"} removed.`) : null,
         h("div", { class: "oba-toolbar" }, h("button", { class: "oba-btn oba-btn-danger", type: "button", "data-atlas-remove": "entry", onClick: () => remove() }, "Remove entry")),
@@ -6791,6 +9621,7 @@ export class ObAdmin extends AdminElement {
           ? h("p", { class: "oba-small", "data-atlas-standing": relationship.contestedBy?.length ? "contested" : "asserted" }, `${atlasStandingText(relationship, state.sources)}. ${atlasConfidenceText(relationship)}. ${atlasEvidenceText(relationship)}. ID ${relationship.id}.`)
           : h("p", { class: "oba-small" }, "Choose the kind first: it decides which entries may stand at each end. A relationship is one party's claim on cited evidence."),
         ends.length ? h("div", { class: "oba-toolbar" }, ends.map((id) => (entryById(id) ? h("button", { class: "oba-btn", type: "button", "data-atlas-go": id, onClick: () => open({ type: "entry", id }) }, `Explore ${atlasEntryName(state.entries, id)}`) : null))) : null,
+        relationship ? ownChronology("relationships", relationship.id, atlasRelationshipSentence(relationship, state.entries)) : null,
         form.element,
         relationship ? h("div", { class: "oba-toolbar" }, h("button", { class: "oba-btn oba-btn-danger", type: "button", "data-atlas-remove": "relationship", onClick: () => remove() }, "Remove relationship")) : null,
       );
@@ -6801,11 +9632,16 @@ export class ObAdmin extends AdminElement {
       if (!selected) {
         panel.replaceChildren(
           heading("Knowledge Atlas"),
-          h("p", { class: "oba-notice" }, state.entries.length ? "Choose an entry to see its relationships and edit it, or add a new one." : "Add your first entry: a person, work, concept, movement or event."),
+          h("p", { class: "oba-notice" }, state.entries.length ? "Choose an entry to see its relationships and chronology and edit it, or add a new one. Chronology lists every dating as text." : "Add your first entry: a person, work, concept, movement or event."),
         );
-      } else if (selected.type === "entry") renderEntryPanel();
+      } else if (selected.type === "chronology") renderChronologyPanel();
+      else if (selected.type === "entry") renderEntryPanel();
       else renderRelationshipPanel();
-      if (moveFocus) panel.querySelector("#oba-atlas-heading")?.focus();
+      if (moveFocus) {
+        // A check prompt's link lands on the dating it names; anything else lands on the heading.
+        const dating = Number.isInteger(selected?.focusDating) && form?.focusDating(selected.focusDating);
+        if (!dating) panel.querySelector("#oba-atlas-heading")?.focus();
+      }
     };
 
     const open = (target) => {
@@ -6874,6 +9710,7 @@ export class ObAdmin extends AdminElement {
           h("div", { class: "oba-field" }, h("label", { for: "oba-atlas-kind-filter" }, "Kind"), kindFilter),
           newEntryButton,
           newRelationshipButton,
+          chronologyButton,
         ),
         count,
         status,
@@ -6882,6 +9719,471 @@ export class ObAdmin extends AdminElement {
       ),
     );
     if (selected) panel.querySelector("#oba-atlas-heading")?.focus();
+  }
+
+  // ---- comparison workspace
+
+  async showCompare(focus = "") {
+    let loaded;
+    try {
+      loaded = await this.api.call("GET", "research/alignments");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) throw error;
+      // A damaged alignments file (or library or notebook) is reported, never replaced.
+      this.mount(
+        this.shell(
+          "compare",
+          h("p", { class: "oba-error", role: "alert" }, `The alignments could not be read. ${alignmentErrorMessage(error)}`),
+          error.data?.file ? h("p", { class: "oba-small" }, `Repair ${error.data.file} by hand, then reload this view. Nothing was changed.`) : null,
+        ),
+      );
+      return;
+    }
+    const state = applyAlignmentState({}, loaded);
+    const mountedView = this.viewVersion + 1;
+    // How the comparison reads; kept for this visit only, so nothing is written to the browser.
+    const options = { layout: "columns", normalized: false, notes: false, version: "" };
+    let selected = null; // null, or { id: string | null, editing: boolean }
+    let form = null;
+    let busy = false;
+    let chosen = new Set(); // member indexes chosen for copying, never preselected
+    let rightsConfirmed = false;
+
+    const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const undoBox = h("div", { class: "oba-toolbar", "data-compare-undo": "true", hidden: true });
+    const say = (text, kind = "oba-small") => {
+      status.className = kind;
+      status.textContent = text;
+    };
+    const count = h("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-compare-count": "true" });
+    const versionFilter = h("select", { id: "oba-compare-version-filter", "aria-controls": "oba-compare-alignments", onChange: (event) => { options.version = event.target.value; renderLists(); } });
+    const layoutRadio = (value, label) => {
+      const id = `oba-compare-layout-${value}`;
+      return h("div", { class: "oba-capture-check" }, h("input", { id, type: "radio", name: "oba-compare-layout", value, checked: options.layout === value, onChange: () => { options.layout = value; renderComparison(); say(value === "columns" ? "Showing versions side by side. On a narrow screen they follow one another in the same order." : "Showing versions in a single column, one after another."); } }), h("label", { for: id }, label));
+    };
+    const layoutControls = h("fieldset", { class: "oba-compare-layout-choice", "data-compare-layout-choice": "true" }, h("legend", {}, "Layout"), layoutRadio("columns", "Side by side"), layoutRadio("sequence", "Single column"));
+    const normalizedToggle = h("div", { class: "oba-capture-check" }, h("input", { id: "oba-compare-normalized", type: "checkbox", "aria-describedby": "oba-compare-normalized-hint", onChange: (event) => { options.normalized = event.target.checked; renderComparison(); } }), h("label", { for: "oba-compare-normalized" }, "Show the author's normalizations"));
+    const list = h("ul", { class: "oba-source-list", id: "oba-compare-alignments", "aria-labelledby": "oba-compare-alignments-heading" });
+    const listNav = h("nav", { "aria-label": "Alignments" });
+    const notices = h("div", { class: "oba-atlas-notices", "data-compare-notices": "true" });
+    const panel = h("section", { class: "oba-source-editor oba-compare-panel", "aria-labelledby": "oba-compare-heading" });
+    const comparisonBox = h("div", { class: "oba-compare-body" });
+    const exportBox = h("section", { class: "oba-compare-export", "aria-labelledby": "oba-compare-export-heading", "data-compare-export": "true" });
+    const newButton = h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-compare-new": "true", onClick: () => open({ id: null, editing: true }) }, "New alignment");
+    const alignmentById = (id) => state.alignments.find((alignment) => alignment.id === id) || null;
+    const sourceById = (id) => state.sources.find((source) => source.id === id) || null;
+    const confirmDiscard = () => !form?.isDirty() || globalThis.confirm?.("Discard the unsaved alignment change?") !== false;
+    const heading = (text) => h("h2", { id: "oba-compare-heading", tabindex: "-1" }, h("bdi", {}, text));
+    const nameOf = (alignment) => alignment.label || `Alignment ${alignment.id}`;
+    const versionKey = (member) => (typeof member.interpretation === "string" ? `interpretation:${member.interpretation}` : `source:${member.source}`);
+    const parts = (items) => items.map((part) => (typeof part === "string" ? part : h("bdi", {}, part.text)));
+
+    const renderNotices = () => {
+      notices.replaceChildren(
+        ...(state.notices.length
+          ? [
+              h(
+                "section",
+                { class: "oba-notice", "aria-labelledby": "oba-compare-notices-heading" },
+                h("h2", { class: "oba-small-heading", id: "oba-compare-notices-heading" }, "Places to check"),
+                h("ul", {}, state.notices.map((notice) => h("li", {}, `Alignment ${notice.id}, ${notice.field}: ${notice.message}`))),
+              ),
+            ]
+          : []),
+      );
+    };
+
+    const renderFilter = () => {
+      const keys = [];
+      for (const alignment of state.alignments) for (const member of alignment.members || []) if (!keys.includes(versionKey(member))) keys.push(versionKey(member));
+      if (options.version && !keys.includes(options.version)) options.version = "";
+      const label = (key) => {
+        const [type, id] = [key.slice(0, key.indexOf(":")), key.slice(key.indexOf(":") + 1)];
+        if (type === "interpretation") return `Interpretation ${id}`;
+        const source = sourceById(id);
+        return source ? `${sourceLabel(source)} (${source.kind})` : `${id} (missing)`;
+      };
+      versionFilter.replaceChildren(h("option", { value: "", selected: !options.version }, "All versions"), keys.map((key) => h("option", { value: key, selected: options.version === key }, label(key))));
+    };
+
+    const renderLists = () => {
+      renderFilter();
+      const shown = state.alignments.filter((alignment) => !options.version || (alignment.members || []).some((member) => versionKey(member) === options.version));
+      const total = state.alignments.length;
+      count.textContent = shown.length === total ? `${plural(total, "alignment")}.` : `${shown.length} of ${plural(total, "alignment")} shown.`;
+      const row = (alignment) => {
+        const versions = new Set((alignment.members || []).map(versionKey)).size;
+        const absent = (alignment.members || []).filter((member) => member.absent).length;
+        return h(
+          "li",
+          {},
+          h(
+            "button",
+            { class: "oba-source-item", type: "button", "data-compare-alignment": alignment.id, "aria-current": selected?.id === alignment.id ? "true" : null, onClick: () => open({ id: alignment.id, editing: false }) },
+            h("strong", {}, h("bdi", {}, nameOf(alignment))),
+            h("span", { class: "oba-small" }, `${plural(versions, "version")}${absent ? `, ${absent} absent` : ""} · ${correspondenceLabel(state, alignment.correspondence).replace(/^The author reads these places as /, "")}`),
+          ),
+        );
+      };
+      list.replaceChildren(...(shown.length ? shown.map(row) : [h("li", { class: "oba-notice" }, total ? "No alignment includes this version." : "No alignments yet. Add one to compare a passage across versions.")]));
+      listNav.replaceChildren(h("h2", { class: "oba-small-heading", id: "oba-compare-alignments-heading" }, "Alignments"), list);
+      renderNotices();
+    };
+
+    const fact = (label, value) => [h("dt", {}, label), h("dd", {}, parts(value))];
+
+    const placeItem = (column, place) => {
+      const base = `oba-compare-place-${place.index}`;
+      const fromInterpretation = column.type === "interpretation";
+      return h(
+        "li",
+        { class: "oba-compare-place", "data-compare-place": String(place.index), "data-compare-absent": place.absent ? "true" : null },
+        h("p", { class: "oba-compare-ident", id: `${base}-ident`, "data-compare-ident": "true" }, h("bdi", {}, column.title), ` · ${column.kindText}`, column.maker ? [" · ", h("bdi", {}, column.maker)] : null, " · Locator: ", h("bdi", {}, place.locator || "none recorded")),
+        place.absent
+          ? h("p", { class: "oba-compare-absent", "data-compare-absent-text": "true" }, h("strong", {}, "Absent:"), " this version lacks the passage.")
+          : place.original
+            ? [
+                h("p", { class: "oba-compare-label", id: `${base}-original` }, fromInterpretation ? `Wording of ${place.original.from}, exactly as recorded` : `Original wording, quoted exactly from ${place.original.from}`),
+                h("blockquote", { class: "oba-compare-original", lang: place.original.language || null, dir: textDirection(place.original.language), "data-compare-original": "true" }, place.original.text),
+              ]
+            : h("p", { class: "oba-small" }, place.missingPassage ? "The notebook passage this place names is missing." : "No wording quoted for this place; it is located only."),
+        place.normalized && options.normalized
+          ? [
+              h("p", { class: "oba-compare-label", id: `${base}-normalized` }, "The author's normalization, not the source text"),
+              h("blockquote", { class: "oba-compare-normalized", lang: place.normalized.language || null, dir: textDirection(place.normalized.language), "data-compare-normalized": "true" }, place.normalized.text),
+              place.normalized.note ? h("p", { class: "oba-small" }, "Normalized: ", h("bdi", {}, place.normalized.note)) : null,
+            ]
+          : place.normalized
+            ? h("p", { class: "oba-small" }, "A normalization is recorded. Turn on “Show the author's normalizations” to read it.")
+            : null,
+        place.note ? h("p", { class: "oba-small" }, "Author's note: ", h("bdi", {}, place.note)) : null,
+        (() => {
+          const statuses = selected?.id ? state.publication?.places?.[selected.id] : null;
+          const line = publicPlaceText(Array.isArray(statuses) ? statuses[place.index] : "", state.publication?.maxExcerptChars);
+          return line ? h("p", { class: "oba-small", "data-compare-public": statuses[place.index] }, line) : null;
+        })(),
+        place.notices.map((message) => h("p", { class: "oba-notice", "data-compare-place-notice": "true" }, `Check this place: ${message}`)),
+        h(
+          "div",
+          { class: "oba-capture-check" },
+          h("input", {
+            id: `oba-compare-select-${place.index}`,
+            type: "checkbox",
+            checked: chosen.has(place.index),
+            "aria-describedby": `${base}-ident`,
+            "data-compare-select": String(place.index),
+            onChange: (event) => {
+              if (event.target.checked) chosen.add(place.index);
+              else chosen.delete(place.index);
+              rightsConfirmed = false;
+              renderExport();
+            },
+          }),
+          h("label", { for: `oba-compare-select-${place.index}` }, `Select place ${place.index + 1} for copying`),
+        ),
+      );
+    };
+
+    const versionSection = (column, position) => {
+      const id = `oba-compare-version-${position}`;
+      return h(
+        "section",
+        { class: "oba-compare-version", "aria-labelledby": id, "data-compare-version": column.key, "data-compare-missing": column.missing ? "true" : null },
+        h("h4", { id }, h("bdi", {}, column.title)),
+        column.maker ? h("p", { class: "oba-compare-maker", "data-compare-maker": "true" }, h("bdi", {}, column.maker)) : null,
+        h(
+          "dl",
+          { class: "oba-compare-facts" },
+          fact("Kind", [column.kindText]),
+          column.facts.flatMap((item) => fact(item.label, item.parts)),
+          h("dt", {}, "Rights"),
+          h("dd", { "data-compare-rights": column.rights.status }, h("bdi", {}, rightsText(column.rights))),
+        ),
+        h("ol", { class: "oba-compare-places", "aria-label": `Places in ${column.title}` }, column.places.map((place) => placeItem(column, place))),
+      );
+    };
+
+    const columnsOf = (alignment) => comparisonColumns(alignment, state);
+
+    const renderComparison = () => {
+      const alignment = selected?.id && !selected.editing ? alignmentById(selected.id) : null;
+      if (!alignment) return;
+      const columns = columnsOf(alignment);
+      comparisonBox.replaceChildren(
+        options.layout === "sequence"
+          ? h("ol", { class: "oba-compare-sequence", "data-compare-layout": "sequence" }, columns.map((column, position) => h("li", {}, versionSection(column, position))))
+          : h("div", { class: "oba-compare-columns", "data-compare-layout": "columns" }, columns.map(versionSection)),
+      );
+    };
+
+    const exportError = h("p", { class: "oba-error", id: "oba-compare-export-error", role: "alert", hidden: true, tabindex: "-1" });
+    const exportProblem = (message, target) => {
+      exportError.hidden = false;
+      exportError.textContent = message;
+      (target || exportError).focus();
+    };
+
+    const renderExport = () => {
+      const alignment = selected?.id ? alignmentById(selected.id) : null;
+      if (!alignment) return;
+      const columns = columnsOf(alignment);
+      const places = columns.flatMap((column) => column.places);
+      chosen = new Set([...chosen].filter((index) => places.some((place) => place.index === index)));
+      const toConfirm = rightsToConfirm(columns, chosen);
+      const picked = columns.filter((column) => column.places.some((place) => chosen.has(place.index)));
+      exportError.hidden = true;
+      const selectAll = h("button", { class: "oba-btn", type: "button", "data-compare-select-all": "true", onClick: () => { chosen = new Set(places.map((place) => place.index)); rightsConfirmed = false; renderComparison(); renderExport(); exportBox.querySelector("[data-compare-select-all]")?.focus(); } }, "Select every place");
+      const clear = h("button", { class: "oba-btn", type: "button", "data-compare-clear": "true", onClick: () => { chosen = new Set(); rightsConfirmed = false; renderComparison(); renderExport(); exportBox.querySelector("[data-compare-clear]")?.focus(); } }, "Clear the selection");
+      const confirmBox = toConfirm.length
+        ? h("input", { id: "oba-compare-confirm-rights", type: "checkbox", checked: rightsConfirmed, "aria-describedby": "oba-compare-rights-heading", onChange: (event) => { rightsConfirmed = event.target.checked; } })
+        : null;
+      const fallback = h("div", { "data-compare-fallback": "true", hidden: true });
+      const textOf = () => comparisonExportText(alignment, columns, chosen, { normalized: options.normalized, notes: options.notes, correspondence: correspondenceLabel(state, alignment.correspondence), notice: state.notice });
+      const ready = () => {
+        if (!chosen.size) {
+          exportProblem("Select at least one place first. Nothing was copied.", selectAll);
+          return false;
+        }
+        if (toConfirm.length && !rightsConfirmed) {
+          exportProblem("Confirm that you have read the rights statements first. Nothing was copied.", confirmBox);
+          return false;
+        }
+        exportError.hidden = true;
+        return true;
+      };
+      const copied = `${plural(chosen.size, "place")} with ${chosen.size === 1 ? "its" : "their"} version, maker, locator and rights statement`;
+      const copy = async () => {
+        if (!ready()) return;
+        const text = textOf();
+        try {
+          if (!globalThis.navigator?.clipboard?.writeText) throw new Error("no clipboard");
+          await globalThis.navigator.clipboard.writeText(text);
+          say(`Copied ${copied}.`, "oba-ok");
+        } catch {
+          // The browser refused: show the text to copy by hand instead of losing it.
+          const area = h("textarea", { id: "oba-compare-export-text", rows: 8, readonly: true, value: text, dir: "auto" });
+          fallback.replaceChildren(h("label", { for: "oba-compare-export-text" }, "Selected places as text"), area);
+          fallback.hidden = false;
+          say("Your browser did not allow copying. The text is below: select it and copy it yourself.", "oba-error");
+          area.focus();
+        }
+      };
+      const download = () => {
+        if (!ready()) return;
+        let url = "";
+        try {
+          url = URL.createObjectURL(new Blob([textOf()], { type: "text/plain;charset=utf-8" }));
+        } catch {
+          exportProblem("This browser could not prepare a download. Use Copy instead. Nothing was saved.");
+          return;
+        }
+        const link = h("a", { href: url, download: `alignment-${alignment.id}.txt`, hidden: true }, "Download");
+        exportBox.append(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+        say(`Downloaded ${copied}.`, "oba-ok");
+      };
+      exportBox.replaceChildren(
+        h("h3", { id: "oba-compare-export-heading" }, "Copy or export"),
+        h("p", { class: "oba-small" }, "Only the places you select are copied, each with its version, maker, locator and rights statement. The text is your private research; copying publishes nothing."),
+        h("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-compare-selection": "true" }, chosen.size ? `${plural(chosen.size, "place")} selected.` : "No places selected."),
+        h("div", { class: "oba-toolbar" }, selectAll, clear),
+        picked.length
+          ? h(
+              "section",
+              { "aria-labelledby": "oba-compare-rights-heading", "data-compare-rights-summary": "true" },
+              h("h4", { id: "oba-compare-rights-heading" }, "Rights statements for the selected places"),
+              h("ul", {}, picked.map((column) => h("li", { "data-compare-rights-item": column.rights.status }, h("bdi", {}, column.title), ": ", h("bdi", {}, rightsText(column.rights))))),
+              h("p", { class: "oba-small" }, "These are the author's own statements, not permission. open.blog does not decide what you may copy."),
+            )
+          : null,
+        h(
+          "div",
+          { "data-compare-include-notes": "true" },
+          h(
+            "div",
+            { class: "oba-capture-check" },
+            h("input", { id: "oba-compare-include-notes", type: "checkbox", checked: options.notes, "aria-describedby": "oba-compare-include-notes-hint", onChange: (event) => { options.notes = event.target.checked; } }),
+            h("label", { for: "oba-compare-include-notes" }, "Include my notes on places"),
+          ),
+          h("p", { class: "oba-small", id: "oba-compare-include-notes-hint" }, "Your notes on places are private research, so they are left out unless you tick this."),
+        ),
+        confirmBox
+          ? h("div", { class: "oba-capture-check", "data-compare-confirm": "true" }, confirmBox, h("label", { for: "oba-compare-confirm-rights" }, `I have read the rights statements. ${toConfirm.length === 1 ? "One version's rights are" : "Some versions' rights are"} not checked or reserved, and copying is my decision.`))
+          : null,
+        exportError,
+        h(
+          "div",
+          { class: "oba-toolbar" },
+          h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-compare-copy": "true", onClick: copy }, "Copy selected places"),
+          h("button", { class: "oba-btn", type: "button", "data-compare-download": "true", onClick: download }, "Download selected places"),
+        ),
+        fallback,
+      );
+    };
+
+    const onSaved = ({ item, build }) => {
+      if (this.viewVersion !== mountedView) return;
+      if (item) selected = { id: item.id, editing: false };
+      // Places may have moved or gone, so a selection made before the edit is not carried over.
+      chosen = new Set();
+      rightsConfirmed = false;
+      renderLists();
+      renderPanel(true);
+      say(`Alignment saved to the private alignments file.${comparisonBuildText(build)}`, build && !build.ok ? "oba-error" : "oba-ok");
+    };
+    const onRefreshed = () => {
+      if (this.viewVersion === mountedView) renderLists();
+    };
+
+    const publicationStatus = (alignment) => {
+      const publication = state.publication || {};
+      const url = `${publication.url || "/comparisons/"}${alignment.id}/`;
+      if (alignment.visibility !== "approved") {
+        return h("p", { class: "oba-small", "data-compare-publication": "private" }, "Private: not published. Approve it in Edit alignment to publish it; each place below says what a public page would show.");
+      }
+      if (!publication.publish) {
+        return h("p", { class: "oba-small", "data-compare-publication": "approved" }, "Approved for publication, but this site does not publish comparisons: nothing is public until comparisons.publish is turned on in openblog.json.");
+      }
+      return h("p", { class: "oba-small", "data-compare-publication": "published" }, "Approved and published at ", h("a", { href: url }, url), ". Rights statements are your own declarations.");
+    };
+
+    const renderAlignment = (alignment) => {
+      const versions = new Set((alignment.members || []).map(versionKey)).size;
+      const confidence = ATLAS_CONFIDENCE.find((item) => item.value === alignment.confidence)?.label || "Tentative";
+      renderComparison();
+      renderExport();
+      panel.replaceChildren(
+        heading(nameOf(alignment)),
+        h("p", { "data-compare-correspondence": alignment.correspondence || "corresponding" }, correspondenceLabel(state, alignment.correspondence), "."),
+        h("p", { class: "oba-small" }, `${plural(versions, "version")} · ${confidence} confidence · Recorded by `, h("bdi", {}, atlasAttributionText(alignment.recordedBy, state.sources)), ` · ID ${alignment.id}`),
+        alignment.rationale ? h("p", {}, "Why: ", h("bdi", {}, alignment.rationale)) : null,
+        alignment.uncertainty ? h("p", {}, "Uncertain: ", h("bdi", {}, alignment.uncertainty)) : null,
+        h("p", { class: "oba-notice", "data-compare-notice": "true" }, state.notice),
+        publicationStatus(alignment),
+        h(
+          "div",
+          { class: "oba-toolbar" },
+          h("button", { class: "oba-btn", type: "button", "data-compare-edit": "true", onClick: () => open({ id: alignment.id, editing: true }) }, "Edit alignment"),
+          h("button", { class: "oba-btn oba-btn-danger", type: "button", "data-compare-remove": "true", onClick: () => remove() }, "Remove alignment"),
+        ),
+        h("section", { class: "oba-compare-comparison", "aria-labelledby": "oba-compare-comparison-heading" }, h("h3", { id: "oba-compare-comparison-heading" }, "Comparison"), comparisonBox),
+        exportBox,
+      );
+    };
+
+    const renderPanel = (moveFocus = false) => {
+      form = null;
+      const alignment = selected?.id ? alignmentById(selected.id) : null;
+      if (selected?.id && !alignment) selected = null;
+      if (!selected) {
+        panel.replaceChildren(
+          heading("Compare versions"),
+          h("p", { class: "oba-notice" }, state.alignments.length ? "Choose an alignment to read its places side by side, or add a new one." : "Add your first alignment: the places in two or more versions that you read as corresponding."),
+          h("p", { class: "oba-small" }, state.notice),
+        );
+      } else if (selected.editing) {
+        form = createAlignmentForm({ api: this.api, state, item: alignment, idPrefix: "oba-alignment", onSaved, onRefreshed, onCancel: () => (alignment ? open({ id: alignment.id, editing: false }) : close()) });
+        panel.replaceChildren(
+          heading(alignment ? `Edit ${nameOf(alignment)}` : "New alignment"),
+          h("p", { class: "oba-small" }, "Private unless you approve it for publication below. Aligning places records where you read them as corresponding, never that they mean the same thing."),
+          form.element,
+        );
+      } else renderAlignment(alignment);
+      if (moveFocus) panel.querySelector("#oba-compare-heading")?.focus();
+    };
+
+    const open = (target) => {
+      if (!confirmDiscard()) return;
+      if (target.id !== selected?.id) {
+        chosen = new Set();
+        rightsConfirmed = false;
+      }
+      selected = target;
+      say("");
+      undoBox.hidden = true;
+      renderLists();
+      renderPanel(true);
+    };
+    const close = () => {
+      if (!confirmDiscard()) return;
+      selected = null;
+      renderLists();
+      renderPanel();
+      newButton.focus();
+    };
+
+    const remove = async () => {
+      if (busy || !selected?.id) return;
+      if (globalThis.confirm?.("Remove this alignment? It is deleted from the private alignments file.") === false) return;
+      busy = true;
+      try {
+        const result = await this.api.call("DELETE", "research/alignments", { json: { revision: state.revision, id: selected.id } });
+        if (this.viewVersion !== mountedView) return;
+        applyAlignmentState(state, result);
+        selected = null;
+        chosen = new Set();
+        renderLists();
+        renderPanel();
+        say(`Removed from the private alignments file.${comparisonBuildText(result.build)}`, result.build && !result.build.ok ? "oba-error" : "oba-ok");
+        const removed = result.removed;
+        if (removed) {
+          undoBox.replaceChildren(h("button", { class: "oba-btn", type: "button", "data-compare-undo-remove": removed.id, onClick: () => undo(removed) }, `Undo removing ${nameOf(removed)}`));
+          undoBox.hidden = false;
+          undoBox.querySelector("button")?.focus();
+        } else newButton.focus();
+      } catch (error) {
+        if (this.viewVersion !== mountedView) return;
+        say(error.status === 409 ? "Not removed: the alignments changed elsewhere. Reload this view and try again." : `Not removed. ${alignmentErrorMessage(error)} The stored alignments are unchanged.`, "oba-error");
+      } finally {
+        busy = false;
+      }
+    };
+
+    const undo = async (removed) => {
+      if (busy) return;
+      busy = true;
+      try {
+        const result = await this.api.call("POST", "research/alignments", { json: { revision: state.revision, alignment: removed } });
+        if (this.viewVersion !== mountedView) return;
+        applyAlignmentState(state, result);
+        undoBox.hidden = true;
+        selected = { id: removed.id, editing: false };
+        renderLists();
+        renderPanel(true);
+        say("The alignment is back.", "oba-ok");
+      } catch (error) {
+        if (this.viewVersion !== mountedView) return;
+        say(`Not restored. ${alignmentErrorMessage(error)} The stored alignments are unchanged.`, "oba-error");
+      } finally {
+        busy = false;
+      }
+    };
+
+    if (focus && alignmentById(focus)) selected = { id: focus, editing: false };
+    renderLists();
+    renderPanel();
+    this.mount(
+      this.shell(
+        "compare",
+        h("section", { class: "oba-contributor-intro" }, h("p", {}, "Read the places you aligned across editions, translations, witnesses and interpretations, side by side or one after another, with who made each version and what you know of its rights."), h("p", { class: "oba-small" }, `Private author research stored in ${state.file}. It never reaches the public site, and saving here changes only that file.`)),
+        h(
+          "div",
+          { class: "oba-toolbar oba-source-filters oba-compare-controls" },
+          h("div", { class: "oba-field" }, h("label", { for: "oba-compare-version-filter" }, "Show alignments with"), versionFilter),
+          layoutControls,
+          h("div", { class: "oba-field" }, normalizedToggle, h("p", { class: "oba-small", id: "oba-compare-normalized-hint" }, "Shown under the original, labelled. The original wording is always shown.")),
+          newButton,
+        ),
+        count,
+        status,
+        undoBox,
+        notices,
+        h("div", { class: "oba-source-layout", id: "oba-compare-lists" }, listNav, panel),
+      ),
+    );
+    if (selected) panel.querySelector("#oba-compare-heading")?.focus();
   }
 
   // ---- shared reflections
@@ -9218,52 +12520,8 @@ export class ObAdmin extends AdminElement {
         status,
         h("div", { class: "oba-toolbar" }, save, clear),
       );
-      if (engagement.enabled && engagement.comments && engagement.credential?.configured) {
-        const moderationStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" }, "Loading comments…");
-        const cards = h("div", { class: "oba-assistant-context-cards" });
-        const filters = h("div", { class: "oba-tabs", "aria-label": "Comment moderation status" });
-        moderation = h("section", { "aria-labelledby": "oba-comment-moderation-title" }, h("h2", { id: "oba-comment-moderation-title" }, "Comment moderation"), filters, moderationStatus, cards);
-        const loadComments = async (selectedStatus) => {
-          moderationStatus.textContent = `Loading ${selectedStatus} comments…`;
-          cards.replaceChildren();
-          filters.querySelectorAll("button").forEach((button) => button.setAttribute("aria-selected", String(button.dataset.status === selectedStatus)));
-          const result = await this.api.call("GET", `engagement/comments?status=${selectedStatus}`);
-          const commentsForStatus = Array.isArray(result.comments) ? result.comments : [];
-          moderationStatus.textContent = commentsForStatus.length ? `${commentsForStatus.length} ${selectedStatus} comment${commentsForStatus.length === 1 ? "" : "s"}.` : `No ${selectedStatus} comments.`;
-          const decide = async (comment, decision, card) => {
-            card.querySelectorAll("button").forEach((button) => { button.disabled = true; });
-            try {
-              await this.api.call("PATCH", "engagement/comments", { json: { id: comment.id, status: decision } });
-              await loadComments(selectedStatus);
-            } catch (error) {
-              moderationStatus.textContent = error.message;
-            }
-          };
-          cards.append(...commentsForStatus.map((comment) => {
-            const card = h("article", { class: "oba-context-card" },
-              h("h3", {}, comment.authorName),
-              h("p", { class: "oba-small" }, `${comment.path} · ${formatWhen(comment.createdAt)}`),
-              h("p", {}, comment.body),
-            );
-            card.append(h("div", { class: "oba-toolbar" }, ...commentModerationActions(selectedStatus).map((decision) =>
-              h("button", {
-                class: decision === "approved" ? "oba-btn oba-btn-primary" : "oba-btn oba-btn-danger",
-                type: "button",
-                onClick: () => decide(comment, decision, card),
-              }, decision === "approved" ? "Approve" : "Reject"),
-            )));
-            return card;
-          }));
-        };
-        for (const commentStatus of COMMENT_MODERATION_STATUSES) {
-          filters.append(h("button", { class: "oba-tab", type: "button", "data-status": commentStatus, "aria-selected": String(commentStatus === "pending"), onClick: () => loadComments(commentStatus) }, `${commentStatus[0].toUpperCase()}${commentStatus.slice(1)}`));
-        }
-        try {
-          await loadComments("pending");
-        } catch (error) {
-          moderationStatus.className = "oba-error";
-          moderationStatus.textContent = `Comments could not be loaded. ${error.message}`;
-        }
+      if (engagement.enabled && engagement.credential?.configured) {
+        moderation = h("p", { class: "oba-small" }, "Moderate comments, with reader feedback, in the ", h("a", { href: moderationHash("pending") }, "Moderation inbox"), ".");
       }
     }
     this.mount(
@@ -9279,6 +12537,370 @@ export class ObAdmin extends AdminElement {
         h("p", { class: "oba-small" }, "No cookies, addresses, or raw user-agent strings are stored. AI labels are aggregate user-agent claims and may be spoofed. Readers with Do Not Track or Global Privacy Control are not counted."),
       ),
     );
+  }
+
+  // ---- moderation inbox (ADR 0105)
+
+  /**
+   * One inbox for comments and reader feedback, moderated through this server, which alone holds
+   * the hosted token. The server sends only what the signed-in account may see on each item's work,
+   * with the decisions it may take; a passage that moved or changed is said so before anyone can
+   * approve it. Published notes keep their responses and revision notes below the list.
+   */
+  async showModeration(tail, params) {
+    const { state, kind } = parseModerationRoute(tail, params);
+    const queueStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite", tabindex: "-1" }, `Loading ${MODERATION_STATE_LABELS[state].toLowerCase()} items…`);
+    const stateNote = MODERATION_STATE_NOTES[state] ? h("p", { class: "oba-small" }, MODERATION_STATE_NOTES[state]) : null;
+    const queue = h("ol", { class: "oba-feedback-list oba-moderation-list", "aria-labelledby": "oba-moderation-queue-title" });
+    const more = h("button", { class: "oba-btn", type: "button", hidden: true }, "Show more");
+    const publishedStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite", tabindex: "-1" }, "Loading published feedback…");
+    const published = h("ol", { class: "oba-feedback-list", "aria-labelledby": "oba-feedback-published-title" });
+    const stateTabs = h(
+      "nav",
+      { class: "oba-tabs oba-moderation-states", "aria-label": "Items by moderation state" },
+      MODERATION_STATES.map((each) => h("a", { class: "oba-tab", href: moderationHash(each, kind), "aria-current": each === state ? "page" : null }, MODERATION_STATE_LABELS[each])),
+    );
+    const kindSelect = h("select", { id: "oba-moderation-kind", name: "kind" }, MODERATION_KINDS.map(([id, label]) => h("option", { value: id, selected: id === kind ? "" : null }, label)));
+    kindSelect.value = kind;
+    const kindFilter = h(
+      "form",
+      { class: "oba-moderation-filter", role: "search", "aria-label": "Filter by kind", onSubmit: (event) => {
+        event.preventDefault();
+        location.hash = moderationHash(state, kindSelect.value);
+      } },
+      h("label", { for: "oba-moderation-kind" }, "Kind"), " ", kindSelect, " ",
+      h("button", { class: "oba-btn", type: "submit" }, "Show"),
+    );
+    let next = null;
+    let shown = 0;
+    let publishedEtag = "absent";
+    // A message for a published card that outlives the reload replacing it, such as a conflict.
+    const publishedNotices = new Map();
+    const announce = (line, message, kind_) => {
+      line.className = kind_ ? `oba-${kind_}` : "oba-small";
+      line.textContent = message;
+    };
+
+    const loadPublished = async () => {
+      try {
+        const result = await this.api.call("GET", "engagement/feedback/published");
+        publishedEtag = result.etag;
+        const items = Array.isArray(result.items) ? result.items : [];
+        published.replaceChildren(...items.map((item) => h("li", {}, publishedCard(item))));
+        announce(publishedStatus, items.length ? `${items.length} note${items.length === 1 ? "" : "s"} published on your posts.` : "No reader feedback is published on your posts yet.");
+      } catch (error) {
+        published.replaceChildren();
+        announce(publishedStatus, `Published feedback could not be loaded. ${error.message}`, "error");
+      }
+    };
+
+    // One page of the inbox; `append` keeps what is shown and moves focus to the first new item.
+    const loadQueue = async (append = false) => {
+      const query = new URLSearchParams({ state });
+      if (kind) query.set("kind", kind);
+      if (append && next) query.set("after", next);
+      more.disabled = true;
+      try {
+        const result = await this.api.call("GET", `engagement/moderation?${query}`);
+        const items = Array.isArray(result.items) ? result.items : [];
+        const cards = items.map((item) => h("li", {}, queueCard(item)));
+        if (append) queue.append(...cards);
+        else queue.replaceChildren(...cards);
+        shown = append ? shown + items.length : items.length;
+        next = result.next || null;
+        more.hidden = !next;
+        const skipped = result.invalid ? ` ${result.invalid} item${result.invalid === 1 ? " was" : "s were"} not valid and ${result.invalid === 1 ? "is" : "are"} not shown.` : "";
+        const legacy = result.protocol === "legacy" ? " Some decisions need the hosted moderation schema; see the setup guide." : "";
+        announce(queueStatus, inboxSummary(state, shown, Boolean(next)) + skipped + legacy);
+        if (append) cards[0]?.querySelector("h3")?.focus();
+      } catch (error) {
+        if (!append) queue.replaceChildren();
+        more.hidden = true;
+        announce(queueStatus, `The inbox could not be loaded. ${error.message}`, error.status === 404 || error.status === 503 ? "notice" : "error");
+      } finally {
+        more.disabled = false;
+      }
+    };
+    more.addEventListener("click", () => loadQueue(true));
+
+    const reloadAll = async (message, kind_) => {
+      await Promise.all([loadQueue(), loadPublished()]);
+      if (message) {
+        announce(queueStatus, message, kind_);
+        queueStatus.focus();
+      }
+    };
+
+    const queueCard = (item) => {
+      const key = `${item.source}-${item.id}`;
+      const titleId = `oba-moderation-${key}-title`;
+      const line = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+      const where = item.post ? `“${item.post.title}”` : item.work;
+      const card = h(
+        "article",
+        { class: "oba-context-card oba-feedback-item oba-moderation-item", "aria-labelledby": titleId, "data-moderation-id": item.id, "data-source": item.source },
+        h("h3", { id: titleId, tabindex: "-1" }, `${item.kindLabel} on ${where}`),
+        h("p", { class: "oba-small" }, `Received ${formatWhen(item.receivedAt)} · ${item.statusLabel}${item.reasonLabel ? ` (${item.reasonLabel})` : ""}${item.public ? " · shown on the post now" : ""}`),
+        item.post ? null : h("p", { class: "oba-notice" }, "No post has this address now: it may have moved, been renamed or been unpublished."),
+        h("p", { class: "oba-small" }, moderationRoleLine(item.role)),
+        item.clarification?.askedAboutThisText ? h("p", { class: "oba-notice" }, "A clarification was asked about this text. It can never be approved; only the reader’s answer can.") : null,
+        feedbackPassage(item.passage),
+        item.purged ? h("p", { class: "oba-notice" }, "Its text, details and any name were deleted. Only the private record of decisions remains.") : null,
+        item.report ? h("p", {}, h("strong", {}, "Ground: "), item.report.groundLabel) : null,
+        item.purged || (item.source === "report" && !item.body) ? null : h("h4", {}, item.source === "comment" ? "The comment" : item.source === "report" ? "What the reader wrote" : "The reader’s note"),
+        item.purged || (item.source === "report" && !item.body) ? null : h("p", { class: "oba-feedback-body" }, item.body),
+        item.source === "report" ? reportedItem(item.target) : null,
+        item.details?.sourceUrl ? h("p", {}, "Suggested source: ", h("a", { href: item.details.sourceUrl, target: "_blank", rel: "noopener noreferrer nofollow" }, item.details.sourceUrl)) : null,
+        item.details?.suggestedText ? h("div", {}, h("p", {}, "Suggested wording:"), h("blockquote", { class: "oba-feedback-body" }, item.details.suggestedText)) : null,
+        h("p", { class: "oba-small" }, moderationReaderLine(item.reader, item.source)),
+        feedbackPreview(item.publicPreview),
+      );
+      const actions = h("div", { class: "oba-moderation-actions" });
+      let acknowledge = null;
+      const busy = (on) => card.querySelectorAll("button, select, input").forEach((control) => { control.disabled = on; });
+      const act = async (action, reason) => {
+        busy(true);
+        announce(line, `${(item.actions.find((option) => option.action === action)?.label) || action}…`);
+        try {
+          const result = await this.api.call("PATCH", "engagement/moderation", { json: moderationRequest(item, action, reason, acknowledge?.checked) });
+          await reloadAll(moderationOutcome(item, action, result), result.publishError ? "notice" : "ok");
+        } catch (error) {
+          busy(false);
+          announce(line, error.message, "error");
+          if (error.status === 409) await reloadAll(`${error.message} The list was reloaded.`, "error");
+        }
+      };
+      for (const option of item.actions || []) {
+        const guidanceId = `oba-moderation-${key}-${option.action}-guidance`;
+        const guidance = h("p", { class: "oba-small oba-moderation-guidance", id: guidanceId }, option.guidance || "");
+        if (option.confirm) {
+          // A decision that cannot be undone needs its own confirmation first.
+          const confirmId = `oba-moderation-${key}-${option.action}-confirm`;
+          const confirmBox = h("input", { type: "checkbox", id: confirmId, "aria-describedby": guidanceId });
+          actions.append(h("div", { class: "oba-moderation-action" },
+            h("p", { class: "oba-feedback-acknowledge" }, confirmBox, " ", h("label", { for: confirmId }, option.confirm)),
+            h("button", { class: "oba-btn oba-btn-danger", type: "button", "aria-describedby": guidanceId, onClick: () => {
+              if (!confirmBox.checked) {
+                announce(line, "Confirm that you understand this cannot be undone first.", "error");
+                confirmBox.focus();
+                return;
+              }
+              act(option.action);
+            } }, option.label),
+            guidance));
+          continue;
+        }
+        if (!option.reasons?.length) {
+          if (option.action === "approve" && item.passage?.acknowledge) {
+            const checkId = `oba-moderation-${key}-acknowledge`;
+            acknowledge = h("input", { type: "checkbox", id: checkId });
+            actions.append(h("p", { class: "oba-feedback-acknowledge" }, acknowledge, " ", h("label", { for: checkId }, "I have read the passage as it is published now, and still want to approve this note.")));
+          }
+          actions.append(h("div", { class: "oba-moderation-action" },
+            h("button", { class: option.action === "approve" ? "oba-btn oba-btn-primary" : "oba-btn", type: "button", "aria-describedby": guidanceId, onClick: () => {
+              if (option.action === "approve" && acknowledge && !acknowledge.checked) {
+                announce(line, "Confirm that you read the passage as it is now before approving.", "error");
+                acknowledge.focus();
+                return;
+              }
+              act(option.action);
+            } }, option.label),
+            guidance));
+        } else {
+          const selectId = `oba-moderation-${key}-${option.action}-reason`;
+          const select = h("select", { id: selectId, "aria-describedby": guidanceId }, h("option", { value: "" }, "Choose a reason"), option.reasons.map((reason) => h("option", { value: reason.id }, reason.label)));
+          actions.append(h("div", { class: "oba-moderation-action oba-feedback-reason" },
+            h("label", { for: selectId }, `Reason to ${option.label.toLowerCase()}`), " ", select, " ",
+            h("button", { class: option.action === "request-clarification" ? "oba-btn" : "oba-btn oba-btn-danger", type: "button", "aria-describedby": guidanceId, onClick: () => {
+              if (!select.value) {
+                announce(line, "Choose a reason first.", "error");
+                select.focus();
+                return;
+              }
+              act(option.action, select.value);
+            } }, option.label),
+            guidance));
+        }
+      }
+      if (!item.actions?.length && item.role !== "contributing-author" && !["withdrawn"].includes(item.status)) {
+        actions.append(h("p", { class: "oba-small" }, "No decision is open to you on this item."));
+      }
+      const mismatch = item.source === "feedback" ? feedbackPublicationMismatch(item) : null;
+      if (mismatch && item.role === "site-admin") {
+        actions.append(h("button", { class: "oba-btn", type: "button", onClick: async () => {
+          busy(true);
+          try {
+            await this.api.call("POST", `engagement/feedback/${mismatch.action}`, { json: { id: item.id } });
+            await reloadAll(mismatch.action === "publish" ? `Published on ${where}.` : `Taken off ${where}. Rebuild or publish to update the live site.`, "ok");
+          } catch (error) {
+            busy(false);
+            announce(line, error.message, "error");
+          }
+        } }, mismatch.label));
+        card.append(h("p", { class: "oba-notice" }, mismatch.notice));
+      } else if (item.source === "feedback" && item.status === "approved" && item.published === true) {
+        card.append(h("p", { class: "oba-small" }, "Published on the post. ", h("a", { href: `#oba-published-${item.id}`, onClick: (event) => {
+          event.preventDefault();
+          document.getElementById(`oba-published-${item.id}-response`)?.focus();
+        } }, "Respond or record a revision note")));
+      }
+      card.append(actions, line);
+      return card;
+    };
+
+    const publishedCard = (item) => {
+      const key = item.id;
+      const titleId = `oba-published-${key}-title`;
+      const line = h("p", { class: "oba-small", role: "status", "aria-live": "polite", id: `oba-published-${key}-line`, tabindex: "-1" });
+      if (publishedNotices.has(key)) {
+        announce(line, publishedNotices.get(key), "error");
+        publishedNotices.delete(key);
+      }
+      const responseId = `oba-published-${key}-response`;
+      const response = h("textarea", { id: responseId, rows: "4", maxlength: "4000", "aria-describedby": `${responseId}-hint` });
+      response.value = item.response?.text || "";
+      const saveResponse = async (text) => {
+        announce(line, "Saving your response…");
+        try {
+          const result = await this.api.call("PUT", "engagement/feedback/response", { json: { id: item.id, etag: publishedEtag, response: text } });
+          publishedEtag = result.etag;
+          announce(line, text === null ? "Response removed. Rebuild or publish to update the live site." : "Response saved. Rebuild or publish to update the live site.", "ok");
+        } catch (error) {
+          announce(line, error.message, "error");
+          if (error.status === 409) {
+            publishedNotices.set(key, error.message);
+            await loadPublished();
+            document.getElementById(`oba-published-${key}-line`)?.focus();
+          }
+        }
+      };
+      const noteId = `oba-published-${key}-note`;
+      const dateId = `oba-published-${key}-date`;
+      const claimId = `oba-published-${key}-claim`;
+      const note = h("input", { type: "text", id: noteId, maxlength: "200", "aria-describedby": `${noteId}-hint` });
+      const date = h("input", { type: "date", id: dateId, value: new Date().toISOString().slice(0, 10) });
+      const claim = h("input", { type: "text", id: claimId, pattern: "[a-z0-9-]*", "aria-describedby": `${claimId}-hint` });
+      const public_ = item.public;
+      return h(
+        "article",
+        { class: "oba-context-card oba-feedback-item", id: `oba-published-${key}`, "aria-labelledby": titleId },
+        h("h3", { id: titleId }, `${item.kindLabel} on ${item.postTitle ? `“${item.postTitle}”` : item.post}`),
+        h("p", { class: "oba-small" }, `Received ${item.received} · approved ${item.approved} · ${item.name ? `shown as from ${item.name}` : "shown as from a reader"}`),
+        public_ ? feedbackPreview(public_.provenance) : h("p", { class: "oba-notice" }, "This post is not loaded, so the note is not shown anywhere until it is."),
+        h("p", { class: "oba-feedback-body" }, item.body),
+        h("div", { class: "oba-field" },
+          h("label", { for: responseId }, "Your public response"),
+          response,
+          h("p", { class: "oba-small", id: `${responseId}-hint` }, "Shown under the note on the post. Replying here sends nothing to the reader."),
+        ),
+        h("div", { class: "oba-toolbar" },
+          h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: () => {
+            if (!response.value.trim()) {
+              announce(line, "Write a response first, or use Remove response.", "error");
+              response.focus();
+              return;
+            }
+            saveResponse(response.value);
+          } }, "Save response"),
+          item.response ? h("button", { class: "oba-btn oba-btn-danger oba-btn-link", type: "button", onClick: () => {
+            response.value = "";
+            saveResponse(null);
+          } }, "Remove response") : null,
+        ),
+        h("details", { class: "oba-feedback-revision" },
+          h("summary", {}, "Record a revision note"),
+          h("p", { class: "oba-small", id: `${noteId}-hint` }, "If this note led you to change the post, say what changed. The note is public, listed with the post’s revision notes; don’t name or quote the reader. Recording it does not change the post: edit the post itself separately."),
+          h("div", { class: "oba-field" }, h("label", { for: dateId }, "Date of the change"), date),
+          h("div", { class: "oba-field" }, h("label", { for: claimId }, "Claim id (optional)"), claim, h("p", { class: "oba-small", id: `${claimId}-hint` }, "The id of a claim in Evidence Studio this change is about.")),
+          h("div", { class: "oba-field" }, h("label", { for: noteId }, "What changed"), note),
+          h("button", { class: "oba-btn", type: "button", onClick: async () => {
+            if (!note.value.trim()) {
+              announce(line, "Say what changed first.", "error");
+              note.focus();
+              return;
+            }
+            announce(line, "Adding the revision note…");
+            try {
+              await this.api.call("POST", "engagement/feedback/revision-note", { json: { post: item.post, date: date.value, claim: claim.value, note: note.value } });
+              note.value = "";
+              announce(line, "Revision note added to the post’s front matter. Rebuild or publish to update the live site.", "ok");
+            } catch (error) {
+              announce(line, error.data?.problems ? `${error.message} ${error.data.problems.join(" ")}` : error.message, "error");
+            }
+          } }, "Add revision note"),
+        ),
+        line,
+      );
+    };
+
+    // Retention (ADRs 0104 and 0108): a dry run first, then a run of exactly what it listed.
+    const retentionStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite", tabindex: "-1" }, "");
+    const retentionReport = h("div", { class: "oba-retention-report" });
+    const checkRetention = h("button", { class: "oba-btn", type: "button" }, "Check what retention would do");
+    const showRetention = async () => {
+      checkRetention.disabled = true;
+      announce(retentionStatus, "Checking what is due…");
+      try {
+        const report = await this.api.call("GET", "engagement/retention");
+        const confirmBox = h("input", { type: "checkbox", id: "oba-retention-confirm" });
+        const auditBox = h("input", { type: "checkbox", id: "oba-retention-audit", checked: "" });
+        const due = (report.items?.length || 0) > 0 || Object.values(report.audit || {}).some((count) => Number(count) > 0);
+        const run = h("button", { class: "oba-btn oba-btn-danger", type: "button", disabled: due ? null : "" }, "Run retention now");
+        run.addEventListener("click", async () => {
+          if (!confirmBox.checked) {
+            announce(retentionStatus, "Confirm that you understand purged text cannot be recovered first.", "error");
+            confirmBox.focus();
+            return;
+          }
+          run.disabled = true;
+          announce(retentionStatus, "Running retention…");
+          try {
+            const result = await this.api.call("POST", "engagement/retention", { json: { asOf: report.asOf, audit: auditBox.checked } });
+            const parts = [`${result.expired} expired`, `${result.purged} purged`];
+            if (result.auditDeleted) parts.push(`${result.auditDeleted} old records deleted`);
+            if (result.skipped) parts.push(`${result.skipped} skipped because they changed or were not due`);
+            retentionReport.replaceChildren();
+            announce(retentionStatus, `Retention ran: ${parts.join(", ")}.${result.more ? " More are due; check again to continue." : ""}`, "ok");
+            retentionStatus.focus();
+            await loadQueue();
+          } catch (error) {
+            run.disabled = false;
+            announce(retentionStatus, error.message, "error");
+            retentionStatus.focus();
+          }
+        });
+        retentionReport.replaceChildren(
+          h("ul", {}, retentionSummaryLines(report).map((text) => h("li", {}, text))),
+          report.items?.length ? h("details", {}, h("summary", {}, `The ${report.items.length} item${report.items.length === 1 ? "" : "s"} due`),
+            h("ul", {}, report.items.map((entry) => h("li", {}, `${entry.kindLabel}, ${entry.statusLabel.toLowerCase()} since ${formatWhen(entry.since)}, on ${entry.work}: ${entry.step === "expire" ? "expires" : "text deleted"}`)))) : null,
+          due ? h("p", { class: "oba-feedback-acknowledge" }, confirmBox, " ", h("label", { for: "oba-retention-confirm" }, "I understand that purged text, details and names cannot be recovered.")) : null,
+          due ? h("p", { class: "oba-feedback-acknowledge" }, auditBox, " ", h("label", { for: "oba-retention-audit" }, `Also delete private records of decisions older than ${report.periods.auditDays} days`)) : null,
+          due ? run : null,
+        );
+        announce(retentionStatus, `Checked as of ${formatWhen(report.asOf)}. Nothing has changed yet.`);
+      } catch (error) {
+        retentionReport.replaceChildren();
+        announce(retentionStatus, error.message, error.status === 404 || error.status === 403 ? "notice" : "error");
+      } finally {
+        checkRetention.disabled = false;
+        retentionStatus.focus();
+      }
+    };
+    checkRetention.addEventListener("click", showRetention);
+
+    this.mount(
+      this.shell(
+        "moderation",
+        h("p", {}, "Comments, the questions, suggested sources, suggested corrections and other interpretations readers sent about passages, and abuse reports, in one list. Nothing is published until it is approved, approving never changes your post, and a suggested correction stays a suggestion until you decide to edit the post. Nothing here e-mails anyone."),
+        h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-moderation-queue-title" }, h("h2", { id: "oba-moderation-queue-title" }, "Moderation queue"), stateTabs, kindFilter, stateNote, queueStatus, queue, more),
+        h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-feedback-published-title" }, h("h2", { id: "oba-feedback-published-title" }, "Published on your posts"), publishedStatus, published),
+        h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-retention-title" },
+          h("h2", { id: "oba-retention-title" }, "Retention"),
+          h("p", {}, "Unpublished reader text is not kept for ever: pending notes expire, and the text of rejected, removed and withdrawn items and of upheld reports is deleted after the periods set in openblog.json. Retention never runs on its own. Check what it would do first; nothing changes until you run it, and the private record of each decision is kept longer than any text."),
+          checkRetention, retentionStatus, retentionReport),
+      ),
+    );
+    await Promise.all([loadQueue(), loadPublished()]);
   }
 
   // ---- editor
@@ -9655,6 +13277,7 @@ export class Editor {
       h("div", { class: "oba-toolbar" }, ui.evidenceExportCsl, ui.evidenceExportBibtex),
       ui.evidenceExportStatus,
     );
+    ui.claimsRegion = h("div", { class: "oba-claims-region", "data-claims-region": "true" });
     ui.status = h("div", { role: "status", "aria-live": "polite" });
     ui.documentStats = h("span", { class: "oba-small" });
     ui.saveState = h("span", { class: "oba-save-state", role: "status", "aria-live": "polite" }, this.isNew ? "Not saved yet" : "Saved");
@@ -9890,6 +13513,7 @@ export class Editor {
             h("button", { type: "button", class: "oba-format-button", title: "Insert Abstract section", onClick: () => this.addResearchSection("abstract") }, "Abstract"),
             h("button", { type: "button", class: "oba-format-button", title: "Insert References section", onClick: () => this.addResearchSection("references") }, "References"),
             h("button", { type: "button", class: "oba-format-button", title: "Insert or edit a citation", "aria-label": "Cite a source", "data-citation-open": "true", onClick: () => this.openCitationDialog() }, "Cite"),
+            h("button", { type: "button", class: "oba-format-button", title: "Make a claim from the selected words, in Evidence Studio", "aria-label": "Make a claim from the selected words", "data-claim-from-selection": "true", onClick: () => void this.claimFromSelection() }, "Claim"),
           ]
         : null,
     );
@@ -10012,7 +13636,10 @@ export class Editor {
         void this.loadAssistantContext();
         this.renderAssistantReviewSummary();
       }
-      else if (["preview", "social", "accessibility", "evidence"].includes(pane)) this.renderPreview();
+      else if (["preview", "social", "accessibility", "evidence"].includes(pane)) {
+        this.renderPreview();
+        if (pane === "evidence") void this.loadClaims();
+      }
       else {
         clearTimeout(this.previewTimer);
         this.previewRequest += 1;
@@ -10301,6 +13928,7 @@ export class Editor {
               ),
               ui.evidenceFindings,
             ),
+            ui.claimsRegion,
           ),
         ),
         h("footer", { class: "oba-editor-status" }, ui.saveState, h("span", { class: "oba-spacer" }), ui.documentStats, ui.editorModeStatus),
@@ -10427,33 +14055,7 @@ export class Editor {
   }
 
   richEditorMarkdown() {
-    const blocks = [];
-    for (const element of this.ui.richBody.children) {
-      if (element.classList.contains("oba-protected-block")) {
-        blocks.push((element.dataset.markdown || "").replace(/\n+$/, ""));
-        continue;
-      }
-      const tag = element.tagName.toLowerCase();
-      const inline = () => visualChildrenMarkdown(element).trim();
-      if (/^h[1-6]$/.test(tag)) blocks.push(`${"#".repeat(Number(tag[1]))} ${inline()}`);
-      else if (tag === "ul" || tag === "ol") {
-        const listStart = tag === "ol" ? Number(element.getAttribute("start") || 1) : 1;
-        blocks.push(
-          [...element.children]
-            .filter((item) => item.tagName.toLowerCase() === "li")
-            .map((item, index) => `${tag === "ol" ? `${listStart + index}.` : "-"} ${visualChildrenMarkdown(item).trim()}`)
-            .join("\n"),
-        );
-      } else if (tag === "blockquote") {
-        blocks.push(inline().split("\n").map((line) => `> ${line}`).join("\n"));
-      } else if (tag === "pre") {
-        const text = element.textContent || "";
-        const longest = Math.max(0, ...(text.match(/`+/g) || []).map((run) => run.length));
-        const fence = "`".repeat(Math.max(3, longest + 1));
-        blocks.push(`${fence}${element.dataset.language || ""}\n${text}\n${fence}`);
-      } else if (tag === "img") blocks.push(visualInlineMarkdown(element));
-      else blocks.push(inline().replace(/^(#{1,6}|>|[-+*]|\d+[.)])\s/, "\\$&"));
-    }
+    const blocks = [...this.ui.richBody.children].map(visualBlockMarkdown);
     return blocks.filter((block) => block.length).join("\n\n") + (blocks.length ? "\n" : "");
   }
 
@@ -10490,6 +14092,64 @@ export class Editor {
     card.remove();
     this.visualChanged();
     this.ui.richBody.focus();
+  }
+
+  /** Claims and evidence links about this post, in Evidence Studio. Only a saved post can carry them. */
+  async loadClaims() {
+    const region = this.ui?.claimsRegion;
+    if (!region) return;
+    if (this.kind !== "posts") {
+      region.replaceChildren();
+      return;
+    }
+    if (this.isNew || !this.doc.path) {
+      this.claimsStudio = null;
+      region.replaceChildren(h("p", { class: "oba-small", "data-claims-unsaved": "true" }, "Save the post to record claims about it and link evidence to them."));
+      return;
+    }
+    if (!this.claimsStudio) {
+      this.claimsStudio = createClaimsStudio({
+        api: this.app.api,
+        post: () => ({ path: this.doc.path, etag: this.doc.etag, dirty: Boolean(this.app.dirty), slug: slugify(String(this.f.slug || "")) || this.slugFromPath() }),
+        selection: () => this.claimSelection(),
+      });
+      region.replaceChildren(this.claimsStudio.element);
+    }
+    try {
+      await this.claimsStudio.load();
+    } catch (error) {
+      if (error.status === 401) this.app.showLogin("Your session ended. Sign in again to see this post's claims.");
+    }
+  }
+
+  /** The words selected in the draft, as a claim anchor (`{ anchor }`) or the reason there is none (`{ error }`). */
+  claimSelection() {
+    if (this.editorMode === "visual") {
+      const range = this.visualSelection;
+      const blockOf = (node) => (node?.nodeType === 1 ? node : node?.parentElement)?.closest?.("[data-visual-block]") || null;
+      const block = blockOf(range?.startContainer);
+      const whole = block && block === blockOf(range?.endContainer) && block.parentElement === this.ui.richBody;
+      const children = [...this.ui.richBody.children];
+      let where = { index: -1, type: "" };
+      if (whole && this.visualDirty) {
+        // The draft was written from the editor, which leaves out blocks that write no Markdown
+        // (an empty paragraph), so only blocks that write some are counted.
+        const markdown = visualBlockMarkdown(block);
+        where = { index: children.filter((child) => visualBlockMarkdown(child).length).indexOf(block), type: block.dataset.visualBlock, markdown, text: visualBlockText(block) };
+      } else if (whole) {
+        where = { index: children.indexOf(block), type: block.dataset.visualBlock, count: children.length, text: visualBlockText(block) };
+      }
+      return visualSelectionAnchor(this.ui.body.value, range?.toString?.() || "", where);
+    }
+    return claimSelectionAnchor(this.ui.body.value, this.ui.body.selectionStart, this.ui.body.selectionEnd);
+  }
+
+  /** Open Evidence Studio and start a claim from the selected words, from the writing toolbar. */
+  async claimFromSelection() {
+    this.captureVisualSelection();
+    this.activatePane?.("evidence");
+    await this.loadClaims();
+    await this.claimsStudio?.newClaim();
   }
 
   captureVisualSelection() {
@@ -12928,6 +16588,13 @@ export class Editor {
         ui.saveState.classList.add("is-dirty");
       }
       ui.saveBtn.textContent = "Save";
+      // Redraw the visual editor from the saved draft, so its blocks match the draft's again (an
+      // empty paragraph writes nothing). Only when nothing changed during the save and the caret
+      // is not in the editor, so no typing or caret position is lost.
+      if (this.editorMode === "visual" && this.visualDirty && savedState.messageIsCurrent && !ui.richBody?.contains(document.activeElement)) {
+        this.renderRichEditor();
+        this.visualSelection = null;
+      }
       // Update the address without re-rendering the editor. Only arm the skip flag
       // when the hash really changes; otherwise no event fires and the flag would
       // swallow the next genuine navigation.

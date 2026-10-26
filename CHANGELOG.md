@@ -15,6 +15,278 @@ All notable changes to open.blog are recorded here. Releases follow
   and a featured reflection are kept apart. This adds the contract and its checks only; nothing
   is collected or shown yet.
 
+## [0.36.0] - 2026-10-26
+
+- Reader participation now has one policy. Comments keep `engagement.comments` and `comments:`
+  exactly as before; questions, suggested sources and corrections, other interpretations, Third
+  Perspectives, author responses and abuse reports are each off until `participation.kinds` in
+  `openblog.json` switches them on, and a post can choose its own mode with `participation:` front
+  matter. Everything submitted starts pending; a request for clarification never publishes the
+  text it asks about, removals and dismissed or upheld abuse reports always need a reason, and
+  `participation.retention` sets how long unpublished text and the private moderation record are
+  kept; comments stay out of retention unless you set it yourself. Nothing is e-mailed to readers.
+  Sites that switch nothing on build exactly as before. Passage feedback's `engagement.feedback` is
+  now the same as setting its four kinds to `follow-comments`, so each kind can also be set on its
+  own: the "Questions and corrections" form offers only the kinds open on a post, and a locked
+  kind keeps its published notes on show without taking new ones.
+- Comments and reader feedback are now moderated in one place: Admin's **Moderation inbox**
+  replaces the comment section of Analytics and the Reader feedback view. It lists every item by
+  state (pending, waiting for clarification, approved, rejected, removed, withdrawn) and kind,
+  oldest first, and pages through long lists. Each item shows only the decisions you can take on
+  it, with their reasons and what each does: approve, ask the reader to clarify, reject, remove
+  from the post, or reopen for a fresh decision. A removed or rejected comment can no longer be
+  approved straight away, a moved passage must still be confirmed before approval, and a decision
+  made on an out-of-date view is refused and the list reloaded. On a shared reflection a
+  co-writer moderates as its coordinator, or only reads as a contributing author, and never sees
+  a reader's private name. Everything works with the tables you have; to offer every decision,
+  with a version and an audit trail for comments, run the new optional
+  `supabase/moderation.sql` (and `feedback.sql` again if you use feedback) and set
+  `OPENBLOG_MODERATION_ENABLED=true`; `supabase/moderation-rollback.sql` undoes it. Nothing is
+  e-mailed to anyone.
+- Published reader notes now follow their own kind: switching a kind `off` in
+  `participation.kinds` (or leaving `engagement.feedback` unset), or making it `hidden` for the
+  site or a post, takes its published notes off those pages until you switch it back on;
+  `reader-feedback.json` keeps them. Turning hosted engagement off, or leaving the hosted service,
+  still keeps every published note on your pages.
+- Readers and owners get protection without tracking. With the new optional
+  `supabase/protection.sql` (and `feedback.sql` run again) and `OPENBLOG_PROTECTION_ENABLED=true`, a
+  reader who sends passage feedback gets a private receipt, shown once, to check on the note,
+  agree to be asked to clarify it, answer a clarification request, or withdraw it, which deletes
+  its text and their name at once (set `"receipts": true` in `engagement` to offer this on the
+  page). With `"abuse-report": "open"`, readers can report a published note or comment
+  anonymously; reports are never published or counted, and upholding one in the Moderation
+  inbox removes the item in the same decision. The site Admin can delete a closed item's text
+  and name for a reader who asks, and **Moderation inbox → Retention** shows what retention would
+  delete before you run it; nothing is deleted on a schedule, comments only if you set
+  `participation.retention`, and the database itself refuses to delete any moderation record
+  from the last day. Rate limits now keep only an hourly digest of the client, never one
+  that lasts across hours, and a note or comment sent twice within the hour is taken once.
+  `supabase/protection-rollback.sql` undoes the schema. Nothing is e-mailed to anyone.
+
+## [0.35.0] - 2026-10-26
+
+- The private Knowledge Atlas can now record uncertain chronology. Entries and relationships
+  carry datings: each says who dates what (a birth, a composition, a span), on which cited
+  evidence and how firmly, at the precision given (a day, month, year, decade or century,
+  optionally circa), as a point, a duration, a window ("before" or "after"), an explicit
+  unknown, or relative to another entry ("composed after the Phaedo"). BCE years have no year 0,
+  calendars are named and never converted, and competing datings are kept side by side and never
+  resolved. A relative dating never becomes or supports a relationship.
+- The atlas file is now version 2. A version 1 atlas is still read, and its next change writes
+  version 2, turning each entry's `bounds` years into a private, unsourced dating by the author
+  with nothing lost. Datings are private by default and approval follows the atlas projection.
+  The Admin entry form no longer edits years; it keeps an entry's datings unchanged when you save.
+- If your site publishes its atlas, the years your approved entries showed from `bounds`
+  disappear from /atlas/ pages and `atlas.json` on your next build, and stay gone until you cite
+  and approve a dating for each entry. An uncited date is never published. `openblog build` and `openblog check` now warn about this,
+  naming each affected entry and how many datings it holds, and Admin's atlas notices list each
+  entry too.
+- `openblog check` now points out atlas datings that cannot all hold as recorded: a death dated
+  before a birth, a work composed after the death or before the birth of the person recorded as
+  its author, a publication before the composition, an activity or membership dated outside a
+  life, relative datings that order the same works both ways round or in a loop, and a relative
+  dating that the absolute dates disagree with. Each notice names the datings by id with the
+  values as you stated them and asks you to check them against the cited evidence; it never says
+  which date is right, never changes your atlas, and never links entries because their dates are
+  close. The summary also says how many datings were indexed. Builds and published pages are
+  unchanged.
+- Admin Studio's Knowledge Atlas can now add and edit datings on entries and relationships: pick
+  what is dated (only what that kind of entry can have), at one point, a duration, a window, an
+  unknown date or relative to another entry, at the precision your source gives, with BCE or CE
+  chosen separately, circa and the calendar, who dates it, on what evidence or as an unsourced
+  draft, with a note and approval. Each dating reads back as you type ("not before the 420s
+  BCE"), and keeping your draft after someone else changed the atlas keeps their datings too.
+- A new Chronology view lists every dating as text: competing datings of the same thing side by
+  side and never resolved, grouped by century, decade or year, with filters for a time window,
+  aspect, competing datings and datings to check, and a line saying what is shown. Datings that
+  cannot all hold are listed to check, each linking to the dating. Each entry also shows its own
+  chronology. Nothing here is published.
+- Chronology prompts from `openblog check` are now always listed in the same order, even when two
+  parties record the same author.
+- Sites that publish their Knowledge Atlas now publish the datings you approved and cited. Each
+  entry's page lists its datings by what they date, with who dates each one, how firmly, the cited
+  evidence and your note, at the precision given and with BCE written out ("between c. 428 BCE
+  and 427 BCE", "the 380s BCE"). Competing datings stand side by side and are never resolved; a
+  relationship's datings appear under "When it held". `atlas.json` gains a `datings` list with
+  the same fields, the date as data and in words, and the first and last year each covers.
+  Unsourced, private and passage-cited datings, datings of unpublished items, datings relative to
+  a private entry, and your check prompts are never published, and an atlas without approved
+  datings builds exactly as before. The warning about entries without public years now names
+  only the entries that still have none.
+- `/atlas/` ends with a timeline when datings are published: an ordered list by century of every
+  published dating in full, then what cannot be placed in time, then the relative chronology. It
+  reads completely without JavaScript and prints whole; with JavaScript you can show one aspect
+  or only aspects with competing datings and go to a period from the keyboard, and a status line
+  says what is shown. Filters show or hide a whole dated aspect, never one dating or its
+  evidence. A dating relative to another entry links to that entry, whose page lists the datings
+  that point at it with links back, so relative chronology can be followed step by step; nothing
+  is worked out from dates.
+- Long unbroken titles in archive-style lists, such as the atlas index, now wrap instead of
+  making the page scroll sideways on a phone.
+
+### Fixed
+
+- Keeping your draft after someone else changed the atlas no longer mixes up two pieces of evidence
+  that cite the same source and passage. Before, removing or reordering evidence elsewhere could
+  make one item lose its stored fields and take the other's (introduced in 0.29.0 for relationship
+  and dissent evidence). Evidence now rests on its own stored copy wherever it moved, told apart by
+  its locators when several items share a source and passage, and otherwise keeps your draft's copy.
+  This repairs keep-draft for relationship evidence from the atlas release, and covers dating
+  evidence too.
+- On a phone or at high zoom (320 pixels wide), Admin's header now wraps instead of making every
+  Admin view scroll sideways.
+
+## [0.34.0] - 2026-10-26
+
+- The private source library can now record more about each version of a work: which earlier
+  edition an edition revises, the repository and shelfmark of a manuscript, how many volumes an
+  edition has (so a page names its volume), and your own statement of the rights in a version's
+  text, which is unknown until you state it and is never a legal judgement. Creators can be
+  marked as stated, attributed, uncertain or disputed, and a work can be marked anonymous. The
+  library can also hold private interpretations: your own or someone else's rendering or reading
+  of a place in an exact edition, translation or manuscript, attributed to a contributor or a
+  named person. Contributors named on an interpretation cannot be removed from the registry
+  until it changes. Existing libraries read and save exactly as before, and none of this is
+  published.
+- Editing a creator's name or role in the Admin source form no longer drops its attribution
+  certainty or note, and editing a reference's location keeps its volume. A reference to an edition
+  or manuscript in several volumes now has a Volume field.
+- Building a site no longer fails when an interpretation in the private source library names a
+  contributor who was later removed from the registry; `openblog check` and Admin still report it.
+- The private research area can now hold passage alignments: your record of which places in
+  different editions, translations, manuscripts and interpretations correspond, including one
+  place split across several, several merged into one, and a version that lacks the passage.
+  Each alignment says who aligned the places and on what evidence, keeps the original wording
+  apart from your normalized form of it, and never claims the places mean the same thing. They
+  are stored privately in `.openblog/private/research/alignments.json`, checked by `openblog
+  check`, synced by the hosted workspace, available to Admin through
+  `/admin/api/research/alignments`, and never published. A source, interpretation or passage an
+  alignment uses cannot be removed until the alignment stops using it.
+- Admin Studio has a new **Compare** research tool for reading aligned passages across editions,
+  translations, manuscripts and interpretations, side by side or in a single column (which is also
+  how it reads on a phone). Every place names its version, its editor, translator, scribe or
+  interpreters, and its locator; original wording is shown exactly, right-to-left text keeps its
+  direction, your normalizations appear only when you ask and are labelled, and a version that
+  lacks the passage says so. You can add, edit, reorder, and remove alignments and their places
+  there, with your draft kept if someone else changed the alignment first. Copy and download take
+  only the places you select, carry each version's rights statement, leave out your notes on
+  places unless you tick "Include my notes on places", and ask you to confirm when a version's
+  rights are unchecked or reserved. Nothing is published.
+- A site that publishes its Knowledge Atlas no longer fails to build when an interpretation in the
+  private source library names a contributor who was later removed from the registry.
+- Sites can now publish the passage comparisons you approve. Turn on `comparisons.publish` in
+  `openblog.json`, then tick "Approve this comparison for publication" on an alignment in Admin's
+  Compare tool: the site gains `/comparisons/`, a page for each approved comparison and
+  `/comparisons.json`. Every place names its version, its editor, translator, scribe or
+  interpreters, its locators and the rights statement you recorded. Its wording is quoted exactly,
+  in its own language and direction, only where you state the version's rights as permission, an
+  open licence, the public domain or your own work, and only up to 1,000 characters; a version
+  whose rights are unknown or reserved is identified but never quoted. Interpretations are
+  attributed and kept apart from the text they interpret, your normalizations appear only if you
+  choose, and your notes on places, rights notes and unapproved alignments are never published.
+  Before approving, each place in Compare says what a public page would show; saving rebuilds the
+  site at once, as does changing the rights or wording of a source or passage a published
+  comparison uses, and clearing approval removes the page. Only the interpretations a published
+  comparison uses must be valid for the site to build. The pages need no JavaScript and read on a
+  phone and in print. Sites that do not turn it on are unchanged and never read the alignments
+  file.
+
+## [0.33.0] - 2026-10-26
+
+- Defined how reader questions, corrections and annotations will point at published text. A
+  passage target names a section by its heading id and either the whole section or a short
+  quotation with a little context on each side, and is checked against the post as it is now: it
+  finds the same words again, even after they moved to another section, or it is reported stale
+  with a reason (removed, reworded around it, ambiguous). It never silently points at different
+  words, and accents, emoji and other combined characters are never split. A target can also
+  point at a whole post, and sections that share a heading id are told apart. The same rules run in
+  the build and in a small browser module for the reader features to come, checked against the
+  same cases. Nothing uses targets yet, so no page changes.
+- Defined what is kept about where each piece of reader feedback came from: the post and the
+  revision of its text the reader saw, the passage, when they saw it (by their own clock, if
+  given) and when the site received it. A reader's name is shown publicly only if they agree,
+  nothing else about them is recorded, and a published note never re-quotes text the author has
+  since removed. Research notebooks now refuse reader-feedback fields (`attribution`,
+  `receivedAt`, `seenAt`) with a clear message, so feedback cannot be merged into private research
+  by accident.
+- Sites on Netlify and Supabase can opt in to typed passage feedback: a reader's question,
+  suggested source, suggested correction or other interpretation of a passage, sent to the existing
+  engagement function with the passage and the revision of the page they saw. It is off unless the
+  site turns it on in `openblog.json`, sets `OPENBLOG_FEEDBACK_ENABLED=true` and runs the new
+  `supabase/feedback.sql`, which only adds one private table (`supabase/feedback-rollback.sql`
+  removes it). Every submission is checked with the same rules as the build, held pending for
+  moderation with the time the site received it, and limited by the existing hourly quotas. A
+  reader's name stays private unless they agree to show it, nothing else about them is kept and no
+  e-mail is collected or sent. Sites that do not opt in are unchanged. Saving hosted engagement
+  settings in Admin now keeps settings the form does not show. Reader forms and moderation screens
+  come next.
+- Readers can now send that feedback from the post itself. On sites that opt in, each open post ends
+  with a "Questions and corrections" form: choose the whole post, a section, or words you selected
+  in the post (a button appears next to the selection), say whether it is a question, a suggested
+  source, a suggested correction or another interpretation, and write your note, with an optional
+  name you choose whether to show. The form works with the keyboard and screen readers, announces
+  problems and progress, fits narrow phones and changes nothing in the article. Without JavaScript
+  the page explains how to send a note; when the service is offline, off or failing, the form
+  gives you the note to copy and send to the author, at the address in the new optional
+  `engagement.feedbackContact`. Locked and hidden posts, sites that do not opt in, feeds and
+  portable copies are unchanged.
+- Reader feedback can now be moderated and answered. Admin has a "Reader feedback" view that lists
+  what readers sent, by state, through Admin's own server, so the hosted token never reaches the
+  browser. Each note shows whether its passage is still where the reader saw it, has moved, or has
+  changed or gone; a note about a passage that is not current can be approved only after you
+  confirm you read it as it is now. Approve publishes a note, reject and remove need a reason, and
+  two people can never act on the same note at once: every decision is checked against the
+  version you saw and recorded in a private audit table. Approved notes are written to
+  `content/reader-feedback.json`, versioned with your site, without the reader's name unless they
+  agreed, their own clock or anything about moderation, and shown on the post's page only, under
+  "Reader questions and responses", with the quotation only while the post still has those words.
+  You can add a public response to each note and record what changed in the post as a revision
+  note (`evidenceRevisions`), which a site that takes feedback now publishes; neither edits the
+  post, and nothing is sent to readers. Feeds and portable copies carry a link to the page instead
+  of the notes. A note that is approved but not on its post yet, or removed but still on it
+  (because the file could not be written, or the decision was made outside Admin), says so and can
+  be put on or taken off the post again. Run `supabase/feedback.sql` again to add moderation: it adds two columns, an audit
+  table and one moderation function, and changes nothing else.
+
+## [0.32.0] - 2026-10-26
+
+- Defined the format for private claims in draft posts and evidence links that record whether a
+  source supports, contradicts or contextualizes each claim, with rationale, uncertainty, review
+  state and provenance. A citation alone never asserts support, contradicting evidence cannot be
+  hidden while support is published, and nothing judges evidence or scores it. Nothing reads or
+  writes these files yet, so no site output changes.
+- Withdrawing consent on a claim or a contradicting evidence link is never refused: an approved
+  link on a private claim, and approved support beside a private contradiction, stay private and
+  are reported as notices instead of making the claims file invalid.
+- Evidence Studio in the post editor can now record claims: select words in a saved draft to make
+  a claim, then link supporting, contradicting or contextualizing evidence from your notebook
+  passages or source library with a rationale, confidence and uncertainty. Supporting and
+  contradicting evidence are listed side by side and never combined into one figure. Each claim
+  shows whether its words are still where you selected them (verified, moved, stale or
+  ambiguous) and can be re-anchored; a stale or ambiguous range is refused without changing the
+  draft or the claims. Claims are stored privately in `.openblog/private/research/claims.json`,
+  checked by `openblog check`, synced by the hosted workspace, and never reach your site, feeds,
+  search, `llms.txt` or exports. A source or passage an evidence link uses cannot be removed
+  until the link stops using it.
+- Claims now come with evidence gaps and review prompts: a claim with no evidence, contradicting
+  evidence without a note on how the post addresses it, only supporting evidence on a claim you
+  marked uncertain, a link resting on an archived source or passage, a link with no location or
+  no rationale, a location nobody has checked, a suggestion nobody has reviewed, and claim words
+  that moved or are gone. Each names what was checked and what to do next, and none says whether
+  a claim is true. `openblog check`, `openblog build` (as warnings, only when the private claims
+  file is present, and never in the site) and Evidence Studio show the same findings in the same
+  order. A claim's anchor that is still in place now reads "In place" rather than "Verified".
+- Sites can now publish the claims and evidence you approved: turn on `claimEvidence.publish` and
+  each post with approved claims gains a "Claims and evidence" section, readable without
+  JavaScript, listing every claim's supporting and contradicting evidence side by side with the
+  references, locations, your rationale, confidence and uncertainty, and marking a claim with
+  published contradiction as contested. The same text reaches portable copies, feeds and
+  `llms.txt`, and `/claim-evidence.json` holds the same data. Support is never published while a
+  contradicting link stays private, private notes and passages never are, and withdrawing approval
+  removes the item from the next build. Dated revision notes written in a post's front matter as
+  `evidenceRevisions` are published in the same section and stay published even when the private
+  claims file is gone. Sites that leave the setting off are unchanged.
+
 ## [0.31.0] - 2026-10-26
 
 - Contributors to a shared reflection can pin moments to its sources in Admin: a time or range in
