@@ -1,5 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { FEEDBACK_KINDS, canonicalTime, readFeedbackSubmissionJson, receiveFeedback } from "../../web/components/passage-feedback.js";
+import { FEEDBACK_KINDS, canonicalTime, readFeedbackSubmissionJson, readSubmissionJson, receiveFeedback } from "../../web/components/passage-feedback.js";
+import { decisionsOf, emptyLog, planDecision } from "../lib/correction-decisions.mjs";
 import { MODERATION_STATES, auditActor, planModeration } from "../lib/feedback-moderation.mjs";
 import {
   INBOX_ACTIONS, MODERATOR_ROLES, PARTICIPATION_KINDS, REPORT_GROUNDS, commentState, commentStateFilter, issuesReceipts, legacyCommentStatus,
@@ -63,7 +64,15 @@ const hostedFeedback = (row) => {
     version: row.version,
     moderatedAt: row.moderated_at ? canonicalTime(row.moderated_at) : null,
     reason: row.moderation_reason ?? null,
-    feedback: { version: row.format_version, kind: row.kind, body: row.body, details: row.details || {}, provenance },
+    feedback: {
+      version: row.format_version,
+      kind: row.kind,
+      body: row.body,
+      details: row.details || {},
+      provenance,
+      // An evidence submission's block (ADR 0138), read only where the schema has it.
+      ...(row.evidence ? { evidence: row.evidence } : {}),
+    },
   };
 };
 
@@ -75,6 +84,10 @@ const COMMENT_COLUMNS = "id,path,author_name,body,status,created_at,moderated_at
 const COMMENT_INBOX_COLUMNS = `${COMMENT_COLUMNS},version,moderation_state,moderation_reason`;
 // What engagement protection adds (ADR 0108). A receipt's digest is never read back out.
 const FEEDBACK_PROTECTED_COLUMNS = `${FEEDBACK_INBOX_COLUMNS},purged_at`;
+// What evidence and correction decisions add (ADRs 0138 and 0139): the reader's evidence block and
+// the author's decision log.
+const EVIDENCE_COLUMN = ",evidence";
+const DECISIONS_COLUMN = ",decisions";
 const COMMENT_PROTECTED_COLUMNS = `${COMMENT_INBOX_COLUMNS},purged_at`;
 const REPORT_COLUMNS = "id,target_source,target_id,work,ground,body,status,version,received_at,moderated_at,moderation_reason,purged_at";
 
@@ -120,7 +133,10 @@ const inboxComment = (row) => ({
   reason: row.moderation_reason ?? null,
   comment: { path: row.path, authorName: row.author_name, body: row.body, createdAt: canonicalTime(row.created_at) },
 });
-const inboxFeedback = (row) => ({ source: "feedback", ...hostedFeedback(row), ...moderationFacts(row) });
+// An inbox item carries its decision log where the schema keeps one, an empty one for an item
+// nobody decided, so Admin knows the hosted service can store a decision (ADR 0139).
+const decisionFacts = (row) => (Object.hasOwn(row, "decisions") ? { decisions: row.decisions ?? emptyLog(row.id) } : {});
+const inboxFeedback = (row) => ({ source: "feedback", ...hostedFeedback(row), ...moderationFacts(row), ...decisionFacts(row) });
 const inboxReport = (row, targets) => ({
   source: "report",
   id: row.id,
@@ -202,6 +218,11 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
     // Receipts, abuse reports, deletion and retention (ADR 0108): set only
     // after running supabase/protection.sql, on top of the inbox's schema.
     values.protection = values.moderation && String(env.OPENBLOG_PROTECTION_ENABLED || "").trim() === "true";
+    // Evidence submissions and correction decisions (ADRs 0138 and 0139):
+    // set only after running supabase/feedback.sql again, on top of the
+    // inbox's schema. Without it version 2 submissions are refused, as B5
+    // refuses them, and no decision can be stored.
+    values.corrections = values.feedback && values.moderation && String(env.OPENBLOG_CORRECTIONS_ENABLED || "").trim() === "true";
     const required = [values.url, values.key, values.siteId, values.origin, values.adminKey, values.salt];
     if (!required.every(Boolean) || !/^\/(?:[^\\?#\u0000-\u001F]*\/)?$/.test(values.basePath) || values.basePath.includes("//") || values.basePath.split("/").some((segment) => segment === "." || segment === "..")) return null;
     return values;
@@ -244,7 +265,10 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
     return MODES.includes(policy) ? policy : "hidden";
   };
   const feedbackRows = (settings, filters) => {
-    const params = new URLSearchParams({ site_id: `eq.${settings.siteId}`, ...filters, select: FEEDBACK_COLUMNS, order: "received_at.asc", limit: "200" });
+    // B5's shape carries an evidence submission's block inside its record, never the decision log,
+    // so an older Admin still reads every item it can.
+    const select = `${FEEDBACK_COLUMNS}${settings.corrections ? EVIDENCE_COLUMN : ""}`;
+    const params = new URLSearchParams({ site_id: `eq.${settings.siteId}`, ...filters, select, order: "received_at.asc", limit: "200" });
     return database(settings, `/rest/v1/openblog_feedback?${params}`);
   };
 
@@ -254,7 +278,8 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
   const inboxColumns = (settings, source) => {
     if (source === "report") return REPORT_COLUMNS;
     if (source === "comment") return settings.protection ? COMMENT_PROTECTED_COLUMNS : settings.moderation ? COMMENT_INBOX_COLUMNS : COMMENT_COLUMNS;
-    return settings.protection ? FEEDBACK_PROTECTED_COLUMNS : settings.moderation ? FEEDBACK_INBOX_COLUMNS : FEEDBACK_COLUMNS;
+    const corrections = settings.corrections ? `${EVIDENCE_COLUMN}${DECISIONS_COLUMN}` : "";
+    return `${settings.protection ? FEEDBACK_PROTECTED_COLUMNS : settings.moderation ? FEEDBACK_INBOX_COLUMNS : FEEDBACK_COLUMNS}${corrections}`;
   };
   const rowTimeColumn = (source) => (source === "comment" ? "created_at" : "received_at");
   // The items abuse reports name, read with them so a moderator sees what was reported.
@@ -336,7 +361,14 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
   const inboxItems = async (settings, entries) => {
     const reports = entries.filter((entry) => entry.source === "report").map((entry) => entry.row);
     const targets = reports.length ? await reportTargets(settings, reports) : null;
-    return entries.map((entry) => inboxItem(entry.source, entry.row, targets));
+    // A function's answer returns the whole row: without OPENBLOG_CORRECTIONS_ENABLED its decision
+    // log is not offered, so Admin never offers a decision this function would refuse to store.
+    const shown = (row) => {
+      if (settings.corrections || !Object.hasOwn(row, "decisions")) return row;
+      const { decisions, ...rest } = row;
+      return rest;
+    };
+    return entries.map((entry) => inboxItem(entry.source, shown(entry.row), targets));
   };
 
   // One store's rows in one state after a cursor, oldest first, at most
@@ -564,7 +596,9 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
       }
       if (operation === "feedback" && event.httpMethod === "POST") {
         const text = event.isBase64Encoded ? Buffer.from(String(event.body || ""), "base64").toString("utf8") : String(event.body || "");
-        const read = readFeedbackSubmissionJson(text);
+        // Bounds and every rule apply before anything else, an evidence block's too (ADR 0138);
+        // nothing here says whether an id the reader named exists.
+        const read = readSubmissionJson(text, { evidence: settings.corrections });
         if (!read.ok) {
           const { code, message, target } = read.error;
           return json(code === "tooLarge" ? 413 : 422, { error: message, code, ...(target ? { target } : {}) }, corsOrigin);
@@ -579,7 +613,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         if (!await consumeQuota(settings, event, "feedback", 5, 500)) {
           return json(429, { error: "Too much feedback from here. Please try again later.", code: "rateLimited" }, corsOrigin);
         }
-        const claim = settings.protection ? await firstTimeThisHour(settings, event, "feedback", [submission.work, submission.kind, JSON.stringify(submission.target), submission.body]) : null;
+        const claim = settings.protection ? await firstTimeThisHour(settings, event, "feedback", [submission.work, submission.kind, JSON.stringify(submission.target), submission.body, JSON.stringify(submission.evidence ?? null)]) : null;
         if (settings.protection && !claim) {
           return json(409, { error: "This note was already sent and is waiting for review.", code: "duplicate" }, corsOrigin);
         }
@@ -608,6 +642,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
             publish_name: provenance.attribution.publishName,
             status: "pending",
             ...(receipt ? { receipt_hash: receiptDigest(receipt) } : {}),
+            ...(record.evidence ? { evidence: record.evidence } : {}),
           }),
         }));
         return json(202, { id: rows[0]?.id, status: "pending", receivedAt: provenance.receivedAt, ...(receipt ? { receipt } : {}) }, corsOrigin);
@@ -866,6 +901,45 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
           }
           return changed(await applyInboxChange(settings, source, id, plan.change, version, auditActor(body.actor), role));
         }
+      }
+      if (operation === "admin/decisions") {
+        // The author's correction decision on an evidence submission (ADR 0139), decided by Admin
+        // with the viewer's role on the item's work, checked again here from the stored row, and
+        // appended to the item's log with its audit event in one conditional statement, only while
+        // the item still has the text revision and the number of decisions both saw. It never
+        // changes the item's state, version or approval, and nothing is e-mailed to anyone.
+        if (!admin) return json(401, { error: "Admin authorization is required." }, corsOrigin);
+        if (!settings.corrections) {
+          return json(404, { error: "Run supabase/feedback.sql again and set OPENBLOG_CORRECTIONS_ENABLED=true to record correction decisions.", code: "unavailable" }, corsOrigin);
+        }
+        if (event.httpMethod !== "POST") return json(405, { error: "Use POST." }, corsOrigin);
+        const id = String(body.id || "").toLowerCase();
+        const expectedDecisions = body.expectedDecisions;
+        const role = body.actorRole === undefined ? "site-admin" : body.actorRole;
+        if (!UUID.test(id) || !Number.isInteger(expectedDecisions) || expectedDecisions < 0 || expectedDecisions > 1000) {
+          return json(422, { error: "Invalid correction decision.", code: "invalid" }, corsOrigin);
+        }
+        const row = await inboxRow(settings, "feedback", id);
+        if (!row) return json(404, { error: "No such item.", code: "notFound" }, corsOrigin);
+        const itemOf = async (current) => (await inboxItems(settings, [{ source: "feedback", row: current }]))[0];
+        const conflict = async (current) => json(409, { error: "Someone decided on this item, or it changed, since you loaded it. Review it again before deciding.", code: "conflict", item: await itemOf(current) }, corsOrigin);
+        const facts = { ...inboxFacts("feedback", row), id, decisions: decisionsOf(row.decisions).length };
+        if (!facts.retained) return json(422, { error: "This item’s text was deleted; it takes no decision.", code: "itemClosed" }, corsOrigin);
+        const plan = planDecision(facts, { role, expectedDecisions, decision: body.decision });
+        if (!plan.ok) {
+          if (plan.code === "stale") return conflict(row);
+          return json(plan.code === "denied" ? 403 : 422, { error: "This correction decision is not allowed.", code: plan.code }, corsOrigin);
+        }
+        const rows = await database(settings, "/rest/v1/rpc/openblog_record_feedback_decision", {
+          method: "POST",
+          body: JSON.stringify({
+            p_site_id: settings.siteId, p_id: id, p_expected_decisions: expectedDecisions, p_item_revision: facts.revision,
+            p_decision: body.decision, p_actor: auditActor(body.actor), p_actor_role: role, p_at: canonicalTime(now()),
+          }),
+        });
+        if (Array.isArray(rows) && rows.length === 1) return json(200, { ok: true, item: await itemOf(rows[0]) }, corsOrigin);
+        const current = await inboxRow(settings, "feedback", id);
+        return current ? conflict(current) : json(404, { error: "No such item.", code: "notFound" }, corsOrigin);
       }
       if (operation === "admin/retention") {
         // The retention job (ADRs 0104 and 0108), run by the site Admin from
