@@ -1081,6 +1081,47 @@ how the post's evidence changed, optionally naming one claim. It is versioned wi
 removing private research or withdrawing a claim never removes it.
 _Avoid_: Changelog entry, correction notice from a reader; storing the note in private research
 
+## Research completeness
+
+These terms describe how every research check is gathered into one contract before publication.
+They never describe whether a work is true, credible, agreed or fit to publish.
+
+**Research completeness finding**:
+Any finding, notice, prompt or diagnostic of a research check, described in one shape: its owning
+validator, check, own code, category, outcome (detected, potential or needs-review), gate, the one
+object it is scoped to, related objects, its validator's message and a repair. Mapping into it
+changes nothing a check reports or where.
+_Avoid_: Readiness score, issue, verdict; renaming a check's code
+
+**Owning validator**:
+The one core check function that reports a given check. Every check has exactly one; presentations
+such as Admin, the CLI and the readiness report gather findings and own none.
+_Avoid_: Treating Admin or a report as a second validator
+
+**Finding category**:
+What kind of gap or prompt a finding is (integrity, public boundary, structure, reference,
+identifier, version, locator, citation, claim anchor, evidence, provenance, chronology, rights).
+Categories group findings and never rank them.
+_Avoid_: Severity, priority
+
+**Finding gate**:
+What the owning validator does about a finding: advisory (nothing is refused), refuses when
+published (a post publishing the citation is refused), or refuses (the save or build is refused).
+Only deterministic integrity and privacy failures refuse; potential and needs-review findings are
+always advisory.
+_Avoid_: Blocking review, mandatory resolution
+
+**Finding acknowledgement**:
+An author's record that they have considered an advisory finding. It names the finding's key and
+fingerprint, never makes the finding resolved, is counted apart from what was found, and goes
+stale when what the finding says changes.
+_Avoid_: Dismissal, resolution, waiver; acknowledging an integrity or privacy failure
+
+**Finding fingerprint**:
+A digest of a finding's validator, code, object, field, related objects and message, leaving out
+lines and positions, so it changes exactly when what the finding says about its object changes.
+_Avoid_: Finding id, revision
+
 ## Reader participation
 
 These terms describe how readers point at published text and where their feedback came from.
