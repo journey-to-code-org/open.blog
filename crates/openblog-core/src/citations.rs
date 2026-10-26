@@ -476,8 +476,10 @@ pub fn public_identifier(scheme: &str, value: &str) -> bool {
 /// without credentials, naming a public host and carrying no query parameter
 /// that is named like a secret. The library already refuses other schemes and
 /// credentials; the boundary also withholds addresses on a private network
-/// (`localhost`, `.local`, `.internal`, loopback, private and link-local IP
-/// ranges) and signed or tokened addresses, which would expose an intranet or
+/// (`localhost`, `localhost.localdomain`, `.local`, `.internal`, loopback,
+/// private, link-local, site-local and NAT64 IP ranges, and an IPv4 address
+/// written in decimal, octal, hex or as a mapped IPv6 address) and signed or
+/// tokened addresses, which would expose an intranet or
 /// an access key. Only the address is withheld; the rest of the reference is
 /// published.
 pub fn public_url_problem(value: &str) -> Option<&'static str> {
@@ -492,28 +494,27 @@ pub fn public_url_problem(value: &str) -> Option<&'static str> {
     }
     let private_host = match url.host() {
         None => true,
-        Some(url::Host::Ipv4(ip)) => {
-            let [a, b, ..] = ip.octets();
-            ip.is_loopback()
-                || ip.is_private()
-                || ip.is_link_local()
-                || ip.is_unspecified()
-                || ip.is_broadcast()
-                || a == 0
-                || (a == 100 && (64..=127).contains(&b))
-        }
+        Some(url::Host::Ipv4(ip)) => private_ipv4(ip),
         Some(url::Host::Ipv6(ip)) => {
-            let first = ip.segments()[0];
+            let segments = ip.segments();
+            let first = segments[0];
             ip.is_loopback()
                 || ip.is_unspecified()
+                || ip.to_ipv4_mapped().is_some_and(private_ipv4)
+                // The NAT64 prefix 64:ff9b::/96 embeds any IPv4 address.
+                || (segments[..6] == [0x64, 0xff9b, 0, 0, 0, 0])
                 || (first & 0xfe00) == 0xfc00
                 || (first & 0xffc0) == 0xfe80
+                // Deprecated site-local addresses, fec0::/10.
+                || (first & 0xffc0) == 0xfec0
         }
         Some(url::Host::Domain(domain)) => {
             let domain = domain.trim_end_matches('.').to_ascii_lowercase();
             !domain.contains('.')
+                || domain == "localhost.localdomain"
                 || [
                     ".localhost",
+                    ".localhost.localdomain",
                     ".local",
                     ".internal",
                     ".lan",
@@ -527,35 +528,55 @@ pub fn public_url_problem(value: &str) -> Option<&'static str> {
     if private_host {
         return Some("it names a private or local network address readers cannot reach");
     }
-    const SECRET_PARAMETERS: &[&str] = &[
-        "token",
-        "access_token",
-        "auth",
-        "key",
-        "api_key",
-        "apikey",
-        "secret",
-        "password",
-        "pass",
-        "pwd",
-        "sig",
-        "signature",
-        "session",
-        "sessionid",
-        "sid",
-        "x-amz-signature",
-        "x-amz-credential",
-        "x-amz-security-token",
-        "x-goog-signature",
-        "x-goog-credential",
-    ];
+    // The query, and a fragment written as `name=value` pairs, as the
+    // single-page apps that read a token from the fragment write it.
+    let fragment = url.fragment().unwrap_or_default();
     if url
         .query_pairs()
-        .any(|(name, _)| SECRET_PARAMETERS.contains(&name.to_ascii_lowercase().as_str()))
+        .chain(url::form_urlencoded::parse(fragment.as_bytes()))
+        .any(|(name, _)| secret_parameter(&name))
     {
         return Some("it carries a query parameter named like a key, token or signature");
     }
     None
+}
+
+fn private_ipv4(ip: std::net::Ipv4Addr) -> bool {
+    let [a, b, ..] = ip.octets();
+    ip.is_loopback()
+        || ip.is_private()
+        || ip.is_link_local()
+        || ip.is_unspecified()
+        || ip.is_broadcast()
+        || a == 0
+        || (a == 100 && (64..=127).contains(&b))
+}
+
+/// Whether a query or fragment parameter is named like a secret: its name,
+/// lower-cased and stripped of everything but letters and digits (so
+/// `X-Amz-Signature`, `access_token` and `apiKey` read alike), contains a
+/// word that names one. A few common names that merely contain one
+/// (`passage`, `keyword`) are exempt. `sid`, which OpenURL uses to name the
+/// referring database, is not a secret and is published.
+fn secret_parameter(name: &str) -> bool {
+    const SECRET_WORDS: &[&str] = &[
+        "token",
+        "secret",
+        "sig",
+        "key",
+        "pass",
+        "auth",
+        "pwd",
+        "session",
+        "credential",
+    ];
+    const EXEMPT: &[&str] = &["passage", "passages", "keyword", "keywords"];
+    let name: String = name
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .map(|c| c.to_ascii_lowercase())
+        .collect();
+    !EXEMPT.contains(&name.as_str()) && SECRET_WORDS.iter().any(|word| name.contains(word))
 }
 
 /// Whether an identifier of a record is published: a public scheme, and for
