@@ -23,8 +23,7 @@ evidence to different words than the author chose.
   mark and the front matter are removed, as `frontmatter::parse` yields it, with every CRLF folded
   to LF. `claims::anchor_text(source)` produces exactly this text; Admin selections, checks and
   tests all use it, so a selection and a later check can never disagree about offsets. Anchor
-  `text` keeps `
-` only: a carriage return (like any other control character except tab) is
+  `text` keeps `\n` only: a carriage return (like any other control character except tab) is
   refused. Editing the front matter never moves an anchor.
 - **Check, do not repair.** `Anchor::check(draft)` returns `Verified` (text at the offsets),
   `Moved { start }` (occurs exactly once elsewhere: reported, never rewritten), `Stale` (gone) or
