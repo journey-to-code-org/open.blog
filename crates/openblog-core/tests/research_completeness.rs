@@ -1046,7 +1046,7 @@ Body.
     assert_ne!(a[0].fingerprint(), b[0].fingerprint());
     let ack = Acknowledgement::of(&a[0]).expect("advisory");
     assert_eq!(ack.path.as_deref(), Some("posts/a.md"));
-    let report = CompletenessReport::new(a.iter().chain(&b).cloned(), &[ack.clone()]);
+    let report = CompletenessReport::new(a.iter().chain(&b).cloned(), std::slice::from_ref(&ack));
     let state = |path: &str| {
         report
             .findings

@@ -253,6 +253,9 @@ fn anchor_problem(
 /// offsets. An unchanged anchor is not re-checked, so the author can still
 /// edit, withdraw or remove a claim whose draft has moved on. Nothing is
 /// repaired.
+// One diagnostic is returned by value, as every caller reports it as is;
+// its notice facts make it larger than Clippy's default error size.
+#[allow(clippy::result_large_err)]
 pub fn check_claim_anchor(
     stored: Option<&Claim>,
     claim: &Claim,
@@ -297,6 +300,9 @@ pub fn check_claim_anchor(
 /// anchor (its words occur once, elsewhere) is allowed and reported. Removing
 /// a link, and withdrawing a link's approval without any other change, are
 /// always allowed.
+// One diagnostic is returned by value, as every caller reports it as is;
+// its notice facts make it larger than Clippy's default error size.
+#[allow(clippy::result_large_err)]
 pub fn check_link_anchor(
     set: &ClaimSet,
     stored: Option<&EvidenceLink>,
