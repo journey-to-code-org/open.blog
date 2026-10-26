@@ -811,8 +811,10 @@ _Avoid_: Status when the comment column's three values are meant, published, vis
 
 **Clarification request**:
 A moderator's request, with a reason and only with the submitter's clarification consent, that a
-submitter revise an item. The item is never published while it is open; the answer replaces the
-text as a new revision that returns to pending. Never sent by e-mail.
+submitter revise an item. The revision it asks about is never approved or published, even after
+the item is rejected, expires or is reopened (reopening returns it to clarification); only the
+answer, which replaces the text as a new revision and returns to pending, can be. Never sent by
+e-mail.
 _Avoid_: Reply, comment thread, rejection with feedback
 
 **Clarification consent**:

@@ -36,12 +36,12 @@ pending, that clarification never publishes the original, and that removal fails
 
   | Action | From | To | Reason |
   | --- | --- | --- | --- |
-  | `approve` | pending | approved | none |
+  | `approve` | pending (not a revision a clarification asked about) | approved | none |
   | `reject` | pending, clarification | rejected | required |
   | `request-clarification` | pending | clarification | required |
   | `clarify` (the submitter's answer) | clarification | pending, as a new revision | none |
   | `remove` | approved | removed | required |
-  | `reopen` | rejected, removed (text still kept) | pending | none |
+  | `reopen` | rejected, removed (text still kept) | pending, or clarification when its current revision was asked about | none |
   | `withdraw` | pending, clarification, approved | withdrawn | none |
   | `expire` (retention, ADR 0103) | pending, clarification | rejected (`expired`) | set by policy |
   | `uphold-report` (ADR 0103) | pending (abuse report) | approved (never public) | required |
@@ -59,6 +59,13 @@ pending, that clarification never publishes the original, and that removal fails
   revision. Delivering the request to the reader is not an e-mail: no part of this policy sends
   anything to a reader, and a transport may only show the request through a channel the reader
   holds (such as a private receipt link).
+- **The question outlives rejection and expiry.** A clarification request records the revision it
+  asked about on the item (`clarification_asked`), and nothing but the submitter's answer, a later
+  revision, moves past it. While the current revision is the one asked about, `approve` is refused
+  and `is_public` is false whatever the stored state says, and `reopen` of an item that was
+  rejected or expired before the submitter answered returns it to clarification, not pending. The
+  reader can still answer, and the original text never becomes approvable by a detour through
+  rejection or expiry.
 - **Conflict-aware and replay-safe.** Every item has a version that every transition raises by
   one; every request names the version it saw, and anything else is `stale`. Replaying a request,
   or acting on a view of the item from before someone else's decision or a clarification, changes

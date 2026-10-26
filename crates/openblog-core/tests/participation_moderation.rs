@@ -41,6 +41,7 @@ fn item(kind: ParticipationKind, state: ModerationState) -> ItemFacts<'static> {
         version: 3,
         revision: 2,
         approved_revision: (state == ModerationState::Approved).then_some(2),
+        clarification_asked: None,
         clarification_consent: true,
         content_retained: true,
         state_since: day(0),
@@ -57,6 +58,7 @@ fn approved_comment(id: &'static str) -> ItemFacts<'static> {
         version: 2,
         revision: 1,
         approved_revision: Some(1),
+        clarification_asked: None,
         clarification_consent: false,
         content_retained: true,
         state_since: day(0),
@@ -151,6 +153,7 @@ fn apply<'a>(facts: &ItemFacts<'a>, decision: &Decision) -> ItemFacts<'a> {
         version: change.version,
         revision: change.revision,
         approved_revision: change.approved_revision,
+        clarification_asked: change.clarification_asked,
         state_since: change.audit.at,
         ..*facts
     }
@@ -437,10 +440,37 @@ fn responses_and_reports_need_a_public_parent_and_reveal_nothing_about_others() 
     assert_eq!(answer, Err(PolicyError::Unavailable));
 }
 
+/// Nobody, at any version, can approve an item whose current revision a
+/// clarification request asked about.
+fn assert_unapprovable(policy: &ModerationPolicy, facts: &ItemFacts<'_>, versions: &[u64]) {
+    assert!(facts.current_revision_asked());
+    for (name, actor) in roles() {
+        for version in versions {
+            let approve = Request {
+                expected_version: *version,
+                ..request(actor, ModerationAction::Approve, facts, None)
+            };
+            assert!(
+                policy.decide(facts, &approve).is_err(),
+                "{name} approved {} at version {version}",
+                facts.state.id()
+            );
+        }
+    }
+    assert!(!is_public(
+        &ItemFacts {
+            state: ModerationState::Approved,
+            approved_revision: Some(facts.revision),
+            ..*facts
+        },
+        ParticipationMode::Open
+    ));
+}
+
 #[test]
 fn clarification_never_publishes_the_original() {
     let policy = policy();
-    let mut facts = ItemFacts {
+    let original = ItemFacts {
         revision: 1,
         version: 1,
         ..item(
@@ -453,27 +483,59 @@ fn clarification_never_publishes_the_original() {
         ..request(
             admin(),
             ModerationAction::RequestClarification,
-            &facts,
+            &original,
             None,
         )
     };
-    let asked = policy.decide(&facts, &ask).unwrap();
-    let original_version = facts.version;
-    facts = apply(&facts, &asked);
+    let asked = policy.decide(&original, &ask).unwrap();
+    assert_eq!(asked.item.clarification_asked, Some(1));
+    let mut facts = apply(&original, &asked);
     assert_eq!(facts.state, ModerationState::Clarification);
     assert!(!is_public(&facts, ParticipationMode::Open));
     assert_eq!(asked.item.audit.reason, Some(ReasonCode::Unclear));
+    let in_clarification = facts;
 
     // The text asked about cannot be approved, by anyone, at any version.
-    for (_, actor) in roles() {
-        for version in [original_version, facts.version] {
-            let approve = Request {
-                expected_version: version,
-                ..request(actor, ModerationAction::Approve, &facts, None)
-            };
-            assert!(policy.decide(&facts, &approve).is_err());
-        }
-    }
+    assert_unapprovable(&policy, &facts, &[original.version, facts.version]);
+
+    // Rejected, then reopened: back to clarification, never to an approvable
+    // pending state, so the original still cannot be approved.
+    let reject = request(admin(), ModerationAction::Reject, &facts, None);
+    let rejected = apply(&facts, &policy.decide(&facts, &reject).unwrap());
+    assert_eq!(rejected.clarification_asked, Some(1));
+    let reopen = request(admin(), ModerationAction::Reopen, &rejected, None);
+    let reopened = apply(&rejected, &policy.decide(&rejected, &reopen).unwrap());
+    assert_eq!(reopened.state, ModerationState::Clarification);
+    assert_eq!(reopened.revision, 1);
+    assert_unapprovable(
+        &policy,
+        &reopened,
+        &[original.version, rejected.version, reopened.version],
+    );
+
+    // Expired unanswered, then reopened: the same.
+    let expire = Request {
+        at: day(400 + 30),
+        ..request(Actor::System, ModerationAction::Expire, &facts, None)
+    };
+    let expired = apply(&facts, &policy.decide(&facts, &expire).unwrap());
+    assert_eq!(expired.state, ModerationState::Rejected);
+    let reopen = request(admin(), ModerationAction::Reopen, &expired, None);
+    let reopened = apply(&expired, &policy.decide(&expired, &reopen).unwrap());
+    assert_eq!(reopened.state, ModerationState::Clarification);
+    assert_unapprovable(&policy, &reopened, &[expired.version, reopened.version]);
+
+    // Stored facts that claim pending at the asked revision are still refused.
+    let forged = ItemFacts {
+        state: ModerationState::Pending,
+        ..in_clarification
+    };
+    assert_unapprovable(&policy, &forged, &[forged.version]);
+    let approve = request(admin(), ModerationAction::Approve, &forged, None);
+    assert_eq!(
+        policy.decide(&forged, &approve),
+        Err(PolicyError::NotAllowed)
+    );
 
     // The submitter's answer replaces it as revision 2, pending again.
     let answer = policy
@@ -487,6 +549,7 @@ fn clarification_never_publishes_the_original() {
     let asked_version = facts.version;
     facts = apply(&facts, &answer);
     assert_eq!(facts.state, ModerationState::Pending);
+    assert!(!facts.current_revision_asked());
     assert!(!is_public(&facts, ParticipationMode::Open));
 
     // An approval prepared against the clarification-era version is stale.
@@ -495,6 +558,14 @@ fn clarification_never_publishes_the_original() {
         ..request(admin(), ModerationAction::Approve, &facts, None)
     };
     assert_eq!(policy.decide(&facts, &late), Err(PolicyError::Stale));
+
+    // Rejecting and reopening the answer returns it to pending: it is the
+    // submitter's new text, not the text asked about.
+    let reject = request(admin(), ModerationAction::Reject, &facts, None);
+    let rejected = apply(&facts, &policy.decide(&facts, &reject).unwrap());
+    let reopen = request(admin(), ModerationAction::Reopen, &rejected, None);
+    facts = apply(&rejected, &policy.decide(&rejected, &reopen).unwrap());
+    assert_eq!(facts.state, ModerationState::Pending);
 
     let approved = policy
         .decide(

@@ -34,7 +34,7 @@ pub enum ModerationState {
     /// Received and waiting for a moderator. Never public.
     Pending,
     /// A moderator asked the submitter to clarify. Never public, and the text
-    /// it asks about can never be approved.
+    /// it asks about can never be approved, now or after a reopening.
     Clarification,
     /// Accepted. Public while its kind is publishable and shown on its post.
     Approved,
@@ -112,6 +112,8 @@ impl ModerationState {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ModerationAction {
     /// Pending to approved, binding the approval to the current revision.
+    /// Refused while the current revision is one a clarification request
+    /// asked about.
     Approve,
     /// Pending or clarification to rejected, with a reason.
     Reject,
@@ -123,7 +125,10 @@ pub enum ModerationAction {
     Clarify,
     /// Approved to removed, with a reason.
     Remove,
-    /// Rejected or removed back to pending, while the text is still kept.
+    /// Rejected or removed back to pending, while the text is still kept. An
+    /// item whose current revision a clarification request asked about (it
+    /// was rejected or expired before the submitter answered) returns to
+    /// clarification instead, so only an answer can make it approvable.
     Reopen,
     /// The submitter takes the item back from pending, clarification or
     /// approved.
@@ -370,6 +375,11 @@ pub struct ItemFacts<'a> {
     pub revision: u32,
     /// The revision an approval covers, set only while approved.
     pub approved_revision: Option<u32>,
+    /// The revision a moderator last asked the submitter to clarify. It stays
+    /// recorded after rejection, expiry or reopening; only the submitter's
+    /// answer, a later revision, moves the item past it. While it equals
+    /// `revision` the item can never be approved or public.
+    pub clarification_asked: Option<u32>,
     /// The submitter agreed to be asked to clarify.
     pub clarification_consent: bool,
     /// Whether the text, details and reader name are still stored. Retention
@@ -377,6 +387,14 @@ pub struct ItemFacts<'a> {
     pub content_retained: bool,
     /// When the item entered its current state.
     pub state_since: DateTime,
+}
+
+impl ItemFacts<'_> {
+    /// Whether a clarification request asked about the current revision, so
+    /// the text it carries is the text the submitter was asked to change.
+    pub fn current_revision_asked(&self) -> bool {
+        self.clarification_asked == Some(self.revision)
+    }
 }
 
 /// A request to change an item.
@@ -406,6 +424,9 @@ pub struct Transition {
     /// The revision a clarification replaced. Its text must not be kept as
     /// a publishable revision.
     pub superseded_revision: Option<u32>,
+    /// The item's [`ItemFacts::clarification_asked`] after the change: set to
+    /// the current revision by a clarification request, otherwise unchanged.
+    pub clarification_asked: Option<u32>,
     pub audit: AuditEvent,
 }
 
@@ -746,7 +767,18 @@ impl ModerationPolicy {
         if request.expected_version != item.version {
             return Err(PolicyError::Stale);
         }
-        let to = next_state(action, item.state).ok_or(PolicyError::NotAllowed)?;
+        let to = match (action, next_state(action, item.state)) {
+            (_, None) => return Err(PolicyError::NotAllowed),
+            // The text a clarification request asked about is never
+            // approved, whatever happened to the item since (ADR 0101).
+            (ModerationAction::Approve, Some(_)) if item.current_revision_asked() => {
+                return Err(PolicyError::NotAllowed)
+            }
+            (ModerationAction::Reopen, Some(_)) if item.current_revision_asked() => {
+                ModerationState::Clarification
+            }
+            (_, Some(to)) => to,
+        };
         let allowed = allowed_reasons(action, item.kind);
         match request.reason {
             None if !allowed.is_empty() => return Err(PolicyError::ReasonRequired),
@@ -860,13 +892,15 @@ impl ModerationPolicy {
 }
 
 /// Whether an item may be shown to readers, counted or previewed in public:
-/// a publishable kind, approved at its current revision, text still kept,
-/// and the kind shown on its post. Everything else, including any state a
+/// a publishable kind, approved at its current revision, that revision not
+/// one a clarification request asked about, text still kept, and the kind
+/// shown on its post. Everything else, including any state a
 /// reader of stored data does not recognise, is private.
 pub fn is_public(item: &ItemFacts<'_>, mode: ParticipationMode) -> bool {
     item.kind.rules().publishable
         && item.state == ModerationState::Approved
         && item.approved_revision == Some(item.revision)
+        && !item.current_revision_asked()
         && item.content_retained
         && mode.shows_approved()
 }
@@ -937,6 +971,10 @@ fn applies(kind: ParticipationKind, action: ModerationAction) -> bool {
 }
 
 /// The state machine. `None` means the action does not apply from `from`.
+/// One exception depends on the item rather than its state: reopening an
+/// item whose current revision a clarification request asked about returns
+/// it to clarification, and approving such an item is refused
+/// ([`ItemFacts::current_revision_asked`]).
 pub fn next_state(action: ModerationAction, from: ModerationState) -> Option<ModerationState> {
     use ModerationAction as A;
     use ModerationState as S;
@@ -975,6 +1013,11 @@ fn transition(
         revision,
         approved_revision: (to == ModerationState::Approved).then_some(revision),
         superseded_revision: clarified.then_some(item.revision),
+        clarification_asked: if action == ModerationAction::RequestClarification {
+            Some(item.revision)
+        } else {
+            item.clarification_asked
+        },
         audit: AuditEvent {
             item: item.id.to_string(),
             kind: item.kind,
