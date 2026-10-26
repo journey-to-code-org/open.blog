@@ -5,8 +5,6 @@ mod admin_preferences;
 mod analytics;
 mod assistant;
 mod assistant_storage;
-// Atlas changes are driven by tests until the Admin atlas workspace (#50) calls them.
-#[cfg_attr(not(test), allow(dead_code))]
 mod atlas_store;
 mod auth;
 mod clock;

@@ -270,6 +270,11 @@ impl RelationshipKind {
         self.spec().symmetric
     }
 
+    /// Whether both ends must be the same kind of entry (`part-of`).
+    pub fn requires_same_kind(self) -> bool {
+        self.spec().same_kind
+    }
+
     /// Whether a cycle of this kind is refused.
     pub fn is_acyclic(self) -> bool {
         self.spec().acyclic
@@ -1374,6 +1379,13 @@ pub struct AtlasIndex {
     /// Relationships whose evidence points into each notebook passage: what
     /// blocks removing the passage.
     pub by_passage: BTreeMap<String, Vec<String>>,
+}
+
+/// Whether a value is a well-formed atlas identifier: a lowercase ASCII slug
+/// of at most 64 bytes. Callers check request ids with it before naming them
+/// in a response, so a hostile id is never echoed.
+pub fn valid_id(value: &str) -> bool {
+    valid_source_id(value)
 }
 
 /// Whether a parsed JSON object has the shape of a Knowledge Atlas file,
