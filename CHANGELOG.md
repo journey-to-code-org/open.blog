@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-10-26
+
 - Defined the format for private claims in draft posts and evidence links that record whether a
   source supports, contradicts or contextualizes each claim, with rationale, uncertainty, review
   state and provenance. A citation alone never asserts support, contradicting evidence cannot be
