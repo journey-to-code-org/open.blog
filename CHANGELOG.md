@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-10-26
+
 - Defined the reader-facing reference data behind citation previews: each cited reference has a
   stable id (its citation key, distinct per edition), each citation names its marker, note and
   locators, and only the public reference description is included. Posts without published
