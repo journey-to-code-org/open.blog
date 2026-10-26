@@ -238,7 +238,7 @@ entry's relationships as text. There is no graph drawing.
 
 | Route | Purpose |
 | --- | --- |
-| `GET /admin/api/research/atlas` | `file`, `revision`, `stored`, `entries`, `relationships`, `notices`, `missingConcepts`, `kinds` (each relationship kind's endpoint kinds, `inverse`, `symmetric`, `sameKind`, `acyclic`), the library's `sources`, and notebook `passages` as `id`, `source`, `locators`, `archived` and a short `preview`. |
+| `GET /admin/api/research/atlas` | `file`, `revision`, `stored`, `entries`, `relationships`, `notices`, `missingConcepts`, `kinds` (each relationship kind's endpoint kinds, `inverse`, `symmetric`, `sameKind`, `acyclic`; each dating `aspect` with its `entries`, `relationship` and `durative`; `orders`, `maxDatings`, `maxYear`), `chronology` (below), the library's `sources`, and notebook `passages` as `id`, `source`, `locators`, `archived` and a short `preview`. |
 | `POST /admin/api/research/atlas/explore` | Body `{ id }`. `entry`, `outgoing` and `incoming`, each item with the relationship, its `label` read from this entry's side, the `other` entry, its derived `standing` (`asserted` or `contested`) and whether it is `projected`; for a concept, the notebook `notes` that link it. Read-only; an unknown id is `404`. |
 | `POST` / `PUT /admin/api/research/atlas/entries` | Body `{ revision, entry }`. Create refuses an id any entry or relationship uses; update refuses an unknown id or a new kind. |
 | `POST` / `PUT /admin/api/research/atlas/relationships` | Body `{ revision, relationship }`. Same rules. |
@@ -250,8 +250,25 @@ plus the saved `entry` or `relationship`. `409` carries `conflict`, the latest `
 and the stored `current` copy; `422` carries scoped `diagnostics` and the `file`. An id in a
 removal or exploration request that is not an atlas identifier is `400` and is never echoed.
 
-The entry form says how many datings an entry has and keeps them, with every unknown field,
-unchanged on save; datings are edited in the atlas file for now.
+`chronology` ([ADR 0123](../adr/0123-chronology-is-authored-and-explored-in-admin-as-text.md)) is
+the chronology index for the author: `timeline`, every dating in index order as `id`, `owner`,
+`collection`, `index`, `field` (`dates[1]`), `aspect`, `text` (the stated value read back),
+`placement` (`dated`, `relative` or `unknown`), `startYear` and `endYear` (null for an open end,
+a relative or an unknown dating) and `projected`; `prompts`; and `unlisted`. It is on every
+response that carries the view and is never published.
+
+Both editors have a Dates fieldset: per dating, an identifier (fixed once stored), the aspect
+(only those the owner may have), the form (at, from/to, notBefore/notAfter, unknown, relative),
+each point's precision with digits and a BCE/CE choice, month, day, circa and calendar, the
+relative order, entry and aspect (only aspects that entry has; `during` only those that last),
+who dates it, confidence, evidence or the unsourced draft state, a note and approval, with a
+"Reads:" line in the core's words. Every unknown field is kept. After a conflict, "Keep my draft"
+rests each dating on the stored dating with the same id and adds datings recorded elsewhere.
+The Chronology panel lists dated aspects (an item's datings of one aspect, side by side) in index
+order, grouped by century, decade or year, with "Not placed in time", relative datings as
+sentences and "Datings to check" linking each prompt to its dating. Its filters (text, aspect,
+a BCE/CE time window, only competing, only prompted) hide or show whole dated aspects, and a
+status line states the filters in force. There is no drawing.
 The editor offers only the entries a relationship kind may join, sources from the library
 and passages from the notebook for evidence, the three kinds of attribution, confidence,
 an uncertainty note and recorded dissents. A relationship needs evidence or the explicit

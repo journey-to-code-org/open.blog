@@ -757,8 +757,10 @@ _Avoid_: Date field, the date of something; a date without who gives it
 **Dated aspect**:
 What a dating dates: an entry's `span`, a person's `birth`, `death` or `active` period, a work's
 `composition` or `publication`, a concept's or movement's `emergence`, or the `span` during which
-a relationship held. Only span, active and composition last.
-_Avoid_: Event type, role
+a relationship held. Only span, active and composition last. The chronology explorer lists one
+item's dated aspect (Plato's birth) as one row holding all its competing datings, and its filters
+show or hide a whole dated aspect, never one of its datings.
+_Avoid_: Event type, role; a timeline bar or merged date range for one aspect
 
 **Date expression**:
 The one form a dating takes: a point (`at`), a duration (`from`/`to`), a date window
@@ -821,6 +823,13 @@ dating ids and their stated values, asks the author to check them against the ci
 never says which dating is right; only relationships and relative datings someone asserted are
 followed across entries.
 _Avoid_: Chronology error, conflict resolution, verdict, inferred influence
+
+**Chronology explorer**:
+Admin Studio's text view of the chronology index: dated aspects in one display order, grouped by
+century, decade or year at the author's choice, with relative datings as sentences and
+chronology prompts as checks that link to the dating. It is lists and words only, private to the
+author, and never resolves or ranks datings.
+_Avoid_: Timeline chart, canonical chronology, zoomable graph
 
 **Atlas projection**:
 The one public form of the Knowledge Atlas: approved entries and projected relationships, each
