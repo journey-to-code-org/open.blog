@@ -876,9 +876,13 @@ pub struct ConsentChange {
 pub enum ConsentOutcome {
     /// Recorded; the public projection follows it at once.
     Recorded,
-    /// Publication revoked: apply RD12's `withdraw` in the same write. Its
-    /// text is purged at once.
+    /// Publication revoked on a hosted copy: apply RD12's `withdraw` by
+    /// `Actor::Submitter` in the same write. Its text is purged at once.
     Withdraw,
+    /// Publication revoked on a manual copy, which has no submitter RD12
+    /// would accept: apply a site Admin's `Remove` in the same write, then
+    /// purge the text at once. The consent change is still recorded.
+    RemoveAndPurge,
 }
 
 // ---------------------------------------------------------------------------
@@ -1587,7 +1591,8 @@ impl SubmittedCopy {
     /// text is kept. Showing a name, or another name, is accepted only while
     /// undecided (pending or clarification). Feature consent binds to the
     /// approved revision, or before a decision to the current one. Revoking
-    /// publication is final and asks for RD12's withdrawal where it applies.
+    /// publication is final and asks for RD12's withdrawal where it applies
+    /// (a site Admin's removal and purge for a manual copy).
     pub fn revise_consent(
         &mut self,
         facts: &ModerationFacts,
@@ -1617,10 +1622,19 @@ impl SubmittedCopy {
                 clarification: false,
                 feature_revision: None,
             });
-            return Ok(match facts.state {
-                ModerationState::Pending
-                | ModerationState::Clarification
-                | ModerationState::Approved => ConsentOutcome::Withdraw,
+            return Ok(match (facts.state, &self.intake) {
+                (
+                    ModerationState::Pending
+                    | ModerationState::Clarification
+                    | ModerationState::Approved,
+                    Intake::Hosted { .. },
+                ) => ConsentOutcome::Withdraw,
+                (
+                    ModerationState::Pending
+                    | ModerationState::Clarification
+                    | ModerationState::Approved,
+                    Intake::Manual { .. },
+                ) => ConsentOutcome::RemoveAndPurge,
                 _ => ConsentOutcome::Recorded,
             });
         }
@@ -1679,6 +1693,13 @@ impl SubmittedCopy {
         Ok(ConsentOutcome::Recorded)
     }
 
+    /// Whether the reader can answer a clarification: only a hosted copy has
+    /// a submitter (RD12's `Actor::Submitter`, proven by a receipt). A
+    /// manual copy cannot be clarified.
+    pub fn can_clarify(&self) -> bool {
+        matches!(self.intake, Intake::Hosted { .. })
+    }
+
     /// The reader's answer to a clarification request: it replaces the text
     /// as the next revision (apply RD12's `clarify` in the same write). The
     /// text asked about is never approved; a feature consent for it no
@@ -1690,6 +1711,9 @@ impl SubmittedCopy {
         at: DateTime,
     ) -> Result<u32, LifecycleError> {
         self.in_step(facts)?;
+        if !self.can_clarify() {
+            return Err(LifecycleError::ClarificationUnavailable);
+        }
         if facts.state != ModerationState::Clarification {
             return Err(LifecycleError::NotInClarification);
         }

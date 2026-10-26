@@ -62,6 +62,13 @@ change consent, answer a clarification), and every decision has to say who made 
     asks the caller to apply RD12's `withdraw` in the same write (whose text is purged at once). A
     rejected or removed copy records it too, and can then never be approved again. Nothing follows
     a revocation, and a withdrawn copy accepts no change.
+  - **A manual copy has no submitter.** RD12 lets only `Actor::Submitter` withdraw or clarify, and
+    a reader becomes a submitter only through a receipt, which a manual copy (entered by an Admin
+    user for a reader who wrote in another way) does not have. So for a manual copy, revoking
+    publication is recorded as above but asks for a site Admin's `Remove` followed at once by a
+    purge of the text (`ConsentOutcome::RemoveAndPurge`, in the same write), and a manual copy
+    cannot be clarified (`clarificationUnavailable`; `can_clarify` is false). Narrowing a manual
+    copy is an ordinary recorded change.
   - A change identical to the consent in effect, or dated before it, is refused, and nothing
     changes. Revocation never depends on anything else a change says.
 - **Anonymous display, never anonymous provenance.** Whatever the reader shows publicly, the
@@ -91,6 +98,8 @@ change consent, answer a clarification), and every decision has to say who made 
 
 ## Consequences
 
+- A manual copy whose reader wants to answer a clarification can only be removed and entered
+  again; the conservative choice, since no one else may speak for the reader.
 - RD10.3 (#222) issues the receipt whose digest is the intake, and uses it to prove the
   submitter for consent changes, clarification answers and withdrawal.
 - RD14 (#214) builds feature placement on `featureRevision` and the editorial

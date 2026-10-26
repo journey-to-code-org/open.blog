@@ -852,7 +852,8 @@ _Avoid_: Terms acceptance, checkbox state, approval
 **Intake**:
 How a submitted copy can be acted for: the digest of the private receipt a hosted submitter
 holds, or the Admin user who entered a reader's message by hand. Never the receipt itself and
-never public.
+never public. A manual copy has no submitter: revoking it is an Admin removal with an immediate
+purge, and it cannot be clarified.
 _Avoid_: Account, login, contact details
 
 **Moderation provenance**:

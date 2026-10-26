@@ -879,6 +879,82 @@ fn revoking_publication_is_a_final_withdrawal() {
     );
 }
 
+fn manual_copy() -> SubmittedCopy {
+    local(ReaderAttribution::named("Mina Okafor", true))
+        .submission(consent(true, false))
+        .receive(
+            received(),
+            Intake::Manual {
+                entered_by: "mikey".into(),
+            },
+        )
+        .unwrap()
+}
+
+#[test]
+fn a_manual_copy_is_revoked_by_an_admin_removal_and_purge_and_cannot_be_clarified() {
+    let later = time("2026-10-27T08:00:00Z");
+    for state in [
+        ModerationState::Pending,
+        ModerationState::Clarification,
+        ModerationState::Approved,
+    ] {
+        let mut copy = manual_copy();
+        assert!(!copy.can_clarify());
+        assert_eq!(
+            copy.revise_consent(
+                &facts(state),
+                change(false, ReaderAttribution::anonymous()),
+                later
+            ),
+            Ok(ConsentOutcome::RemoveAndPurge),
+            "{state:?}: no submitter exists for RD12's withdraw"
+        );
+        assert!(!copy.consent().publish, "the consent change is recorded");
+        assert_eq!(copy.consent().number, 2);
+        assert_eq!(
+            copy.approved_response(&facts(state), true, &tides(), &whole()),
+            None
+        );
+        assert!(SubmittedCopy::from_json(&copy.to_json()).is_ok());
+    }
+    for state in [ModerationState::Rejected, ModerationState::Removed] {
+        assert_eq!(
+            manual_copy().revise_consent(
+                &facts(state),
+                change(false, ReaderAttribution::anonymous()),
+                later
+            ),
+            Ok(ConsentOutcome::Recorded)
+        );
+    }
+
+    let mut copy = manual_copy();
+    assert_eq!(
+        copy.clarify(
+            &facts(ModerationState::Clarification),
+            "A clearer reading of the ending.",
+            later
+        ),
+        Err(LifecycleError::ClarificationUnavailable)
+    );
+    assert_eq!(copy.revision, 1, "nothing changed");
+    assert_eq!(
+        LifecycleError::ClarificationUnavailable.code(),
+        "clarificationUnavailable"
+    );
+
+    // Narrowing a manual copy is still an ordinary recorded change.
+    assert_eq!(
+        manual_copy().revise_consent(
+            &facts(ModerationState::Approved),
+            change(true, ReaderAttribution::named("Mina Okafor", false)),
+            later
+        ),
+        Ok(ConsentOutcome::Recorded)
+    );
+}
+
 #[test]
 fn feature_consent_binds_to_one_approved_revision() {
     let later = time("2026-10-27T08:00:00Z");

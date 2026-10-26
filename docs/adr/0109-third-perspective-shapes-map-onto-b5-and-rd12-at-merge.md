@@ -34,8 +34,9 @@ each is replaced as follows; stored records and submissions keep their exact byt
 | `ModerationFacts` | `moderation::ItemFacts` plus the stored `approved_consent` | `state`, `revision`, `approved_revision` and `content_retained` are `ItemFacts` fields of the same names; `approved_consent` is stored with the approval (below). Add a constructor from `&ItemFacts` and the consent number. |
 | `shown: bool` | `participation::effective_mode(config, post, ParticipationKind::ThirdPerspective)` | `shown = mode.shows_approved()`. `approved_response` then implies RD12's `moderation::is_public(item, mode)`, and adds the consent, work and name rules. |
 | `ApprovalRequest::moderator` | `moderation::AuditEvent::actor_id` from the `Actor` | The inbox resolves the actor through RD12, calls `ModerationPolicy::decide` with `Approve`, and before applying it calls `check_approval` with the actor id; both results go in one write. |
-| `ConsentOutcome::Withdraw` | `moderation::ModerationAction::Withdraw` by `Actor::Submitter` | Apply in the same write as the consent record. |
-| `SubmittedCopy::clarify` | `moderation::ModerationAction::Clarify` | Same write; RD12's `superseded_revision` is the replaced text, which is not kept as a publishable revision. |
+| `ConsentOutcome::Withdraw` | `moderation::ModerationAction::Withdraw` by `Actor::Submitter` | Hosted copies only. Apply in the same write as the consent record. |
+| `ConsentOutcome::RemoveAndPurge` | `moderation::ModerationAction::Remove` by a site Admin, then purge of the text | Manual copies only: RD12 accepts a withdrawal or clarification only from `Actor::Submitter`, and only a receipt makes a reader one. Apply the Remove and the purge in the same write as the consent record. |
+| `SubmittedCopy::clarify` | `moderation::ModerationAction::Clarify` | Hosted copies only (a manual copy is refused with `clarificationUnavailable`). Same write; RD12's `superseded_revision` is the replaced text, which is not kept as a publishable revision. |
 | `ConsentChoices::clarification` | `moderation::Submission::clarification_consent` | Record 1 sets it at admission; the stored `clarification_consent` then follows the consent in effect, so a reader who later declines can no longer be asked. |
 | `Stage` | `moderation::ModerationState` and `ItemFacts::content_retained` | Unchanged: a pure view over RD12's facts. |
 
