@@ -29,6 +29,8 @@ If you are new, read these in order; each one stands alone otherwise.
 12. [Research posts and Evidence Studio](research-profile.md): DOI and license fields,
    visible references, contributor-credit demonstration, scholarly metadata, deterministic
    evidence checks, and their limits.
+12a. [Research checks](research-checks.md): what every finding in the research report means, how to
+   fix it, and what acknowledging one does and does not mean.
 13. [Video productions and release kits](video-production.md): YouTube embeds, transcripts,
    chapter validation, structured data, and reusable release copy.
 14. [Field journals and private-by-default tracks](field-journal.md): local GPX analysis,

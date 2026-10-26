@@ -17162,6 +17162,92 @@ mod tests {
     }
 
     #[test]
+    fn the_corpus_case_for_an_unreadable_claims_file_is_named_once_in_a_posts_own_review() {
+        let corpus: Json = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/scholarly-safeguards/corpus.json"
+        ))
+        .unwrap();
+        for case in corpus["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|case| case["layer"] == "admin")
+        {
+            let f = fixture("scholarly-admin-case");
+            for (path, content) in case["files"].as_object().unwrap() {
+                let target = f.dir.join(path);
+                fs::create_dir_all(target.parent().unwrap()).unwrap();
+                match content.as_str() {
+                    Some(text) => fs::write(target, text).unwrap(),
+                    None => fs::write(target, content.to_string()).unwrap(),
+                }
+            }
+            let source = case["files"]["content/posts/lanterns.md"].as_str().unwrap();
+            let sources = f.dir.join(".openblog/private/research/sources.json");
+            fs::create_dir_all(sources.parent().unwrap()).unwrap();
+            fs::write(
+                &sources,
+                corpus["base"]["files"][".openblog/private/research/sources.json"].to_string(),
+            )
+            .unwrap();
+            for directory in case["dirs"].as_array().unwrap() {
+                let path = f.dir.join(directory.as_str().unwrap());
+                let _ = fs::remove_file(&path);
+                fs::create_dir_all(path).unwrap();
+            }
+            let config_path = f.dir.join("openblog.json");
+            let mut config: Json =
+                serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+            for (key, value) in case["config"].as_object().unwrap() {
+                config[key] = value.clone();
+            }
+            fs::write(&config_path, config.to_string()).unwrap();
+            let body = source.split_once("---\n\n").unwrap().1;
+            let session = login_ok(&f);
+            let response = handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "POST",
+                        "/admin/api/research/review",
+                        json!({"kind": "posts", "path": case["review"]["path"],
+                            "fields": {"title": "Lanterns", "date": "2026-10-01", "profile": "research", "citations": "notes"},
+                            "body": body}),
+                    ),
+                    &session,
+                    true,
+                ),
+            );
+            assert_eq!(
+                response.status,
+                200,
+                "{}",
+                String::from_utf8_lossy(&response.body)
+            );
+            let review = body_json(&response);
+            let found: std::collections::BTreeSet<String> = review["findings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|finding| {
+                    format!(
+                        "{}: {}",
+                        finding["validator"].as_str().unwrap(),
+                        finding["code"].as_str().unwrap()
+                    )
+                })
+                .collect();
+            let expected: std::collections::BTreeSet<String> = case["emits"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| row.as_str().unwrap().to_string())
+                .collect();
+            assert_eq!(found, expected, "{}: {review}", case["id"]);
+        }
+    }
+
+    #[test]
     fn a_stale_approval_is_withheld_and_a_blocking_failure_stops_the_build_before_anything_changes()
     {
         let f = boundary_fixture("readiness-blocking");
