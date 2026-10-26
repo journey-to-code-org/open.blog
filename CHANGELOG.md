@@ -13,6 +13,12 @@ All notable changes to open.blog are recorded here. Releases follow
   again. Times are read the same way every time, a malformed one is refused without losing what
   was typed, and every moment keeps a link to the original source, starting at the moment where
   the provider allows it. Nothing about moments is published yet.
+- Quotations in moments are now credited the same precise way everywhere in Admin and the combined
+  preview: who said the words, the source and the time or page. Choosing a rights status shows plain
+  guidance on what that status states, always as your own statement: open.blog does not check
+  rights or decide how words may be used. You can add a one-line rights note for your co-authors,
+  such as who gave permission, which is never published. A quotation that names no speaker or runs
+  past 300 characters gets a gentle warning as you type, and still saves.
 
 ## [0.29.0] - 2026-10-26
 

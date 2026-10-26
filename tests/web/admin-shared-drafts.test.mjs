@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { MOMENT_LOCATOR_KINDS, QUOTATION_PROVENANCE, QUOTATION_RIGHTS, momentLinkText, momentLocationError, momentPayload, momentText, momentsFailure, parseMomentTimestamp, sortMoments } from "../../web/admin/admin.js";
+import { MOMENT_LOCATOR_KINDS, QUOTATION_PROVENANCE, QUOTATION_RIGHTS, momentLinkText, momentLocationError, momentPayload, momentText, momentsFailure, parseMomentTimestamp, quotationNotices, rightsGuidanceText, sortMoments } from "../../web/admin/admin.js";
 import { APPROVAL_REQUIREMENTS, APPROVAL_ROLE_CHOICES, ARRANGEMENT_LAYOUTS, ObAdmin, approvalPeopleRows, approvalPolicyChoice, approvalPolicyPayload, approvalRuleFailure, approvalRuleText, REFLECTION_PROMPTS, SYNTHESIS_KINDS, TURN_LABEL_MAX_BYTES, arrangementDraft, arrangementFailure, arrangementPayload, draftFailure, draftStateText, insertAtSelection, moveItem, moveSynthesisItem, nextRoundId, partBreakInsertion, previewItemText, previewSectionText, previewStateText, promptInsertion, revealSlotText, synthesisFailure, synthesisItemText, validateArrangement } from "../../web/admin/admin.js";
 
 const admin = readFileSync(new URL("../../web/admin/admin.js", import.meta.url), "utf8");
@@ -223,6 +223,36 @@ const SOURCES = [
   { id: "source-3", kind: "podcast", kindLabel: "Podcast", title: "A podcast", url: "https://podcasts.example/12" },
 ];
 
+/** The server's quotation guide (ADR 0075), shaped as `quotation_guide` sends it. */
+const GUIDE = {
+  briefQuotationChars: 300,
+  maxQuotationChars: 1000,
+  maxRightsNoteBytes: 500,
+  statement: "The rights status is the participant's own statement about these words. open.blog records it and shows it to co-authors; it does not check rights or decide how the words may be used.",
+  rights: [
+    { value: "unknown", label: "Not checked yet", guidance: "Nobody has considered yet how these words may be reused." },
+    { value: "briefQuotation", label: "A brief quotation for commentary or review", guidance: "This states that the words are quoted briefly to comment on, criticise or review the source." },
+    { value: "permission", label: "The rights holder gave permission", guidance: "This states that the rights holder agreed to this use. Say in the rights note who agreed and when." },
+    { value: "openLicense", label: "The source is under an open licence", guidance: "This states that the source carries an open licence covering this use." },
+    { value: "publicDomain", label: "The source is in the public domain", guidance: "This states that the source is in the public domain." },
+    { value: "ownWords", label: "The participant's own words", guidance: "This states that the words are the participant's own." },
+  ],
+  notices: {
+    noSpeaker: "No speaker is named, so the words are credited to the source alone. Name who said or wrote them if you know.",
+    long: "This quotation is longer than 300 characters. Consider quoting only the words the point needs.",
+    longForBriefQuotation: "This quotation is longer than 300 characters, which is long for a brief quotation. Consider quoting fewer words. This is a guide, not a legal limit.",
+  },
+};
+
+/** The attribution line and warnings the server derives for a stored moment. */
+function serverAttribution(moment, location) {
+  const source = SOURCES.find((entry) => entry.id === moment.source);
+  const where = source ? `${source.title} (${source.kindLabel})` : null;
+  const speaker = moment.quotation?.speaker;
+  if (speaker) return where ? `${speaker}, in ${where}, ${location}` : `${speaker}, in a source that is no longer listed, ${location}`;
+  return where ? `${where}, ${location}` : `A source that is no longer listed, ${location}`;
+}
+
 /** The link the server derives from the source's own address: a start time only for YouTube. */
 function serverLink(moment) {
   const source = SOURCES.find((entry) => entry.id === moment.source);
@@ -242,7 +272,8 @@ function applyMoments(state, body) {
     if (/<|javascript:/.test(moment.observation || "")) throw new FakeApiError("bad", 422, { error: "That moment has raw HTML, an image, a heading, a footnote, or a link that is not an absolute http(s) address. Nothing was changed.", field: "observation" });
     const time = moment.locators[0];
     const location = time.kind === "timestamp" ? (time.to ? `from ${time.value} to ${time.to}` : `at ${time.value}`) : time.to ? `${time.kind}s ${time.value} to ${time.to}` : `${time.kind} ${time.value}`;
-    return { id, ...moment, quotation: moment.quotation || null, observation: moment.observation || null, location, link: serverLink(moment) };
+    const notices = moment.quotation ? quotationNotices({ quote: moment.quotation.text, speaker: moment.quotation.speaker, rights: moment.quotation.rights }, GUIDE) : [];
+    return { id, ...moment, quotation: moment.quotation || null, observation: moment.observation || null, location, attribution: serverAttribution(moment, location), notices, link: serverLink(moment) };
   };
   if (change.action === "add") moments.push(shaped(`moment-${current.next + 1}`, change.moment));
   else if (change.action === "edit") moments = moments.map((moment) => (moment.id === change.id ? shaped(change.id, change.moment) : moment));
@@ -253,7 +284,7 @@ function applyMoments(state, body) {
 
 /** A stand-in for the Admin API: it checks the expected revision like the server does. */
 function fakeApi({ number = 0, markdown = "", reveal = {}, failures = {} } = {}) {
-  const state = { number, markdown, calls: [], moments: { revision: 0, next: 0, moments: [], shared: [], sources: SOURCES, you: "p-me" }, synthesis: { revision: 0, items: [], authors: [ME, OTHER], you: "p-me" }, reveal: { policy: "voluntary", ready: false, canSetPolicy: false, slots: [], ...reveal } };
+  const state = { number, markdown, calls: [], moments: { revision: 0, next: 0, moments: [], shared: [], sources: SOURCES, you: "p-me", quotationGuide: GUIDE }, synthesis: { revision: 0, items: [], authors: [ME, OTHER], you: "p-me" }, reveal: { policy: "voluntary", ready: false, canSetPolicy: false, slots: [], ...reveal } };
   return {
     state,
     async call(method, path, options = {}) {
@@ -1434,7 +1465,7 @@ test("unavailable embeds and sources without a link still leave a working link o
   const [book, podcast] = momentItems(panel);
   assert.match(textOf(book), /A book \(Book\), page 12/, "listed in source order");
   assert.match(textOf(book), /This source has no link\. The location is kept with the moment\./);
-  assert.match(textOf(book), /Said by Ada/);
+  assert.match(textOf(book), /— Ada, in A book \(Book\), page 12/);
   assert.equal(book.querySelector("a"), null);
   assert.equal(podcast.querySelector("a").attributes.href, "https://podcasts.example/12");
   assert.match(textOf(podcast), /find the location yourself/);
@@ -1566,4 +1597,88 @@ test("a successful offer reloads the moments panel, keeping what was typed", wit
   assert.equal(api.state.calls.filter((call) => call.key === "GET collaboration/moments").length, before + 1);
   assert.match(textOf(momentsRoot(panel)), /Seen after the offer\./);
   assert.equal(momentField(panel, "observation").value, "Half-typed note");
+}));
+
+// ---------------------------------------------------------------- quotation attribution and rights guidance (ADR 0075)
+
+test("quotation warnings count Unicode characters and say nothing without the server's guide", () => {
+  const at = "a".repeat(300);
+  assert.deepEqual(quotationNotices({ quote: "Listen first.", speaker: "Ada", rights: "briefQuotation" }, GUIDE), []);
+  assert.deepEqual(quotationNotices({ quote: "Listen first.", speaker: "  ", rights: "briefQuotation" }, GUIDE).map((n) => n.code), ["noSpeaker"]);
+  assert.deepEqual(quotationNotices({ quote: at, speaker: "Ada", rights: "briefQuotation" }, GUIDE), [], "exactly at the guide is not long");
+  assert.deepEqual(quotationNotices({ quote: `${at}x`, speaker: "Ada", rights: "briefQuotation" }, GUIDE).map((n) => n.code), ["longForBriefQuotation"]);
+  assert.deepEqual(quotationNotices({ quote: `${at}x`, speaker: "", rights: "permission" }, GUIDE).map((n) => n.code), ["noSpeaker", "long"]);
+  // Astral characters count once, as the server counts them; newlines count too.
+  const astral = "🎙".repeat(150) + "\n".repeat(150);
+  assert.equal(astral.length, 450, "UTF-16 length would wrongly call it long");
+  assert.deepEqual(quotationNotices({ quote: astral, speaker: "Ada", rights: "briefQuotation" }, GUIDE), []);
+  assert.deepEqual(quotationNotices({ quote: `${astral}x`, speaker: "Ada", rights: "briefQuotation" }, GUIDE).map((n) => n.code), ["longForBriefQuotation"]);
+  assert.deepEqual(quotationNotices({ quote: "", speaker: "" }, GUIDE), [], "no quotation, nothing to check");
+  assert.deepEqual(quotationNotices({ quote: `${at}x`, speaker: "" }, undefined), [], "no guide, no guess");
+  assert.match(rightsGuidanceText("permission", GUIDE), /who agreed and when.*does not check rights/);
+  assert.equal(rightsGuidanceText("", GUIDE), GUIDE.statement);
+});
+
+test("the rights note is sent trimmed with the quotation and kept when editing", () => {
+  const typed = { source: "source-1", kind: "timestamp", value: "1:02", to: "", quote: "Line one\nLine two", speaker: "Ada", rights: "permission", rightsNote: "  Agreed by email, 3 March  ", provenance: "supplied", observation: "", publish: true };
+  const { moment } = momentPayload(typed);
+  assert.equal(moment.quotation.rightsNote, "Agreed by email, 3 March");
+  assert.equal(moment.quotation.text, "Line one\nLine two", "multiline quotations are sent exactly");
+  assert.equal(momentPayload({ ...typed, rightsNote: "   " }).moment.quotation.rightsNote, undefined);
+  assert.equal(momentPayload({ ...typed, quote: "" , observation: "Mine" }).moment.quotation, undefined, "no quotation, no note");
+});
+
+test("the form shows neutral rights guidance and live warnings that never block saving", withDom(async () => {
+  const api = fakeApi();
+  const { panel } = await openDraft(api);
+  const guidance = panel.querySelector("#oba-moments-0-rights-guidance");
+  const notices = panel.querySelector("#oba-moments-0-quote-notices");
+  assert.equal(guidance.attributes["aria-live"], "polite");
+  assert.equal(momentField(panel, "rights").attributes["aria-describedby"], "oba-moments-0-rights-guidance");
+  assert.match(textOf(guidance), /does not check rights/, "the statement shows before a status is chosen");
+  await typeMoment(panel, { source: "source-1", value: "1:02", quote: "a".repeat(301), rights: "briefQuotation", provenance: "transcribed" });
+  assert.match(textOf(guidance), /quoted briefly to comment on/);
+  assert.match(textOf(notices), /No speaker is named/);
+  assert.match(textOf(notices), /long for a brief quotation/);
+  assert.match(textOf(panel.querySelector("#oba-moments-0-quote-count")), /301 of 1000 characters/);
+  await typeMoment(panel, { speaker: "The host" });
+  assert.doesNotMatch(textOf(notices), /No speaker is named/);
+  await typeMoment(panel, { rights: "permission", rightsNote: "Agreed by the host" });
+  assert.match(textOf(guidance), /who agreed and when/);
+  assert.match(textOf(notices), /longer than 300 characters\. Consider quoting only/);
+  // Saving goes ahead with the warnings: they are advice.
+  await momentSubmit(panel);
+  await settle();
+  const sent = lastCall(api).body.change.moment;
+  assert.equal(sent.quotation.rightsNote, "Agreed by the host");
+  assert.equal(sent.quotation.speaker, "The host");
+  const [item] = momentItems(panel);
+  assert.match(textOf(item), new RegExp(`— The host, in A talk on video \\(Video\\), at 1:02`));
+  assert.match(textOf(item), /Rights, as you state them: The rights holder gave permission\. I transcribed it from the media\. Rights note: Agreed by the host/);
+  assert.match(textOf(item), /longer than 300 characters/);
+  // Editing brings the note back.
+  await button(panel, "Edit moment 1 of 1").click();
+  assert.equal(momentField(panel, "rightsNote").value, "Agreed by the host");
+}));
+
+test("the panel never implies permission or fair use, and fetches nothing from a source", withDom(async () => {
+  const start = admin.indexOf("// ---------------------------------------------------------------- media moments");
+  const end = admin.indexOf("The page an invitation link opens");
+  const panelStart = admin.indexOf("momentsPanel(publication, index) {");
+  for (const text of [admin.slice(start, admin.indexOf("export function momentsFailure")), admin.slice(panelStart, end), ...QUOTATION_RIGHTS.map((r) => r.label)]) {
+    assert.doesNotMatch(text, /fair use|fair dealing|is allowed|is permitted|you may (re)?publish|safe to (re)?publish|cleared for|no permission needed/i);
+  }
+  // The panel reaches only the Admin API; it never fetches a source's text or media itself.
+  assert.doesNotMatch(admin.slice(panelStart, end), /\bfetch\(|XMLHttpRequest|new Image\(|<iframe|"iframe"/);
+  const api = fakeApi();
+  api.state.moments = { ...api.state.moments, shared: [{ participant: { id: "p-grace", displayName: "Grace" }, moments: [storedMoment({ id: "moment-7", observation: null, intent: "publication", attribution: "Dr <b>Host</b>, in A talk on video (Video), at 1:02", quotation: { text: "<img src=x onerror=alert(1)>", speaker: "Dr <b>Host</b>", rights: "openLicense", provenance: "copied", rightsNote: "CC BY <script>x</script>" }, notices: [] })] }] };
+  const { panel } = await openDraft(api);
+  const shared = momentsRoot(panel).querySelector(".oba-moments-shared");
+  assert.match(textOf(shared), /— Dr <b>Host<\/b>, in A talk on video \(Video\), at 1:02/, "untrusted metadata stays text");
+  assert.match(textOf(shared), /Rights, as Grace states them: The source is under an open licence\./);
+  assert.match(textOf(shared), /Rights note: CC BY <script>x<\/script>/);
+  assert.equal(shared.querySelector("img"), null);
+  assert.equal(shared.querySelector("script"), null);
+  assert.equal(shared.querySelector("b"), null);
+  assert.ok(api.state.calls.every((call) => call.key.split(" ")[1].startsWith("collaboration/")), "only Admin API calls");
 }));

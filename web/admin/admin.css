@@ -3008,6 +3008,22 @@ a.oba-btn-primary {
   border-left: 3px solid var(--ob-color-border, currentColor);
 }
 
+.oba-moment-quote blockquote {
+  margin: 0;
+}
+
+/* Advice about a quotation: marked by a border and a heading-less list, never by colour alone. */
+.oba-moment-notices {
+  margin: 0.25rem 0;
+  padding: 0.25rem 0.5rem 0.25rem 1.5rem;
+  border-left: 3px solid var(--ob-color-accent, currentColor);
+  font-size: 0.875rem;
+}
+
+.oba-moment-notices[hidden] {
+  display: none;
+}
+
 .oba-moments-form fieldset {
   min-width: 0;
   margin: 0.5rem 0;

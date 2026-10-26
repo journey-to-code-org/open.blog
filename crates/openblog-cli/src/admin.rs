@@ -7590,12 +7590,22 @@ fn moment_authors(
 }
 
 fn moment_json(moment: &Moment, record: &SharedPublication) -> Json {
+    let notices: Vec<Json> = moment
+        .quotation()
+        .map(|quotation| quotation.notices())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|notice| json!({ "code": notice.code(), "message": notice.message() }))
+        .collect();
     json!({
         "id": moment.id(),
         "source": moment.source(),
         "locators": moment.locators(),
         "location": location_text(moment.locators()),
+        // The one attribution line every view uses (ADR 0075), built from the record as it is now.
+        "attribution": moment.attribution(&record.sources).text(),
         "quotation": moment.quotation(),
+        "notices": notices,
         "observation": moment.observation(),
         "intent": moment.intent(),
         "link": moment.link(&record.sources).map(|link| json!({ "href": link.href, "atTime": link.at_time })),
@@ -7656,7 +7666,36 @@ fn moments_json(
         "shared": shared,
         "sources": sources,
         "you": own,
+        "quotationGuide": quotation_guide(),
     }))
+}
+
+/// The rights guidance and quotation thresholds, from the core definitions, so the panel's live
+/// guidance and warnings say exactly what the preview says (ADR 0075). Holds no author text.
+fn quotation_guide() -> Json {
+    use openblog_core::media_moment::{
+        QuotationNotice, QuotationRights, BRIEF_QUOTATION_CHARS, MAX_QUOTATION_CHARS,
+        MAX_RIGHTS_NOTE_BYTES, RIGHTS_STATEMENT,
+    };
+    let notices: serde_json::Map<String, Json> = [
+        QuotationNotice::NoSpeaker,
+        QuotationNotice::Long,
+        QuotationNotice::LongForBriefQuotation,
+    ]
+    .into_iter()
+    .map(|notice| (notice.code().to_string(), json!(notice.message())))
+    .collect();
+    json!({
+        "briefQuotationChars": BRIEF_QUOTATION_CHARS,
+        "maxQuotationChars": MAX_QUOTATION_CHARS,
+        "maxRightsNoteBytes": MAX_RIGHTS_NOTE_BYTES,
+        "statement": RIGHTS_STATEMENT,
+        "rights": QuotationRights::ALL
+            .iter()
+            .map(|rights| json!({ "value": rights.tag(), "label": rights.label(), "guidance": rights.guidance() }))
+            .collect::<Vec<_>>(),
+        "notices": notices,
+    })
 }
 
 /// Read the stored moments with the drafts they are revealed against. Failures are logged without
@@ -23373,6 +23412,13 @@ series: letters
                     "intent": "publication" }),
             "rights",
         ));
+        cases.push((
+            json!({ "source": "source-1", "locators": [{ "kind": "timestamp", "value": "3" }],
+                    "quotation": { "text": "ok", "rights": "permission", "provenance": "supplied",
+                                   "rightsNote": "MARKER-NOTE\nInjected: header" },
+                    "intent": "private" }),
+            "rightsNote",
+        ));
         for (moment, field) in cases {
             let text = moment.to_string();
             let refused = moments_change(
@@ -23543,6 +23589,105 @@ series: letters
             json!({ "action": "add", "moment": video_moment("2", "late", "private") }),
         );
         assert_eq!(late.status, 409);
+    }
+
+    #[test]
+    fn quotations_carry_one_attribution_their_rights_note_and_guidance_that_never_blocks() {
+        let (f, mikey, grace, _ada, id) = approval_fixture("moments-attribution");
+        let content_before = tree_snapshot(&f.dir.join("content"));
+        let long = format!("QUOTE-START {}", "word ".repeat(70));
+        let added = add_moment(
+            &f,
+            &mikey,
+            &id,
+            json!({ "source": "source-1",
+                    "locators": [{ "kind": "timestamp", "value": "1:02", "to": "1:10" }],
+                    "quotation": { "text": long, "rights": "briefQuotation", "provenance": "transcribed",
+                                   "rightsNote": "Quoted for review <b>only</b>" },
+                    "intent": "publication" }),
+        );
+        // A long quotation with no speaker is warned about, never refused.
+        assert_eq!(
+            added.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&added.body)
+        );
+        let mine = body_json(&added);
+        let title = mine["sources"][0]["title"].as_str().unwrap().to_string();
+        let moment = &mine["moments"][0];
+        assert_eq!(
+            moment["attribution"],
+            format!("{title} (Video), from 1:02 to 1:10")
+        );
+        assert_eq!(
+            moment["quotation"]["rightsNote"],
+            "Quoted for review <b>only</b>"
+        );
+        let codes: Vec<&str> = moment["notices"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|notice| notice["code"].as_str().unwrap())
+            .collect();
+        assert_eq!(codes, ["noSpeaker", "longForBriefQuotation"]);
+        // The guide is the core's, so the panel says what the preview says.
+        let guide = &mine["quotationGuide"];
+        assert_eq!(guide["briefQuotationChars"], 300);
+        assert_eq!(guide["maxQuotationChars"], 1000);
+        assert_eq!(guide["rights"].as_array().unwrap().len(), 6);
+        assert_eq!(guide["rights"][0]["value"], "unknown");
+        assert!(guide["statement"]
+            .as_str()
+            .unwrap()
+            .contains("does not check rights"));
+        assert!(guide["notices"]["noSpeaker"].is_string());
+
+        // Naming the speaker clears that warning, and the attribution names them.
+        let revision = moments_revision(&f, &mikey, &id);
+        let moment_id = moment["id"].as_str().unwrap().to_string();
+        let edited = moments_change(
+            &f,
+            &mikey,
+            &id,
+            revision,
+            json!({ "action": "edit", "id": moment_id, "moment": {
+                "source": "source-1",
+                "locators": [{ "kind": "timestamp", "value": "1:02", "to": "1:10" }],
+                "quotation": { "text": "QUOTE-SHORT", "speaker": "The host", "rights": "briefQuotation",
+                               "provenance": "transcribed", "rightsNote": "Quoted for review <b>only</b>" },
+                "intent": "publication" } }),
+        );
+        assert_eq!(edited.status, 200);
+        let edited = body_json(&edited);
+        assert_eq!(
+            edited["moments"][0]["attribution"],
+            format!("The host, in {title} (Video), from 1:02 to 1:10")
+        );
+        assert_eq!(edited["moments"][0]["notices"], json!([]));
+
+        // Once shared, Grace sees the same attribution and reviews the rights statement and note
+        // in the preview, as escaped text.
+        assert_eq!(
+            draft_call(&f, &mikey, &id, 1, "MIKEY-SECRET v2").status,
+            200
+        );
+        let offered = reveal_call(&f, &mikey, "ready", ready_body(&id, json!(2)));
+        assert_eq!(body_json(&offered)["momentsShared"], true);
+        let seen = body_json(&moments_read(&f, &grace, &id));
+        assert_eq!(
+            seen["shared"][0]["moments"][0]["attribution"],
+            format!("The host, in {title} (Video), from 1:02 to 1:10")
+        );
+        let preview = body_json(&preview_call(&f, &grace, &id));
+        let document = preview_document_text(&f, &grace, &preview);
+        assert!(document.contains("The host, in"));
+        assert!(document.contains("from 1:02 to 1:10</figcaption>"));
+        assert!(document.contains("Rights, as the author states them: A brief quotation"));
+        assert!(document.contains("Rights note: Quoted for review &lt;b&gt;only&lt;/b&gt;"));
+        assert!(!document.contains("<b>only"));
+        // Nothing reached canonical content.
+        assert_eq!(tree_snapshot(&f.dir.join("content")), content_before);
     }
 
     #[test]

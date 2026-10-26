@@ -11,7 +11,8 @@ import { randomBytes } from "node:crypto";
 // The real Admin Studio page and sign-in, with the collaboration API replaced by a small in-memory
 // stand-in that checks the expected revision and the time format the way the server does. This
 // exercises the media moments panel in a browser: keyboard use at phone width, malformed times,
-// several media, a source with no link, and a save that lost a race.
+// several media, a source with no link, a save that lost a race, and the quotation attribution,
+// rights guidance and warnings (ADR 0075).
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const binary = join(repository, "target", "debug", process.platform === "win32" ? "openblog.exe" : "openblog");
@@ -23,6 +24,26 @@ const SOURCES = [
   { id: "source-3", kind: "podcast", kindLabel: "Podcast", title: "A podcast", url: "https://podcasts.example/12" },
 ];
 const TIME = /^(\d+(?::[0-5]\d){0,2})(?:\.\d+)?$/;
+// The server's quotation guide, shaped as `quotation_guide` sends it.
+const GUIDE = {
+  briefQuotationChars: 300,
+  maxQuotationChars: 1000,
+  maxRightsNoteBytes: 500,
+  statement: "The rights status is the participant's own statement about these words. open.blog records it and shows it to co-authors; it does not check rights or decide how the words may be used.",
+  rights: [
+    { value: "unknown", label: "Not checked yet", guidance: "Nobody has considered yet how these words may be reused." },
+    { value: "briefQuotation", label: "A brief quotation for commentary or review", guidance: "This states that the words are quoted briefly to comment on, criticise or review the source." },
+    { value: "permission", label: "The rights holder gave permission", guidance: "This states that the rights holder agreed to this use. Say in the rights note who agreed and when." },
+    { value: "openLicense", label: "The source is under an open licence", guidance: "This states that the source carries an open licence covering this use." },
+    { value: "publicDomain", label: "The source is in the public domain", guidance: "This states that the source is in the public domain." },
+    { value: "ownWords", label: "The participant's own words", guidance: "This states that the words are the participant's own." },
+  ],
+  notices: {
+    noSpeaker: "No speaker is named, so the words are credited to the source alone. Name who said or wrote them if you know.",
+    long: "This quotation is longer than 300 characters. Consider quoting only the words the point needs.",
+    longForBriefQuotation: "This quotation is longer than 300 characters, which is long for a brief quotation. Consider quoting fewer words. This is a guide, not a legal limit.",
+  },
+};
 let root;
 let server;
 let origin;
@@ -71,11 +92,20 @@ function stored(id, moment) {
   const source = SOURCES.find((entry) => entry.id === moment.source);
   const time = moment.locators.find((locator) => locator.kind === "timestamp");
   const link = !source?.url ? null : source.id === "source-1" && time ? { href: `${source.url}&t=${seconds(time.value)}s`, atTime: true } : { href: source.url, atTime: false };
-  return { id, quotation: null, observation: null, ...moment, location, link };
+  const quotation = moment.quotation;
+  const where = source ? `${source.title} (${source.kindLabel})` : "a source that is no longer listed";
+  const attribution = quotation?.speaker ? `${quotation.speaker}, in ${where}, ${location}` : `${where}, ${location}`;
+  const notices = [];
+  if (quotation && !quotation.speaker) notices.push({ code: "noSpeaker", message: GUIDE.notices.noSpeaker });
+  if (quotation && [...quotation.text].length > GUIDE.briefQuotationChars) {
+    const code = quotation.rights === "briefQuotation" ? "longForBriefQuotation" : "long";
+    notices.push({ code, message: GUIDE.notices[code] });
+  }
+  return { id, quotation: null, observation: null, ...moment, location, attribution, notices, link };
 }
 
 async function install(context) {
-  moments = { revision: 0, next: 0, moments: [], shared: [], sources: SOURCES, you: "p-me" };
+  moments = { revision: 0, next: 0, moments: [], shared: [], sources: SOURCES, you: "p-me", quotationGuide: GUIDE };
   await context.route("**/admin/api/collaboration/**", async (route) => {
     const method = route.request().method();
     const path = new URL(route.request().url()).pathname.replace("/admin/api/collaboration/", "");
@@ -180,7 +210,7 @@ test("a save that lost a race keeps everything typed and stores it on retry", as
   await panel(page).getByLabel("Source", { exact: true }).selectOption("source-1");
   await panel(page).getByLabel("Location", { exact: true }).fill("2:00");
   await panel(page).getByLabel("Quoted words").fill("Words I typed carefully.");
-  await panel(page).getByLabel("Rights").selectOption("briefQuotation");
+  await panel(page).getByLabel("Rights (your statement)").selectOption("briefQuotation");
   await panel(page).getByLabel("Where the words came from").selectOption("transcribed");
   await panel(page).getByRole("button", { name: "Add moment" }).click();
   await expect(panel(page).getByRole("alert")).toContainText("changed since you read them");
@@ -190,4 +220,45 @@ test("a save that lost a race keeps everything typed and stores it on retry", as
   await panel(page).getByRole("button", { name: "Add moment" }).click();
   await expect(panel(page).locator(".oba-moments-list > li")).toHaveCount(2);
   expect(moments.moments[1].quotation).toEqual({ text: "Words I typed carefully.", rights: "briefQuotation", provenance: "transcribed" });
+});
+
+test("a quotation shows neutral rights guidance and live warnings, saves anyway, and is credited precisely", async ({ page, context }) => {
+  await install(context);
+  await page.setViewportSize({ width: 320, height: 700 });
+  await openPanel(page);
+  const rights = panel(page).getByLabel("Rights (your statement)");
+  const guidance = panel(page).locator("#oba-moments-0-rights-guidance");
+  const warnings = panel(page).locator("#oba-moments-0-quote-notices");
+  await expect(guidance).toHaveAttribute("aria-live", "polite");
+  await expect(rights).toHaveAttribute("aria-describedby", "oba-moments-0-rights-guidance");
+  await expect(guidance).toContainText("does not check rights");
+  await panel(page).getByLabel("Source", { exact: true }).selectOption("source-1");
+  await panel(page).getByLabel("Location", { exact: true }).fill("1:02");
+  await panel(page).getByLabel("Quoted words").fill(`${"Line of a long answer.\n".repeat(14)}`);
+  await rights.focus();
+  await rights.selectOption("briefQuotation");
+  await expect(guidance).toContainText("quoted briefly to comment on");
+  await expect(warnings).toBeVisible();
+  await expect(warnings).toContainText("No speaker is named");
+  await expect(warnings).toContainText("long for a brief quotation");
+  await panel(page).getByLabel("Speaker (optional)").fill("The host");
+  await expect(warnings).not.toContainText("No speaker is named");
+  await panel(page).getByLabel("Rights note (optional)").fill("Quoted for review only");
+  await panel(page).getByLabel("Where the words came from").selectOption("transcribed");
+  // The warnings are advice: the moment saves with them.
+  await panel(page).getByRole("button", { name: "Add moment" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(panel(page).getByRole("status")).toContainText("Moment added");
+  expect(moments.moments[0].quotation).toMatchObject({ speaker: "The host", rights: "briefQuotation", rightsNote: "Quoted for review only" });
+  const item = panel(page).locator(".oba-moments-list > li").first();
+  await expect(item.locator("figcaption")).toHaveText("— The host, in A talk on video (Video), at 1:02");
+  await expect(item).toContainText("Rights, as you state them: A brief quotation for commentary or review.");
+  await expect(item).toContainText("Rights note: Quoted for review only");
+  await expect(item).toContainText("long for a brief quotation");
+  await expect(page.getByText(/fair use/i)).toHaveCount(0);
+  const wide = await page.evaluate(() => {
+    const limit = document.documentElement.clientWidth;
+    return [...document.querySelectorAll(".oba-moments, .oba-moments *")].filter((node) => node.getBoundingClientRect().right > limit + 1).map((node) => node.className || node.tagName);
+  });
+  expect(wide).toEqual([]);
 });

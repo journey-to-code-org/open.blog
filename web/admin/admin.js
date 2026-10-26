@@ -2844,7 +2844,10 @@ export const MOMENT_LOCATOR_KINDS = Object.freeze([
   { value: "canonical", label: "Canonical reference", hint: "A standard reference, such as Republic 514a." },
 ]);
 
-/** The participant's statement about republishing a quotation. There is no default on purpose. */
+/**
+ * The participant's statement about republishing a quotation. There is no default on purpose. The
+ * labels are statements the participant makes; nothing here grants or judges a use (ADR 0075).
+ */
 export const QUOTATION_RIGHTS = Object.freeze([
   { value: "unknown", label: "Not checked yet (keeps the moment private)" },
   { value: "briefQuotation", label: "A brief quotation for commentary or review" },
@@ -2924,12 +2927,37 @@ export function momentPayload(form, keep = {}) {
     const quotation = { text: form.quote, rights: form.rights, provenance: form.provenance };
     const speaker = String(form.speaker ?? "").trim();
     if (speaker) quotation.speaker = speaker;
+    const rightsNote = String(form.rightsNote ?? "").trim();
+    if (rightsNote) quotation.rightsNote = rightsNote;
     if (keep.language) quotation.language = keep.language;
     moment.quotation = quotation;
   }
   if (String(form.observation ?? "").trim()) moment.observation = form.observation;
   if (!moment.quotation && !moment.observation) return { error: "Add a quotation, an observation, or both.", field: "quote" };
   return { moment };
+}
+
+/**
+ * Warnings about a typed quotation, from the server's quotation guide so the panel says exactly what
+ * the preview says: no speaker named, and longer than the brief-quotation guide (counted in Unicode
+ * characters, newlines included, as the server counts). They never block saving. Without a guide
+ * (an older server) there are none rather than a guess.
+ */
+export function quotationNotices(form, guide) {
+  const text = String(form?.quote ?? "");
+  if (!text || !guide?.notices) return [];
+  const notices = [];
+  const note = (code) => guide.notices[code] && notices.push({ code, message: guide.notices[code] });
+  if (!String(form.speaker ?? "").trim()) note("noSpeaker");
+  if (Number.isSafeInteger(guide.briefQuotationChars) && [...text].length > guide.briefQuotationChars) note(form.rights === "briefQuotation" ? "longForBriefQuotation" : "long");
+  return notices;
+}
+
+/** The neutral guidance for a rights status, followed by the statement that it is the participant's own word. */
+export function rightsGuidanceText(rights, guide) {
+  const entry = (guide?.rights || []).find((item) => item.value === rights);
+  if (!entry) return guide?.statement || "";
+  return [entry.guidance, guide.statement].filter(Boolean).join(" ");
 }
 
 /** Moments in reading order: by the source's place in the reflection, then by time, then as made. */
@@ -8639,7 +8667,7 @@ export class ObAdmin extends AdminElement {
     let current = { revision: 0, moments: [], shared: [], sources: [], you: "" };
     // What the writer typed survives a conflict, a refusal and a reload: the form is rebuilt
     // around it. `editing` names the moment being changed and keeps what the form cannot edit.
-    const blank = () => ({ source: "", kind: "timestamp", value: "", to: "", quote: "", speaker: "", rights: "", provenance: "", observation: "", publish: false });
+    const blank = () => ({ source: "", kind: "timestamp", value: "", to: "", quote: "", speaker: "", rights: "", rightsNote: "", provenance: "", observation: "", publish: false });
     let typed = blank();
     let editing = null;
     const controls = new Map();
@@ -8653,7 +8681,7 @@ export class ObAdmin extends AdminElement {
       for (const field of fields.values()) field.removeAttribute?.("aria-invalid");
     };
     // The server names the field of the writer's own submission; the form marks that control.
-    const SERVER_FIELDS = { source: "source", locators: "value", quotation: "quote", speaker: "speaker", content: "quote", rights: "rights", observation: "observation" };
+    const SERVER_FIELDS = { source: "source", locators: "value", quotation: "quote", speaker: "speaker", content: "quote", rights: "rights", rightsNote: "rightsNote", observation: "observation" };
     const fail = (message, field) => {
       problem.textContent = message;
       problem.hidden = false;
@@ -8694,19 +8722,26 @@ export class ObAdmin extends AdminElement {
       return source ? `${source.title} (${source.kindLabel})` : "A source that is no longer listed";
     };
 
-    const momentBody = (moment) => {
+    // `stater` names whose rights statement it is: "you" for the writer's own moments.
+    const momentBody = (moment, stater = "you") => {
       const parts = [];
       if (moment.quotation) {
         const rights = QUOTATION_RIGHTS.find((entry) => entry.value === moment.quotation.rights)?.label || "";
         const provenance = QUOTATION_PROVENANCE.find((entry) => entry.value === moment.quotation.provenance)?.label || "";
+        const statement = stater === "you" ? "Rights, as you state them" : `Rights, as ${stater} states them`;
+        const notices = Array.isArray(moment.notices) ? moment.notices : [];
         parts.push(
           h(
-            "blockquote",
+            "figure",
             { class: "oba-moment-quote" },
-            h("p", { class: "oba-draft-revealed" }, moment.quotation.text),
-            moment.quotation.speaker ? h("p", { class: "oba-small" }, `Said by ${moment.quotation.speaker}`) : null,
+            h("blockquote", {}, h("p", { class: "oba-draft-revealed" }, moment.quotation.text)),
+            // The server's one attribution line: speaker, source and location, as every view shows it.
+            h("figcaption", { class: "oba-small" }, `— ${moment.attribution || `${sourceName(moment.source)}, ${moment.location}`}`),
           ),
-          h("p", { class: "oba-small" }, `Rights: ${rights}. ${provenance}.`),
+          h("p", { class: "oba-small" }, `${statement}: ${rights}. ${provenance}.`, moment.quotation.rightsNote ? ` Rights note: ${moment.quotation.rightsNote}` : ""),
+          notices.length
+            ? h("ul", { class: "oba-moment-notices", "aria-label": "Things to check in this quotation" }, notices.map((notice) => h("li", {}, notice.message)))
+            : null,
         );
       }
       if (moment.observation) parts.push(h("pre", { class: "oba-draft-revealed", tabindex: "0", "aria-label": "Observation" }, moment.observation));
@@ -8735,6 +8770,7 @@ export class ObAdmin extends AdminElement {
           quote: moment.quotation?.text || "",
           speaker: moment.quotation?.speaker || "",
           rights: moment.quotation?.rights || "",
+          rightsNote: moment.quotation?.rightsNote || "",
           provenance: moment.quotation?.provenance || "",
           observation: moment.observation || "",
           publish: moment.intent === "publication",
@@ -8817,8 +8853,31 @@ export class ObAdmin extends AdminElement {
       const to = bind("to", h("input", { id: `${prefix}-to`, type: "text", autocomplete: "off", spellcheck: "false", "aria-describedby": `${prefix}-location-hint`, value: typed.to }));
       const quote = bind("quote", h("textarea", { id: `${prefix}-quote`, rows: "3", "aria-describedby": `${prefix}-quote-hint` }));
       quote.value = typed.quote;
-      const speaker = bind("speaker", h("input", { id: `${prefix}-speaker`, type: "text", autocomplete: "off", value: typed.speaker }));
+      const speaker = bind("speaker", h("input", { id: `${prefix}-speaker`, type: "text", autocomplete: "off", "aria-describedby": `${prefix}-speaker-hint`, value: typed.speaker }));
       const rights = bind("rights", select(`${prefix}-rights`, QUOTATION_RIGHTS, typed.rights, "Choose a rights status"), "change");
+      rights.setAttribute("aria-describedby", `${prefix}-rights-guidance`);
+      const rightsNote = bind("rightsNote", h("input", { id: `${prefix}-rightsNote`, type: "text", autocomplete: "off", maxlength: "500", "aria-describedby": `${prefix}-rights-note-hint`, value: typed.rightsNote }));
+      // Guidance follows the chosen status; warnings follow the typed words. Both are advice that
+      // never blocks saving, and the live region speaks only when what it says changes.
+      const rightsGuidance = h("p", { class: "oba-small", id: `${prefix}-rights-guidance`, "aria-live": "polite" });
+      const quoteCount = h("p", { class: "oba-small", id: `${prefix}-quote-count` });
+      const quoteNotices = h("ul", { class: "oba-moment-notices", id: `${prefix}-quote-notices`, "aria-live": "polite", "aria-label": "Things to check in this quotation" });
+      let shownNotices = null;
+      const syncGuidance = () => {
+        const guide = current.quotationGuide;
+        rightsGuidance.textContent = typed.rights ? rightsGuidanceText(typed.rights, guide) : guide?.statement || "";
+        const count = [...String(typed.quote ?? "")].length;
+        quoteCount.textContent = count ? `${count} of ${guide?.maxQuotationChars || 1000} characters.${guide?.briefQuotationChars ? ` Above ${guide.briefQuotationChars} counts as long.` : ""}` : "";
+        const notices = quotationNotices(typed, guide);
+        const key = notices.map((notice) => notice.code).join(" ");
+        if (key !== shownNotices) {
+          shownNotices = key;
+          quoteNotices.replaceChildren(...notices.map((notice) => h("li", {}, notice.message)));
+          quoteNotices.hidden = notices.length === 0;
+        }
+      };
+      for (const control of [quote, speaker]) control.addEventListener("input", syncGuidance);
+      rights.addEventListener("change", syncGuidance);
       const provenance = bind("provenance", select(`${prefix}-provenance`, QUOTATION_PROVENANCE, typed.provenance, "Choose where the words came from"), "change");
       const observation = bind("observation", h("textarea", { id: `${prefix}-observation`, rows: "4" }));
       observation.value = typed.observation;
@@ -8874,9 +8933,10 @@ export class ObAdmin extends AdminElement {
           {},
           h("legend", {}, "Quotation (optional)"),
           h("p", { class: "oba-small", id: `${prefix}-quote-hint` }, "Someone else's words, exactly as said or written, up to 1,000 characters. Quote a moment; never paste a transcript."),
-          field(quote, "Quoted words"),
-          field(speaker, "Speaker (optional)"),
-          field(rights, "Rights"),
+          field(quote, "Quoted words", h("div", {}, quoteCount, quoteNotices)),
+          field(speaker, "Speaker (optional)", h("p", { class: "oba-small", id: `${prefix}-speaker-hint` }, "Who said or wrote the words in the source. The quotation is credited to the speaker, the source and the location you give.")),
+          field(rights, "Rights (your statement)", rightsGuidance),
+          field(rightsNote, "Rights note (optional)", h("p", { class: "oba-small", id: `${prefix}-rights-note-hint` }, "One line for your co-authors, such as who gave permission and when, or which licence applies. It is never published.")),
           field(provenance, "Where the words came from"),
         ),
         field(observation, "Your observation (Markdown, optional)"),
@@ -8885,6 +8945,7 @@ export class ObAdmin extends AdminElement {
         h("div", { class: "oba-toolbar" }, save, cancel),
       );
       syncHint();
+      syncGuidance();
     };
 
     const listHeading = h("h5", { id: `${prefix}-list-heading`, tabindex: "-1" }, "Your moments");
@@ -8911,7 +8972,7 @@ export class ObAdmin extends AdminElement {
               "ul",
               { class: "oba-moments-list" },
               sortMoments(entry.moments, current.sources).map((moment) =>
-                h("li", { class: "oba-moment" }, h("p", { class: "oba-small" }, `${sourceName(moment.source)}, ${moment.location}.`), ...momentBody(moment)),
+                h("li", { class: "oba-moment" }, h("p", { class: "oba-small" }, `${sourceName(moment.source)}, ${moment.location}.`), ...momentBody(moment, entry.participant?.displayName || "a participant")),
               ),
             ),
           ),
