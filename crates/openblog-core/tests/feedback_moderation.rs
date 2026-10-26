@@ -280,6 +280,7 @@ fn moderation_view(item: &HostedFeedback, site: &Site) -> Value {
         identities: &identities,
         policy: ModerationPolicy::default(),
         protocol: Protocol::Full,
+        third_perspectives: false,
         now: at("2026-10-27T10:00:00Z"),
     }
     .view(&item)

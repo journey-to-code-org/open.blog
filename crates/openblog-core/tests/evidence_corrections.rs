@@ -1,4 +1,4 @@
-//! Evidence submissions and correction decisions (ADRs 0138 and 0139): the
+//! Evidence submissions and correction decisions (ADRs 0116 and 0117): the
 //! shared fixtures for submissions, decisions and stored decisions (accepted,
 //! declined, partially applied, duplicate, withdrawn, conflicting and
 //! stale-target items), plus the rules that cut across them: nothing is a

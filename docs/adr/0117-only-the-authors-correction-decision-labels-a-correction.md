@@ -1,4 +1,4 @@
-# ADR 0139: Only the author's correction decision labels a correction, and it links the item, the revision note and the claim evidence without erasing anything
+# ADR 0117: Only the author's correction decision labels a correction, and it links the item, the revision note and the claim evidence without erasing anything
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -15,12 +15,12 @@
   [ADR 0103](0103-who-may-moderate-reader-participation.md),
   [ADR 0104](0104-retention-audit-events-and-abuse-reports-fail-closed.md),
   [ADR 0105](0105-one-moderation-inbox-decided-per-item-by-the-one-policy.md),
-  [ADR 0138](0138-evidence-submissions-are-suggested-sources-and-corrections-with-unverified-reader-evidence.md)
+  [ADR 0116](0116-evidence-submissions-are-suggested-sources-and-corrections-with-unverified-reader-evidence.md)
 - Coordinates with: [#211](https://github.com/journey-to-code-org/open.blog/issues/211) and
   [#225](https://github.com/journey-to-code-org/open.blog/issues/225) (RD12 policy and inbox),
   [#217](https://github.com/journey-to-code-org/open.blog/issues/217),
   [#218](https://github.com/journey-to-code-org/open.blog/issues/218)
-- Amended by: [ADR 0140](0140-evidence-and-correction-decisions-are-taken-opt-in-and-decided-in-the-inbox.md)
+- Amended by: [ADR 0118](0118-evidence-and-correction-decisions-are-taken-opt-in-and-decided-in-the-inbox.md)
   (storage, the inbox's "Record decision" and its checks)
 - Contract: `openblog_core::correction_decision`, fixtures in
   `tests/fixtures/evidence-corrections.json` (`decisions`)
@@ -101,7 +101,7 @@ into, with the same ids.
   (`moderation::may_decide`), resolved by the server, never claimed by a request; contributing
   authors, the submitter, the public and the retention job never decide. The Admin account is kept
   only in the private record.
-- **What can be decided.** Only evidence submissions (ADR 0138), while their moderation state is
+- **What can be decided.** Only evidence submissions (ADR 0116), while their moderation state is
   `pending` or `approved` and their current text is not the one a clarification asked about.
   Waiting for clarification is `awaitingClarification`; rejected, removed and withdrawn are
   `itemClosed`, and a decision recorded before a withdrawal stays in the log. A passage that is not

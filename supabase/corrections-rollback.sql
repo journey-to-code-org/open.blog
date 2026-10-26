@@ -1,5 +1,5 @@
--- Roll back evidence submissions and correction decisions (ADRs 0138 and
--- 0139), what feedback.sql added for them. Run in the Supabase SQL editor,
+-- Roll back evidence submissions and correction decisions (ADRs 0116 and
+-- 0117), what feedback.sql added for them. Run in the Supabase SQL editor,
 -- before moderation-rollback.sql or feedback-rollback.sql if you are undoing
 -- those too.
 --

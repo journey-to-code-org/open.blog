@@ -17,7 +17,7 @@
 // plain text to copy and send to the author, and nothing they wrote is lost.
 // Nothing is stored in the browser.
 //
-// A suggested source or correction may also name what it is about (ADR 0138):
+// A suggested source or correction may also name what it is about (ADR 0116):
 // a published claim, an evidence link on it or a source the post cites, and a
 // source the site publishes with where in it the reader looked, and how the
 // reader says it bears on the passage. The choices are only what the build
@@ -477,7 +477,7 @@ export class ObPassageFeedback extends HTMLElement {
       consentError,
     );
 
-    // The evidence offer (ADR 0138): every choice is something the site publishes.
+    // The evidence offer (ADR 0116): every choice is something the site publishes.
     const evidence = this.#choices ? this.#buildEvidence(id, { make, hint, labelled, choice, describe, errorFor, field }) : null;
 
     const privacy = hint("privacy", "Your note goes to the author for review. Nothing is published unless they approve it, and no e-mail address or account is asked for.");
@@ -696,7 +696,7 @@ export class ObPassageFeedback extends HTMLElement {
     ui.sourceLabel.textContent = required ? "Link to the source" : "Link to a source (optional)";
     ui.source.required = required;
     ui.suggestedField.hidden = rules.suggestedText === "notUsed";
-    // Only a suggested source or correction offers evidence (ADR 0138).
+    // Only a suggested source or correction offers evidence (ADR 0116).
     if (ui.evidence) ui.evidence.fieldset.hidden = !EVIDENCE_KINDS.includes(ui.kind.value);
   }
 
@@ -923,7 +923,7 @@ export class ObPassageFeedback extends HTMLElement {
       this.#showError(known[0], known[1]);
       return;
     }
-    // A site whose hosted service does not store evidence yet refuses version 2 (ADR 0138): the
+    // A site whose hosted service does not store evidence yet refuses version 2 (ADR 0116): the
     // note, with its evidence, is still the reader's to copy and send.
     if (outcome.status === 422 && outcome.code === "unsupportedVersion") {
       this.#fallback(submission, "Your note was not sent: this site does not take evidence through the form right now.");

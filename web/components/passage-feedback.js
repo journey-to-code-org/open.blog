@@ -15,7 +15,7 @@
 // a failure is a value for the one submission that caused it, with a code and
 // a message that names the field and never repeats what the reader wrote.
 //
-// Evidence submissions (ADR 0138) are format version 2: a suggested source or
+// Evidence submissions (ADR 0116) are format version 2: a suggested source or
 // a suggested correction with an `evidence` block naming the published claim,
 // evidence link, citation or source it concerns, by the site's public ids.
 // readEvidenceSubmissionJson is the half of
@@ -39,7 +39,7 @@ const MAX_JSON_DEPTH = 127;
 export const EVIDENCE_SUBMISSION_VERSION = 2;
 export const MAX_OFFERED_LOCATORS = 8;
 export const MAX_LOCATOR_VALUE_CHARS = 64;
-/** The kinds whose submissions may carry an evidence block (ADR 0138). */
+/** The kinds whose submissions may carry an evidence block (ADR 0116). */
 export const EVIDENCE_KINDS = Object.freeze(["source-suggestion", "correction-suggestion"]);
 /** How a reader says the evidence they offer bears on the passage: A4's relation ids. */
 export const EVIDENCE_STANCES = Object.freeze(["supports", "contradicts", "contextualizes"]);
@@ -442,7 +442,7 @@ function storedSize(value) {
 }
 
 /**
- * Read an evidence submission (ADR 0138) from JSON text, as the build's
+ * Read an evidence submission (ADR 0116) from JSON text, as the build's
  * EvidenceSubmission does: version 1 is B5's submission of an evidence kind,
  * without a block; version 2 carries `evidence`. Returns { ok: true,
  * submission } with the B5 submission's fields and, for version 2, a frozen
@@ -521,7 +521,7 @@ export function receiveFeedback(submission, receivedAt, channel = "hosted") {
     details: { ...submission.details },
     provenance,
   };
-  // An evidence submission's record is version 2 with the block beside B5's fields (ADR 0138).
+  // An evidence submission's record is version 2 with the block beside B5's fields (ADR 0116).
   if (submission.evidence !== undefined) {
     record.version = EVIDENCE_SUBMISSION_VERSION;
     record.evidence = evidenceValue(submission.evidence);

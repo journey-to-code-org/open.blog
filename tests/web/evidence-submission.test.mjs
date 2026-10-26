@@ -1,4 +1,4 @@
-// The browser and hosted-function half of evidence submissions (ADR 0138): the same fixtures as
+// The browser and hosted-function half of evidence submissions (ADR 0116): the same fixtures as
 // crates/openblog-core/tests/evidence_corrections.rs, so the form and the hosted function refuse
 // and store exactly what the build would, plus the dispatching reader, the copy fallback and
 // hostile input. Nothing here can say whether an id the reader named exists.

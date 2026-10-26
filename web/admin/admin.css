@@ -3547,7 +3547,7 @@ a.oba-btn-primary {
   }
 }
 
-/* Correction decisions (ADR 0139): one disclosure per item, beside the moderation decisions, its
+/* Correction decisions (ADR 0117): one disclosure per item, beside the moderation decisions, its
    choices stacked so they reflow at any width or zoom. */
 .oba-decision {
   margin-top: 0.75rem;

@@ -1,4 +1,4 @@
-// The hosted side of evidence submissions and correction decisions (ADRs 0138 and 0139), through
+// The hosted side of evidence submissions and correction decisions (ADRs 0116 and 0117), through
 // HTTP-shaped events with a fake Supabase: off unless the deployer opts in, bounds and the shared
 // validator before the quota and the quota before anything is stored, CORS and the token, the
 // decision checks agreeing with the Rust policy's shared fixture, stale and refused decisions that

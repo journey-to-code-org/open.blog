@@ -1,5 +1,7 @@
 -- Roll back engagement protection (ADRs 0107 and 0108). Run in the Supabase
--- SQL editor, before moderation-rollback.sql if you are undoing that too.
+-- SQL editor, before moderation-rollback.sql if you are undoing that too. If
+-- the site takes Third Perspectives, run third-perspective-rollback.sql
+-- first: they need receipts, and their moderation reads purged_at.
 --
 -- First remove OPENBLOG_PROTECTION_ENABLED from the Netlify environment and
 -- redeploy, so the function stops issuing receipts, taking abuse reports

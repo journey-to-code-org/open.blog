@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Published correction outcomes (#218, ADR 0141) on a real built site: a published suggested
+// Published correction outcomes (#218, ADR 0119) on a real built site: a published suggested
 // correction shows what the author decided, the revision it was about, and links to the change
 // the post's own revision notes record and to the evidence link the author recorded; a suggestion
 // nobody decided reads as unresolved; evidence the post no longer publishes is said, not linked;

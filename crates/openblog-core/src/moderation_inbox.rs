@@ -32,6 +32,10 @@ use crate::moderation::{
 use crate::participation::{effective_mode, ParticipationKind, ParticipationMode};
 use crate::passage_target::PassageDocument;
 use crate::scholarly_feedback::{is_uuid, HostedFeedback};
+use crate::third_perspective::{
+    ApprovalBinding, ApprovalRequest, HostedPerspective, LifecycleError, PublishedWork,
+    TargetStatus,
+};
 
 /// The decisions the inbox offers on any item, in the order its cards show
 /// them. The submitter's own actions (clarify, withdraw) and expiry are not
@@ -68,7 +72,7 @@ pub fn report_grounds() -> &'static [ReasonCode] {
 /// reader's request ([`ModerationPolicy::erase`]).
 pub const ERASE_ACTION: &str = "erase";
 
-/// The inbox's action for the author's correction decision (ADR 0139). It is
+/// The inbox's action for the author's correction decision (ADR 0117). It is
 /// not a moderation action: it never changes the item's state, version or
 /// approval, and it is offered beside them, never instead of them.
 pub const RECORD_DECISION: &str = "Record decision";
@@ -159,7 +163,10 @@ impl Source {
     pub fn holds(self, kind: ParticipationKind) -> bool {
         match self {
             Source::Comment => kind == ParticipationKind::Comment,
-            Source::Feedback => ParticipationKind::PASSAGE_FEEDBACK.contains(&kind),
+            Source::Feedback => {
+                ParticipationKind::PASSAGE_FEEDBACK.contains(&kind)
+                    || kind == ParticipationKind::ThirdPerspective
+            }
             Source::Report => kind == ParticipationKind::AbuseReport,
         }
     }
@@ -172,6 +179,8 @@ pub enum Content {
     Comment { author_name: String, body: String },
     /// A passage feedback record with its provenance (ADRs 0078, 0079).
     Feedback(Box<HostedFeedback>),
+    /// A Third Perspective with its consent records (ADRs 0110, 0113).
+    Perspective(Box<HostedPerspective>),
     /// An abuse report: the reader's ground and what they wrote, if anything.
     /// It never names the reporter.
     Report {
@@ -580,6 +589,9 @@ impl InboxItem {
         if let Some(object) = wire.as_object_mut() {
             object.remove("source");
         }
+        if wire["feedback"]["kind"] == ParticipationKind::ThirdPerspective.id() {
+            return Self::read_perspective(&wire);
+        }
         let hosted = HostedFeedback::from_value(&wire).map_err(|error| error.to_string())?;
         Ok(Self {
             source: Source::Feedback,
@@ -598,6 +610,38 @@ impl InboxItem {
             content: Content::Feedback(Box::new(hosted)),
             target: None,
         })
+    }
+
+    fn read_perspective(wire: &Value) -> Result<Self, String> {
+        let hosted = HostedPerspective::from_value(wire).map_err(|error| error.to_string())?;
+        if !is_site_path(&hosted.copy.provenance.work) {
+            return Err("a hosted Third Perspective needs a post path".into());
+        }
+        Ok(Self {
+            source: Source::Feedback,
+            id: hosted.id.clone(),
+            kind: ParticipationKind::ThirdPerspective,
+            state: hosted.state,
+            version: hosted.version,
+            revision: hosted.copy.revision,
+            approved_revision: hosted.approved_revision,
+            clarification_asked: hosted.clarification_asked,
+            clarification_consent: hosted.clarification_consent,
+            reason: hosted.reason,
+            moderated_at: hosted.moderated_at,
+            received_at: hosted.copy.provenance.received_at,
+            work: hosted.copy.provenance.work.clone(),
+            content: Content::Perspective(Box::new(hosted)),
+            target: None,
+        })
+    }
+
+    /// The Third Perspective, for an item of that kind.
+    pub fn perspective(&self) -> Option<&HostedPerspective> {
+        match &self.content {
+            Content::Perspective(hosted) => Some(hosted),
+            _ => None,
+        }
     }
 
     /// The facts the policy decides on.
@@ -651,6 +695,9 @@ impl InboxItem {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HostedPage {
     pub protocol: Protocol,
+    /// Whether the hosted service stores the consent record a Third
+    /// Perspective's approval covers (ADR 0113), so it can approve one.
+    pub third_perspectives: bool,
     pub items: Vec<InboxItem>,
     /// Items that failed validation, counted and never shown half-checked.
     pub invalid: usize,
@@ -691,6 +738,7 @@ pub fn read_page(value: &Value) -> Result<HostedPage, String> {
     }
     Ok(HostedPage {
         protocol,
+        third_perspectives: value["thirdPerspectives"] == true,
         items,
         invalid,
         next,
@@ -706,6 +754,8 @@ pub struct Inbox<'a> {
     pub identities: &'a Identities<'a>,
     pub policy: ModerationPolicy,
     pub protocol: Protocol,
+    /// [`HostedPage::third_perspectives`] of the page the items came from.
+    pub third_perspectives: bool,
     pub now: DateTime,
 }
 
@@ -759,7 +809,43 @@ impl<'a> Inbox<'a> {
         if !offered || !self.protocol.supports(item.kind, action) {
             return Err(PolicyError::NotAllowed);
         }
+        // A Third Perspective is approved only where the hosted service records
+        // the consent the approval covers, and only as its own check allows,
+        // at the text and consent it holds now.
+        if let (Some(hosted), ModerationAction::Approve) = (item.perspective(), action) {
+            let consent = hosted.copy.consent().number;
+            if !self.third_perspectives
+                || self
+                    .check_perspective_approval(item, MODERATOR_PREVIEW, item.revision, consent)
+                    .is_err()
+            {
+                return Err(PolicyError::NotAllowed);
+            }
+        }
         Ok(decision)
+    }
+
+    /// `SubmittedCopy::check_approval` for a Third Perspective: the text
+    /// revision and consent record the moderator saw must still be the ones
+    /// in effect, and the reader must still agree to publish. Check it after
+    /// [`Inbox::decide`] and send the binding with the approval.
+    pub fn check_perspective_approval(
+        &self,
+        item: &InboxItem,
+        moderator: &str,
+        seen_revision: u32,
+        seen_consent: u32,
+    ) -> Result<ApprovalBinding, LifecycleError> {
+        let hosted = item.perspective().ok_or(LifecycleError::OutOfStep)?;
+        hosted.copy.check_approval(
+            &hosted.facts(&item.facts()),
+            &ApprovalRequest {
+                moderator,
+                seen_revision,
+                seen_consent,
+                at: self.now,
+            },
+        )
     }
 
     /// The decisions this viewer can take on the item now, each checked by
@@ -790,7 +876,7 @@ impl<'a> Inbox<'a> {
     }
 
     /// Whether this viewer may record the author's correction decision on
-    /// the item now (ADR 0139): a suggested source or correction whose text
+    /// the item now (ADR 0117): a suggested source or correction whose text
     /// is kept, pending or approved and not the text a clarification asked
     /// about, stored where the hosted service keeps decisions, and a viewer
     /// the policy lets decide on its work (the site Admin or a coordinator,
@@ -824,7 +910,7 @@ impl<'a> Inbox<'a> {
         })
     }
 
-    /// Record the author's correction decision on a feedback item (ADR 0139),
+    /// Record the author's correction decision on a feedback item (ADR 0117),
     /// decided by the one policy with this viewer's actor on the item's work:
     /// the grant first, so a viewer who may not decide learns nothing. The
     /// item's decision log is the one the hosted service returned with it;
@@ -1009,9 +1095,102 @@ impl<'a> Inbox<'a> {
                 // Comments always show their author's name.
                 view["reader"] = json!({ "name": author_name, "publishName": true });
             }
+            Content::Perspective(hosted) => {
+                let copy = &hosted.copy;
+                view["body"] = json!(copy.body);
+                view["details"] = match copy.category {
+                    Some(category) => json!({
+                        "category": category.id(),
+                        "categoryLabel": category.label(),
+                        "prompt": category.prompt(),
+                    }),
+                    None => json!({}),
+                };
+                view["published"] = Value::Null;
+                let consent = copy.consent();
+                let attribution = &consent.attribution;
+                let mut reader = json!({ "publishName": attribution.publish_name });
+                match &attribution.name {
+                    Some(name) if private_identity || attribution.publish_name => {
+                        reader["name"] = json!(name);
+                    }
+                    Some(_) => reader["private"] = json!(true),
+                    None => {}
+                }
+                view["reader"] = reader;
+                let work = post.map(|post| PublishedWork::of_post(post, &self.site.config));
+                let target = post.map(|post| {
+                    let document =
+                        crate::passage_target::PassageDocument::of_post(post, &self.site.config);
+                    TargetStatus::from(
+                        &document.resolve(&copy.provenance.target, Some(&copy.provenance.revision)),
+                    )
+                });
+                let section = copy.provenance.target.section.clone();
+                let about_work = matches!(
+                    copy.provenance.target.selector,
+                    crate::passage_target::PassageSelector::Work
+                );
+                view["perspective"] = json!({
+                    "about": if about_work { "work" } else { "section" },
+                    "section": section,
+                    "check": match &target {
+                        _ if about_work => "current",
+                        Some(TargetStatus::Current { .. }) => "current",
+                        Some(TargetStatus::Stale { .. }) => "stale",
+                        None => "unknown-work",
+                    },
+                    "revision": copy.revision,
+                    "revisionSeen": copy.provenance.revision,
+                    "revisionNow": work.as_ref().map(|work| work.revision.clone()),
+                    "consent": {
+                        "number": consent.number,
+                        "publish": consent.publish,
+                        "showName": attribution.publish_name,
+                        "clarification": consent.clarification,
+                        "feature": consent.feature_revision.is_some(),
+                    },
+                    "approvedConsent": hosted.approved_consent,
+                    "channel": if copy.can_clarify() { "hosted" } else { "manual" },
+                });
+                // Whether the reader's name matches a credited name says
+                // something about that name, so it goes only to a viewer who
+                // may see the name itself; with one credit it would reveal it.
+                if private_identity || attribution.publish_name {
+                    view["perspective"]["nameMatchesCredit"] = json!(work
+                        .as_ref()
+                        .is_some_and(|work| copy.name_matches_credit(&work.credited)));
+                }
+                // How it would read on the canonical page once approved now.
+                view["publicPreview"] = Value::Null;
+                view["perspectivePreview"] = match (&work, &target) {
+                    (Some(work), Some(target)) => {
+                        let approved = crate::third_perspective::ModerationFacts {
+                            state: ModerationState::Approved,
+                            revision: copy.revision,
+                            approved_revision: Some(copy.revision),
+                            approved_consent: Some(consent.number),
+                            clarification_asked: None,
+                            content_retained: true,
+                        };
+                        copy.approved_response(&approved, ParticipationMode::Open, work, target)
+                            .map_or(Value::Null, |response| {
+                                json!({
+                                    "heading": response.heading(),
+                                    "name": response.name,
+                                    "about": response.about,
+                                    "section": response.section,
+                                    "stale": response.stale,
+                                    "received": response.received,
+                                })
+                            })
+                    }
+                    _ => Value::Null,
+                };
+            }
             Content::Feedback(hosted) => {
                 let feedback = &hosted.feedback;
-                // How the item stands (ADR 0139): the reader's intent until
+                // How the item stands (ADR 0117): the reader's intent until
                 // the author decides, never a correction before then.
                 let empty = DecisionLog::new(&item.id);
                 let log = hosted.decisions.as_ref().unwrap_or(&empty);
@@ -1122,7 +1301,7 @@ pub fn decisions_view(log: &DecisionLog, item_revision: u32) -> Value {
 /// same claim, evidence link, cited or offered source, or link the same
 /// source. A cue for the editor to read them together, never a count, a
 /// ranking or a reason to decide anything: two readers sending the same
-/// suggestion are two items with two decisions (ADR 0139).
+/// suggestion are two items with two decisions (ADR 0117).
 pub fn similar_items(items: &[&InboxItem]) -> std::collections::BTreeMap<String, Vec<Value>> {
     let keys = |item: &InboxItem| -> Vec<String> {
         let Some(hosted) = item.feedback() else {
@@ -1181,6 +1360,9 @@ pub fn similar_items(items: &[&InboxItem]) -> std::collections::BTreeMap<String,
     }
     cues
 }
+/// The moderator a listing's approval check names: the check needs one, and
+/// only a decision's own check names the account that decides.
+const MODERATOR_PREVIEW: &str = "inbox";
 
 /// What a moderator should know before taking `action`: what it does, and
 /// for a decision that closes the item, how long its text is kept.
@@ -1197,6 +1379,9 @@ pub fn guidance(policy: &ModerationPolicy, item: &InboxItem, action: ModerationA
     match action {
         ModerationAction::Approve if item.kind == ParticipationKind::Comment => {
             "Shows the comment on its post.".into()
+        }
+        ModerationAction::Approve if item.kind == ParticipationKind::ThirdPerspective => {
+            "Approves exactly this text under the consent the reader gives now, to be shown on the post as a reader’s reflection, never as yours. It does not mean you agree. If the reader later hides their name or withdraws it, the page follows their choice.".into()
         }
         ModerationAction::Approve => {
             "Publishes the reader’s words on the post as theirs, at this revision. It never edits your post, and it does not mean you agree.".into()

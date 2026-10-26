@@ -1,4 +1,4 @@
-// The author's correction decisions on evidence submissions (ADR 0139), as the hosted function
+// The author's correction decisions on evidence submissions (ADR 0117), as the hosted function
 // checks them again before storing one: the part of `openblog_core::correction_decision::decide`
 // that depends only on the stored row and the decider's role, in the same order (grant, kind,
 // state, clarification, decisions seen), with the same codes, held together with the Rust policy

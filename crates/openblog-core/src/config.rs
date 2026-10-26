@@ -600,7 +600,7 @@ pub struct EngagementConfig {
     pub receipts: bool,
     /// Offer readers an optional evidence block on suggested sources and
     /// corrections: the published claim, evidence link, citation or source
-    /// they mean, chosen from what the site publishes (ADR 0138). Off by
+    /// they mean, chosen from what the site publishes (ADR 0116). Off by
     /// default, and left out of the written file while off; the deployer
     /// must also run `supabase/feedback.sql` again and set
     /// `OPENBLOG_CORRECTIONS_ENABLED`.

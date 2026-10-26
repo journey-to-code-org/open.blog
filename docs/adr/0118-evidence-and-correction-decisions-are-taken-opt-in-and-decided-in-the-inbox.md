@@ -1,4 +1,4 @@
-# ADR 0140: Evidence is offered from published lists and stored opt in with the item, and correction decisions are recorded from the inbox, checked three times and audited
+# ADR 0118: Evidence is offered from published lists and stored opt in with the item, and correction decisions are recorded from the inbox, checked three times and audited
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -11,16 +11,16 @@
   [ADR 0103](0103-who-may-moderate-reader-participation.md),
   [ADR 0105](0105-one-moderation-inbox-decided-per-item-by-the-one-policy.md),
   [ADR 0106](0106-the-inbox-adds-columns-an-audit-table-and-conditional-functions-opt-in.md),
-  [ADR 0138](0138-evidence-submissions-are-suggested-sources-and-corrections-with-unverified-reader-evidence.md),
-  [ADR 0139](0139-only-the-authors-correction-decision-labels-a-correction.md)
+  [ADR 0116](0116-evidence-submissions-are-suggested-sources-and-corrections-with-unverified-reader-evidence.md),
+  [ADR 0117](0117-only-the-authors-correction-decision-labels-a-correction.md)
 - Coordinates with: [#218](https://github.com/journey-to-code-org/open.blog/issues/218) (published
   outcomes)
-- Amended by: [ADR 0141](0141-the-authors-decision-is-published-with-an-approved-note-and-carried-into-portable-copies.md)
+- Amended by: [ADR 0119](0119-the-authors-decision-is-published-with-an-approved-note-and-carried-into-portable-copies.md)
   (the decision request names the text revision, the evidence bound, evidence off, the rollback)
 
 ## Context
 
-ADRs 0138 and 0139 defined the evidence block and the correction decision as pure types. #217
+ADRs 0116 and 0117 defined the evidence block and the correction decision as pure types. #217
 carries them through the reader form, the hosted function and the moderation inbox: readers submit
 structured evidence safely, and editors compare it with the claim or citation it targets before
 deciding. Its acceptance criteria are that the hosted service stays optional, that rate limits and
@@ -77,7 +77,7 @@ that something private exists.
   version 1 (their evidence goes with the column; their note, kind and state stay) and keeping the
   `decide` audit events. `feedback-rollback.sql` drops the function and trigger with the table.
 - **The inbox shows evidence for comparison and cues duplicates without counting.** Each feedback
-  item's view carries its standing (ADR 0139: the reader's intent, never a correction before the
+  item's view carries its standing (ADR 0117: the reader's intent, never a correction before the
   author decides), its evidence reviewed by `evidence_review` (each named reference published or
   not on the post, or for the offered source on the site, with the public label of a published one,
   and for a published claim its words and published evidence links, so the editor can compare;
@@ -98,7 +98,7 @@ that something private exists.
 - **Every decision is decided three times and written once.** `POST
   engagement/moderation/decision` reads the request strictly, refuses a day more than one day after
   the server's UTC day, re-reads the item (and the item it was addressed by, only on the same post),
-  decides with `Inbox::record_decision` (RD12's actor on the item's work, ADR 0139's rules), checks
+  decides with `Inbox::record_decision` (RD12's actor on the item's work, ADR 0117's rules), checks
   that the post's front matter holds the note and that the claims file has the link on one of the
   post's claims, and sends the decision with the account and role to `POST /admin/decisions`. The
   function checks it again from the stored row (`netlify/lib/correction-decisions.mjs`, held to the
@@ -120,7 +120,7 @@ that something private exists.
   purge trigger keeps the reader's statement separate and removable.
 - **Record a revision note as part of the decision.** Rejected: the acceptance criterion asks for a
   separate author action, and a note is public; the inbox offers adding one as its own step.
-- **Raise the item's version on a decision.** Rejected: a decision is not moderation (ADR 0139);
+- **Raise the item's version on a decision.** Rejected: a decision is not moderation (ADR 0117);
   the log's length is the decision's own concurrency check, and the text revision guards against a
   clarification arriving in between.
 

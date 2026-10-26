@@ -1,5 +1,6 @@
 -- Roll back the moderation inbox's full schema (ADR 0106). Run in the
--- Supabase SQL editor.
+-- Supabase SQL editor. If the site takes Third Perspectives, run
+-- third-perspective-rollback.sql first: their moderation uses these columns.
 --
 -- First remove OPENBLOG_MODERATION_ENABLED from the Netlify environment and
 -- redeploy, so the function stops using what this drops; Admin's inbox then
@@ -24,7 +25,7 @@ alter table public.openblog_comments drop column if exists moderation_reason;
 alter table public.openblog_comments drop column if exists moderation_state;
 alter table public.openblog_comments drop column if exists version;
 
--- The correction decision function (ADR 0139) reads item_revision, which is dropped below:
+-- The correction decision function (ADR 0117) reads item_revision, which is dropped below:
 -- corrections-rollback.sql drops its columns too, and this only makes sure it is gone first.
 drop function if exists public.openblog_record_feedback_decision(text, uuid, integer, integer, jsonb, text, text, timestamptz);
 drop function if exists public.openblog_moderate_feedback_item(text, uuid, integer, text, text, text, text, text, text, timestamptz, text, jsonb);

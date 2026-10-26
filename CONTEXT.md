@@ -1346,7 +1346,7 @@ _Avoid_: Migration (it is additive and optional), new comment system
 A suggested source or suggested correction (the two evidence kinds), optionally with an evidence
 block naming the published claim, evidence link, citation or source it concerns. Reader data and
 the reader's statement, never evaluated and never a correction until the author decides
-(ADR 0138).
+(ADR 0116).
 _Avoid_: Correction, evidence link, citation, fact check
 
 **Evidence block**:
@@ -1364,7 +1364,7 @@ _Avoid_: Claims file, Source Library lookup
 **Correction decision**:
 The author's recorded conclusion about one evidence submission: an outcome linked to the item,
 the post's revision note and, where relevant, the claim evidence link the author recorded. Separate
-from moderation; it never edits the post and never changes the reader's record (ADR 0139).
+from moderation; it never edits the post and never changes the reader's record (ADR 0117).
 _Avoid_: Moderation, approval, verdict, fact check
 
 **Decision outcome**:
@@ -1395,7 +1395,7 @@ _Avoid_: Correction notice for a private submission, decision export
 What a post's feedback form lets a reader name in an evidence block: the post's published claims
 and their published evidence links, the sources it publishes and the sources the site publishes,
 each by id and public label. Built from public output only, so a reader picks and never types an id
-(ADR 0140).
+(ADR 0118).
 _Avoid_: Claim search, source lookup
 
 **Duplicate cue**:
@@ -1407,7 +1407,7 @@ _Avoid_: Vote, tally, merge
 **Record decision**:
 The inbox's action for a correction decision, offered beside moderation to the site Admin and the
 work's coordinator where the policy and the hosted store allow. It points at a revision note and an
-evidence link recorded separately and never edits the post (ADR 0140).
+evidence link recorded separately and never edits the post (ADR 0118).
 _Avoid_: Approve, publish, correct
 
 **Published outcome**:
@@ -1415,7 +1415,7 @@ What a published suggested source or correction came to, on the post's canonical
 portable copies: the author's decision with its day and rationale, the revision the note was about,
 the post's own revision note that records the change and the evidence link the author recorded,
 each linked only while the post still publishes it. Carried in `reader-feedback.json` (version 2)
-beside the note, and never with who decided or the reader's words in a portable copy (ADR 0141).
+beside the note, and never with who decided or the reader's words in a portable copy (ADR 0119).
 _Avoid_: Fact check, verdict, correction notice for a private submission
 
 **Unresolved suggestion**:
@@ -1440,3 +1440,112 @@ _Avoid_: Mode or role; a preset never grants or removes permissions
 An Admin control no workspace preference can hide or reorder: Write, Site preview, Settings,
 save state, publish status, conflicts, privacy notices, approvals, and blocking validation.
 _Avoid_: Default tool, pinned tool
+
+## Third Perspectives
+
+Readers' own reflections on published works (ADRs 0109 to 0115). They extend the one reader
+participation seam as the kind `third-perspective`; they never join the authors' work.
+
+**Reader reflection**:
+A reader's own interpretation of a published work, in whatever stage it is: a private draft, a
+submitted copy or an approved response. Reader data, never research, never an author's
+contribution and never a work credit.
+_Avoid_: Comment, review, reply, contribution
+
+**Third Perspective**:
+A reader reflection on a shared reflection or a post, about the whole work or one section,
+offered for publication. Public only with the reader's consent and a moderator's approval of that
+exact text and consent, attributed as the reader chooses or anonymously, and always shown as a
+reader's, never as one of the authors' perspectives or as a vote between them.
+_Avoid_: Third author, verdict, rebuttal, side, comment
+
+**Response category**:
+An optional prompt a reader may pick to frame a reflection: another reading, a connection, from
+experience, a question, or putting it to use. It describes the kind of thought, never its worth
+or which author it sides with; a reflection without one is complete.
+_Avoid_: Rating, score, vote, stance, agree or disagree
+
+**Local reflection**:
+A reader's private draft on their own device. It has no id, provenance, consent or moderation
+state, and the site holds nothing of it until the reader submits it.
+_Avoid_: Pending submission, saved comment
+
+**Submitted copy**:
+The site's private copy of a submitted reflection: its current text and revision, its provenance,
+its intake and the reader's consent history. Visible only to moderation and the submitter.
+_Avoid_: Published reflection, response
+
+**Approved response**:
+The one public form of an approved submitted copy, for the canonical page only: the work and
+section it is about, whether that section has changed, whether the reader read an earlier
+revision, the optional category, the text, the day received and a name only with consent. Never
+in the Post, its credits, feeds or portable exports.
+_Avoid_: Comment, author perspective, featured reflection
+
+**Featured reflection**:
+An approved response an editor chose to feature, covered by the reader's separate feature consent
+for that approved revision. Editorial, never chosen by counts, rank or reactions, and never a
+consensus claim (RD14).
+_Avoid_: Top reflection, most liked, endorsed reflection
+
+**Submission consent**:
+One immutable, numbered record of what a reader agreed to: publication on the canonical page,
+the name and whether to show it, being asked to clarify, and which revision may be featured.
+Narrowing applies at once, even when the history is nearly full (room is kept for it and for
+revocation); showing a name, or another name, is accepted only before a moderator decides;
+revoking publication is a final withdrawal.
+_Avoid_: Terms acceptance, checkbox state, approval
+
+**Intake**:
+How a submitted copy can be acted for: the digest of the private receipt a hosted submitter
+holds, or the Admin user who entered a reader's message by hand. Never the receipt itself and
+never public. A manual copy has no submitter: revoking it is an Admin removal with an immediate
+purge, and it cannot be clarified.
+_Avoid_: Account, login, contact details
+
+**Moderation provenance**:
+Everything moderation keeps about where a copy came from, whatever the reader shows publicly:
+the work and revision read, the target, when it was received, the channel, the name as given and
+the intake. Anonymous display never makes it anonymous.
+_Avoid_: Public provenance, identity verification
+
+**Moderation decision**:
+A moderator's transition of an item in the one moderation state machine, with its private audit
+event. Approving a Third Perspective also binds the text revision and the consent record the
+moderator reviewed, and always names the moderator.
+_Avoid_: Vote, verdict, ruling on who is right
+
+**Continuation**:
+A typed link from an approved response to a later published work that took it up (RD15). It never
+edits the reflection and never implies that the reflection caused, or is endorsed by, the new work.
+_Avoid_: Reply chain, thread, follow-up comment
+
+**Third Perspective region**:
+The "Offer a Third Perspective" section of a post where the kind is open: static text that says
+how to write to the author without JavaScript, replaced by the form that asks for the reader's
+consent explicitly and sends through the hosted service only where it issues receipts. When the
+service cannot take it, or the reader does not agree to publish, the reflection is offered as
+text to copy and send instead (ADR 0114).
+_Avoid_: Comment box, rating widget, reply form
+
+**Perspective consent record**:
+A Submission consent as a hosted row keeps it: one numbered entry of `details.consents`, the last
+one in effect. A reader changes it only through their receipt, which appends a record and raises
+the row's version; an approval stores the number of the record it covered (ADR 0113).
+_Avoid_: Consent flag, clarification column
+
+**Published Third Perspective**:
+The public part of an approved Third Perspective, kept in `third-perspectives.json` in the content
+folder: the post and work, the revision and target the reader wrote about, the optional prompt,
+the text, the days received and approved, and a name only while the approved and current consent
+show it and it matches no credited name. Written by Admin only while the one projection shows the
+copy, re-projected on every build under the kind's published mode, shown on the canonical page
+only; portable copies, feeds and `llms` files carry a labelled link instead (ADR 0115).
+_Avoid_: Comment, reader feedback, moderation record, export
+
+**Reflection status**:
+What a reader learns of their own Third Perspective through its private receipt, and nothing
+else: waiting for review (never published), asked to clarify, approved and shown as a reader's
+reflection, approved but not shown, not published, or withdrawn. Looked up by the receipt alone,
+so it cannot enumerate anyone else's reflection (ADR 0115).
+_Avoid_: Public queue, submission list, tracking id

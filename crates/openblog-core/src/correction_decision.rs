@@ -1,4 +1,4 @@
-//! The author's correction decision about an evidence submission (ADR 0139).
+//! The author's correction decision about an evidence submission (ADR 0117).
 //!
 //! A reader's suggested source or suggested correction
 //! ([`crate::evidence_submission`]) is never a correction. Only the author's
@@ -198,7 +198,7 @@ impl DeclineReason {
 }
 
 /// Whether a recorded decision's role is one that may decide: the site
-/// Admin or a coordinator (ADR 0139), the roles [`may_decide`] grants.
+/// Admin or a coordinator (ADR 0117), the roles [`may_decide`] grants.
 fn deciding_role(role: ActorRole) -> bool {
     matches!(role, ActorRole::SiteAdmin | ActorRole::Coordinator)
 }

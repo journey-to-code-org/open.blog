@@ -1,4 +1,4 @@
-//! Published correction outcomes (#218, ADR 0141): the author's decision on a
+//! Published correction outcomes (#218, ADR 0119): the author's decision on a
 //! published suggested source or correction, carried through
 //! `reader-feedback.json` onto the canonical page and into portable copies.
 //! Covers the file's compatibility and refusals, what each outcome says and

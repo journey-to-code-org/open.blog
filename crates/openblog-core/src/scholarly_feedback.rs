@@ -640,7 +640,7 @@ pub struct HostedFeedback {
     /// Why the item was last rejected or removed, if it was.
     pub reason: Option<crate::moderation::ReasonCode>,
     pub feedback: ScholarlyFeedback,
-    /// The reader's evidence block of a version 2 record (ADR 0138): their
+    /// The reader's evidence block of a version 2 record (ADR 0116): their
     /// statement, never checked for truth and never an author's evidence
     /// link.
     pub evidence: Option<crate::evidence_submission::EvidenceOffer>,
@@ -654,7 +654,7 @@ pub struct HostedFeedback {
     pub clarification_asked: Option<u32>,
     /// The submitter agreed to be asked to clarify.
     pub clarification_consent: bool,
-    /// The author's correction decisions on the item (ADR 0139), oldest
+    /// The author's correction decisions on the item (ADR 0117), oldest
     /// first, when the hosted service stores them: `None` when it does not
     /// (the column is not there), an empty log when nobody has decided yet.
     pub decisions: Option<crate::correction_decision::DecisionLog>,
@@ -760,7 +760,7 @@ impl HostedFeedback {
                 "a hosted feedback item names a revision after its current one",
             ));
         }
-        // A version 2 record is an evidence submission (ADR 0138); every
+        // A version 2 record is an evidence submission (ADR 0116); every
         // other version is read by B5's reader, which refuses what it does
         // not know.
         // A version 2 record without its block is one the hosted function read with

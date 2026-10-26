@@ -1,5 +1,5 @@
 //! Evidence submissions and correction decisions in the reader form and the
-//! Moderation inbox (#217, ADRs 0138 and 0139): the form lists only what the
+//! Moderation inbox (#217, ADRs 0116 and 0117): the form lists only what the
 //! site publishes, an editor sees each reference a reader named as published
 //! or not and never as private, the inbox tells items apart without calling a
 //! suggestion a correction, records a decision with the viewer's role, and
@@ -369,6 +369,7 @@ fn inbox<'a>(
         principal: Principal::ModerationToken,
         identities,
         policy: ModerationPolicy::default(),
+        third_perspectives: false,
         protocol: Protocol::Full,
         now: DateTime::parse("2026-10-27T10:00:00Z").unwrap(),
     }

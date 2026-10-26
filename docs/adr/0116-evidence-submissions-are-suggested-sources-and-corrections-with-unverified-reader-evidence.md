@@ -1,4 +1,4 @@
-# ADR 0138: An evidence submission is a suggested source or correction with unverified evidence the reader names by the site's public ids
+# ADR 0116: An evidence submission is a suggested source or correction with unverified evidence the reader names by the site's public ids
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -13,8 +13,8 @@
 - Coordinates with: [#211](https://github.com/journey-to-code-org/open.blog/issues/211) (RD12,
   participation and moderation policy), [#217](https://github.com/journey-to-code-org/open.blog/issues/217)
   (RD6.2 submission and review), [#218](https://github.com/journey-to-code-org/open.blog/issues/218)
-  (RD6.3 published outcomes), [ADR 0139](0139-only-the-authors-correction-decision-labels-a-correction.md)
-- Amended by: [ADR 0140](0140-evidence-and-correction-decisions-are-taken-opt-in-and-decided-in-the-inbox.md)
+  (RD6.3 published outcomes), [ADR 0117](0117-only-the-authors-correction-decision-labels-a-correction.md)
+- Amended by: [ADR 0118](0118-evidence-and-correction-decisions-are-taken-opt-in-and-decided-in-the-inbox.md)
   (the form, the hosted transport and storage)
 - Contract: `openblog_core::evidence_submission`, fixtures in
   `tests/fixtures/evidence-corrections.json` (`submissions`)
@@ -100,12 +100,12 @@ reader's guess at an id must never confirm that something private exists.
   public identities, and resolving against private data would let a guess confirm private
   research.
 - **Let reader stance count towards a claim's evidence.** Rejected: it would turn submissions into
-  votes. Only the author's decision (ADR 0139) and the author's own evidence link change anything.
+  votes. Only the author's decision (ADR 0117) and the author's own evidence link change anything.
 
 ## Consequences
 
 - Moderators and authors can tell a proposed source, a challenged citation and a possible error
-  apart before any decision (ADR 0139's standing), from the kind and block alone.
+  apart before any decision (ADR 0117's standing), from the kind and block alone.
 - #217 adds version 2 to `web/components/passage-feedback.js` and the hosted function against the
   `submissions` fixtures, and stores the block with the row; storage only checks the kind id's
   shape (ADR 0080), so no kind migration is needed. Until then hosted transport refuses version 2,

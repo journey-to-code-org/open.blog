@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 
-// Correction decisions in the Moderation inbox (#217, ADRs 0138 and 0139). The hosted inbox is
+// Correction decisions in the Moderation inbox (#217, ADRs 0116 and 0117). The hosted inbox is
 // mocked at the Admin API (the real Admin resolves each item's actor, checks the decision and
 // lists the post's revision notes and evidence links); everything else is the real Admin. Covers
 // how an item stands before and after the author decides, the reader's evidence compared with the

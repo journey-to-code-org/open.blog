@@ -113,7 +113,7 @@ These are described in [Sharing, views, analytics, and embeds](features.md).
   passage, from lists of what the site publishes, never a private id. Switch it on only once the
   hosted function stores evidence (`supabase/feedback.sql` run again and
   `OPENBLOG_CORRECTIONS_ENABLED`); it also lets you record a correction decision on such a note in
-  the **Moderation inbox** (ADR 0140).
+  the **Moderation inbox** (ADR 0118).
 - `snippets` are raw HTML placed on every page (`head`, `bodyEnd`) or under every post
   (`postFooter`): third-party analytics, comments, newsletter forms.
 - `relatedPosts` is how many related posts to show under each post; `0` hides the section.
@@ -351,6 +351,28 @@ other way to take part is a participation kind, off until you switch it on in `p
   yourself, even as `"retention": {}` for the defaults, applies it to comments too.
 - Once a kind beyond comments is switched on, builds also write `openblog-participation.json`,
   the public map of each post's open and locked kinds that the hosted function checks.
+- `third-perspective` adds an "Offer a Third Perspective" region to each post where it is `open`:
+  a reader writes their own reflection on the whole work or one section, may choose a prompt
+  (never a score or a vote), and decides whether it may be published, whether their name may be
+  shown and whether they may be asked to clarify it. The form sends through the hosted function
+  only when `engagement.receipts` is on and the function takes Third Perspectives
+  (`OPENBLOG_THIRD_PERSPECTIVES_ENABLED`, see [the function's guide](../netlify/functions/README.md));
+  otherwise, and whenever the service cannot take it, the reader gets their reflection to copy and
+  send to `engagement.feedbackContact`. Moderators approve exactly the text and the consent they
+  saw in the **Moderation inbox** (ADRs [0113](adr/0113-third-perspectives-are-one-feedback-row-submitted-through-the-one-route-with-a-receipt.md)
+  and [0114](adr/0114-the-third-perspective-form-is-one-progressive-region-with-explicit-consent.md)).
+  Approving one writes its public part to `content/third-perspectives.json`, versioned with the
+  site; posts where the kind is `open` or `locked` show those reflections in a "Third
+  Perspectives" section, even without a hosted service, and portable copies, feeds and
+  `llms-full.txt` link there instead of carrying them
+  ([ADR 0115](adr/0115-approved-third-perspectives-publish-from-a-versioned-public-file-and-portable-copies-link-to-them.md)).
+  A file that cannot be read stops `build` and `check`, as `reader-feedback.json` does.
+  A reader who withdraws a reflection deletes the hosted copy of its text and name; the Moderation
+  inbox then shows, on every tab, that it must come off its post, and the site Admin takes it
+  off. Copies already published (the site's history, feeds and the repository's history) may
+  remain, which is what the form and the withdrawal say to readers, and a name a reader chose to
+  show becomes part of the site's public record. To roll the hosted opt-in back, empty
+  `content/third-perspectives.json` (or hide the kind) first.
 
 The rules are recorded in ADRs [0101](adr/0101-one-registry-of-participation-kinds-enabled-per-site-and-post.md)
 to [0104](adr/0104-retention-audit-events-and-abuse-reports-fail-closed.md).

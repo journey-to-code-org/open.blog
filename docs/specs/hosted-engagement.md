@@ -91,6 +91,21 @@ purging overwrites text and keeps state and audit events without it. The rules t
 applies (`retentionStep`, `planErasure`, `planUphold`) are checked against
 `tests/fixtures/participation-protection.json`, which the Rust policy generates.
 
+## Third Perspectives
+
+A reader's own reflection on a work (ADRs 0109 to 0115) goes through the same `POST /feedback`
+route, read by its own contract (`web/components/third-perspective.js`, held to the build by
+`tests/fixtures/third-perspective-submissions.json`), into one `openblog_feedback` row of kind
+`third-perspective`. It is opt in behind `supabase/feedback.sql` run again and
+`OPENBLOG_THIRD_PERSPECTIVES_ENABLED`, on top of protection, because every hosted copy has a
+receipt. The row keeps the prompt category, the receipt's digest and the reader's numbered consent
+records in `details`; an approval is taken by `openblog_moderate_third_perspective` and records the
+consent record it covers in `approved_consent`, so a later consent change makes it stale.
+Admin publishes an approved one to `content/third-perspectives.json`, from which builds render
+it; nothing reads the hosted rows to show a page. A receipt's `published` flag for this kind is
+true only while the row is approved at its current revision under an approved consent record that
+agreed to publication while the consent in effect still does (ADR 0115).
+
 ## Testing decisions
 
 - Exercise the Netlify handler through HTTP-shaped events with a fake Supabase fetch seam.
@@ -124,11 +139,11 @@ from the hosted service by a build. Comments, their table and their routes are u
 Evidence submissions and correction decisions (RD6) extend the same two kinds rather than adding a
 third: a suggested source or correction may carry a version 2 evidence block naming the published
 claim, evidence link, citation or source it concerns
-([ADR 0138](../adr/0138-evidence-submissions-are-suggested-sources-and-corrections-with-unverified-reader-evidence.md)),
+([ADR 0116](../adr/0116-evidence-submissions-are-suggested-sources-and-corrections-with-unverified-reader-evidence.md)),
 and only the author's correction decision, separate from moderation and kept in an append-only
 log per item, can label one a correction
-([ADR 0139](../adr/0139-only-the-authors-correction-decision-labels-a-correction.md)). Both are
-opt in ([ADR 0140](../adr/0140-evidence-and-correction-decisions-are-taken-opt-in-and-decided-in-the-inbox.md)):
+([ADR 0117](../adr/0117-only-the-authors-correction-decision-labels-a-correction.md)). Both are
+opt in ([ADR 0118](../adr/0118-evidence-and-correction-decisions-are-taken-opt-in-and-decided-in-the-inbox.md)):
 with `feedback.sql` run again and `OPENBLOG_CORRECTIONS_ENABLED=true`, `POST /feedback` takes
 version 2, checked before the quota and stored pending with its block in `evidence`, and `POST
 /admin/decisions` appends a decision to the item's `decisions` log with a `decide` audit event, only

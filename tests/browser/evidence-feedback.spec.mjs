@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// The evidence offer on a published reader page (#217, ADR 0138): a reader names the published
+// The evidence offer on a published reader page (#217, ADR 0116): a reader names the published
 // claim, the evidence for it they question and a source the site publishes, from lists the build
 // published, by keyboard; the block goes as version 2; a stance with nothing offered is refused on
 // its own field; a site whose service does not store evidence yet gives the note to copy with the

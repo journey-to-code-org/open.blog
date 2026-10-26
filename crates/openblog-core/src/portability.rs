@@ -202,7 +202,7 @@ pub struct PortableProjection<'a> {
     /// The claim evidence the post publishes (ADR 0075), which every portable
     /// artifact must carry whole.
     claim_evidence: Option<&'a crate::claim_publication::PostEvidence>,
-    /// The published suggested sources and corrections with their outcome (ADR 0141): what a
+    /// The published suggested sources and corrections with their outcome (ADR 0119): what a
     /// portable copy carries of reader notes, beside the link to the canonical discussion.
     outcomes: Vec<&'a crate::feedback_publication::PublicFeedback>,
 }
@@ -881,10 +881,11 @@ impl<'a> PortableProjection<'a> {
             }
             if !labels.contains(&label) {
                 labels.push(label);
+                let (href, verb) = self.capability_link(capability);
                 html.push_str(&format!(
-                    "<p class=\"ob-portable-note\"><strong>{}</strong>: see it on <a href=\"{}\">the original article</a>.</p>\n",
+                    "<p class=\"ob-portable-note\"><strong>{}</strong>: {verb} <a href=\"{}\">the original article</a>.</p>\n",
                     escape::text(label),
-                    escape::attr(&self.canonical_url)
+                    escape::attr(&href)
                 ));
             }
         }
@@ -1170,10 +1171,20 @@ impl<'a> PortableProjection<'a> {
             let Some(label) = capability.portable_label() else {
                 continue;
             };
-            let note = format!(
-                "> **{label}:** this interaction is available on the [canonical article]({}).\n\n",
-                markdown_destination(&self.canonical_url)
-            );
+            let (href, verb) = self.capability_link(capability);
+            let note = if capability.id
+                == crate::perspective_publication::THIRD_PERSPECTIVES_CAPABILITY
+            {
+                format!(
+                    "> **{label}:** {verb} the [canonical article]({}).\n\n",
+                    markdown_destination(&href)
+                )
+            } else {
+                format!(
+                    "> **{label}:** this interaction is available on the [canonical article]({}).\n\n",
+                    markdown_destination(&href)
+                )
+            };
             if !output.contains(&note) {
                 output.push_str(&note);
             }
@@ -1457,7 +1468,7 @@ impl<'a> PortableProjection<'a> {
             ));
         }
         // Every outcome keeps what it came to, the change it rests on, the evidence link and the
-        // canonical discussion it belongs to (ADR 0141).
+        // canonical discussion it belongs to (ADR 0119).
         for item in &self.outcomes {
             let Some(outcome) = &item.outcome else {
                 continue;
@@ -1512,7 +1523,7 @@ impl<'a> PortableProjection<'a> {
                 facts.push(SemanticFact::new(
                     "canonical-only-interaction",
                     "canonical link",
-                    &self.canonical_url,
+                    self.capability_link(capability).0,
                 ));
             }
         }
@@ -1786,7 +1797,7 @@ impl<'a> PortableProjection<'a> {
     }
 
     /// The published suggested sources and corrections with the author's decision, or that the
-    /// author has not decided, as an HTML section (ADR 0141). The reader's own words stay on
+    /// author has not decided, as an HTML section (ADR 0119). The reader's own words stay on
     /// the canonical page, which every outcome links to; a name is shown only as the reader
     /// agreed. Empty when no note has an outcome.
     fn outcomes_html(&self) -> String {
@@ -1919,6 +1930,32 @@ impl<'a> PortableProjection<'a> {
             ));
         }
         output
+    }
+
+    /// Where a capability's labelled note points on the canonical article, and
+    /// how it says so. Third Perspectives link to their own section: the
+    /// reflections when there are any ("see it on"), otherwise the form
+    /// ("take part on"); everything else links to the article itself.
+    fn capability_link(&self, capability: &CapabilityDescriptor) -> (String, &'static str) {
+        if capability.id != crate::perspective_publication::THIRD_PERSPECTIVES_CAPABILITY {
+            return (self.canonical_url.clone(), "see it on");
+        }
+        // Only the form has a renderer: nothing is approved yet.
+        let offered_only =
+            capability.native_renderer == Some(crate::render::THIRD_PERSPECTIVE_ANCHOR);
+        let anchor = if offered_only {
+            crate::render::THIRD_PERSPECTIVE_ANCHOR
+        } else {
+            crate::perspective_publication::THIRD_PERSPECTIVES_ANCHOR
+        };
+        (
+            format!("{}#{anchor}", self.canonical_url),
+            if offered_only {
+                "take part on"
+            } else {
+                "see it on"
+            },
+        )
     }
 
     fn participation_url(&self) -> String {
@@ -2264,7 +2301,7 @@ fn series_clause(lead: &str, names: &str) -> String {
     }
 }
 
-/// What a portable copy says before it lists the outcomes (ADR 0141).
+/// What a portable copy says before it lists the outcomes (ADR 0119).
 const OUTCOMES_INTRO: &str = "Suggested sources and corrections readers sent about this post that the author chose to publish, and what the author decided. An outcome is the author’s record of their own decision, not a finding that a claim is true; a suggestion without a decision is unresolved.";
 
 /// Markdown text for a public value (a title, a name, a fact): Markdown punctuation, `<` and `&`

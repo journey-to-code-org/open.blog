@@ -123,7 +123,7 @@ a second inbox. RD6 (#208) forbids calling a submission a correction before the 
   routes, and the audit fields left for #225 were added to `feedback.sql`.)
 - RD6 can add an author decision (accepted as a correction) to the published record without
   changing what is already stored.
-  (Done by [ADR 0141](0141-the-authors-decision-is-published-with-an-approved-note-and-carried-into-portable-copies.md):
+  (Done by [ADR 0119](0119-the-authors-decision-is-published-with-an-approved-note-and-carried-into-portable-copies.md):
   the file is version 2 once it holds a decision, and portable copies carry each published
   suggestion's outcome, though still never the note's words.)
 

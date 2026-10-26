@@ -1,4 +1,4 @@
-# ADR 0141: The author's decision is published with an approved note, read against the post as it is now, and carried into portable copies
+# ADR 0119: The author's decision is published with an approved note, read against the post as it is now, and carried into portable copies
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -7,17 +7,17 @@
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
 - Builds on: [ADR 0075](0075-publish-approved-claim-evidence-in-the-post-with-public-revision-notes.md),
   [ADR 0083](0083-feedback-moderation-is-version-checked-and-approved-notes-publish-from-a-versioned-file.md),
-  [ADR 0138](0138-evidence-submissions-are-suggested-sources-and-corrections-with-unverified-reader-evidence.md),
-  [ADR 0139](0139-only-the-authors-correction-decision-labels-a-correction.md),
-  [ADR 0140](0140-evidence-and-correction-decisions-are-taken-opt-in-and-decided-in-the-inbox.md)
-- Amends: ADR 0083 (the file's version and what a portable copy carries) and ADR 0140 (the limits
+  [ADR 0116](0116-evidence-submissions-are-suggested-sources-and-corrections-with-unverified-reader-evidence.md),
+  [ADR 0117](0117-only-the-authors-correction-decision-labels-a-correction.md),
+  [ADR 0118](0118-evidence-and-correction-decisions-are-taken-opt-in-and-decided-in-the-inbox.md)
+- Amends: ADR 0083 (the file's version and what a portable copy carries) and ADR 0118 (the limits
   and fallbacks listed under "Amendments" below)
 - Coordinates with: [#92](https://github.com/journey-to-code-org/open.blog/issues/92) (portable
   publishing)
 
 ## Context
 
-ADR 0139 said a decision is public only beside a reader's note that is itself public, and left the
+ADR 0117 said a decision is public only beside a reader's note that is itself public, and left the
 copying to #218. #218's acceptance criteria are that pending, rejected and private submissions never
 render, that a correction names the revision it affects and the change it made, and that portable
 copies keep the outcome, the evidence links and the canonical discussion URL. The site must keep
@@ -83,9 +83,9 @@ already uses, and a portable copy must say what the canonical page says without 
   who decided, passage checks, evidence of unpublished items and reader identity stay in the hosted
   service and the private audit record.
 - **No hosted schema change.** Everything here is the versioned file and the build. The additive,
-  opt-in schema of ADR 0140 and its rollback are unchanged.
+  opt-in schema of ADR 0118 and its rollback are unchanged.
 
-## Amendments to ADR 0140
+## Amendments to ADR 0118
 
 - **A decision names the text it was read on.** The request carries `itemRevision`, the revision of
   the reader's text the author read. Admin answers `409` with the item as it is now when a
@@ -108,7 +108,7 @@ already uses, and a portable copy must say what the canonical page says without 
 
 - **Publish from the hosted log at build time.** Rejected: a build must not need the hosted service,
   and the log holds who decided.
-- **Show every pending decision beside an unpublished note.** Rejected in ADR 0139 and kept: it would
+- **Show every pending decision beside an unpublished note.** Rejected in ADR 0117 and kept: it would
   reveal a submission the reader withdrew or moderation kept back.
 - **Put the reader's words in portable copies.** Rejected: ADR 0083 keeps notes on the canonical page,
   where moderation and reporting live; the outcome and the link say what is needed elsewhere.

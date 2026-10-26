@@ -708,7 +708,7 @@ pub enum AuditAction {
     /// Retention purged the text, details and reader name.
     PurgeContent,
     /// The author recorded a correction decision on an evidence submission
-    /// (ADR 0139). It is not a moderation action: the item's state, version
+    /// (ADR 0117). It is not a moderation action: the item's state, version
     /// and approval are unchanged, so the event's `from` and `to` are the
     /// same state.
     Decide,
@@ -1366,7 +1366,7 @@ pub fn may_view(
 }
 
 /// Whether `actor` may record the author's correction decision on `item`
-/// (ADR 0139): the approve row of the grant list, so the site Admin and a
+/// (ADR 0117): the approve row of the grant list, so the site Admin and a
 /// coordinator of the item's work, never a contributing author, the
 /// submitter, the public or the retention job. A decision speaks for the
 /// work, as an approval does.

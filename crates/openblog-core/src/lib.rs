@@ -34,6 +34,8 @@
 //! - [`participation`]: the closed registry of participation kinds and their site and post modes
 //! - [`moderation`]: the one moderation state machine, roles, audit events and retention for them
 //! - [`moderation_inbox`]: the one moderation inbox over every hosted participation store
+//! - [`third_perspective`]: a reader's consented, moderated reflection on a published work, and its one public form
+//! - [`perspective_publication`]: approved Third Perspectives as the site publishes and its canonical pages show them
 
 pub mod accessibility;
 pub mod alignment;
@@ -78,6 +80,7 @@ pub mod moderation;
 pub mod moderation_inbox;
 pub mod participation;
 pub mod passage_target;
+pub mod perspective_publication;
 pub mod portability;
 pub mod preview;
 pub mod profile;
@@ -100,6 +103,7 @@ pub mod source_interchange;
 pub mod source_library;
 pub mod synthesis;
 pub mod theme;
+pub mod third_perspective;
 pub mod video;
 
 pub use config::SiteConfig;

@@ -898,7 +898,7 @@ test("the element shim mirrors the browser's own reflected properties", () => {
   }
 });
 
-// ---- The evidence offer (ADR 0138)
+// ---- The evidence offer (ADR 0116)
 
 const CHOICES = {
   version: 1,

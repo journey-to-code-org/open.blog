@@ -469,13 +469,14 @@ test("the migration is additive, private, and matches what the function writes a
   for (const column of Object.keys(fixture.storedRow)) assert.ok(columns.has(column), `missing column ${column}`);
 
   const statements = migration.replace(/--[^\n]*/g, "").toLowerCase();
-  for (const forbidden of [/\balter\s+table\s+(?!public\.openblog_feedback(?:_events)?\b)/, /\bdrop\b/, /\brename\b/, /\bdelete\s+from\b/, /\btruncate\b/, /openblog_comments/, /create\s+or\s+replace\s+function\s+(?!public\.openblog_(?:moderate_feedback(?:_item)?|erase_feedback|record_feedback_decision|feedback_purge_evidence)\()/]) {
+  for (const forbidden of [/\balter\s+table\s+(?!public\.openblog_feedback(?:_events)?\b)/, /\bdrop\b/, /\brename\b/, /\bdelete\s+from\b/, /\btruncate\b/, /openblog_comments/, /create\s+or\s+replace\s+function\s+(?!public\.openblog_(?:moderate_feedback(?:_item)?|erase_feedback|record_feedback_decision|feedback_purge_evidence|moderate_third_perspective)\()/]) {
     assert.doesNotMatch(statements, forbidden);
   }
   // The only updates are the moderation functions', of the feedback table
   // (ADR 0083, and the inbox's, ADR 0106), the deletion function's (ADR 0108)
-  // and the correction decision function's (ADR 0139).
-  assert.deepEqual(statements.match(/\bupdate\s+public\.[a-z_]+/g), Array(4).fill("update public.openblog_feedback"));
+  // the correction decision function's (ADR 0117) and
+  // Third Perspectives' (ADR 0113).
+  assert.deepEqual(statements.match(/\bupdate\s+public\.[a-z_]+/g), Array(5).fill("update public.openblog_feedback"));
   assert.match(statements, /create table if not exists public\.openblog_feedback/);
   assert.match(statements, /alter table public\.openblog_feedback enable row level security/);
   // service_role is revoked too, so Supabase's default DELETE and TRUNCATE
@@ -506,6 +507,7 @@ test("the migration is additive, private, and matches what the function writes a
     "drop function if exists public.openblog_record_feedback_decision(text, uuid, integer, integer, jsonb, text, text, timestamptz);",
     "drop trigger if exists openblog_feedback_purge_evidence on public.openblog_feedback;",
     "drop function if exists public.openblog_feedback_purge_evidence();",
+    "drop function if exists public.openblog_moderate_third_perspective(text, uuid, integer, text, text, text, text, text, text, timestamptz, integer);",
     "drop function if exists public.openblog_erase_feedback(text, uuid, integer, boolean, text, text, timestamptz);",
     "drop function if exists public.openblog_moderate_feedback_item(text, uuid, integer, text, text, text, text, text, text, timestamptz, text, jsonb);",
     "drop function if exists public.openblog_moderate_feedback(text, uuid, integer, text, text, text, text, text, timestamptz);",

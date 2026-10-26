@@ -15,7 +15,7 @@
 //! submission.
 //!
 //! An approved suggested source or correction also carries the author's
-//! decision on it (ADR 0141), copied from the private decision log when the
+//! decision on it (ADR 0119), copied from the private decision log when the
 //! author records it or approves the note: the outcome, the author's
 //! rationale, the revision note that says what changed and the evidence link
 //! they recorded, never who decided and never the item another decision
@@ -54,7 +54,7 @@ pub const READER_FEEDBACK_FILE: &str = "reader-feedback.json";
 /// The version of the file format without any decision; a file holding a decision is version
 /// [`READER_FEEDBACK_OUTCOMES_VERSION`].
 pub const READER_FEEDBACK_VERSION: u64 = 1;
-/// The version of a file that holds the author's decision on at least one note (ADR 0141). A
+/// The version of a file that holds the author's decision on at least one note (ADR 0119). A
 /// reader refuses a higher one.
 pub const READER_FEEDBACK_OUTCOMES_VERSION: u64 = 2;
 /// The id of the section of a post's canonical page that lists its notes.
@@ -75,7 +75,7 @@ pub struct AuthorResponse {
     pub date: String,
 }
 
-/// The author's decision on one published note, as the file stores it (ADR 0141): exactly what
+/// The author's decision on one published note, as the file stores it (ADR 0119): exactly what
 /// [`crate::correction_decision::public_decision`] would publish, and no more. It holds nothing
 /// about who decided, nothing the reader wrote and not the item another decision pointed to; the
 /// private decision log keeps those.
@@ -257,7 +257,7 @@ pub struct PublishedFeedback {
     /// The reader's name, present only when they agreed to show it.
     pub name: Option<String>,
     pub response: Option<AuthorResponse>,
-    /// The author's decision in force on a suggested source or correction (ADR 0141).
+    /// The author's decision in force on a suggested source or correction (ADR 0119).
     pub decision: Option<PublishedDecision>,
 }
 
@@ -674,7 +674,7 @@ pub struct PublicFeedback {
     pub section_title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response: Option<AuthorResponse>,
-    /// How the author's decision, or the lack of one, stands (ADR 0141): only for a suggested
+    /// How the author's decision, or the lack of one, stands (ADR 0119): only for a suggested
     /// source or correction.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub outcome: Option<PublicOutcome>,
@@ -684,7 +684,7 @@ pub struct PublicFeedback {
 pub const UNRESOLVED: &str = "unresolved";
 
 /// What a published suggested source or correction came to, as its post and its portable copies
-/// say it (ADR 0141): the author's decision with the change it rests on read against the post as
+/// say it (ADR 0119): the author's decision with the change it rests on read against the post as
 /// it is published now, or, where the site shows them, that the author has not decided. It holds
 /// only what the file holds and the post publishes; never who decided and never a count.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -899,7 +899,7 @@ fn outcome_of(item: &PublishedFeedback, post: &Post, unresolved: bool) -> Option
 
 /// The public form of a post's approved notes, read against the post as it
 /// is published now. A suggested source or correction the author has not decided is shown as
-/// unresolved when `unresolved` (the site offers evidence submissions, ADR 0141); any
+/// unresolved when `unresolved` (the site offers evidence submissions, ADR 0119); any
 /// decision the file holds is always shown.
 pub fn project(
     items: &[&PublishedFeedback],

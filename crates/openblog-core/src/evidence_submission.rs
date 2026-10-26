@@ -1,6 +1,6 @@
 //! Evidence submissions: a reader's suggested source or suggested correction
 //! that also says which published claim or citation it concerns and which
-//! published source, and where in it, the reader offers (ADR 0138).
+//! published source, and where in it, the reader offers (ADR 0116).
 //!
 //! An evidence submission is B5's typed feedback ([`crate::scholarly_feedback`],
 //! ADR 0079) of one of the two evidence kinds, `source-suggestion` or
@@ -603,7 +603,7 @@ impl PublishedReferences {
 
     /// Whether each reference the reader named is published. The claim,
     /// evidence link and citation are this post's; the offered `source` is
-    /// one the site publishes anywhere (ADR 0138), so it is checked against
+    /// one the site publishes anywhere (ADR 0116), so it is checked against
     /// `site`. A reference that is not published is shown as such and
     /// nothing more; it never says whether something private has that id.
     pub fn check(&self, offer: &EvidenceOffer, site: &SitePublishedSources) -> ReferenceReport {
@@ -637,7 +637,7 @@ impl PublishedReferences {
 /// sources and the published bibliography sources of every post. A reader's
 /// offered `source` need not be one this post already cites (a suggested
 /// source is usually new to the post), only one the site publishes (ADR
-/// 0138). Built only from public output.
+/// 0116). Built only from public output.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SitePublishedSources {
     sources: BTreeSet<String>,
@@ -871,7 +871,7 @@ fn link_label(
 }
 
 /// What a reader may name in a post's evidence offer, from public output
-/// only (ADR 0138): the post's published claims with their published
+/// only (ADR 0116): the post's published claims with their published
 /// evidence links, the sources the post publishes (to question a citation),
 /// and the sources the whole site publishes (to offer one). Each is `{id,
 /// label}`; a claim also lists its links. The form offers only these, so a
@@ -924,7 +924,7 @@ pub fn reference_choices(post: &crate::model::Post, index: &SiteReferenceIndex) 
     serde_json::json!({"version": 1, "claims": claims, "citations": cited, "sources": sources})
 }
 
-/// An evidence offer as an editor reviews it beside the post (ADR 0138):
+/// An evidence offer as an editor reviews it beside the post (ADR 0116):
 /// each reference the reader named, whether the post (or, for the offered
 /// source, the site) publishes it now, and for a published one its public
 /// label, so the editor can compare the offer with the claim or citation it
