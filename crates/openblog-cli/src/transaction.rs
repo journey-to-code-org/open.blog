@@ -68,8 +68,21 @@ impl FileLock {
     }
 }
 
+/// Test hook: milliseconds `FileLock::drop` sleeps before removing the lock file, so a test can
+/// widen the release window the same way on every platform.
+#[cfg(test)]
+pub(crate) static RELEASE_DELAY_MS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
 impl Drop for FileLock {
     fn drop(&mut self) {
+        #[cfg(test)]
+        {
+            let delay = RELEASE_DELAY_MS.load(std::sync::atomic::Ordering::SeqCst);
+            if delay > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(delay));
+            }
+        }
         // A lock file left behind blocks every later write until someone removes it, so a
         // scanner briefly holding it is waited out.
         let _ = crate::fsutil::retry_transient(|| fs::remove_file(&self.0));

@@ -18478,6 +18478,9 @@ series: letters
                 .open(f.dir.join(".openblog/content-transaction.lock"))
                 .unwrap()
         };
+        // Widen the release window on every platform: the lock file outlives the drop call by
+        // this long, so a wrong field order lets the next request see it.
+        crate::transaction::RELEASE_DELAY_MS.store(150, std::sync::atomic::Ordering::SeqCst);
         let next_found_the_lock_free = std::thread::scope(|scope| {
             #[cfg(windows)]
             scope.spawn(move || {
@@ -18493,6 +18496,7 @@ series: letters
             drop(transaction);
             next.join().unwrap()
         });
+        crate::transaction::RELEASE_DELAY_MS.store(0, std::sync::atomic::Ordering::SeqCst);
         assert!(
             next_found_the_lock_free,
             "the next request was refused as a concurrent write"
