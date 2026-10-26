@@ -25,6 +25,7 @@
 //! - [`atlas_publication`]: the one public projection of its approved items, for pages and `atlas.json`
 
 pub mod accessibility;
+pub mod alignment;
 pub mod approval;
 pub mod arrangement;
 pub mod assembly;

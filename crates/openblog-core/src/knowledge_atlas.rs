@@ -549,6 +549,23 @@ pub enum AtlasDiagnosticCode {
     StaleAnchor,
     AmbiguousAnchor,
     UnknownPost,
+    /// An alignment member names an interpretation the library does not hold.
+    UnknownInterpretation,
+    /// An alignment member repeats another member of the same alignment.
+    DuplicateMember,
+    /// An alignment records one version as both having and lacking the passage.
+    ConflictingMember,
+    /// An alignment relates fewer than two versions, or none has the passage.
+    MissingCounterpart,
+    /// A present alignment member names neither a passage nor a locator.
+    MissingLocator,
+    /// A normalization names no original wording (passage or interpretation).
+    MissingOriginal,
+    /// An alignment member's locators no longer match its passage (a notice).
+    StaleLocator,
+    /// An alignment member rests on an archived source or passage (a notice).
+    ArchivedMember,
+    UnknownAlignment,
 }
 
 /// Which private file a diagnostic is about, so a message names the right
@@ -558,6 +575,7 @@ pub enum DiagnosticSubject {
     #[default]
     Atlas,
     Claims,
+    Alignments,
 }
 
 impl DiagnosticSubject {
@@ -566,6 +584,7 @@ impl DiagnosticSubject {
         match self {
             Self::Atlas => "knowledge atlas",
             Self::Claims => "claims file",
+            Self::Alignments => "alignments file",
         }
     }
 
@@ -573,6 +592,7 @@ impl DiagnosticSubject {
         match self {
             Self::Atlas => "the atlas",
             Self::Claims => "the claims file",
+            Self::Alignments => "the alignments file",
         }
     }
 }
@@ -1145,7 +1165,7 @@ pub(crate) fn parse_attribution(ctx: &mut Ctx<'_>, mut obj: Obj) -> Option<Attri
     })
 }
 
-fn parse_locator(ctx: &mut Ctx<'_>, path: &str, item: Value) -> Option<Locator> {
+pub(crate) fn parse_locator(ctx: &mut Ctx<'_>, path: &str, item: Value) -> Option<Locator> {
     let Value::Object(map) = item else {
         ctx.report(AtlasDiagnosticCode::InvalidField, path, "must be an object");
         return None;
