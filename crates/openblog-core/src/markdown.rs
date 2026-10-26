@@ -1143,6 +1143,23 @@ pub(crate) fn standalone_embed(inner: &[Event<'_>]) -> Option<crate::embed::Embe
     standalone_url(inner).and_then(|url| crate::embed::detect(&url))
 }
 
+/// Whether any paragraph of `markdown`, parsed either way, is a standalone link the production
+/// renderer would replace with an embed when embeds are on.
+pub(crate) fn has_standalone_embed(markdown: &str) -> bool {
+    [false, true].into_iter().any(|smart| {
+        let events: Vec<_> = Parser::new_ext(markdown, parser_options(smart)).collect();
+        events.iter().enumerate().any(|(index, event)| {
+            matches!(event, Event::Start(Tag::Paragraph))
+                && events[index + 1..]
+                    .iter()
+                    .position(|e| matches!(e, Event::End(TagEnd::Paragraph)))
+                    .is_some_and(|len| {
+                        standalone_embed(&events[index + 1..index + 1 + len]).is_some()
+                    })
+        })
+    })
+}
+
 /// Replace standalone embeddable links with their embed HTML.
 fn apply_embeds(events: Vec<Event<'_>>) -> Vec<Event<'_>> {
     let mut out = Vec::with_capacity(events.len());

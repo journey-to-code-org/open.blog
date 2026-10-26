@@ -269,7 +269,7 @@ function applyMoments(state, body) {
   let moments = current.moments.map((moment) => ({ ...moment }));
   const shaped = (id, moment) => {
     if (moment.locators.some((locator) => locator.kind === "timestamp" && !parseMomentTimestamp(locator.value))) throw new FakeApiError("bad", 422, { error: "Give a location: a timestamp as seconds or h:mm:ss.", field: "locators" });
-    if (/<|javascript:/.test(moment.observation || "")) throw new FakeApiError("bad", 422, { error: "That moment has raw HTML, an image, a heading, a footnote, or a link that is not an absolute http(s) address. Nothing was changed.", field: "observation" });
+    if (/<|javascript:/.test(moment.observation || "")) throw new FakeApiError("bad", 422, { error: "That moment has raw HTML, an image, a heading, a footnote, a paragraph that is only a link to embeddable media, or a link that is not an absolute http(s) address. Nothing was changed.", field: "observation" });
     const time = moment.locators[0];
     const location = time.kind === "timestamp" ? (time.to ? `from ${time.value} to ${time.to}` : `at ${time.value}`) : time.to ? `${time.kind}s ${time.value} to ${time.to}` : `${time.kind} ${time.value}`;
     const notices = moment.quotation ? quotationNotices({ quote: moment.quotation.text, speaker: moment.quotation.speaker, rights: moment.quotation.rights }, GUIDE) : [];

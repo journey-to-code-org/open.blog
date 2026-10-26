@@ -100,8 +100,9 @@ pub enum MomentRule {
     LocatorDoesNotFitSource,
     /// A quotation whose rights have not been considered cannot be marked for the publication.
     RightsUnknown,
-    /// The observation uses raw HTML, an image, a heading, a footnote, or a link that is not an
-    /// absolute HTTP(S) address.
+    /// The observation uses raw HTML, an image, a heading, a footnote, a paragraph that is only a
+    /// link the renderer would embed (a video, say: no player is ever written, ADR 0076), or a
+    /// link that is not an absolute HTTP(S) address.
     Markup,
 }
 
@@ -111,7 +112,7 @@ impl MomentRule {
         match self {
             Self::LocatorDoesNotFitSource => "a location this kind of source cannot have (timestamps belong to video, audio and other media, pages to text, folios to no shared source; one timestamp per moment, and a range must end after it starts)",
             Self::RightsUnknown => "a quotation whose rights status is still unknown; choose a status before marking it for the publication",
-            Self::Markup => "raw HTML, an image, a heading, a footnote, or a link that is not an absolute http(s) address",
+            Self::Markup => "raw HTML, an image, a heading, a footnote, a paragraph that is only a link to embeddable media, or a link that is not an absolute http(s) address",
         }
     }
 }
@@ -802,6 +803,10 @@ fn check_observation(markdown: &str) -> Result<(), MomentError> {
                 return Err(MomentError::Rule(MomentRule::Markup));
             }
         }
+    }
+    // A paragraph that is only a video link would render as a player (ADR 0076: never).
+    if crate::markdown::has_standalone_embed(markdown) {
+        return Err(MomentError::Rule(MomentRule::Markup));
     }
     Ok(())
 }

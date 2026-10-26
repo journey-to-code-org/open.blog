@@ -491,6 +491,17 @@ fn untrusted_markdown_metadata_urls_and_identities_fail_safely_without_echoing_t
         ("[run](javascript:alert(1))", Err(markup)),
         ("[here](/relative)", Err(markup)),
         ("note[^1]\n\n[^1]: reaches out", Err(markup)),
+        // A paragraph that is only a video link would render as a player (ADR 0076: never).
+        ("https://www.youtube.com/watch?v=abcdefghijk", Err(markup)),
+        ("<https://www.youtube.com/watch?v=abcdefghijk>", Err(markup)),
+        (
+            "Mine.\n\n[https://youtu.be/abcdefghijk](https://youtu.be/abcdefghijk)",
+            Err(markup),
+        ),
+        (
+            "The talk at https://www.youtube.com/watch?v=abcdefghijk moved me",
+            Ok(()),
+        ),
         (
             "bidi \u{202e}txt",
             Err(MomentError::Invalid(MomentField::Observation)),

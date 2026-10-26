@@ -655,7 +655,11 @@ fn observations_isolated(
             }
         }
     }
-    true
+    // A paragraph that is only a video link would render as a player in the Post (ADR 0076:
+    // no embed is ever written), so the page would not match the preview.
+    !observations
+        .iter()
+        .any(|observation| crate::markdown::has_standalone_embed(observation))
 }
 
 fn has_unsafe_markup(
@@ -825,5 +829,30 @@ impl Outcome {
 
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).expect("an outcome always serializes")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_observation_that_is_only_a_video_link_is_refused_at_the_gate() {
+        let sections = vec!["Ann words.".to_string()];
+        assert!(observations_isolated(
+            &sections,
+            &[],
+            &["The talk at https://www.youtube.com/watch?v=abcdefghijk moved me."]
+        ));
+        for observation in [
+            "https://www.youtube.com/watch?v=abcdefghijk",
+            "<https://www.youtube.com/watch?v=abcdefghijk>",
+            "Mine.\n\n[https://youtu.be/abcdefghijk](https://youtu.be/abcdefghijk)",
+        ] {
+            assert!(
+                !observations_isolated(&sections, &[], &["Fine.", observation]),
+                "{observation:?}"
+            );
+        }
     }
 }
