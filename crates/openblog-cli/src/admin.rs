@@ -665,6 +665,8 @@ fn authenticated_api(
         ("GET", "engagement/analytics") => hosted_engagement_request(state, req, "admin/analytics"),
         ("GET", "engagement/moderation") => moderation_inbox_page(state, req, session),
         ("PATCH", "engagement/moderation") => moderate_inbox_item(state, req, session),
+        ("GET", "engagement/retention") => retention_dry_run(state, session),
+        ("POST", "engagement/retention") => run_retention(state, req, session),
         ("POST", "engagement/feedback/publish") => publish_feedback(state, req),
         ("POST", "engagement/feedback/unpublish") => unpublish_moderated(state, req),
         ("GET", "engagement/feedback/published") => published_feedback(state),
@@ -4317,9 +4319,9 @@ fn unpublish_feedback(path: &Path, id: &str) -> Result<(), String> {
 fn unpublish_moderated_feedback(path: &Path, item: &HostedFeedback) -> Result<(), String> {
     if !matches!(
         item.status,
-        ModerationState::Removed | ModerationState::Rejected
+        ModerationState::Removed | ModerationState::Rejected | ModerationState::Withdrawn
     ) {
-        return Err("Only removed or rejected feedback is taken off a post here".into());
+        return Err("Only removed, rejected or withdrawn feedback is taken off a post here".into());
     }
     unpublish_feedback(path, &item.id)
 }
@@ -4343,6 +4345,23 @@ fn hosted_moderation_call(
     query: &[(&str, &str)],
     body: Option<&Json>,
 ) -> Result<(u16, Json), Response> {
+    hosted_inbox_request(
+        state,
+        "admin/moderation",
+        query,
+        body.map(|body| ("PATCH", body)),
+    )
+}
+
+/// One request to a hosted inbox route (`admin/moderation` or
+/// `admin/retention`) with the server-held token: a `GET` with `query`, or
+/// `body` sent with its method.
+fn hosted_inbox_request(
+    state: &AppState,
+    operation: &str,
+    query: &[(&str, &str)],
+    body: Option<(&str, &Json)>,
+) -> Result<(u16, Json), Response> {
     let config = site::load_config(&state.root).map_err(|error| Response::error(500, &error))?;
     if !config.engagement.enabled || !valid_engagement_endpoint(&config.engagement.endpoint) {
         return Err(Response::error(
@@ -4361,7 +4380,7 @@ fn hosted_moderation_call(
         Err(error) => return Err(Response::error(500, &error)),
     };
     let mut url = format!(
-        "{}/admin/moderation",
+        "{}/{operation}",
         config.engagement.endpoint.trim_end_matches('/')
     );
     if !query.is_empty() {
@@ -4381,7 +4400,12 @@ fn hosted_moderation_call(
         .into();
     let authorization = format!("Bearer {credential}");
     let response = match body {
-        Some(body) => agent
+        Some(("POST", body)) => agent
+            .post(&url)
+            .header("Authorization", &authorization)
+            .header("Content-Type", "application/json")
+            .send(body.to_string().as_bytes()),
+        Some((_, body)) => agent
             .patch(&url)
             .header("Authorization", &authorization)
             .header("Content-Type", "application/json")
@@ -4691,6 +4715,253 @@ fn hosted_inbox_item(
 
 const INBOX_CHANGED: &str = "This item changed since you loaded it. Review it again before acting.";
 
+// ---- The retention job (ADRs 0103 and 0131)
+//
+// Retention never runs on its own. The site Admin asks for a dry run, which
+// lists what is due under the site's periods without changing anything,
+// then runs it; both Admin and the hosted function decide each item's step,
+// and only items both agree on, still as they were, are changed. Comments
+// are part of a run only when the site set `participation.retention`.
+
+/// Whether the signed-in account is the site Admin for every work: bound in
+/// no shared publication, so retention, which spans every work, is theirs.
+fn retention_admin(sources: &InboxSources, session: &auth::Session) -> bool {
+    !sources.records.iter().any(|record| {
+        record
+            .authorization
+            .bindings
+            .iter()
+            .any(|binding| binding.admin_user == session.user)
+    })
+}
+
+/// The run's due items, as both Admin and the hosted function decide them
+/// at `as_of`, with what the hosted dry run reported.
+struct RetentionPlan {
+    cutoffs: moderation::RetentionCutoffs,
+    items: Vec<(moderation_inbox::InboxItem, moderation::RetentionStep)>,
+    audit: Json,
+    truncated: bool,
+    disagreed: usize,
+}
+
+fn retention_step_id(step: moderation::RetentionStep) -> &'static str {
+    match step {
+        moderation::RetentionStep::Expire => "expire",
+        moderation::RetentionStep::PurgeContent => "purge-content",
+    }
+}
+
+fn retention_plan(
+    state: &AppState,
+    policy: &moderation::ModerationPolicy,
+    as_of: DateTime,
+) -> Result<RetentionPlan, Response> {
+    let cutoffs = policy.cutoffs(as_of);
+    let wire = cutoffs.to_json();
+    let comments = if cutoffs.comments { "true" } else { "false" };
+    let query: Vec<(&str, &str)> = [
+        "pendingUntil",
+        "clarificationUntil",
+        "closedUntil",
+        "auditUntil",
+    ]
+    .into_iter()
+    .map(|key| (key, wire[key].as_str().unwrap_or_default()))
+    .chain([("comments", comments)])
+    .collect();
+    let value = match hosted_inbox_request(state, "admin/retention", &query, None) {
+        Ok((200, value)) => value,
+        Ok(_) => return Err(Response::error(502, "hosted engagement returned an invalid retention report")),
+        Err(response) if response.status == 404 => {
+            return Err(Response::error(
+                404,
+                "Retention needs the hosted protection schema: run supabase/protection.sql, then set OPENBLOG_PROTECTION_ENABLED=true in Netlify.",
+            ))
+        }
+        Err(response) => return Err(response),
+    };
+    let rows = value["items"]
+        .as_array()
+        .filter(|rows| rows.len() <= 3 * 200)
+        .ok_or_else(|| {
+            Response::error(
+                502,
+                "hosted engagement returned an invalid retention report",
+            )
+        })?;
+    let mut items = Vec::new();
+    let mut disagreed = 0;
+    for row in rows {
+        let hosted_step = row["step"].as_str().unwrap_or_default().to_string();
+        let mut row = row.clone();
+        if let Some(object) = row.as_object_mut() {
+            object.remove("step");
+        }
+        let item = moderation_inbox::InboxItem::from_value(&row);
+        let step = item
+            .as_ref()
+            .ok()
+            .and_then(|item| policy.retention_due(&item.facts(), as_of));
+        match (item, step) {
+            (Ok(item), Some(step)) if retention_step_id(step) == hosted_step => {
+                if item.source != moderation_inbox::Source::Comment || cutoffs.comments {
+                    items.push((item, step));
+                } else {
+                    disagreed += 1;
+                }
+            }
+            _ => disagreed += 1,
+        }
+    }
+    let audit = value["audit"].clone();
+    let audit = if audit.as_object().is_some_and(|counts| {
+        counts.len() <= 3 && counts.values().all(|count| count.as_u64().is_some())
+    }) {
+        audit
+    } else {
+        json!({})
+    };
+    Ok(RetentionPlan {
+        cutoffs,
+        items,
+        audit,
+        truncated: value["truncated"] == true,
+        disagreed,
+    })
+}
+
+/// The dry run as Admin shows it: counts by step and kind, and each item's
+/// facts, never its text or a reader's name.
+fn retention_report(
+    policy: &moderation::ModerationPolicy,
+    as_of: DateTime,
+    plan: &RetentionPlan,
+) -> Json {
+    let mut summary: std::collections::BTreeMap<(&str, &str), (usize, &str)> =
+        std::collections::BTreeMap::new();
+    for (item, step) in &plan.items {
+        summary
+            .entry((retention_step_id(*step), item.kind.id()))
+            .or_insert((0, item.kind.label()))
+            .0 += 1;
+    }
+    json!({
+        "asOf": as_of.rfc3339(),
+        "periods": {
+            "pendingDays": policy.retention.pending_days,
+            "clarificationDays": policy.retention.clarification_days,
+            "closedDays": policy.retention.closed_days,
+            "auditDays": policy.retention.audit_days,
+            "comments": policy.comment_retention,
+        },
+        "cutoffs": plan.cutoffs.to_json(),
+        "summary": summary.into_iter().map(|((step, kind), (count, label))| json!({"step": step, "kind": kind, "kindLabel": label, "count": count})).collect::<Vec<_>>(),
+        "items": plan.items.iter().map(|(item, step)| json!({
+            "source": item.source.id(), "id": item.id, "kind": item.kind.id(), "kindLabel": item.kind.label(),
+            "status": item.state.id(), "statusLabel": item.state.label(), "since": item.facts().state_since.rfc3339(),
+            "step": retention_step_id(*step), "work": item.work,
+        })).collect::<Vec<_>>(),
+        "audit": plan.audit,
+        "truncated": plan.truncated,
+        "skipped": plan.disagreed,
+    })
+}
+
+/// `GET engagement/retention`: the dry run. Nothing changes.
+fn retention_dry_run(state: &AppState, session: &auth::Session) -> Response {
+    let sources = match inbox_sources(state) {
+        Ok(sources) => sources,
+        Err(response) => return response,
+    };
+    if !retention_admin(&sources, session) {
+        return Response::error(
+            403,
+            "Only the site Admin runs retention, because it covers every post.",
+        );
+    }
+    let policy = moderation::ModerationPolicy::from_config(&sources.config);
+    let as_of = clock::now();
+    match retention_plan(state, &policy, as_of) {
+        Ok(plan) => Response::json(200, &retention_report(&policy, as_of, &plan)),
+        Err(response) => response,
+    }
+}
+
+/// `POST engagement/retention` with the dry run's `asOf` (at most an hour
+/// old) and whether to delete old audit events: runs exactly what is due at
+/// that time and still as it was, and reports what it did.
+fn run_retention(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    let body = match feedback_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let now = clock::now();
+    let Some(as_of) = body["asOf"]
+        .as_str()
+        .and_then(DateTime::parse)
+        .filter(|as_of| as_of.unix() <= now.unix() && now.unix() - as_of.unix() <= 3_600)
+    else {
+        return Response::error(
+            422,
+            "Check what retention would do again, then run it within the hour.",
+        );
+    };
+    let sources = match inbox_sources(state) {
+        Ok(sources) => sources,
+        Err(response) => return response,
+    };
+    if !retention_admin(&sources, session) {
+        return Response::error(
+            403,
+            "Only the site Admin runs retention, because it covers every post.",
+        );
+    }
+    let policy = moderation::ModerationPolicy::from_config(&sources.config);
+    let plan = match retention_plan(state, &policy, as_of) {
+        Ok(plan) => plan,
+        Err(response) => return response,
+    };
+    let mut request = plan.cutoffs.to_json();
+    request["audit"] = json!(body["audit"] == true);
+    request["items"] = Json::Array(
+        plan.items
+            .iter()
+            .take(200)
+            .map(|(item, step)| json!({"source": item.source.id(), "id": item.id, "version": item.version, "step": retention_step_id(*step)}))
+            .collect(),
+    );
+    let result = match hosted_inbox_request(state, "admin/retention", &[], Some(("POST", &request)))
+    {
+        Ok((200, value)) => value,
+        Ok(_) => {
+            return Response::error(
+                502,
+                "hosted engagement returned an invalid retention result",
+            )
+        }
+        Err(response) => return response,
+    };
+    let count = |key: &str| result[key].as_u64().unwrap_or(0);
+    eprintln!(
+        "admin: retention by {} expired {} purged {} skipped {}",
+        session.user,
+        count("expired"),
+        count("purged"),
+        count("skipped")
+    );
+    Response::json(
+        200,
+        &json!({
+            "expired": count("expired"),
+            "purged": count("purged"),
+            "skipped": count("skipped") as usize + plan.disagreed,
+            "auditDeleted": result["auditDeleted"].as_object().map(|counts| counts.values().filter_map(Json::as_u64).sum::<u64>()),
+            "more": plan.truncated || plan.items.len() > 200,
+        }),
+    )
+}
+
 /// `PATCH engagement/moderation`: one decision on one item. The request names
 /// the item's source, id, state and version as loaded, the action, a reason
 /// when it takes one and, to approve passage feedback whose passage is not
@@ -4705,18 +4976,28 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
         .as_str()
         .and_then(moderation_inbox::Source::from_id)
     else {
-        return Response::error(422, "Name the item's source: comment or feedback");
+        return Response::error(422, "Name the item's source: comment, feedback or report");
     };
     let id = match feedback_id(&body["id"]) {
         Ok(id) => id,
         Err(response) => return response,
     };
-    let Some(action) = body["action"]
-        .as_str()
-        .and_then(moderation::ModerationAction::from_id)
-        .filter(|action| moderation_inbox::INBOX_ACTIONS.contains(action))
-    else {
-        return Response::error(422, "Choose one of the item's actions");
+    // A deletion request is not a moderation transition: it purges the
+    // item's text and name and leaves its state as it is (ADR 0130).
+    let erase = body["action"].as_str() == Some(moderation_inbox::ERASE_ACTION);
+    let action = if erase {
+        None
+    } else {
+        match body["action"]
+            .as_str()
+            .and_then(moderation::ModerationAction::from_id)
+            .filter(|action| {
+                moderation_inbox::INBOX_ACTIONS.contains(action)
+                    || *action == moderation::ModerationAction::UpholdReport
+            }) {
+            Some(action) => Some(action),
+            None => return Response::error(422, "Choose one of the item's actions"),
+        }
     };
     let Some(version) = body["version"]
         .as_u64()
@@ -4753,11 +5034,25 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
         Err(response) => return response,
     };
     let published = published_feedback_file(state);
-    // Decided here first, with this account's role on the item's work.
+    // Decided here first, with this account's role on the item's work: the
+    // state the item ends in, and the item an upheld report takes down.
     let decided = sources.inbox(session, protocol, |inbox| {
         let view = inbox_view(inbox, &item, published.as_ref());
         let role = inbox.actor(&item).role();
-        let decision = inbox.decide(&item, action, version, reason);
+        let decision = match action {
+            Some(action) => inbox
+                .decide(&item, action, version, reason)
+                .map(|decision| {
+                    (
+                        decision.item.to,
+                        decision.reported_item.map(|change| change.item),
+                    )
+                }),
+            None if reason.is_some() => Err(moderation::PolicyError::ReasonNotAllowed),
+            None => inbox
+                .erase(&item, version)
+                .map(|erasure| (erasure.state, None)),
+        };
         (view, role, decision)
     });
     let (view, role, decision) = decided;
@@ -4784,9 +5079,10 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
         Ok(_) if item.state != from => return conflict(view, INBOX_CHANGED),
         Ok(decision) => decision,
     };
+    let (decided_to, removed_target) = decision;
     // A passage that moved or changed is approved only once the moderator
     // has confirmed the check they read (ADR 0083).
-    if action == moderation::ModerationAction::Approve {
+    if action == Some(moderation::ModerationAction::Approve) {
         if let Some(hosted) = item.feedback() {
             if !feedback_moderation::approval_acknowledged(
                 &hosted.feedback,
@@ -4800,21 +5096,32 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
             }
         }
     }
-    let request = json!({
+    let action_id = action.map_or(
+        moderation_inbox::ERASE_ACTION,
+        moderation::ModerationAction::id,
+    );
+    let mut request = json!({
         "source": source.id(),
         "id": id,
-        "action": action.id(),
+        "action": action_id,
         "from": item.state.id(),
         "expectedVersion": version,
         "reason": reason.map(moderation::ReasonCode::id),
         "actor": session.user,
         "actorRole": role.id(),
     });
+    if action == Some(moderation::ModerationAction::UpholdReport) {
+        // The hosted function upholds only while the reported item is
+        // exactly as this decision saw it (ADR 0103).
+        request["targetVersion"] = json!(item.target.as_ref().map(|target| target.version));
+    }
     let reread = |value: &Json| moderation_inbox::InboxItem::from_value(&value["item"]).ok();
     let changed = match hosted_moderation_call(state, &[], Some(&request)) {
         Ok((200, value)) => match reread(&value) {
             Some(changed)
-                if changed.id == id && stored_as(protocol, &changed, decision.item.to) =>
+                if changed.id == id
+                    && stored_as(protocol, &changed, decided_to)
+                    && (!erase || changed.content == moderation_inbox::Content::Purged) =>
             {
                 changed
             }
@@ -4843,22 +5150,39 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
         Err(response) => return response,
     };
     eprintln!(
-        "admin: moderation {} {id} {} by {} as {}",
+        "admin: moderation {} {id} {action_id} by {} as {}",
         source.id(),
-        action.id(),
         session.user,
         role.id()
     );
-    // What the site publishes of passage feedback follows the decision.
+    // What the site publishes of passage feedback follows the decision: an
+    // approval publishes the note; a removal, an upheld report that took a
+    // note down, or a deletion request takes it off its post.
+    let approve = action == Some(moderation::ModerationAction::Approve);
+    let unpublish_id = match (&item.target, &removed_target) {
+        (Some(target), Some(_)) if target.source == moderation_inbox::Source::Feedback => {
+            Some(target.id.clone())
+        }
+        _ if source == moderation_inbox::Source::Feedback
+            && (erase || action == Some(moderation::ModerationAction::Remove)) =>
+        {
+            Some(id.clone())
+        }
+        _ => None,
+    };
+    let unpublish_id = unpublish_id.filter(|target| {
+        // Only touch the file when the note is on it, or for a removal,
+        // which always says what the file holds.
+        action == Some(moderation::ModerationAction::Remove)
+            || published
+                .as_ref()
+                .is_none_or(|file| file.get(target).is_some())
+    });
     let mut published_now = false;
     let mut publish_error = None;
     let mut build = None;
-    if let Some(hosted) = changed.feedback().filter(|_| {
-        matches!(
-            action,
-            moderation::ModerationAction::Approve | moderation::ModerationAction::Remove
-        )
-    }) {
+    let approved_note = changed.feedback().filter(|_| approve);
+    if approved_note.is_some() || unpublish_id.is_some() {
         let mut status = lock(&state.build);
         let _transaction = match content_transaction(state) {
             Ok(lock) => lock,
@@ -4866,25 +5190,23 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
         };
         let outcome = reader_feedback_path(state)
             .map_err(|_| "reader-feedback.json cannot be written".to_string())
-            .and_then(|path| {
-                if action == moderation::ModerationAction::Approve {
-                    publish_approved_feedback(&path, &sources.published, hosted)
-                } else {
-                    unpublish_feedback(&path, &id)
-                }
+            .and_then(|path| match (approved_note, &unpublish_id) {
+                (Some(hosted), _) => publish_approved_feedback(&path, &sources.published, hosted),
+                (None, Some(target)) => unpublish_feedback(&path, target),
+                (None, None) => Ok(()),
             });
         match outcome {
             Ok(()) => {
-                published_now = action == moderation::ModerationAction::Approve;
+                published_now = approve;
                 build = Some(feedback_build_json(&state.rebuild_locked(&mut status)));
             }
             Err(error) => {
                 // A removal that could not be written leaves the note on the
                 // post; say so when the file says so.
-                if action == moderation::ModerationAction::Remove {
+                if let Some(target) = &unpublish_id {
                     published_now = reader_feedback_path(state)
                         .and_then(|path| load_reader_feedback(&path))
-                        .is_ok_and(|(file, _)| file.get(&id).is_some());
+                        .is_ok_and(|(file, _)| file.get(target).is_some());
                 }
                 publish_error = Some(error)
             }
@@ -4901,6 +5223,7 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
             "published": published_now,
             "publishError": publish_error,
             "build": build,
+            "removedTarget": removed_target.is_some(),
         }),
     )
 }
@@ -17383,10 +17706,12 @@ mod tests {
         fs::write(&path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
     }
 
-    fn feedback_routes() -> [(&'static str, &'static str); 7] {
+    fn feedback_routes() -> [(&'static str, &'static str); 9] {
         [
             ("GET", "/admin/api/engagement/moderation"),
             ("PATCH", "/admin/api/engagement/moderation"),
+            ("GET", "/admin/api/engagement/retention"),
+            ("POST", "/admin/api/engagement/retention"),
             ("POST", "/admin/api/engagement/feedback/publish"),
             ("POST", "/admin/api/engagement/feedback/unpublish"),
             ("GET", "/admin/api/engagement/feedback/published"),
@@ -17513,6 +17838,57 @@ mod tests {
                 unknown.status
             );
         }
+        // Retention runs only from a fresh dry run, and says what it needs.
+        for as_of in [
+            json!(null),
+            json!("yesterday"),
+            json!("2020-01-01T00:00:00Z"),
+            json!("2999-01-01T00:00:00Z"),
+        ] {
+            let run = handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "POST",
+                        "/admin/api/engagement/retention",
+                        json!({ "asOf": as_of }),
+                    ),
+                    &session,
+                    true,
+                ),
+            );
+            assert_eq!(
+                run.status, 422,
+                "{as_of}: refused before any hosted request"
+            );
+        }
+        let dry = handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/engagement/retention"),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(dry.status, 404);
+        assert!(body_json(&dry)["error"]
+            .as_str()
+            .unwrap()
+            .contains("protection.sql"));
+        // A deletion request takes no reason, and names a known action.
+        let erase = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PATCH",
+                    "/admin/api/engagement/moderation",
+                    json!({ "source": "report", "id": FEEDBACK_ITEM_ID, "action": "purge", "from": "rejected", "version": 1 }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(erase.status, 422);
         let unpublish = handle(
             &f.state,
             &authed(
@@ -17924,6 +18300,37 @@ mod tests {
         let failed =
             collect_inbox_page(true, None, |_| Err(Response::error(502, "down")), seen_only);
         assert_eq!(failed.err().unwrap().status, 502);
+    }
+
+    #[test]
+    fn the_retention_dry_run_shows_facts_and_counts_never_text_or_names() {
+        let policy = moderation::ModerationPolicy::default();
+        let as_of = DateTime::parse("2026-10-27T10:00:00Z").unwrap();
+        let item = moderation_inbox::InboxItem::from_value(&json!({
+            "source": "report", "id": FEEDBACK_ITEM_ID, "status": "rejected", "version": 2,
+            "moderatedAt": "2026-08-01T00:00:00Z", "reason": "no-action", "receivedAt": "2026-07-30T00:00:00Z",
+            "work": "/posts/tides/", "report": {"ground": "abusive", "body": "Private words from a reader"},
+            "target": null,
+        }))
+        .unwrap();
+        let step = policy.retention_due(&item.facts(), as_of).unwrap();
+        let plan = RetentionPlan {
+            cutoffs: policy.cutoffs(as_of),
+            items: vec![(item, step)],
+            audit: json!({ "comment": 2, "report": 0 }),
+            truncated: false,
+            disagreed: 1,
+        };
+        let report = retention_report(&policy, as_of, &plan);
+        assert_eq!(
+            report["summary"],
+            json!([{ "step": "purge-content", "kind": "abuse-report", "kindLabel": "Abuse report", "count": 1 }])
+        );
+        assert_eq!(report["items"][0]["since"], "2026-08-01T00:00:00Z");
+        assert_eq!(report["periods"]["comments"], false);
+        assert_eq!(report["skipped"], 1);
+        assert_eq!(report["cutoffs"]["closedUntil"], "2026-09-27T10:00:00Z");
+        assert!(!report.to_string().contains("Private words"));
     }
 
     #[test]

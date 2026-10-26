@@ -17,6 +17,7 @@ import {
   moderationRequest,
   moderationRoleLine,
   parseModerationRoute,
+  retentionSummaryLines,
 } from "../../web/admin/admin.js";
 
 const transitions = JSON.parse(readFileSync(new URL("../fixtures/participation-transitions.json", import.meta.url), "utf8"));
@@ -25,7 +26,7 @@ const admin = readFileSync(new URL("../../web/admin/admin.js", import.meta.url),
 test("the inbox lists every state of the one state machine, pending first", () => {
   assert.deepEqual([...MODERATION_STATES].sort(), [...new Set(transitions.cases.map((entry) => entry.state))].sort());
   assert.equal(MODERATION_STATES[0], "pending");
-  assert.deepEqual(MODERATION_KINDS.map(([id]) => id), ["", "comment", "question", "source-suggestion", "correction-suggestion", "alternative-interpretation"]);
+  assert.deepEqual(MODERATION_KINDS.map(([id]) => id), ["", "comment", "question", "source-suggestion", "correction-suggestion", "alternative-interpretation", "abuse-report"]);
 });
 
 test("addresses keep the state and kind, and anything unknown falls back to the defaults", () => {
@@ -101,4 +102,41 @@ test("the view builds every control as text with its own label, and never as mar
   assert.match(view, /"aria-describedby": guidanceId/);
   assert.match(view, /role: "status", "aria-live": "polite", tabindex: "-1"/);
   assert.match(view, /cards\[0\]\?\.querySelector\("h3"\)\?\.focus\(\)/);
+});
+
+// ---- Engagement protection (#226, ADRs 0130 and 0131)
+
+test("abuse reports, upheld reports and deletions are worded without naming any reader", () => {
+  assert.equal(moderationReaderLine({ publishName: false }, "report"), "Reports are anonymous: nothing about the reader who sent it is kept.");
+  const report = { source: "report", post: { title: "Tides" }, work: "/posts/tides/" };
+  assert.equal(moderationOutcome(report, "uphold-report", { removedTarget: true }), "Report upheld. The reported item was removed from “Tides”.");
+  assert.match(moderationOutcome(report, "uphold-report", { removedTarget: false }), /already out of public view/);
+  assert.match(moderationOutcome(report, "uphold-report", { removedTarget: true, published: true, publishError: "Disk full." }), /still on the post\. Disk full\./);
+  assert.equal(moderationOutcome({ source: "comment" }, "erase", {}), "Its text and name were deleted. Only the private record of decisions remains.");
+  // A note its reader withdrew and asked to delete must come off the post.
+  const withdrawn = feedbackPublicationMismatch({ status: "withdrawn", published: true });
+  assert.equal(withdrawn.action, "unpublish");
+  assert.match(withdrawn.notice, /asked for it to be deleted/);
+  assert.equal(feedbackPublicationMismatch({ status: "withdrawn", published: false }), null);
+});
+
+test("the retention dry run says what would happen, and that comments are kept unless opted in", () => {
+  const report = {
+    periods: { auditDays: 365, comments: false },
+    summary: [{ step: "expire", kind: "question", kindLabel: "Question", count: 2 }, { step: "purge-content", kind: "abuse-report", kindLabel: "Abuse report", count: 1 }],
+    audit: { comment: 3, feedback: 0, report: 1 },
+    truncated: true,
+  };
+  assert.deepEqual(retentionSummaryLines(report), [
+    "2 question items would expire without a decision.",
+    "1 abuse report item would have their text, details and names deleted.",
+    "4 private records of decisions older than 365 days would be deleted.",
+    "Comments are kept until you act, because participation.retention is not set in openblog.json.",
+    "More items are due than one run takes; run it again afterwards.",
+  ]);
+  assert.deepEqual(retentionSummaryLines({ periods: { auditDays: 365, comments: true }, summary: [], audit: {} }), ["Nothing is due: retention would change nothing now."]);
+  // The run is a separate, confirmed step after the dry run.
+  assert.match(admin, /"GET", "engagement\/retention"/);
+  assert.match(admin, /"POST", "engagement\/retention", \{ json: \{ asOf: report\.asOf, audit: auditBox\.checked \} \}/);
+  assert.match(admin, /I understand that purged text, details and names cannot be recovered\./);
 });

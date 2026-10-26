@@ -299,10 +299,11 @@ export const MODERATION_KINDS = [
   ["source-suggestion", "Suggested sources"],
   ["correction-suggestion", "Suggested corrections"],
   ["alternative-interpretation", "Other interpretations"],
+  ["abuse-report", "Abuse reports"],
 ];
 const MODERATION_STATE_NOTES = {
   clarification: "These wait for the reader’s answer through their private receipt. The text asked about can never be approved; you can still reject it.",
-  withdrawn: "Readers took these back. They are never published and cannot be changed.",
+  withdrawn: "Readers took these back through their private receipts, and their text was deleted at once. They are never published and cannot be changed.",
 };
 
 /** The inbox's address for one state and kind filter. */
@@ -351,6 +352,7 @@ export function moderationRoleLine(role) {
  * feedback chose whether to show theirs, and a private name reaches only the site Admin.
  */
 export function moderationReaderLine(reader, source = "feedback") {
+  if (source === "report") return "Reports are anonymous: nothing about the reader who sent it is kept.";
   if (source === "comment") return reader?.name ? `From ${reader.name}, shown with the comment.` : "From an unnamed commenter.";
   if (reader?.private) return "The reader gave a name that only the site Admin can see.";
   if (!reader?.name) return "From an anonymous reader.";
@@ -369,6 +371,15 @@ export function moderationOutcome(item, action, result) {
   if (action === "reject") return "Rejected. Nothing was published.";
   if (action === "request-clarification") return "Asked the reader to clarify. Nothing was published or e-mailed.";
   if (action === "reopen") return `Reopened. It is ${result.item?.status === "clarification" ? "waiting for clarification" : "pending"} again.`;
+  if (action === "uphold-report") {
+    if (!result.removedTarget) return "Report upheld. The reported item was already out of public view, so nothing else changed.";
+    if (result.published) return `Report upheld and the item removed, but the note is still on the post. ${result.publishError || ""} Take it off the post from the Removed list.`.trim();
+    return `Report upheld. The reported item was removed from ${where}.`;
+  }
+  if (action === "erase") {
+    if (result.published) return `Its text and name were deleted, but the note is still on the post. ${result.publishError || ""}`.trim();
+    return "Its text and name were deleted. Only the private record of decisions remains.";
+  }
   if (item.source === "comment") return `Removed from ${where}.`;
   if (result.published) return `Removed, but still on the post. ${result.publishError || ""} Take it off the post from the Removed list.`;
   return result.publishError ? `Removed. ${result.publishError}` : `Removed from ${where}.`;
@@ -384,7 +395,22 @@ export function feedbackPublicationMismatch(item) {
   if (item.status === "approved" && item.published === false) return { notice: "Approved, but not on the site yet.", action: "publish", label: "Publish on the post" };
   if (item.status === "removed" && item.published === true) return { notice: "Removed, but still on the post.", action: "unpublish", label: "Take it off the post" };
   if (item.status === "rejected" && item.published === true) return { notice: "Rejected, but still on the post.", action: "unpublish", label: "Take it off the post" };
+  if (item.status === "withdrawn" && item.published === true) return { notice: "The reader withdrew this note and asked for it to be deleted, but it is still on the post. Take it off now.", action: "unpublish", label: "Take it off the post" };
   return null;
+}
+
+/** The retention dry run's summary, in words: what would expire or be purged, by kind. */
+export function retentionSummaryLines(report) {
+  const lines = (report?.summary || []).map((entry) => {
+    const what = entry.step === "expire" ? "expire without a decision" : "have their text, details and names deleted";
+    return `${entry.count} ${entry.kindLabel.toLowerCase()} ${entry.count === 1 ? "item" : "items"} would ${what}.`;
+  });
+  const audit = Object.values(report?.audit || {}).reduce((total, count) => total + (Number(count) || 0), 0);
+  if (audit) lines.push(`${audit} private record${audit === 1 ? "" : "s"} of decisions older than ${report.periods.auditDays} days would be deleted.`);
+  if (!lines.length) lines.push("Nothing is due: retention would change nothing now.");
+  if (!report?.periods?.comments) lines.push("Comments are kept until you act, because participation.retention is not set in openblog.json.");
+  if (report?.truncated) lines.push("More items are due than one run takes; run it again afterwards.");
+  return lines;
 }
 
 /** How the published note would read its passage, in words. */
@@ -406,6 +432,18 @@ function feedbackPassage(passage) {
     passage.quoted ? h("p", {}, "Words the reader quoted, as they saw them:") : null,
     passage.quoted ? h("blockquote", { class: "oba-feedback-body" }, passage.quoted) : null,
     h("p", { class: "oba-small" }, `Seen on passage revision ${passage.revisionSeen}${passage.revisionNow ? `; published now: ${passage.revisionNow}` : ""}.`),
+  );
+}
+
+/** The item an abuse report names, for moderators: its kind and state, its author if a comment, and its text unless deleted. */
+function reportedItem(target) {
+  if (!target) return h("p", { class: "oba-notice" }, "The reported item no longer exists, so upholding the report changes only the report.");
+  return h(
+    "div",
+    { class: "oba-feedback-passage" },
+    h("h4", {}, "Reported item"),
+    h("p", {}, `${target.kindLabel}${target.authorName ? ` by ${target.authorName}` : ""} · ${target.statusLabel}`),
+    target.body ? h("blockquote", { class: "oba-feedback-body" }, target.body) : h("p", { class: "oba-small" }, "Its text was deleted."),
   );
 }
 
@@ -10290,8 +10328,11 @@ export class ObAdmin extends AdminElement {
         h("p", { class: "oba-small" }, moderationRoleLine(item.role)),
         item.clarification?.askedAboutThisText ? h("p", { class: "oba-notice" }, "A clarification was asked about this text. It can never be approved; only the reader’s answer can.") : null,
         feedbackPassage(item.passage),
-        h("h4", {}, item.source === "comment" ? "The comment" : "The reader’s note"),
-        h("p", { class: "oba-feedback-body" }, item.body),
+        item.purged ? h("p", { class: "oba-notice" }, "Its text, details and any name were deleted. Only the private record of decisions remains.") : null,
+        item.report ? h("p", {}, h("strong", {}, "Ground: "), item.report.groundLabel) : null,
+        item.purged || (item.source === "report" && !item.body) ? null : h("h4", {}, item.source === "comment" ? "The comment" : item.source === "report" ? "What the reader wrote" : "The reader’s note"),
+        item.purged || (item.source === "report" && !item.body) ? null : h("p", { class: "oba-feedback-body" }, item.body),
+        item.source === "report" ? reportedItem(item.target) : null,
         item.details?.sourceUrl ? h("p", {}, "Suggested source: ", h("a", { href: item.details.sourceUrl, target: "_blank", rel: "noopener noreferrer nofollow" }, item.details.sourceUrl)) : null,
         item.details?.suggestedText ? h("div", {}, h("p", {}, "Suggested wording:"), h("blockquote", { class: "oba-feedback-body" }, item.details.suggestedText)) : null,
         h("p", { class: "oba-small" }, moderationReaderLine(item.reader, item.source)),
@@ -10315,6 +10356,23 @@ export class ObAdmin extends AdminElement {
       for (const option of item.actions || []) {
         const guidanceId = `oba-moderation-${key}-${option.action}-guidance`;
         const guidance = h("p", { class: "oba-small oba-moderation-guidance", id: guidanceId }, option.guidance || "");
+        if (option.confirm) {
+          // A decision that cannot be undone needs its own confirmation first.
+          const confirmId = `oba-moderation-${key}-${option.action}-confirm`;
+          const confirmBox = h("input", { type: "checkbox", id: confirmId, "aria-describedby": guidanceId });
+          actions.append(h("div", { class: "oba-moderation-action" },
+            h("p", { class: "oba-feedback-acknowledge" }, confirmBox, " ", h("label", { for: confirmId }, option.confirm)),
+            h("button", { class: "oba-btn oba-btn-danger", type: "button", "aria-describedby": guidanceId, onClick: () => {
+              if (!confirmBox.checked) {
+                announce(line, "Confirm that you understand this cannot be undone first.", "error");
+                confirmBox.focus();
+                return;
+              }
+              act(option.action);
+            } }, option.label),
+            guidance));
+          continue;
+        }
         if (!option.reasons?.length) {
           if (option.action === "approve" && item.passage?.acknowledge) {
             const checkId = `oba-moderation-${key}-acknowledge`;
@@ -10458,12 +10516,71 @@ export class ObAdmin extends AdminElement {
       );
     };
 
+    // Retention (ADRs 0103 and 0131): a dry run first, then a run of exactly what it listed.
+    const retentionStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite", tabindex: "-1" }, "");
+    const retentionReport = h("div", { class: "oba-retention-report" });
+    const checkRetention = h("button", { class: "oba-btn", type: "button" }, "Check what retention would do");
+    const showRetention = async () => {
+      checkRetention.disabled = true;
+      announce(retentionStatus, "Checking what is due…");
+      try {
+        const report = await this.api.call("GET", "engagement/retention");
+        const confirmBox = h("input", { type: "checkbox", id: "oba-retention-confirm" });
+        const auditBox = h("input", { type: "checkbox", id: "oba-retention-audit", checked: "" });
+        const due = (report.items?.length || 0) > 0 || Object.values(report.audit || {}).some((count) => Number(count) > 0);
+        const run = h("button", { class: "oba-btn oba-btn-danger", type: "button", disabled: due ? null : "" }, "Run retention now");
+        run.addEventListener("click", async () => {
+          if (!confirmBox.checked) {
+            announce(retentionStatus, "Confirm that you understand purged text cannot be recovered first.", "error");
+            confirmBox.focus();
+            return;
+          }
+          run.disabled = true;
+          announce(retentionStatus, "Running retention…");
+          try {
+            const result = await this.api.call("POST", "engagement/retention", { json: { asOf: report.asOf, audit: auditBox.checked } });
+            const parts = [`${result.expired} expired`, `${result.purged} purged`];
+            if (result.auditDeleted) parts.push(`${result.auditDeleted} old records deleted`);
+            if (result.skipped) parts.push(`${result.skipped} skipped because they changed or were not due`);
+            retentionReport.replaceChildren();
+            announce(retentionStatus, `Retention ran: ${parts.join(", ")}.${result.more ? " More are due; check again to continue." : ""}`, "ok");
+            retentionStatus.focus();
+            await loadQueue();
+          } catch (error) {
+            run.disabled = false;
+            announce(retentionStatus, error.message, "error");
+            retentionStatus.focus();
+          }
+        });
+        retentionReport.replaceChildren(
+          h("ul", {}, retentionSummaryLines(report).map((text) => h("li", {}, text))),
+          report.items?.length ? h("details", {}, h("summary", {}, `The ${report.items.length} item${report.items.length === 1 ? "" : "s"} due`),
+            h("ul", {}, report.items.map((entry) => h("li", {}, `${entry.kindLabel}, ${entry.statusLabel.toLowerCase()} since ${formatWhen(entry.since)}, on ${entry.work}: ${entry.step === "expire" ? "expires" : "text deleted"}`)))) : null,
+          due ? h("p", { class: "oba-feedback-acknowledge" }, confirmBox, " ", h("label", { for: "oba-retention-confirm" }, "I understand that purged text, details and names cannot be recovered.")) : null,
+          due ? h("p", { class: "oba-feedback-acknowledge" }, auditBox, " ", h("label", { for: "oba-retention-audit" }, `Also delete private records of decisions older than ${report.periods.auditDays} days`)) : null,
+          due ? run : null,
+        );
+        announce(retentionStatus, `Checked as of ${formatWhen(report.asOf)}. Nothing has changed yet.`);
+      } catch (error) {
+        retentionReport.replaceChildren();
+        announce(retentionStatus, error.message, error.status === 404 || error.status === 403 ? "notice" : "error");
+      } finally {
+        checkRetention.disabled = false;
+        retentionStatus.focus();
+      }
+    };
+    checkRetention.addEventListener("click", showRetention);
+
     this.mount(
       this.shell(
         "moderation",
-        h("p", {}, "Comments, and the questions, suggested sources, suggested corrections and other interpretations readers sent about passages, in one list. Nothing is published until it is approved, approving never changes your post, and a suggested correction stays a suggestion until you decide to edit the post. Nothing here e-mails anyone."),
+        h("p", {}, "Comments, the questions, suggested sources, suggested corrections and other interpretations readers sent about passages, and abuse reports, in one list. Nothing is published until it is approved, approving never changes your post, and a suggested correction stays a suggestion until you decide to edit the post. Nothing here e-mails anyone."),
         h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-moderation-queue-title" }, h("h2", { id: "oba-moderation-queue-title" }, "Moderation queue"), stateTabs, kindFilter, stateNote, queueStatus, queue, more),
         h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-feedback-published-title" }, h("h2", { id: "oba-feedback-published-title" }, "Published on your posts"), publishedStatus, published),
+        h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-retention-title" },
+          h("h2", { id: "oba-retention-title" }, "Retention"),
+          h("p", {}, "Unpublished reader text is not kept for ever: pending notes expire, and the text of rejected, removed and withdrawn items and of upheld reports is deleted after the periods set in openblog.json. Retention never runs on its own. Check what it would do first; nothing changes until you run it, and the private record of each decision is kept longer than any text."),
+          checkRetention, retentionStatus, retentionReport),
       ),
     );
     await Promise.all([loadQueue(), loadPublished()]);
