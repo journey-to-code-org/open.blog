@@ -1978,13 +1978,24 @@ export function atlasDissentDraft(record = {}, from = null) {
  * Rests a relationship draft on a newer stored copy. Every nested item read
  * from the store takes the newer copy of the item it came from, wherever that
  * item still exists, so fields added elsewhere at any level survive the save.
+ * An item rests on the newer copy only while the stored item at its index is
+ * still the same item (evidence: the same source and passage; a dissent: the
+ * same party). When items were removed elsewhere, the index points at another
+ * item, and the draft keeps its own copy rather than take that item's fields.
  */
 export function rebaseAtlasRelationshipDraft(draft, current) {
   const stored = (list, from) => (Array.isArray(list) && Number.isInteger(from) && list[from] && typeof list[from] === "object" ? list[from] : null);
+  const text = (value) => (typeof value === "string" ? value : "");
+  const sameEvidence = (a = {}, b = {}) => text(a.source) === text(b.source) && text(a.passage) === text(b.passage);
+  const party = (value) => (value && typeof value === "object" ? value : {});
+  const sameDissent = (a = {}, b = {}) => {
+    const [x, y] = [party(a.by), party(b.by)];
+    return text(x.kind) === text(y.kind) && text(x.source) === text(y.source) && text(x.name) === text(y.name);
+  };
   const rebaseEvidence = (drafts, list) => {
     for (const item of drafts) {
       const newer = stored(list, item.from);
-      if (newer) item.original = structuredClone(newer);
+      if (newer && sameEvidence(newer, item.original)) item.original = structuredClone(newer);
     }
   };
   draft.original = structuredClone(current);
@@ -1992,7 +2003,7 @@ export function rebaseAtlasRelationshipDraft(draft, current) {
   rebaseEvidence(draft.evidence, current.evidence);
   for (const dissent of draft.contestedBy) {
     const newer = stored(current.contestedBy, dissent.from);
-    if (!newer) continue;
+    if (!newer || !sameDissent(newer, dissent.original)) continue;
     dissent.original = structuredClone(newer);
     dissent.by.original = structuredClone(newer.by || { kind: "author" });
     rebaseEvidence(dissent.evidence, newer.evidence);

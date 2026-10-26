@@ -742,6 +742,40 @@ test("a rebased draft takes each nested item from the stored index it was read f
   assert.equal(atlasRelationshipPayload(gone).evidence[0].margin, "kept", "an item removed elsewhere keeps the copy the draft holds");
 });
 
+test("a rebased draft keeps its own copy of an item whose stored index now holds another item", () => {
+  const record = RELATIONSHIP();
+  record.evidence = [
+    { source: "removed-elsewhere", passage: "p-0", own: "first" },
+    { source: "slings-2003", passage: "p-1", own: "second" },
+  ];
+  record.contestedBy = [
+    { by: { kind: "named", name: "Removed elsewhere" }, note: "Gone.", own: "first" },
+    { by: { kind: "named", name: "A later editor" }, note: "Doubts the attribution.", own: "second" },
+  ];
+  const draft = atlasRelationshipDraft(record);
+  draft.evidence.shift();
+  draft.contestedBy.shift();
+  const newer = RELATIONSHIP();
+  newer.evidence = [{ source: "slings-2003", passage: "p-1", own: "second", added: "elsewhere" }];
+  newer.contestedBy = [{ by: { kind: "named", name: "A later editor" }, note: "Doubts the attribution.", own: "second", added: "elsewhere" }];
+  rebaseAtlasRelationshipDraft(draft, newer);
+  const sent = atlasRelationshipPayload(draft);
+  assert.deepEqual(sent.evidence, [{ source: "slings-2003", passage: "p-1", own: "second" }], "the evidence item at index 1 does not rest on another stored item at index 1");
+  assert.equal(sent.contestedBy.length, 1);
+  assert.equal(sent.contestedBy[0].own, "second", "the dissent keeps its own fields");
+  assert.equal(sent.contestedBy[0].added, undefined, "the dissent takes no fields from another stored dissent");
+
+  const shifted = atlasRelationshipDraft(record);
+  const elsewhere = RELATIONSHIP();
+  elsewhere.evidence = [{ source: "slings-2003", passage: "p-1", own: "second" }];
+  elsewhere.contestedBy = [{ by: { kind: "named", name: "A later editor" }, note: "Doubts the attribution.", own: "second" }];
+  rebaseAtlasRelationshipDraft(shifted, elsewhere);
+  const kept = atlasRelationshipPayload(shifted);
+  assert.deepEqual(kept.evidence.map((item) => item.own), ["first", "second"], "an item removed elsewhere ahead of the draft's items neither loses nor borrows fields");
+  assert.deepEqual(kept.contestedBy.map((item) => item.own), ["first", "second"]);
+  assert.equal(kept.contestedBy[1].by.name, "A later editor");
+});
+
 test("removing asks first, a linked entry is refused with the reason, and unresolved notes are reported", withDom(async () => {
   let refuse = true;
   const api = atlasApi({
