@@ -603,6 +603,18 @@ publication projection may copy. An approved relationship touching a private ent
 private and is reported as a notice, never refused.
 _Avoid_: Public relationship, approved relationship when a private endpoint is possible
 
+**Atlas projection**:
+The one public form of the Knowledge Atlas: approved entries and projected relationships, each
+reduced to an explicit allowlist of fields, with the public description of the sources they use.
+Both the atlas pages and `atlas.json` are rendered from it, and nothing public reads the private
+atlas. Withdrawing approval removes an item from the next build.
+_Avoid_: Public atlas export, public graph; filtering the private atlas per surface
+
+**Atlas publication switch**:
+The site setting `knowledgeAtlas.publish`. Off by default, when no build reads the atlas at all;
+on, the build publishes the atlas projection. Item approval is still required for each item.
+_Avoid_: Treating approval alone as publication
+
 **Atlas revision**:
 The fingerprint of the Knowledge Atlas as stored, which every change must name so that a change
 based on an older read is refused instead of overwriting newer work.

@@ -6,9 +6,10 @@ decisions are in [ADR 0058](../adr/0058-knowledge-atlas-entries-keep-their-kind.
 [ADR 0059](../adr/0059-attributed-evidence-based-relationships.md),
 [ADR 0060](../adr/0060-private-knowledge-atlas-storage.md),
 [ADR 0061](../adr/0061-one-lock-order-and-cross-store-research-guards.md) and
-[ADR 0062](../adr/0062-accessible-atlas-authoring-and-a-text-first-explorer.md). Nothing in it reaches
-a public page, feed, search index, `llms.txt` or export until an explicit publication
-projection copies approved items.
+[ADR 0062](../adr/0062-accessible-atlas-authoring-and-a-text-first-explorer.md) and
+[ADR 0063](../adr/0063-publish-one-allowlisted-knowledge-atlas-projection.md). Nothing in it
+reaches a public page, feed, search index, `llms.txt` or export except through the
+[publication projection](#publication), which copies approved items only when the site opts in.
 
 ```json
 {
@@ -133,3 +134,57 @@ unsourced draft state. Standing is always written out ("Asserted; no recorded di
 "Contested: N recorded dissents (by ...)"), never as agreement. A conflict keeps the draft
 until the author uses the stored copy or keeps the draft on top of it. A notebook note's
 concept links open the matching entry, or a new concept with that identifier.
+
+## Publication
+
+Defined by [ADR 0063](../adr/0063-publish-one-allowlisted-knowledge-atlas-projection.md). A site
+publishes its atlas only with `"knowledgeAtlas": {"publish": true}` in `openblog.json`; until then
+no build reads the atlas. When it is on, `openblog_core::atlas_publication::PublicAtlas` projects
+the approved entries and the relationships `Atlas::is_projected` allows (approved, sourced, no
+passage pointer, both entries approved), and the build writes:
+
+| Output | Content |
+| --- | --- |
+| `/atlas/` | Published entries grouped by kind, with how many relationships each has, and a link to `atlas.json`. |
+| `/atlas/<id>/` | The entry's label, other names, years, summary and work reference, then its relationships from and to it, each in the stored direction with standing, who asserts it, confidence, cited references and locators, uncertainty and every dissent. |
+| `/atlas.json` | The same projection as compact data (below). |
+
+```json
+{
+  "format": "openblog-atlas-projection",
+  "formatVersion": 1,
+  "entries": [
+    { "id": "plato", "kind": "person", "label": "Plato", "aliases": ["Aristocles"],
+      "bounds": { "from": -428, "until": -348 }, "url": "/atlas/plato/" }
+  ],
+  "relationships": [
+    { "id": "r-authored", "kind": "authored", "from": "plato", "to": "republic",
+      "label": "authored", "inverseLabel": "authored by",
+      "assertedBy": { "kind": "source", "source": "scholar-book" },
+      "confidence": "plausible",
+      "evidence": [{ "source": "republic-slings", "locators": [{ "kind": "page", "value": "514" }] }],
+      "uncertainty": "Authorship of some dialogues is disputed.",
+      "standing": "contested",
+      "contestedBy": [{ "by": { "kind": "named", "name": "Another reading" }, "note": "Dates it later." }] }
+  ],
+  "sources": [
+    { "key": "scholar-book", "kind": "work", "title": "A study", "text": "A study" }
+  ]
+}
+```
+
+Only the fields shown (and an entry's `summary` and a work's `source`, a dissent's `evidence`)
+are published; sources carry the citation allowlist of ADR 0044. Visibility, `unsourced`,
+passage ids, unknown fields, private entries and relationships, relationships touching a
+private entry and notebook data are never published. Entries, relationships and sources are
+sorted by id. URLs are root-relative and follow a site's base path, and `<`, `>` and `&` in
+text are written as JSON escapes. A relationship is `contested` whenever anyone dissents;
+there is no agreed state.
+
+Clearing an approval removes the item, and an entry's relationships, from the next build;
+while the site publishes its atlas, a saved Admin atlas change rebuilds at once and its response
+carries the outcome as `build` (`ok`, and `error` when it failed). A
+published atlas that cannot be read or validated stops `build` and `check` before anything is
+written, naming the file only. `atlas` is a reserved page and post path while the atlas is
+published. The atlas pages join the sitemap; feeds, search, `llms.txt` and portable exports do
+not include them.
