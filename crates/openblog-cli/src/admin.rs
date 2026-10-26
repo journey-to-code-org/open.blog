@@ -19,6 +19,8 @@ use std::time::Duration;
 
 use blake2::{Blake2s256, Digest};
 use openblog_core::accessibility::AuditScope;
+use openblog_core::attributed_perspective;
+use openblog_core::author_response;
 use openblog_core::chronology::{Aspect, ChronoKey, TemporalOrder, MAX_DATINGS, MAX_YEAR};
 use openblog_core::chronology_index::{date_text, ChronologyIndex};
 use openblog_core::citations::{self, PublicLocator};
@@ -47,7 +49,7 @@ use openblog_core::media_moment::{location_text, Moment, MomentSet};
 use openblog_core::members::MemberError;
 use openblog_core::moderation::{self, ModerationState};
 use openblog_core::moderation_inbox;
-use openblog_core::participation::ParticipationKind;
+use openblog_core::participation::{self, ParticipationKind};
 use openblog_core::passage_target::PassageDocument;
 use openblog_core::perspective_publication;
 use openblog_core::portability::{destination_policy, DestinationRepresentation};
@@ -674,6 +676,8 @@ fn authenticated_api(
         ("GET", "engagement/analytics") => hosted_engagement_request(state, req, "admin/analytics"),
         ("GET", "engagement/moderation") => moderation_inbox_page(state, req, session),
         ("PATCH", "engagement/moderation") => moderate_inbox_item(state, req, session),
+        ("POST", "engagement/author-response") => author_answer(state, req, session),
+        ("PATCH", "engagement/author-response") => withdraw_author_answer(state, req, session),
         ("GET", "engagement/retention") => retention_dry_run(state, session),
         ("POST", "engagement/retention") => run_retention(state, req, session),
         ("POST", "engagement/feedback/publish") => publish_feedback(state, req),
@@ -5077,6 +5081,385 @@ fn published_perspectives_audit(state: &AppState, session: &auth::Session) -> Re
     )
 }
 
+// ---- Author responses (#223, ADRs 0165 to 0169)
+//
+// An author answers a reader's Third Perspective about their own section of
+// a shared reflection. Admin is where that is decided, because only Admin
+// holds the private shared-publication record: the signed-in account must be
+// the contributor bound to the participant whose public contributor id is on
+// the section's anchor, and the section must be published now (from the
+// committed body and credits alone). The hosted function never holds the
+// record; it reads the one request Admin sends strictly, reads the parent
+// from its own store and checks it again, and stores the answer pending.
+// Moderation is the one inbox's.
+
+/// What Admin makes of the hosted function's answer to an author response
+/// request: stored (`202`), or refused with a short plain message and its
+/// code. Nothing names the token.
+fn hosted_author_answer(status: u16, value: Json) -> Result<(u16, Json), Response> {
+    let refusal = |status: u16| {
+        Response::json(
+            status,
+            &json!({
+                "error": value["error"]
+                    .as_str()
+                    .filter(|message| message.len() <= 300 && !message.chars().any(char::is_control))
+                    .unwrap_or("The hosted function refused the answer"),
+                "code": value["code"].as_str().filter(|code| code.len() <= 40 && code.chars().all(|c| c.is_ascii_alphabetic())),
+            }),
+        )
+    };
+    match status {
+        200 | 202 => Ok((status, value)),
+        401 => Err(Response::error(
+            502,
+            "The hosted function refused the saved moderation token",
+        )),
+        404 if value["code"] == "unavailable" || value["code"] == "notFound" => Err(refusal(404)),
+        404 => Err(Response::error(
+            404,
+            "The hosted function does not take author responses yet: deploy netlify/functions from this version of open.blog.",
+        )),
+        403 | 409 | 413 | 422 | 429 => Err(refusal(status)),
+        _ => Err(Response::error(
+            502,
+            &format!("Hosted engagement returned HTTP {status}"),
+        )),
+    }
+}
+
+/// The raw credits sidecar the post's source file names, as committed.
+fn post_credits_text(state: &AppState, config: &SiteConfig, source: &str) -> Option<String> {
+    let path = openblog_core::contributor::sidecar_path(source)?;
+    fs::read_to_string(state.root.join(&config.paths.content).join(path)).ok()
+}
+
+/// One refusal of an author response, with its code, for the answering page.
+fn answer_refusal(status: u16, code: &str, message: &str) -> Response {
+    Response::json(status, &json!({ "error": message, "code": code }))
+}
+
+/// `POST engagement/author-response`: `{"parent": id, "parentVersion": n,
+/// "body": text}`. The parent is read from the hosted inbox; nothing about
+/// who is answering, as whom or about which section comes from the request.
+fn author_answer(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    let body = match feedback_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let parent_id = match feedback_id(&body["parent"]) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let Some(parent_version) = body["parentVersion"]
+        .as_u64()
+        .filter(|version| (1..=i32::MAX as u64).contains(version))
+    else {
+        return Response::error(422, "Send the reflection's version as you loaded it");
+    };
+    let Some(text) = body["body"].as_str() else {
+        return Response::error(422, "Write the answer as plain text");
+    };
+    let (_, _, parent) =
+        match hosted_inbox_item(state, moderation_inbox::Source::Feedback, &parent_id) {
+            Ok(found) => found,
+            Err(response) => return response,
+        };
+    let sources = match inbox_sources(state) {
+        Ok(sources) => sources,
+        Err(response) => return response,
+    };
+    let credits = feedback_moderation::post_for_work(&sources.published, &parent.work)
+        .and_then(|post| post_credits_text(state, &sources.config, &post.source));
+    answer_as_author(
+        &sources,
+        session,
+        &parent,
+        parent_version,
+        text,
+        credits.as_deref(),
+        |request| {
+            hosted_inbox_raw(
+                state,
+                "admin/author-response",
+                &[],
+                Some(("POST", &request.to_value())),
+            )
+            .and_then(|(status, value)| hosted_author_answer(status, value))
+        },
+    )
+}
+
+/// The decision of an author response, before anything is sent: `send` is
+/// handed the one checked request and reaches the hosted function.
+fn answer_as_author(
+    sources: &InboxSources,
+    session: &auth::Session,
+    parent: &moderation_inbox::InboxItem,
+    parent_version: u64,
+    text: &str,
+    credits: Option<&str>,
+    send: impl FnOnce(&author_response::AuthorResponseRequest) -> Result<(u16, Json), Response>,
+) -> Response {
+    use attributed_perspective::{admit_response, ResponseError};
+    let Some(hosted) = parent.perspective() else {
+        return Response::error(404, "No such reflection");
+    };
+    let works = moderation::SharedWorks::new(&sources.records, &sources.loaded);
+    let admin_users: Vec<&str> = sources.admin_users.iter().map(String::as_str).collect();
+    let contributor_ids: Vec<&str> = sources.contributor_ids.iter().map(String::as_str).collect();
+    let identities = Identities {
+        active_admin_users: &admin_users,
+        contributor_ids: &contributor_ids,
+    };
+    let Some(post) = feedback_moderation::post_for_work(&sources.published, &parent.work) else {
+        return answer_refusal(
+            409,
+            "parentUnavailable",
+            "That work is not published now, so its reflections cannot be answered.",
+        );
+    };
+    let Some(record) = works.record_for_work(&parent.work) else {
+        // Not a shared work, or its post is not loaded: nobody answers as an author.
+        return answer_refusal(
+            403,
+            "denied",
+            "You cannot answer this reflection as its author.",
+        );
+    };
+    let Ok(target) =
+        third_perspective::PerspectiveTarget::try_from(hosted.copy.provenance.target.clone())
+    else {
+        return answer_refusal(
+            422,
+            "notAttributed",
+            "That reflection is not about one author’s section.",
+        );
+    };
+    let parent_mode = participation::effective_mode(
+        &sources.published.config,
+        post,
+        ParticipationKind::ThirdPerspective,
+    );
+    let mode = participation::effective_mode(
+        &sources.published.config,
+        post,
+        ParticipationKind::AuthorResponse,
+    );
+    let policy = moderation::ModerationPolicy::from_config(&sources.config);
+    let facts = parent.facts();
+    let admitted = admit_response(
+        &policy,
+        &attributed_perspective::ResponseRequest {
+            id: "new",
+            record,
+            identities: &identities,
+            admin_user: &session.user,
+            works: &works,
+            work: &parent.work,
+            mode,
+            parent: &facts,
+            parent_mode,
+            parent_target: &target,
+            body: post.authored_markdown(),
+            credits,
+            at: clock::now(),
+        },
+    );
+    let admitted =
+        match admitted {
+            Ok(admitted) => admitted,
+            Err(ResponseError::NotAttributed) => {
+                return answer_refusal(
+                    422,
+                    "notAttributed",
+                    "That reflection is not about one author’s section.",
+                )
+            }
+            Err(ResponseError::Denied)
+            | Err(ResponseError::Policy(moderation::PolicyError::Denied)) => {
+                return answer_refusal(
+                    403,
+                    "denied",
+                    "You cannot answer this reflection as its author.",
+                )
+            }
+            Err(ResponseError::AuthorUnconfirmed) => return answer_refusal(
+                409,
+                "authorUnconfirmed",
+                "No section by that author is published now, so there is nothing left to answer.",
+            ),
+            Err(ResponseError::Unavailable) => {
+                return answer_refusal(
+                    409,
+                    "parentUnavailable",
+                    "That reflection is not shown to readers now, so it cannot be answered.",
+                )
+            }
+            Err(ResponseError::Policy(moderation::PolicyError::Closed)) => {
+                return answer_refusal(
+                    403,
+                    "closed",
+                    "This work is not taking author responses now.",
+                )
+            }
+            Err(ResponseError::Policy(moderation::PolicyError::Unavailable)) => {
+                return answer_refusal(
+                    404,
+                    "unavailable",
+                    "Author responses are not turned on for this work.",
+                )
+            }
+            Err(ResponseError::Policy(error)) => {
+                return answer_refusal(
+                    422,
+                    error.code(),
+                    &format!("{}.", capitalize(&error.to_string())),
+                )
+            }
+        };
+    // Only now, with the author confirmed, does the parent's own state matter.
+    let contributor = admitted.responder.contributor.clone();
+    let shown = parent
+        .parent_facts()
+        .ok_or("parentUnavailable")
+        .and_then(|facts| facts.check_answer(&parent.work, &contributor));
+    if let Err(code) = shown {
+        return answer_refusal(
+            if code == "parentUnavailable" {
+                409
+            } else {
+                422
+            },
+            code,
+            "That reflection cannot be answered now.",
+        );
+    }
+    if parent.version != parent_version {
+        return Response::json(409, &json!({ "error": INBOX_CHANGED, "code": "conflict" }));
+    }
+    let request = match author_response::AuthorResponseRequest::new(
+        &parent.work,
+        &parent.id,
+        parent.version,
+        text,
+        author_response::StoredResponder::of(&admitted.responder, &session.user),
+    ) {
+        Ok(request) => request,
+        Err(error) => return answer_refusal(422, error.code, &error.message),
+    };
+    match send(&request) {
+        Ok((_, value)) => {
+            eprintln!(
+                "admin: author response to {} by {} as {}",
+                parent.id, session.user, contributor
+            );
+            Response::json(
+                200,
+                &json!({
+                    "ok": true,
+                    "answer": { "id": value["id"], "status": value["status"], "receivedAt": value["receivedAt"] },
+                }),
+            )
+        }
+        Err(response) => response,
+    }
+}
+
+/// `PATCH engagement/author-response`: `{"id": id, "version": n}`. An author
+/// takes their own answer back, while they are still bound to their section.
+fn withdraw_author_answer(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    let body = match feedback_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let id = match feedback_id(&body["id"]) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let Some(version) = body["version"]
+        .as_u64()
+        .filter(|version| (1..=i32::MAX as u64).contains(version))
+    else {
+        return Response::error(422, "Send the answer's version as you loaded it");
+    };
+    let (protocol, third_perspectives, item) =
+        match hosted_inbox_item(state, moderation_inbox::Source::Feedback, &id) {
+            Ok(found) => found,
+            Err(response) => return response,
+        };
+    let sources = match inbox_sources(state) {
+        Ok(sources) => sources,
+        Err(response) => return response,
+    };
+    withdraw_answer_with(
+        &sources,
+        session,
+        protocol,
+        third_perspectives,
+        &item,
+        version,
+        |request| {
+            hosted_inbox_raw(
+                state,
+                "admin/author-response",
+                &[],
+                Some(("PATCH", request)),
+            )
+            .and_then(|(status, value)| hosted_author_answer(status, value))
+        },
+    )
+}
+
+fn withdraw_answer_with(
+    sources: &InboxSources,
+    session: &auth::Session,
+    protocol: moderation_inbox::Protocol,
+    third_perspectives: bool,
+    item: &moderation_inbox::InboxItem,
+    version: u64,
+    send: impl FnOnce(&Json) -> Result<(u16, Json), Response>,
+) -> Response {
+    if item.author_response().is_none() {
+        return Response::error(404, "No such answer");
+    }
+    let decided = sources.inbox(session, protocol, third_perspectives, |inbox| {
+        inbox.withdraw_answer(item, version)
+    });
+    match decided {
+        Err(moderation::PolicyError::Denied) => {
+            // The same answer for another account, a binding since removed and a
+            // role since changed: nothing says which.
+            return answer_refusal(404, "notFound", "No such answer");
+        }
+        Err(moderation::PolicyError::Stale) => {
+            return Response::json(409, &json!({ "error": INBOX_CHANGED, "code": "conflict" }))
+        }
+        Err(error) => {
+            return answer_refusal(422, error.code(), "This answer cannot be taken back now.")
+        }
+        Ok(_) => {}
+    }
+    let request = json!({ "id": item.id, "expectedVersion": version, "actor": session.user });
+    match send(&request) {
+        Ok((_, value)) => {
+            eprintln!(
+                "admin: author response {} withdrawn by {}",
+                item.id, session.user
+            );
+            let view = moderation_inbox::InboxItem::from_value(&value["item"])
+                .ok()
+                .and_then(|changed| {
+                    sources.inbox(session, protocol, third_perspectives, |inbox| {
+                        inbox.view(&changed)
+                    })
+                });
+            Response::json(200, &json!({ "ok": true, "item": view }))
+        }
+        Err(response) => response,
+    }
+}
+
 // ---- The moderation inbox (ADR 0105)
 //
 // One list for hosted comments and passage feedback, driven by the one state
@@ -5108,6 +5491,19 @@ fn hosted_moderation_call(
 /// `admin/retention`) with the server-held token: a `GET` with `query`, or
 /// `body` sent with its method.
 fn hosted_inbox_request(
+    state: &AppState,
+    operation: &str,
+    query: &[(&str, &str)],
+    body: Option<(&str, &Json)>,
+) -> Result<(u16, Json), Response> {
+    let (status, value) = hosted_inbox_raw(state, operation, query, body)?;
+    hosted_moderation_answer(status, value)
+}
+
+/// The same request, answered as the hosted function answered it: the status
+/// and the body, for a caller that maps them itself. Failing to reach the
+/// function, or having no endpoint or credential, is still an error.
+fn hosted_inbox_raw(
     state: &AppState,
     operation: &str,
     query: &[(&str, &str)],
@@ -5181,7 +5577,7 @@ fn hosted_inbox_request(
         .read_to_vec()
         .map_err(|_| Response::error(502, "Cannot read hosted engagement response"))?;
     let value = serde_json::from_slice::<Json>(&bytes).unwrap_or(Json::Null);
-    hosted_moderation_answer(status, value)
+    Ok((status, value))
 }
 
 /// What Admin makes of a hosted inbox answer. A refusal's message is passed
@@ -5904,6 +6300,44 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
         Ok(decision) => decision,
     };
     let (decided_to, removed_target) = decision;
+    // An answer is approved only under the reflection it answers, read again
+    // from the hosted store now, shown to readers and about the answering
+    // contributor's own section (ADR 0166); the hosted function checks the
+    // same again.
+    if action == Some(moderation::ModerationAction::Approve) {
+        if let Some(answer) = item.author_response() {
+            let parent = match hosted_inbox_lookup(
+                state,
+                moderation_inbox::Source::Feedback,
+                &answer.parent,
+            ) {
+                Ok(parent) => parent,
+                Err(response) => return response,
+            };
+            let checked = match &parent {
+                Some((parent_protocol, parent_perspectives, parent)) => {
+                    sources.inbox(session, *parent_protocol, *parent_perspectives, |inbox| {
+                        inbox.check_answer_approval(&item, parent)
+                    })
+                }
+                None => Err(author_response::PARENT_UNAVAILABLE),
+            };
+            if let Err(code) = checked {
+                return Response::json(
+                    if code == author_response::PARENT_UNAVAILABLE {
+                        409
+                    } else {
+                        422
+                    },
+                    &json!({
+                        "error": "The reflection this answers is not shown to readers now, or is not about this author’s section, so the answer cannot be approved.",
+                        "code": code,
+                        "item": view,
+                    }),
+                );
+            }
+        }
+    }
     let binding = match binding {
         None => None,
         Some(Ok(binding)) => Some(binding),
@@ -6008,7 +6442,10 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
             target.id.clone(),
             target.kind == ParticipationKind::ThirdPerspective,
         )),
+        // An author response is published nowhere by this change (ADR 0166), so
+        // there is no file to take it off.
         _ if source == moderation_inbox::Source::Feedback
+            && item.kind != ParticipationKind::AuthorResponse
             && (erase || action == Some(moderation::ModerationAction::Remove)) =>
         {
             Some((id.clone(), item.kind == ParticipationKind::ThirdPerspective))
@@ -19392,8 +19829,10 @@ mod tests {
         fs::write(&path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
     }
 
-    fn feedback_routes() -> [(&'static str, &'static str); 12] {
+    fn feedback_routes() -> [(&'static str, &'static str); 14] {
         [
+            ("POST", "/admin/api/engagement/author-response"),
+            ("PATCH", "/admin/api/engagement/author-response"),
             ("GET", "/admin/api/engagement/third-perspectives/published"),
             ("POST", "/admin/api/engagement/third-perspectives/publish"),
             ("POST", "/admin/api/engagement/third-perspectives/unpublish"),
@@ -19669,6 +20108,692 @@ mod tests {
         let unknown =
             apply_perspective_sync(&f.state, admin, false, &approved, FEEDBACK_ITEM_ID, false);
         assert_eq!(unknown.status, 200);
+    }
+
+    // ---- Author responses (#223, ADRs 0165 to 0169)
+
+    mod author_answers {
+        use super::*;
+        use openblog_core::collaboration::{
+            AuthorizationRole, IdentityBinding, NewParticipant, NewSharedPublication,
+            NewSourceReference, Participant, SharedPublication, SourceKind,
+        };
+        use openblog_core::reflection::{compose, ComposedTurn, Placement, ReflectionLayout};
+        use openblog_core::third_perspective::{
+            ConsentChoices, Intake, LocalReflection, ReaderAttribution,
+        };
+
+        const PUBLICATION: &str = "shared-tides";
+        const WORK: &str = "/posts/shared-tides/";
+        const PARENT: &str = "00000000-0000-4000-8000-000000000001";
+        const ANSWER: &str = "00000000-0000-4000-8000-000000000002";
+        const TURNS: [(&str, &str); 3] = [
+            ("MINA", "The moon pulls the water."),
+            ("JOE", "It is also the sun."),
+            ("MINA", "Neither explains the harbour."),
+        ];
+        const CREDITS: &str = r#"{"version":1,"credits":[
+          {"contributor":"mina","roles":[{"vocabulary":"crossref","role":"author"}]},
+          {"contributor":"joe","roles":[{"vocabulary":"crossref","role":"author"}]}]}"#;
+        const SITE_JSON: &str = r#"{"title":"T","url":"https://t.dev","postPath":"/posts/{slug}/",
+          "author":{"name":"Site Author"},
+          "contributors":{"mina":{"name":"Mina"},"joe":{"name":"Joe"}},
+          "engagement":{"enabled":true,"endpoint":"https://t.dev/api"},
+          "participation":{"kinds":{"third-perspective":"open","author-response":"open"}}}"#;
+        const USERS: [&str; 5] = [
+            "owner-admin",
+            "coord-admin",
+            "mina-admin",
+            "joe-admin",
+            "rea-admin",
+        ];
+
+        fn member(record: &mut SharedPublication, name: &str, role: AuthorizationRole) {
+            record.collaboration.participants.push(Participant {
+                id: format!("p-{name}"),
+                display_name: name.to_uppercase(),
+                profile_url: None,
+            });
+            record.authorization.bindings.push(IdentityBinding {
+                admin_user: format!("{name}-admin"),
+                contributor_id: name.into(),
+                participant_id: format!("p-{name}"),
+                roles: vec![role],
+            });
+        }
+
+        fn record() -> SharedPublication {
+            let mut record = SharedPublication::create(&NewSharedPublication {
+                publication_id: PUBLICATION.into(),
+                title: "Tides, together".into(),
+                guiding_question: String::new(),
+                sources: vec![NewSourceReference {
+                    kind: SourceKind::Article,
+                    title: "Tide tables".into(),
+                    ..NewSourceReference::default()
+                }],
+                creator: NewParticipant {
+                    admin_user: "owner-admin".into(),
+                    contributor_id: "owner".into(),
+                    display_name: "OWNER".into(),
+                },
+            })
+            .unwrap();
+            member(&mut record, "coord", AuthorizationRole::Coordinator);
+            member(&mut record, "mina", AuthorizationRole::Contributor);
+            member(&mut record, "joe", AuthorizationRole::Contributor);
+            member(&mut record, "rea", AuthorizationRole::Reader);
+            record
+        }
+
+        fn arranged(turns: &[(&str, &str)]) -> String {
+            let composed: Vec<ComposedTurn<'_>> = turns
+                .iter()
+                .enumerate()
+                .map(|(round, (name, text))| ComposedTurn {
+                    round,
+                    round_prompt: None,
+                    display_name: name,
+                    label: None,
+                    placement: Placement { lane: 0, lanes: 1 },
+                    body: (*text).to_string(),
+                })
+                .collect();
+            compose(ReflectionLayout::Sequential, &composed)
+        }
+
+        fn site(config: &str, turns: &[(&str, &str)], credits: bool) -> Site {
+            Site::load(
+                SiteConfig::from_json(config).unwrap(),
+                openblog_core::Sources {
+                    posts: vec![openblog_core::SourceFile {
+                        path: format!("posts/{PUBLICATION}.md"),
+                        contents: format!(
+                            "---\ntitle: Tides, together\ndate: 2026-01-01\n---\n{}",
+                            arranged(turns)
+                        ),
+                    }],
+                    credits: if credits {
+                        vec![openblog_core::SourceFile {
+                            path: format!("posts/{PUBLICATION}.credits.json"),
+                            contents: CREDITS.into(),
+                        }]
+                    } else {
+                        Vec::new()
+                    },
+                    ..Default::default()
+                },
+                openblog_core::LoadOptions::default(),
+            )
+            .unwrap()
+        }
+
+        fn sources(site: Site, record: SharedPublication) -> InboxSources {
+            InboxSources {
+                config: site.config.clone(),
+                published: site.clone(),
+                loaded: site,
+                records: vec![record],
+                admin_users: USERS.iter().map(ToString::to_string).collect(),
+                contributor_ids: ["owner", "coord", "mina", "joe", "rea"]
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect(),
+            }
+        }
+
+        fn session(user: &str) -> auth::Session {
+            auth::Session {
+                user: user.into(),
+                credential: String::new(),
+                csrf: String::new(),
+                expires: std::time::Instant::now() + Duration::from_secs(3600),
+            }
+        }
+
+        /// The Third Perspective a reader wrote about the `nth` section of the
+        /// post, as the hosted inbox returns it.
+        fn parent_of(
+            site: &Site,
+            nth: usize,
+            status: &str,
+            version: u64,
+        ) -> moderation_inbox::InboxItem {
+            let post = &site.posts[0];
+            let target = attributed_perspective::AttributedSections::of_post(post).sections()[nth]
+                .target()
+                .perspective_target();
+            let document = PassageDocument::of_post(post, &site.config);
+            let copy = LocalReflection {
+                work: post.url.clone(),
+                revision: document.revision,
+                target,
+                category: None,
+                body: "I read the harbour differently.".into(),
+                attribution: ReaderAttribution::anonymous(),
+                seen_at: None,
+            }
+            .submission(ConsentChoices {
+                publish: true,
+                clarification: false,
+                feature: false,
+            })
+            .receive(
+                openblog_core::DateTime::parse("2026-10-26T10:00:00Z").unwrap(),
+                Intake::Hosted {
+                    receipt_digest: "5e".repeat(32),
+                },
+            )
+            .unwrap();
+            let record: Json = serde_json::from_str(&copy.to_json()).unwrap();
+            let approved = status == "approved";
+            moderation_inbox::InboxItem::from_value(&json!({
+                "source": "feedback", "id": PARENT, "status": status, "version": version,
+                "moderatedAt": null, "reason": null,
+                "feedback": {"version": 1, "kind": "third-perspective", "body": copy.body, "details": copy.stored_details(), "provenance": record["provenance"]},
+                "itemRevision": 1, "approvedRevision": if approved { json!(1) } else { Json::Null },
+                "clarificationAsked": null, "clarificationConsent": false,
+                "approvedConsent": if approved { json!(1) } else { Json::Null },
+            }))
+            .unwrap()
+        }
+
+        /// Run `answer_as_author`, returning its response and the request
+        /// that reached the hosted function, if any.
+        fn answer(
+            sources: &InboxSources,
+            user: &str,
+            parent: &moderation_inbox::InboxItem,
+            text: &str,
+            credits: Option<&str>,
+        ) -> (Response, Option<author_response::AuthorResponseRequest>) {
+            let sent = std::cell::RefCell::new(None);
+            let response = answer_as_author(
+                sources,
+                &session(user),
+                parent,
+                parent.version,
+                text,
+                credits,
+                |request| {
+                    *sent.borrow_mut() = Some(request.clone());
+                    Ok((
+                        200,
+                        json!({"id": ANSWER, "status": "pending", "receivedAt": "2026-10-27T10:00:00Z"}),
+                    ))
+                },
+            );
+            (response, sent.into_inner())
+        }
+
+        fn code(response: &Response) -> String {
+            body_json(response)["code"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string()
+        }
+
+        #[test]
+        fn only_the_sections_own_contributor_sends_an_answer_to_the_hosted_function() {
+            let site = site(SITE_JSON, &TURNS, true);
+            let parent = parent_of(&site, 0, "approved", 3);
+            let sources = sources(site, record());
+            let (response, sent) = answer(
+                &sources,
+                "mina-admin",
+                &parent,
+                "  I meant the harbour.  ",
+                Some(CREDITS),
+            );
+            assert_eq!(
+                response.status,
+                200,
+                "{}",
+                String::from_utf8_lossy(&response.body)
+            );
+            let stored = body_json(&response);
+            assert_eq!(stored["answer"]["id"], ANSWER);
+            assert_eq!(stored["answer"]["status"], "pending");
+            let request = sent.expect("the checked request is sent");
+            assert_eq!(request.work, WORK);
+            assert_eq!(request.parent_id, PARENT);
+            assert_eq!(request.parent_version, 3);
+            assert_eq!(request.body, "I meant the harbour.");
+            assert_eq!(request.responder.contributor, "mina");
+            assert_eq!(request.responder.author, "MINA");
+            assert_eq!(request.responder.participant, "p-mina");
+            assert_eq!(request.responder.account, "mina-admin");
+            assert!(
+                !String::from_utf8_lossy(&response.body).contains("p-mina"),
+                "the binding is never answered back"
+            );
+            // The same denial for every other signed-in account: another
+            // contributor, a coordinator, the publication's owner, a reader, an
+            // account bound to nothing.
+            for user in [
+                "joe-admin",
+                "coord-admin",
+                "owner-admin",
+                "rea-admin",
+                "ghost-admin",
+            ] {
+                let (response, sent) = answer(&sources, user, &parent, "Mine.", Some(CREDITS));
+                assert_eq!(response.status, 403, "{user}");
+                assert_eq!(code(&response), "denied", "{user}");
+                assert!(
+                    sent.is_none(),
+                    "{user}: nothing reaches the hosted function"
+                );
+            }
+        }
+
+        #[test]
+        fn a_demoted_or_removed_member_and_a_dropped_account_answer_nothing() {
+            let site = site(SITE_JSON, &TURNS, true);
+            let parent = parent_of(&site, 0, "approved", 3);
+            for change in [
+                |record: &mut SharedPublication| {
+                    record
+                        .authorization
+                        .bindings
+                        .retain(|binding| binding.participant_id != "p-mina")
+                },
+                |record: &mut SharedPublication| {
+                    for binding in &mut record.authorization.bindings {
+                        if binding.participant_id == "p-mina" {
+                            binding.roles = vec![AuthorizationRole::Editor];
+                        }
+                    }
+                },
+                |record: &mut SharedPublication| {
+                    record
+                        .collaboration
+                        .participants
+                        .retain(|participant| participant.id != "p-mina")
+                },
+            ] {
+                let mut changed = record();
+                change(&mut changed);
+                let (response, sent) = answer(
+                    &sources(site.clone(), changed),
+                    "mina-admin",
+                    &parent,
+                    "Mine.",
+                    Some(CREDITS),
+                );
+                assert_eq!(response.status, 403);
+                assert!(sent.is_none());
+            }
+            let mut inactive = sources(site.clone(), record());
+            inactive.admin_users.retain(|user| user != "mina-admin");
+            assert_eq!(
+                answer(&inactive, "mina-admin", &parent, "Mine.", Some(CREDITS))
+                    .0
+                    .status,
+                403
+            );
+            let mut dropped = sources(site, record());
+            dropped.contributor_ids.retain(|id| id != "mina");
+            assert_eq!(
+                answer(&dropped, "mina-admin", &parent, "Mine.", Some(CREDITS))
+                    .0
+                    .status,
+                403
+            );
+        }
+
+        #[test]
+        fn the_section_is_read_from_committed_content_so_stale_and_missing_credits_are_honest() {
+            let site = site(SITE_JSON, &TURNS, true);
+            let parent = parent_of(&site, 0, "approved", 3);
+            // MINA's section was rewritten after the reader read it: she may
+            // still answer, and the stored standing says it changed.
+            let edited = self::site(
+                SITE_JSON,
+                &[("MINA", "Rewritten."), TURNS[1], TURNS[2]],
+                true,
+            );
+            let (response, sent) = answer(
+                &sources(edited, record()),
+                "mina-admin",
+                &parent,
+                "Mine.",
+                Some(CREDITS),
+            );
+            assert_eq!(response.status, 200);
+            let standing = sent.unwrap().responder.standing;
+            assert_eq!(
+                standing,
+                author_response::StoredStanding::Stale {
+                    reason: attributed_perspective::StaleReason::SectionChangedOrRemoved
+                }
+            );
+            // Every section of hers removed: nothing is left to answer about.
+            let gone = self::site(SITE_JSON, &[TURNS[1]], true);
+            let (response, sent) = answer(
+                &sources(gone, record()),
+                "mina-admin",
+                &parent,
+                "Mine.",
+                Some(CREDITS),
+            );
+            assert_eq!(response.status, 409);
+            assert_eq!(code(&response), "authorUnconfirmed");
+            assert!(sent.is_none());
+            // Without the committed sidecar (a build that never had one) nobody
+            // can be attributed, and nothing is guessed from private records.
+            let (response, sent) = answer(
+                &sources(site.clone(), record()),
+                "mina-admin",
+                &parent,
+                "Mine.",
+                None,
+            );
+            assert_eq!(response.status, 409);
+            assert_eq!(code(&response), "authorUnconfirmed");
+            assert!(sent.is_none());
+            // A same-name invite after publication changes nothing.
+            let mut invited = record();
+            member(&mut invited, "mina2", AuthorizationRole::Contributor);
+            invited
+                .collaboration
+                .participants
+                .last_mut()
+                .unwrap()
+                .display_name = "MINA".into();
+            let mut with_invite = sources(site, invited);
+            with_invite.admin_users.push("mina2-admin".into());
+            with_invite.contributor_ids.push("mina2".into());
+            assert_eq!(
+                answer(&with_invite, "mina-admin", &parent, "Mine.", Some(CREDITS))
+                    .0
+                    .status,
+                200
+            );
+            let (response, sent) =
+                answer(&with_invite, "mina2-admin", &parent, "Mine.", Some(CREDITS));
+            assert_eq!(response.status, 403);
+            assert!(sent.is_none());
+        }
+
+        #[test]
+        fn a_changed_hidden_or_unanswerable_parent_is_a_conflict_or_a_refusal_and_never_sent() {
+            let site = site(SITE_JSON, &TURNS, true);
+            let sources_ = sources(site.clone(), record());
+            // The parent changed since the author loaded it.
+            let parent = parent_of(&site, 0, "approved", 3);
+            let response = answer_as_author(
+                &sources_,
+                &session("mina-admin"),
+                &parent,
+                2,
+                "Mine.",
+                Some(CREDITS),
+                |_| panic!("never sent"),
+            );
+            assert_eq!(response.status, 409);
+            assert_eq!(code(&response), "conflict");
+            // Not shown to readers: pending, removed.
+            for status in ["pending", "removed", "rejected"] {
+                let (response, sent) = answer(
+                    &sources_,
+                    "mina-admin",
+                    &parent_of(&site, 0, status, 3),
+                    "Mine.",
+                    Some(CREDITS),
+                );
+                assert_eq!(response.status, 409, "{status}");
+                assert_eq!(code(&response), "parentUnavailable", "{status}");
+                assert!(sent.is_none());
+            }
+            // About JOE's section: not MINA's to answer.
+            let (response, sent) = answer(
+                &sources_,
+                "mina-admin",
+                &parent_of(&site, 1, "approved", 3),
+                "Mine.",
+                Some(CREDITS),
+            );
+            assert_eq!(response.status, 403);
+            assert!(sent.is_none());
+            // The post's modes: answers locked or off, reflections off.
+            for (kinds, status, expected) in [
+                (
+                    r#"{"third-perspective":"open","author-response":"locked"}"#,
+                    403,
+                    "closed",
+                ),
+                (r#"{"third-perspective":"open"}"#, 404, "unavailable"),
+                (
+                    r#"{"third-perspective":"off","author-response":"open"}"#,
+                    409,
+                    "parentUnavailable",
+                ),
+            ] {
+                let config = SITE_JSON.replace(
+                    r#"{"third-perspective":"open","author-response":"open"}"#,
+                    kinds,
+                );
+                let other = self::site(&config, &TURNS, true);
+                let (response, sent) = answer(
+                    &sources(other, record()),
+                    "mina-admin",
+                    &parent_of(&site, 0, "approved", 3),
+                    "Mine.",
+                    Some(CREDITS),
+                );
+                assert_eq!(response.status, status, "{kinds}");
+                assert_eq!(code(&response), expected, "{kinds}");
+                assert!(sent.is_none());
+            }
+            // A work that is not a shared publication has no author to answer.
+            let mut other_work = parent_of(&site, 0, "approved", 3);
+            other_work.work = "/posts/other/".into();
+            let (response, sent) =
+                answer(&sources_, "mina-admin", &other_work, "Mine.", Some(CREDITS));
+            assert!([403, 409, 422].contains(&response.status));
+            assert!(sent.is_none());
+        }
+
+        #[test]
+        fn hostile_text_is_plain_text_and_a_broken_one_is_refused_before_sending() {
+            let site = site(SITE_JSON, &TURNS, true);
+            let parent = parent_of(&site, 0, "approved", 3);
+            let sources = sources(site, record());
+            let markup = "<script>alert(1)</script> [x](javascript:alert(2)) &amp;";
+            let (response, sent) = answer(&sources, "mina-admin", &parent, markup, Some(CREDITS));
+            assert_eq!(response.status, 200);
+            assert_eq!(sent.unwrap().body, markup, "sent as text; pages escape it");
+            for broken in ["   ", "a\u{0}b", "x\u{202e}y", &"a".repeat(4001)] {
+                let (response, sent) =
+                    answer(&sources, "mina-admin", &parent, broken, Some(CREDITS));
+                assert_eq!(response.status, 422);
+                assert_eq!(code(&response), "invalidBody");
+                assert!(sent.is_none());
+                assert!(!String::from_utf8_lossy(&response.body).contains("alert"));
+            }
+        }
+
+        #[test]
+        fn an_absent_or_refusing_hosted_function_is_reported_and_nothing_is_claimed() {
+            let site = site(SITE_JSON, &TURNS, true);
+            let parent = parent_of(&site, 0, "approved", 3);
+            let sources = sources(site, record());
+            let through = |reply: Result<(u16, Json), Response>| {
+                answer_as_author(
+                    &sources,
+                    &session("mina-admin"),
+                    &parent,
+                    3,
+                    "Mine.",
+                    Some(CREDITS),
+                    |_| reply,
+                )
+            };
+            // No endpoint, no credential, a timeout: the caller's own responses.
+            for failure in [
+                Response::error(404, "Hosted engagement is not turned on"),
+                Response::error(503, "Hosted engagement admin credential is not configured"),
+                Response::error(504, "Hosted engagement timed out"),
+            ] {
+                let status = failure.status;
+                assert_eq!(through(Err(failure)).status, status);
+            }
+            // What the function answers: stored, or refused with its own code.
+            assert_eq!(
+                hosted_author_answer(202, json!({"id": ANSWER})).unwrap().0,
+                202
+            );
+            for (status, code) in [
+                (409, "alreadyAnswered"),
+                (409, "conflict"),
+                (429, "rateLimited"),
+                (403, "closed"),
+                (422, "responderMismatch"),
+                (413, "tooLarge"),
+            ] {
+                let refused =
+                    hosted_author_answer(status, json!({"error": "Refused.", "code": code}))
+                        .unwrap_err();
+                assert_eq!(refused.status, status);
+                assert_eq!(body_json(&refused)["code"], code);
+            }
+            let unavailable =
+                hosted_author_answer(404, json!({"error": "Set it.", "code": "unavailable"}))
+                    .unwrap_err();
+            assert_eq!(unavailable.status, 404);
+            let old_function =
+                hosted_author_answer(404, json!({"error": "No such engagement operation."}))
+                    .unwrap_err();
+            assert!(
+                String::from_utf8_lossy(&old_function.body).contains("deploy netlify/functions")
+            );
+            assert_eq!(
+                hosted_author_answer(401, Json::Null).unwrap_err().status,
+                502
+            );
+            assert_eq!(
+                hosted_author_answer(500, Json::Null).unwrap_err().status,
+                502
+            );
+            // A hostile message is never passed on.
+            let hostile =
+                hosted_author_answer(409, json!({"error": "a\u{0}b", "code": "../x"})).unwrap_err();
+            let value = body_json(&hostile);
+            assert_eq!(value["error"], "The hosted function refused the answer");
+            assert_eq!(value["code"], Json::Null);
+        }
+
+        fn answer_item(status: &str, version: u64, account: &str) -> moderation_inbox::InboxItem {
+            let site = site(SITE_JSON, &TURNS, true);
+            let parent = parent_of(&site, 0, "approved", 3);
+            let hosted = parent.perspective().unwrap();
+            moderation_inbox::InboxItem::from_value(&json!({
+                "source": "feedback", "id": ANSWER, "status": status, "version": version,
+                "moderatedAt": null, "reason": null,
+                "feedback": {
+                    "version": 1, "kind": "author-response", "body": "I meant the harbour.",
+                    "details": {
+                        "parent": PARENT,
+                        "responder": {"contributor": "mina", "author": "MINA", "standing": {"state": "current", "moved": false}},
+                        "binding": {"participant": "p-mina", "account": account},
+                    },
+                    "provenance": {
+                        "version": 1, "work": WORK, "revision": hosted.copy.provenance.revision,
+                        "target": hosted.copy.provenance.target.to_value(),
+                        "receivedAt": "2026-10-27T10:00:00Z", "channel": "hosted", "attribution": {"publishName": false},
+                    },
+                },
+                "itemRevision": 1, "approvedRevision": if status == "approved" { json!(1) } else { Json::Null },
+                "clarificationAsked": null, "clarificationConsent": false,
+            }))
+            .unwrap()
+        }
+
+        #[test]
+        fn an_author_takes_back_only_their_own_answer_while_still_bound() {
+            let site = site(SITE_JSON, &TURNS, true);
+            let sources = sources(site, record());
+            let item = answer_item("approved", 2, "mina-admin");
+            let protocol = moderation_inbox::Protocol::Protected;
+            let withdraw = |user: &str, item: &moderation_inbox::InboxItem, version: u64| {
+                let sent = std::cell::RefCell::new(None);
+                let response = withdraw_answer_with(
+                    &sources,
+                    &session(user),
+                    protocol,
+                    true,
+                    item,
+                    version,
+                    |request| {
+                        *sent.borrow_mut() = Some(request.clone());
+                        Ok((200, json!({"item": answer_value("withdrawn", version + 1)})))
+                    },
+                );
+                (response, sent.into_inner())
+            };
+            let (response, sent) = withdraw("mina-admin", &item, 2);
+            assert_eq!(
+                response.status,
+                200,
+                "{}",
+                String::from_utf8_lossy(&response.body)
+            );
+            assert_eq!(
+                sent.unwrap(),
+                json!({"id": ANSWER, "expectedVersion": 2, "actor": "mina-admin"})
+            );
+            assert_eq!(body_json(&response)["item"]["status"], "withdrawn");
+            // Another account, even a coordinator (who removes instead), the
+            // same refusal as an answer that is not there; nothing is sent.
+            for user in ["joe-admin", "coord-admin", "owner-admin"] {
+                let (response, sent) = withdraw(user, &item, 2);
+                assert_eq!(response.status, 404, "{user}");
+                assert!(sent.is_none(), "{user}");
+            }
+            // A stale version is a conflict; a closed answer is not withdrawn.
+            let (response, sent) = withdraw("mina-admin", &item, 1);
+            assert_eq!(response.status, 409);
+            assert!(sent.is_none());
+            let (response, _) =
+                withdraw("mina-admin", &answer_item("rejected", 2, "mina-admin"), 2);
+            assert_eq!(response.status, 422);
+            // Someone else's answer, written by another account, is not theirs.
+            let (response, _) = withdraw("mina-admin", &answer_item("pending", 1, "joe-admin"), 1);
+            assert_eq!(response.status, 404);
+            // Something that is not an answer is not found.
+            let (response, _) = withdraw(
+                "mina-admin",
+                &parent_of(&self::site(SITE_JSON, &TURNS, true), 0, "approved", 3),
+                3,
+            );
+            assert_eq!(response.status, 404);
+        }
+
+        fn answer_value(status: &str, version: u64) -> Json {
+            let site = site(SITE_JSON, &TURNS, true);
+            let parent = parent_of(&site, 0, "approved", 3);
+            let hosted = parent.perspective().unwrap();
+            json!({
+                "source": "feedback", "id": ANSWER, "status": status, "version": version,
+                "moderatedAt": null, "reason": null,
+                "feedback": {
+                    "version": 1, "kind": "author-response", "body": "I meant the harbour.",
+                    "details": {
+                        "parent": PARENT,
+                        "responder": {"contributor": "mina", "author": "MINA", "standing": {"state": "current", "moved": false}},
+                        "binding": {"participant": "p-mina", "account": "mina-admin"},
+                    },
+                    "provenance": {
+                        "version": 1, "work": WORK, "revision": hosted.copy.provenance.revision,
+                        "target": hosted.copy.provenance.target.to_value(),
+                        "receivedAt": "2026-10-27T10:00:00Z", "channel": "hosted", "attribution": {"publishName": false},
+                    },
+                },
+                "itemRevision": 1, "approvedRevision": Json::Null,
+                "clarificationAsked": null, "clarificationConsent": false,
+            })
+        }
     }
 
     #[test]

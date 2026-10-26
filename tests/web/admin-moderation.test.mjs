@@ -7,6 +7,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   MODERATION_KINDS,
+  answerLines,
+  answerOffer,
+  answerRequest,
+  withdrawAnswerRequest,
   MODERATION_STATES,
   feedbackPreviewText,
   feedbackPublicationMismatch,
@@ -27,7 +31,7 @@ const admin = readFileSync(new URL("../../web/admin/admin.js", import.meta.url),
 test("the inbox lists every state of the one state machine, pending first", () => {
   assert.deepEqual([...MODERATION_STATES].sort(), [...new Set(transitions.cases.map((entry) => entry.state))].sort());
   assert.equal(MODERATION_STATES[0], "pending");
-  assert.deepEqual(MODERATION_KINDS.map(([id]) => id), ["", "comment", "question", "source-suggestion", "correction-suggestion", "alternative-interpretation", "third-perspective", "abuse-report"]);
+  assert.deepEqual(MODERATION_KINDS.map(([id]) => id), ["", "comment", "question", "source-suggestion", "correction-suggestion", "alternative-interpretation", "third-perspective", "author-response", "abuse-report"]);
 });
 
 test("addresses keep the state and kind, and anything unknown falls back to the defaults", () => {
@@ -159,4 +163,64 @@ test("a Third Perspective's approval names the text revision and consent record 
   assert.deepEqual(perspectiveLines({ source: "feedback" }), []);
   assert.match(moderationOutcome(item, "approve", {}), /consent record 4, as a reader’s reflection on “Tides”/);
   assert.equal(moderationReaderLine({ name: "Ada", publishName: true }, "feedback", "third-perspective"), "From Ada, who agreed to show this name if you publish the reflection.");
+});
+
+// ---- Author responses (#223, ADR 0166)
+
+const PARENT = "00000000-0000-4000-8000-000000000001";
+const perspective = (extra = {}) => ({
+  id: PARENT, source: "feedback", kind: "third-perspective", status: "approved", version: 3, revision: 1,
+  perspective: { about: "section", section: "ob-by-mina-0", check: "current", consent: { number: 1, publish: true, showName: false, clarification: false }, attributed: { contributor: "mina", author: "MINA", standing: { state: "current", moved: false } } },
+  ...extra,
+});
+
+test("a reflection about one author's section is worded by author, never by an anchor or a side", () => {
+  const lines = perspectiveLines(perspective());
+  assert.match(lines[0], /^About one author’s section by MINA\.$/);
+  assert.doesNotMatch(lines.join(" "), /ob-by-|left|right|column/);
+  const changed = perspectiveLines(perspective({ perspective: { ...perspective().perspective, check: "stale", attributed: { author: "MINA", standing: { state: "stale", reason: "section-changed-or-removed" } } } }));
+  assert.match(changed[0], /That author’s section has changed or been removed since the reader read it\./, "never claims which");
+  const absent = perspectiveLines(perspective({ perspective: { ...perspective().perspective, check: "stale", attributed: { author: null, standing: { state: "stale", reason: "author-absent" } } } }));
+  assert.match(absent[0], /No section by that author is published now\./);
+  // An ordinary heading keeps its own wording.
+  assert.match(perspectiveLines({ perspective: { about: "section", section: "methods", check: "current", consent: { number: 1, publish: true } } })[0], /^About the section #methods\./);
+});
+
+test("an answer's author is offered a form only when the server offered one, and the request names no one", () => {
+  assert.equal(answerOffer(perspective()), null, "no offer, no form");
+  const offer = answerOffer(perspective({ answerAs: { contributor: "mina", author: "MINA", standing: { state: "current", moved: false } } }));
+  assert.equal(offer.heading, "Answer as MINA");
+  assert.match(offer.hint, /once a coordinator approves it\. You cannot approve it yourself/);
+  assert.doesNotMatch(offer.hint, /changed or been removed/);
+  const stale = answerOffer(perspective({ answerAs: { contributor: "mina", author: "MINA", standing: { state: "stale", reason: "section-changed-or-removed" } } }));
+  assert.match(stale.hint, /changed or been removed since the reader read it; your answer says so/);
+  const request = answerRequest(perspective(), "I meant the harbour.");
+  assert.deepEqual(request, { parent: PARENT, parentVersion: 3, body: "I meant the harbour." });
+  for (const key of ["actor", "user", "contributor", "participant", "author", "role", "account"]) assert.equal(key in request, false, key);
+  assert.deepEqual(withdrawAnswerRequest({ id: "x", version: 2, status: "approved" }), { id: "x", version: 2 });
+});
+
+test("a moderator reads whose answer it is, never a participant, and an author is told it is their own", () => {
+  const item = { kind: "author-response", response: { parent: PARENT, contributor: "mina", author: "MINA", standing: { state: "current", moved: false }, mine: false } };
+  const lines = answerLines(item);
+  assert.match(lines[0], /Written by MINA, the author of the section the reader’s reflection is about; the section is still published as the reader read it\./);
+  assert.match(lines[1], /never approved by the account that wrote it/);
+  assert.equal(lines.length, 2, "no account unless the server sent one");
+  const own = answerLines({ ...item, response: { ...item.response, account: "mina-admin", mine: true, standing: { state: "stale", reason: "ambiguous" } } });
+  assert.match(own[0], /identical sections, so which was meant cannot be told/);
+  assert.ok(own.includes("Written by the account mina-admin."));
+  assert.ok(own.includes("This is your own answer."));
+  assert.doesNotMatch(own.join(" "), /p-mina|participant/);
+  assert.match(moderationReaderLine({ publishName: false }, "feedback", "author-response"), /Written by the author of that section/);
+  assert.deepEqual(answerLines({}), []);
+});
+
+test("the inbox draws the answer form and the withdrawal as native, labelled controls that keep what was written", () => {
+  assert.match(admin, /oba-answer-form/);
+  assert.match(admin, /label", \{ for: textId \}, "Your answer, in plain text"/);
+  assert.match(admin, /api\.call\("POST", "engagement\/author-response"/);
+  assert.match(admin, /api\.call\("PATCH", "engagement\/author-response"/);
+  assert.match(admin, /answerRequest\(item, body\)/);
+  assert.match(admin, /else text\.focus\(\)/, "a refused answer keeps its text and focus");
+  assert.match(admin, /I understand that my answer is taken off the post for good/);
 });
