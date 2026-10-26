@@ -247,6 +247,23 @@ pub struct CitationSummary {
     pub citations: usize,
     pub notes: usize,
     pub references: Vec<PublicReference>,
+    /// The prefix of every generated footnote label (`cite-`, or `cite2-`
+    /// and so on when the author's own footnotes use `cite-`).
+    pub prefix: String,
+    /// Each citation in the text, in order, with its note and reference.
+    pub placements: Vec<CitationPlacement>,
+}
+
+/// One citation as published: which note its marker points at, which
+/// reference it cites and where in it (ADR 0064). Numbers are one-based and
+/// follow order of first citation, as the notes do.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CitationPlacement {
+    /// Index into [`PublishedCitations::references`] plus one.
+    pub reference: usize,
+    /// The generated note (footnote number) the marker links to.
+    pub note: usize,
+    pub locators: Vec<PublicLocator>,
 }
 
 /// A post body with its citations published.
@@ -264,6 +281,8 @@ pub struct PublishedCitations {
     pub citations: usize,
     /// Each cited reference once, in order of first citation.
     pub references: Vec<PublicReference>,
+    /// Each citation in the text, in order.
+    pub placements: Vec<CitationPlacement>,
 }
 
 /// Publish the citations in a post's Markdown. `body_line` is the line of
@@ -306,6 +325,7 @@ pub fn publish_citations<'l>(
     let prefix = label_prefix(markdown);
     // Notes in order of first use: (reference number, locators).
     let mut notes: Vec<(usize, &[PublicLocator])> = Vec::new();
+    let mut placements: Vec<CitationPlacement> = Vec::with_capacity(scan.mentions.len());
     let mut out = String::with_capacity(markdown.len() + 256);
     let mut cursor = 0;
     for (index, (mention, cited)) in scan.mentions.iter().zip(&resolved.citations).enumerate() {
@@ -322,6 +342,11 @@ pub fn publish_citations<'l>(
             }
             CitationStyle::Bibliography => cited.number,
         };
+        placements.push(CitationPlacement {
+            reference: cited.number,
+            note,
+            locators: cited.locators.clone(),
+        });
         out.push_str(&markdown[cursor..mention.span.start]);
         out.push_str(&format!("[^{prefix}{note}]"));
         let mut ends_in_bracket = true;
@@ -387,6 +412,7 @@ pub fn publish_citations<'l>(
         notes: count,
         citations: scan.mentions.len(),
         references: resolved.references,
+        placements,
     }))
 }
 
@@ -617,33 +643,18 @@ fn reference_markdown(reference: &PublicReference, strings: &LocaleStrings) -> S
 fn identifier_markdown(scheme: &str, value: &str) -> Option<String> {
     match scheme {
         "doi" => {
-            let mut destination = String::from("https://doi.org/");
-            for byte in value.bytes() {
-                if byte.is_ascii_alphanumeric() || b"-._~/:;".contains(&byte) {
-                    destination.push(byte as char);
-                } else {
-                    destination.push_str(&format!("%{byte:02X}"));
-                }
-            }
+            let destination = doi_link(value);
             Some(format!("[doi:{}]({destination})", markdown_text(value)))
         }
         "url" => {
-            let url = url::Url::parse(value).ok()?;
-            if !matches!(url.scheme(), "http" | "https")
-                || !url.username().is_empty()
-                || url.password().is_some()
-                || url.host_str().is_none()
-            {
-                return None;
-            }
-            let address = url.as_str();
+            let address = safe_http_url(value)?;
             let destination = address
                 .replace('\\', "%5C")
                 .replace('(', "%28")
                 .replace(')', "%29")
                 .replace('<', "%3C")
                 .replace('>', "%3E");
-            Some(format!("[{}]({destination})", markdown_text(address)))
+            Some(format!("[{}]({destination})", markdown_text(&address)))
         }
         "isbn" => Some(format!("ISBN {}", markdown_text(value))),
         "issn" => Some(format!("ISSN {}", markdown_text(value))),
@@ -651,6 +662,33 @@ fn identifier_markdown(scheme: &str, value: &str) -> Option<String> {
         "pmcid" => Some(format!("PMCID {}", markdown_text(value))),
         _ => None,
     }
+}
+
+/// A DOI's resolver address, percent-encoded.
+pub(crate) fn doi_link(value: &str) -> String {
+    let mut destination = String::from("https://doi.org/");
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-._~/:;".contains(&byte) {
+            destination.push(byte as char);
+        } else {
+            destination.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    destination
+}
+
+/// A web address, normalized, only when it is a plain HTTP(S) address with a
+/// host and no credentials.
+pub(crate) fn safe_http_url(value: &str) -> Option<String> {
+    let url = url::Url::parse(value).ok()?;
+    if !matches!(url.scheme(), "http" | "https")
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.host_str().is_none()
+    {
+        return None;
+    }
+    Some(url.as_str().to_string())
 }
 
 /// Untrusted text as inline Markdown that renders exactly as written: inner

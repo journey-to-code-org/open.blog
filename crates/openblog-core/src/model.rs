@@ -302,6 +302,14 @@ impl Post {
         self.citations.as_ref()
     }
 
+    /// The reader-facing reference data of this post's published citations
+    /// (ADR 0064), or `None` when it publishes none.
+    pub fn reader_references(&self) -> Option<crate::reader_references::ReaderReferences> {
+        self.citations.as_ref().and_then(|summary| {
+            crate::reader_references::ReaderReferences::from_summary(summary).ok()
+        })
+    }
+
     /// Actual authors only, in authored credit order. Secondary contributors
     /// remain available through `credits` but never leak into author metadata.
     pub fn authors(&self) -> impl Iterator<Item = &ResolvedCredit> {
@@ -1276,6 +1284,8 @@ fn load_post_in(
             citations: published.citations,
             notes: published.notes,
             references: published.references.clone(),
+            prefix: published.prefix.clone(),
+            placements: published.placements.clone(),
         });
     let (credits, credit_provenance) =
         contributor::resolve(&config.author, &config.contributors, None)

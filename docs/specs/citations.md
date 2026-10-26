@@ -123,3 +123,22 @@ On the native page a generated marker is
 `<sup class="footnote-reference ob-citation"><a href="#cite-1" id="cite-1-ref-1" role="doc-noteref"><span class="ob-visually-hidden">Citation </span>1</a></sup>`
 and each note ends with one `doc-backlink` per citing marker. Portable copies keep ordinary
 footnotes that link to the note on the canonical article.
+
+## Reader references
+
+[ADR 0064](../adr/0064-published-reference-data-for-citation-previews.md) defines the data a
+citation preview reads, `openblog_core::reader_references::ReaderReferences`
+(`Post::reader_references`), projected from the published citations and absent for a post that
+publishes none.
+
+| Field | Content |
+| --- | --- |
+| `version`, `style`, `locale` | `1`; `notes` or `bibliography`; the notes' locale |
+| `references[]` | `id` (the citation key, distinct per work, edition, translation and witness), `number` (order of first citation), `preview` (the public description, ADR 0044), `formatted` (plain text), `link` (DOI resolver or plain HTTP(S) address, else absent) |
+| `citations[]` | `marker` (`cite-N-ref-K`), `note` (`cite-N`), `reference` (an id above), `locators` (kind, value, end) |
+
+Every citation names a listed reference, every reference is cited, and `check_page` confirms the
+page holds each marker and note id, so each citation resolves to a visible reference without
+JavaScript. The document is written inline as
+`<script type="application/json" id="ob-references">` with `<`, `>`, `&` and U+2028/9 escaped
+(`to_script_element`); there is no separate file in version 1.

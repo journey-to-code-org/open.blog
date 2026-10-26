@@ -347,6 +347,13 @@ The citation style that publishes each cited reference once, numbered in order o
 citation, under References, with locators kept next to the marker in the text.
 _Avoid_: References section when the research profile's hand-written list is meant
 
+**Reader references**:
+The versioned data a citation preview reads: each cited reference once under its citation key,
+and each citation with its marker and note ids and its locators, projected from the published
+citations and holding only their public description. It lives inline in the page and is never
+needed to read it.
+_Avoid_: Bibliography data, citation metadata
+
 **Citation check**:
 An offline finding about a post's citations, in one of four separate classes: syntax (the
 citation cannot be read), resolution (its key or locator does not resolve, or an identifier is
