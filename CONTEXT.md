@@ -825,7 +825,8 @@ _Avoid_: Caption, citation
 Copying or downloading the places the author explicitly selected in the comparison workspace,
 each with its place identification and rights statement and its wording exactly. Copying waits
 for confirmation when a selected version's rights are unchecked or reserved, and a rights status
-never means permission (ADR 0125).
+never means permission. The author's private notes on places are left out unless the author ticks
+"Include my notes on places" (ADR 0125).
 _Avoid_: Publishing, sharing, licence check
 
 **Knowledge Atlas**:

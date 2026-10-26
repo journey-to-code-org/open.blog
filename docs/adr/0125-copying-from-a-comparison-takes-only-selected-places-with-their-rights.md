@@ -28,6 +28,10 @@ attribution failure, wherever it is pasted.
   then its original wording exactly as stored; a normalization is included only while
   normalizations are shown, and labelled. The text ends by saying it is private research and that
   open.blog does not decide what is permitted.
+- **Private notes stay out unless included.** The author's own note on a place is private
+  research, not part of the place's identification, so it is left out of copied and downloaded
+  text by default. A labelled "Include my notes on places" checkbox, unticked on every visit, adds
+  each selected place's note, labelled as the author's.
 - **Confirmation where rights are unchecked or reserved.** When a selected place quotes text from
   a version whose status is `unknown` or `rightsReserved`, copying waits for a checkbox ("I have
   read the rights statements…"); any change to the selection clears it. Other statuses skip only
@@ -36,6 +40,12 @@ attribution failure, wherever it is pasted.
   a labelled, read-only box to copy by hand. Download builds a `text/plain` file in the browser.
   Neither calls the server, writes canonical files, or stores anything in the browser, and
   nothing is published.
+
+## Amendments
+
+- 2026-10-26: Notes on places were copied with every selected place, which the workspace's own
+  "your private research" wording contradicted. They are now left out unless the author ticks
+  "Include my notes on places" (the decision above).
 
 ## Consequences
 

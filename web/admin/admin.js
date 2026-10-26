@@ -2836,9 +2836,10 @@ export function rightsToConfirm(columns, selected) {
 /**
  * Plain text for the places the author selected, each identified by version,
  * maker, locator and rights statement, with the original wording exactly as
- * stored. A normalization is included only when asked for, and labelled.
+ * stored. A normalization is included only when asked for, and labelled; the
+ * author's private notes on places only when `notes` is set.
  */
-export function comparisonExportText(alignment, columns, selected, { normalized = false, correspondence = "", notice = ALIGNMENT_NOTICE_TEXT } = {}) {
+export function comparisonExportText(alignment, columns, selected, { normalized = false, notes = false, correspondence = "", notice = ALIGNMENT_NOTICE_TEXT } = {}) {
   const lines = [`Alignment: ${alignment?.label || alignment?.id || ""}`];
   if (correspondence) lines.push(correspondence);
   lines.push(notice, "");
@@ -2855,7 +2856,7 @@ export function comparisonExportText(alignment, columns, selected, { normalized 
         lines.push("The author's normalization, not the source text:", place.normalized.text);
         if (place.normalized.note) lines.push(`Normalized: ${place.normalized.note}`);
       }
-      if (place.note) lines.push(`Author's note: ${place.note}`);
+      if (notes && place.note) lines.push(`Author's note: ${place.note}`);
       lines.push("");
     }
   }
@@ -8601,7 +8602,7 @@ export class ObAdmin extends AdminElement {
     const state = applyAlignmentState({}, loaded);
     const mountedView = this.viewVersion + 1;
     // How the comparison reads; kept for this visit only, so nothing is written to the browser.
-    const options = { layout: "columns", normalized: false, version: "" };
+    const options = { layout: "columns", normalized: false, notes: false, version: "" };
     let selected = null; // null, or { id: string | null, editing: boolean }
     let form = null;
     let busy = false;
@@ -8792,7 +8793,7 @@ export class ObAdmin extends AdminElement {
         ? h("input", { id: "oba-compare-confirm-rights", type: "checkbox", checked: rightsConfirmed, "aria-describedby": "oba-compare-rights-heading", onChange: (event) => { rightsConfirmed = event.target.checked; } })
         : null;
       const fallback = h("div", { "data-compare-fallback": "true", hidden: true });
-      const textOf = () => comparisonExportText(alignment, columns, chosen, { normalized: options.normalized, correspondence: correspondenceLabel(state, alignment.correspondence), notice: state.notice });
+      const textOf = () => comparisonExportText(alignment, columns, chosen, { normalized: options.normalized, notes: options.notes, correspondence: correspondenceLabel(state, alignment.correspondence), notice: state.notice });
       const ready = () => {
         if (!chosen.size) {
           exportProblem("Select at least one place first. Nothing was copied.", selectAll);
@@ -8852,6 +8853,17 @@ export class ObAdmin extends AdminElement {
               h("p", { class: "oba-small" }, "These are the author's own statements, not permission. open.blog does not decide what you may copy."),
             )
           : null,
+        h(
+          "div",
+          { "data-compare-include-notes": "true" },
+          h(
+            "div",
+            { class: "oba-capture-check" },
+            h("input", { id: "oba-compare-include-notes", type: "checkbox", checked: options.notes, "aria-describedby": "oba-compare-include-notes-hint", onChange: (event) => { options.notes = event.target.checked; } }),
+            h("label", { for: "oba-compare-include-notes" }, "Include my notes on places"),
+          ),
+          h("p", { class: "oba-small", id: "oba-compare-include-notes-hint" }, "Your notes on places are private research, so they are left out unless you tick this."),
+        ),
         confirmBox
           ? h("div", { class: "oba-capture-check", "data-compare-confirm": "true" }, confirmBox, h("label", { for: "oba-compare-confirm-rights" }, `I have read the rights statements. ${toConfirm.length === 1 ? "One version's rights are" : "Some versions' rights are"} not checked or reserved, and copying is my decision.`))
           : null,

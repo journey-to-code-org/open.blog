@@ -454,7 +454,10 @@ test("export text carries only selected places, each identified, with rights and
   assert.ok(text.includes(`Original wording, from notebook passage p-gr:\n${GREEK}\n`));
   assert.ok(text.includes(`Original wording, from notebook passage p-he:\n${HEBREW}\n`));
   assert.ok(text.includes("Platonis Rempublicam (Edition)\nEditor: S. R. Slings (stated)\nLocator: canonical 327a\nRights: The author states the text is in the public domain"));
-  assert.ok(text.includes("Paris gr. 1807 (Witness)\nScribe: John the Calligrapher (disputed)\nLocator: none recorded\nRights: The author states the text is under an open licence (CC-BY-4.0)\nAbsent: this version lacks the passage.\nAuthor's note: the leaf is lost"));
+  assert.ok(text.includes("Paris gr. 1807 (Witness)\nScribe: John the Calligrapher (disputed)\nLocator: none recorded\nRights: The author states the text is under an open licence (CC-BY-4.0)\nAbsent: this version lacks the passage.\n\n"));
+  assert.ok(!text.includes("the leaf is lost"), "the author's private notes on places stay out by default");
+  const withNotes = comparisonExportText(OPENING(), columns, new Set([4]), { notes: true });
+  assert.ok(withNotes.includes("Absent: this version lacks the passage.\nAuthor's note: the leaf is lost\n"), "notes are copied only when asked for");
   assert.ok(!text.includes("I went down"), "unselected places stay out");
   assert.ok(!text.includes("ירדתי אתמול\n"), "a normalization is left out unless asked for");
   const normalized = comparisonExportText(OPENING(), columns, new Set([3]), { normalized: true });
@@ -726,6 +729,15 @@ test("copying takes only selected places, after the rights statements are confir
   assert.equal(downloads.made.length, 1);
   assert.equal(await downloads.made[0].text(), text);
   assert.deepEqual(downloads.revoked, ["blob:test/1"]);
+  // The author's private notes on places stay out unless explicitly included.
+  await toggle(byId(root, "oba-compare-select-4"), true);
+  assert.equal(byId(root, "oba-compare-include-notes").checked, false, "notes are left out by default");
+  await toggle(byId(root, "oba-compare-confirm-rights"), true);
+  await root.querySelector("[data-compare-copy]").click();
+  assert.ok(!clipboard.writes.at(-1).includes("the leaf is lost"), "a note is absent unless asked for");
+  await toggle(byId(root, "oba-compare-include-notes"), true);
+  await root.querySelector("[data-compare-copy]").click();
+  assert.ok(clipboard.writes.at(-1).includes("Author's note: the leaf is lost"), "a note is copied once the author includes notes");
   // Changing the selection asks again.
   await toggle(byId(root, "oba-compare-select-1"), true);
   assert.equal(byId(root, "oba-compare-confirm-rights").checked, false);

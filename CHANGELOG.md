@@ -36,8 +36,9 @@ All notable changes to open.blog are recorded here. Releases follow
   direction, your normalizations appear only when you ask and are labelled, and a version that
   lacks the passage says so. You can add, edit, reorder, and remove alignments and their places
   there, with your draft kept if someone else changed the alignment first. Copy and download take
-  only the places you select, carry each version's rights statement, and ask you to confirm when a
-  version's rights are unchecked or reserved. Nothing is published.
+  only the places you select, carry each version's rights statement, leave out your notes on
+  places unless you tick "Include my notes on places", and ask you to confirm when a version's
+  rights are unchecked or reserved. Nothing is published.
 - A site that publishes its Knowledge Atlas no longer fails to build when an interpretation in the
   private source library names a contributor who was later removed from the registry.
 
