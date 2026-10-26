@@ -7213,10 +7213,13 @@ fn reconcile_approvals(
 struct RevealPolicyRequest {
     publication_id: String,
     policy: RevealPolicy,
-    /// The policy the requester read. When given and no longer current, the change is refused,
-    /// so two coordinators cannot overwrite each other unseen (ADR 0052).
+    /// The policy the requester read. When it is no longer current the change is refused, so two
+    /// coordinators cannot overwrite each other unseen (ADR 0052). Required: a request that does
+    /// not say what it replaces could silently overwrite a change made elsewhere.
+    expected_policy: RevealPolicy,
+    /// That the requester accepts that a real change clears every standing offer.
     #[serde(default)]
-    expected_policy: Option<RevealPolicy>,
+    confirmed: bool,
 }
 
 #[derive(serde::Deserialize)]
@@ -7451,8 +7454,9 @@ fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Sessio
     Response::json(200, &json!({ "preview": summary }))
 }
 
-/// A coordinator chooses how drafts may be revealed. Changing it clears every standing offer and
-/// reveals nothing.
+/// A coordinator chooses how drafts may be revealed, against the policy they read. A real change
+/// needs an explicit confirmation, because it clears every standing offer; it reveals nothing.
+/// Resubmitting the current policy is a no-op that writes nothing.
 fn set_reveal_policy(state: &AppState, req: &Request, session: &auth::Session) -> Response {
     if let Err(response) = require_json(req) {
         return response;
@@ -7479,13 +7483,19 @@ fn set_reveal_policy(state: &AppState, req: &Request, session: &auth::Session) -
     let Ok(mut set) = draft_set_for(stored.set.as_ref(), record) else {
         return Response::error(500, "Sharing could not be changed. Nothing was changed.");
     };
-    if body
-        .expected_policy
-        .is_some_and(|expected| expected != set.policy())
-    {
+    if body.expected_policy != set.policy() {
         return Response::error(
             409,
             "The sharing rule changed since you loaded it. Reload to see the current rule; nothing was changed.",
+        );
+    }
+    if body.policy == set.policy() {
+        return Response::json(200, &json!({ "policy": set.policy(), "changed": false }));
+    }
+    if !body.confirmed {
+        return shared_problem(
+            "confirmed",
+            "Confirm that changing the sharing rule clears every standing offer, so everyone offers again. Nothing was changed.",
         );
     }
     set.set_policy(body.policy);
@@ -7498,7 +7508,7 @@ fn set_reveal_policy(state: &AppState, req: &Request, session: &auth::Session) -
         &body.publication_id,
         &stored,
         &set,
-        json!({ "policy": set.policy() }),
+        json!({ "policy": set.policy(), "changed": true }),
     )
 }
 
@@ -19525,8 +19535,9 @@ series: letters
         json!({ "publicationId": id, "revision": revision })
     }
 
-    fn policy_body(id: &str, policy: &str) -> Json {
-        json!({ "publicationId": id, "policy": policy })
+    /// A confirmed change of the sharing rule from the one the requester read.
+    fn policy_body(id: &str, read: &str, policy: &str) -> Json {
+        json!({ "publicationId": id, "policy": policy, "expectedPolicy": read, "confirmed": true })
     }
 
     #[test]
@@ -19591,21 +19602,41 @@ series: letters
 
         // Only a coordinator or owner picks the policy; bad values and fields are refused.
         for who in [&grace, &linus] {
-            let denied = reveal_call(&f, who, "policy", policy_body(&id, "voluntary"));
+            let denied = reveal_call(
+                &f,
+                who,
+                "policy",
+                policy_body(&id, "independent", "voluntary"),
+            );
             assert_eq!(denied.status, 404);
         }
-        let bad = reveal_call(&f, &ada, "policy", policy_body(&id, "everyone"));
+        let bad = reveal_call(
+            &f,
+            &ada,
+            "policy",
+            policy_body(&id, "independent", "everyone"),
+        );
         assert_eq!(bad.status, 422);
-        let mut extra = policy_body(&id, "voluntary");
+        let mut extra = policy_body(&id, "independent", "voluntary");
         extra["x"] = json!(1);
         assert_eq!(reveal_call(&f, &ada, "policy", extra).status, 422);
-        let unknown = reveal_call(&f, &ada, "policy", policy_body("nope", "voluntary"));
+        let unknown = reveal_call(
+            &f,
+            &ada,
+            "policy",
+            policy_body("nope", "independent", "voluntary"),
+        );
         assert_eq!(unknown.status, 404);
         assert_eq!(
             body_json(&reveal_state(&f, &ada, &id))["policy"],
             "independent"
         );
-        let set = reveal_call(&f, &ada, "policy", policy_body(&id, "allReady"));
+        let set = reveal_call(
+            &f,
+            &ada,
+            "policy",
+            policy_body(&id, "independent", "allReady"),
+        );
         assert_eq!(set.status, 200);
 
         // A coordinator without a draft sees the policy only and cannot offer or read prose.
@@ -19639,11 +19670,21 @@ series: letters
         for who in [&grace, &mikey] {
             reveal_call(&f, who, "ready", ready_body(&id, json!(1)));
         }
-        let changed = reveal_call(&f, &ada, "policy", policy_body(&id, "voluntary"));
+        let changed = reveal_call(
+            &f,
+            &ada,
+            "policy",
+            policy_body(&id, "allReady", "voluntary"),
+        );
         assert_eq!(changed.status, 200);
         let hidden = body_json(&reveal_state(&f, &mikey, &id)).to_string();
         assert!(!hidden.contains("GRACE-SECRET"));
-        let back_again = reveal_call(&f, &ada, "policy", policy_body(&id, "allReady"));
+        let back_again = reveal_call(
+            &f,
+            &ada,
+            "policy",
+            policy_body(&id, "voluntary", "allReady"),
+        );
         assert_eq!(back_again.status, 200);
 
         // Removing a participant mid-way: they no longer block the reveal or receive it.
@@ -19727,7 +19768,13 @@ series: letters
         }
         // Mikey turns on allReady and offers; Grace's offer would complete the reveal.
         assert_eq!(
-            reveal_call(&f, &mikey, "policy", policy_body(&id, "allReady")).status,
+            reveal_call(
+                &f,
+                &mikey,
+                "policy",
+                policy_body(&id, "independent", "allReady")
+            )
+            .status,
             200
         );
         assert_eq!(
@@ -19886,7 +19933,13 @@ series: letters
 
         // Both mark revision 1 ready under the voluntary rule: both see the whole piece.
         assert_eq!(
-            reveal_call(&f, &ada, "policy", policy_body(&id, "voluntary")).status,
+            reveal_call(
+                &f,
+                &ada,
+                "policy",
+                policy_body(&id, "independent", "voluntary")
+            )
+            .status,
             200
         );
         for who in [&mikey, &grace] {
@@ -19965,7 +20018,7 @@ series: letters
     fn reveal_routes_without_the_admin_session_or_csrf_do_nothing() {
         let (f, mikey, id) = invitation_fixture("reveal-auth");
         let before = tree_snapshot(&f.dir.join(".openblog/private"));
-        let body = policy_body(&id, "voluntary");
+        let body = policy_body(&id, "independent", "voluntary");
         let path = "/admin/api/collaboration/reveal/policy";
         let no_csrf = handle(
             &f.state,
@@ -20011,7 +20064,13 @@ series: letters
             assert_eq!(draft_call(&f, who, &id, 0, text).status, 200);
         }
         assert_eq!(
-            reveal_call(&f, &ada, "policy", policy_body(&id, "voluntary")).status,
+            reveal_call(
+                &f,
+                &ada,
+                "policy",
+                policy_body(&id, "independent", "voluntary")
+            )
+            .status,
             200
         );
         for who in [&mikey, &grace] {
@@ -20972,24 +21031,44 @@ series: letters
 
     #[test]
     fn a_reveal_rule_change_names_the_rule_it_replaces() {
-        let (f, _mikey, _grace, ada, id) = approval_fixture("reveal-rule-race");
+        let (f, mikey, grace, ada, id) = approval_fixture("reveal-rule-race");
         let before = state_trees(&f);
-        let stale = reveal_call(
-            &f,
-            &ada,
-            "policy",
-            json!({ "publicationId": id, "policy": "allReady", "expectedPolicy": "independent" }),
-        );
+        let change = |body: Json| reveal_call(&f, &ada, "policy", body);
+        // Without the rule it replaces, a change could overwrite one made elsewhere: refused.
+        let unnamed =
+            change(json!({ "publicationId": id, "policy": "allReady", "confirmed": true }));
+        assert_eq!(unnamed.status, 422);
+        let stale = change(policy_body(&id, "independent", "allReady"));
         assert_eq!(stale.status, 409);
-        assert_eq!(state_trees(&f), before);
-        let current = reveal_call(
-            &f,
-            &ada,
-            "policy",
+        // A real change clears both standing offers, so it needs a confirmation.
+        let unconfirmed = change(
             json!({ "publicationId": id, "policy": "allReady", "expectedPolicy": "voluntary" }),
         );
+        assert_eq!(unconfirmed.status, 422);
+        let unconfirmed = body_json(&unconfirmed);
+        assert_eq!(unconfirmed["field"], "confirmed");
+        assert!(unconfirmed["error"]
+            .as_str()
+            .unwrap()
+            .contains("clears every standing offer"));
+        // Resubmitting the current rule needs no confirmation and writes nothing.
+        let same = change(
+            json!({ "publicationId": id, "policy": "voluntary", "expectedPolicy": "voluntary" }),
+        );
+        assert_eq!(same.status, 200);
+        assert_eq!(body_json(&same)["changed"], false);
+        assert_eq!(state_trees(&f), before);
+        for who in [&mikey, &grace] {
+            assert_eq!(body_json(&reveal_state(&f, who, &id))["ready"], true);
+        }
+        let current = change(policy_body(&id, "voluntary", "allReady"));
         assert_eq!(current.status, 200);
-        assert_eq!(body_json(&current)["policy"], "allReady");
+        let current = body_json(&current);
+        assert_eq!(current["policy"], "allReady");
+        assert_eq!(current["changed"], true);
+        for who in [&mikey, &grace] {
+            assert_eq!(body_json(&reveal_state(&f, who, &id))["ready"], false);
+        }
     }
 
     #[test]

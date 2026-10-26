@@ -258,8 +258,11 @@ function fakeApi({ number = 0, markdown = "", reveal = {}, failures = {} } = {})
           state.reveal = { ...state.reveal, ready: options.json.revision !== null };
           return { ready: state.reveal.ready, revealed: false };
         case "PUT collaboration/reveal/policy":
+          if (options.json.expectedPolicy !== state.reveal.policy) throw new FakeApiError("changed", 409, { error: "The sharing rule changed since you loaded it. Reload to see the current rule; nothing was changed." });
+          if (options.json.policy === state.reveal.policy) return { policy: options.json.policy, changed: false };
+          if (options.json.confirmed !== true) throw new FakeApiError("confirm", 422, { error: "Confirm that changing the sharing rule clears every standing offer, so everyone offers again. Nothing was changed.", field: "confirmed" });
           state.reveal = { ...state.reveal, policy: options.json.policy, ready: false };
-          return { policy: options.json.policy };
+          return { policy: options.json.policy, changed: true };
         case "GET collaboration/approval-policy":
           if (!state.rule) throw new FakeApiError("not found", 404, null);
           return state.rule;
@@ -592,10 +595,23 @@ test("with sharing off or nothing saved there is nothing to offer, and coordinat
   assert.match(textOf(unsaved.panel), /Save a draft before you can offer it/);
   const api = fakeApi({ number: 1, markdown: "x", reveal: { policy: "independent", canSetPolicy: true, slots: SLOTS.slice(0, 1) } });
   const { panel } = await openDraft(api, ["coordinator"]);
-  panel.querySelector("#oba-draft-0-policy").value = "allReady";
+  // Resubmitting the current rule needs no confirmation and changes nothing.
   await button(panel, "Change sharing rule").click();
   await settle();
-  assert.deepEqual(api.state.calls.find((call) => call.key === "PUT collaboration/reveal/policy").body, { publicationId: PUBLICATION, policy: "allReady", expectedPolicy: "independent" });
+  assert.match(textOf(panel), /already the sharing rule\. Nothing changed\./);
+  panel.querySelector("#oba-draft-0-policy").value = "allReady";
+  // A real change clears every offer, so without the labelled confirmation it is refused.
+  const confirm = panel.querySelector("#oba-draft-0-policy-confirm");
+  assert.ok(panel.querySelectorAll("label").some((label) => label.attributes.for === "oba-draft-0-policy-confirm" && /clears every standing offer/.test(label.textContent)));
+  await button(panel, "Change sharing rule").click();
+  await settle();
+  assert.match(alertOf(panel).textContent, /Confirm that changing the sharing rule clears every standing offer/);
+  assert.equal(api.state.reveal.policy, "independent");
+  confirm.checked = true;
+  await button(panel, "Change sharing rule").click();
+  await settle();
+  const puts = api.state.calls.filter((call) => call.key === "PUT collaboration/reveal/policy");
+  assert.deepEqual(puts.at(-1).body, { publicationId: PUBLICATION, policy: "allReady", expectedPolicy: "independent", confirmed: true });
   assert.match(textOf(panel), /sharing rule changed.*nothing was shared/);
 }));
 

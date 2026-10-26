@@ -17,8 +17,9 @@ All notable changes to open.blog are recorded here. Releases follow
   approval, and is refused if someone else changed it first or if the authors could never meet
   it. A coordinator can keep or add people who must approve, but only a site owner can change the
   rule so that someone no longer has to. If a named person leaves, or nobody holds a listed role,
-  publishing waits until the rule changes. The combined preview shows the rule. Changing the sharing rule now refuses to overwrite
-  a change made elsewhere.
+  publishing waits until the rule changes. The combined preview shows the rule. Changing the
+  sharing rule now refuses to overwrite a change made elsewhere and, because it clears every
+  standing offer, needs a confirmation too.
 
 ## [0.27.0] - 2026-10-25
 

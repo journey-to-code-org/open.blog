@@ -88,9 +88,11 @@ stored groups.
   grant. Named and role rules apply only to approval, which decides who must consent before
   publication and never changes who reads what. Under `allReady`, a writer who cannot or will not
   offer is resolved by switching to `voluntary` or changing that person's role, and the Admin help
-  text says so. Changing the reveal policy may now name the policy the coordinator read
-  (`expectedPolicy`), so two coordinators cannot overwrite each other unseen. Admin always sends
-  it.
+  text says so. Changing the reveal policy now must name the policy the coordinator read
+  (`expectedPolicy`; 422 without it, 409 if it moved), so two coordinators cannot overwrite each
+  other unseen. Like an approval rule change, a real reveal policy change clears every standing
+  offer, so it also needs an explicit `confirmed` (422 without it), and resubmitting the current
+  policy is a no-op that writes nothing.
 
 ## Consequences
 

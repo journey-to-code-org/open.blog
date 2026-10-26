@@ -6945,10 +6945,20 @@ export class ObAdmin extends AdminElement {
           { id: `${prefix}-policy` },
           REVEAL_POLICIES.map((item) => h("option", { value: item.value, selected: item.value === reveal.policy }, `${item.label}: ${item.help}`)),
         );
+        const confirm = h("input", { type: "checkbox", id: `${prefix}-policy-confirm` });
         const change = h("button", { class: "oba-btn", type: "button" }, "Change sharing rule");
-        // The rule the coordinator read goes with the change, so a change made elsewhere is a conflict.
-        change.addEventListener("click", () => runSharing("PUT", "collaboration/reveal/policy", { publicationId: id, policy: select.value, expectedPolicy: reveal.policy }, () => "The sharing rule changed. Every standing offer was cleared and nothing was shared."));
-        parts.push(h("div", { class: "oba-field" }, h("label", { for: `${prefix}-policy` }, "Sharing rule (coordinators)"), select), change);
+        // The rule the coordinator read goes with the change, so a change made elsewhere is a
+        // conflict, and a real change needs the confirmation because it clears every offer.
+        change.addEventListener("click", () =>
+          runSharing("PUT", "collaboration/reveal/policy", { publicationId: id, policy: select.value, expectedPolicy: reveal.policy, confirmed: confirm.checked }, (result) =>
+            result?.changed === false ? "That is already the sharing rule. Nothing changed." : "The sharing rule changed. Every standing offer was cleared and nothing was shared.",
+          ),
+        );
+        parts.push(
+          h("div", { class: "oba-field" }, h("label", { for: `${prefix}-policy` }, "Sharing rule (coordinators)"), select),
+          h("div", { class: "oba-field oba-check" }, confirm, " ", h("label", { for: `${prefix}-policy-confirm` }, "I understand that changing the sharing rule clears every standing offer, and nothing is shared by the change.")),
+          change,
+        );
         parts.push(ruleBlock);
       }
       if (reveal.slots?.length) parts.push(slots);
