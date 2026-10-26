@@ -38,6 +38,7 @@ use openblog_core::knowledge_atlas::{
     Relationship as AtlasRelationship, RelationshipKind, Standing,
 };
 use openblog_core::markdown::RenderOptions;
+use openblog_core::media_moment::{location_text, Moment, MomentSet};
 use openblog_core::members::MemberError;
 use openblog_core::portability::{destination_policy, DestinationRepresentation};
 use openblog_core::research_bundle;
@@ -687,6 +688,8 @@ fn authenticated_api(
         ("POST", "collaboration/series/create") => create_series(state, req, session),
         ("GET", "collaboration/synthesis") => read_synthesis(state, req, session),
         ("POST", "collaboration/synthesis") => change_synthesis(state, req, session),
+        ("GET", "collaboration/moments") => read_moments(state, req, session),
+        ("POST", "collaboration/moments") => change_moments(state, req, session),
         ("POST", "collaboration/approve") => approve_piece(state, req, session),
         ("POST", "collaboration/approve/withdraw") => withdraw_approval(state, req, session),
         ("POST", "collaboration/schedule") => schedule_shared(state, req, session),
@@ -6679,6 +6682,7 @@ struct GateInputs {
     drafts: DraftSet,
     structure: crate::shared_publications::StoredStructure,
     synthesis: openblog_core::synthesis::SynthesisSet,
+    moments: MomentSet,
     approvals: crate::shared_publications::StoredApprovals,
     outcome: crate::shared_publications::StoredOutcome,
     active: Vec<String>,
@@ -6696,6 +6700,9 @@ fn gate_inputs(
     let synthesis = crate::shared_publications::load_synthesis(&state.root, id)
         .map_err(|error| publish_failed(&error))?
         .set;
+    let moments = crate::shared_publications::load_moments(&state.root, id)
+        .map_err(|error| publish_failed(&error))?
+        .set;
     let approvals = crate::shared_publications::load_approvals_for_update(&state.root, id)
         .map_err(|error| publish_failed(&error))?;
     let structure = crate::shared_publications::load_structure(&state.root, id)
@@ -6706,6 +6713,7 @@ fn gate_inputs(
         drafts,
         structure,
         synthesis,
+        moments,
         approvals,
         outcome,
         active: active_drafters(transaction, record),
@@ -6770,6 +6778,7 @@ fn prepare_post(
             inputs.structure.structure.as_ref(),
             &inputs.drafts,
             &inputs.synthesis,
+            &inputs.moments,
             &inputs.approvals.set,
             &active,
             date,
@@ -6818,6 +6827,18 @@ fn prepare_post(
             return Err(shared_problem(
                 "",
                 "The arrangement no longer matches the drafts: a turn names a part an author has since removed. Ask a coordinator to arrange the piece again; the combined preview shows where. Nothing was changed.",
+            ))
+        }
+        Err(AssemblyError::UnresolvedMoment) => {
+            return Err(shared_problem(
+                "",
+                "A moment proposed for the piece no longer fits its source: the source was removed or its kind changed. Ask its author to edit the moment or keep it private, then approve again. Nothing was changed.",
+            ))
+        }
+        Err(AssemblyError::UnsafeMoment) => {
+            return Err(shared_problem(
+                "",
+                "A moment proposed for the piece has an observation that would change how another part of the piece reads, such as a link reference or an unclosed code block. Ask its author to edit the observation, then approve again. Nothing was changed.",
             ))
         }
         Err(AssemblyError::RuleUnmet { named, roles }) => {
@@ -7140,6 +7161,7 @@ fn change_approval(
             inputs.structure.structure.as_ref(),
             &inputs.drafts,
             &inputs.synthesis,
+            &inputs.moments,
             &active,
             |subject| {
                 next.approve(&own, &own, subject, seen, affirmed, clock::now().unix())
@@ -7210,6 +7232,30 @@ fn synthesis_owner(
     record: &SharedPublication,
     session: &auth::Session,
 ) -> Option<String> {
+    own_grant(
+        transaction,
+        record,
+        session,
+        AuthorizationAction::EditSynthesis,
+    )
+}
+
+/// Participants who may author or be named on synthesis items now, decided per binding by the
+/// single entry point.
+fn synthesis_authors(
+    transaction: &InvitationTransaction<'_>,
+    record: &SharedPublication,
+) -> Vec<String> {
+    grant_holders(transaction, record, AuthorizationAction::EditSynthesis)
+}
+
+/// The requester's own participant id once `SharedPublication::authorize` allows `action` on it.
+fn own_grant(
+    transaction: &InvitationTransaction<'_>,
+    record: &SharedPublication,
+    session: &auth::Session,
+    action: AuthorizationAction,
+) -> Option<String> {
     let own = record
         .authorization
         .bindings
@@ -7223,7 +7269,7 @@ fn synthesis_owner(
                 .authorize(
                     &session.user,
                     identities,
-                    AuthorizationAction::EditSynthesis,
+                    action,
                     AuthorizationTarget::Participant(&own),
                 )
                 .map(|binding| binding.participant_id.clone())
@@ -7231,11 +7277,12 @@ fn synthesis_owner(
         .ok()
 }
 
-/// Participants who may author or be named on synthesis items now, decided per binding by the
-/// single entry point.
-fn synthesis_authors(
+/// Participants who hold `action` on themselves now, decided per binding by the single entry
+/// point.
+fn grant_holders(
     transaction: &InvitationTransaction<'_>,
     record: &SharedPublication,
+    action: AuthorizationAction,
 ) -> Vec<String> {
     record
         .authorization
@@ -7247,7 +7294,7 @@ fn synthesis_authors(
                     record.authorize(
                         &binding.admin_user,
                         identities,
-                        AuthorizationAction::EditSynthesis,
+                        action,
                         AuthorizationTarget::Participant(&binding.participant_id),
                     )
                 })
@@ -7527,6 +7574,441 @@ fn change_synthesis(state: &AppState, req: &Request, session: &auth::Session) ->
     }
 }
 
+// ---------------------------------------------------------------------------
+// Media moments: located observations and quotations in a shared source (ADR 0062 to 0064)
+// ---------------------------------------------------------------------------
+
+/// Every refusal reads the same, so a request cannot confirm that a reflection, a moment or an
+/// author exists.
+fn moments_not_found() -> Response {
+    Response::error(
+        404,
+        "That shared reflection was not found, or you cannot work on its moments.",
+    )
+}
+
+/// The requester's own participant id once `SharedPublication::authorize` allows `EditMoments`.
+fn moment_owner(
+    transaction: &InvitationTransaction<'_>,
+    record: &SharedPublication,
+    session: &auth::Session,
+) -> Option<String> {
+    own_grant(
+        transaction,
+        record,
+        session,
+        AuthorizationAction::EditMoments,
+    )
+}
+
+/// Participants who may hold moments now, decided per binding by the single entry point.
+fn moment_authors(
+    transaction: &InvitationTransaction<'_>,
+    record: &SharedPublication,
+) -> Vec<String> {
+    grant_holders(transaction, record, AuthorizationAction::EditMoments)
+}
+
+fn moment_json(moment: &Moment, record: &SharedPublication) -> Json {
+    let notices: Vec<Json> = moment
+        .quotation()
+        .map(|quotation| quotation.notices())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|notice| json!({ "code": notice.code(), "message": notice.message() }))
+        .collect();
+    json!({
+        "id": moment.id(),
+        "source": moment.source(),
+        "locators": moment.locators(),
+        "location": location_text(moment.locators()),
+        // The one attribution line every view uses (ADR 0065), built from the record as it is now.
+        "attribution": moment.attribution(&record.sources).text(),
+        "quotation": moment.quotation(),
+        "notices": notices,
+        "observation": moment.observation(),
+        "intent": moment.intent(),
+        "link": moment.link(&record.sources).map(|link| json!({ "href": link.href, "atTime": link.at_time })),
+    })
+}
+
+/// The moments one author may see: their own (private and proposed alike), and the proposed
+/// moments each other author revealed with the draft revision the requester may read now. Built
+/// only after the requester was authorized; `MomentSet::own` and `MomentSet::revealed` decide
+/// the rest, so nothing unrevealed or private to someone else is ever in it.
+fn moments_json(
+    set: &MomentSet,
+    record: &SharedPublication,
+    own: &str,
+    authors: &[&str],
+    drafts: Option<(&DraftSet, &[&str])>,
+) -> Option<Json> {
+    let mine: Vec<Json> = set
+        .own(own, authors)
+        .ok()?
+        .into_iter()
+        .map(|moment| moment_json(moment, record))
+        .collect();
+    let mut shared = Vec::new();
+    for owner in authors.iter().filter(|owner| **owner != own) {
+        // Only the owner's latest revision counts, exactly as the combined preview reads it.
+        let readable = drafts.and_then(|(drafts, active)| {
+            let view = drafts.view(own, owner, active).ok()?;
+            let latest = drafts.current_stamp(owner)?;
+            (view.stamp.number == latest.number).then_some(latest.number)
+        });
+        let moments = set
+            .revealed(own, authors, owner, readable)
+            .unwrap_or_default();
+        if !moments.is_empty() {
+            shared.push(json!({
+                "participant": { "id": owner, "displayName": participant_name(record, owner) },
+                "moments": moments.into_iter().map(|moment| moment_json(moment, record)).collect::<Vec<_>>(),
+            }));
+        }
+    }
+    let sources: Vec<Json> = record
+        .sources
+        .iter()
+        .map(|source| {
+            json!({
+                "id": source.id,
+                "kind": source.kind,
+                "kindLabel": source.kind.label(),
+                "title": source.title,
+                "url": source.url.as_deref().and_then(openblog_core::collaboration::normalize_source_url),
+            })
+        })
+        .collect();
+    Some(json!({
+        "revision": set.revision(),
+        "moments": mine,
+        "shared": shared,
+        "sources": sources,
+        "you": own,
+        "quotationGuide": quotation_guide(),
+    }))
+}
+
+/// The rights guidance and quotation thresholds, from the core definitions, so the panel's live
+/// guidance and warnings say exactly what the preview says (ADR 0065). Holds no author text.
+fn quotation_guide() -> Json {
+    use openblog_core::media_moment::{
+        QuotationNotice, QuotationRights, BRIEF_QUOTATION_CHARS, MAX_QUOTATION_CHARS,
+        MAX_RIGHTS_NOTE_BYTES, RIGHTS_STATEMENT,
+    };
+    let notices: serde_json::Map<String, Json> = [
+        QuotationNotice::NoSpeaker,
+        QuotationNotice::Long,
+        QuotationNotice::LongForBriefQuotation,
+    ]
+    .into_iter()
+    .map(|notice| (notice.code().to_string(), json!(notice.message())))
+    .collect();
+    json!({
+        "briefQuotationChars": BRIEF_QUOTATION_CHARS,
+        "maxQuotationChars": MAX_QUOTATION_CHARS,
+        "maxRightsNoteBytes": MAX_RIGHTS_NOTE_BYTES,
+        "statement": RIGHTS_STATEMENT,
+        "rights": QuotationRights::ALL
+            .iter()
+            .map(|rights| json!({ "value": rights.tag(), "label": rights.label(), "guidance": rights.guidance() }))
+            .collect::<Vec<_>>(),
+        "notices": notices,
+    })
+}
+
+/// Read the stored moments with the drafts they are revealed against. Failures are logged without
+/// content and reported as one message.
+fn load_moment_state(
+    state: &AppState,
+    publication_id: &str,
+    record: &SharedPublication,
+) -> Result<(crate::shared_publications::StoredMoments, DraftSet), String> {
+    let moments = crate::shared_publications::load_moments(&state.root, publication_id)?;
+    let drafts = crate::shared_publications::load_drafts(&state.root, publication_id)?;
+    let drafts = draft_set_for(drafts.set.as_ref(), record)
+        .map_err(|_| "drafts are not usable".to_string())?;
+    Ok((moments, drafts))
+}
+
+fn read_moments(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    let Some(publication_id) = req.query.get("publicationId") else {
+        return moments_not_found();
+    };
+    let Ok(transaction) = invitation_transaction(state, publication_id) else {
+        return moments_not_found();
+    };
+    let Some(record) = &transaction.record else {
+        return moments_not_found();
+    };
+    let Some(own) = moment_owner(&transaction, record, session) else {
+        return moments_not_found();
+    };
+    let (stored, drafts) = match load_moment_state(state, publication_id, record) {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            eprintln!("admin: moments not readable for {publication_id}: {error}");
+            return Response::error(500, "The moments could not be read. Nothing was changed.");
+        }
+    };
+    let authors = moment_authors(&transaction, record);
+    let authors = authors.iter().map(String::as_str).collect::<Vec<_>>();
+    let active = active_drafters(&transaction, record);
+    let active = active.iter().map(String::as_str).collect::<Vec<_>>();
+    match moments_json(
+        &stored.set,
+        record,
+        &own,
+        &authors,
+        Some((&drafts, &active)),
+    ) {
+        Some(json) => Response::json(200, &json),
+        None => moments_not_found(),
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct MomentsRequest {
+    publication_id: String,
+    /// The set revision the caller read; any other revision is refused as a conflict.
+    expected_revision: u64,
+    change: MomentChange,
+}
+
+/// What a participant submits for one of their moments. The participant is the session's, never
+/// a field: an unknown field (an identity, a credit, a link, a visibility flag) is refused.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct MomentBody {
+    source: String,
+    locators: Vec<openblog_core::research_notes::Locator>,
+    #[serde(default)]
+    quotation: Option<openblog_core::media_moment::Quotation>,
+    #[serde(default)]
+    observation: Option<String>,
+    intent: openblog_core::media_moment::MomentIntent,
+}
+
+impl From<MomentBody> for openblog_core::media_moment::MomentInput {
+    fn from(body: MomentBody) -> Self {
+        Self {
+            source: body.source,
+            locators: body.locators,
+            quotation: body.quotation,
+            observation: body.observation,
+            intent: body.intent,
+        }
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(tag = "action", rename_all = "camelCase", deny_unknown_fields)]
+enum MomentChange {
+    Add { moment: MomentBody },
+    Edit { id: String, moment: MomentBody },
+    Remove { id: String },
+}
+
+/// A refused moment, naming the field or rule from the requester's own submission and never
+/// repeating what was submitted.
+fn moment_problem(error: openblog_core::media_moment::MomentError) -> Response {
+    use openblog_core::media_moment::{MomentError, MomentField, MomentRule};
+    let (field, message): (&str, String) = match error {
+        MomentError::Denied => return moments_not_found(),
+        MomentError::Stale => {
+            return Response::error(
+                409,
+                "The moments changed since you read them. Reload to see the current moments; what you typed is still here and nothing was changed.",
+            )
+        }
+        MomentError::Invalid(MomentField::Source) => ("source", "Choose one of this reflection's sources. A moment keeps its source: to locate another source, add a new moment.".into()),
+        MomentError::Invalid(MomentField::Locators) => ("locators", "Give a location: a timestamp as seconds or h:mm:ss (such as 75 or 1:02:03), or a page, chapter, section, line or canonical reference, without surrounding spaces, brackets or semicolons. A range needs an end.".into()),
+        MomentError::Invalid(MomentField::Quotation) => ("quotation", "Keep the quotation to 1,000 characters of text, without control or direction-override characters. Moments quote; they never hold a transcript.".into()),
+        MomentError::Invalid(MomentField::Speaker) => ("speaker", "Write the speaker's name on one line, up to 200 bytes, without surrounding spaces.".into()),
+        MomentError::Invalid(MomentField::Language) => ("language", "Use a language tag such as en or pt-BR.".into()),
+        MomentError::Invalid(MomentField::RightsNote) => ("rightsNote", "Write the rights note on one line, up to 500 bytes, without surrounding spaces or control or direction-override characters.".into()),
+        MomentError::Invalid(MomentField::Observation) => ("observation", "Keep the observation to 8 KiB of Markdown, without control or direction-override characters.".into()),
+        MomentError::Invalid(MomentField::Content) => ("content", "Add a quotation, an observation, or both.".into()),
+        MomentError::Invalid(MomentField::Limit) => ("", "This reflection has reached its limit of 100 moments, or the moments are too large to store. Nothing was changed.".into()),
+        MomentError::Rule(rule) => (
+            match rule {
+                MomentRule::LocatorDoesNotFitSource => "locators",
+                MomentRule::RightsUnknown => "rights",
+                MomentRule::Markup => "observation",
+            },
+            format!("That moment has {}. Nothing was changed.", rule.describe()),
+        ),
+    };
+    shared_problem(field, &message)
+}
+
+/// One change to the requester's own moments, against the revision they read. A refused or
+/// failed change stores nothing; a stored one reconciles the piece's approvals in the same
+/// transaction, because a moment proposed for the piece is part of what every approval binds.
+fn change_moments(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<MomentsRequest>(&req.body) else {
+        return shared_problem(
+            "",
+            "This request is not valid. Reload Admin Studio and try again.",
+        );
+    };
+    let Ok(transaction) = invitation_transaction(state, &body.publication_id) else {
+        return moments_not_found();
+    };
+    let Some(record) = &transaction.record else {
+        return moments_not_found();
+    };
+    let Some(own) = moment_owner(&transaction, record, session) else {
+        return moments_not_found();
+    };
+    let (stored, drafts) = match load_moment_state(state, &body.publication_id, record) {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            eprintln!(
+                "admin: moments not readable for {}: {error}",
+                body.publication_id
+            );
+            return Response::error(
+                500,
+                "The moments could not be changed. Nothing was changed.",
+            );
+        }
+    };
+    match is_published(state, &body.publication_id) {
+        Ok(true) => return published_already(),
+        Ok(false) => {}
+        Err(response) => return response,
+    }
+    let authors = moment_authors(&transaction, record);
+    let authors = authors.iter().map(String::as_str).collect::<Vec<_>>();
+    let expected = body.expected_revision;
+    let mut next = stored.set.clone();
+    let result = match body.change {
+        MomentChange::Add { moment } => next
+            .add(&own, &authors, expected, &record.sources, moment.into())
+            .map(|_| ()),
+        MomentChange::Edit { id, moment } => next.edit(
+            &own,
+            &authors,
+            expected,
+            &record.sources,
+            &id,
+            moment.into(),
+        ),
+        MomentChange::Remove { id } => next.remove(&own, &authors, expected, &id),
+    };
+    if let Err(error) = result {
+        return moment_problem(error);
+    }
+    if next != stored.set {
+        match crate::shared_publications::replace_moments(
+            &state.root,
+            &body.publication_id,
+            &stored,
+            &next,
+        ) {
+            Ok(()) => {}
+            Err(crate::shared_publications::ReplaceError::Conflict) => {
+                return Response::error(
+                    409,
+                    "The moments changed while you were saving. Reload to see the current moments; what you typed is still here and nothing was changed.",
+                )
+            }
+            Err(crate::shared_publications::ReplaceError::TooLarge) => {
+                return moment_problem(openblog_core::media_moment::MomentError::Invalid(
+                    openblog_core::media_moment::MomentField::Limit,
+                ))
+            }
+            Err(crate::shared_publications::ReplaceError::Storage(error)) => {
+                eprintln!("admin: moments not stored: {error}");
+                return Response::error(
+                    500,
+                    "The moments could not be changed. Nothing was changed.",
+                );
+            }
+        }
+        reconcile_approvals(state, &transaction, record);
+        eprintln!(
+            "admin: moments changed in shared publication {}",
+            body.publication_id
+        );
+    }
+    let active = active_drafters(&transaction, record);
+    let active = active.iter().map(String::as_str).collect::<Vec<_>>();
+    match moments_json(&next, record, &own, &authors, Some((&drafts, &active))) {
+        Some(json) => Response::json(200, &json),
+        None => moments_not_found(),
+    }
+}
+
+/// What became of the requester's proposed moments when they offered a revision.
+#[derive(Debug, PartialEq, Eq)]
+enum OfferedMoments {
+    /// The moments as they are now go with the offered revision.
+    Shared,
+    /// That revision (or a newer one) was already sealed with other moments: a seal is write-once,
+    /// so later changes stay private until a newer revision is offered.
+    Changed,
+    /// The moments could not be read or stored. Nothing about them changed and they stay private;
+    /// offering the revision again seals them.
+    Failed,
+}
+
+/// The sentence an offer's response carries when the moments could not be stored. It names no
+/// moment and holds no author text.
+const MOMENTS_NOT_SHARED: &str = "Your moments could not be shared with this revision, so they stay private. Take back your offer if it still stands, then offer this revision again to share them.";
+
+/// Seal the requester's proposed moments to the draft revision they just offered (ADR 0063,
+/// 0064), after the offer was stored. `None` when the requester holds no moments. A failure is
+/// logged without content and leaves the moments unsealed, so it fails closed: they stay private.
+fn seal_offered_moments(
+    state: &AppState,
+    transaction: &InvitationTransaction<'_>,
+    record: &SharedPublication,
+    own: &str,
+    revision: u64,
+) -> Option<OfferedMoments> {
+    let id = &record.publication_id;
+    let authors = moment_authors(transaction, record);
+    let authors = authors.iter().map(String::as_str).collect::<Vec<_>>();
+    if !authors.contains(&own) {
+        return None;
+    }
+    let stored = match crate::shared_publications::load_moments(&state.root, id) {
+        Ok(stored) => stored,
+        Err(error) => {
+            eprintln!("admin: moments not sealed for {id}: {error}");
+            return Some(OfferedMoments::Failed);
+        }
+    };
+    let mut next = stored.set.clone();
+    let sealed = match next.seal(own, &authors, revision) {
+        Ok(sealed) => sealed,
+        Err(error) => {
+            eprintln!("admin: moments not sealed for {id}: {error}");
+            return Some(OfferedMoments::Failed);
+        }
+    };
+    if next != stored.set {
+        if let Err(error) =
+            crate::shared_publications::replace_moments(&state.root, id, &stored, &next)
+        {
+            eprintln!("admin: moments not sealed for {id}: {error:?}");
+            return Some(OfferedMoments::Failed);
+        }
+    }
+    Some(if sealed {
+        OfferedMoments::Shared
+    } else {
+        OfferedMoments::Changed
+    })
+}
+
 /// Drop approvals that no longer match after a change to the author set or the prose, in the
 /// same transaction as that change, so removing and restoring an author or reverting an edit
 /// cannot bring back consent given earlier. Validity is also recomputed on every read, so a
@@ -7553,6 +8035,17 @@ fn reconcile_approvals(
                 .map_err(|_| "synthesis not stored".to_string())?;
             synthesis.set = reconciled;
         }
+        // Moments follow the author set in the same way (ADR 0063): someone who can no longer
+        // hold moments loses them and their seals, and restoring them brings neither back.
+        let mut moments = crate::shared_publications::load_moments(&state.root, id)?;
+        let holders = moment_authors(transaction, record);
+        let holders = holders.iter().map(String::as_str).collect::<Vec<_>>();
+        let mut kept = moments.set.clone();
+        if kept.reconcile(&holders) {
+            crate::shared_publications::replace_moments(&state.root, id, &moments, &kept)
+                .map_err(|_| "moments not stored".to_string())?;
+            moments.set = kept;
+        }
         let active = active_drafters(transaction, record);
         let active = active.iter().map(String::as_str).collect::<Vec<_>>();
         let structure = crate::shared_publications::load_structure(&state.root, id)?;
@@ -7562,6 +8055,7 @@ fn reconcile_approvals(
             structure.structure.as_ref(),
             &drafts,
             &synthesis.set,
+            &moments.set,
             &active,
             |subject| next.reconcile(subject),
         );
@@ -7770,6 +8264,13 @@ fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Sessio
     };
     let active = active_drafters(&transaction, record);
     let active = active.iter().map(String::as_str).collect::<Vec<_>>();
+    let moments = match crate::shared_publications::load_moments(&state.root, publication_id) {
+        Ok(stored) => stored.set,
+        Err(error) => {
+            eprintln!("admin: moments not readable for {publication_id}: {error}");
+            return Response::error(500, "The preview could not be built. Nothing was changed.");
+        }
+    };
     let show_synthesis = synthesis_owner(&transaction, record, session).is_some();
     let config = site::load_config(&state.root).unwrap_or_default();
     let structure = match crate::shared_publications::load_structure(&state.root, publication_id) {
@@ -7784,6 +8285,7 @@ fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Sessio
         structure.structure.as_ref(),
         &set,
         &synthesis,
+        &moments,
         &approvals,
         &own,
         &active,
@@ -7976,6 +8478,7 @@ fn approval_policy_json(
         inputs.structure.structure.as_ref(),
         &inputs.drafts,
         &inputs.synthesis,
+        &inputs.moments,
         &active,
         |subject| {
             let required = set.required(subject);
@@ -8111,6 +8614,7 @@ fn set_approval_policy(state: &AppState, req: &Request, session: &auth::Session)
         inputs.structure.structure.as_ref(),
         &inputs.drafts,
         &inputs.synthesis,
+        &inputs.moments,
         &active,
         |subject| {
             next.change_policy(
@@ -8474,7 +8978,27 @@ fn set_reveal_ready(state: &AppState, req: &Request, session: &auth::Session) ->
         "admin: reveal readiness changed in shared publication {}",
         body.publication_id
     );
-    store_drafts(state, &body.publication_id, &stored, &set, success)
+    let mut success = success;
+    let stored_response = store_drafts(state, &body.publication_id, &stored, &set, Json::Null);
+    if stored_response.status != 200 {
+        return stored_response;
+    }
+    // The offer is stored, so the proposed moments go with exactly this revision. Sealing after
+    // the offer fails closed: if it cannot be written the moments simply stay private.
+    if let Some(revision) = body.revision {
+        let sealed = seal_offered_moments(state, &transaction, record, &own, revision);
+        if let (Some(sealed), Some(object)) = (sealed, success.as_object_mut()) {
+            match sealed {
+                OfferedMoments::Shared => object.insert("momentsShared".into(), json!(true)),
+                OfferedMoments::Changed => object.insert("momentsShared".into(), json!(false)),
+                OfferedMoments::Failed => {
+                    object.insert("momentsShared".into(), Json::Null);
+                    object.insert("momentsNote".into(), json!(MOMENTS_NOT_SHARED))
+                }
+            };
+        }
+    }
+    Response::json(200, &success)
 }
 
 // ---------------------------------------------------------------------------
@@ -22837,6 +23361,618 @@ series: letters
             422
         );
         assert_eq!(state_trees(&f), before);
+    }
+
+    // ---- media moments (ADR 0062 to 0064)
+
+    fn moments_read(f: &Fixture, who: &Session, id: &str) -> Response {
+        handle(
+            &f.state,
+            &authed(
+                req(
+                    "GET",
+                    &format!("/admin/api/collaboration/moments?publicationId={id}"),
+                ),
+                who,
+                false,
+            ),
+        )
+    }
+
+    fn moments_change(
+        f: &Fixture,
+        who: &Session,
+        id: &str,
+        expected: u64,
+        change: Json,
+    ) -> Response {
+        post_api(
+            f,
+            who,
+            "moments",
+            json!({ "publicationId": id, "expectedRevision": expected, "change": change }),
+        )
+    }
+
+    fn moments_revision(f: &Fixture, who: &Session, id: &str) -> u64 {
+        body_json(&moments_read(f, who, id))["revision"]
+            .as_u64()
+            .unwrap()
+    }
+
+    /// A moment on the fixture's first source, the video, at `at`.
+    fn video_moment(at: &str, observation: &str, intent: &str) -> Json {
+        json!({
+            "source": "source-1",
+            "locators": [{ "kind": "timestamp", "value": at }],
+            "observation": observation,
+            "intent": intent,
+        })
+    }
+
+    fn add_moment(f: &Fixture, who: &Session, id: &str, moment: Json) -> Response {
+        let revision = moments_revision(f, who, id);
+        moments_change(
+            f,
+            who,
+            id,
+            revision,
+            json!({ "action": "add", "moment": moment }),
+        )
+    }
+
+    #[test]
+    fn moments_are_private_revision_checked_and_denied_by_default() {
+        let (f, mikey, grace, ada, id) = approval_fixture("moments-private");
+        let content_before = tree_snapshot(&f.dir.join("content"));
+        let dist_before = tree_snapshot(&f.dir.join("dist"));
+
+        let added = add_moment(
+            &f,
+            &mikey,
+            &id,
+            video_moment("1:02", "MOMENT-SECRET noticed", "private"),
+        );
+        assert_eq!(
+            added.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&added.body)
+        );
+        let mine = body_json(&added);
+        let moment = &mine["moments"][0];
+        assert_eq!(moment["location"], "at 1:02");
+        assert_eq!(moment["intent"], "private");
+        // The link is the source's own stored address, never one the request carried.
+        assert_eq!(
+            moment["link"]["href"],
+            "https://www.youtube.com/watch?v=marker7f3c"
+        );
+        assert_eq!(mine["sources"].as_array().unwrap().len(), 3);
+        assert!(mine["sources"][2]["url"].is_null());
+        let moment_id = moment["id"].as_str().unwrap().to_string();
+
+        // Another author sees nothing of a private moment.
+        let seen = body_json(&moments_read(&f, &grace, &id));
+        assert_eq!(seen["moments"], json!([]));
+        assert_eq!(seen["shared"], json!([]));
+        assert!(!seen.to_string().contains("MOMENT-SECRET"));
+
+        // A coordinator who is not a contributor, an unknown publication and no session are all
+        // refused alike, for reads and writes.
+        let unknown = moments_read(&f, &mikey, "shared-ffffffffffff");
+        assert_eq!(unknown.status, 404);
+        let denied = moments_read(&f, &ada, &id);
+        assert_eq!(denied.status, 404);
+        assert_eq!(denied.body, unknown.body);
+        let write = moments_change(
+            &f,
+            &ada,
+            &id,
+            1,
+            json!({ "action": "add", "moment": video_moment("5", "ADA-LEAK", "private") }),
+        );
+        assert_eq!(write.status, 404);
+        assert_eq!(write.body, unknown.body);
+        let anonymous = handle(
+            &f.state,
+            &req(
+                "GET",
+                &format!("/admin/api/collaboration/moments?publicationId={id}"),
+            ),
+        );
+        assert_eq!(anonymous.status, 401);
+        let no_csrf = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/collaboration/moments",
+                    json!({ "publicationId": id, "expectedRevision": 1,
+                            "change": { "action": "remove", "id": moment_id } }),
+                ),
+                &mikey,
+                false,
+            ),
+        );
+        assert_eq!(no_csrf.status, 403);
+        // Grace cannot touch Mikey's moment, and learns nothing about whether it exists.
+        let revision = moments_revision(&f, &grace, &id);
+        let foreign = moments_change(
+            &f,
+            &grace,
+            &id,
+            revision,
+            json!({ "action": "remove", "id": moment_id }),
+        );
+        assert_eq!(foreign.status, 404);
+        let missing = moments_change(
+            &f,
+            &grace,
+            &id,
+            revision,
+            json!({ "action": "remove", "id": "moment-99" }),
+        );
+        assert_eq!(missing.body, foreign.body);
+
+        // A stale revision is a conflict and stores nothing.
+        let file = f
+            .dir
+            .join(crate::shared_publications::MOMENTS_DIRECTORY)
+            .join(format!("{id}.json"));
+        let stored = fs::read(&file).unwrap();
+        let stale = moments_change(
+            &f,
+            &mikey,
+            &id,
+            0,
+            json!({ "action": "add", "moment": video_moment("9", "late", "private") }),
+        );
+        assert_eq!(stale.status, 409);
+        assert_eq!(fs::read(&file).unwrap(), stored);
+
+        // Malformed times, locations that do not fit the source, hostile Markdown and smuggled
+        // fields fail with the field named and nothing echoed.
+        let revision = moments_revision(&f, &mikey, &id);
+        let timed = |value: &str, to: Option<&str>| {
+            let mut moment = video_moment(value, "ok", "private");
+            if let Some(to) = to {
+                moment["locators"][0]["to"] = json!(to);
+            }
+            moment
+        };
+        let mut cases = vec![];
+        for bad in [
+            "1:2",
+            "1:60",
+            "1:02:03:04",
+            " 12",
+            "-5",
+            "MARKER-TIME",
+            "1:02.",
+            "1h2m",
+        ] {
+            cases.push((timed(bad, None), "locators"));
+        }
+        cases.push((timed("1:10", Some("1:02")), "locators"));
+        cases.push((timed("1:10", Some("1:10.0")), "locators"));
+        cases.push((
+            json!({ "source": "source-1", "locators": [{ "kind": "page", "value": "3" }],
+                    "observation": "ok", "intent": "private" }),
+            "locators",
+        ));
+        cases.push((
+            json!({ "source": "source-2", "locators": [{ "kind": "timestamp", "value": "3" }],
+                    "observation": "ok", "intent": "private" }),
+            "locators",
+        ));
+        cases.push((
+            video_moment("3", "MARKER-HTML <img src=x>", "private"),
+            "observation",
+        ));
+        cases.push((
+            video_moment("3", "[MARKER-LINK](javascript:alert(1))", "private"),
+            "observation",
+        ));
+        cases.push((
+            json!({ "source": "source-9", "locators": [{ "kind": "timestamp", "value": "3" }],
+                    "observation": "ok", "intent": "private" }),
+            "source",
+        ));
+        cases.push((
+            json!({ "source": "source-1", "locators": [{ "kind": "timestamp", "value": "3" }],
+                    "intent": "private" }),
+            "content",
+        ));
+        cases.push((
+            json!({ "source": "source-1", "locators": [{ "kind": "timestamp", "value": "3" }],
+                    "quotation": { "text": "MARKER-QUOTE", "rights": "unknown", "provenance": "transcribed" },
+                    "intent": "publication" }),
+            "rights",
+        ));
+        cases.push((
+            json!({ "source": "source-1", "locators": [{ "kind": "timestamp", "value": "3" }],
+                    "quotation": { "text": "ok", "rights": "permission", "provenance": "supplied",
+                                   "rightsNote": "MARKER-NOTE\nInjected: header" },
+                    "intent": "private" }),
+            "rightsNote",
+        ));
+        for (moment, field) in cases {
+            let text = moment.to_string();
+            let refused = moments_change(
+                &f,
+                &mikey,
+                &id,
+                revision,
+                json!({ "action": "add", "moment": moment }),
+            );
+            assert_eq!(refused.status, 422, "{text}");
+            let body = body_json(&refused);
+            assert_eq!(body["field"], field, "{text}");
+            let echoed = body.to_string();
+            for marker in ["MARKER", "1:02:03:04", "1h2m", "img src", "javascript"] {
+                assert!(!echoed.contains(marker), "{echoed}");
+            }
+        }
+        for smuggled in [
+            json!({ "action": "add", "moment": { "source": "source-1", "locators": [{ "kind": "timestamp", "value": "3" }],
+                     "observation": "ok", "intent": "private", "participant": "grace" } }),
+            json!({ "action": "add", "moment": { "source": "source-1", "locators": [{ "kind": "timestamp", "value": "3", "href": "https://evil.example" }],
+                     "observation": "ok", "intent": "private" } }),
+            json!({ "action": "add", "moment": { "source": "source-1", "locators": [{ "kind": "folio", "value": "3" }],
+                     "observation": "ok", "intent": "private" } }),
+        ] {
+            assert_eq!(
+                moments_change(&f, &mikey, &id, revision, smuggled).status,
+                422
+            );
+        }
+        let top_level = post_api(
+            &f,
+            &mikey,
+            "moments",
+            json!({ "publicationId": id, "expectedRevision": revision, "participantId": "grace",
+                    "change": { "action": "remove", "id": moment_id } }),
+        );
+        assert_eq!(top_level.status, 422);
+        assert_eq!(fs::read(&file).unwrap(), stored);
+
+        // Several media, an edit that keeps the source, and a removal.
+        let book = add_moment(
+            &f,
+            &mikey,
+            &id,
+            json!({ "source": "source-2", "locators": [{ "kind": "page", "value": "12", "to": "14" }],
+                    "quotation": { "text": "Listen first.", "speaker": "Ada", "rights": "publicDomain", "provenance": "copied" },
+                    "intent": "private" }),
+        );
+        assert_eq!(book.status, 200);
+        let book = body_json(&book);
+        assert_eq!(book["moments"][1]["location"], "pages 12 to 14");
+        // A source without a link still keeps the moment, with no link to follow.
+        let talk = add_moment(
+            &f,
+            &mikey,
+            &id,
+            json!({ "source": "source-3", "locators": [{ "kind": "timestamp", "value": "0:45" }],
+                    "observation": "Said in passing.", "intent": "private" }),
+        );
+        assert!(body_json(&talk)["moments"][2]["link"].is_null());
+        let revision = moments_revision(&f, &mikey, &id);
+        let moved = moments_change(
+            &f,
+            &mikey,
+            &id,
+            revision,
+            json!({ "action": "edit", "id": moment_id, "moment": video_moment("1:05", "Changed.", "private") }),
+        );
+        assert_eq!(moved.status, 200);
+        assert_eq!(body_json(&moved)["moments"][0]["location"], "at 1:05");
+        let revision = moments_revision(&f, &mikey, &id);
+        let gone = moments_change(
+            &f,
+            &mikey,
+            &id,
+            revision,
+            json!({ "action": "remove", "id": moment_id }),
+        );
+        assert_eq!(gone.status, 200);
+        assert_eq!(body_json(&gone)["moments"].as_array().unwrap().len(), 2);
+
+        // Nothing reached canonical content or output, and the set lives in private storage.
+        assert_eq!(tree_snapshot(&f.dir.join("content")), content_before);
+        assert_eq!(tree_snapshot(&f.dir.join("dist")), dist_before);
+        assert!(file.is_file());
+    }
+
+    #[test]
+    fn proposed_moments_are_shared_with_the_offered_revision_and_bind_into_approval() {
+        let (f, mikey, grace, ada, id) = approval_fixture("moments-approval");
+        for who in [&mikey, &grace] {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        let proposed = json!({
+            "source": "source-1",
+            "locators": [{ "kind": "timestamp", "value": "1:02", "to": "1:10" }],
+            "quotation": { "text": "MOMENT-QUOTE", "speaker": "The host", "rights": "briefQuotation", "provenance": "transcribed" },
+            "observation": "MOMENT-PROSE about it.",
+            "intent": "publication",
+        });
+        assert_eq!(add_moment(&f, &mikey, &id, proposed).status, 200);
+
+        // Proposing a moment stales every approval, so nothing publishes.
+        let before = state_trees(&f);
+        let refused = publish_as(&f, &ada, &id);
+        assert_eq!(refused.status, 409);
+        assert!(!String::from_utf8_lossy(&refused.body).contains("MOMENT"));
+        assert_eq!(state_trees(&f), before);
+
+        // Until Mikey shares a revision with it, Grace sees neither the moment nor Mikey's part,
+        // and is handed no approval token.
+        let grace_view = body_json(&moments_read(&f, &grace, &id));
+        assert_eq!(grace_view["shared"], json!([]));
+        let preview = body_json(&preview_call(&f, &grace, &id));
+        assert_eq!(preview["preview"]["complete"], false);
+        assert!(preview["preview"]["seen"].is_null());
+        assert!(!preview_document_text(&f, &grace, &preview).contains("MOMENT"));
+        // Mikey reviews his own proposed moment in the preview.
+        let own = body_json(&preview_call(&f, &mikey, &id));
+        let own_document = preview_document_text(&f, &mikey, &own);
+        assert!(own_document.contains("MOMENT-PROSE") && own_document.contains("MOMENT-QUOTE"));
+
+        // Offering the revision already shared does not take the later moment with it.
+        let again = reveal_call(&f, &mikey, "ready", ready_body(&id, json!(1)));
+        assert_eq!(again.status, 200);
+        assert_eq!(body_json(&again)["momentsShared"], false);
+        assert_eq!(
+            body_json(&moments_read(&f, &grace, &id))["shared"],
+            json!([])
+        );
+
+        // A newer revision, offered, shares the moment with exactly that revision.
+        assert_eq!(
+            draft_call(&f, &mikey, &id, 1, "MIKEY-SECRET v2").status,
+            200
+        );
+        let offered = reveal_call(&f, &mikey, "ready", ready_body(&id, json!(2)));
+        assert_eq!(body_json(&offered)["momentsShared"], true);
+        let grace_view = body_json(&moments_read(&f, &grace, &id));
+        assert_eq!(
+            grace_view["shared"][0]["participant"]["displayName"],
+            "Mikey"
+        );
+        assert_eq!(
+            grace_view["shared"][0]["moments"][0]["observation"],
+            "MOMENT-PROSE about it."
+        );
+        let preview = body_json(&preview_call(&f, &grace, &id));
+        assert_eq!(preview["preview"]["complete"], true);
+        assert!(preview_document_text(&f, &grace, &preview).contains("MOMENT-PROSE"));
+
+        // The owner of a proposed moment is a required approver, and both approvals publish.
+        for who in [&mikey, &grace] {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        assert_eq!(publish_as(&f, &ada, &id).status, 200);
+        // The approved moment publishes with the piece, credited and linked, and nothing private
+        // about it does: no rights status or provenance, no moment or participant id (ADR 0066).
+        let post = published_post(&f, &id).unwrap();
+        assert!(post.contains("Moments in the sources"));
+        assert!(post.contains("<blockquote><p>MOMENT-QUOTE</p></blockquote>"));
+        assert!(post.contains("MOMENT-PROSE about it."));
+        assert!(post.contains("<figcaption>The host, in "));
+        assert!(post.contains("<p class=\"ob-moment-by\">Noted by Mikey</p>"));
+        for private in [
+            "\"moment-1",
+            "briefQuotation",
+            "transcribed",
+            "\"intent\"",
+            "rightsNote",
+        ] {
+            assert!(!post.contains(private), "the post carries `{private}`");
+        }
+        // Once published, the moments are closed like the rest of the piece.
+        let revision = moments_revision(&f, &mikey, &id);
+        let late = moments_change(
+            &f,
+            &mikey,
+            &id,
+            revision,
+            json!({ "action": "add", "moment": video_moment("2", "late", "private") }),
+        );
+        assert_eq!(late.status, 409);
+    }
+
+    #[test]
+    fn quotations_carry_one_attribution_their_rights_note_and_guidance_that_never_blocks() {
+        let (f, mikey, grace, _ada, id) = approval_fixture("moments-attribution");
+        let content_before = tree_snapshot(&f.dir.join("content"));
+        let long = format!("QUOTE-START {}", "word ".repeat(70));
+        let added = add_moment(
+            &f,
+            &mikey,
+            &id,
+            json!({ "source": "source-1",
+                    "locators": [{ "kind": "timestamp", "value": "1:02", "to": "1:10" }],
+                    "quotation": { "text": long, "rights": "briefQuotation", "provenance": "transcribed",
+                                   "rightsNote": "Quoted for review <b>only</b>" },
+                    "intent": "publication" }),
+        );
+        // A long quotation with no speaker is warned about, never refused.
+        assert_eq!(
+            added.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&added.body)
+        );
+        let mine = body_json(&added);
+        let title = mine["sources"][0]["title"].as_str().unwrap().to_string();
+        let moment = &mine["moments"][0];
+        assert_eq!(
+            moment["attribution"],
+            format!("{title} (Video), from 1:02 to 1:10")
+        );
+        assert_eq!(
+            moment["quotation"]["rightsNote"],
+            "Quoted for review <b>only</b>"
+        );
+        let codes: Vec<&str> = moment["notices"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|notice| notice["code"].as_str().unwrap())
+            .collect();
+        assert_eq!(codes, ["noSpeaker", "longForBriefQuotation"]);
+        // The guide is the core's, so the panel says what the preview says.
+        let guide = &mine["quotationGuide"];
+        assert_eq!(guide["briefQuotationChars"], 300);
+        assert_eq!(guide["maxQuotationChars"], 1000);
+        assert_eq!(guide["rights"].as_array().unwrap().len(), 6);
+        assert_eq!(guide["rights"][0]["value"], "unknown");
+        assert!(guide["statement"]
+            .as_str()
+            .unwrap()
+            .contains("does not check rights"));
+        assert!(guide["notices"]["noSpeaker"].is_string());
+
+        // Naming the speaker clears that warning, and the attribution names them.
+        let revision = moments_revision(&f, &mikey, &id);
+        let moment_id = moment["id"].as_str().unwrap().to_string();
+        let edited = moments_change(
+            &f,
+            &mikey,
+            &id,
+            revision,
+            json!({ "action": "edit", "id": moment_id, "moment": {
+                "source": "source-1",
+                "locators": [{ "kind": "timestamp", "value": "1:02", "to": "1:10" }],
+                "quotation": { "text": "QUOTE-SHORT", "speaker": "The host", "rights": "briefQuotation",
+                               "provenance": "transcribed", "rightsNote": "Quoted for review <b>only</b>" },
+                "intent": "publication" } }),
+        );
+        assert_eq!(edited.status, 200);
+        let edited = body_json(&edited);
+        assert_eq!(
+            edited["moments"][0]["attribution"],
+            format!("The host, in {title} (Video), from 1:02 to 1:10")
+        );
+        assert_eq!(edited["moments"][0]["notices"], json!([]));
+
+        // Once shared, Grace sees the same attribution and reviews the rights statement and note
+        // in the preview, as escaped text.
+        assert_eq!(
+            draft_call(&f, &mikey, &id, 1, "MIKEY-SECRET v2").status,
+            200
+        );
+        let offered = reveal_call(&f, &mikey, "ready", ready_body(&id, json!(2)));
+        assert_eq!(body_json(&offered)["momentsShared"], true);
+        let seen = body_json(&moments_read(&f, &grace, &id));
+        assert_eq!(
+            seen["shared"][0]["moments"][0]["attribution"],
+            format!("The host, in {title} (Video), from 1:02 to 1:10")
+        );
+        let preview = body_json(&preview_call(&f, &grace, &id));
+        let document = preview_document_text(&f, &grace, &preview);
+        assert!(document.contains("The host, in"));
+        assert!(document.contains("from 1:02 to 1:10</figcaption>"));
+        assert!(document.contains("Rights, as the author states them: A brief quotation"));
+        assert!(document.contains("Rights note: Quoted for review &lt;b&gt;only&lt;/b&gt;"));
+        assert!(!document.contains("<b>only"));
+        // Nothing reached canonical content.
+        assert_eq!(tree_snapshot(&f.dir.join("content")), content_before);
+    }
+
+    #[test]
+    fn an_offer_keeps_the_moments_revision_and_tells_a_storage_failure_apart() {
+        let (f, mikey, _grace, _ada, id) = approval_fixture("moments-offer-revision");
+        assert_eq!(
+            add_moment(
+                &f,
+                &mikey,
+                &id,
+                video_moment("1:02", "MOMENT-PROSE", "publication")
+            )
+            .status,
+            200
+        );
+        assert_eq!(
+            draft_call(&f, &mikey, &id, 1, "MIKEY-SECRET v2").status,
+            200
+        );
+        // The panel holds this revision while its writer offers a draft revision.
+        let held = moments_revision(&f, &mikey, &id);
+        let offered = reveal_call(&f, &mikey, "ready", ready_body(&id, json!(2)));
+        assert_eq!(offered.status, 200);
+        let offered = body_json(&offered);
+        assert_eq!(offered["momentsShared"], true);
+        assert!(offered.get("momentsNote").is_none());
+        // Sealing is not an edit: the revision is unchanged and the panel's next change applies.
+        assert_eq!(moments_revision(&f, &mikey, &id), held);
+        let next = moments_change(
+            &f,
+            &mikey,
+            &id,
+            held,
+            json!({ "action": "add", "moment": video_moment("2", "another", "private") }),
+        );
+        assert_eq!(next.status, 200);
+
+        // Re-offering a sealed revision after a change is the write-once case, not a failure.
+        let again = body_json(&reveal_call(&f, &mikey, "ready", ready_body(&id, json!(2))));
+        assert_eq!(
+            again["momentsShared"], true,
+            "a private add leaves the seal"
+        );
+
+        // Moments that cannot be read or stored are a failure, told apart from the write-once
+        // case and naming nothing the writer wrote.
+        let file = f
+            .dir
+            .join(crate::shared_publications::MOMENTS_DIRECTORY)
+            .join(format!("{id}.json"));
+        fs::write(&file, "not a moment set").unwrap();
+        let failed = reveal_call(&f, &mikey, "ready", ready_body(&id, json!(2)));
+        assert_eq!(failed.status, 200, "the offer itself is stored");
+        assert!(!String::from_utf8_lossy(&failed.body).contains("MOMENT"));
+        let failed = body_json(&failed);
+        assert!(failed.get("momentsShared").is_some_and(Json::is_null));
+        assert!(failed["momentsNote"]
+            .as_str()
+            .unwrap()
+            .contains("offer this revision again"));
+        assert_eq!(fs::read_to_string(&file).unwrap(), "not a moment set");
+    }
+
+    #[test]
+    fn a_removed_author_s_moments_go_with_them_and_stop_binding_the_piece() {
+        let (f, mikey, grace, _ada, id) = approval_fixture("moments-reconcile");
+        let grace_id = participant_of(&f, &id, "grace");
+        assert_eq!(
+            add_moment(
+                &f,
+                &grace,
+                &id,
+                video_moment("3", "GRACE-MOMENT", "publication")
+            )
+            .status,
+            200
+        );
+        let record = stored_record(&f, &id);
+        let removed = post_api(
+            &f,
+            &mikey,
+            "members/remove",
+            json!({ "publicationId": id, "participantId": grace_id, "expectedRevision": record.authorization.revision }),
+        );
+        assert_eq!(removed.status, 200);
+        assert_eq!(moments_read(&f, &grace, &id).status, 404);
+        let stored = fs::read_to_string(
+            f.dir
+                .join(crate::shared_publications::MOMENTS_DIRECTORY)
+                .join(format!("{id}.json")),
+        )
+        .unwrap();
+        assert!(!stored.contains("GRACE-MOMENT") && !stored.contains(&grace_id));
     }
 
     // ---- shared synthesis (ADR 0025)

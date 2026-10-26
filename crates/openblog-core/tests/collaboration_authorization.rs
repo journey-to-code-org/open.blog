@@ -1439,3 +1439,38 @@ fn editing_synthesis_is_a_contributors_own_participant_grant_only() {
             .is_err());
     }
 }
+
+#[test]
+fn editing_media_moments_is_a_contributors_own_participant_grant_only() {
+    let collaboration = group();
+    let own = AuthorizationTarget::Participant("ada-participant");
+    for (role, allowed) in [
+        ("contributor", true),
+        ("siteOwner", false),
+        ("coordinator", false),
+        ("editor", false),
+        ("reader", false),
+    ] {
+        let policy = policy(json!([binding(role)]));
+        assert_eq!(
+            policy
+                .authorize(&ada(&collaboration, own), AuthorizationAction::EditMoments)
+                .is_ok(),
+            allowed,
+            "{role}"
+        );
+    }
+    let contributor = policy(json!([binding("contributor")]));
+    for target in [
+        AuthorizationTarget::Participant("grace-participant"),
+        AuthorizationTarget::Publication,
+        AuthorizationTarget::Contribution("ada-draft"),
+    ] {
+        assert!(contributor
+            .authorize(
+                &ada(&collaboration, target),
+                AuthorizationAction::EditMoments
+            )
+            .is_err());
+    }
+}

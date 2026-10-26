@@ -44,7 +44,7 @@ const LABEL_OPEN: &str = "<p class=\"ob-turn-label\">";
 
 /// Undo exactly the escaping `compose` applies to a name, label or prompt (named references for
 /// `< > "` and numeric ones for the rest). Any other `&` or a raw angle bracket is refused.
-fn decode_text(input: &str) -> Option<String> {
+pub(crate) fn decode_text(input: &str) -> Option<String> {
     let mut out = String::with_capacity(input.len());
     let mut rest = input;
     while let Some(at) = rest.find(['&', '<', '>']) {

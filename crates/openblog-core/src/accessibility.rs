@@ -200,10 +200,18 @@ pub fn audit_document(input: DocumentAuditInput<'_>) -> Vec<AccessibilityFinding
     // Document templates render the front-matter title as H1 before the body.
     let mut previous_heading = 1;
     let mut saw_table = false;
+    // The approved moments a shared reflection ends with are framed by the same kind of closed
+    // grammar (ADR 0066), and observations cannot contain HTML (ADR 0062), so every HTML line from
+    // the block's start on is openblog's frame. What comes before it is judged on its own.
+    let moments = crate::published_moment::MomentsBlock::parse(input.markdown);
+    let (before_moments, moments_start) = match &moments {
+        Some(block) => (&input.markdown[..block.before], block.before),
+        None => (input.markdown, input.markdown.len()),
+    };
     // A shared reflection's arrangement frame is markup openblog writes from a closed grammar
     // (sections headed by their author's name, ADR 0033), and the publish gate refuses raw HTML in
     // the turns themselves. It is not custom markup an author could inspect or repair (#188).
-    let mut saw_raw_html = crate::arrangement::Arrangement::parse(input.markdown).is_some();
+    let mut saw_raw_html = crate::arrangement::Arrangement::parse(before_moments).is_some();
     let mut saw_media = false;
     let options = crate::markdown::parser_options(false);
     let events: Vec<_> = Parser::new_ext(input.markdown, options)
@@ -263,6 +271,7 @@ pub fn audit_document(input: DocumentAuditInput<'_>) -> Vec<AccessibilityFinding
                     ),
                 ));
             }
+            Event::Html(_) | Event::InlineHtml(_) if range.start >= moments_start => {}
             Event::Html(_) | Event::InlineHtml(_) => {
                 if let Some(link) = link.as_mut() {
                     link.indeterminate_name = true;

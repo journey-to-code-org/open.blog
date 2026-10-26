@@ -8,6 +8,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
+use serde::de::{Deserialize, Deserializer, Error as _};
 use serde::ser::{Serialize, Serializer};
 use serde_json::{Map, Value};
 
@@ -173,9 +174,18 @@ impl Serialize for LocatorKind {
     }
 }
 
+/// Reads the same kinds [`LocatorKind::parse`] accepts, so stored forms that embed a locator
+/// (media moments, ADR 0062) refuse an unknown kind exactly as the notebook does.
+impl<'de> Deserialize<'de> for LocatorKind {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        Self::parse(&text).ok_or_else(|| D::Error::custom("unknown locator kind"))
+    }
+}
+
 /// One position inside a source, with an optional end for a range. A passage
 /// holds several in order for compound locations such as folio 12r, lines 4-7.
-#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Locator {
     pub kind: LocatorKind,
     pub value: String,

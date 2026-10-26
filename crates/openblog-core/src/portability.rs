@@ -939,13 +939,14 @@ impl<'a> PortableProjection<'a> {
             capabilities,
             diagnostics,
             images: rendered.portable_images,
-            // A parsed arrangement's frame is the layout's own markup, not authored raw HTML:
-            // the Markdown copy states it as sections, so only literal HTML in the turns counts.
-            has_raw_html: self
-                .arrangement()
-                .map_or(rendered.portable_has_raw_html, |arrangement| {
-                    escape_raw_html(&arrangement.to_markdown(markdown_text)).1 > 0
-                }),
+            // A parsed arrangement's or moments block's frame is open.blog's own markup, not
+            // authored raw HTML: the Markdown copy states it without HTML, so only literal HTML
+            // in the authors' own text counts.
+            has_raw_html: if self.arrangement().is_some() || self.moments().is_some() {
+                escape_raw_html(&self.portable_source()).1 > 0
+            } else {
+                rendered.portable_has_raw_html
+            },
         })
     }
 
@@ -953,12 +954,7 @@ impl<'a> PortableProjection<'a> {
     /// public work metadata. No generated HTML is parsed to reconstruct content.
     pub fn portable_markdown(&self) -> Result<String, String> {
         let html = self.portable_html()?;
-        // A shared reflection's arrangement is stated as labeled sequential sections (ADR 0033);
-        // any other body is the authored Markdown itself.
-        let source = self.arrangement().map_or_else(
-            || self.markdown.to_string(),
-            |arrangement| arrangement.to_markdown(markdown_text),
-        );
+        let source = self.portable_source();
         let (body, raw_html_count) = escape_raw_html(&source);
         let body = portable_markdown_body(&body, self)
             .map_err(|error| format!("{}: {error}", self.source_path))?;
@@ -1340,6 +1336,45 @@ impl<'a> PortableProjection<'a> {
                 }
             }
         }
+        // Every published moment keeps where it is, who noted it, the quoted words with their
+        // attribution, and its link with a label that names the source (ADR 0066).
+        let moments = self.moments();
+        if let Some(block) = &moments {
+            for moment in &block.moments {
+                facts.push(SemanticFact::new(
+                    "media-moment",
+                    "moment location",
+                    &moment.location,
+                ));
+                facts.push(SemanticFact::new(
+                    "media-moment",
+                    "moment author",
+                    format!("Noted by {}", moment.noted_by),
+                ));
+                if let Some(quotation) = &moment.quotation {
+                    facts.push(SemanticFact::new(
+                        "media-moment",
+                        "quotation",
+                        &quotation.text,
+                    ));
+                    facts.push(SemanticFact::new(
+                        "media-moment",
+                        "quotation attribution",
+                        &quotation.attribution,
+                    ));
+                }
+                if let Some(link) = &moment.link {
+                    facts.push(
+                        SemanticFact::new(
+                            "media-moment",
+                            "source link",
+                            self.resolve_link(&link.href)?,
+                        )
+                        .with_link_label(link.label.clone()),
+                    );
+                }
+            }
+        }
         if let Some(source) = self.source_url {
             facts.push(SemanticFact::new(
                 "provenance",
@@ -1523,6 +1558,40 @@ impl<'a> PortableProjection<'a> {
                 diagnostics.push(diagnostic);
             }
         }
+        // The moments must also come in their published order, each where-and-who pair together:
+        // an equivalent that reorders them says something other than what was approved.
+        if let Some(block) = &moments {
+            let mut from = 0;
+            let in_order = block.moments.iter().all(|moment| {
+                let needle =
+                    normalize(&format!("{} Noted by {}", moment.location, moment.noted_by));
+                match content[from..].find(&needle) {
+                    Some(at) => {
+                        from += at + needle.len();
+                        true
+                    }
+                    None => false,
+                }
+            });
+            if !in_order {
+                diagnostics.push(PortabilityDiagnostic {
+                    code: "moment-order".into(),
+                    severity: DiagnosticSeverity::Error,
+                    source_path: self.source_path.into(),
+                    capability_id: Some("media-moment".into()),
+                    message: format!(
+                        "The {representation} artifact does not keep the published moments, each with who noted it, in their approved order."
+                    ),
+                    recommended_action: "Repair the projection before publishing; the moments and their order are part of what each author approved.".into(),
+                    context: DiagnosticContext {
+                        representation: Some(representation.into()),
+                        destination: Some("portable-export".into()),
+                        affected_semantics: Some("moment order".into()),
+                        ..Default::default()
+                    },
+                });
+            }
+        }
         // The same prompts, names and labels must also come in the arrangement's reading order:
         // an equivalent that reorders turns says something else (ADR 0033). Only the reflection's
         // own headings, labels and prompts are compared, never the credits or metadata, which
@@ -1661,20 +1730,53 @@ impl<'a> PortableProjection<'a> {
     /// each turn under its author's name and label. `None` for any other post. It carries the same
     /// words, names, labels and order as the portable text, without the page's own metadata, for
     /// callers (llms-full.txt) that print their own header.
+    /// Published moments (ADR 0066) follow in the same words as the portable text.
     pub fn reflection_text(&self) -> Result<Option<String>, String> {
-        let Some(arrangement) = self.arrangement() else {
+        if self.arrangement().is_none() && self.moments().is_none() {
             return Ok(None);
-        };
-        let (body, _) = escape_raw_html(&arrangement.to_markdown(markdown_text));
+        }
+        let (body, _) = escape_raw_html(&self.portable_source());
         let markdown = portable_markdown_body(&body, self)
             .map_err(|error| format!("{}: {error}", self.source_path))?;
         Ok(Some(markdown_to_text(&markdown)))
     }
 
-    /// The arrangement recorded in a shared reflection's authored Markdown, if it has one.
+    /// The arrangement recorded in a shared reflection's authored Markdown, if it has one. It is
+    /// read from the body before any published moments, which follow it after a section break.
     fn arrangement(&self) -> Option<crate::arrangement::Arrangement> {
         self.shared?;
-        crate::arrangement::Arrangement::parse(self.markdown)
+        let body = match self.moments() {
+            Some(block) => &self.markdown[..block.before],
+            None => self.markdown,
+        };
+        crate::arrangement::Arrangement::parse(body)
+    }
+
+    /// The approved media moments a shared reflection's body ends with, read back exactly as the
+    /// gate wrote them (ADR 0066). `None` for any other post or body.
+    fn moments(&self) -> Option<crate::published_moment::MomentsBlock> {
+        self.shared?;
+        crate::published_moment::MomentsBlock::parse(self.markdown)
+    }
+
+    /// The Markdown every portable form is derived from: a shared reflection's arrangement stated
+    /// as labeled sequential sections (ADR 0033) and its published moments stated without HTML
+    /// (ADR 0066); any other body is the authored Markdown itself.
+    fn portable_source(&self) -> String {
+        let moments = self.moments();
+        let body = match &moments {
+            Some(block) => &self.markdown[..block.before],
+            None => self.markdown,
+        };
+        let mut source = self.arrangement().map_or_else(
+            || body.to_string(),
+            |arrangement| arrangement.to_markdown(markdown_text),
+        );
+        if let Some(block) = moments {
+            source.push_str("\n\n---\n\n");
+            source.push_str(&block.portable_markdown());
+        }
+        source
     }
 
     /// Resolve an authored URL against the post or site base while rejecting
