@@ -493,6 +493,38 @@ test("a kept draft rests on the newer copy's unknown fields", () => {
   assert.equal(sent.members[1].shelf, "newer");
 });
 
+test("a rebase never moves one place's unknown fields onto another", () => {
+  // A split: a second place added from the same version and passage as the first.
+  const split = alignmentDraft(OPENING());
+  split.members.splice(1, 0, { ...alignmentDraft(null).members[0], source: "slings", passage: "p-gr", locators: "canonical: 327a" });
+  const newer = { ...OPENING(), members: OPENING().members.map((member, index) => (index === 0 ? { ...member, shelf: "first" } : member)) };
+  rebaseAlignmentDraft(split, newer);
+  let sent = alignmentPayload(split);
+  assert.equal(sent.members[0].shelf, "first", "the place read from the stored member rests on its newer copy");
+  assert.equal(sent.members[1].shelf, undefined, "the new place takes nobody's fields");
+  // An edited version: place 2 now names the version and passage place 3 is in.
+  const edited = alignmentDraft(OPENING());
+  edited.members[1].source = "bloom";
+  edited.members[1].passage = "p-en2";
+  edited.members[1].locators = "";
+  const marked = { ...OPENING(), members: OPENING().members.map((member, index) => ({ ...member, shelf: `stored-${index}` })) };
+  rebaseAlignmentDraft(edited, marked);
+  sent = alignmentPayload(edited);
+  assert.equal(sent.members[1].shelf, "stored-1", "an edited place keeps the fields of the place it was read as");
+  assert.equal(sent.members[2].shelf, "stored-2");
+  // Reordered in storage: each place follows its own stored member by identity, each claimed once.
+  const moved = alignmentDraft(OPENING());
+  rebaseAlignmentDraft(moved, { ...OPENING(), members: [...marked.members].reverse() });
+  sent = alignmentPayload(moved);
+  assert.deepEqual(sent.members.map((member) => member.shelf), [0, 1, 2, 3, 4, 5].map((index) => `stored-${index}`));
+  assert.deepEqual(moved.members.map((member) => member.from), [5, 4, 3, 2, 1, 0]);
+  // A place whose stored member is gone keeps its own original.
+  const gone = alignmentDraft(OPENING());
+  rebaseAlignmentDraft(gone, { ...OPENING(), members: OPENING().members.filter((_, index) => index !== 1) });
+  assert.equal(alignmentPayload(gone).members[1].shelf, "kept");
+  assert.equal(gone.members[1].from, null);
+});
+
 test("advisory checks name the first problem and the control for it", () => {
   const ctx = { sources: SOURCES(), passages: PASSAGES(), interpretations: INTERPRETATIONS(), used: ["opening"] };
   const draft = alignmentDraft(null);

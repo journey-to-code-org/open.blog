@@ -2866,10 +2866,15 @@ export function alignableSources(sources) {
   return (Array.isArray(sources) ? sources : []).filter((source) => ["edition", "translation", "witness"].includes(source?.kind));
 }
 
-export function alignmentMemberDraft(record = null) {
+/**
+ * A member's draft. `from` is the index of the stored member it edits, or
+ * null for a new place, so a later rebase can find that member again.
+ */
+export function alignmentMemberDraft(record = null, from = null) {
   const member = record && typeof record === "object" ? record : {};
   return {
     original: record ? structuredClone(record) : {},
+    from: record && Number.isInteger(from) ? from : null,
     type: typeof member.interpretation === "string" ? "interpretation" : "source",
     source: typeof member.source === "string" ? member.source : "",
     interpretation: typeof member.interpretation === "string" ? member.interpretation : "",
@@ -2884,7 +2889,7 @@ export function alignmentMemberDraft(record = null) {
 
 export function alignmentDraft(record = null) {
   const alignment = record && typeof record === "object" ? record : {};
-  const members = Array.isArray(alignment.members) ? alignment.members.map((member) => alignmentMemberDraft(member)) : [alignmentMemberDraft(), alignmentMemberDraft()];
+  const members = Array.isArray(alignment.members) ? alignment.members.map((member, index) => alignmentMemberDraft(member, index)) : [alignmentMemberDraft(), alignmentMemberDraft()];
   return {
     original: record ? structuredClone(record) : null,
     id: typeof alignment.id === "string" ? alignment.id : "",
@@ -2945,11 +2950,44 @@ export function rebaseAlignmentDraft(draft, current) {
   draft.original = structuredClone(current);
   draft.recordedBy.original = structuredClone(current.recordedBy || { kind: "author" });
   const stored = Array.isArray(current.members) ? current.members : [];
+  const claimed = new Set();
+  const twins = new Map();
+  // A member rests on the stored member it was read from while that member is
+  // still the same place; otherwise on the first unclaimed member with the same
+  // identity. Each stored member is claimed once, and a member matches only by
+  // what it was read as, never by what the author has since typed.
   for (const member of draft.members) {
-    const twin = stored.find((item) => alignmentMemberDraft(item).type === member.type && (member.type === "interpretation" ? item.interpretation === member.interpretation : item.source === member.source && (item.passage || "") === member.passage));
-    if (twin) member.original = structuredClone(twin);
+    const identity = alignmentMemberIdentity(member.original);
+    if (identity && Number.isInteger(member.from) && member.from < stored.length && alignmentMemberIdentity(stored[member.from]) === identity) {
+      claimed.add(member.from);
+      twins.set(member, member.from);
+    }
+  }
+  for (const member of draft.members) {
+    if (twins.has(member)) continue;
+    const identity = alignmentMemberIdentity(member.original);
+    const index = identity ? stored.findIndex((item, at) => !claimed.has(at) && alignmentMemberIdentity(item) === identity) : -1;
+    if (index >= 0) {
+      claimed.add(index);
+      twins.set(member, index);
+    }
+  }
+  for (const member of draft.members) {
+    const index = twins.get(member);
+    if (index === undefined) member.from = null;
+    else {
+      member.original = structuredClone(stored[index]);
+      member.from = index;
+    }
   }
   return draft;
+}
+
+/** What place a stored member is: its version or interpretation, passage and locators. "" for a new member. */
+export function alignmentMemberIdentity(member) {
+  if (!member || typeof member !== "object" || (typeof member.source !== "string" && typeof member.interpretation !== "string")) return "";
+  const locators = (Array.isArray(member.locators) ? member.locators : []).map((locator) => [locator?.kind ?? "", locator?.value ?? "", locator?.to ?? ""]);
+  return JSON.stringify([typeof member.interpretation === "string" ? `i:${member.interpretation}` : `s:${member.source}`, member.passage ?? "", locators]);
 }
 
 /** A quick, advisory check; the server's validation stays authoritative. */
