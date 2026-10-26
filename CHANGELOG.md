@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-10-26
+
 - Defined the format for a private Knowledge Atlas of people, works, concepts, movements and events,
   with relationships that always name who asserts them, the source evidence and the uncertainty,
   and that never present a contested relationship as consensus. Research-note concept links now
