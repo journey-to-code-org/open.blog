@@ -5,6 +5,40 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-10-25
+
+- Feeds and portable copies of a part of a collaborative series now say which series it belongs
+  to, where it falls ("Part 2 in the series") and who wrote it, with a link to the series page: in
+  the full RSS and JSON Feed content, in portable HTML, Markdown and text, in exports and
+  syndicated copies, and in llms-full.txt. RSS items also name the series as a category in the
+  site's series taxonomy, and JSON Feed items carry an `_openblog.series` object. Drafts and
+  scheduled posts never count, no collaboration details appear, and every other post's feeds and
+  copies are unchanged.
+- A series that credits the site owner both as the site author and under their contributor entry
+  (for example on a shared reflection) now names them once in its list of contributors.
+- Portable Markdown now escapes `<` and `&` in titles, names and other facts, so a name such as
+  `Kim <https://kim.example>` or `AT&amp;T` stays literal text instead of failing the build.
+  Portable Markdown and text of a post with `<` or `&` in its title, credits or other facts change
+  once as a result, and so does its portable source revision: renew any portability
+  acknowledgements for such posts once in the Admin portable preview.
+- A series that holds a collaborative work (a published post credited to two or more authors, such
+  as a shared reflection) now says who wrote what. Its page lists the series' contributors, and
+  every part, ordinary posts included, shows "By ..." on the series page, inside the previous and
+  next links and in the list of all parts. Names come from each post's approved credits and are
+  plain text, drafts and scheduled posts never appear, and order and links are unchanged. Every
+  other series renders exactly as before.
+- A shared publication can now carry a series placement: the same `series` and `seriesOrder` an
+  ordinary post uses, so it joins the site's existing series, ordering and navigation. Any one-line
+  title works, the placement is part of what every author approves (changing it makes approvals
+  out of date), and records without one publish exactly as before. A series' contributors can be
+  derived from its posts' work credits.
+- The Shared reflections view has a Series panel. Every participant sees the reflection's series,
+  position and the reading order it would join; site owners and coordinators choose an existing
+  series or type a new title, set or clear the position, preview the order and save; site owners
+  can add a new series with its recurring premise. The list and order come from published posts
+  only, a change made against an older read is refused without losing what was typed, and the
+  combined preview now shows the series and position authors are approving.
+
 ## [0.25.0] - 2026-10-25
 
 - You can now archive passages and notes you want out of the way, without deleting them, and export

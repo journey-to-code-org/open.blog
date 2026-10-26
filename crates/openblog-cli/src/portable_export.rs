@@ -29,7 +29,7 @@ pub fn run(
         .iter()
         .find(|post| post.slug == slug)
         .ok_or_else(|| format!("published post `{slug}` was not found"))?;
-    let projection = PortableProjection::from_post(post, &site.config)?;
+    let projection = PortableProjection::for_site(&site, post)?;
     let markdown = projection.portable_markdown()?;
     let portable = projection.portable_html()?;
     if json {
@@ -128,7 +128,7 @@ pub fn build_diagnostics(site: &Site) -> Result<Vec<String>, String> {
 fn collect_diagnostics(site: &Site, optional: bool) -> Result<Vec<String>, String> {
     let mut warnings = Vec::new();
     for post in site.posts.iter().filter(|post| !post.draft) {
-        let portable = PortableProjection::from_post(post, &site.config)
+        let portable = PortableProjection::for_site(site, post)
             .and_then(|projection| projection.portable_html());
         let portable = match portable {
             Ok(portable) => portable,
@@ -331,6 +331,49 @@ mod tests {
         std::fs::remove_dir(directory.join("documents")).unwrap();
         std::fs::remove_file(directory.join("openblog.json")).unwrap();
         std::fs::remove_dir(directory).unwrap();
+    }
+
+    #[test]
+    fn an_export_of_a_collaborative_series_part_links_its_canonical_series() {
+        let directory = std::env::temp_dir().join(format!(
+            "openblog-export-series-{}",
+            crate::auth::random_token().unwrap()
+        ));
+        let posts = directory.join("content/posts");
+        std::fs::create_dir_all(&posts).unwrap();
+        std::fs::write(
+            directory.join("openblog.json"),
+            r#"{"url":"https://portable.example.org","author":{"name":"Site Owner"},
+              "contributors":{"ann":{"name":"Ann"},"bo":{"name":"Bo"}}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            posts.join("one.md"),
+            "---\ntitle: One\nslug: one\ndate: 2020-01-01\nseries: notes\nseriesOrder: 1\n---\nFirst.\n",
+        )
+        .unwrap();
+        std::fs::write(
+            posts.join("two.md"),
+            "---\ntitle: Two\nslug: two\ndate: 2020-02-01\nseries: notes\nseriesOrder: 2\n---\nSecond.\n",
+        )
+        .unwrap();
+        std::fs::write(
+            posts.join("two.credits.json"),
+            r#"{"version":1,"credits":[
+              {"contributor":"ann","roles":[{"vocabulary":"crossref","role":"author"}]},
+              {"contributor":"bo","roles":[{"vocabulary":"crossref","role":"author"}]}]}"#,
+        )
+        .unwrap();
+        for (slug, expected) in [
+            ("one", "## Series\n\nPart 1 in the series [Notes](https://portable.example.org/series/notes/). This part is by Site Owner. Series contributors: Site Owner, Ann, and Bo.\n"),
+            ("two", "## Series\n\nPart 2 in the series [Notes](https://portable.example.org/series/notes/). This part is by Ann and Bo. Series contributors: Site Owner, Ann, and Bo.\n"),
+        ] {
+            let destination = directory.join(format!("exports/{slug}.md"));
+            run(&directory, slug, Some(destination.to_str().unwrap()), true, false).unwrap();
+            let exported = std::fs::read_to_string(&destination).unwrap();
+            assert!(exported.contains(expected), "{exported}");
+        }
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

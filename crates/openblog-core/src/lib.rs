@@ -49,6 +49,7 @@ pub mod research_bundle;
 pub mod research_notes;
 pub mod research_search;
 pub mod search;
+pub mod shared_series;
 pub mod shared_source;
 pub mod slug;
 pub mod source_interchange;

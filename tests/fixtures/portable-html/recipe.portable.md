@@ -37,7 +37,7 @@ Keeps 3 days.
 - Cook: 10-15 min
 - Serves: 4
 - Makes: 2 bowls
-- Cuisine: Andalusian & <Italian\>
+- Cuisine: Andalusian \& \<Italian\>
 
 > **Portable fallback:** The question and answer are preserved; scoring, retry, and remembered attempts are unavailable. Review: Review the static question and answer; keep the canonical link when scoring or retries matter.
 
