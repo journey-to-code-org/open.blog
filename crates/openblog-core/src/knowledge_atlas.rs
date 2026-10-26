@@ -545,6 +545,33 @@ pub enum AtlasDiagnosticCode {
     DuplicateLink,
     AnchorMismatch,
     UndisclosedContradiction,
+    UnknownLink,
+}
+
+/// Which private file a diagnostic is about, so a message names the right
+/// one. The atlas and the claims file share one diagnostic type.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DiagnosticSubject {
+    #[default]
+    Atlas,
+    Claims,
+}
+
+impl DiagnosticSubject {
+    /// How the file is named at the start of a message about the whole file.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Atlas => "knowledge atlas",
+            Self::Claims => "claims file",
+        }
+    }
+
+    fn noun(self) -> &'static str {
+        match self {
+            Self::Atlas => "the atlas",
+            Self::Claims => "the claims file",
+        }
+    }
 }
 
 impl fmt::Display for AtlasDiagnosticCode {
@@ -563,7 +590,12 @@ impl fmt::Display for AtlasDiagnosticCode {
 #[serde(rename_all = "camelCase")]
 pub struct AtlasDiagnostic {
     pub code: AtlasDiagnosticCode,
-    /// `entries` or `relationships`.
+    /// The file the diagnostic is about. Not serialized: a caller already
+    /// knows which file it asked about.
+    #[serde(skip)]
+    pub subject: DiagnosticSubject,
+    /// `entries` or `relationships` in the atlas; `claims` or `links` in a
+    /// claims file.
     pub collection: Option<&'static str>,
     pub index: Option<usize>,
     pub id: Option<String>,
@@ -578,7 +610,7 @@ impl fmt::Display for AtlasDiagnostic {
             (Some(c), Some(i), Some(id)) => write!(formatter, "{c}[{i}] `{id}`")?,
             (Some(c), Some(i), None) => write!(formatter, "{c}[{i}]")?,
             (Some(c), None, Some(id)) => write!(formatter, "{c} `{id}`")?,
-            _ => formatter.write_str("knowledge atlas")?,
+            _ => formatter.write_str(self.subject.label())?,
         }
         if let Some(field) = &self.field {
             write!(formatter, " {field}")?;
@@ -593,6 +625,7 @@ pub(crate) fn atlas_diagnostic(
     message: impl Into<String>,
 ) -> AtlasDiagnostic {
     AtlasDiagnostic {
+        subject: Default::default(),
         code,
         collection: None,
         index: None,
@@ -611,6 +644,7 @@ pub(crate) fn item_diagnostic(
     message: impl Into<String>,
 ) -> AtlasDiagnostic {
     AtlasDiagnostic {
+        subject: Default::default(),
         code,
         collection: Some(collection),
         index: Some(index),
@@ -620,12 +654,18 @@ pub(crate) fn item_diagnostic(
     }
 }
 
-pub(crate) fn too_large() -> AtlasDiagnostic {
-    atlas_diagnostic(
-        AtlasDiagnosticCode::TooLarge,
-        None,
-        format!("the atlas is larger than {MAX_ATLAS_BYTES} bytes as read or as written"),
-    )
+pub(crate) fn too_large(subject: DiagnosticSubject, max_bytes: usize) -> AtlasDiagnostic {
+    AtlasDiagnostic {
+        subject,
+        ..atlas_diagnostic(
+            AtlasDiagnosticCode::TooLarge,
+            None,
+            format!(
+                "{} is larger than {max_bytes} bytes as read or as written",
+                subject.noun()
+            ),
+        )
+    }
 }
 
 /// Field-by-field reader state for one raw item, so each problem names its field.
@@ -646,6 +686,7 @@ impl Ctx<'_> {
     ) {
         self.failed = true;
         self.diagnostics.push(AtlasDiagnostic {
+            subject: Default::default(),
             code,
             collection: Some(self.collection),
             index: Some(self.index),
@@ -871,6 +912,7 @@ pub(crate) fn open<'a>(
 ) -> Option<(Ctx<'a>, Obj)> {
     let Value::Object(map) = raw else {
         diagnostics.push(AtlasDiagnostic {
+            subject: Default::default(),
             code: AtlasDiagnosticCode::InvalidField,
             collection: Some(collection),
             index: Some(index),
@@ -1494,7 +1536,7 @@ impl Atlas {
     /// as possible; nothing is partially accepted.
     pub fn parse(text: &str, links: Links<'_>) -> Result<Self, Vec<AtlasDiagnostic>> {
         if text.len() > MAX_ATLAS_BYTES {
-            return Err(vec![too_large()]);
+            return Err(vec![too_large(DiagnosticSubject::Atlas, MAX_ATLAS_BYTES)]);
         }
         let text = text.strip_prefix('\u{feff}').unwrap_or(text);
         match serde_json::from_str(text) {
@@ -1597,7 +1639,7 @@ impl Atlas {
             extra: root.into_iter().collect(),
         };
         if atlas.written_len() > MAX_ATLAS_BYTES {
-            return Err(vec![too_large()]);
+            return Err(vec![too_large(DiagnosticSubject::Atlas, MAX_ATLAS_BYTES)]);
         }
         Ok(atlas)
     }
@@ -2049,6 +2091,7 @@ fn shift_back(
 
 fn unknown_item(collection: &'static str, id: &str) -> AtlasDiagnostic {
     AtlasDiagnostic {
+        subject: Default::default(),
         code: AtlasDiagnosticCode::UnknownEntry,
         collection: Some(collection),
         index: None,

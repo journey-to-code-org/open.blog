@@ -16,8 +16,9 @@ use serde_json::{Map, Value};
 
 use crate::knowledge_atlas::{
     atlas_diagnostic, check_attribution, check_evidence, item_diagnostic, looks_like_atlas, open,
-    parse_attribution, parse_evidence, too_large, AtlasDiagnostic, AtlasDiagnosticCode as Code,
-    Attribution, Confidence, Evidence, Links, Visibility, MAX_SHORT_CHARS, MAX_UNCERTAINTY_CHARS,
+    parse_attribution, parse_evidence, AtlasDiagnostic, AtlasDiagnosticCode as Code, Attribution,
+    Confidence, DiagnosticSubject, Evidence, Links, Visibility, MAX_SHORT_CHARS,
+    MAX_UNCERTAINTY_CHARS,
 };
 use crate::research_notes::bidi_override;
 
@@ -510,15 +511,19 @@ impl ClaimSet {
         let text = text.strip_prefix('\u{feff}').unwrap_or(text);
         match serde_json::from_str(text) {
             Ok(value) => Self::from_value(value, links),
-            Err(error) => Err(vec![atlas_diagnostic(
+            Err(error) => Err(relabel(vec![atlas_diagnostic(
                 Code::InvalidJson,
                 None,
                 format!("invalid JSON: {error}"),
-            )]),
+            )])),
         }
     }
 
     fn from_value(value: Value, links: Links<'_>) -> Result<Self, Vec<AtlasDiagnostic>> {
+        Self::read_value(value, links).map_err(relabel)
+    }
+
+    fn read_value(value: Value, links: Links<'_>) -> Result<Self, Vec<AtlasDiagnostic>> {
         let fail = |code, field: &str, message: String| {
             Err(vec![atlas_diagnostic(code, Some(field), message)])
         };
@@ -653,14 +658,109 @@ impl ClaimSet {
         self.claims.iter().filter(move |c| c.post == post)
     }
 
-    /// Whether an approved link may reach a public projection: it and its
-    /// claim are both approved. Private rationale is a separate decision for
-    /// the projection and never follows from this.
+    /// Whether the publication projection may copy a link: it and its claim
+    /// are approved, it carries no private passage, and, for a `supports`
+    /// link, every contradicting link on the same claim is approved too, so
+    /// support never reaches readers while contradiction is withheld.
+    /// Approval on a link is consent only for itself: withdrawing approval
+    /// from a claim or a contradicting link is an ordinary edit that
+    /// withdraws what depends on it, and approving again restores it.
+    /// Private rationale is a separate decision for the projection and never
+    /// follows from this.
     pub fn is_projected(&self, link: &EvidenceLink) -> bool {
+        self.projectable(link)
+            && (link.relation != Relation::Supports || !self.withholds_contradiction(&link.claim))
+    }
+
+    /// The links the publication projection may copy, in file order, found in
+    /// one pass over the file.
+    pub fn projected_links(&self) -> Vec<&EvidenceLink> {
+        let withheld = self.withheld_claims();
+        let approved = self.approved_claims();
+        self.links
+            .iter()
+            .filter(|l| {
+                l.visibility == Visibility::Approved
+                    && l.evidence.passage.is_none()
+                    && approved.contains(l.claim.as_str())
+                    && (l.relation != Relation::Supports || !withheld.contains(l.claim.as_str()))
+            })
+            .collect()
+    }
+
+    fn projectable(&self, link: &EvidenceLink) -> bool {
         link.visibility == Visibility::Approved
+            && link.evidence.passage.is_none()
             && self
                 .claim(&link.claim)
                 .is_some_and(|c| c.visibility == Visibility::Approved)
+    }
+
+    fn withholds_contradiction(&self, claim: &str) -> bool {
+        self.links_of(claim)
+            .any(|l| l.relation == Relation::Contradicts && l.visibility != Visibility::Approved)
+    }
+
+    /// Claims with at least one contradicting link that is not approved,
+    /// found in one pass.
+    fn withheld_claims(&self) -> BTreeSet<&str> {
+        self.links
+            .iter()
+            .filter(|l| l.relation == Relation::Contradicts && l.visibility != Visibility::Approved)
+            .map(|l| l.claim.as_str())
+            .collect()
+    }
+
+    fn approved_claims(&self) -> BTreeSet<&str> {
+        self.claims
+            .iter()
+            .filter(|c| c.visibility == Visibility::Approved)
+            .map(|c| c.id.as_str())
+            .collect()
+    }
+
+    /// Non-blocking notices about a valid file: approved links the
+    /// projection leaves out because their claim is private
+    /// (`private-endpoint`), and approved support held back because a
+    /// contradicting link on the same claim is private
+    /// (`undisclosed-contradiction`). They never make the file invalid, so
+    /// withdrawing consent is never refused, and they repeat no authored text.
+    pub fn notices(&self) -> Vec<AtlasDiagnostic> {
+        let withheld = self.withheld_claims();
+        let approved = self.approved_claims();
+        let mut notices = Vec::new();
+        for (index, link) in self.links.iter().enumerate() {
+            if link.visibility != Visibility::Approved {
+                continue;
+            }
+            if !approved.contains(link.claim.as_str()) {
+                notices.push(item_diagnostic(
+                    Code::PrivateEndpoint,
+                    "links",
+                    index,
+                    &link.id,
+                    "claim",
+                    format!(
+                        "the claim `{}` is private, so this approved link stays out of public output until the claim is approved",
+                        link.claim
+                    ),
+                ));
+            } else if link.relation == Relation::Supports && withheld.contains(link.claim.as_str())
+            {
+                notices.push(item_diagnostic(
+                    Code::UndisclosedContradiction,
+                    "links",
+                    index,
+                    &link.id,
+                    "visibility",
+                    format!(
+                        "the claim `{}` has a contradicting link that is still private, so this support stays out of public output until that link is approved too",
+                        link.claim
+                    ),
+                ));
+            }
+        }
+        relabel(notices)
     }
 
     /// Sources and passages that claims depend on, so a removal elsewhere can
@@ -726,7 +826,7 @@ impl ClaimSet {
         if shadowed.is_empty() {
             Ok(reread)
         } else {
-            Err(shadowed)
+            Err(relabel(shadowed))
         }
     }
 
@@ -794,7 +894,7 @@ impl ClaimSet {
             })
             .collect();
         if !linked.is_empty() {
-            return Err(linked);
+            return Err(relabel(linked));
         }
         let mut candidate = self.clone();
         candidate.claims.remove(index);
@@ -803,9 +903,26 @@ impl ClaimSet {
     }
 }
 
+/// Name the claims file, not the atlas, in every message.
+fn relabel(mut diagnostics: Vec<AtlasDiagnostic>) -> Vec<AtlasDiagnostic> {
+    for diagnostic in &mut diagnostics {
+        diagnostic.subject = DiagnosticSubject::Claims;
+    }
+    diagnostics
+}
+
+fn too_large() -> AtlasDiagnostic {
+    crate::knowledge_atlas::too_large(DiagnosticSubject::Claims, MAX_CLAIMS_BYTES)
+}
+
 fn unknown(collection: &'static str, id: &str) -> AtlasDiagnostic {
     AtlasDiagnostic {
-        code: Code::UnknownClaim,
+        subject: DiagnosticSubject::Claims,
+        code: if collection == "links" {
+            Code::UnknownLink
+        } else {
+            Code::UnknownClaim
+        },
         collection: Some(collection),
         index: None,
         id: Some(id.into()),
@@ -839,7 +956,7 @@ fn check_set(
         .filter(|(collection, ..)| *collection == "claims")
         .map(|(_, _, id)| id.as_str())
         .collect();
-    let by_id: BTreeMap<&str, &Claim> = claims.iter().map(|(_, c)| (c.id.as_str(), c)).collect();
+    let parsed: BTreeSet<&str> = claims.iter().map(|(_, c)| c.id.as_str()).collect();
     for (index, claim) in claims {
         let report = |code, field: &str, message: String| {
             item_diagnostic(code, "claims", *index, &claim.id, field, message)
@@ -859,18 +976,17 @@ fn check_set(
         };
         check_attribution(&link.recorded_by, "recordedBy", links, &report, diagnostics);
         check_evidence(&link.evidence, "evidence", links, &report, diagnostics);
-        let Some(claim) = by_id.get(link.claim.as_str()) else {
+        if !parsed.contains(link.claim.as_str()) {
             // A claim that failed to read already has its own diagnostics.
-            if claim_ids.contains(link.claim.as_str()) {
-                continue;
+            if !claim_ids.contains(link.claim.as_str()) {
+                diagnostics.push(report(
+                    Code::UnknownClaim,
+                    "claim",
+                    format!("no claim has the id `{}`", link.claim),
+                ));
             }
-            diagnostics.push(report(
-                Code::UnknownClaim,
-                "claim",
-                format!("no claim has the id `{}`", link.claim),
-            ));
             continue;
-        };
+        }
         let locators = serde_json::to_string(&link.evidence.locators).unwrap_or_default();
         let key = format!(
             "{}\u{0}{}\u{0}{}\u{0}{locators}\u{0}{}",
@@ -886,14 +1002,11 @@ fn check_set(
                 "this claim already has a link with the same relation, source, locators and passage".into(),
             ));
         }
+        // Only rules about the link's own fields are validation. Whether an
+        // approved link is published depends on its claim and on the claim's
+        // contradicting links, which is a projection rule (`is_projected`) so
+        // that withdrawing consent elsewhere never makes this file invalid.
         if link.visibility == Visibility::Approved {
-            if claim.visibility != Visibility::Approved {
-                diagnostics.push(report(
-                    Code::PrivateEndpoint,
-                    "visibility",
-                    "an approved link needs its claim approved too; approval never exposes a private claim".into(),
-                ));
-            }
             if link.evidence.passage.is_some() {
                 diagnostics.push(report(
                     Code::PrivateReference,
@@ -908,27 +1021,6 @@ fn check_set(
                     "a suggested link must be reviewed by the author before it is approved".into(),
                 ));
             }
-        }
-    }
-    // Support may not be published while contradiction is withheld.
-    for (index, link) in links_in {
-        if link.relation != Relation::Supports || link.visibility != Visibility::Approved {
-            continue;
-        }
-        let withheld = links_in.iter().any(|(_, other)| {
-            other.claim == link.claim
-                && other.relation == Relation::Contradicts
-                && other.visibility != Visibility::Approved
-        });
-        if withheld {
-            diagnostics.push(item_diagnostic(
-                Code::UndisclosedContradiction,
-                "links",
-                *index,
-                &link.id,
-                "visibility",
-                "this claim has a contradicting link that is still private; approve it too, or withdraw this approval, so support is not published alone",
-            ));
         }
     }
 }
@@ -1108,8 +1200,32 @@ mod tests {
         assert_eq!(codes(parse(v)), [Code::DuplicateLink]);
     }
 
-    #[test]
-    fn support_cannot_be_published_while_contradiction_is_withheld() {
+    fn notice_codes(set: &ClaimSet) -> Vec<(Code, String)> {
+        set.notices()
+            .into_iter()
+            .map(|d| (d.code, d.id.unwrap_or_default()))
+            .collect()
+    }
+
+    fn projected_ids(set: &ClaimSet) -> Vec<&str> {
+        let ids: Vec<&str> = set
+            .projected_links()
+            .iter()
+            .map(|l| l.id.as_str())
+            .collect();
+        let one_by_one: Vec<&str> = set
+            .links
+            .iter()
+            .filter(|l| set.is_projected(l))
+            .map(|l| l.id.as_str())
+            .collect();
+        assert_eq!(ids, one_by_one, "both projection helpers agree");
+        ids
+    }
+
+    /// c1 approved with approved support l1 (no passage) and a private
+    /// contradicting link l2.
+    fn approved_support() -> Value {
         let mut v = sample();
         v["claims"][0]["visibility"] = json!("approved");
         v["links"][0]["visibility"] = json!("approved");
@@ -1117,19 +1233,90 @@ mod tests {
             .as_object_mut()
             .unwrap()
             .remove("passage");
-        assert_eq!(codes(parse(v.clone())), [Code::UndisclosedContradiction]);
+        v
+    }
+
+    #[test]
+    fn support_is_never_published_while_contradiction_is_withheld() {
+        // Valid, but held back from the projection and reported, not refused.
+        let set = parse(approved_support()).expect("a withheld contradiction is not an error");
+        assert!(projected_ids(&set).is_empty());
+        assert_eq!(
+            notice_codes(&set),
+            [(Code::UndisclosedContradiction, "l1".into())]
+        );
+        let mut v = approved_support();
         v["links"][1]["visibility"] = json!("approved");
-        let set = parse(v).unwrap();
-        assert!(set.is_projected(&set.links[0]) && set.is_projected(&set.links[1]));
-        assert!(!set.is_projected(&set.links[2]));
+        let set = parse(v.clone()).unwrap();
+        assert_eq!(projected_ids(&set), ["l1", "l2"]);
+        assert!(set.notices().is_empty());
+
+        // A new private contradicting link added after support was published
+        // is accepted, and withdraws the support from the projection at once.
+        v["links"].as_array_mut().unwrap().push(json!({"id": "l5", "claim": "c1",
+            "relation": "contradicts", "evidence": {"source": "republic-slings", "passage": "p-cave"}}));
+        let set = parse(v.clone()).expect("new private contradiction is accepted");
+        assert_eq!(projected_ids(&set), ["l2"]);
+        assert_eq!(
+            notice_codes(&set),
+            [(Code::UndisclosedContradiction, "l1".into())]
+        );
+        // The same through an edit, never refused.
+        let (library, notebook) = (library(), notebook());
+        let links = Links {
+            library: &library,
+            notebook: &notebook,
+        };
+        let mut set = parse(v).unwrap();
+        let mut withdrawn = set.link("l2").unwrap().clone();
+        withdrawn.visibility = Visibility::Private;
+        set.upsert_link(withdrawn, links)
+            .expect("withdrawing a contradicting link's approval is never refused");
+        assert!(projected_ids(&set).is_empty());
+    }
+
+    #[test]
+    fn withdrawing_consent_is_an_ordinary_edit_and_approval_again_restores() {
+        let (library, notebook) = (library(), notebook());
+        let links = Links {
+            library: &library,
+            notebook: &notebook,
+        };
+        let mut v = approved_support();
+        v["links"][1]["visibility"] = json!("approved");
+        let mut set = parse(v).unwrap();
+        assert_eq!(projected_ids(&set), ["l1", "l2"]);
+        let mut claim = set.claim("c1").unwrap().clone();
+        claim.visibility = Visibility::Private;
+        set.upsert_claim(claim.clone(), links)
+            .expect("withdrawing a claim's approval is never refused");
+        assert!(projected_ids(&set).is_empty());
+        assert_eq!(
+            notice_codes(&set),
+            [
+                (Code::PrivateEndpoint, "l1".into()),
+                (Code::PrivateEndpoint, "l2".into())
+            ]
+        );
+        // A hand edit that does the same still reads.
+        assert!(ClaimSet::parse(&set.to_json(), links).is_ok());
+        claim.visibility = Visibility::Approved;
+        set.upsert_claim(claim, links).unwrap();
+        assert_eq!(projected_ids(&set), ["l1", "l2"]);
     }
 
     #[test]
     fn claims_and_links_are_private_until_approved_and_approval_never_exposes_more() {
         let set = parse(sample()).unwrap();
         assert!(set.links.iter().all(|l| !set.is_projected(l)));
+        assert!(set.notices().is_empty());
         let v = with(sample(), "links", 1, "visibility", json!("approved"));
-        assert_eq!(codes(parse(v)), [Code::PrivateEndpoint]);
+        let set = parse(v).expect("an approved link on a private claim is valid");
+        assert!(projected_ids(&set).is_empty());
+        assert_eq!(notice_codes(&set), [(Code::PrivateEndpoint, "l2".into())]);
+        let notice = set.notices()[0].to_string();
+        assert!(notice.starts_with("links[1] `l2` claim:"), "{notice}");
+        assert!(!notice.contains("allegory"), "{notice}");
         let mut v = sample();
         v["claims"][0]["visibility"] = json!("approved");
         v["links"][0]["visibility"] = json!("approved");
@@ -1275,7 +1462,14 @@ mod tests {
         bad.claim = "gone".into();
         assert!(set.upsert_link(bad, links).is_err());
         assert!(set.remove_claim("c1", links).is_err());
-        assert!(set.remove_claim("nope", links).is_err());
+        let missing = set.remove_claim("nope", links).unwrap_err();
+        assert_eq!(missing[0].code, Code::UnknownClaim);
+        let missing = set.remove_link("nope", links).unwrap_err();
+        assert_eq!(missing[0].code, Code::UnknownLink);
+        assert_eq!(
+            missing[0].to_string(),
+            "links `nope`: nothing in links has the id `nope` (unknown-link)"
+        );
         let mut shadow = set.claims[1].clone();
         shadow.extra.insert("statement".into(), json!("x"));
         assert_eq!(
@@ -1320,14 +1514,50 @@ mod tests {
             "{{\"version\":1,\"pad\":\"{}\"}}",
             "x".repeat(MAX_CLAIMS_BYTES)
         );
+        let error = &ClaimSet::parse(&big, links).unwrap_err()[0];
+        assert_eq!(error.code, Code::TooLarge);
         assert_eq!(
-            ClaimSet::parse(&big, links).unwrap_err()[0].code,
-            Code::TooLarge
+            error.to_string(),
+            format!("claims file: the claims file is larger than {MAX_CLAIMS_BYTES} bytes as read or as written (too-large)")
         );
-        assert_eq!(
-            ClaimSet::parse("{", links).unwrap_err()[0].code,
-            Code::InvalidJson
-        );
+        let error = &ClaimSet::parse("{", links).unwrap_err()[0];
+        assert_eq!(error.code, Code::InvalidJson);
+        assert!(error.to_string().starts_with("claims file: "), "{error}");
+        assert!(!error.to_string().contains("atlas"), "{error}");
+    }
+
+    #[test]
+    fn many_links_validate_in_one_pass() {
+        // Thousands of approved supports on claims that each also have a
+        // private contradiction: no step may compare every link with every
+        // other one (this took seconds per save when it did).
+        let claims: Vec<Value> = (0..700)
+            .map(|i| json!({"id": format!("c{i}"), "post": "p", "statement": "S", "visibility": "approved"}))
+            .collect();
+        let mut links = Vec::new();
+        for i in 0..700 {
+            for (n, (relation, visibility)) in [
+                ("supports", "approved"),
+                ("contradicts", "private"),
+                ("contextualizes", "approved"),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                for page in 0..3 {
+                    links.push(
+                        json!({"id": format!("l{i}-{n}-{page}"), "claim": format!("c{i}"),
+                        "relation": relation, "visibility": visibility,
+                        "evidence": {"source": "republic-slings",
+                            "locators": [{"kind": "page", "value": format!("{page}")}]}}),
+                    );
+                }
+            }
+        }
+        let set = parse(json!({"version": 1, "claims": claims, "links": links})).unwrap();
+        assert_eq!(set.links.len(), 6_300);
+        assert_eq!(set.notices().len(), 2_100);
+        assert_eq!(set.projected_links().len(), 2_100);
     }
 
     #[test]

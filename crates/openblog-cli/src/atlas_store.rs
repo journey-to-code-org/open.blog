@@ -270,6 +270,7 @@ fn diagnostic(
     message: String,
 ) -> AtlasDiagnostic {
     AtlasDiagnostic {
+        subject: Default::default(),
         code,
         collection: Some(collection),
         index: None,
@@ -429,6 +430,7 @@ fn read(root: &Path, library: SourceLibrary, notebook: Notebook) -> Result<Snaps
     let revision = source_store::revision(&bytes);
     let text = String::from_utf8(bytes).map_err(|_| {
         StoreError::Invalid(vec![AtlasDiagnostic {
+            subject: Default::default(),
             code: AtlasDiagnosticCode::InvalidJson,
             collection: None,
             index: None,
@@ -456,6 +458,7 @@ fn read(root: &Path, library: SourceLibrary, notebook: Notebook) -> Result<Snaps
 
 fn too_large() -> AtlasDiagnostic {
     AtlasDiagnostic {
+        subject: Default::default(),
         code: AtlasDiagnosticCode::TooLarge,
         collection: None,
         index: None,
