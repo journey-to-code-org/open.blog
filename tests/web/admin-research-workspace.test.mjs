@@ -224,11 +224,13 @@ class ApiError extends Error {
 
 function fakeApi(handlers = {}) {
   const calls = [];
+  // The session the server confirms before a kept panel returns: the writer's, unless a test says otherwise.
+  const routes = { "GET session": () => ({ csrf: "same", user: "writer" }), ...handlers };
   return {
     calls,
     async call(method, path, options = {}) {
       if (method !== "GET") calls.push({ method, path, body: structuredClone(options.json) });
-      const handler = handlers[`${method} ${path}`];
+      const handler = routes[`${method} ${path}`];
       if (!handler) throw new ApiError(`unexpected ${method} ${path}`, 500, null);
       return handler(options.json);
     },
@@ -240,6 +242,7 @@ function mountApp(api, preset = "advanced") {
   const root = new DomNode("ob-admin", globalThis.document);
   globalThis.document.body.append(root);
   app.api = api;
+  app.user = "writer";
   app.meta = { siteTitle: "Blog" };
   app.preferences = normalizeAdminPreferences({ preset });
   app.replaceChildren = (...nodes) => root.replaceChildren(...nodes);
@@ -777,6 +780,48 @@ test("another user signing in after an ended session never sees the kept panels"
   app.showLogin();
   assert.equal(app.kept.size, 0);
   assert.equal(root.querySelector("[data-login-kept]"), null);
+}));
+
+test("while signed out a hash change routes nothing and restores no kept panel", withDom(async (dom) => {
+  const api = fakeApi({ "GET sources": () => LIBRARY() });
+  const { app, root } = mountApp(api, "guided");
+  const editor = fakeEditor("Private title");
+  openFakeEditor(app, "#/edit/posts%2Fa.md", editor);
+  app.dirty = true;
+  await go(app, "#/research/sources");
+  app.showSessionEnded();
+  assert.equal(app.signedOut, true);
+  let routed = 0;
+  app.showResearchPanel = async () => { routed += 1; };
+  await go(app, "#/edit/posts%2Fa.md");
+  await go(app, "#/research/notebook");
+  assert.equal(routed, 0, "no view opens");
+  assert.equal(app.editor, null, "the kept draft stays kept");
+  assert.equal(globalThis.location.hash, "#/research/sources", "the address returns to where the panels were left");
+  assert.doesNotMatch(root.textContent, /Private title/);
+  assert.ok(root.querySelector("#oba-user"), "the sign-in form stays");
+  assert.deepEqual(dom.questions, []);
+}));
+
+test("a kept panel is refused when the server's session belongs to someone else", withDom(async () => {
+  let sessionUser = "writer";
+  const api = fakeApi({ "GET sources": () => LIBRARY(), "GET session": () => ({ csrf: "other", user: sessionUser }) });
+  const { app, root } = mountApp(api, "guided");
+  const editor = fakeEditor("Private title");
+  openFakeEditor(app, "#/edit/posts%2Fa.md", editor);
+  app.dirty = true;
+  await go(app, "#/research/sources");
+  assert.deepEqual([...app.kept.keys()], ["draft"]);
+  assert.equal(app.keptOwner, "writer");
+  // Another tab signed out and signed in as someone else on the same cookie.
+  sessionUser = "editor";
+  await go(app, "#/edit/posts%2Fa.md");
+  assert.equal(app.kept.size, 0, "the kept panels are discarded, never handed on");
+  assert.ok(editor.log.includes("dispose"));
+  assert.ok(!editor.log.includes("resume"));
+  assert.doesNotMatch(root.textContent, /Private title/);
+  assert.match(root.textContent, /Another account signed in on this browser/);
+  assert.equal(app.signedOut, true);
 }));
 
 test("a route change moves focus to the new page's heading unless the view placed it", withDom(async (dom) => {

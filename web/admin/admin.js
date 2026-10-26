@@ -7763,8 +7763,11 @@ export class ObAdmin extends AdminElement {
   viewDirty = null;
   // Whether the open view's own save is in flight, for views that save outside the editor.
   viewBusy = null;
-  // The user whose session kept the workspace's panels when it ended, so only they get them back.
+  // The user whose session kept the workspace's panels, so only they ever get them back.
   keptOwner = "";
+  // Set while the sign-in form is showing, from the moment a session ends or the writer signs out
+  // until the next sign-in succeeds. Nothing is routed and no kept panel is shown meanwhile.
+  signedOut = false;
   // Research workspace panels kept with unsaved changes while another panel is open, by key.
   kept = new Map();
   // The document the research workspace returns to: { hash, kind, title }.
@@ -8010,6 +8013,7 @@ export class ObAdmin extends AdminElement {
 
   /** Keep the open workspace panel, unsaved changes and all, while another panel opens. */
   keepCurrentView(key) {
+    if (!this.kept.size) this.keptOwner = this.user;
     const editor = key === "draft" ? this.editor : null;
     if (editor) {
       if (this.workspaceDraft) this.workspaceDraft.title = editor.currentTitle();
@@ -8038,8 +8042,30 @@ export class ObAdmin extends AdminElement {
     this.kept.delete(key);
   }
 
-  /** Put a kept panel back exactly as it was left; its pending work applies to it again. */
-  restoreKept(key, requestedHash) {
+  /**
+   * Put a kept panel back exactly as it was left; its pending work applies to it again. Kept
+   * panels live only in this page's memory, so the server first confirms that the session is
+   * still the one that kept them: another tab can sign out and sign in as someone else on the
+   * same cookie, and that user never sees them.
+   */
+  async restoreKept(key, requestedHash) {
+    let session;
+    try {
+      session = await this.api.call("GET", "session");
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) this.showSessionEnded();
+      else this.showFatal(err);
+      return;
+    }
+    // The page moved on, or signed out, while the session was checked.
+    if (this.signedOut || !this.kept.has(key)) return;
+    if (!session?.user || session.user !== this.user || session.user !== this.keptOwner) {
+      this.forgetWorkspace();
+      this.user = "";
+      this.api.csrf = "";
+      this.showLogin("Another account signed in on this browser. Sign in again to continue.");
+      return;
+    }
     const record = this.kept.get(key);
     this.kept.delete(key);
     this.editor?.dispose();
@@ -8111,6 +8137,7 @@ export class ObAdmin extends AdminElement {
   showLogin(message = "", { keepWorkspace = false } = {}) {
     // Signing out forgets every kept panel; an ended session keeps them for the same user only.
     if (!keepWorkspace) this.forgetWorkspace();
+    this.signedOut = true;
     const keptNote = this.kept.size
       ? h("p", { class: "oba-small", "data-login-kept": "true" }, "Your unsaved changes are kept on this page. Sign in again as the same user to return to them; signing in as anyone else discards them.")
       : null;
@@ -8132,7 +8159,7 @@ export class ObAdmin extends AdminElement {
             this.user = res.user;
             // Kept panels belong to the user whose session ended; nobody else ever sees them.
             if (this.keptOwner !== res.user) this.forgetWorkspace();
-            this.keptOwner = "";
+            this.signedOut = false;
             pass.value = "";
             await this.enter();
           } catch (err) {
@@ -8631,6 +8658,13 @@ export class ObAdmin extends AdminElement {
   }
 
   async onHash() {
+    if (this.signedOut) {
+      // Signed out: no view opens and no kept panel comes back. With kept panels the address
+      // goes back to where they were left, which the next sign-in reopens.
+      this.skipRoute = false;
+      if (this.kept.size && this.currentHash && location.hash !== this.currentHash) history.replaceState(null, "", this.currentHash);
+      return;
+    }
     if (this.skipRoute) {
       this.skipRoute = false;
       this.currentHash = location.hash;
@@ -8670,7 +8704,7 @@ export class ObAdmin extends AdminElement {
     if (plan.keep) this.keepCurrentView(plan.keep);
     this.dirty = false;
     if (plan.restore) {
-      this.restoreKept(plan.restore, nextHash);
+      await this.restoreKept(plan.restore, nextHash);
       return;
     }
     const { head, tail, params } = parseAdminHash(nextHash);

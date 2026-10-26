@@ -52,6 +52,10 @@ test.beforeAll(async () => {
   execFileSync(binary, ["user", "add", "writer", "--root", root], {
     env: { ...process.env, OPENBLOG_PASSWORD: password }, stdio: "pipe",
   });
+  // A second account, for kept panels that must never reach anyone but the writer.
+  execFileSync(binary, ["user", "add", "editor", "--root", root], {
+    env: { ...process.env, OPENBLOG_PASSWORD: password }, stdio: "pipe",
+  });
   const listener = createServer();
   listener.listen(0, "127.0.0.1");
   await once(listener, "listening");
@@ -294,6 +298,84 @@ test("an expired session keeps unsaved panels for the same user's next sign-in",
   await expect(page.getByRole("status").filter({ hasText: "Kept through sign-in saved." })).toBeVisible();
   expect(storedLibrary()).toContain("kept-through-sign-in");
   expect(dialogs).toEqual([]);
+});
+
+/** Start a source in Sources and leave it unsaved by opening the notebook. */
+async function keepUnsavedSource(page, label) {
+  await openAdmin(page, "#/research/sources");
+  await page.getByRole("button", { name: "New source" }).click();
+  await page.getByLabel("ID", { exact: true }).fill("kept-private-source");
+  await page.getByLabel("Title", { exact: true }).fill(label);
+  await panelLink(page, "Notebook").click();
+  await expect(pageHeading(page)).toHaveText("Research notebook");
+  await expect(workspaceNav(page).locator('[data-research-panel="sources"] .oba-research-kept')).toHaveText("Unsaved changes kept");
+}
+
+async function signIn(page, username) {
+  await page.getByLabel("Username", { exact: true }).fill(username);
+  await page.getByLabel("Password", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page.locator('[data-action="logout"]')).toBeVisible();
+}
+
+test("while signed out, a new address or Back shows the sign-in form and never a kept panel", async ({ page }) => {
+  await keepUnsavedSource(page, "Private while signed out");
+  await page.context().clearCookies();
+  await panelLink(page, "Sources").click();
+  await expect(page.getByLabel("Username", { exact: true })).toBeVisible();
+
+  // The kept panel's address and Back both stay on the sign-in form.
+  await page.evaluate(() => { location.hash = "#/research/sources"; });
+  await page.evaluate(() => { location.hash = "#/research/notebook"; });
+  await page.goBack();
+  await page.evaluate(() => { location.hash = "#/posts"; });
+  await expect(page.getByLabel("Username", { exact: true })).toBeVisible();
+  await expect(page.locator('[data-action="logout"]')).toHaveCount(0);
+  await expect(page.locator("body")).not.toContainText("Private while signed out");
+  await expect(page.getByLabel("Title", { exact: true })).toHaveCount(0);
+
+  // The same writer still gets the kept panel back after signing in.
+  await signIn(page, "writer");
+  await panelLink(page, "Sources").click();
+  await expect(page.getByLabel("Title", { exact: true })).toHaveValue("Private while signed out");
+  expect(dialogs).toEqual([]);
+});
+
+test("another account signed in from a second tab never sees the writer's kept panel", async ({ page, context }) => {
+  // The writer's session ends in this tab while another account signs in from a second tab on
+  // the same cookie: changing this tab's address shows only the sign-in form.
+  await keepUnsavedSource(page, "Writer only, ended session");
+  await context.clearCookies();
+  await panelLink(page, "Sources").click();
+  await expect(page.getByLabel("Username", { exact: true })).toBeVisible();
+  const second = await context.newPage();
+  await second.goto(`${origin}/admin/#/overview`);
+  await signIn(second, "editor");
+  await page.evaluate(() => { location.hash = "#/research/notebook"; });
+  await page.evaluate(() => { location.hash = "#/research/sources"; });
+  await expect(page.getByLabel("Username", { exact: true })).toBeVisible();
+  await expect(page.locator("body")).not.toContainText("Writer only, ended session");
+  await second.close();
+});
+
+test("a kept panel is refused when another account replaced the session from a second tab", async ({ page, context }) => {
+  // This tab still believes the writer is signed in; the second tab signs out and signs in as
+  // another account. Reopening the kept panel checks the session first and shows nothing kept.
+  await keepUnsavedSource(page, "Writer only, live session");
+  const second = await context.newPage();
+  await second.goto(`${origin}/admin/#/overview`);
+  await second.locator('[data-action="logout"]').click();
+  await signIn(second, "editor");
+  await second.close();
+  await panelLink(page, "Sources").click();
+  await expect(page.getByLabel("Username", { exact: true })).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText("Another account signed in on this browser");
+  await expect(page.locator("body")).not.toContainText("Writer only, live session");
+  await expect(page.locator("[data-login-kept]")).toHaveCount(0);
+  // Signing back in as the writer finds nothing kept: the panels were discarded, never handed on.
+  await signIn(page, "writer");
+  await expect(page.locator("body")).not.toContainText("Writer only, live session");
+  await expect(workspaceNav(page).locator(".oba-research-kept")).toHaveCount(0);
 });
 
 test("a draft keeps its unsaved title and text while research is open, and asks before it is lost", async ({ page }) => {

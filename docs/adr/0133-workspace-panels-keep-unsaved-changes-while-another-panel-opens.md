@@ -54,7 +54,11 @@ that outlives the session and is shared by whoever uses the browser.
   sign-in form) keeps them, together with the open panel when it has unsaved changes, for the
   user who was signed in: signing in again as that user in the same tab returns to them, and a
   sign-in as anyone else discards them first, so another user never sees them. The sign-in form
-  says that unsaved changes are kept without naming them.
+  says that unsaved changes are kept without naming them. While the sign-in form shows, the
+  router opens nothing: a new address or Back only puts the address back where the kept panels
+  were left. And because the session cookie is shared by every tab, a kept panel returns only
+  after the server confirms that the current session is still the user who kept it; when another
+  tab has signed in as someone else, every kept panel is discarded and the sign-in form shows.
 - **The rules are one pure function.** `planWorkspaceNavigation` decides what a move keeps,
   restores, discards and asks about from the two addresses, whether the open view is unsaved or
   saving, and the kept panels; the router only carries the plan out, so the rules are tested
