@@ -1897,6 +1897,96 @@ mod tests {
     }
 
     #[test]
+    fn a_part_of_a_collaborative_series_links_its_series_in_every_payload() {
+        use openblog_core::contributor::Contributor;
+        use openblog_core::{LoadOptions, Site, SourceFile, Sources};
+
+        let mut config = SiteConfig::from_json(
+            r#"{"title":"T","url":"https://blog.example.org","postPath":"/{slug}/","author":{"name":"Site Owner"}}"#,
+        )
+        .unwrap();
+        for (id, name) in [("ann", "Ann"), ("bo", "Bo")] {
+            config.contributors.insert(
+                id.into(),
+                Contributor {
+                    name: name.into(),
+                    ..Contributor::default()
+                },
+            );
+        }
+        let file = |path: &str, contents: &str| SourceFile {
+            path: path.into(),
+            contents: contents.into(),
+        };
+        let source = "---
+title: Two
+date: 2026-02-01
+series: letters
+---
+Body of two.
+";
+        let loaded = Site::load(
+            config.clone(),
+            Sources {
+                posts: vec![
+                    file(
+                        "posts/one.md",
+                        "---
+title: One
+date: 2026-01-01
+series: letters
+---
+Body of one.
+",
+                    ),
+                    file("posts/two.md", source),
+                ],
+                credits: vec![file(
+                    "posts/two.credits.json",
+                    r#"{"version":1,"credits":[{"contributor":"ann","roles":[{"vocabulary":"crossref","role":"author"}]},{"contributor":"bo","roles":[{"vocabulary":"crossref","role":"author"}]}]}"#,
+                )],
+                series: vec![file(
+                    "series/letters.md",
+                    "---
+name: Letters
+---
+A recurring premise.
+",
+                )],
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .unwrap();
+        let part = loaded.posts.iter().find(|post| post.slug == "two").unwrap();
+        let context = loaded.series_context(part);
+        assert!(context.is_some());
+        let post = syndication_post(part, source, &config, context).unwrap();
+        let series_url = "https://blog.example.org/series/letters/";
+        assert!(
+            post.markdown.contains(&format!(
+                "## Series
+
+Part 2 in the series [Letters]({series_url}). This part is by Ann and Bo. Series contributors: Site Owner, Ann, and Bo."
+            )),
+            "{}",
+            post.markdown
+        );
+        assert!(
+            post.html.contains(&format!(
+                "<p class=\"ob-series-context\">Part 2 in the series <a href=\"{series_url}\">Letters</a>. This part is by Ann and Bo."
+            )),
+            "{}",
+            post.html
+        );
+        // The copy with its series is a different revision from one without, so a syndicated
+        // part is updated when its context first appears.
+        let plain = syndication_post(part, source, &config, None).unwrap();
+        assert!(!plain.markdown.contains(series_url) && !plain.html.contains(series_url));
+        assert_ne!(post.revision, plain.revision);
+    }
+
+    #[test]
     fn universal_publishing_example_uses_exact_portable_artifacts_for_every_destination() {
         use openblog_core::{LoadOptions, Site, SourceFile, Sources};
 
