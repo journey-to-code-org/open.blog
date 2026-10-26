@@ -3,8 +3,10 @@
 -- site that does not opt in never needs it.
 --
 -- Additive only: it creates the feedback table, its moderation audit table,
--- their indexes and two moderation functions (ADRs 0083 and 0105), and adds
--- the moderation inbox's columns to those two tables of its own. It does not
+-- their indexes, two moderation functions (ADRs 0083 and 0105) and the
+-- deletion function engagement protection uses (ADR 0131), and adds the
+-- moderation inbox's and protection's columns to those two tables of its
+-- own. It does not
 -- rename, drop or rewrite any existing table, column, function or row, so
 -- comments and analytics keep working exactly as before. Running it twice
 -- changes nothing; running it again after an upgrade adds only what is new.
@@ -225,5 +227,94 @@ $$;
 
 revoke all on function public.openblog_moderate_feedback_item(text, uuid, integer, text, text, text, text, text, text, timestamptz, text, jsonb) from public, anon, authenticated;
 grant execute on function public.openblog_moderate_feedback_item(text, uuid, integer, text, text, text, text, text, text, timestamptz, text, jsonb) to service_role;
+
+-- Engagement protection (ADRs 0130 and 0131), used only once protection.sql
+-- has run and OPENBLOG_PROTECTION_ENABLED is set. Each column is new and
+-- nullable, so every row already stored reads as before: no receipt, never
+-- purged.
+--
+-- The SHA-256 digest of the reader's private receipt, a random secret the
+-- function returns to the reader once and never stores. Holding the
+-- receipt is the only way to answer a clarification request, see the
+-- note's state or withdraw and delete it; nothing identifies the reader.
+alter table public.openblog_feedback
+  add column if not exists receipt_hash text check (receipt_hash ~ '^[0-9a-f]{64}$');
+create unique index if not exists openblog_feedback_receipt
+  on public.openblog_feedback (site_id, receipt_hash) where receipt_hash is not null;
+-- When retention or a deletion request purged the note's text, details and
+-- reader name. The row stays, so its state and audit trail stay
+-- explainable; the text is overwritten with a placeholder never shown.
+alter table public.openblog_feedback
+  add column if not exists purged_at timestamptz;
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'openblog_feedback_purged_never_public') then
+    alter table public.openblog_feedback
+      add constraint openblog_feedback_purged_never_public check (purged_at is null or status <> 'approved');
+  end if;
+end $$;
+
+-- A deletion request or a retention purge, in one statement, only while the
+-- note is at the version both Admin (or the reader's receipt) and the
+-- function saw and not yet purged. With p_withdraw (the reader's own
+-- request, ADR 0130) a pending, waiting or approved note is withdrawn
+-- first, so it is never public again; without it only a rejected, removed
+-- or withdrawn note is purged. The text, details and reader name are
+-- deleted, and each step is recorded without them. It returns the row, or
+-- nothing.
+create or replace function public.openblog_erase_feedback(
+  p_site_id text,
+  p_id uuid,
+  p_expected_version integer,
+  p_withdraw boolean,
+  p_actor text,
+  p_actor_role text,
+  p_at timestamptz
+)
+returns setof public.openblog_feedback
+language sql
+set search_path = public
+as $$
+  with before as (
+    select id, status, version from public.openblog_feedback
+     where id = p_id
+       and site_id = p_site_id
+       and version = p_expected_version
+       and purged_at is null
+       and ((p_withdraw and status in ('pending', 'clarification', 'approved'))
+         or (not p_withdraw and status in ('rejected', 'removed', 'withdrawn')))
+     for update
+  ), changed as (
+    update public.openblog_feedback f
+       set status = case when p_withdraw then 'withdrawn' else f.status end,
+           moderated_at = case when p_withdraw then p_at else f.moderated_at end,
+           moderation_reason = case when p_withdraw then null else f.moderation_reason end,
+           approved_revision = case when p_withdraw then null else f.approved_revision end,
+           body = '-',
+           details = '{}'::jsonb,
+           reader_name = null,
+           publish_name = false,
+           purged_at = p_at,
+           version = f.version + case when p_withdraw then 2 else 1 end
+      from before
+     where f.id = before.id
+    returning f.*
+  ), withdrawn as (
+    insert into public.openblog_feedback_events
+      (site_id, feedback_id, action, from_status, to_status, reason, actor, at, version, kind, item_revision, actor_role)
+    select c.site_id, c.id, 'withdraw', b.status, 'withdrawn', null, p_actor, p_at, b.version + 1, c.kind, c.item_revision, p_actor_role
+      from changed c join before b on b.id = c.id
+     where p_withdraw
+  ), purged as (
+    insert into public.openblog_feedback_events
+      (site_id, feedback_id, action, from_status, to_status, reason, actor, at, version, kind, item_revision, actor_role)
+    select c.site_id, c.id, 'purge-content', c.status, c.status, null, p_actor, p_at, c.version, c.kind, c.item_revision, p_actor_role
+      from changed c
+  )
+  select * from changed;
+$$;
+
+revoke all on function public.openblog_erase_feedback(text, uuid, integer, boolean, text, text, timestamptz) from public, anon, authenticated;
+grant execute on function public.openblog_erase_feedback(text, uuid, integer, boolean, text, text, timestamptz) to service_role;
 
 commit;

@@ -159,3 +159,91 @@ export function legacySupports(kind, action) {
   return ["question", "source-suggestion", "correction-suggestion", "alternative-interpretation"].includes(kind)
     && ["approve", "reject", "remove"].includes(action);
 }
+
+// ---- Engagement protection (ADRs 0130 and 0131)
+
+/** The grounds a reader may give for an abuse report: the reasons a moderator may uphold one for. */
+export const REPORT_GROUNDS = UPHOLD;
+
+/** Whether a kind's submitters get a private receipt: the reader kinds that may be asked to clarify. */
+export function issuesReceipts(kind) {
+  return Object.hasOwn(KIND_RULES, kind) && KIND_RULES[kind].clarification;
+}
+
+const ROW_TIME = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d{1,6}))?(Z|[+-]\d\d:\d\d)$/;
+/** A stored time as a UTC key to the microsecond that sorts as text, or null. */
+export function timeKey(value) {
+  const match = ROW_TIME.exec(String(value || ""));
+  if (!match) return null;
+  const date = new Date(`${match[1]}${match[3]}`);
+  if (Number.isNaN(date.getTime())) return null;
+  return `${date.toISOString().slice(0, 19)}.${(match[2] || "").padEnd(6, "0")}Z`;
+}
+
+/**
+ * The step one retention run owes an item, or null (ADR 0103): `item` is `{kind, state, since,
+ * retained}`, `cutoffs` the run's `{pendingUntil, clarificationUntil, closedUntil, comments}`. An
+ * item is due when its state began at or before its step's time. Comments are covered only when
+ * the site set retention itself; an approved item is kept while it can be published.
+ */
+export function retentionStep(item, cutoffs) {
+  const kind = Object.hasOwn(KIND_RULES, item?.kind) ? item.kind : null;
+  if (!kind || !MODERATION_STATES.includes(item.state)) return null;
+  if (kind === "comment" && cutoffs?.comments !== true) return null;
+  const since = timeKey(item.since);
+  const due = (until) => since !== null && timeKey(until) !== null && since <= timeKey(until);
+  const retained = item.retained !== false;
+  if (item.state === "pending") return due(cutoffs.pendingUntil) ? "expire" : null;
+  if (item.state === "clarification") return due(cutoffs.clarificationUntil) ? "expire" : null;
+  if (item.state === "withdrawn") return retained ? "purge-content" : null;
+  if (item.state === "approved" && KIND_RULES[kind].publishable) return null;
+  return retained && due(cutoffs.closedUntil) ? "purge-content" : null;
+}
+
+/**
+ * A deletion request (ADR 0130), as `ModerationPolicy::erase` decides it: the submitter, by their
+ * receipt, for any of their items (one still open or approved is withdrawn first); the site
+ * Admin only for an item already closed or an upheld report. `item` is `{kind, state, version,
+ * retained}`. On success it says whether a withdrawal comes first, the state afterwards and the
+ * version afterwards.
+ */
+export function planErasure(item, role, expectedVersion) {
+  const kind = Object.hasOwn(KIND_RULES, item?.kind) ? item.kind : null;
+  if (!kind || !MODERATION_STATES.includes(item.state)) return refuse("notAllowed");
+  const permitted = role === "submitter" ? issuesReceipts(kind) : role === "site-admin";
+  if (!permitted) return refuse("denied");
+  if (expectedVersion !== item.version) return refuse("stale");
+  if (item.retained === false) return refuse("contentPurged");
+  let withdraw = false;
+  if (role === "submitter") {
+    withdraw = ["pending", "clarification", "approved"].includes(item.state);
+  } else if (!["rejected", "removed", "withdrawn"].includes(item.state) && !(item.state === "approved" && !KIND_RULES[kind].publishable)) {
+    return refuse("notAllowed");
+  }
+  return { ok: true, withdraw, to: withdraw ? "withdrawn" : item.state, version: item.version + (withdraw ? 2 : 1) };
+}
+
+/**
+ * Upholding an abuse report (ADR 0103), in the policy's order, with the item the report names as
+ * the hosted function read it: `report` is `{kind, state, version, parent, retained}`, `target`
+ * `{id, state, version}` or null. The upholding needs the grant to remove the target; while the
+ * target is approved the same decision removes it with `upheld-report`, otherwise only the report
+ * changes.
+ */
+export function planUphold(report, target, request) {
+  const role = request?.role;
+  if (!(role === "site-admin" || role === "coordinator")) return refuse("denied");
+  if (report?.kind !== "abuse-report" || !MODERATION_STATES.includes(report.state)) return refuse("notAllowed");
+  if (request.expectedVersion !== report.version) return refuse("stale");
+  if (report.state !== "pending") return refuse("notAllowed");
+  const reason = request.reason === undefined || request.reason === null || request.reason === "" ? null : request.reason;
+  if (reason === null) return refuse("reasonRequired");
+  if (!UPHOLD.includes(reason)) return refuse("reasonNotAllowed");
+  if (report.retained === false) return refuse("contentPurged");
+  if (!target || target.id !== report.parent) return refuse("reportMismatch");
+  return {
+    ok: true,
+    change: { action: "uphold-report", from: "pending", to: "approved", reason, version: report.version + 1 },
+    removal: target.state === "approved" ? { action: "remove", from: "approved", to: "removed", reason: "upheld-report", version: target.version + 1 } : null,
+  };
+}

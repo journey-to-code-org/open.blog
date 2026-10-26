@@ -1,7 +1,10 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { FEEDBACK_KINDS, canonicalTime, readFeedbackSubmissionJson, receiveFeedback } from "../../web/components/passage-feedback.js";
 import { MODERATION_STATES, auditActor, planModeration } from "../lib/feedback-moderation.mjs";
-import { INBOX_ACTIONS, MODERATOR_ROLES, PARTICIPATION_KINDS, commentState, commentStateFilter, legacyCommentStatus, legacySupports, planTransition } from "../lib/participation-moderation.mjs";
+import {
+  INBOX_ACTIONS, MODERATOR_ROLES, PARTICIPATION_KINDS, REPORT_GROUNDS, commentState, commentStateFilter, issuesReceipts, legacyCommentStatus,
+  legacySupports, planErasure, planTransition, planUphold, retentionStep, timeKey,
+} from "../lib/participation-moderation.mjs";
 
 const json = (statusCode, value, origin = "") => ({
   statusCode,
@@ -70,6 +73,39 @@ const FEEDBACK_INBOX_COLUMNS = `${FEEDBACK_COLUMNS},item_revision,approved_revis
 const COMMENT_COLUMNS = "id,path,author_name,body,status,created_at,moderated_at";
 // What supabase/moderation.sql adds to comments (ADR 0105).
 const COMMENT_INBOX_COLUMNS = `${COMMENT_COLUMNS},version,moderation_state,moderation_reason`;
+// What engagement protection adds (ADR 0131). A receipt's digest is never read back out.
+const FEEDBACK_PROTECTED_COLUMNS = `${FEEDBACK_INBOX_COLUMNS},purged_at`;
+const COMMENT_PROTECTED_COLUMNS = `${COMMENT_INBOX_COLUMNS},purged_at`;
+const REPORT_COLUMNS = "id,target_source,target_id,work,ground,body,status,version,received_at,moderated_at,moderation_reason,purged_at";
+
+// An item whose text, details and name were purged (ADR 0103): its facts only.
+const purgedItem = (source, row) => ({
+  source,
+  id: row.id,
+  kind: source === "comment" ? "comment" : source === "report" ? "abuse-report" : row.kind,
+  status: source === "comment" ? commentState(row.moderation_state, row.status) : row.status,
+  version: row.version ?? 1,
+  revision: source === "feedback" ? row.item_revision ?? 1 : 1,
+  moderatedAt: row.moderated_at ? canonicalTime(row.moderated_at) : null,
+  reason: row.moderation_reason ?? null,
+  receivedAt: canonicalTime(source === "comment" ? row.created_at : row.received_at),
+  work: source === "comment" ? row.path : row.work,
+  purgedAt: canonicalTime(row.purged_at),
+});
+
+// The item an abuse report names, as moderators see it with the report: never a feedback reader's
+// name, and no text once it was purged.
+const reportedTarget = (source, row) => {
+  if (!row) return null;
+  const purged = Boolean(row.purged_at);
+  if (source === "comment") {
+    return {
+      source, id: row.id, kind: "comment", status: commentState(row.moderation_state, row.status), version: row.version ?? 1, revision: 1,
+      authorName: purged ? null : row.author_name, body: purged ? null : row.body,
+    };
+  }
+  return { source, id: row.id, kind: row.kind, status: row.status, version: row.version, revision: row.item_revision ?? 1, body: purged ? null : row.body };
+};
 
 // A comment row as an inbox item (ADR 0104). Without the inbox's schema a
 // comment has only its three statuses and is always at version 1; with it,
@@ -85,23 +121,65 @@ const inboxComment = (row) => ({
   comment: { path: row.path, authorName: row.author_name, body: row.body, createdAt: canonicalTime(row.created_at) },
 });
 const inboxFeedback = (row) => ({ source: "feedback", ...hostedFeedback(row), ...moderationFacts(row) });
-const inboxItem = (source, row) => (source === "comment" ? inboxComment(row) : inboxFeedback(row));
-
-// The inbox's keyset cursor: a row's own time, to the microsecond, in UTC,
-// and its id. Rows of both stores are merged in this order.
-const ROW_TIME = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d{1,6}))?(Z|[+-]\d\d:\d\d)$/;
-const timeKey = (value) => {
-  const match = ROW_TIME.exec(String(value || ""));
-  if (!match) return null;
-  const date = new Date(`${match[1]}${match[3]}`);
-  if (Number.isNaN(date.getTime())) return null;
-  return `${date.toISOString().slice(0, 19)}.${(match[2] || "").padEnd(6, "0")}Z`;
+const inboxReport = (row, targets) => ({
+  source: "report",
+  id: row.id,
+  status: row.status,
+  version: row.version,
+  moderatedAt: row.moderated_at ? canonicalTime(row.moderated_at) : null,
+  reason: row.moderation_reason ?? null,
+  receivedAt: canonicalTime(row.received_at),
+  work: row.work,
+  report: { ground: row.ground, body: row.body ?? null },
+  target: reportedTarget(row.target_source, targets?.get(`${row.target_source}:${String(row.target_id).toLowerCase()}`)),
+});
+const inboxItem = (source, row, targets) => {
+  if (row.purged_at) return purgedItem(source, row);
+  if (source === "comment") return inboxComment(row);
+  if (source === "report") return inboxReport(row, targets);
+  return inboxFeedback(row);
 };
+
+// What a reader sees of their own note by its receipt (ADR 0130): its kind,
+// state and version, their own words until they are purged, whether the
+// author asked them to clarify it and why, and whether they agreed to be
+// asked. Never anything about a moderator.
+const receiptView = (row) => {
+  const purged = Boolean(row.purged_at);
+  const revision = row.item_revision ?? 1;
+  const asked = row.status === "clarification" && row.clarification_asked === revision;
+  return {
+    kind: row.kind,
+    status: row.status,
+    version: row.version,
+    work: row.work,
+    receivedAt: canonicalTime(row.received_at),
+    clarification: asked ? { reason: row.moderation_reason ?? null } : null,
+    consent: row.clarification_consent === true,
+    published: row.status === "approved" && row.approved_revision === revision,
+    purged,
+    ...(purged ? {} : { body: row.body, details: row.details || {} }),
+  };
+};
+
+// The inbox's keyset cursor (timeKey): a row's own time, to the microsecond,
+// in UTC, and its id. Rows of every store are merged in this order.
 const CURSOR = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z)~([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
 const INBOX_PAGE = 50;
 const INBOX_UNAVAILABLE = "Run supabase/moderation.sql (and supabase/feedback.sql again if you use passage feedback), then set OPENBLOG_MODERATION_ENABLED=true, to take this decision.";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const FEEDBACK_UNAVAILABLE = "Passage feedback is not available on this site. The page itself is unchanged; you can copy your note and send it to the author instead.";
+// Engagement protection (ADRs 0130 and 0131).
+const PROTECTION_UNAVAILABLE = "This site does not offer receipts or reports through the form. You can write to the author instead.";
+const RECEIPT = /^[A-Za-z0-9_-]{43}$/;
+const receiptDigest = (receipt) => createHash("sha256").update(receipt).digest("hex");
+const RECEIPT_UNKNOWN = "No note matches this receipt. Check that you copied all of it.";
+// The audit trail's names for a reader acting by receipt and for the retention job.
+const READER_ACTOR = "@reader";
+const RETENTION_ACTOR = "@retention";
+const MAX_REPORT_CHARS = 1000;
+const RETENTION_BATCH = 200;
+const DAY_MS = 86_400_000;
 
 export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchImpl = fetchImpl, now = () => new Date() } = {}) {
   const configured = () => {
@@ -121,6 +199,9 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
       // is on. Without it the inbox stores what the older schema can.
       moderation: String(env.OPENBLOG_MODERATION_ENABLED || "").trim() === "true",
     };
+    // Receipts, abuse reports, deletion and retention (ADR 0131): set only
+    // after running supabase/protection.sql, on top of the inbox's schema.
+    values.protection = values.moderation && String(env.OPENBLOG_PROTECTION_ENABLED || "").trim() === "true";
     const required = [values.url, values.key, values.siteId, values.origin, values.adminKey, values.salt];
     if (!required.every(Boolean) || !/^\/(?:[^\\?#\u0000-\u001F]*\/)?$/.test(values.basePath) || values.basePath.includes("//") || values.basePath.split("/").some((segment) => segment === "." || segment === "..")) return null;
     return values;
@@ -169,22 +250,106 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
 
   // ---- The moderation inbox (ADRs 0104 and 0105)
 
-  const inboxTable = (source) => (source === "comment" ? "openblog_comments" : "openblog_feedback");
-  const inboxColumns = (settings, source) => (source === "comment"
-    ? (settings.moderation ? COMMENT_INBOX_COLUMNS : COMMENT_COLUMNS)
-    : (settings.moderation ? FEEDBACK_INBOX_COLUMNS : FEEDBACK_COLUMNS));
+  const inboxTable = (source) => (source === "comment" ? "openblog_comments" : source === "report" ? "openblog_abuse_reports" : "openblog_feedback");
+  const inboxColumns = (settings, source) => {
+    if (source === "report") return REPORT_COLUMNS;
+    if (source === "comment") return settings.protection ? COMMENT_PROTECTED_COLUMNS : settings.moderation ? COMMENT_INBOX_COLUMNS : COMMENT_COLUMNS;
+    return settings.protection ? FEEDBACK_PROTECTED_COLUMNS : settings.moderation ? FEEDBACK_INBOX_COLUMNS : FEEDBACK_COLUMNS;
+  };
+  const rowTimeColumn = (source) => (source === "comment" ? "created_at" : "received_at");
+  // The items abuse reports name, read with them so a moderator sees what was reported.
+  const reportTargets = async (settings, reportRows) => {
+    const targets = new Map();
+    for (const source of ["comment", "feedback"]) {
+      if (source === "feedback" && !settings.feedback) continue;
+      const ids = [...new Set(reportRows.filter((row) => row.target_source === source).map((row) => String(row.target_id).toLowerCase()).filter((id) => UUID.test(id)))];
+      if (!ids.length) continue;
+      const params = new URLSearchParams({ site_id: `eq.${settings.siteId}`, id: `in.(${ids.join(",")})`, select: inboxColumns(settings, source) });
+      const rows = await database(settings, `/rest/v1/${inboxTable(source)}?${params}`);
+      for (const row of Array.isArray(rows) ? rows : []) targets.set(`${source}:${String(row.id).toLowerCase()}`, row);
+    }
+    return targets;
+  };
+  // A retention run's cutoffs as Admin sent them (ADR 0131): canonical UTC
+  // times, each at least a day before this function's own clock, so no run
+  // can reach anything newer whatever it is sent; null when any is not.
+  const UTC_SECOND = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/;
+  const retentionCutoffs = (input) => {
+    const latest = now().getTime() - DAY_MS;
+    const cutoffs = { comments: input?.comments === true || input?.comments === "true" };
+    for (const key of ["pendingUntil", "clarificationUntil", "closedUntil", "auditUntil"]) {
+      const value = input?.[key];
+      const time = typeof value === "string" && UTC_SECOND.test(value) ? Date.parse(value) : Number.NaN;
+      if (!Number.isFinite(time) || time > latest) return null;
+      cutoffs[key] = value;
+    }
+    return cutoffs;
+  };
+  // One store's rows a run may owe a step, oldest first, at most a batch;
+  // retentionStep then decides each exactly.
+  const retentionCandidates = async (settings, source, cutoffs) => {
+    const time = rowTimeColumn(source);
+    const since = (until) => `or(moderated_at.lte."${until}",and(moderated_at.is.null,${time}.lte."${until}"))`;
+    const branches = {
+      comment: [
+        `and(status.eq.pending,${since(cutoffs.pendingUntil)})`,
+        `and(status.eq.rejected,purged_at.is.null,${since(cutoffs.closedUntil)})`,
+      ],
+      feedback: [
+        `and(status.eq.pending,${since(cutoffs.pendingUntil)})`,
+        `and(status.eq.clarification,${since(cutoffs.clarificationUntil)})`,
+        `and(status.in.(rejected,removed),purged_at.is.null,${since(cutoffs.closedUntil)})`,
+        "and(status.eq.withdrawn,purged_at.is.null)",
+      ],
+      report: [
+        `and(status.eq.pending,${since(cutoffs.pendingUntil)})`,
+        `and(status.in.(rejected,approved),purged_at.is.null,${since(cutoffs.closedUntil)})`,
+      ],
+    }[source];
+    const params = new URLSearchParams({
+      site_id: `eq.${settings.siteId}`,
+      or: `(${branches.join(",")})`,
+      select: inboxColumns(settings, source),
+      order: `${time}.asc,id.asc`,
+      limit: String(RETENTION_BATCH),
+    });
+    const rows = await database(settings, `/rest/v1/${inboxTable(source)}?${params}`);
+    return Array.isArray(rows) ? rows : [];
+  };
+  // Audit events recorded at or before the run's audit cutoff: counted for
+  // the dry run (at most 10,001 per table), deleted when the run asks.
+  const auditDue = async (settings, cutoffs, deleteNow) => {
+    const tables = { comment: "openblog_comment_events", ...(settings.feedback ? { feedback: "openblog_feedback_events" } : {}), report: "openblog_abuse_report_events" };
+    const counts = {};
+    for (const [source, table] of Object.entries(tables)) {
+      const params = new URLSearchParams({ site_id: `eq.${settings.siteId}`, at: `lte.${cutoffs.auditUntil}`, select: "id" });
+      if (!deleteNow) params.set("limit", "10001");
+      const rows = await database(settings, `/rest/v1/${table}?${params}`, deleteNow ? { method: "DELETE", headers: { Prefer: "return=representation" } } : {});
+      counts[source] = Array.isArray(rows) ? rows.length : 0;
+    }
+    return counts;
+  };
+  const inboxItems = async (settings, entries) => {
+    const reports = entries.filter((entry) => entry.source === "report").map((entry) => entry.row);
+    const targets = reports.length ? await reportTargets(settings, reports) : null;
+    return entries.map((entry) => inboxItem(entry.source, entry.row, targets));
+  };
 
   // One store's rows in one state after a cursor, oldest first, at most
   // `limit`. Comments never wait for clarification or are withdrawn, and
   // without the inbox's schema they are only pending, approved or rejected.
   const inboxRows = async (settings, source, { state, kind, after, limit }) => {
-    const time = source === "comment" ? "created_at" : "received_at";
+    const time = rowTimeColumn(source);
     const conditions = [];
     if (source === "comment") {
       const filter = settings.moderation ? commentStateFilter(state) : null;
       if (filter) conditions.push(filter);
       else if (!settings.moderation && ["pending", "approved", "rejected"].includes(state)) conditions.push(`status.eq.${state}`);
       else return [];
+    } else if (source === "report") {
+      // Reports are pending, dismissed (rejected) or upheld (approved).
+      if (!["pending", "approved", "rejected"].includes(state)) return [];
+      conditions.push(`status.eq.${state}`);
     } else {
       conditions.push(`status.eq.${state}`);
       if (kind) conditions.push(`kind.eq.${kind}`);
@@ -209,14 +374,18 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
   };
   // The facts the state machine decides on, from a stored row.
   const inboxFacts = (source, row) => {
-    const item = inboxItem(source, row);
+    const retained = !row.purged_at;
     return {
-      kind: source === "comment" ? "comment" : row.kind,
-      state: item.status,
-      version: item.version,
-      revision: item.itemRevision ?? 1,
-      clarificationAsked: item.clarificationAsked ?? null,
-      clarificationConsent: item.clarificationConsent === true,
+      kind: source === "comment" ? "comment" : source === "report" ? "abuse-report" : row.kind,
+      state: source === "comment" ? commentState(row.moderation_state, row.status) : row.status,
+      version: row.version ?? 1,
+      revision: source === "feedback" ? row.item_revision ?? 1 : 1,
+      clarificationAsked: source === "feedback" ? row.clarification_asked ?? null : null,
+      clarificationConsent: row.clarification_consent === true,
+      contentRetained: retained,
+      retained,
+      parent: source === "report" ? String(row.target_id).toLowerCase() : null,
+      since: row.moderated_at || row[rowTimeColumn(source)],
     };
   };
   // Apply one planned change, only while the row still has the state and
@@ -224,7 +393,8 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
   const applyInboxChange = (settings, source, id, change, version, actor, role) => {
     const at = canonicalTime(now());
     if (settings.moderation) {
-      return database(settings, `/rest/v1/rpc/${source === "comment" ? "openblog_moderate_comment" : "openblog_moderate_feedback_item"}`, {
+      const functionName = { comment: "openblog_moderate_comment", feedback: "openblog_moderate_feedback_item", report: "openblog_moderate_report" }[source];
+      return database(settings, `/rest/v1/rpc/${functionName}`, {
         method: "POST",
         body: JSON.stringify({
           p_site_id: settings.siteId, p_id: id, p_expected_version: version, p_from: change.from, p_to: change.to,
@@ -263,16 +433,25 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
     return MODES.includes(mode) ? mode : "hidden";
   };
 
-  // The existing Supabase-backed hourly quota, per client and per site.
-  const consumeQuota = async (settings, event, bucket, subjectLimit, siteLimit) => {
+  // The existing Supabase-backed hourly quota, per client (or per `subject`,
+  // such as a reported item or a repeated submission) and per site. The
+  // stored digest mixes in the hour, so no row links one hour's requests to
+  // another's, and the address itself is never stored (ADR 0131).
+  const consumeQuota = async (settings, event, bucket, subjectLimit, siteLimit, subject = null) => {
     const address = String(event.headers?.["x-nf-client-connection-ip"] || "").trim();
     const hour = now().toISOString().slice(0, 13) + ":00:00Z";
-    const subject = createHash("sha256").update(`${settings.salt}\0${bucket}\0${address}`).digest("hex");
+    const digest = createHash("sha256").update(`${settings.salt}\0${bucket}\0${hour}\0${subject ?? address}`).digest("hex");
     const allowed = await database(settings, "/rest/v1/rpc/openblog_consume_rate_limit", {
       method: "POST",
-      body: JSON.stringify({ p_site_id: settings.siteId, p_bucket: bucket, p_window_start: hour, p_subject_hash: subject, p_subject_limit: subjectLimit, p_site_limit: siteLimit }),
+      body: JSON.stringify({ p_site_id: settings.siteId, p_bucket: bucket, p_window_start: hour, p_subject_hash: digest, p_subject_limit: subjectLimit, p_site_limit: siteLimit }),
     });
     return Boolean(allowed?.allowed ?? allowed);
+  };
+  // A replay bound (ADR 0131): the same submission from the same client is
+  // taken once an hour. Only a digest of it is kept, for the hour.
+  const firstTimeThisHour = (settings, event, bucket, parts) => {
+    const address = String(event.headers?.["x-nf-client-connection-ip"] || "").trim();
+    return consumeQuota(settings, event, `${bucket}-repeat`, 1, 1_000_000, [address, ...parts].join("\0"));
   };
 
   return async (event) => {
@@ -342,6 +521,9 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
           return json(403, { error: policy === "locked" ? "This discussion is read-only." : "Comments are not available for this post." }, corsOrigin);
         }
         if (!await consumeQuota(settings, event, "comments", 5, 500)) return json(429, { error: "Too many comments. Please try again later." }, corsOrigin);
+        if (settings.protection && !await firstTimeThisHour(settings, event, "comments", [path, authorName, commentBody])) {
+          return json(409, { error: "This comment was already sent and is waiting for review.", code: "duplicate" }, corsOrigin);
+        }
         const rows = await database(settings, "/rest/v1/openblog_comments?select=id,status,created_at", {
           method: "POST",
           headers: { Prefer: "return=representation" },
@@ -370,9 +552,15 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         if (!await consumeQuota(settings, event, "feedback", 5, 500)) {
           return json(429, { error: "Too much feedback from here. Please try again later.", code: "rateLimited" }, corsOrigin);
         }
+        if (settings.protection && !await firstTimeThisHour(settings, event, "feedback", [submission.work, submission.kind, JSON.stringify(submission.target), submission.body])) {
+          return json(409, { error: "This note was already sent and is waiting for review.", code: "duplicate" }, corsOrigin);
+        }
         // The receiver stamps the time; the reader's clock is only seenAt.
         const record = receiveFeedback(submission, canonicalTime(now()), "hosted");
         const { provenance } = record;
+        // A private receipt (ADR 0130): returned to the reader once, kept
+        // only as its digest.
+        const receipt = settings.protection && issuesReceipts(record.kind) ? randomBytes(32).toString("base64url") : null;
         const rows = await database(settings, "/rest/v1/openblog_feedback?select=id,status,received_at", {
           method: "POST",
           headers: { Prefer: "return=representation" },
@@ -391,9 +579,112 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
             reader_name: provenance.attribution.name ?? null,
             publish_name: provenance.attribution.publishName,
             status: "pending",
+            ...(receipt ? { receipt_hash: receiptDigest(receipt) } : {}),
           }),
         });
-        return json(202, { id: rows[0]?.id, status: "pending", receivedAt: provenance.receivedAt }, corsOrigin);
+        return json(202, { id: rows[0]?.id, status: "pending", receivedAt: provenance.receivedAt, ...(receipt ? { receipt } : {}) }, corsOrigin);
+      }
+      if (operation === "receipt" || operation === "reports") {
+        if (!settings.protection || (operation === "receipt" && !settings.feedback)) return json(404, { error: PROTECTION_UNAVAILABLE, code: "unavailable" }, corsOrigin);
+        if (event.httpMethod !== "POST") return json(405, { error: "Use POST." }, corsOrigin);
+      }
+      if (operation === "receipt") {
+        // A reader acting on their own note by its private receipt (ADR
+        // 0130): read it, answer a clarification request, agree to be asked,
+        // or withdraw and delete it. The receipt is the only proof; nothing
+        // identifies the reader, and nothing is e-mailed.
+        const receipt = typeof body.receipt === "string" ? body.receipt : "";
+        if (!RECEIPT.test(receipt)) return json(404, { error: RECEIPT_UNKNOWN, code: "unknownReceipt" }, corsOrigin);
+        if (!await consumeQuota(settings, event, "receipts", 30, 3000)) return json(429, { error: "Too many requests from here. Please try again later.", code: "rateLimited" }, corsOrigin);
+        const lookup = async () => {
+          const params = new URLSearchParams({ site_id: `eq.${settings.siteId}`, receipt_hash: `eq.${receiptDigest(receipt)}`, select: FEEDBACK_PROTECTED_COLUMNS });
+          const rows = await database(settings, `/rest/v1/openblog_feedback?${params}`);
+          return Array.isArray(rows) && rows.length === 1 ? rows[0] : null;
+        };
+        const row = await lookup();
+        if (!row) return json(404, { error: RECEIPT_UNKNOWN, code: "unknownReceipt" }, corsOrigin);
+        const action = body.action ?? "read";
+        if (action === "read") return json(200, { item: receiptView(row) }, corsOrigin);
+        const version = body.expectedVersion;
+        if (!Number.isInteger(version) || version < 1 || version > 2147483647) return json(422, { error: "Reload your note and try again.", code: "invalid" }, corsOrigin);
+        const facts = inboxFacts("feedback", row);
+        const answered = (rows) => (Array.isArray(rows) && rows.length === 1
+          ? json(200, { item: receiptView(rows[0]) }, corsOrigin)
+          : lookup().then((current) => json(409, { error: "Your note changed since you loaded it. Review it again.", code: "conflict", item: current ? receiptView(current) : null }, corsOrigin)));
+        if (version !== facts.version) return answered([]);
+        if (action === "withdraw") {
+          const plan = planErasure(facts, "submitter", version);
+          if (!plan.ok) return json(plan.code === "stale" ? 409 : 422, { error: "This note cannot be withdrawn now.", code: plan.code, item: receiptView(row) }, corsOrigin);
+          return answered(await database(settings, "/rest/v1/rpc/openblog_erase_feedback", {
+            method: "POST",
+            body: JSON.stringify({ p_site_id: settings.siteId, p_id: row.id, p_expected_version: version, p_withdraw: plan.withdraw, p_actor: READER_ACTOR, p_actor_role: "submitter", p_at: canonicalTime(now()) }),
+          }));
+        }
+        if (action === "consent") {
+          if (typeof body.consent !== "boolean" || facts.state !== "pending" || !facts.retained) {
+            return json(422, { error: "You can change this only while your note is waiting for review.", code: "notAllowed" }, corsOrigin);
+          }
+          const params = new URLSearchParams({ site_id: `eq.${settings.siteId}`, id: `eq.${row.id}`, receipt_hash: `eq.${receiptDigest(receipt)}`, status: "eq.pending", version: `eq.${version}`, purged_at: "is.null", select: FEEDBACK_PROTECTED_COLUMNS });
+          return answered(await database(settings, `/rest/v1/openblog_feedback?${params}`, {
+            method: "PATCH",
+            headers: { Prefer: "return=representation" },
+            body: JSON.stringify({ clarification_consent: body.consent }),
+          }));
+        }
+        if (action === "clarify") {
+          const plan = planTransition(facts, { action: "clarify", expectedVersion: version, role: "submitter" });
+          if (!plan.ok) return json(plan.code === "stale" ? 409 : 422, { error: "Your note is not waiting for clarification.", code: plan.code, item: receiptView(row) }, corsOrigin);
+          // The answer is read exactly as a new submission about the same
+          // passage would be, so it meets every rule the first one did.
+          const read = readFeedbackSubmissionJson(JSON.stringify({
+            version: 1, kind: row.kind, work: row.work, revision: row.revision, target: row.target, body: body.body,
+            ...(body.details && typeof body.details === "object" ? { details: body.details } : {}),
+          }));
+          if (!read.ok) return json(422, { error: read.error.message, code: read.error.code }, corsOrigin);
+          return answered(await database(settings, "/rest/v1/rpc/openblog_moderate_feedback_item", {
+            method: "POST",
+            body: JSON.stringify({
+              p_site_id: settings.siteId, p_id: row.id, p_expected_version: version, p_from: "clarification", p_to: "pending", p_action: "clarify",
+              p_reason: null, p_actor: READER_ACTOR, p_actor_role: "submitter", p_at: canonicalTime(now()), p_body: read.submission.body, p_details: read.submission.details,
+            }),
+          }));
+        }
+        return json(422, { error: "Choose to read, clarify, agree to be asked, or withdraw your note.", code: "invalid" }, corsOrigin);
+      }
+      if (operation === "reports") {
+        // An abuse report (ADR 0130): accepted only for an item that is
+        // public now, answering `unavailable` exactly as for one that does
+        // not exist. It never changes the item, is never public and never
+        // counted, and names nobody.
+        const source = body.source === "comment" || (body.source === "feedback" && settings.feedback) ? body.source : "";
+        const id = String(body.id || "").toLowerCase();
+        const ground = typeof body.ground === "string" ? body.ground : "";
+        const text = body.body === undefined || body.body === null ? "" : String(body.body).trim();
+        if (!source || !UUID.test(id) || !REPORT_GROUNDS.includes(ground) || Array.from(text).length > MAX_REPORT_CHARS || /[\u0000-\u0008\u000B\u000C\u000E-\u001F‪-‮⁦-⁩]/.test(text)) {
+          return json(422, { error: "Choose why you are reporting it, and write at most 1,000 characters.", code: "invalid" }, corsOrigin);
+        }
+        const unavailable = () => json(404, { error: "This item cannot be reported.", code: "unavailable" }, corsOrigin);
+        const target = await inboxRow(settings, source, id);
+        if (!target) return unavailable();
+        const facts = inboxFacts(source, target);
+        const work = source === "comment" ? target.path : target.work;
+        const shown = source === "comment"
+          ? facts.state === "approved" && await commentPolicy(settings, work) !== "hidden"
+          : facts.state === "approved" && target.approved_revision === facts.revision && facts.clarificationAsked !== facts.revision && await feedbackPolicy(settings, work, facts.kind) !== "hidden";
+        if (!facts.retained || !shown) return unavailable();
+        const mode = await feedbackPolicy(settings, work, "abuse-report");
+        if (mode !== "open") return unavailable();
+        if (!await consumeQuota(settings, event, "reports", 5, 500)) return json(429, { error: "Too many reports from here. Please try again later.", code: "rateLimited" }, corsOrigin);
+        // One item can be reported only so often an hour, and the same report from the same place once.
+        if (!await consumeQuota(settings, event, "reports-item", 20, 500, `${source}:${id}`) || !await firstTimeThisHour(settings, event, "reports", [source, id])) {
+          return json(202, { status: "pending" }, corsOrigin);
+        }
+        await database(settings, "/rest/v1/openblog_abuse_reports?select=id", {
+          method: "POST",
+          headers: { Prefer: "return=minimal" },
+          body: JSON.stringify({ site_id: settings.siteId, target_source: source, target_id: id, work, ground, body: text || null, status: "pending", received_at: canonicalTime(now()) }),
+        });
+        return json(202, { status: "pending" }, corsOrigin);
       }
       if (operation === "admin/feedback" && event.httpMethod === "GET") {
         // One item by id, whatever its state (Admin re-reads an item before
@@ -437,14 +728,14 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         // the token, which is the site Admin, naming the role its viewer has
         // on the item's work (ADR 0102); nothing here is public.
         if (!admin) return json(401, { error: "Admin authorization is required." }, corsOrigin);
-        const protocol = settings.moderation ? "full" : "legacy";
-        const sourceOf = (value) => (value === "comment" || (value === "feedback" && settings.feedback) ? value : "");
+        const protocol = settings.protection ? "protected" : settings.moderation ? "full" : "legacy";
+        const sourceOf = (value) => (value === "comment" || (value === "feedback" && settings.feedback) || (value === "report" && settings.protection) ? value : "");
         if (event.httpMethod === "GET") {
           if (query.id !== undefined) {
             const source = sourceOf(query.source);
             if (!UUID.test(String(query.id)) || !source) return json(422, { error: "Name an item by its source and id." }, corsOrigin);
             const row = await inboxRow(settings, source, String(query.id).toLowerCase());
-            return json(200, { protocol, items: row ? [inboxItem(source, row)] : [], next: null }, corsOrigin);
+            return json(200, { protocol, items: row ? await inboxItems(settings, [{ source, row }]) : [], next: null }, corsOrigin);
           }
           const state = MODERATION_STATES.includes(query.state) ? query.state : "pending";
           const kind = query.kind === undefined || query.kind === "" ? "" : String(query.kind);
@@ -459,6 +750,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
           const sources = [];
           if (!kind || kind === "comment") sources.push("comment");
           if (settings.feedback && (!kind || Object.hasOwn(FEEDBACK_KINDS, kind))) sources.push("feedback");
+          if (settings.protection && (!kind || kind === "abuse-report")) sources.push("report");
           // Each store's first `limit + 1` rows after the cursor; merged, the
           // first `limit` are this page's, oldest first.
           const merged = (await Promise.all(sources.map((source) => inboxRows(settings, source, { state, kind, after, limit: limit + 1 }))))
@@ -468,7 +760,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
           const last = page.at(-1);
           return json(200, {
             protocol,
-            items: page.map((entry) => inboxItem(entry.source, entry.row)),
+            items: await inboxItems(settings, page),
             next: merged.length > limit && last ? `${last.key}~${last.id}` : null,
           }, corsOrigin);
         }
@@ -477,30 +769,146 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
           const id = String(body.id || "").toLowerCase();
           const version = body.expectedVersion;
           const role = body.actorRole === undefined ? "site-admin" : body.actorRole;
+          const protectedAction = settings.protection && (body.action === "erase" || (body.action === "uphold-report" && source === "report"));
           if (!source || !UUID.test(id) || !Number.isInteger(version) || version < 1 || version > 2147483647 || !MODERATION_STATES.includes(body.from)
-            || !INBOX_ACTIONS.includes(body.action) || !MODERATOR_ROLES.includes(role)) {
+            || !(INBOX_ACTIONS.includes(body.action) || protectedAction) || !MODERATOR_ROLES.includes(role)) {
             return json(422, { error: "Invalid moderation change.", code: "invalid" }, corsOrigin);
           }
           const row = await inboxRow(settings, source, id);
           if (!row) return json(404, { error: "No such item.", code: "notFound" }, corsOrigin);
           const facts = inboxFacts(source, row);
-          const conflict = (current) => json(409, { error: "This item changed since you loaded it. Review it again before acting.", code: "conflict", item: inboxItem(source, current) }, corsOrigin);
+          const itemOf = async (current) => (await inboxItems(settings, [{ source, row: current }]))[0];
+          const conflict = async (current) => json(409, { error: "This item changed since you loaded it. Review it again before acting.", code: "conflict", item: await itemOf(current) }, corsOrigin);
           if (facts.state !== body.from || facts.version !== version) return conflict(row);
+          const refused = (code) => json(code === "denied" ? 403 : 422, { error: "This moderation change is not allowed.", code }, corsOrigin);
+          const changed = async (rows) => {
+            if (Array.isArray(rows) && rows.length === 1) return json(200, { ok: true, item: await itemOf(rows[0]) }, corsOrigin);
+            const current = await inboxRow(settings, source, id);
+            if (!current) return json(404, { error: "No such item.", code: "notFound" }, corsOrigin);
+            return conflict(current);
+          };
+          if (body.action === "erase") {
+            // A deletion request taken by the site Admin (ADR 0130).
+            const plan = planErasure(facts, role, version);
+            if (!plan.ok) return plan.code === "stale" ? conflict(row) : refused(plan.code);
+            const at = canonicalTime(now());
+            const actor = auditActor(body.actor);
+            if (source === "feedback") {
+              return changed(await database(settings, "/rest/v1/rpc/openblog_erase_feedback", {
+                method: "POST",
+                body: JSON.stringify({ p_site_id: settings.siteId, p_id: id, p_expected_version: version, p_withdraw: false, p_actor: actor, p_actor_role: role, p_at: at }),
+              }));
+            }
+            return changed(await database(settings, `/rest/v1/rpc/${source === "comment" ? "openblog_purge_comment" : "openblog_purge_report"}`, {
+              method: "POST",
+              body: JSON.stringify({ p_site_id: settings.siteId, p_id: id, p_expected_version: version, p_actor: actor, p_actor_role: role, p_at: at }),
+            }));
+          }
+          if (body.action === "uphold-report") {
+            // Upheld with the item the report names, exactly as Admin saw it
+            // (ADR 0103): removed in the same transaction while approved.
+            const targetSource = row.target_source;
+            const target = targetSource === "comment" || (targetSource === "feedback" && settings.feedback) ? await inboxRow(settings, targetSource, String(row.target_id).toLowerCase()) : null;
+            const targetFacts = target ? inboxFacts(targetSource, target) : null;
+            if ((targetFacts ? targetFacts.version : null) !== (body.targetVersion ?? null)) return conflict(row);
+            const plan = planUphold(facts, target ? { id: String(target.id).toLowerCase(), state: targetFacts.state, version: targetFacts.version } : null, { role, reason: body.reason, expectedVersion: version });
+            if (!plan.ok) return plan.code === "stale" ? conflict(row) : refused(plan.code);
+            const result = await database(settings, "/rest/v1/rpc/openblog_uphold_report", {
+              method: "POST",
+              body: JSON.stringify({
+                p_site_id: settings.siteId, p_id: id, p_expected_version: version, p_target_version: plan.removal ? targetFacts.version : null,
+                p_reason: plan.change.reason, p_actor: auditActor(body.actor), p_actor_role: role, p_at: canonicalTime(now()),
+              }),
+            });
+            if (!result || typeof result !== "object" || !result.report) {
+              const current = await inboxRow(settings, source, id);
+              return current ? conflict(current) : json(404, { error: "No such item.", code: "notFound" }, corsOrigin);
+            }
+            const removed = result.target && typeof result.target === "object" ? (await inboxItems(settings, [{ source: targetSource, row: result.target }]))[0] : null;
+            return json(200, { ok: true, item: await itemOf(result.report), removed }, corsOrigin);
+          }
           // Decided again here, from the stored row, before anything is written.
           const plan = planTransition(facts, { action: body.action, expectedVersion: version, reason: body.reason, role });
           if (!plan.ok) {
             if (plan.code === "stale") return conflict(row);
-            return json(plan.code === "denied" ? 403 : 422, { error: "This moderation change is not allowed.", code: plan.code }, corsOrigin);
+            return refused(plan.code);
           }
           if (!settings.moderation && !legacySupports(facts.kind, body.action)) {
             return json(422, { error: INBOX_UNAVAILABLE, code: "notAllowed" }, corsOrigin);
           }
-          const rows = await applyInboxChange(settings, source, id, plan.change, version, auditActor(body.actor), role);
-          if (Array.isArray(rows) && rows.length === 1) return json(200, { ok: true, item: inboxItem(source, rows[0]) }, corsOrigin);
-          const current = await inboxRow(settings, source, id);
-          if (!current) return json(404, { error: "No such item.", code: "notFound" }, corsOrigin);
-          return conflict(current);
+          return changed(await applyInboxChange(settings, source, id, plan.change, version, auditActor(body.actor), role));
         }
+      }
+      if (operation === "admin/retention") {
+        // The retention job (ADRs 0103 and 0131), run by the site Admin from
+        // Admin: GET is its dry run, the items due and the audit events old
+        // enough to delete; POST applies exactly the items Admin confirmed,
+        // each only while it is still as it was and still due. Nothing runs
+        // on its own, and comments are touched only when Admin says the site
+        // opted them in.
+        if (!admin) return json(401, { error: "Admin authorization is required." }, corsOrigin);
+        if (!settings.protection) return json(404, { error: "Run supabase/protection.sql and set OPENBLOG_PROTECTION_ENABLED=true to run retention.", code: "unavailable" }, corsOrigin);
+        const input = event.httpMethod === "GET" ? query : body;
+        const cutoffs = retentionCutoffs(input);
+        if (!cutoffs) return json(422, { error: "Send the run's cutoffs, each at least a day in the past.", code: "invalid" }, corsOrigin);
+        const sources = [...(cutoffs.comments ? ["comment"] : []), ...(settings.feedback ? ["feedback"] : []), "report"];
+        if (event.httpMethod === "GET") {
+          const due = [];
+          let truncated = false;
+          for (const source of sources) {
+            const rows = await retentionCandidates(settings, source, cutoffs);
+            truncated ||= rows.length >= RETENTION_BATCH;
+            for (const row of rows) {
+              const step = retentionStep(inboxFacts(source, row), cutoffs);
+              if (step) due.push({ source, row, step });
+            }
+          }
+          // Facts are enough here: a report's item is not read for the dry run.
+          return json(200, {
+            protocol: "protected",
+            items: due.map(({ source, row, step }) => ({ ...inboxItem(source, row, null), step })),
+            audit: await auditDue(settings, cutoffs, false),
+            truncated,
+          }, corsOrigin);
+        }
+        if (event.httpMethod === "POST") {
+          const wanted = Array.isArray(body.items) ? body.items : null;
+          if (!wanted || wanted.length > RETENTION_BATCH || !wanted.every((item) => sources.includes(item?.source) && UUID.test(String(item.id || "")) && Number.isInteger(item.version) && ["expire", "purge-content"].includes(item.step))) {
+            return json(422, { error: "Send at most 200 items the dry run listed.", code: "invalid" }, corsOrigin);
+          }
+          const done = { expired: 0, purged: 0, skipped: 0 };
+          const at = canonicalTime(now());
+          for (const item of wanted) {
+            const id = String(item.id).toLowerCase();
+            const row = await inboxRow(settings, item.source, id);
+            const facts = row ? inboxFacts(item.source, row) : null;
+            if (!facts || facts.version !== item.version || retentionStep(facts, cutoffs) !== item.step) {
+              done.skipped += 1;
+              continue;
+            }
+            let rows;
+            if (item.step === "expire") {
+              const change = { action: "expire", from: facts.state, to: "rejected", reason: "expired" };
+              rows = await applyInboxChange(settings, item.source, id, change, facts.version, RETENTION_ACTOR, "system");
+            } else if (item.source === "feedback") {
+              rows = await database(settings, "/rest/v1/rpc/openblog_erase_feedback", {
+                method: "POST",
+                body: JSON.stringify({ p_site_id: settings.siteId, p_id: id, p_expected_version: facts.version, p_withdraw: false, p_actor: RETENTION_ACTOR, p_actor_role: "system", p_at: at }),
+              });
+            } else {
+              rows = await database(settings, `/rest/v1/rpc/${item.source === "comment" ? "openblog_purge_comment" : "openblog_purge_report"}`, {
+                method: "POST",
+                body: JSON.stringify({ p_site_id: settings.siteId, p_id: id, p_expected_version: facts.version, p_actor: RETENTION_ACTOR, p_actor_role: "system", p_at: at }),
+              });
+            }
+            if (Array.isArray(rows) && rows.length === 1) done[item.step === "expire" ? "expired" : "purged"] += 1;
+            else done.skipped += 1;
+          }
+          const audit = body.audit === true ? await auditDue(settings, cutoffs, true) : null;
+          console.info(`open.blog engagement: retention expired ${done.expired}, purged ${done.purged}, skipped ${done.skipped}`);
+          return json(200, { ok: true, ...done, auditDeleted: audit }, corsOrigin);
+        }
+        return json(405, { error: "Use GET for the dry run and POST to run it." }, corsOrigin);
       }
       if (operation === "admin/comments" && event.httpMethod === "GET") {
         if (!admin) return json(401, { error: "Admin authorization is required." }, corsOrigin);
@@ -534,13 +942,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         const address = String(event.headers?.["x-nf-client-connection-ip"] || event.headers?.["x-forwarded-for"] || "").split(",")[0].trim();
         const agent = String(event.headers?.["user-agent"] || "").slice(0, 500);
         const visitor = createHash("sha256").update(`${settings.salt}\0${day}\0${address}\0${agent}`).digest("hex");
-        const hour = now().toISOString().slice(0, 13) + ":00:00Z";
-        const rateSubject = createHash("sha256").update(`${settings.salt}\0analytics\0${address}`).digest("hex");
-        const allowed = await database(settings, "/rest/v1/rpc/openblog_consume_rate_limit", {
-          method: "POST",
-          body: JSON.stringify({ p_site_id: settings.siteId, p_bucket: "analytics", p_window_start: hour, p_subject_hash: rateSubject, p_subject_limit: 120, p_site_limit: 20000 }),
-        });
-        if (!(allowed?.allowed ?? allowed)) return json(429, { error: "Analytics rate limit reached." }, corsOrigin);
+        if (!await consumeQuota(settings, event, "analytics", 120, 20000, address)) return json(429, { error: "Analytics rate limit reached." }, corsOrigin);
         let referrer = "";
         try { referrer = new URL(String(body.referrer || "")).hostname.toLowerCase().slice(0, 253); } catch { /* no referrer */ }
         const result = await database(settings, "/rest/v1/rpc/openblog_record_view", {

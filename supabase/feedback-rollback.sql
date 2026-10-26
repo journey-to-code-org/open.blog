@@ -7,15 +7,17 @@
 --
 --   select * from public.openblog_feedback order by received_at;
 --
--- This drops only what feedback.sql created: the two moderation functions,
--- the audit table and the feedback table, with their indexes and the
--- moderation inbox's columns on them (ADR 0105). Comments, analytics, rate
+-- This drops only what feedback.sql created: the moderation and deletion
+-- functions, the audit table and the feedback table, with their indexes and
+-- the moderation inbox's and protection's columns on them (ADRs 0105 and
+-- 0131). Comments, analytics, rate
 -- limits and every other table are untouched. Feedback rows are deleted with
 -- it and cannot be recovered without your export. To keep feedback and undo
 -- only the moderation inbox, run moderation-rollback.sql instead.
 
 begin;
 
+drop function if exists public.openblog_erase_feedback(text, uuid, integer, boolean, text, text, timestamptz);
 drop function if exists public.openblog_moderate_feedback_item(text, uuid, integer, text, text, text, text, text, text, timestamptz, text, jsonb);
 drop function if exists public.openblog_moderate_feedback(text, uuid, integer, text, text, text, text, text, timestamptz);
 drop table if exists public.openblog_feedback_events;
