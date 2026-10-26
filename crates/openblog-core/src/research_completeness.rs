@@ -1578,6 +1578,59 @@ pub enum AcknowledgementState {
     Stale,
 }
 
+/// Where a finding is, in words an author can find: the post and line, field
+/// or the research object it names.
+pub fn finding_place(finding: &CompletenessFinding) -> String {
+    let scope = &finding.scope;
+    let id = scope
+        .id
+        .as_deref()
+        .map(|id| format!(" {id}"))
+        .unwrap_or_default();
+    match scope.object {
+        ObjectKind::Post => {
+            let path = scope.path.as_deref().unwrap_or("the post");
+            match (scope.line, scope.column, scope.field.as_deref()) {
+                (Some(line), Some(column), _) => format!("{path}:{line}:{column}"),
+                (Some(line), None, _) => format!("{path}:{line}"),
+                (None, _, Some(field)) => format!("{path} ({field})"),
+                _ => path.to_string(),
+            }
+        }
+        ObjectKind::Claim => format!("claim{id}{}", in_post(scope)),
+        ObjectKind::EvidenceLink => format!("evidence link{id}{}", in_post(scope)),
+        ObjectKind::Source => format!("source{id}"),
+        ObjectKind::Interpretation => format!("interpretation{id}"),
+        ObjectKind::Passage => format!("notebook passage{id}"),
+        ObjectKind::Note => format!("notebook note{id}"),
+        ObjectKind::Entry => format!("atlas entry{id}"),
+        ObjectKind::Relationship => format!("atlas relationship{id}"),
+        ObjectKind::Dating => format!("dating{id}"),
+        ObjectKind::Alignment => format!(
+            "comparison{id}{}",
+            scope
+                .field
+                .as_deref()
+                .map(|field| format!(", {field}"))
+                .unwrap_or_default()
+        ),
+        ObjectKind::SourceLibrary => "the source library".into(),
+        ObjectKind::Notebook => "the research notebook".into(),
+        ObjectKind::Atlas => "the Knowledge Atlas".into(),
+        ObjectKind::ClaimsFile => "the claims file".into(),
+        ObjectKind::AlignmentsFile => "the alignments file".into(),
+    }
+}
+
+/// The post a claim or evidence link belongs to, when it names one, so the
+/// place reads the same in the terminal and in Admin.
+fn in_post(scope: &FindingScope) -> String {
+    match scope.path.as_deref() {
+        Some(path) if path.ends_with(".md") => format!(" in {path}"),
+        _ => String::new(),
+    }
+}
+
 /// One finding in a report, with its fingerprint and acknowledgement.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1585,6 +1638,9 @@ pub struct ReportEntry {
     #[serde(flatten)]
     pub finding: CompletenessFinding,
     pub fingerprint: String,
+    /// Where the finding is, in words an author can find; the same text the
+    /// terminal prints and Admin shows for the whole site.
+    pub place: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub acknowledgement: Option<AcknowledgementState>,
 }
@@ -1677,6 +1733,7 @@ impl CompletenessReport {
                     count.acknowledged += 1;
                 }
                 ReportEntry {
+                    place: finding_place(&finding),
                     finding,
                     fingerprint,
                     acknowledgement,

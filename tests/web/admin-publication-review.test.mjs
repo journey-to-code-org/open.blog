@@ -498,7 +498,7 @@ test("the site report inside What will be public lists the shared groups and cod
   assert.equal(root.querySelector("[data-review-status]").textContent, publicationReviewCountsText(review));
   // Places and repairs are the site's: the post and its line, opened in the editor.
   const unresolved = article(root, "citation-unresolved");
-  assert.match(unresolved.textContent, /posts\/cave\.md, line 12/);
+  assert.match(unresolved.textContent, /posts\/cave\.md:12:1/);
   assert.equal(unresolved.querySelector("[data-review-target]").getAttribute("href"), "#/edit/posts%2Fcave.md");
   assert.match(unresolved.textContent, /once its post is published/, "a draft only warns, and the finding says so");
   assert.equal(toggleOf(unresolved), undefined, "a refusal is fixed, not acknowledged");
@@ -535,3 +535,14 @@ test("the site panel and the draft panel reuse the one review renderer and add n
   assert.match(css, /\.oba-review\.is-embedded/);
   assert.doesNotMatch(css.slice(css.indexOf(".oba-review.is-embedded")), /transition|animation/);
 });
+
+test("the site report's empty state speaks of the site, never calls the research ready and shows no dialog actions", withDom(async () => {
+  const { root } = mountSite({ ...READINESS(), findings: [], groups: [], counts: {}, notReviewed: [] });
+  const empty = root.querySelector("[data-review-empty]");
+  assert.match(empty.textContent, /raised nothing for the site/);
+  assert.match(empty.textContent, /not a judgement of your research/);
+  assert.doesNotMatch(empty.textContent, /\b(ready|passed|resolved|score)\b/i);
+  assert.equal(root.querySelector("[data-review-confirm]"), null);
+  assert.equal(root.querySelector("[data-review-status]").textContent, "Detected: 0. Potential: 0. Needs review: 0.");
+  assert.equal(root.querySelector("[data-review-blocked]"), null, "an embedded report has no dialog actions");
+}));

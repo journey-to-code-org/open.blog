@@ -96,6 +96,7 @@ pub fn run(root: &Path, options: &ServeOptions) -> Result<(), String> {
     admin::register(&state);
     let report = state.rebuild()?;
     print_report(&report);
+    let mut last_readiness = readiness_text(&report);
     let out_dir = report.out_dir.clone();
 
     let config = site::load_config(root)?;
@@ -125,7 +126,12 @@ pub fn run(root: &Path, options: &ServeOptions) -> Result<(), String> {
             if now != last {
                 last = now;
                 match watch_state.rebuild() {
-                    Ok(r) => println!("rebuilt: {} posts, {} files", r.posts, r.files),
+                    Ok(r) => {
+                        println!("rebuilt: {} posts, {} files", r.posts, r.files);
+                        if let Some(text) = changed_readiness(&mut last_readiness, &r) {
+                            eprint!("{text}");
+                        }
+                    }
                     Err(e) => eprintln!("build failed (still serving the previous build):\n{e}"),
                 }
             }
@@ -242,6 +248,26 @@ pub fn print_report(report: &site::BuildReport) {
             print_source_review_findings(&report.source_review);
         }
     }
+}
+
+/// The research report as the terminal prints it, empty when the build has none.
+pub(crate) fn readiness_text(report: &site::BuildReport) -> String {
+    report
+        .readiness
+        .as_ref()
+        .map(|readiness| readiness.text())
+        .unwrap_or_default()
+}
+
+/// The report to print after a rebuild, only when it differs from the last one
+/// printed, so an unchanged report is not repeated on every save (ADR 0148).
+pub(crate) fn changed_readiness(last: &mut String, report: &site::BuildReport) -> Option<String> {
+    let text = readiness_text(report);
+    if text == *last {
+        return None;
+    }
+    last.clone_from(&text);
+    (!text.is_empty()).then_some(text)
 }
 
 /// Source-review findings (ADR 0146), one line each in the shape evidence

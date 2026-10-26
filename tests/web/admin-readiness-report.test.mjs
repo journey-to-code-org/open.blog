@@ -57,8 +57,8 @@ test("a finding that blocks cannot be acknowledged, and a withheld one is not bl
 
 test("the site report names each finding's place and where to repair it, without an open editor", () => {
   const at = (code) => report.findings.find((finding) => finding.code === code);
-  assert.equal(publicationReviewSitePlace(at("citation-unresolved")), "posts/cave.md, line 12");
-  assert.equal(publicationReviewSitePlace(at("context-link-unpublished")), "posts/cave.md, line 7");
+  assert.equal(publicationReviewSitePlace(at("citation-unresolved")), "posts/cave.md:12:1");
+  assert.equal(publicationReviewSitePlace(at("context-link-unpublished")), "posts/cave.md:7");
   assert.equal(publicationReviewSitePlace(at("file-unreadable")), "the Knowledge Atlas");
   assert.equal(publicationReviewSitePlace(at("claim-location-unreviewed")), "claim c1 in posts/cave.md");
   assert.deepEqual(publicationReviewSiteTarget(at("citation-unresolved")), { kind: "panel", href: "#/edit/posts%2Fcave.md", label: "Open the post posts/cave.md" });
@@ -74,7 +74,7 @@ test("the fixture carries no statement, note or excerpt, only ids, fields and th
   assert.doesNotMatch(text, /ZqxLeak|"facts"/);
   for (const finding of report.findings) {
     assert.deepEqual(
-      Object.keys(finding).filter((key) => !["validator", "check", "code", "category", "outcome", "gate", "scope", "related", "message", "repair", "fingerprint", "acknowledgement"].includes(key)),
+      Object.keys(finding).filter((key) => !["validator", "check", "code", "category", "outcome", "gate", "scope", "related", "message", "repair", "fingerprint", "place", "acknowledgement"].includes(key)),
       [],
     );
     assert.match(finding.fingerprint, /^[0-9a-f]{32}$/);
@@ -84,4 +84,15 @@ test("the fixture carries no statement, note or excerpt, only ids, fields and th
 test("the site report says the next build, and a post's review says publishing", () => {
   assert.match(publicationReviewCountsText(report), /^1 must be fixed before the next build\./);
   assert.match(publicationReviewCountsText({ ...report, scope: "post" }), /^1 must be fixed before publishing\./);
+});
+
+test("Admin names each place in the terminal's words", () => {
+  const places = lines
+    .filter((line) => line.startsWith("research "))
+    .map((line) => line.slice(line.indexOf(": ") + 2));
+  const listed = report.groups.flatMap((group) => group.findings.map((position) => report.findings[position]));
+  assert.equal(listed.length, places.length);
+  listed.forEach((finding, index) => {
+    assert.ok(places[index].startsWith(`${publicationReviewSitePlace(finding)}: `), `${places[index]} names ${publicationReviewSitePlace(finding)}`);
+  });
 });

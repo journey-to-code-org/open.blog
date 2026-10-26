@@ -7091,8 +7091,13 @@ const reviewFieldFinding = (scope, firstBodyLine) => Boolean(scope.field) && !(N
 /** The text a group's detail says for the whole site, where a post that is not yet published only warns. */
 const SITE_BLOCKING_DETAIL = "The next build would refuse these. They cannot be acknowledged; fix them, then refresh.";
 
-/** Where a finding of the site report is, in words: the post and line, or the research object it names. */
+/**
+ * Where a finding of the site report is, in words: the contract's own place text, the very words
+ * `openblog check` prints, so a finding is named the same way in both. The fallback only serves a
+ * report from a server that predates the field.
+ */
 export function publicationReviewSitePlace(finding) {
+  if (typeof finding?.place === "string" && finding.place) return finding.place;
   const scope = finding?.scope || {};
   if (scope.object === "post") {
     const path = scope.path || "a post";

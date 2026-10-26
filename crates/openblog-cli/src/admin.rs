@@ -17136,6 +17136,32 @@ mod tests {
     }
 
     #[test]
+    fn serve_prints_the_report_after_a_rebuild_only_when_it_changed() {
+        let f = boundary_fixture("readiness-serve");
+        let first = production(&f.dir);
+        let mut last = crate::serve::readiness_text(&first);
+        assert!(!last.is_empty());
+        assert_eq!(
+            crate::serve::changed_readiness(&mut last, &production(&f.dir)),
+            None,
+            "an unchanged report is not repeated"
+        );
+        // Fix what the report listed for the post: the next rebuild prints the new report.
+        fs::write(
+            f.dir.join("content/posts/cave.md"),
+            "---\ntitle: Cave\ndate: 2026-10-01\nprofile: research\ncitations: notes\n---\n\n## Abstract\n\nThe cave educates [@slings, page 514].\n\n## References\n",
+        )
+        .unwrap();
+        let changed = crate::serve::changed_readiness(&mut last, &production(&f.dir))
+            .expect("the report changed");
+        assert!(!changed.contains("context-link-unpublished"), "{changed}");
+        assert_eq!(
+            crate::serve::changed_readiness(&mut last, &production(&f.dir)),
+            None
+        );
+    }
+
+    #[test]
     fn a_stale_approval_is_withheld_and_a_blocking_failure_stops_the_build_before_anything_changes()
     {
         let f = boundary_fixture("readiness-blocking");

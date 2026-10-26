@@ -4,5 +4,5 @@ research detected: posts/cave.md:7: The link to /atlas/the-good/ names a page th
 research detected: posts/cave.md:12:1: citation-unresolved message. Repair: Do the thing. [citation-review: citation-unresolved]
 research potential (acknowledged): posts/cave.md:5:1: citation-reference-incomplete message. Repair: Do the thing. [citation-review: citation-reference-incomplete]
 research needs-review: comparison cave-places: The approval of comparison `cave-places` no longer holds. Repair: Check the place and update the member or its passage. [alignments: stale-approval]
-research needs-review: claim c1: claim-location-unreviewed message. Repair: Do the thing. [claim-review: claim-location-unreviewed]
+research needs-review: claim c1 in posts/cave.md: claim-location-unreviewed message. Repair: Do the thing. [claim-review: claim-location-unreviewed]
 Research checks: 1 must be fixed before the next build. Detected: 4. Potential: 1 (1 acknowledged). Needs review: 2.

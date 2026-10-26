@@ -21,11 +21,11 @@
 use serde::Serialize;
 
 pub use crate::research_completeness::{
-    acknowledgeable, looks_like_acknowledgements, Acknowledgement, AcknowledgementSet,
-    AcknowledgementState, Category, Check, CompletenessFinding as ReviewFinding, FindingScope,
-    Gate, ObjectKind, ObjectRef, OutcomeCount, OutcomeCounts, ReportEntry as ReviewEntry,
-    Validator, ACKNOWLEDGEMENTS_FORMAT_VERSION, CONTEXT_LINK_UNPUBLISHED, FILE_UNREADABLE,
-    MAX_ACKNOWLEDGEMENTS, MAX_ACKNOWLEDGEMENT_PART,
+    acknowledgeable, finding_place, looks_like_acknowledgements, Acknowledgement,
+    AcknowledgementSet, AcknowledgementState, Category, Check,
+    CompletenessFinding as ReviewFinding, FindingScope, Gate, ObjectKind, ObjectRef, OutcomeCount,
+    OutcomeCounts, ReportEntry as ReviewEntry, Validator, ACKNOWLEDGEMENTS_FORMAT_VERSION,
+    CONTEXT_LINK_UNPUBLISHED, FILE_UNREADABLE, MAX_ACKNOWLEDGEMENTS, MAX_ACKNOWLEDGEMENT_PART,
 };
 use crate::research_completeness::{CompletenessReport, ReportEntry};
 
@@ -211,50 +211,6 @@ impl PublicationReview {
         let mut text = lines.join("\n");
         text.push('\n');
         text
-    }
-}
-
-/// Where a finding is, in words an author can find: the post and line, field
-/// or the research object it names.
-pub fn finding_place(finding: &ReviewFinding) -> String {
-    let scope = &finding.scope;
-    let id = scope
-        .id
-        .as_deref()
-        .map(|id| format!(" {id}"))
-        .unwrap_or_default();
-    match scope.object {
-        ObjectKind::Post => {
-            let path = scope.path.as_deref().unwrap_or("the post");
-            match (scope.line, scope.column, scope.field.as_deref()) {
-                (Some(line), Some(column), _) => format!("{path}:{line}:{column}"),
-                (Some(line), None, _) => format!("{path}:{line}"),
-                (None, _, Some(field)) => format!("{path} ({field})"),
-                _ => path.to_string(),
-            }
-        }
-        ObjectKind::Claim => format!("claim{id}"),
-        ObjectKind::EvidenceLink => format!("evidence link{id}"),
-        ObjectKind::Source => format!("source{id}"),
-        ObjectKind::Interpretation => format!("interpretation{id}"),
-        ObjectKind::Passage => format!("notebook passage{id}"),
-        ObjectKind::Note => format!("notebook note{id}"),
-        ObjectKind::Entry => format!("atlas entry{id}"),
-        ObjectKind::Relationship => format!("atlas relationship{id}"),
-        ObjectKind::Dating => format!("dating{id}"),
-        ObjectKind::Alignment => format!(
-            "comparison{id}{}",
-            scope
-                .field
-                .as_deref()
-                .map(|field| format!(", {field}"))
-                .unwrap_or_default()
-        ),
-        ObjectKind::SourceLibrary => "the source library".into(),
-        ObjectKind::Notebook => "the research notebook".into(),
-        ObjectKind::Atlas => "the Knowledge Atlas".into(),
-        ObjectKind::ClaimsFile => "the claims file".into(),
-        ObjectKind::AlignmentsFile => "the alignments file".into(),
     }
 }
 

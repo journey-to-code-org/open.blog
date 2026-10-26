@@ -15,7 +15,8 @@
       },
       "message": "The approval of comparison `cave-places` no longer holds.",
       "repair": "Check the place and update the member or its passage.",
-      "fingerprint": "f8841d93d46ceb2a4dc0716eed8c6535"
+      "fingerprint": "f8841d93d46ceb2a4dc0716eed8c6535",
+      "place": "comparison cave-places"
     },
     {
       "validator": "atlas",
@@ -29,7 +30,8 @@
       },
       "message": "The Knowledge Atlas cannot be read.",
       "repair": "Fix the named record or field; the file is left unchanged until you do.",
-      "fingerprint": "77a7d3481ffc4ddc94f4bf1cf3337fe5"
+      "fingerprint": "77a7d3481ffc4ddc94f4bf1cf3337fe5",
+      "place": "the Knowledge Atlas"
     },
     {
       "validator": "research-profile",
@@ -45,6 +47,7 @@
       "message": "abstract-missing message.",
       "repair": "Do the thing.",
       "fingerprint": "b226ff31a2e3a9642e83eab4dd04e0f1",
+      "place": "posts/cave.md",
       "acknowledgement": "stale"
     },
     {
@@ -63,6 +66,7 @@
       "message": "citation-reference-incomplete message.",
       "repair": "Do the thing.",
       "fingerprint": "f7860149abb7e632410f646a1ff173ba",
+      "place": "posts/cave.md:5:1",
       "acknowledgement": "current"
     },
     {
@@ -85,7 +89,8 @@
       ],
       "message": "The link to /atlas/the-good/ names a page the next build does not publish: the atlas entry `the-good` is not approved.",
       "repair": "Approve the atlas entry if it is ready to be public, or remove the link.",
-      "fingerprint": "a24a839de2122d6c33f56a99be98c0da"
+      "fingerprint": "a24a839de2122d6c33f56a99be98c0da",
+      "place": "posts/cave.md:7"
     },
     {
       "validator": "citation-review",
@@ -102,7 +107,8 @@
       },
       "message": "citation-unresolved message.",
       "repair": "Do the thing.",
-      "fingerprint": "ef4efbfa79a9110bcab0733308e0b309"
+      "fingerprint": "ef4efbfa79a9110bcab0733308e0b309",
+      "place": "posts/cave.md:12:1"
     },
     {
       "validator": "claim-review",
@@ -118,7 +124,8 @@
       },
       "message": "claim-location-unreviewed message.",
       "repair": "Do the thing.",
-      "fingerprint": "c5dee95ca79b3120b9f05ce621030843"
+      "fingerprint": "c5dee95ca79b3120b9f05ce621030843",
+      "place": "claim c1 in posts/cave.md"
     }
   ],
   "groups": [

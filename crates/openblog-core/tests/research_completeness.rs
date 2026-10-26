@@ -1153,7 +1153,8 @@ fn serialization_is_compatible_and_versioned() {
       ],
       "message": "m",
       "repair": "r",
-      "fingerprint": "{fingerprint}"
+      "fingerprint": "{fingerprint}",
+      "place": "evidence link l1 in posts/cave.md"
     }}
   ],
   "counts": {{
