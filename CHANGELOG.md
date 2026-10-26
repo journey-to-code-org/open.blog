@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-10-26
+
 - Defined how reader questions, corrections and annotations will point at published text. A
   passage target names a section by its heading id and either the whole section or a short
   quotation with a little context on each side, and is checked against the post as it is now: it
