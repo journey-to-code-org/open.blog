@@ -166,7 +166,11 @@ pub fn is_work_path(path: &str) -> bool {
 /// range a Postgres `timestamptz` and a browser's `Date` both hold, so a time
 /// accepted here is never refused by storage after a quota slot is spent.
 pub(crate) fn parse_canonical_time(value: &str) -> Option<DateTime> {
-    DateTime::parse(value).filter(|time| time.rfc3339() == value && !value.starts_with("0000"))
+    DateTime::parse(value).filter(|time| {
+        time.rfc3339() == value
+            && value.starts_with(|c: char| c.is_ascii_digit())
+            && !value.starts_with("0000")
+    })
 }
 
 fn parse_time(field: &str, value: &str) -> Result<DateTime, ProvenanceError> {
