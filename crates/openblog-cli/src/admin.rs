@@ -20,6 +20,7 @@ use std::time::Duration;
 use blake2::{Blake2s256, Digest};
 use openblog_core::accessibility::AuditScope;
 use openblog_core::citations::{self, PublicLocator};
+use openblog_core::claims;
 use openblog_core::collaboration::{
     AuthorizationAction, AuthorizationRole, AuthorizationTarget, NewParticipant,
     NewSharedPublication, NewSourceReference, PublishError, SharedPublication,
@@ -66,6 +67,7 @@ use crate::assistant::{
 };
 use crate::atlas_store;
 use crate::auth::{self, Sessions, Throttle, Users};
+use crate::claims_store;
 use crate::clock;
 use crate::fsutil;
 use crate::http::{Request, Response};
@@ -639,6 +641,14 @@ fn authenticated_api(
         ("POST", "research/atlas/relationships") => save_atlas_relationship(state, req, true),
         ("PUT", "research/atlas/relationships") => save_atlas_relationship(state, req, false),
         ("DELETE", "research/atlas/relationships") => remove_atlas_item(state, req, false),
+        ("GET", "research/claims") => list_claims(state),
+        ("POST", "research/claims/anchor") => claim_anchor(state, req),
+        ("POST", "research/claims/claims") => save_claim(state, req, true),
+        ("PUT", "research/claims/claims") => save_claim(state, req, false),
+        ("DELETE", "research/claims/claims") => remove_claim_item(state, req, true),
+        ("POST", "research/claims/links") => save_claim_link(state, req, true),
+        ("PUT", "research/claims/links") => save_claim_link(state, req, false),
+        ("DELETE", "research/claims/links") => remove_claim_item(state, req, false),
         ("GET", "assistant/status") => assistant_status(state),
         ("GET", "assistant/settings") => assistant_settings(state),
         ("PUT", "assistant/settings") => save_assistant_settings(state, req),
@@ -1970,6 +1980,345 @@ fn atlas_store_error(
         }
         atlas_store::StoreError::Invalid(diagnostics) => atlas_diagnostics(diagnostics),
         atlas_store::StoreError::Storage(message) => Response::error(500, &message),
+    }
+}
+
+// ---- claims and evidence links (Evidence Studio, ADR 0081 to 0083) ----------
+
+/// The anchor texts claims are checked against: every saved post's body, by
+/// slug. Unsaved editor text is never used.
+fn claim_drafts(state: &AppState) -> Result<claims::Drafts, Response> {
+    let config = site::load_config(&state.root).map_err(|error| Response::error(500, &error))?;
+    Ok(claims_store::read_drafts(
+        &state.root,
+        &config.paths.content,
+    ))
+}
+
+/// The claims file as stored, with what the editor picks from (library
+/// sources and notebook passages, previews only), every anchored claim's
+/// status against the saved drafts, per-relation counts that are never
+/// combined, the projection notices, and which links a projection could copy.
+fn claims_view(snapshot: &claims_store::Snapshot, drafts: &claims::Drafts) -> Json {
+    let set = &snapshot.claims;
+    let passages: Vec<Json> = snapshot
+        .notebook
+        .passages
+        .iter()
+        .map(|passage| {
+            json!({
+                "id": passage.id,
+                "source": passage.source,
+                "locators": passage.locators,
+                "archived": passage.archived,
+                "preview": atlas_preview(&passage.excerpt.text),
+            })
+        })
+        .collect();
+    let mut anchors = Map::new();
+    let mut counts = Map::new();
+    for claim in &set.claims {
+        counts.insert(claim.id.clone(), json!(set.counts(&claim.id)));
+        if let Some(check) = claims::anchor_status(claim, drafts) {
+            let mut status = json!({ "status": check.as_str() });
+            if let claims::AnchorCheck::Moved { start } = check {
+                status["start"] = json!(start);
+            }
+            if !drafts.contains_key(&claim.post) {
+                status["missingPost"] = json!(true);
+            }
+            anchors.insert(claim.id.clone(), status);
+        }
+    }
+    let projected: Vec<&str> = set
+        .projected_links()
+        .iter()
+        .map(|link| link.id.as_str())
+        .collect();
+    json!({
+        "file": claims_store::CLAIMS_FILE,
+        "revision": snapshot.revision,
+        "stored": snapshot.stored,
+        "claims": set.claims,
+        "links": set.links,
+        "notices": set.notices(),
+        "anchors": anchors,
+        "counts": counts,
+        "projected": projected,
+        "relations": claims::Relation::ALL.map(claims::Relation::as_str),
+        "sources": snapshot.library.sources,
+        "passages": passages,
+    })
+}
+
+fn list_claims(state: &AppState) -> Response {
+    let drafts = match claim_drafts(state) {
+        Ok(drafts) => drafts,
+        Err(response) => return response,
+    };
+    match claims_store::load(&state.root, &source_contributors(state)) {
+        Ok(snapshot) => Response::json(200, &claims_view(&snapshot, &drafts)),
+        Err(error) => claims_store_error(state, error, None),
+    }
+}
+
+/// Check a selection against the saved draft of one post, without writing
+/// anything. The editor sends the post's path and the revision (`etag`) it
+/// loaded, and UTF-8 byte offsets into the post's anchor text with the exact
+/// words selected. A draft saved elsewhere since it was opened is a conflict,
+/// so a selection made in older text is never checked against newer text.
+fn claim_anchor(state: &AppState, req: &Request) -> Response {
+    let body = match research_read_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let (Some(rel), Some(revision)) = (body["path"].as_str(), body["etag"].as_str()) else {
+        return Response::error(400, "Name the post's path and the revision you selected in");
+    };
+    let (Some(start), Some(end), Some(text)) = (
+        body["start"].as_u64().and_then(|v| usize::try_from(v).ok()),
+        body["end"].as_u64().and_then(|v| usize::try_from(v).ok()),
+        body["text"].as_str(),
+    ) else {
+        return Response::error(400, "Send the selection's byte offsets and its words");
+    };
+    let _content = lock(&state.build);
+    let config = match site::load_config(&state.root) {
+        Ok(config) => config,
+        Err(error) => return Response::error(500, &error),
+    };
+    if check_rel_path(rel) != Ok("posts") {
+        return Response::error(400, "Claims are made in posts");
+    }
+    let path = match resolve_content_path(&state.root, &config, rel) {
+        Ok(path) => path,
+        Err(error) => return Response::error(400, &error),
+    };
+    let Ok(source) = fs::read_to_string(&path) else {
+        return Response::error(404, "No such post; save it first");
+    };
+    if etag(&source) != revision {
+        return Response::json(
+            409,
+            &json!({ "error": "The post was saved elsewhere after you opened it, so the selection was not checked. Reload the post, then select the words again.", "draftChanged": true }),
+        );
+    }
+    let (Some(post), Ok(draft)) = (
+        claims::post_slug(rel, &source),
+        claims::anchor_text(&source),
+    ) else {
+        return Response::error(
+            422,
+            "The post's front matter cannot be read, so no claim can be anchored in it",
+        );
+    };
+    if text.is_empty() || text.contains('\r') || end <= start || end - start != text.len() {
+        return Response::error(
+            422,
+            "The selection must be the exact words between its byte offsets",
+        );
+    }
+    let anchor = claims::Anchor {
+        start,
+        end,
+        text: text.to_string(),
+        extra: BTreeMap::new(),
+    };
+    let check = anchor.check(&draft);
+    let mut status = json!({ "post": post, "status": check.as_str(), "anchor": anchor });
+    if let claims::AnchorCheck::Moved { start } = check {
+        status["start"] = json!(start);
+    }
+    Response::json(200, &status)
+}
+
+/// Read a claims change request: JSON, bounded, and naming the revision.
+fn claims_request(req: &Request) -> Result<(Json, String), Response> {
+    require_json(req)?;
+    if req.body.len() > MAX_NOTEBOOK_REQUEST_BYTES {
+        return Err(Response::error(
+            413,
+            "A claims change is limited to 256 KiB",
+        ));
+    }
+    let body: Json =
+        serde_json::from_slice(&req.body).map_err(|_| Response::error(400, "Invalid JSON"))?;
+    let Some(revision) = body["revision"].as_str().map(str::to_string) else {
+        return Err(Response::error(400, "Missing claims revision"));
+    };
+    Ok((body, revision))
+}
+
+fn claims_saved(
+    snapshot: &claims_store::Snapshot,
+    drafts: &claims::Drafts,
+    key: &str,
+    item: Json,
+    status: u16,
+) -> Response {
+    let mut view = claims_view(snapshot, drafts);
+    view[key] = item;
+    Response::json(status, &view)
+}
+
+/// Create (`POST`) or update (`PUT`) one claim from its full JSON form. The
+/// saved drafts are read and the file written while the content lock is held,
+/// so an Admin post save cannot slip between the anchor check and the write.
+fn save_claim(state: &AppState, req: &Request, create: bool) -> Response {
+    let (body, revision) = match claims_request(req) {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+    let claim = match claims::Claim::from_json(body["claim"].clone()) {
+        Ok(claim) => claim,
+        Err(diagnostics) => return claims_diagnostics(diagnostics),
+    };
+    let id = claim.id.clone();
+    let contributors = source_contributors(state);
+    let _content = lock(&state.build);
+    let drafts = match claim_drafts(state) {
+        Ok(drafts) => drafts,
+        Err(response) => return response,
+    };
+    let saved = if create {
+        claims_store::create_claim(&state.root, &revision, claim, &drafts, &contributors)
+    } else {
+        claims_store::update_claim(&state.root, &revision, claim, &drafts, &contributors)
+    };
+    match saved {
+        Ok(snapshot) => {
+            let item = json!(snapshot.claims.claim(&id));
+            claims_saved(
+                &snapshot,
+                &drafts,
+                "claim",
+                item,
+                if create { 201 } else { 200 },
+            )
+        }
+        Err(error) => claims_store_error(state, error, Some((true, &id))),
+    }
+}
+
+/// Create (`POST`) or update (`PUT`) one evidence link from its full JSON form.
+fn save_claim_link(state: &AppState, req: &Request, create: bool) -> Response {
+    let (body, revision) = match claims_request(req) {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+    let link = match claims::EvidenceLink::from_json(body["link"].clone()) {
+        Ok(link) => link,
+        Err(diagnostics) => return claims_diagnostics(diagnostics),
+    };
+    let id = link.id.clone();
+    let contributors = source_contributors(state);
+    let _content = lock(&state.build);
+    let drafts = match claim_drafts(state) {
+        Ok(drafts) => drafts,
+        Err(response) => return response,
+    };
+    let saved = if create {
+        claims_store::create_link(&state.root, &revision, link, &drafts, &contributors)
+    } else {
+        claims_store::update_link(&state.root, &revision, link, &drafts, &contributors)
+    };
+    match saved {
+        Ok(snapshot) => {
+            let item = json!(snapshot.claims.link(&id));
+            claims_saved(
+                &snapshot,
+                &drafts,
+                "link",
+                item,
+                if create { 201 } else { 200 },
+            )
+        }
+        Err(error) => claims_store_error(state, error, Some((false, &id))),
+    }
+}
+
+/// Remove one claim (refused while a link rests on it) or one link (always
+/// allowed). The removed item travels back so the editor can offer undo.
+fn remove_claim_item(state: &AppState, req: &Request, claim: bool) -> Response {
+    let (body, revision) = match claims_request(req) {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+    // Checked before it is named in any message, so a hostile id is never echoed.
+    let Some(id) = body["id"]
+        .as_str()
+        .filter(|id| knowledge_atlas::valid_id(id))
+    else {
+        return Response::error(400, "Name the id of the claim or link to remove");
+    };
+    let contributors = source_contributors(state);
+    let _content = lock(&state.build);
+    let drafts = match claim_drafts(state) {
+        Ok(drafts) => drafts,
+        Err(response) => return response,
+    };
+    let removed = if claim {
+        claims_store::remove_claim(&state.root, &revision, id, &contributors)
+    } else {
+        claims_store::remove_link(&state.root, &revision, id, &contributors)
+    };
+    match removed {
+        Ok(snapshot) => Response::json(200, &claims_view(&snapshot, &drafts)),
+        Err(error) => claims_store_error(state, error, Some((claim, id))),
+    }
+}
+
+fn claims_diagnostics(diagnostics: Vec<AtlasDiagnostic>) -> Response {
+    let error = diagnostics.first().map_or_else(
+        || "The claims change is invalid".to_string(),
+        |first| first.to_string(),
+    );
+    Response::json(
+        422,
+        &json!({
+            "error": error,
+            "file": claims_store::CLAIMS_FILE,
+            "diagnostics": diagnostics,
+        }),
+    )
+}
+
+/// A conflict carries the latest revision and the newer copy of the claim or
+/// link being changed, so the editor can offer "use stored" or "keep my
+/// draft". Nothing is written either way.
+fn claims_store_error(
+    state: &AppState,
+    error: claims_store::StoreError,
+    item: Option<(bool, &str)>,
+) -> Response {
+    match error {
+        claims_store::StoreError::Conflict => {
+            let latest = claims_store::load(&state.root, &source_contributors(state)).ok();
+            let current = latest
+                .as_ref()
+                .zip(item)
+                .and_then(|(snapshot, (claim, id))| {
+                    if claim {
+                        snapshot.claims.claim(id).map(|c| json!(c))
+                    } else {
+                        snapshot.claims.link(id).map(|l| json!(l))
+                    }
+                });
+            Response::json(
+                409,
+                &json!({
+                    "error": error.to_string(),
+                    "conflict": true,
+                    "revision": latest.as_ref().map(|snapshot| snapshot.revision.as_str()),
+                    "current": current,
+                }),
+            )
+        }
+        claims_store::StoreError::Invalid(diagnostics) => claims_diagnostics(diagnostics),
+        claims_store::StoreError::Storage(message) => Response::json(
+            500,
+            &json!({ "error": message, "file": claims_store::CLAIMS_FILE }),
+        ),
     }
 }
 
@@ -12708,6 +13057,365 @@ mod tests {
         .err()
         .unwrap();
         assert!(error.contains("static/graph.json") && atlas_leaked(error.as_bytes()).is_empty());
+    }
+
+    // ---- Claims and evidence links Admin routes (A4.2, ADR 0081 to 0083) ------
+
+    const CLAIM_POST: &str = "posts/2026-01-07-cave.md";
+    const CLAIM_SENTINEL: &str = "ob-claims-rationale-7731";
+
+    fn claims_list(f: &Fixture, session: &(String, String)) -> Json {
+        let response = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/research/claims"), session, false),
+        );
+        assert_eq!(
+            response.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
+        assert!(response
+            .headers
+            .iter()
+            .any(|(name, value)| name == "Cache-Control" && value == "no-store"));
+        body_json(&response)
+    }
+
+    fn stored_claims(f: &Fixture) -> Option<Vec<u8>> {
+        fs::read(f.dir.join(crate::claims_store::CLAIMS_FILE)).ok()
+    }
+
+    /// A post whose body holds a hostile, multi-byte draft, and its etag.
+    fn claim_post(f: &Fixture, body: &str) -> String {
+        let source = format!("---\ntitle: Cave\ndate: 2026-01-07\ndraft: true\n---\n{body}");
+        fs::write(f.dir.join("content").join(CLAIM_POST), &source).unwrap();
+        etag(&source)
+    }
+
+    const CLAIM_DRAFT: &str = "The cave educates. <img src=x onerror=alert(1)> Πλάτων 🙂 says so.";
+
+    fn anchor_json(text: &str) -> Json {
+        let start = CLAIM_DRAFT.find(text).unwrap();
+        json!({"start": start, "end": start + text.len(), "text": text})
+    }
+
+    #[test]
+    fn claims_api_is_authenticated_csrf_protected_revision_and_anchor_checked() {
+        let f = fixture_with_sources("claims-api");
+        for (method, path) in [
+            ("GET", "/admin/api/research/claims"),
+            ("POST", "/admin/api/research/claims/anchor"),
+            ("POST", "/admin/api/research/claims/claims"),
+            ("PUT", "/admin/api/research/claims/claims"),
+            ("DELETE", "/admin/api/research/claims/claims"),
+            ("POST", "/admin/api/research/claims/links"),
+            ("PUT", "/admin/api/research/claims/links"),
+            ("DELETE", "/admin/api/research/claims/links"),
+        ] {
+            assert_eq!(handle(&f.state, &req(method, path)).status, 401, "{path}");
+        }
+        let session = login_ok(&f);
+        let revision = claim_post(&f, CLAIM_DRAFT);
+        let post_bytes = fs::read(f.dir.join("content").join(CLAIM_POST)).unwrap();
+        let empty = claims_list(&f, &session);
+        assert_eq!(empty["file"], crate::claims_store::CLAIMS_FILE);
+        assert_eq!(empty["stored"], false);
+        assert_eq!(
+            empty["relations"],
+            json!(["supports", "contradicts", "contextualizes"])
+        );
+        assert!(stored_claims(&f).is_none());
+
+        // A selection is checked against the saved draft it was made in.
+        let words = anchor_json("Πλάτων 🙂");
+        let mut selection = words.clone();
+        selection["path"] = json!(CLAIM_POST);
+        selection["etag"] = json!("older");
+        let (status, refused) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/claims/anchor",
+            selection.clone(),
+        );
+        assert_eq!(
+            (status, refused["draftChanged"].clone()),
+            (409, json!(true))
+        );
+        selection["etag"] = json!(revision);
+        let (status, checked) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/claims/anchor",
+            selection.clone(),
+        );
+        assert_eq!(status, 200, "{checked}");
+        assert_eq!(checked["post"], "cave");
+        assert_eq!(checked["status"], "verified");
+        assert_eq!(checked["anchor"], words);
+        // UTF-8 bytes, not characters: one character off is not the same span.
+        let mut shifted = selection.clone();
+        shifted["start"] = json!(words["start"].as_u64().unwrap() - 1);
+        shifted["end"] = json!(words["end"].as_u64().unwrap() - 1);
+        let (_, moved) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/claims/anchor",
+            shifted,
+        );
+        assert_eq!(moved["status"], "moved");
+        assert_eq!(moved["start"], words["start"]);
+
+        let claim = json!({"id": "c1", "post": "cave", "statement": "Plato says so.",
+            "anchor": words, "shelf": {"kept": true}});
+        // No CSRF token: refused, nothing written.
+        let without = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/research/claims/claims",
+                    json!({"revision": empty["revision"], "claim": claim}),
+                ),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(without.status, 403);
+        let (status, _) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/claims/claims",
+            json!({ "claim": claim }),
+        );
+        assert_eq!(status, 400);
+        assert!(stored_claims(&f).is_none());
+
+        // A stale range fails and leaves the draft and the evidence store alone.
+        let mut stale = claim.clone();
+        stale["anchor"] = json!({"start": 0, "end": 7, "text": "absent!"});
+        let (status, body) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/claims/claims",
+            json!({"revision": empty["revision"], "claim": stale}),
+        );
+        assert_eq!(status, 422, "{body}");
+        assert_eq!(body["diagnostics"][0]["code"], "stale-anchor");
+        assert_eq!(body["diagnostics"][0]["field"], "anchor");
+        assert!(stored_claims(&f).is_none());
+        // An ambiguous range too ("e" + space occurs more than once).
+        let mut ambiguous = claim.clone();
+        ambiguous["anchor"] = json!({"start": 0, "end": 2, "text": "e "});
+        let (status, body) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/claims/claims",
+            json!({"revision": empty["revision"], "claim": ambiguous}),
+        );
+        assert_eq!(
+            (status, body["diagnostics"][0]["code"].clone()),
+            (422, json!("ambiguous-anchor"))
+        );
+        assert!(stored_claims(&f).is_none());
+
+        let (status, created) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/claims/claims",
+            json!({"revision": empty["revision"], "claim": claim}),
+        );
+        assert_eq!(status, 201, "{created}");
+        assert_eq!(created["claim"]["shelf"], json!({"kept": true}));
+        assert_eq!(created["anchors"]["c1"]["status"], "verified");
+        // Overlapping claims are separate spans of the same draft.
+        let (status, overlapping) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/claims/claims",
+            json!({"revision": created["revision"], "claim": {"id": "c2", "post": "cave",
+                "statement": "Plato.", "anchor": anchor_json("Πλάτων")}}),
+        );
+        assert_eq!(status, 201, "{overlapping}");
+
+        // Opposing links coexist and are counted apart, never netted.
+        let mut current = overlapping;
+        for (id, relation, source) in [
+            ("l1", "supports", "slings"),
+            ("l2", "contradicts", "plato"),
+            ("l3", "contradicts", "slings"),
+        ] {
+            let (status, saved) = source_call(
+                &f,
+                &session,
+                "POST",
+                "/admin/api/research/claims/links",
+                json!({"revision": current["revision"], "link": {"id": id, "claim": "c1",
+                    "relation": relation, "evidence": {"source": source},
+                    "rationale": CLAIM_SENTINEL, "confidence": "plausible",
+                    "uncertainty": "Translation disputed."}}),
+            );
+            assert_eq!(status, 201, "{saved}");
+            current = saved;
+        }
+        assert_eq!(
+            current["counts"]["c1"],
+            json!({"supports": 1, "contradicts": 2, "contextualizes": 0})
+        );
+        assert!(current.get("score").is_none() && current.get("verdict").is_none());
+
+        // A save based on an older revision is a conflict carrying the stored copy.
+        let (status, conflict) = source_call(
+            &f,
+            &session,
+            "PUT",
+            "/admin/api/research/claims/claims",
+            json!({"revision": created["revision"], "claim": {"id": "c1", "post": "cave",
+                "statement": "Mine.", "anchor": words}}),
+        );
+        assert_eq!(status, 409);
+        assert_eq!(conflict["conflict"], true);
+        assert_eq!(conflict["revision"], current["revision"]);
+        assert_eq!(conflict["current"]["statement"], "Plato says so.");
+
+        // Once the saved draft moves on, the claim is stale: no new evidence.
+        let held = stored_claims(&f).unwrap();
+        claim_post(&f, "A rewritten draft without the words.");
+        let after_edit = claims_list(&f, &session);
+        assert_eq!(after_edit["anchors"]["c1"]["status"], "stale");
+        let (status, body) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/claims/links",
+            json!({"revision": after_edit["revision"], "link": {"id": "l4", "claim": "c1",
+                "relation": "contextualizes", "evidence": {"source": "plato"}}}),
+        );
+        assert_eq!(
+            (status, body["diagnostics"][0]["code"].clone()),
+            (422, json!("stale-anchor"))
+        );
+        assert_eq!(stored_claims(&f).unwrap(), held);
+        fs::write(f.dir.join("content").join(CLAIM_POST), &post_bytes).unwrap();
+
+        // Removing a link is always allowed; a claim with links is not removed.
+        let (status, body) = source_call(
+            &f,
+            &session,
+            "DELETE",
+            "/admin/api/research/claims/claims",
+            json!({"revision": current["revision"], "id": "c1"}),
+        );
+        assert_eq!(
+            (status, body["diagnostics"][0]["code"].clone()),
+            (422, json!("still-linked"))
+        );
+        let (status, removed) = source_call(
+            &f,
+            &session,
+            "DELETE",
+            "/admin/api/research/claims/links",
+            json!({"revision": current["revision"], "id": "l3"}),
+        );
+        assert_eq!(status, 200);
+        assert_eq!(removed["counts"]["c1"]["contradicts"], 1);
+        let (status, body) = source_call(
+            &f,
+            &session,
+            "DELETE",
+            "/admin/api/research/claims/links",
+            json!({"revision": removed["revision"], "id": "<script>"}),
+        );
+        assert_eq!(status, 400);
+        assert!(!body.to_string().contains("<script>"));
+        assert_eq!(
+            fs::read(f.dir.join("content").join(CLAIM_POST)).unwrap(),
+            post_bytes
+        );
+    }
+
+    #[test]
+    fn claims_never_cross_a_publication_boundary() {
+        let f = fixture_with_sources("claims-leak");
+        let session = login_ok(&f);
+        let revision = claim_post(&f, CLAIM_DRAFT);
+        let _ = revision;
+        let empty = claims_list(&f, &session);
+        let (_, created) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/claims/claims",
+            json!({"revision": empty["revision"], "claim": {"id": "c1", "post": "cave",
+                "statement": CLAIM_SENTINEL, "anchor": anchor_json("The cave"),
+                "visibility": "approved"}}),
+        );
+        let (status, _) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/claims/links",
+            json!({"revision": created["revision"], "link": {"id": "l1", "claim": "c1",
+                "relation": "supports", "evidence": {"source": "slings"},
+                "rationale": CLAIM_SENTINEL, "visibility": "approved"}}),
+        );
+        assert_eq!(status, 201);
+        let stored = stored_claims(&f).unwrap();
+        assert!(String::from_utf8_lossy(&stored).contains(CLAIM_SENTINEL));
+        assert!(openblog_core::research_bundle::looks_like_private_research(
+            &stored
+        ));
+
+        // Publish the post, rebuild, and read every output.
+        let source = format!("---\ntitle: Cave\ndate: 2026-01-07\n---\n{CLAIM_DRAFT}");
+        fs::write(f.dir.join("content").join(CLAIM_POST), source).unwrap();
+        f.state.rebuild().unwrap();
+        let dist = f.dir.join("dist");
+        let files = crate::fsutil::walk(&dist);
+        assert!(files
+            .iter()
+            .any(|file| file.to_string_lossy().contains("cave")));
+        for file in &files {
+            let name = crate::fsutil::relative(&dist, file);
+            let bytes = fs::read(file).unwrap();
+            assert!(
+                !String::from_utf8_lossy(&bytes).contains(CLAIM_SENTINEL),
+                "dist/{name} exposes a claim"
+            );
+            assert!(!openblog_core::research_bundle::looks_like_private_research(&bytes));
+        }
+        // The public server never serves the file under any spelling.
+        for path in [
+            "/.openblog/private/research/claims.json",
+            "/.openblog/private/research/claims.json/",
+            "/%2eopenblog/private/research/claims.json",
+            "/../.openblog/private/research/claims.json",
+        ] {
+            let response = crate::serve::route(&f.state, &req("GET", path), &dist);
+            assert!(
+                !String::from_utf8_lossy(&response.body).contains(CLAIM_SENTINEL),
+                "{path}"
+            );
+        }
+        // Other Admin views never carry it.
+        for path in ["meta", "sources", "research/notebook", "research/atlas"] {
+            let response = handle(
+                &f.state,
+                &authed(req("GET", &format!("/admin/api/{path}")), &session, false),
+            );
+            assert!(
+                !String::from_utf8_lossy(&response.body).contains(CLAIM_SENTINEL),
+                "admin {path}"
+            );
+        }
     }
 
     // ---- Knowledge Atlas Admin routes (A5.3, ADR 0057) -------------------------
