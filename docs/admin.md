@@ -254,6 +254,34 @@ citation and choose **Cite**. Press Ctrl+Z or **Undo citation** right after inse
 the draft and caret exactly. Escape closes the dialog without changing anything. See
 [Citation format](specs/citations.md).
 
+### Insert research from beside the draft
+
+In a post, choose **Research** in the Write toolbar to open your research beside the draft (below
+it on narrow screens). The draft stays editable. Search passages, sources, Knowledge Atlas entries,
+comparisons and interpretations; choose **Show → My private notes** to see your notes, which are
+never listed otherwise. Choose an item to see what it would insert:
+
+- **Insert quotation with citation** puts the passage's wording, exactly as stored, in a block
+  quote after the paragraph you are in, followed by its citation, checked by the server like the
+  Cite dialog. Notes linked to the passage are never inserted. If you have not stated the
+  version's rights, or state that it is under copyright, confirm that you have read the rights
+  statement first; the statement is yours and is not permission.
+- **Insert citation** on a source writes only its key and the locators you enter.
+- **Insert link to this entry** (or to a comparison, or a published dating's words) appears only
+  once the next build publishes that page: the entry or comparison is approved and the site
+  publishes its atlas (`knowledgeAtlas.publish`) or comparisons (`comparisons.publish`).
+  Otherwise the item says what is missing. Interpretations are never inserted; link the published
+  comparison that shows one, or cite the source it interprets.
+- A private note goes in only through **Convert to draft text…** and a confirmation that it
+  becomes part of the post, as your own words.
+
+Insertions work in Visual and Markdown modes and never land inside code, HTML or a link. Press
+Ctrl+Z, or the **Undo** button named for what you inserted, to restore the draft exactly. If
+something cannot be inserted, the item says why and the draft is unchanged; nothing is written to
+your research files. Escape closes the panel. Each item links to its full panel in the research
+workspace, which keeps your unsaved draft. See
+[ADR 0134](adr/0134-the-draft-side-research-panel-inserts-only-checked-and-published-research.md).
+
 ### Move between research and your draft
 
 Sources, the research notebook, the Knowledge Atlas, Compare, and claims form one **Research

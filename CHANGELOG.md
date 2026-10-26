@@ -18,7 +18,16 @@ All notable changes to open.blog are recorded here. Releases follow
   Guided and Advanced show the workspace in the main navigation, Simple reaches it from Advanced
   tools and `Ctrl+K`, and Custom lets you choose. Every Admin page gains a skip link, and focus moves
   to the new page's heading after navigation.
-
+- A post's Write toolbar gains **Research**, which opens your research beside the draft:
+  search passages, sources, atlas entries, comparisons and interpretations, and insert from them
+  without leaving the draft. A quotation goes in exactly as stored, as a block quote with its
+  citation checked by the server, and never with its notes; a version whose rights you have not
+  stated, or state are reserved, asks you to confirm first. A source gives a citation with
+  locators. Links to atlas entries, their datings and comparisons are offered only once the next
+  build publishes those pages, and otherwise say what is missing. Private notes are listed only
+  on request and go in only through an explicit conversion. Insertions work in Visual and
+  Markdown modes, never land in code, HTML or a link, and Ctrl+Z undoes them. Nothing is written
+  to your research files.
 - In Visual mode, backslash-escaped `*`, `_`, backticks, `[` and `]` are now read as the
   characters themselves. Before, `\*word\*` showed as emphasis and `\[x\](y)` as a link, and
   switching modes could add backslashes to the draft.
