@@ -35,6 +35,7 @@
 //! - [`third_perspective`]: a reader's consented, moderated reflection on a published work, and its one public form
 //! - [`perspective_publication`]: approved Third Perspectives as the site publishes and its canonical pages show them
 //! - [`attributed_perspective`]: stable targets at one author's section of a shared reflection, and who may answer a Third Perspective about it
+//! - [`author_response`]: an author's answer to a Third Perspective as the hosted store keeps it, the request that stores it and the checks that it still belongs under its parent
 
 pub mod accessibility;
 pub mod alignment;
@@ -44,6 +45,7 @@ pub mod assembly;
 pub mod assistant_guide;
 pub mod atlas_publication;
 pub mod attributed_perspective;
+pub mod author_response;
 pub mod bibliography;
 pub mod capability;
 pub mod chronology;

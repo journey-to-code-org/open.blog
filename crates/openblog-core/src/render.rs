@@ -190,6 +190,15 @@ fn passage_data_element(post: &Post, document: &crate::passage_target::PassageDo
         "revision": document.revision,
         "sections": sections,
     });
+    format!(
+        "<script type=\"application/json\" id=\"{PASSAGE_DATA_ELEMENT_ID}\">{}</script>",
+        script_safe_json(&data)
+    )
+}
+
+/// JSON text that can sit in a script element: nothing in it can end or
+/// confuse the element.
+fn script_safe_json(data: &serde_json::Value) -> String {
     let mut json = String::new();
     for character in data.to_string().chars() {
         match character {
@@ -199,7 +208,43 @@ fn passage_data_element(post: &Post, document: &crate::passage_target::PassageDo
             _ => json.push(character),
         }
     }
-    format!("<script type=\"application/json\" id=\"{PASSAGE_DATA_ELEMENT_ID}\">{json}</script>")
+    json
+}
+
+/// The id of the page data element that lists a post's attributed sections
+/// for the Third Perspective form (ADR 0165).
+pub const ATTRIBUTED_DATA_ELEMENT_ID: &str = "ob-attributed-sections";
+
+/// A shared reflection's attributed sections as the Third Perspective form
+/// reads them: each author's section by its anchor, author's published name,
+/// place, first words and digest, all computed here by the build from the
+/// committed body and credits. Empty when the post attributes nothing.
+fn attributed_sections_element(
+    post: &Post,
+    sections: &crate::attributed_perspective::AttributedSections,
+) -> String {
+    if sections.sections().is_empty() {
+        return String::new();
+    }
+    let entries: Vec<serde_json::Value> = sections
+        .sections()
+        .iter()
+        .map(|section| {
+            serde_json::json!({
+                "anchor": section.anchor(),
+                "contributor": section.contribution,
+                "nth": section.nth,
+                "author": section.author,
+                "excerpt": section.excerpt,
+                "digest": section.digest,
+            })
+        })
+        .collect();
+    let data = serde_json::json!({ "version": 1, "work": post.url, "sections": entries });
+    format!(
+        "<script type=\"application/json\" id=\"{ATTRIBUTED_DATA_ELEMENT_ID}\">{}</script>\n",
+        script_safe_json(&data)
+    )
 }
 
 fn resolved_post_canonical(config: &SiteConfig, post: &Post) -> Option<String> {
@@ -912,8 +957,25 @@ impl<'a> Renderer<'a> {
         } else {
             ""
         };
+        // Where the site opens author responses on this post, a shared
+        // reflection's author sections can be written about by author and
+        // place (ADR 0165). Everywhere else the region is as it was.
+        let attributed =
+            if participation::effective_mode(c, post, ParticipationKind::AuthorResponse)
+                == ParticipationMode::Hidden
+            {
+                crate::attributed_perspective::AttributedSections::default()
+            } else {
+                crate::attributed_perspective::AttributedSections::of_post(post)
+            };
+        let attributed_words = if attributed.sections().is_empty() {
+            ""
+        } else {
+            " To write about one author’s section, name it by its author and its place among that author’s sections, such as “MINA, section 1”."
+        };
+        let attributed_element = attributed_sections_element(post, &attributed);
         Some(format!(
-            "<section id=\"{THIRD_PERSPECTIVE_ANCHOR}\" class=\"ob-third-perspective\" aria-labelledby=\"{THIRD_PERSPECTIVE_ANCHOR}-title\">\n<h2 id=\"{THIRD_PERSPECTIVE_ANCHOR}-title\">Offer a Third Perspective</h2>\n<ob-third-perspective endpoint=\"{}\" page=\"{}\"{contact_attr}{receipts_attr}>\n<p>Share your own reading of this work, or of one section of it. If a moderator approves it, it is shown here as a reader’s reflection, never as one of the authors’, and only as you agree: published or not, with your name or without. There are no scores and no votes.</p>\n<p class=\"ob-third-perspective-static\">The form needs JavaScript. Without it, you can write your reflection to the author{contact_words}: say which section it is about, whether it may be published, whether your name may be shown and whether you may be asked to clarify it, and give this page’s passage revision, <code>{}</code>.</p>\n</ob-third-perspective>\n</section>\n",
+            "<section id=\"{THIRD_PERSPECTIVE_ANCHOR}\" class=\"ob-third-perspective\" aria-labelledby=\"{THIRD_PERSPECTIVE_ANCHOR}-title\">\n<h2 id=\"{THIRD_PERSPECTIVE_ANCHOR}-title\">Offer a Third Perspective</h2>\n<ob-third-perspective endpoint=\"{}\" page=\"{}\"{contact_attr}{receipts_attr}>\n<p>Share your own reading of this work, or of one section of it. If a moderator approves it, it is shown here as a reader’s reflection, never as one of the authors’, and only as you agree: published or not, with your name or without. There are no scores and no votes.</p>\n<p class=\"ob-third-perspective-static\">The form needs JavaScript. Without it, you can write your reflection to the author{contact_words}: say which section it is about, whether it may be published, whether your name may be shown and whether you may be asked to clarify it, and give this page’s passage revision, <code>{}</code>.{attributed_words}</p>\n</ob-third-perspective>\n{attributed_element}</section>\n",
             attr(endpoint),
             attr(&c.absolute(&post.url)),
             text(&document.revision),

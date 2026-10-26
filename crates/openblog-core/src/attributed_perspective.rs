@@ -52,6 +52,22 @@ pub const ANCHOR_PREFIX: &str = "ob-by-";
 /// The most attributed sections one work holds (a shared reflection's turn limit).
 pub const MAX_SECTIONS: usize = MAX_TOTAL_TURNS;
 
+/// The longest excerpt an [`AttributedSection`] carries, in characters.
+pub const EXCERPT_CHARS: usize = 60;
+
+/// The first words of `text` (already normalized), for a list.
+fn excerpt_of(text: &str) -> String {
+    if text.chars().count() <= EXCERPT_CHARS {
+        return text.to_string();
+    }
+    let cut: String = text.chars().take(EXCERPT_CHARS).collect();
+    let words = match cut.rfind(' ') {
+        Some(space) if space > 0 && text.chars().nth(EXCERPT_CHARS) != Some(' ') => &cut[..space],
+        _ => cut.as_str(),
+    };
+    format!("{}…", words.trim_end())
+}
+
 /// Why a target or an anchor is refused. It names the rule, never the value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TargetError {
@@ -130,6 +146,11 @@ pub struct AttributedSection {
     pub nth: usize,
     /// The name the section is published under.
     pub author: String,
+    /// The first words of the section's text, to tell it apart in a list: at
+    /// most [`EXCERPT_CHARS`] characters of its normalized Markdown, cut at a
+    /// word, with an ellipsis when it is longer. Plain text; never part of a
+    /// target.
+    pub excerpt: String,
     /// The digest of the section's normalized Markdown text, under its own
     /// label ([`attributed_section_digest`]), not B5's heading-section label.
     pub digest: String,
@@ -163,7 +184,13 @@ impl AttributedTarget {
     /// Read an RD10 target. `Ok(None)` for the whole work and for any section
     /// whose anchor is an ordinary heading id: those keep RD10's meaning.
     pub fn from_perspective(target: &PerspectiveTarget) -> Result<Option<Self>, TargetError> {
-        let passage = target.passage_target();
+        Self::from_passage(target.passage_target())
+    }
+
+    /// The same reading of a checked B5 passage target.
+    pub fn from_passage(
+        passage: &crate::passage_target::PassageTarget,
+    ) -> Result<Option<Self>, TargetError> {
         let Some(section) = passage.section.as_deref() else {
             return Ok(None);
         };
@@ -277,11 +304,17 @@ impl AttributedSections {
     /// nothing and counts every turn as unattributed, so it fails closed
     /// instead of guessing an author.
     pub fn from_published(body: &str, credits: Option<&str>) -> Self {
+        Self::from_published_ids(body, credits.and_then(crate::contributor::credited_ids))
+    }
+
+    /// [`AttributedSections::from_published`] from the credited contributor
+    /// ids a loaded post already holds, in the sidecar's order. `None` is no
+    /// readable sidecar.
+    pub fn from_published_ids(body: &str, ids: Option<Vec<String>>) -> Self {
         let Some(arrangement) = Arrangement::parse(body) else {
             return Self::default();
         };
         let turns: Vec<_> = arrangement.turns().collect();
-        let ids = credits.and_then(crate::contributor::credited_ids);
         let mut names: Vec<&str> = Vec::new();
         for turn in &turns {
             if !names.contains(&turn.author.as_str()) {
@@ -318,11 +351,13 @@ impl AttributedSections {
                 .iter()
                 .filter(|section| &section.contribution == contribution)
                 .count();
+            let normalized = normalize_passage_text(&turn.body);
             sections.push(AttributedSection {
                 contribution: contribution.clone(),
                 nth,
                 author: turn.author.clone(),
-                digest: attributed_section_digest(&normalize_passage_text(&turn.body)),
+                excerpt: excerpt_of(&normalized),
+                digest: attributed_section_digest(&normalized),
             });
         }
         Self {
@@ -651,4 +686,21 @@ pub fn may_decide_response(
         return Err(PolicyError::Denied);
     }
     Ok(())
+}
+
+impl AttributedSections {
+    /// The attributed sections of a loaded post: its authored Markdown body
+    /// and, only when an explicit credits sidecar was read, the credited
+    /// contributor ids in its order. A legacy post, which synthesizes one
+    /// site author from the configuration, has no sidecar and so no sections.
+    pub fn of_post(post: &crate::model::Post) -> Self {
+        let ids = (post.credit_provenance == crate::contributor::CreditProvenance::ExplicitSidecar)
+            .then(|| {
+                post.credits
+                    .iter()
+                    .map(|credit| credit.contributor_id.clone())
+                    .collect()
+            });
+        Self::from_published_ids(&post.authored_markdown, ids)
+    }
 }

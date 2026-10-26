@@ -483,6 +483,16 @@ impl<'a> SharedWorks<'a> {
         }
     }
 
+    /// The shared publication whose post is `work`, if any: the record that
+    /// decides who may answer there. Never a name or a guess; a path no
+    /// publication publishes has none.
+    pub fn record_for_work(&self, work: &str) -> Option<&'a SharedPublication> {
+        self.publications
+            .iter()
+            .find(|(_, published)| *published == Some(work))
+            .map(|(record, _)| *record)
+    }
+
     /// The works of one shared publication: its post's path, or none when the
     /// publication is unknown or its post is not loaded. This is the `works`
     /// of a coordinator or contributing author acting for it.

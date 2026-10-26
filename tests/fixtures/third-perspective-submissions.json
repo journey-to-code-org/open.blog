@@ -1,5 +1,5 @@
 {
-  "description": "Third Perspective submissions (ADRs 0109 to 0114), read and received by both crates/openblog-core/src/third_perspective.rs and web/components/third-perspective.js. A case's `request` (or its exact `text`) is received at `receivedAt` with a receipt whose digest is `receiptDigest`; `expect` is the canonical record, or the code of the first problem. `consentChanges` change a reader's clarification consent through their receipt, with the rest of the consent unchanged: `expect` is the copy's consent records afterwards, or the code.",
+  "description": "Third Perspective submissions (ADRs 0109 to 0114), read and received by both crates/openblog-core/src/third_perspective.rs and web/components/third-perspective.js. A case's `request` (or its exact `text`) is received at `receivedAt` with a receipt whose digest is `receiptDigest`; `expect` is the canonical record, or the code of the first problem. `consentChanges` change a reader's clarification consent through their receipt, with the rest of the consent unchanged: `expect` is the copy's consent records afterwards, or the code. The attributed-section cases (ADR 0160) hold the reserved `ob-by-` anchor space to the same rule in the build and the browser.",
   "receivedAt": "2026-10-26T10:00:00Z",
   "receiptDigest": "5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e",
   "cases": [
@@ -1077,6 +1077,352 @@
       },
       "expect": {
         "code": "consentWithoutName"
+      }
+    },
+    {
+      "name": "an attributed section: the reserved anchor with its digest is an ordinary section target",
+      "request": {
+        "version": 1,
+        "kind": "third-perspective",
+        "work": "/posts/tides/",
+        "revision": "p1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target": {
+          "version": 1,
+          "kind": "section",
+          "section": "ob-by-mina-0",
+          "digest": "0123456789abcdef0123456789abcdef"
+        },
+        "body": "Another way to read the ending.",
+        "consent": {
+          "publish": true
+        }
+      },
+      "expect": {
+        "record": {
+          "version": 1,
+          "kind": "third-perspective",
+          "body": "Another way to read the ending.",
+          "revision": 1,
+          "provenance": {
+            "version": 1,
+            "work": "/posts/tides/",
+            "revision": "p1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "target": {
+              "version": 1,
+              "kind": "section",
+              "section": "ob-by-mina-0",
+              "digest": "0123456789abcdef0123456789abcdef"
+            },
+            "receivedAt": "2026-10-26T10:00:00Z",
+            "channel": "hosted",
+            "attribution": {
+              "publishName": false
+            }
+          },
+          "intake": {
+            "receiptDigest": "5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
+          },
+          "consents": [
+            {
+              "number": 1,
+              "givenAt": "2026-10-26T10:00:00Z",
+              "publish": true,
+              "attribution": {
+                "publishName": false
+              },
+              "clarification": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "an attributed section by a contributor whose key has a hyphen and a later place",
+      "request": {
+        "version": 1,
+        "kind": "third-perspective",
+        "work": "/posts/tides/",
+        "revision": "p1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target": {
+          "version": 1,
+          "kind": "section",
+          "section": "ob-by-ada-lovelace-12",
+          "digest": "0123456789abcdef0123456789abcdef"
+        },
+        "body": "Another way to read the ending.",
+        "consent": {
+          "publish": true
+        }
+      },
+      "expect": {
+        "record": {
+          "version": 1,
+          "kind": "third-perspective",
+          "body": "Another way to read the ending.",
+          "revision": 1,
+          "provenance": {
+            "version": 1,
+            "work": "/posts/tides/",
+            "revision": "p1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "target": {
+              "version": 1,
+              "kind": "section",
+              "section": "ob-by-ada-lovelace-12",
+              "digest": "0123456789abcdef0123456789abcdef"
+            },
+            "receivedAt": "2026-10-26T10:00:00Z",
+            "channel": "hosted",
+            "attribution": {
+              "publishName": false
+            }
+          },
+          "intake": {
+            "receiptDigest": "5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
+          },
+          "consents": [
+            {
+              "number": 1,
+              "givenAt": "2026-10-26T10:00:00Z",
+              "publish": true,
+              "attribution": {
+                "publishName": false
+              },
+              "clarification": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "a heading id that only looks like the reserved prefix keeps its ordinary meaning",
+      "request": {
+        "version": 1,
+        "kind": "third-perspective",
+        "work": "/posts/tides/",
+        "revision": "p1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target": {
+          "version": 1,
+          "kind": "section",
+          "section": "obey-the-tide",
+          "digest": "0123456789abcdef0123456789abcdef"
+        },
+        "body": "Another way to read the ending.",
+        "consent": {
+          "publish": true
+        }
+      },
+      "expect": {
+        "record": {
+          "version": 1,
+          "kind": "third-perspective",
+          "body": "Another way to read the ending.",
+          "revision": 1,
+          "provenance": {
+            "version": 1,
+            "work": "/posts/tides/",
+            "revision": "p1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "target": {
+              "version": 1,
+              "kind": "section",
+              "section": "obey-the-tide",
+              "digest": "0123456789abcdef0123456789abcdef"
+            },
+            "receivedAt": "2026-10-26T10:00:00Z",
+            "channel": "hosted",
+            "attribution": {
+              "publishName": false
+            }
+          },
+          "intake": {
+            "receiptDigest": "5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
+          },
+          "consents": [
+            {
+              "number": 1,
+              "givenAt": "2026-10-26T10:00:00Z",
+              "publish": true,
+              "attribution": {
+                "publishName": false
+              },
+              "clarification": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "an attributed anchor without the digest of its text",
+      "request": {
+        "version": 1,
+        "kind": "third-perspective",
+        "work": "/posts/tides/",
+        "revision": "p1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target": {
+          "version": 1,
+          "kind": "section",
+          "section": "ob-by-mina-0"
+        },
+        "body": "Another way to read the ending.",
+        "consent": {
+          "publish": true
+        }
+      },
+      "expect": {
+        "code": "invalidTarget"
+      }
+    },
+    {
+      "name": "an attributed anchor whose contributor is not lowercase",
+      "request": {
+        "version": 1,
+        "kind": "third-perspective",
+        "work": "/posts/tides/",
+        "revision": "p1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target": {
+          "version": 1,
+          "kind": "section",
+          "section": "ob-by-Mina-0",
+          "digest": "0123456789abcdef0123456789abcdef"
+        },
+        "body": "Another way to read the ending.",
+        "consent": {
+          "publish": true
+        }
+      },
+      "expect": {
+        "code": "invalidTarget"
+      }
+    },
+    {
+      "name": "an attributed anchor with a place written with a leading zero",
+      "request": {
+        "version": 1,
+        "kind": "third-perspective",
+        "work": "/posts/tides/",
+        "revision": "p1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target": {
+          "version": 1,
+          "kind": "section",
+          "section": "ob-by-mina-01",
+          "digest": "0123456789abcdef0123456789abcdef"
+        },
+        "body": "Another way to read the ending.",
+        "consent": {
+          "publish": true
+        }
+      },
+      "expect": {
+        "code": "invalidTarget"
+      }
+    },
+    {
+      "name": "an attributed anchor with no place",
+      "request": {
+        "version": 1,
+        "kind": "third-perspective",
+        "work": "/posts/tides/",
+        "revision": "p1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target": {
+          "version": 1,
+          "kind": "section",
+          "section": "ob-by-mina",
+          "digest": "0123456789abcdef0123456789abcdef"
+        },
+        "body": "Another way to read the ending.",
+        "consent": {
+          "publish": true
+        }
+      },
+      "expect": {
+        "code": "invalidTarget"
+      }
+    },
+    {
+      "name": "an attributed anchor with a place of four digits",
+      "request": {
+        "version": 1,
+        "kind": "third-perspective",
+        "work": "/posts/tides/",
+        "revision": "p1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target": {
+          "version": 1,
+          "kind": "section",
+          "section": "ob-by-mina-1000",
+          "digest": "0123456789abcdef0123456789abcdef"
+        },
+        "body": "Another way to read the ending.",
+        "consent": {
+          "publish": true
+        }
+      },
+      "expect": {
+        "code": "invalidTarget"
+      }
+    },
+    {
+      "name": "an attributed anchor with an empty contributor",
+      "request": {
+        "version": 1,
+        "kind": "third-perspective",
+        "work": "/posts/tides/",
+        "revision": "p1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target": {
+          "version": 1,
+          "kind": "section",
+          "section": "ob-by--1",
+          "digest": "0123456789abcdef0123456789abcdef"
+        },
+        "body": "Another way to read the ending.",
+        "consent": {
+          "publish": true
+        }
+      },
+      "expect": {
+        "code": "invalidTarget"
+      }
+    },
+    {
+      "name": "only the reserved prefix",
+      "request": {
+        "version": 1,
+        "kind": "third-perspective",
+        "work": "/posts/tides/",
+        "revision": "p1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target": {
+          "version": 1,
+          "kind": "section",
+          "section": "ob-by-",
+          "digest": "0123456789abcdef0123456789abcdef"
+        },
+        "body": "Another way to read the ending.",
+        "consent": {
+          "publish": true
+        }
+      },
+      "expect": {
+        "code": "invalidTarget"
+      }
+    },
+    {
+      "name": "an attributed anchor with a doubled hyphen in its contributor",
+      "request": {
+        "version": 1,
+        "kind": "third-perspective",
+        "work": "/posts/tides/",
+        "revision": "p1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target": {
+          "version": 1,
+          "kind": "section",
+          "section": "ob-by-mi--na-0",
+          "digest": "0123456789abcdef0123456789abcdef"
+        },
+        "body": "Another way to read the ending.",
+        "consent": {
+          "publish": true
+        }
+      },
+      "expect": {
+        "code": "invalidTarget"
       }
     }
   ],

@@ -419,20 +419,59 @@ pub fn project_post(
     let work = PublishedWork::of_post(post, config);
     let document = PassageDocument::of_post(post, config);
     let titles = crate::feedback_moderation::section_titles(post, &document);
+    let attributed = crate::attributed_perspective::AttributedSections::of_post(post);
     items
         .iter()
         .filter_map(|item| {
-            let target = TargetStatus::from(
-                &document.resolve(item.target.passage_target(), Some(&item.revision)),
-            );
+            // A reflection about one author's section is checked against that
+            // author's published sections, never B5's heading sections (ADR
+            // 0161): the page says whose section it is about and, when the
+            // text there differs, only that it was changed or removed. The
+            // section has no anchor of its own to link to yet, so none is
+            // given.
+            let by_author = crate::attributed_perspective::AttributedTarget::from_passage(
+                item.target.passage_target(),
+            )
+            .ok()
+            .flatten()
+            .map(|target| attributed.resolve(&target));
+            let target = match &by_author {
+                Some(crate::attributed_perspective::Standing::Current { .. }) => {
+                    TargetStatus::Current { section: None }
+                }
+                Some(crate::attributed_perspective::Standing::Stale { .. }) => {
+                    TargetStatus::Stale {
+                        section_present: false,
+                    }
+                }
+                None => TargetStatus::from(
+                    &document.resolve(item.target.passage_target(), Some(&item.revision)),
+                ),
+            };
             let response = item.response(mode, &work, &target)?;
-            let section_title = response.section.as_deref().and_then(|anchor| {
-                document
-                    .sections
-                    .iter()
-                    .position(|section| section.anchor.as_deref() == Some(anchor))
-                    .and_then(|index| titles.get(index).cloned().flatten())
-            });
+            let section_title = match &by_author {
+                Some(standing) => {
+                    let author = match standing {
+                        crate::attributed_perspective::Standing::Current { author, .. } => {
+                            Some(author)
+                        }
+                        crate::attributed_perspective::Standing::Stale { author, .. } => {
+                            author.as_ref()
+                        }
+                    };
+                    Some(match author {
+                        Some(author) => format!("a section by {author}"),
+                        None => "one author’s section".to_string(),
+                    })
+                }
+                None => response.section.as_deref().and_then(|anchor| {
+                    document
+                        .sections
+                        .iter()
+                        .position(|section| section.anchor.as_deref() == Some(anchor))
+                        .and_then(|index| titles.get(index).cloned().flatten())
+                }),
+            };
             Some(PublicPerspective {
                 id: item.id.clone(),
                 response,
@@ -486,6 +525,17 @@ pub fn render_section(items: &[PublicPerspective], reports: Option<&str>) -> Str
                 text(item.section_title.as_deref().unwrap_or(section)),
                 if response.stale {
                     ", since revised"
+                } else {
+                    ""
+                }
+            ),
+            // One author's section: named by its author, never linked, and
+            // never said to be revised when it may as well have been removed.
+            (About::Section, None) if item.section_title.is_some() => format!(
+                "About {}{}",
+                text(item.section_title.as_deref().unwrap_or_default()),
+                if response.stale {
+                    ", since changed or removed"
                 } else {
                     ""
                 }

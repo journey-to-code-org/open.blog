@@ -336,8 +336,20 @@ impl TryFrom<PassageTarget> for PerspectiveTarget {
             return Err(quote_refused());
         }
         target.validate().map_err(target_error)?;
+        attributed_check(&target)?;
         Ok(Self(target))
     }
+}
+
+/// The reserved `ob-by-` anchor space (ADR 0160) is the author sections of a
+/// shared reflection and nothing else: a target in it must be written exactly
+/// as an attributed target is, with its digest, wherever it is read.
+fn attributed_check(target: &PassageTarget) -> Result<(), ThirdPerspectiveError> {
+    crate::attributed_perspective::AttributedTarget::from_passage(target)
+        .map(|_| ())
+        .map_err(|error| {
+            ThirdPerspectiveError::new(ErrorCode::InvalidTarget, format!("`target`: {error}"))
+        })
 }
 
 impl From<PerspectiveTarget> for PassageTarget {
@@ -382,7 +394,8 @@ impl PerspectiveTarget {
 
     /// Check B5's anchor and digest rules.
     pub fn validate(&self) -> Result<(), ThirdPerspectiveError> {
-        self.0.validate().map_err(target_error)
+        self.0.validate().map_err(target_error)?;
+        attributed_check(&self.0)
     }
 
     /// Read a target from its JSON value: B5's reader plus the refusal of a
