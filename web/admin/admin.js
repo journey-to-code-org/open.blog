@@ -2564,7 +2564,8 @@ export function visualBlockSpans(body) {
 /**
  * The anchor for words selected in the visual editor, which shows formatted text rather than the
  * Markdown. `block` names the visual block holding the whole selection (`{ index, type }`, its
- * position among the editor's blocks); the words are looked for only in that block's Markdown,
+ * position among the draft's blocks, with `markdown` or `count` to check the editor lines up with
+ * the draft, and `text`, what the block shows); the words are looked for only in that block's Markdown,
  * spaces matching any run of whitespace, and accepted only when they occur there exactly once, so
  * formatting elsewhere in the draft can never move the anchor to other words.
  */
@@ -2577,9 +2578,18 @@ export function visualSelectionAnchor(body, selected, block) {
   if (raw.replace(/\r\n/g, "\n").includes("\r")) return { error: `The draft has line endings the visual editor cannot map back. ${markdownMode}` };
   const text = raw.replace(/\r\n/g, "\n");
   const index = Number.isInteger(block?.index) ? block.index : -1;
-  const span = visualBlockSpans(text)[index];
+  const spans = visualBlockSpans(text);
+  const span = spans[index];
   if (!span || (block?.type && block.type !== span.type)) return { error: `Select words inside one paragraph, heading, list or quote. ${markdownMode}` };
   const source = text.slice(span.start, span.end);
+  // The editor's blocks must line up with the draft's: either the draft was written from the editor
+  // (`markdown`, the block's own Markdown, is that span exactly), or the editor was drawn from the
+  // draft (`count`, one editor block per span). Anything else could name the wrong block.
+  const mismatch = (typeof block?.markdown === "string" && block.markdown !== source.replace(/\n+$/, "")) || (Number.isInteger(block?.count) && block.count !== spans.length);
+  if (mismatch) return { error: `The editor and the draft no longer line up block for block. ${markdownMode}` };
+  // The words must also read once in the block as shown, so formatting cannot hide another
+  // occurrence (a selected "*big* cave" next to a plain "big cave").
+  if (typeof block?.text === "string" && visualOccurrences(block.text.replace(/\s+/g, " "), words) > 1) return { error: `Those words occur more than once in that block. ${markdownMode}` };
   const pattern = new RegExp(words.split(" ").map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s+"), "gu");
   const found = [];
   for (let match = pattern.exec(source); match && found.length < 2; match = pattern.exec(source)) {
@@ -2591,6 +2601,21 @@ export function visualSelectionAnchor(body, selected, block) {
   if (found.length > 1) return { error: `Those words occur more than once in that block. ${markdownMode}` };
   const start = span.start + found[0].index;
   return claimSelectionAnchor(text, start, start + found[0][0].length);
+}
+
+/** How many times `words` occur in `text`, overlapping occurrences counted, stopping at two. */
+function visualOccurrences(text, words) {
+  let count = 0;
+  for (let at = text.indexOf(words); at >= 0 && count < 2; at = text.indexOf(words, at + 1)) count += 1;
+  return count;
+}
+
+/** The text a visual-editor block shows, a line break read as a space, as a selection reads it. */
+function visualBlockText(node) {
+  if (node.nodeType === Node.TEXT_NODE) return node.nodeValue || "";
+  if (node.nodeType !== Node.ELEMENT_NODE) return "";
+  if (node.tagName.toLowerCase() === "br") return " ";
+  return [...node.childNodes].map(visualBlockText).join("");
 }
 
 export function claimAnchorStatusText(status) {
@@ -4978,6 +5003,33 @@ function visualChildrenMarkdown(node) {
     afterChip = Boolean(child.classList?.contains("oba-citation")) && CITATION_WHOLE.test(text);
   }
   return out;
+}
+
+/**
+ * The Markdown one visual-editor block (a direct child of the rich editor) writes into the draft.
+ * An empty string means the block writes nothing, so the draft has no block for it.
+ */
+function visualBlockMarkdown(element) {
+  if (element.classList.contains("oba-protected-block")) return (element.dataset.markdown || "").replace(/\n+$/, "");
+  const tag = element.tagName.toLowerCase();
+  const inline = () => visualChildrenMarkdown(element).trim();
+  if (/^h[1-6]$/.test(tag)) return `${"#".repeat(Number(tag[1]))} ${inline()}`;
+  if (tag === "ul" || tag === "ol") {
+    const listStart = tag === "ol" ? Number(element.getAttribute("start") || 1) : 1;
+    return [...element.children]
+      .filter((item) => item.tagName.toLowerCase() === "li")
+      .map((item, index) => `${tag === "ol" ? `${listStart + index}.` : "-"} ${visualChildrenMarkdown(item).trim()}`)
+      .join("\n");
+  }
+  if (tag === "blockquote") return inline().split("\n").map((line) => `> ${line}`).join("\n");
+  if (tag === "pre") {
+    const text = element.textContent || "";
+    const longest = Math.max(0, ...(text.match(/`+/g) || []).map((run) => run.length));
+    const fence = "`".repeat(Math.max(3, longest + 1));
+    return `${fence}${element.dataset.language || ""}\n${text}\n${fence}`;
+  }
+  if (tag === "img") return visualInlineMarkdown(element);
+  return inline().replace(/^(#{1,6}|>|[-+*]|\d+[.)])\s/, "\\$&");
 }
 
 function visualInlineMarkdown(node) {
@@ -10605,33 +10657,7 @@ export class Editor {
   }
 
   richEditorMarkdown() {
-    const blocks = [];
-    for (const element of this.ui.richBody.children) {
-      if (element.classList.contains("oba-protected-block")) {
-        blocks.push((element.dataset.markdown || "").replace(/\n+$/, ""));
-        continue;
-      }
-      const tag = element.tagName.toLowerCase();
-      const inline = () => visualChildrenMarkdown(element).trim();
-      if (/^h[1-6]$/.test(tag)) blocks.push(`${"#".repeat(Number(tag[1]))} ${inline()}`);
-      else if (tag === "ul" || tag === "ol") {
-        const listStart = tag === "ol" ? Number(element.getAttribute("start") || 1) : 1;
-        blocks.push(
-          [...element.children]
-            .filter((item) => item.tagName.toLowerCase() === "li")
-            .map((item, index) => `${tag === "ol" ? `${listStart + index}.` : "-"} ${visualChildrenMarkdown(item).trim()}`)
-            .join("\n"),
-        );
-      } else if (tag === "blockquote") {
-        blocks.push(inline().split("\n").map((line) => `> ${line}`).join("\n"));
-      } else if (tag === "pre") {
-        const text = element.textContent || "";
-        const longest = Math.max(0, ...(text.match(/`+/g) || []).map((run) => run.length));
-        const fence = "`".repeat(Math.max(3, longest + 1));
-        blocks.push(`${fence}${element.dataset.language || ""}\n${text}\n${fence}`);
-      } else if (tag === "img") blocks.push(visualInlineMarkdown(element));
-      else blocks.push(inline().replace(/^(#{1,6}|>|[-+*]|\d+[.)])\s/, "\\$&"));
-    }
+    const blocks = [...this.ui.richBody.children].map(visualBlockMarkdown);
     return blocks.filter((block) => block.length).join("\n\n") + (blocks.length ? "\n" : "");
   }
 
@@ -10705,8 +10731,17 @@ export class Editor {
       const blockOf = (node) => (node?.nodeType === 1 ? node : node?.parentElement)?.closest?.("[data-visual-block]") || null;
       const block = blockOf(range?.startContainer);
       const whole = block && block === blockOf(range?.endContainer) && block.parentElement === this.ui.richBody;
-      const index = whole ? [...this.ui.richBody.children].indexOf(block) : -1;
-      return visualSelectionAnchor(this.ui.body.value, range?.toString?.() || "", { index, type: whole ? block.dataset.visualBlock : "" });
+      const children = [...this.ui.richBody.children];
+      let where = { index: -1, type: "" };
+      if (whole && this.visualDirty) {
+        // The draft was written from the editor, which leaves out blocks that write no Markdown
+        // (an empty paragraph), so only blocks that write some are counted.
+        const markdown = visualBlockMarkdown(block);
+        where = { index: children.filter((child) => visualBlockMarkdown(child).length).indexOf(block), type: block.dataset.visualBlock, markdown, text: visualBlockText(block) };
+      } else if (whole) {
+        where = { index: children.indexOf(block), type: block.dataset.visualBlock, count: children.length, text: visualBlockText(block) };
+      }
+      return visualSelectionAnchor(this.ui.body.value, range?.toString?.() || "", where);
     }
     return claimSelectionAnchor(this.ui.body.value, this.ui.body.selectionStart, this.ui.body.selectionEnd);
   }
@@ -13155,6 +13190,13 @@ export class Editor {
         ui.saveState.classList.add("is-dirty");
       }
       ui.saveBtn.textContent = "Save";
+      // Redraw the visual editor from the saved draft, so its blocks match the draft's again (an
+      // empty paragraph writes nothing). Only when nothing changed during the save and the caret
+      // is not in the editor, so no typing or caret position is lost.
+      if (this.editorMode === "visual" && this.visualDirty && savedState.messageIsCurrent && !ui.richBody?.contains(document.activeElement)) {
+        this.renderRichEditor();
+        this.visualSelection = null;
+      }
       // Update the address without re-rendering the editor. Only arm the skip flag
       // when the hash really changes; otherwise no event fires and the flag would
       // swallow the next genuine navigation.

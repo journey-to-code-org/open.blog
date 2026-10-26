@@ -308,6 +308,20 @@ test("visual selections never anchor to the same words formatted differently els
   assert.deepEqual(visualSelectionAnchor(wrapped, "Caves", { index: 0, type: "heading" }), { anchor: { start: 2, end: 7, text: "Caves" } });
 });
 
+test("visual selections are refused when the editor and the draft do not line up, or the words show twice", () => {
+  const body = "Intro.\n\nThe cave educates.\n\nThe cave educates again.\n";
+  const at = body.indexOf("cave educates.");
+  const ok = { index: 1, type: "paragraph", markdown: "The cave educates.", text: "The cave educates." };
+  assert.deepEqual(visualSelectionAnchor(body, "cave educates", ok), { anchor: { start: at, end: at + 13, text: "cave educates" } });
+  // The block's own Markdown must be that span exactly; the editor's block count must match the draft's.
+  assert.match(visualSelectionAnchor(body, "cave educates", { ...ok, markdown: "The cave educates again." }).error, /line up block for block/);
+  assert.match(visualSelectionAnchor(body, "cave educates", { index: 1, type: "paragraph", count: 4 }).error, /line up block for block/);
+  assert.equal(visualSelectionAnchor(body, "cave educates", { index: 1, type: "paragraph", count: 3 }).anchor.start, at);
+  // "*big* cave" selected: the Markdown has the words once, plainly, but the block shows them twice.
+  const formatted = "The *big* cave and the big cave.\n";
+  assert.match(visualSelectionAnchor(formatted, "big cave", { index: 0, type: "paragraph", text: "The big cave and the big  cave." }).error, /more than once in that block/);
+});
+
 test("links are grouped by relation in file order and counted apart, never netted", () => {
   const columns = claimLinkColumns(LINKS(), "c1");
   assert.deepEqual(columns.supports.map((link) => link.id), ["l1"]);

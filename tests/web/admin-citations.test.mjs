@@ -398,6 +398,77 @@ test("a pasted look-alike chip cannot smuggle Markdown into the draft", withDom(
   assert.equal(editor.richEditorMarkdown(), "Text. \\[@x\\](javascript:alert(1))\n");
 }));
 
+// ------------------------------------------- claim anchors from the visual editor (A4, ADR 0083)
+
+function savableVisualEditor(markdown, saved) {
+  const editor = visualEditor(markdown);
+  Object.assign(editor, {
+    kind: "pages",
+    doc: { path: "content/pages/p.md", etag: "e1" },
+    f: {},
+    collect: () => ({}),
+    validateClient: () => "",
+    creditRequestFields: () => ({}),
+    reportSaved() {},
+    flash() {},
+  });
+  editor.app = { editVersion: 1, dirty: true, api: fakeApi((method, path, json) => (saved.push(json.body), { path: "content/pages/p.md", etag: "e2" })) };
+  Object.assign(editor.ui, { saveBtn: document.createElement("button"), saveState: Object.assign(document.createElement("span"), { classList: { add() {}, remove() {} } }) });
+  return editor;
+}
+
+function selectWords(editor, block, words) {
+  const node = block.childNodes.find((child) => child.nodeType === 3 && child.nodeValue.includes(words));
+  editor.visualSelection = { startContainer: node, endContainer: node, toString: () => words };
+}
+
+test("a claim selected after saving with an empty paragraph anchors in its own block", withDom(async (dom) => {
+  const previousLocation = globalThis.location;
+  globalThis.location = { hash: "#/edit/content%2Fpages%2Fp.md" };
+  try {
+    const markdown = "Intro.\n\nThe cave educates.\n\nThe cave educates again.\n";
+    const saved = [];
+    const editor = savableVisualEditor(markdown, saved);
+    const empty = document.createElement("p");
+    empty.setAttribute("data-visual-block", "paragraph");
+    empty.append(document.createElement("br"));
+    editor.ui.richBody.childNodes.splice(1, 0, editor.ui.richBody.adopt(empty));
+    editor.visualChanged();
+    // The caret stays in the editor, so the save leaves the editor as it is, empty paragraph included.
+    dom.document.activeElement = empty;
+    await editor.save();
+    assert.deepEqual(saved, [markdown]);
+    assert.equal(editor.ui.richBody.children.length, 4);
+    const second = editor.ui.richBody.children[2];
+    selectWords(editor, second, "cave educates");
+    const at = markdown.indexOf("cave educates.");
+    assert.deepEqual(editor.claimSelection(), { anchor: { start: at, end: at + 13, text: "cave educates" } });
+
+    // Saved from the button instead, the editor is drawn again from the saved draft, block for block.
+    editor.ui.richBody.childNodes.splice(1, 0, editor.ui.richBody.adopt(empty));
+    editor.visualChanged();
+    dom.document.activeElement = editor.ui.saveBtn;
+    await editor.save();
+    assert.equal(editor.ui.richBody.children.length, 3);
+    assert.equal(editor.visualDirty, false);
+    assert.equal(editor.visualSelection, null);
+    selectWords(editor, editor.ui.richBody.children[1], "cave educates");
+    assert.deepEqual(editor.claimSelection(), { anchor: { start: at, end: at + 13, text: "cave educates" } });
+  } finally {
+    if (previousLocation === undefined) delete globalThis.location;
+    else globalThis.location = previousLocation;
+  }
+}));
+
+test("a formatted selection is refused when the block shows the same words twice", withDom(() => {
+  const editor = visualEditor("The *big* cave and the big cave.\n");
+  const paragraph = editor.ui.richBody.children[0];
+  const emphasis = paragraph.children.find((child) => child.tagName === "EM");
+  const node = emphasis.childNodes[0];
+  editor.visualSelection = { startContainer: node, endContainer: paragraph.childNodes.at(-1), toString: () => "big cave" };
+  assert.match(editor.claimSelection().error, /more than once in that block/);
+}));
+
 // ---------------------------------------------------------------- applying and undoing
 
 test("inserting in Markdown mode and undoing restores the exact draft and caret", withDom(() => {
