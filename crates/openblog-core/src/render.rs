@@ -375,6 +375,28 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
         "openblog-comments.json".into(),
         serde_json::to_string(&comment_policies).expect("comment policy map is serializable"),
     )?;
+    // Typed passage feedback is opt-in (ADR 0089): only a site that enables
+    // it publishes the policy the hosted function checks, so every other
+    // site's output is unchanged. Feedback follows each post's discussion
+    // setting until the participation policy (#211) gives it its own.
+    if c.engagement.enabled && c.engagement.feedback && !c.engagement.endpoint.trim().is_empty() {
+        let feedback_policies: BTreeMap<&str, &str> = site
+            .posts
+            .iter()
+            .map(|post| {
+                let policy = match post.comments {
+                    CommentsPolicy::Open => "open",
+                    CommentsPolicy::Locked => "locked",
+                    CommentsPolicy::Hidden => "hidden",
+                };
+                (post.url.as_str(), policy)
+            })
+            .collect();
+        out.add(
+            "openblog-feedback.json".into(),
+            serde_json::to_string(&feedback_policies).expect("feedback policy map is serializable"),
+        )?;
+    }
 
     Ok(out.files)
 }
@@ -3252,6 +3274,69 @@ mod tests {
             .unwrap()
             .values()
             .all(|policy| policy == "hidden"));
+    }
+
+    #[test]
+    fn passage_feedback_publishes_its_policy_only_when_the_site_opts_in() {
+        let posts = [
+            (
+                "posts/locked.md",
+                "---
+title: Locked
+date: 2026-01-01
+comments: locked
+---
+Text",
+            ),
+            (
+                "posts/hidden.md",
+                "---
+title: Hidden
+date: 2026-01-01
+comments: hidden
+---
+Text",
+            ),
+            (
+                "posts/open.md",
+                "---
+title: Open
+date: 2026-01-01
+---
+Text",
+            ),
+        ];
+        // Comments off does not close feedback: each post's discussion
+        // setting decides.
+        let enabled = build_posts(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","engagement":{"enabled":true,"comments":false,"feedback":true,"endpoint":"https://t.dev/api"}}"#,
+            &posts,
+        );
+        assert_eq!(
+            file(&enabled, "openblog-feedback.json"),
+            r#"{"/hidden/":"hidden","/locked/":"locked","/open/":"open"}"#
+        );
+
+        // Off by default and off with engagement off:
+        // the output is exactly what it was before the feature existed.
+        for config in [
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","engagement":{"enabled":true,"endpoint":"https://t.dev/api"}}"#,
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","engagement":{"enabled":false,"feedback":true,"endpoint":"https://t.dev/api"}}"#,
+        ] {
+            let files = build_posts(config, &posts);
+            assert!(
+                !files.iter().any(|f| f.path == "openblog-feedback.json"),
+                "{config}"
+            );
+            let without: Vec<_> = build_posts(&config.replace(r#""feedback":true,"#, ""), &posts)
+                .into_iter()
+                .map(|f| (f.path, f.contents))
+                .collect();
+            let with: Vec<_> = files.into_iter().map(|f| (f.path, f.contents)).collect();
+            assert_eq!(with, without, "{config}");
+        }
+        let defaults = SiteConfig::from_json(r#"{"title":"T","url":"https://t.dev"}"#).unwrap();
+        assert!(!defaults.engagement.feedback);
     }
 
     #[test]

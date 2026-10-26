@@ -21,6 +21,17 @@ All notable changes to open.blog are recorded here. Releases follow
   since removed. Research notebooks now refuse reader-feedback fields (`attribution`,
   `receivedAt`, `seenAt`) with a clear message, so feedback cannot be merged into private research
   by accident.
+- Sites on Netlify and Supabase can opt in to typed passage feedback: a reader's question,
+  suggested source, suggested correction or other interpretation of a passage, sent to the existing
+  engagement function with the passage and the revision of the page they saw. It is off unless the
+  site turns it on in `openblog.json`, sets `OPENBLOG_FEEDBACK_ENABLED=true` and runs the new
+  `supabase/feedback.sql`, which only adds one private table (`supabase/feedback-rollback.sql`
+  removes it). Every submission is checked with the same rules as the build, held pending for
+  moderation with the time the site received it, and limited by the existing hourly quotas. A
+  reader's name stays private unless they agree to show it, nothing else about them is kept and no
+  e-mail is collected or sent. Sites that do not opt in are unchanged. Saving hosted engagement
+  settings in Admin now keeps settings the form does not show. Reader forms and moderation screens
+  come next.
 
 ## [0.30.0] - 2026-10-26
 

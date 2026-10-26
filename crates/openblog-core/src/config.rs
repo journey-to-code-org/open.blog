@@ -530,6 +530,11 @@ pub struct EngagementConfig {
     pub analytics: bool,
     /// Public function base URL. Secrets are never stored here.
     pub endpoint: String,
+    /// Accept typed passage feedback (questions, suggested sources and
+    /// corrections, other interpretations) through the hosted function
+    /// (ADR 0089). Off by default; the deployer must also run
+    /// `supabase/feedback.sql` and set `OPENBLOG_FEEDBACK_ENABLED`.
+    pub feedback: bool,
 }
 
 impl Default for EngagementConfig {
@@ -539,6 +544,7 @@ impl Default for EngagementConfig {
             comments: true,
             analytics: true,
             endpoint: String::new(),
+            feedback: false,
         }
     }
 }
