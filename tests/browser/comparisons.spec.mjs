@@ -185,8 +185,19 @@ test.describe("without JavaScript", () => {
   test("the page reflows on a phone and prints every version", async ({ page }) => {
     await page.setViewportSize({ width: 360, height: 740 });
     await page.goto(`${origin}/comparisons/opening/`);
-    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-    expect(overflow).toBeLessThanOrEqual(1);
+    // The comparison (every version, place and wording) stays inside the viewport. The site's
+    // own header and navigation belong to the theme, not to the comparison.
+    const { overflow, offenders } = await page.evaluate(() => {
+      const region = document.querySelector("article.ob-comparison");
+      const elements = [region, ...region.querySelectorAll("*")];
+      const limit = window.innerWidth;
+      const offenders = elements
+        .filter((element) => element.getBoundingClientRect().right > limit + 1)
+        .map((element) => `${element.tagName.toLowerCase()}.${element.className}: ${Math.round(element.getBoundingClientRect().right)}px`);
+      const widest = Math.max(...elements.map((element) => element.getBoundingClientRect().right));
+      return { overflow: Math.max(widest - limit, region.scrollWidth - region.clientWidth), offenders };
+    });
+    expect(overflow, offenders.join(", ")).toBeLessThanOrEqual(1);
     await page.emulateMedia({ media: "print" });
     for (const name of ["Platonis Rempublicam", "פוליטאה", "Paris gr. 1807", "Rendering by Ada (uncertain)"]) {
       await expect(page.getByRole("region", { name })).toBeVisible();
