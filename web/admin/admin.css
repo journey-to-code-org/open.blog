@@ -2898,9 +2898,17 @@ a.oba-btn-primary {
   outline-offset: 2px;
 }
 
-.oba-citation-bar:empty,
+/* The status stays rendered so its first message is announced; an idle bar is only visually hidden. */
 .oba-citation-bar:has(> [role="status"]:empty):has(> button[hidden]) {
-  display: none;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 .oba-citation-form select[size] {
