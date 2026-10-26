@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-10-26
+
 - The private source library can now record more about each version of a work: which earlier
   edition an edition revises, the repository and shelfmark of a manuscript, how many volumes an
   edition has (so a page names its volume), and your own statement of the rights in a version's
