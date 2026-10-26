@@ -5,6 +5,13 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Series navigation on a lesson is now the same shape on every part and in every theme. The series box
+  always shows a previous and a next control: the first part's previous goes to the series overview
+  ("Start of series") and the last part's next goes back to it ("End of series"), instead of leaving an
+  empty slot. A decorative path of one cell per part shows where you are (`ol.ob-series-path`,
+  `aria-hidden`, since the position is already spoken in "Part N of M" and the list). On narrow screens
+  the controls stack, and all are at least 44px tall.
+
 - `openblog build`, `serve` and `check` no longer print a `graceful-transformation` or
   `canonical-only-interaction` warning for every quiz, runnable example, sandbox and comment box. Those
   blocks always export as their documented static fallback; `openblog export` and syndication dry runs

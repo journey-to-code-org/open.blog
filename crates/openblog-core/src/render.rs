@@ -1687,7 +1687,18 @@ impl<'a> Renderer<'a> {
             attr(&series.url),
             text(&series.name)
         ));
-        h.push_str("<div class=\"ob-series-nav\">");
+        // One cell per part, decorative: the position is already spoken in the eyebrow and the
+        // list below. A theme script may mark cells the reader has completed.
+        h.push_str("<ol class=\"ob-series-path\" aria-hidden=\"true\">");
+        for n in 0..series.posts.len() {
+            let here = if n == position { " data-current" } else { "" };
+            h.push_str(&format!("<li{here}></li>"));
+        }
+        h.push_str("</ol>
+<div class=\"ob-series-nav\">");
+        // Both slots are always links, so the control looks and behaves the same on every
+        // part. The first part's "previous" is the series overview; the last part's "next"
+        // is the way back to it.
         match prev {
             Some(p) => h.push_str(&format!(
                 "<a class=\"ob-series-prev\" rel=\"prev\" href=\"{}\"><span class=\"ob-meta\">Previous part</span><span>{}</span>{}</a>",
@@ -1695,7 +1706,10 @@ impl<'a> Renderer<'a> {
                 text(&p.title),
                 credit(p, "")
             )),
-            None => h.push_str("<span></span>"),
+            None => h.push_str(&format!(
+                "<a class=\"ob-series-prev ob-series-edge\" href=\"{}\"><span class=\"ob-meta\">Start of series</span><span>Series overview</span></a>",
+                attr(&series.url)
+            )),
         }
         match next {
             Some(n) => h.push_str(&format!(
@@ -1704,7 +1718,11 @@ impl<'a> Renderer<'a> {
                 text(&n.title),
                 credit(n, "")
             )),
-            None => h.push_str("<span></span>"),
+            None => h.push_str(&format!(
+                "<a class=\"ob-series-next ob-series-edge\" href=\"{}\"><span class=\"ob-meta\">End of series</span><span>Back to {}</span></a>",
+                attr(&series.url),
+                text(&series.name)
+            )),
         }
         h.push_str("</div>\n<details class=\"ob-series-parts-details\"><summary>All parts</summary><ol class=\"ob-series-parts\">");
         for &i in &series.posts {
@@ -2455,6 +2473,32 @@ mod tests {
         ] {
             assert!(files.iter().any(|f| f.path == path), "missing {path}");
         }
+    }
+
+    #[test]
+    fn series_navigation_is_the_same_shape_on_every_part() {
+        let files = build(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/"}"#,
+            true,
+        );
+        let first = file(&files, "one/index.html");
+        let last = file(&files, "two/index.html");
+        for page in [first, last] {
+            assert!(page.contains("<ol class=\"ob-series-path\" aria-hidden=\"true\">"));
+            assert_eq!(page.matches("<li data-current></li>").count(), 1);
+            assert_eq!(page.matches("class=\"ob-series-prev").count(), 1);
+            assert_eq!(page.matches("class=\"ob-series-next").count(), 1);
+            assert!(!page.contains("<div class=\"ob-series-nav\"><span></span>"));
+        }
+        assert!(first.contains("<li data-current></li><li></li>"));
+        assert!(first.contains("Start of series"));
+        assert!(first.contains("rel=\"next\""));
+        assert!(!first.contains("End of series"));
+        assert!(last.contains("<li></li><li data-current></li>"));
+        assert!(last.contains("End of series"));
+        assert!(last.contains("rel=\"prev\""));
+        assert!(last.contains("Back to Series S"));
+        assert!(!last.contains("Start of series"));
     }
 
     #[test]

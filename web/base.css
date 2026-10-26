@@ -1546,6 +1546,59 @@ ob-comments {
   text-align: right;
 }
 
+.ob-series-nav a {
+  min-height: 2.75rem;
+  justify-content: center;
+}
+
+.ob-series-edge .ob-meta {
+  font-style: italic;
+}
+
+/* Decorative progress cells (aria-hidden): hollow = not marked, ringed = this part, filled = marked complete. */
+.ob-series-path {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-series-path li {
+  flex: 1 1 0;
+  min-width: 0.75rem;
+  max-width: 2.5rem;
+  height: 0.65rem;
+  border: 2px solid var(--ob-color-accent-border);
+  border-radius: 2px;
+}
+
+.ob-series-path li[data-done] {
+  background: var(--ob-color-accent-soft);
+  border-color: var(--ob-color-accent-soft);
+}
+
+.ob-series-path li[data-current] {
+  height: 0.95rem;
+  border-style: double;
+  border-width: 4px;
+  border-color: var(--ob-color-text);
+}
+
+@media (max-width: 40rem) {
+  .ob-series-nav {
+    flex-direction: column;
+  }
+
+  .ob-series-nav a,
+  .ob-series-next {
+    max-width: 100%;
+    margin-left: 0;
+    text-align: left;
+  }
+}
+
 .ob-series-parts-details {
   margin-top: 1rem;
 }
