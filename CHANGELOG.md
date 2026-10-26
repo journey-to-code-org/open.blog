@@ -12,7 +12,13 @@ All notable changes to open.blog are recorded here. Releases follow
   at other words. Only the contributor who wrote the section, signed in as their own bound account,
   may answer as its author; a contributor registry entry alone, a coordinator or a site owner
   cannot. Answers will start pending like everything else and appear only while the reader's note
-  does. Nothing is stored or published by this change, and existing posts are unchanged.
+  does. Nothing is stored or published by this change. Which author wrote a section is read from
+  the post's committed credits alongside its body, so it works in static and CI builds without
+  private records and is not changed by inviting someone with the same name later. Known change:
+  `ob-by-` is now reserved for these section anchors, so a heading whose text begins "OB by" gets
+  the id `heading-ob-by-...` instead of `ob-by-...`, and an `{#ob-by-...}` id written in a post is
+  replaced by the heading's own id. No post in this repository is affected; other existing posts
+  are unchanged.
 
 ## [0.37.0] - 2026-10-26
 

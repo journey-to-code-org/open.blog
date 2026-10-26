@@ -22,16 +22,21 @@ and never be shown different words as if they were the ones read.
   is now and whether it moved (reordered, other sections added or removed, layout changed). If two
   of the author's sections hold identical text, the one at the place the reader saw is meant.
 - **Stale** with a reason, and the author's published name when the author still has sections:
-  `section-changed` (the author has a section at that place with other text), `section-removed`
-  (no section with that text and nothing at that place, or no section by the author at all, in
-  which case no author is named), or `ambiguous` (identical sections, none at the reader's place).
+  `section-changed-or-removed` (the author still has sections but none with that text; the
+  published work cannot say whether one was edited or removed, so neither is claimed),
+  `author-absent` (no section by the author at all, in which case no author is named), or
+  `ambiguous` (identical sections, none at the reader's place).
 - **Never another author and never other text.** The author comes from the target and the text from
   its digest; the place is only a tie-breaker. A stale target is not retargeted to the nearest
   section, to the author's other sections, or to the work, and the reader's own words keep the
   context they were written in.
 - `Standing::target_status` maps this to RD10's `TargetStatus` (stale carries whether the author
-  still has a section), so RD10's one projection and the canonical page's treatment ("this section
-  has changed since the reader wrote this") apply unchanged and #224 renders no second vocabulary.
+  still has a section), so the one vocabulary is reused and #224 renders no second one. The
+  attributed digest has its own label (`openblog-attributed-section-v1`), not B5's
+  `openblog-passage-section-v1`, so RD10's existing projection, which digests heading sections,
+  does not resolve an attributed target as current by accident. Wiring the projection to resolve
+  attributed targets through `AttributedSections` is #224's job; until then such a Third Perspective
+  is shown as it already is for any target the projection cannot match.
 
 ## Consequences
 

@@ -29,22 +29,33 @@ on the site, not that they wrote this section.
   check). Every refusal is the same `denied`, so nothing about another participant is learned.
 - **Answering a Third Perspective about an attributed section requires all of**: the target is
   attributed (otherwise `not-attributed`, and RD12's generic author response applies unchanged,
-  which is also what a whole-work or ordinary-heading perspective gets); the request's account
-  equals the account the resolved actor is for (no pairing one account with another's actor); the
-  grant above on the section's participant; the parent is a public Third Perspective of this very
-  work; and the author is still confirmed (below). Then RD12's `ModerationPolicy::admit` applies as
-  it does to every item: the answer is an ordinary `author-response`, always pending, under the
-  kind's mode (hidden, locked and open behave as for every kind).
-- **The author must still be the same person.** The section must still be published (a changed one
-  is fine, and the page says it changed), and the name it is published under must equal the
-  participant's current display name. A removed section, or a participant id that now belongs to
-  someone published under another name, gives `author-unconfirmed`, so a re-invited person who
-  inherits an id never answers for earlier prose.
+  which is also what a whole-work or ordinary-heading perspective gets); the publication record is
+  the one whose post is this work (checked against `SharedWorks`); the participant is found only by
+  the binding whose public contributor id equals the target's, never by a name; the grant above on
+  that participant; the actor is derived inside the function from the signed-in account (never
+  supplied, so no pairing one account's grant with another's actor); the parent is a public Third
+  Perspective of this very work; and the author still has a published section (below). The sections
+  are built inside the function from the published body and credits, not taken from the caller.
+  Then RD12's `ModerationPolicy::admit` applies as it does to every item: the answer is an
+  `author-response`, always pending, under the kind's mode (hidden, locked and open behave as for
+  every kind).
+- **The policy itself refuses an impersonation.** `Submission` carries the parent's stored target,
+  required for an answer to a Third Perspective, and an optional sealed `AuthorGrant` that only
+  `admit_response` can issue. `ModerationPolicy::admit` refuses an `author-response` whose parent
+  is about an attributed section (or a malformed reserved anchor) unless it carries the grant, so a
+  coordinator, a site owner or the moderation token, all of whom RD12 otherwise lets write author
+  responses, cannot post a plain one as the author. Leaving the target out is refused too.
+- **The author must still have a section.** A changed section is fine and the page says it
+  changed; if no section by that contributor is published now, the answer is `author-unconfirmed`.
+  Ids are public registry keys read from committed content, so a person invited later under the
+  same name or a participant id reused for someone else changes nothing: neither is consulted.
 - **Coordinators and the site Admin moderate, never impersonate.** They approve, reject and remove
   the response by RD12's table unchanged, but a coordinator or site owner who is not that section's
   contributor cannot write as the author, and the moderation token never can. A coordinator who is
-  also that section's contributor can, through the contributor grant. A contributing author never
-  moderates, so an author cannot approve their own answer.
+  also that section's contributor can write it through the contributor grant, but may not approve
+  their own answer: `may_decide_response` refuses an approval by the account that wrote the
+  response, the conservative choice, enforced where the response is stored because RD12's item
+  facts do not carry the submitter. A contributing author never moderates at all.
 - **Withdrawing is the same author check** (`authorize_author`), then RD12's `withdraw` as the
   submitter; an author removed from the publication cannot, and a coordinator removes instead.
 

@@ -18,17 +18,21 @@ reader's note.
 
 ## Decision
 
-- **Public attribution** is the name the section is published under, never an account, a registry
-  key or a participant id. Those stay in the private audit event (`actorId` is the Admin account,
-  as for every Admin action) and in `Responder`, which is never public. The answer is the author's
-  own words and creates no work credit and no reader attribution.
+- **Public attribution** is the name the section is published under, with the public contributor
+  handle and the section's standing; never an account or a participant id. The participant binding
+  stays private, in the audit event (`actorId` is the Admin account, as for every Admin action) and
+  in `Responder::participant`. The answer is the author's own words and creates no work credit and
+  no reader attribution.
 - **Pending by default and moderated like everything else.** It starts pending; approval and
   removal are RD12's, by a coordinator or the site Admin; clarification never applies (authors are
   not asked); retention and audit follow ADR 0104 unchanged. Replying sends nothing to the reader.
-- **It follows its parent.** `response_shown` is true only while the answer is public itself and the
-  Third Perspective it answers is public now under its own mode. Removing, withdrawing, purging or
-  hiding the reader's note hides the answer without deleting it, so a reader's words are never
-  displayed as if answered after they are taken down, and an answer is never orphaned on a page.
+- **It follows its parent, and its stored responder must match.** `response_shown` is true only
+  while the answer is public itself, the Third Perspective it answers is public now under its own
+  mode, and, when that perspective is about an attributed section, the answer's stored responder
+  contributor equals the section's contributor. An answer stored without a responder, or with
+  another's, is never shown under an attributed parent. Removing, withdrawing, purging or hiding
+  the reader's note hides the answer without deleting it, so a reader's words are never displayed
+  as if answered after they are taken down, and an answer is never orphaned on a page.
 - **Honest context for changes.** An answer written about a section that has since changed carries
   the section's standing (ADR 0161), so the page can say the section changed after the reader read
   it. Removing an author from the publication does not delete what they already published; a
@@ -38,5 +42,6 @@ reader's note.
 
 ## Consequences
 
-#223 stores the answer through the existing hosted participation seam and #224 renders it from
-`response_shown` and `Responder::author`, without new vocabulary.
+#223 stores the answer and its responder through the existing hosted participation seam (ADR
+0164) and #224 renders it from `response_shown` and the stored responder's published name, without
+new vocabulary.
