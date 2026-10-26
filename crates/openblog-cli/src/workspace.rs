@@ -20,6 +20,8 @@ const LIBRARY_PATH: &str = ".openblog/private/research/sources.json";
 const NOTEBOOK_PATH: &str = ".openblog/private/research/notebook.json";
 /// The private Knowledge Atlas shares the library limit too.
 const ATLAS_PATH: &str = ".openblog/private/research/atlas.json";
+/// Private claims and evidence links share the library limit as well.
+const CLAIMS_PATH: &str = ".openblog/private/research/claims.json";
 const MAX_TOTAL: usize = 64 * 1024 * 1024;
 const MAX_MANIFEST: usize = 8 * 1024 * 1024;
 const BUCKET: &str = "openblog-workspace";
@@ -260,6 +262,7 @@ impl Policy {
             LIBRARY_PATH.into(),
             NOTEBOOK_PATH.into(),
             ATLAS_PATH.into(),
+            CLAIMS_PATH.into(),
             ".openblog/pending-tracks".into(),
             ".openblog/trash".into(),
         ]
@@ -272,7 +275,12 @@ impl Policy {
         let extension = path.rsplit('.').next().unwrap_or("");
         if matches!(
             path,
-            "openblog.json" | ".gitignore" | LIBRARY_PATH | NOTEBOOK_PATH | ATLAS_PATH
+            "openblog.json"
+                | ".gitignore"
+                | LIBRARY_PATH
+                | NOTEBOOK_PATH
+                | ATLAS_PATH
+                | CLAIMS_PATH
         ) {
             return true;
         }
@@ -320,7 +328,7 @@ impl Policy {
     }
 
     fn text_limit(&self, path: &str) -> usize {
-        if path == LIBRARY_PATH || path == NOTEBOOK_PATH || path == ATLAS_PATH {
+        if [LIBRARY_PATH, NOTEBOOK_PATH, ATLAS_PATH, CLAIMS_PATH].contains(&path) {
             MAX_LIBRARY_TEXT
         } else {
             MAX_TEXT
@@ -1278,6 +1286,9 @@ mod tests {
             ".openblog/private/research/atlas.json/extra",
             ".openblog/private/research/atlas.json.lock",
             ".openblog/private/research/atlas.json.1-2.tmp",
+            ".openblog/private/research/claims.json/extra",
+            ".openblog/private/research/claims.json.lock",
+            ".openblog/private/research/claims.json.1-2.tmp",
             "content/../.git/config",
             "content/posts/../../secret.md",
             "content\\posts\\escape.md",
@@ -1296,6 +1307,7 @@ mod tests {
             ".openblog/private/research/sources.json",
             ".openblog/private/research/notebook.json",
             ".openblog/private/research/atlas.json",
+            ".openblog/private/research/claims.json",
             ".openblog/private/admin-preferences/0000000000000000000000000000000000000000000000000000000000000000.json",
             ".openblog/pending-tracks/0000000000000000000000000000000000000000000000000000000000000000.gpx",
             ".openblog/trash/deleted.md",
@@ -1360,6 +1372,21 @@ mod tests {
         let files = policy.scan(&fixture.0).unwrap();
         assert_eq!(files[ATLAS_PATH], body.as_bytes());
         fs::write(&atlas, "x".repeat(MAX_LIBRARY_TEXT + 1)).unwrap();
+        assert!(policy.scan(&fixture.0).is_err());
+    }
+
+    #[test]
+    fn claims_file_is_durable_and_allowed_up_to_the_library_limit() {
+        let fixture = Fixture::new();
+        let claims = fixture.0.join(CLAIMS_PATH);
+        fs::create_dir_all(claims.parent().unwrap()).unwrap();
+        let body = format!("{{\"pad\":\"{}\"}}", "x".repeat(3 * 1024 * 1024));
+        fs::write(&claims, &body).unwrap();
+        let policy = policy();
+        assert_eq!(policy.text_limit(CLAIMS_PATH), MAX_LIBRARY_TEXT);
+        let files = policy.scan(&fixture.0).unwrap();
+        assert_eq!(files[CLAIMS_PATH], body.as_bytes());
+        fs::write(&claims, "x".repeat(MAX_LIBRARY_TEXT + 1)).unwrap();
         assert!(policy.scan(&fixture.0).is_err());
     }
 

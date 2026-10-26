@@ -76,6 +76,27 @@ pub struct SiteConfig {
     /// keep their configuration unchanged.
     #[serde(skip_serializing_if = "KnowledgeAtlasConfig::is_off")]
     pub knowledge_atlas: KnowledgeAtlasConfig,
+    /// Opt-in publication of approved claims and evidence links with the
+    /// posts they are about. Omitted from the written file while it is off.
+    #[serde(skip_serializing_if = "ClaimEvidenceConfig::is_off")]
+    pub claim_evidence: ClaimEvidenceConfig,
+}
+
+/// Whether builds publish approved claim evidence (ADR 0075). Off by default:
+/// the build then never reads the private claims file and every post is
+/// published as before. On, each post with approved claims or revision notes
+/// gains a "Claims and evidence" section, and the site gains
+/// `/claim-evidence.json`.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ClaimEvidenceConfig {
+    pub publish: bool,
+}
+
+impl ClaimEvidenceConfig {
+    fn is_off(&self) -> bool {
+        !self.publish
+    }
 }
 
 /// Whether builds publish the Knowledge Atlas projection (ADR 0058). Off by
@@ -357,6 +378,7 @@ impl Default for SiteConfig {
             publish: PublishConfig::default(),
             syndication: SyndicationConfig::default(),
             knowledge_atlas: KnowledgeAtlasConfig::default(),
+            claim_evidence: ClaimEvidenceConfig::default(),
         }
     }
 }
@@ -773,6 +795,7 @@ impl SiteConfig {
             ),
             web_libraries: Some(&self.web_sandbox.libraries),
             citation_notes: None,
+            claim_evidence_section: false,
         }
     }
 
