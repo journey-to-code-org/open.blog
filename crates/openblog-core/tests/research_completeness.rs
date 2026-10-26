@@ -1640,3 +1640,81 @@ fn acknowledgements_stored_by_the_admin_flow_stay_valid_under_the_contract() {
     );
     assert_eq!(stale.counts.detected.acknowledged, 0);
 }
+
+/// Every (validator, code) pair v0.39.0 let an author acknowledge, pinned: a
+/// stored acknowledgement an author made then must still name an advisory
+/// finding now, however the matrix is reorganized (ADR 0144).
+const ACKNOWLEDGEABLE_IN_V0_39_0: [&str; 40] = [
+    "alignments: archived-member",
+    "alignments: stale-locator",
+    "atlas: private-endpoint",
+    "atlas: unpublished-datings",
+    "chronology-index: composition-after-death",
+    "chronology-index: composition-before-birth",
+    "chronology-index: death-before-birth",
+    "chronology-index: opposed-relative",
+    "chronology-index: outside-lifetime",
+    "chronology-index: publication-before-composition",
+    "chronology-index: relative-against-dates",
+    "chronology-index: relative-cycle",
+    "citation-review: citation-identifier-unpublished",
+    "citation-review: citation-location-review",
+    "citation-review: citation-reference-incomplete",
+    "claim-review: claim-anchor-ambiguous",
+    "claim-review: claim-anchor-moved",
+    "claim-review: claim-anchor-stale",
+    "claim-review: claim-contradiction-undiscussed",
+    "claim-review: claim-evidence-missing",
+    "claim-review: claim-location-unreviewed",
+    "claim-review: claim-locator-missing",
+    "claim-review: claim-passage-archived",
+    "claim-review: claim-post-missing",
+    "claim-review: claim-rationale-missing",
+    "claim-review: claim-source-archived",
+    "claim-review: claim-suggestion-unreviewed",
+    "claim-review: claim-support-only",
+    "claims: private-endpoint",
+    "claims: undisclosed-contradiction",
+    "comparison-projection: withheld-length",
+    "comparison-projection: withheld-rights",
+    "publication-context: context-link-unpublished",
+    "research-profile: abstract-missing",
+    "research-profile: doi-invalid",
+    "research-profile: doi-link-non-preferred",
+    "research-profile: footnote-unresolved",
+    "research-profile: license-url-invalid",
+    "research-profile: reference-link-review",
+    "research-profile: references-missing",
+];
+
+#[test]
+fn every_pair_v0_39_0_let_an_author_acknowledge_is_still_acknowledgeable() {
+    let now: BTreeSet<String> = matrix()
+        .iter()
+        .filter(|row| acknowledgeable(row.validator, &row.code))
+        .map(|row| format!("{}: {}", row.validator, row.code))
+        .collect();
+    for pair in ACKNOWLEDGEABLE_IN_V0_39_0 {
+        let (validator, code) = pair.split_once(": ").unwrap();
+        let known = Validator::ALL
+            .iter()
+            .find(|validator_| validator_.to_string() == validator)
+            .unwrap_or_else(|| panic!("{validator} is no longer a validator"));
+        assert!(
+            acknowledgeable(*known, code) && now.contains(pair),
+            "{pair} was acknowledgeable in v0.39.0 and no longer is"
+        );
+    }
+    // What is acknowledgeable beyond them is the source-review rows (ADR 0146),
+    // which v0.39.0 had no validator for.
+    let pinned: BTreeSet<String> = ACKNOWLEDGEABLE_IN_V0_39_0
+        .iter()
+        .map(|pair| pair.to_string())
+        .collect();
+    for added in now.difference(&pinned) {
+        assert!(
+            added.starts_with("source-review: "),
+            "{added} became acknowledgeable without a decision"
+        );
+    }
+}
