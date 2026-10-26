@@ -443,13 +443,9 @@ pub(crate) fn lock_notebook(root: &Path) -> Result<FileLock, StoreError> {
         .map_err(StoreError::Storage)
 }
 
-/// A notebook change must not leave a valid Knowledge Atlas invalid, for
-/// example by removing a passage its evidence points to. An atlas that was
-/// already unreadable does not block unrelated notebook edits; it is reported
-/// when it is next read (and still blocks removing a passage).
-/// A notebook change must not leave a valid claims file invalid either, for
-/// example by moving a passage an evidence link points to. As for the atlas,
-/// a claims file that was already unreadable does not block unrelated edits.
+/// A notebook change must not leave a valid claims file invalid, for example
+/// by moving a passage an evidence link points to. As for the atlas, a claims
+/// file that was already unreadable does not block unrelated edits.
 fn keep_claims_valid(root: &Path, current: &Snapshot, edited: &Notebook) -> Result<(), StoreError> {
     if crate::claims_store::check_against(root, &current.library, &current.notebook).is_err() {
         return Ok(());
@@ -468,6 +464,10 @@ fn keep_claims_valid(root: &Path, current: &Snapshot, edited: &Notebook) -> Resu
     })
 }
 
+/// A notebook change must not leave a valid Knowledge Atlas invalid, for
+/// example by removing a passage its evidence points to. An atlas that was
+/// already unreadable does not block unrelated notebook edits; it is reported
+/// when it is next read (and still blocks removing a passage).
 fn keep_atlas_valid(root: &Path, current: &Snapshot, edited: &Notebook) -> Result<(), StoreError> {
     if crate::atlas_store::check_against(root, &current.library, &current.notebook).is_err() {
         return Ok(());
