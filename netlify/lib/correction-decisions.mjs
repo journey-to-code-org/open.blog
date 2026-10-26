@@ -49,6 +49,9 @@ export function planDecision(facts, { role, expectedDecisions, decision }) {
   if (facts.clarificationAsked === facts.revision) return { ok: false, code: "awaitingClarification" };
   if (expectedDecisions !== facts.decisions) return { ok: false, code: "stale" };
   if (facts.decisions >= MAX_DECISIONS_PER_ITEM) return { ok: false, code: "tooManyDecisions" };
+  // Admin read the text as it was when the author looked: a clarification the reader answered
+  // since changed it, and the decision is about words that are gone.
+  if (isObject(decision) && Number.isInteger(decision.itemRevision) && decision.itemRevision !== facts.revision) return { ok: false, code: "stale" };
   const wellFormed =
     isObject(decision) &&
     Object.keys(decision).every((key) => DECISION_FIELDS.has(key)) &&

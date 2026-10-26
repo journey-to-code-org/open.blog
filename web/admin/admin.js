@@ -432,14 +432,14 @@ export function localDay(date = new Date()) {
 }
 
 /**
- * The body of a decision: the item, how many decisions on it the author saw, the outcome and only
+ * The body of a decision: the item, the text revision and how many decisions on it the author saw, the outcome and only
  * the fields that outcome takes, the passage check confirmed when the passage moved, and the day.
  * Nothing says who is deciding: the server knows.
  */
 export function decisionRequest(item, values) {
   const offer = item.recordDecision || {};
   const outcome = offer.outcomes?.find((each) => each.id === values.outcome);
-  const request = { id: item.id, expectedDecisions: offer.expectedDecisions ?? 0, outcome: values.outcome, decided: values.decided || localDay() };
+  const request = { id: item.id, expectedDecisions: offer.expectedDecisions ?? 0, itemRevision: offer.itemRevision ?? 1, outcome: values.outcome, decided: values.decided || localDay() };
   if (outcome?.accepted && values.extent) request.extent = values.extent;
   if (values.outcome === "declined" && values.declineReason) request.declineReason = values.declineReason;
   if (values.rationale && values.rationale.trim()) request.rationale = values.rationale;

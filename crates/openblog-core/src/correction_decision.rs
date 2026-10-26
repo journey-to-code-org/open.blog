@@ -1074,8 +1074,10 @@ pub fn decide(
         ));
     }
     let content = request.content.checked()?;
-    if let (Some(link), Some(post)) = (&content.revision_note, facts.post) {
-        if link.post != post {
+    // An item whose post is unknown can link no post's note: there is nothing to
+    // say the note is about the same post.
+    if let Some(link) = &content.revision_note {
+        if facts.post != Some(link.post.as_str()) {
             return Err(DecisionError::new(
                 Code::RevisionNoteElsewhere,
                 "`revisionNote` names another post than the one this item is about",

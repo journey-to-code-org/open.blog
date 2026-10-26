@@ -5845,6 +5845,28 @@ fn decision_content(
     })
 }
 
+/// Whether the text revision the author read is the item's now. A
+/// clarification the reader answered raises it, and a decision is only ever
+/// about the text its author saw.
+fn decision_revision_is_current(seen: u64, current: u32) -> bool {
+    seen == u64::from(current)
+}
+
+/// Whether the hosted function refused a decision because the item changed
+/// under the author (stale, closed, or awaiting the reader's answer), as
+/// opposed to refusing its content.
+fn hosted_decision_changed(response: &Response) -> bool {
+    serde_json::from_slice::<Json>(&response.body)
+        .ok()
+        .and_then(|body| body["code"].as_str().map(str::to_string))
+        .is_some_and(|code| {
+            matches!(
+                code.as_str(),
+                "stale" | "itemClosed" | "awaitingClarification"
+            )
+        })
+}
+
 /// `POST engagement/moderation/decision`: record the author's correction
 /// decision on one suggested source or correction. The request names the
 /// item, how many decisions on it the author saw, the outcome and what it
@@ -5869,6 +5891,14 @@ fn record_correction_decision(
         .filter(|count| *count <= 1000)
     else {
         return Response::error(422, "Send how many decisions you saw on the item");
+    };
+    // The text revision the author read: a decision is about that text, so a
+    // clarification that changed it since makes the request stale.
+    let Some(seen_revision) = body["itemRevision"]
+        .as_u64()
+        .filter(|revision| (1..=u64::from(u32::MAX)).contains(revision))
+    else {
+        return Response::error(422, "Send the revision of the item’s text you read");
     };
     let content = match decision_content(&body) {
         Ok(content) => content,
@@ -5929,6 +5959,20 @@ fn record_correction_decision(
         Err(response) => return response,
     };
     let published = published_feedback_file(state);
+    let conflict_with = |current: &moderation_inbox::InboxItem| {
+        let view = sources.inbox(session, protocol, |inbox| {
+            inbox_view(inbox, current, published.as_ref())
+        });
+        let mut views: Vec<Json> = view.into_iter().collect();
+        add_decision_choices(state, &sources.published, &mut views);
+        Response::json(
+            409,
+            &json!({ "error": "Someone decided on this item, or it changed, since you loaded it. Review it again before deciding.", "code": "conflict", "item": views.pop() }),
+        )
+    };
+    if !decision_revision_is_current(seen_revision, item.revision) {
+        return conflict_with(&item);
+    }
     let decided_now = sources.inbox(session, protocol, |inbox| {
         let view = inbox_view(inbox, &item, published.as_ref());
         let role = inbox.actor(&item).role();
@@ -5944,13 +5988,7 @@ fn record_correction_decision(
         );
         (view, role, decision)
     });
-    let (view, role, decision) = decided_now;
-    let conflict = |view: Option<Json>| {
-        Response::json(
-            409,
-            &json!({ "error": "Someone decided on this item, or it changed, since you loaded it. Review it again before deciding.", "code": "conflict", "item": view }),
-        )
-    };
+    let (_, role, decision) = decided_now;
     let refused =
         |code: &str, message: &str| Response::json(422, &json!({ "error": message, "code": code }));
     let decision = match decision {
@@ -5961,7 +5999,7 @@ fn record_correction_decision(
                 &json!({ "error": "You cannot record a correction decision on this item.", "code": "denied" }),
             )
         }
-        Err(error) if error.code == DecisionErrorCode::Stale => return conflict(view),
+        Err(error) if error.code == DecisionErrorCode::Stale => return conflict_with(&item),
         Err(error) => {
             let code = serde_json::to_value(error.code)
                 .ok()
@@ -5973,6 +6011,10 @@ fn record_correction_decision(
     // What only this server can check: the note is in the post's front
     // matter, and the evidence link is in the claims file on a claim of
     // this post. Both are recorded first, with their own tools.
+    let transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
     if let Some(link) = &decision.content.revision_note {
         match post_revision_items(state, &link.post) {
             Ok(items) if link.found_in(&items) => {}
@@ -6008,13 +6050,18 @@ fn record_correction_decision(
             .claims
             .claim(&evidence.claim)
             .map(|claim| claim.post.clone());
-        if slug.is_some() && claim_post != slug {
+        // An item whose post is unknown can link no claim: nothing says the
+        // claim is about the same post.
+        if slug.is_none() || claim_post != slug {
             return refused(
                 "claimElsewhere",
                 "That evidence link is on a claim of another post.",
             );
         }
     }
+    // The hosted call is slow and can fail: the lock is for reading the post
+    // and the claims only.
+    drop(transaction);
     let request = json!({
         "id": id,
         "expectedDecisions": expected,
@@ -6049,12 +6096,10 @@ fn record_correction_decision(
             }
         },
         Ok((409, value)) => {
-            let current = reread(&value).and_then(|current| {
-                sources.inbox(session, protocol, |inbox| {
-                    inbox_view(inbox, &current, published.as_ref())
-                })
-            });
-            return conflict(current);
+            return match reread(&value) {
+                Some(current) => conflict_with(&current),
+                None => conflict_with(&item),
+            };
         }
         Ok((403, _)) => {
             return Response::json(
@@ -6062,7 +6107,16 @@ fn record_correction_decision(
                 &json!({ "error": "You cannot record a correction decision on this item.", "code": "denied" }),
             )
         }
-        Ok(_) => return Response::error(404, "No such item"),
+        Ok((404, _)) => return Response::error(404, "No such item"),
+        Ok(_) => return Response::error(502, "Hosted engagement returned an unexpected answer"),
+        Err(response) if response.status == 422 && hosted_decision_changed(&response) => {
+            // The item closed, or a clarification was asked, between Admin's
+            // read and the hosted one: read it again and say it changed.
+            return match hosted_inbox_item(state, moderation_inbox::Source::Feedback, &id) {
+                Ok((_, current)) => conflict_with(&current),
+                Err(response) => response,
+            };
+        }
         Err(response) => return response,
     };
     eprintln!(
@@ -19408,7 +19462,7 @@ mod tests {
             )
         };
         let valid = json!({
-            "id": FEEDBACK_ITEM_ID, "expectedDecisions": 0, "outcome": "declined",
+            "id": FEEDBACK_ITEM_ID, "expectedDecisions": 0, "itemRevision": 1, "outcome": "declined",
             "declineReason": "maintains-reading", "rationale": "The survey measured neap tides.",
             "decided": "2026-10-27",
         });
@@ -19428,6 +19482,9 @@ mod tests {
             with("id", json!("../x")),
             with("expectedDecisions", json!(-1)),
             with("expectedDecisions", json!("0")),
+            with("itemRevision", json!(null)),
+            with("itemRevision", json!(0)),
+            with("itemRevision", json!("1")),
             with("outcome", json!("verified")),
             with("outcome", json!("incorrect")),
             with("extent", json!("most")),
@@ -19450,6 +19507,17 @@ mod tests {
                 refused.status
             );
         }
+    }
+
+    #[test]
+    fn a_decision_is_about_the_revision_the_author_read() {
+        assert!(decision_revision_is_current(2, 2));
+        assert!(!decision_revision_is_current(1, 2));
+        let changed = |code: &str| {
+            hosted_decision_changed(&Response::json(422, &json!({ "error": "x", "code": code })))
+        };
+        assert!(changed("stale") && changed("itemClosed") && changed("awaitingClarification"));
+        assert!(!changed("malformed") && !changed("denied"));
     }
 
     #[test]

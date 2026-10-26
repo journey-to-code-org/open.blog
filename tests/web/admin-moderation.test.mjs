@@ -158,17 +158,17 @@ const OUTCOMES = [
 ];
 const decidable = (extra = {}) => ({
   id: "a1111111-1111-4111-8111-11111111111a",
-  recordDecision: { expectedDecisions: 2, outcomes: OUTCOMES, post: "posts/tides.md", ...extra },
+  recordDecision: { expectedDecisions: 2, itemRevision: 3, outcomes: OUTCOMES, post: "posts/tides.md", ...extra },
 });
 
 test("a decision sends what the author saw and only the fields its outcome takes, never who decides", () => {
   const item = decidable();
   const full = { outcome: "declined", extent: "full", declineReason: "maintains-reading", rationale: "Neap tides.", revisionNote: "2026-10-27: x", claimEvidence: "tides tides-noaa", addressedBy: "b", confirmed: true, decided: "2026-10-27" };
   assert.deepEqual(decisionRequest(item, full), {
-    id: item.id, expectedDecisions: 2, outcome: "declined", decided: "2026-10-27", declineReason: "maintains-reading", rationale: "Neap tides.",
+    id: item.id, expectedDecisions: 2, itemRevision: 3, outcome: "declined", decided: "2026-10-27", declineReason: "maintains-reading", rationale: "Neap tides.",
   });
   assert.deepEqual(decisionRequest(item, { ...full, outcome: "accepted-as-evidence", extent: "partial" }), {
-    id: item.id, expectedDecisions: 2, outcome: "accepted-as-evidence", decided: "2026-10-27", extent: "partial", rationale: "Neap tides.",
+    id: item.id, expectedDecisions: 2, itemRevision: 3, outcome: "accepted-as-evidence", decided: "2026-10-27", extent: "partial", rationale: "Neap tides.",
     revisionNote: { post: "posts/tides.md", note: "2026-10-27: x" }, claimEvidence: { claim: "tides", link: "tides-noaa" },
   });
   assert.equal(decisionRequest(item, { ...full, outcome: "already-addressed", addressedBy: " b1 " }).addressedBy, "b1");

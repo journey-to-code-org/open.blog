@@ -208,7 +208,7 @@ test("the author records a correction by keyboard, each missing field named on i
   await expect(queueStatus(page)).toBeFocused();
   expect(decisions).toHaveLength(1);
   expect(decisions[0]).toEqual({
-    id: ID(1), expectedDecisions: 0, outcome: "accepted-as-correction", extent: "full", decided: decisions[0].decided,
+    id: ID(1), expectedDecisions: 0, itemRevision: 1, outcome: "accepted-as-correction", extent: "full", decided: decisions[0].decided,
     revisionNote: { post: "posts/tides.md", note: NOTE },
   });
   expect(decisions[0].decided).toMatch(/^\d{4}-\d\d-\d\d$/);
@@ -245,7 +245,7 @@ test("declining needs the author's reason and rationale; a conflict reloads and 
   await send.click();
   await expect(card.locator('[role="alert"]')).toHaveText(answer.body.error);
   await expect(send).toBeFocused();
-  expect(decisions.at(-1)).toEqual({ id: ID(5), expectedDecisions: 0, outcome: "declined", declineReason: "maintains-reading", rationale: "The gauge measured a neap tide.", decided: decisions.at(-1).decided });
+  expect(decisions.at(-1)).toEqual({ id: ID(5), expectedDecisions: 0, itemRevision: 1, outcome: "declined", declineReason: "maintains-reading", rationale: "The gauge measured a neap tide.", decided: decisions.at(-1).decided });
   answer = { status: 409, body: { error: "Someone decided on this item, or it changed, since you loaded it. Review it again before deciding.", code: "conflict", item: null } };
   await send.click();
   await expect(queueStatus(page)).toContainText("Someone decided on this item");
@@ -303,4 +303,41 @@ test("the decision form reflows at 320px with every control reachable", async ({
     expect(box.x + box.width).toBeLessThanOrEqual(321);
   }
   await context.close();
+});
+
+test("a decision names the text revision the author read, and a clarified item is reloaded before it can be decided", async ({ page }) => {
+  const read = (revision) => suggestion(9, { revision, recordDecision: { ...suggestion(9).recordDecision, itemRevision: revision } });
+  let items = [read(1)];
+  const decisions = [];
+  await page.route(`${origin}/admin/api/engagement/moderation?**`, (route) => json(route, 200, page_(items)));
+  await page.route(`${origin}/admin/api/engagement/moderation/decision`, async (route) => {
+    const body = route.request().postDataJSON();
+    decisions.push(body);
+    if (body.itemRevision !== 2) {
+      // The reader answered a clarification after the author looked: the text is revision 2 now.
+      items = [read(2)];
+      return json(route, 409, { error: "Someone decided on this item, or it changed, since you loaded it. Review it again before deciding.", code: "conflict", item: items[0] });
+    }
+    return json(route, 200, { item: null, decision: { outcome: body.outcome, label: "Declined", sequence: 1 } });
+  });
+  await signIn(page);
+  await page.goto(`${origin}/admin/#/moderation`);
+  const card = () => page.locator(`[data-moderation-id="${ID(9)}"]`);
+  const decline = async () => {
+    await card().locator("summary", { hasText: "Record decision" }).click();
+    await card().getByRole("radio", { name: "Decline" }).check();
+    await card().getByLabel("Your reason for declining").selectOption("maintains-reading");
+    await card().getByRole("textbox", { name: "Your rationale" }).fill("The gauge measured a neap tide.");
+    await card().getByRole("button", { name: "Record decision", exact: true }).click();
+  };
+  await decline();
+  await expect(queueStatus(page)).toContainText("The list was reloaded.");
+  expect(decisions).toHaveLength(1);
+  expect(decisions[0].itemRevision).toBe(1);
+  // Nothing was recorded against the old text: the form is fresh, and the next send carries revision 2.
+  await expect(card().getByRole("radio", { name: "Decline" })).not.toBeChecked();
+  await decline();
+  await expect(queueStatus(page)).toContainText("Decision recorded");
+  expect(decisions).toHaveLength(2);
+  expect(decisions[1].itemRevision).toBe(2);
 });
