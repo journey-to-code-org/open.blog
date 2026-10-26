@@ -22548,4 +22548,172 @@ series: letters
         }
         assert_eq!(publish_as(&f, &ada, &id).status, 200);
     }
+
+    #[test]
+    fn a_full_group_refuses_one_more_invitation_and_a_freed_place_can_be_used() {
+        use openblog_core::collaboration::MAX_PARTICIPANTS;
+        let f = fixture("roundtable-cap");
+        // Accounts share Mikey's password hash, so a full group costs no extra hashing.
+        let path = f.dir.join(".openblog/users.json");
+        let mut users = Users::load(&path).unwrap();
+        let hash = users.find("mikey").unwrap().hash.clone();
+        let mut contributors = serde_json::Map::new();
+        contributors.insert("mikey-writer".into(), json!({ "name": "Mikey" }));
+        for n in 1..=MAX_PARTICIPANTS {
+            users.users.push(crate::auth::UserRecord {
+                name: format!("acct{n:03}"),
+                hash: hash.clone(),
+            });
+            contributors.insert(
+                format!("key-{n:03}"),
+                json!({ "name": format!("Writer {n:03}") }),
+            );
+        }
+        users.save(&path).unwrap();
+        register_contributors(&f, Json::Object(contributors));
+        let mikey = login_ok(&f);
+        let id = body_json(&create_shared(&f, &mikey, reflection_request()))["publication"]
+            ["publicationId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let invite = |n: usize| {
+            post_api(
+                &f,
+                &mikey,
+                "invitations",
+                invite_body(
+                    &id,
+                    &format!("acct{n:03}"),
+                    &format!("key-{n:03}"),
+                    json!(["contributor"]),
+                ),
+            )
+        };
+        // Mikey plus 99 pending invitations fill the group.
+        let mut tokens = Vec::new();
+        for n in 1..MAX_PARTICIPANTS {
+            let issued = invite(n);
+            assert_eq!(issued.status, 201, "invitation {n}");
+            tokens.push(body_json(&issued)["token"].as_str().unwrap().to_string());
+        }
+        let before = state_trees(&f);
+        let refused = invite(MAX_PARTICIPANTS);
+        assert_eq!(refused.status, 422);
+        assert!(
+            String::from_utf8_lossy(&refused.body).contains("too many invitations or participants")
+        );
+        assert_eq!(state_trees(&f), before);
+        // Accepting keeps the group full; a joined writer cannot widen it either.
+        let joined = login_as(&f, "acct001", "correct horse battery");
+        let accepted = post_api(
+            &f,
+            &joined,
+            "invitations/accept",
+            json!({ "token": tokens[0], "contributorId": "key-001" }),
+        );
+        assert_eq!(accepted.status, 200);
+        assert_eq!(invite(MAX_PARTICIPANTS).status, 422);
+        // Revoking a pending invitation frees exactly one place.
+        let pending = stored_record(&f, &id)
+            .invitations
+            .iter()
+            .find(|invitation| invitation.admin_user == "acct002")
+            .unwrap()
+            .id
+            .clone();
+        let revoked = post_api(
+            &f,
+            &mikey,
+            "invitations/revoke",
+            json!({ "publicationId": id, "invitationId": pending }),
+        );
+        assert_eq!(revoked.status, 200);
+        assert_eq!(invite(MAX_PARTICIPANTS).status, 201);
+        assert_eq!(invite(2).status, 422);
+        // The full record still loads and lists every member for the owner.
+        let record = stored_record(&f, &id);
+        assert_eq!(record.collaboration.participants.len(), 2);
+        let members = body_json(&members_of(&f, &mikey, &id));
+        assert_eq!(members["members"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn ten_writers_saving_and_approving_at_once_lose_nothing() {
+        let (fixture, mikey, id, writers, _) = group_fixture("roundtable-concurrent", 9);
+        let everyone = std::iter::once(&mikey)
+            .chain(writers.iter())
+            .collect::<Vec<_>>();
+        let (f, id) = (&fixture, id.as_str());
+        let saved = std::thread::scope(|scope| {
+            let saves = everyone
+                .iter()
+                .enumerate()
+                .map(|(n, who)| {
+                    scope.spawn(move || draft_call(f, who, id, 0, &two_parts(n, "C")).status)
+                })
+                .collect::<Vec<_>>();
+            saves
+                .into_iter()
+                .map(|save| save.join().unwrap())
+                .collect::<Vec<_>>()
+        });
+        assert!(saved.iter().all(|status| *status == 200), "{saved:?}");
+        // Every writer's own words are there, and nobody else's draft was overwritten.
+        for (n, who) in everyone.iter().enumerate() {
+            let own = body_json(&draft_read(f, who, id));
+            assert_eq!(own["draft"]["markdown"], two_parts(n, "C"));
+        }
+        assert_eq!(
+            reveal_call(
+                &f,
+                &mikey,
+                "policy",
+                policy_body(id, "independent", "allReady")
+            )
+            .status,
+            200
+        );
+        let offered = std::thread::scope(|scope| {
+            let offers = everyone
+                .iter()
+                .map(|who| {
+                    scope.spawn(move || {
+                        reveal_call(f, who, "ready", ready_body(id, json!(1))).status
+                    })
+                })
+                .collect::<Vec<_>>();
+            offers
+                .into_iter()
+                .map(|offer| offer.join().unwrap())
+                .collect::<Vec<_>>()
+        });
+        assert!(offered.iter().all(|status| *status == 200), "{offered:?}");
+        // The last offer revealed everything to everyone at once.
+        let preview = body_json(&preview_call(f, &writers[4], id));
+        assert_eq!(preview["preview"]["complete"], true);
+        let bodies = everyone
+            .iter()
+            .map(|who| approval_body(f, who, id))
+            .collect::<Vec<_>>();
+        let approved = std::thread::scope(|scope| {
+            let approvals = everyone
+                .iter()
+                .zip(&bodies)
+                .map(|(who, body)| {
+                    scope.spawn(move || post_api(f, who, "approve", body.clone()).status)
+                })
+                .collect::<Vec<_>>();
+            approvals
+                .into_iter()
+                .map(|approval| approval.join().unwrap())
+                .collect::<Vec<_>>()
+        });
+        assert!(approved.iter().all(|status| *status == 200), "{approved:?}");
+        assert_eq!(
+            approvals_file(f, id)["approvals"].as_array().unwrap().len(),
+            10
+        );
+        assert_eq!(publish_as(f, &mikey, id).status, 200);
+    }
 }
