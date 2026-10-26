@@ -806,7 +806,7 @@ test("a rebased draft keeps its own copy of an item whose stored index now holds
   assert.deepEqual(sent.evidence, [{ source: "slings-2003", passage: "p-1", own: "second", added: "elsewhere" }], "the evidence item rests on its own stored copy, now at index 0, and never on another item at index 1");
   assert.equal(sent.contestedBy.length, 1);
   assert.equal(sent.contestedBy[0].own, "second", "the dissent keeps its own fields");
-  assert.equal(sent.contestedBy[0].added, undefined, "the dissent takes no fields from another stored dissent");
+  assert.equal(sent.contestedBy[0].added, "elsewhere", "the dissent's party is unique in both lists, so it rests on its own stored copy, now at index 0");
 
   const shifted = atlasRelationshipDraft(record);
   const elsewhere = RELATIONSHIP();
@@ -850,6 +850,37 @@ test("evidence citing the same source and passage twice never rests on the other
     checkTwins(sent.evidence, expected, `relationship evidence after ${change.name}: A keeps its own fields and B takes only its own`);
     checkTwins(sent.contestedBy[0].evidence, expected, `dissent evidence after ${change.name}`);
   }
+});
+
+test("dissents by the same party rest on their own newer copy, never the other party member's", () => {
+  const dissent = (note, own, extra = {}) => ({ by: { kind: "named", name: "Editor" }, note, own, evidence: [{ source: "x", passage: "p", tag: `${own}-ev` }], ...extra });
+  const opened = () => ({ ...RELATIONSHIP(), contestedBy: [dissent("First doubt.", "first"), dissent("Second doubt.", "second")] });
+  const rebase = (contestedBy) => {
+    const draft = atlasRelationshipDraft(opened());
+    rebaseAtlasRelationshipDraft(draft, { ...opened(), contestedBy });
+    return atlasRelationshipPayload(draft).contestedBy.map((item) => [item.own, item.added, item.evidence[0].tag]);
+  };
+  // The first is removed elsewhere and the second gains a field: the first keeps its own copy.
+  assert.deepEqual(rebase([dissent("Second doubt.", "second", { added: "x" })]), [["first", undefined, "first-ev"], ["second", "x", "second-ev"]]);
+  // A swap elsewhere is followed by note.
+  assert.deepEqual(rebase([dissent("Second doubt.", "second", { added: "b" }), dissent("First doubt.", "first", { added: "a" })]), [["first", "a", "first-ev"], ["second", "b", "second-ev"]]);
+  // Identical dissents are told apart only by their index while the group keeps its size.
+  const twins = () => [dissent("Same.", "one"), dissent("Same.", "two")];
+  const draft = atlasRelationshipDraft({ ...RELATIONSHIP(), contestedBy: twins() });
+  rebaseAtlasRelationshipDraft(draft, { ...RELATIONSHIP(), contestedBy: [{ ...twins()[1], added: "b" }] });
+  assert.deepEqual(atlasRelationshipPayload(draft).contestedBy.map((item) => [item.own, item.added]), [["one", undefined], ["two", undefined]]);
+});
+
+test("identical evidence items keep their own copy when the identical group changed size elsewhere", () => {
+  const same = () => [{ source: "s", passage: "p", own: "A" }, { source: "s", passage: "p", own: "B" }];
+  const record = { ...RELATIONSHIP(), evidence: same(), contestedBy: [] };
+  const draft = atlasRelationshipDraft(record);
+  rebaseAtlasRelationshipDraft(draft, { ...record, evidence: [{ ...same()[1], added: "b" }] });
+  assert.deepEqual(atlasRelationshipPayload(draft).evidence.map((item) => [item.own, item.added]), [["A", undefined], ["B", undefined]]);
+  // When the group is the same size the item at its own index is followed.
+  const again = atlasRelationshipDraft(record);
+  rebaseAtlasRelationshipDraft(again, { ...record, evidence: [{ ...same()[0], added: "a" }, same()[1]] });
+  assert.deepEqual(atlasRelationshipPayload(again).evidence.map((item) => [item.own, item.added]), [["A", "a"], ["B", undefined]]);
 });
 
 test("a dating's evidence citing the same source and passage twice never rests on the other item after a removal or a swap elsewhere", () => {

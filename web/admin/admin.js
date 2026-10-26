@@ -2053,30 +2053,53 @@ export function atlasDissentDraft(record = {}, from = null) {
  * Rests a relationship draft on a newer stored copy. Every nested item read
  * from the store takes the newer copy of the item it came from, wherever that
  * item still exists, so fields added elsewhere at any level survive the save.
- * A dissent rests on the newer copy only while the stored dissent at its index
- * is still the same party; evidence rests on the newer item known by its
+ * A dissent rests on the newer dissent known by its party while that party is
+ * unique in the opened and the newer lists; when several share a party, the
+ * same opened note or evidence must also match, and if that still leaves
+ * several, only the one at the dissent's own index qualifies. Evidence rests on the newer item known by its
  * source and passage (see `rebaseAtlasEvidence`). When an item cannot be told
  * apart from another, the draft keeps its own copy rather than take that
  * item's fields.
  */
 export function rebaseAtlasRelationshipDraft(draft, current) {
-  const stored = (list, from) => (Array.isArray(list) && Number.isInteger(from) && list[from] && typeof list[from] === "object" ? list[from] : null);
   const text = (value) => (typeof value === "string" ? value : "");
-  const party = (value) => (value && typeof value === "object" ? value : {});
-  const sameDissent = (a = {}, b = {}) => {
-    const [x, y] = [party(a.by), party(b.by)];
-    return text(x.kind) === text(y.kind) && text(x.source) === text(y.source) && text(x.name) === text(y.name);
+  const object = (value) => value && typeof value === "object";
+  const party = (value) => (object(value) ? value : {});
+  const partyKey = (dissent) => {
+    const by = party(dissent?.by);
+    return JSON.stringify([text(by.kind), text(by.source), text(by.name)]);
   };
+  const evidenceKey = (dissent) =>
+    JSON.stringify((Array.isArray(dissent?.evidence) ? dissent.evidence : []).map((item) => [text(item?.source), text(item?.passage), JSON.stringify(Array.isArray(item?.locators) ? item.locators : [])]));
   const openedFrom = draft.original?.dates;
   const openedEvidence = draft.original?.evidence;
+  const openedDissents = Array.isArray(draft.original?.contestedBy)
+    ? draft.original.contestedBy
+    : draft.contestedBy.filter((item) => Number.isInteger(item.from)).map((item) => item.original);
   draft.original = structuredClone(current);
   draft.assertedBy.original = structuredClone(current.assertedBy || { kind: "author" });
   rebaseAtlasEvidence(draft.evidence, current.evidence, openedEvidence);
+  const newerList = Array.isArray(current.contestedBy) ? current.contestedBy : [];
   for (const dissent of draft.contestedBy) {
-    const newer = stored(current.contestedBy, dissent.from);
-    if (!newer || !sameDissent(newer, dissent.original)) continue;
+    if (!Number.isInteger(dissent.from) || !object(dissent.original)) continue;
+    const key = partyKey(dissent.original);
+    const sameParty = (list) => list.filter((value) => object(value) && partyKey(value) === key);
+    const candidates = sameParty(newerList);
+    const openedSame = sameParty(openedDissents);
+    let newer = null;
+    if (candidates.length === 1 && openedSame.length === 1) newer = candidates[0];
+    else {
+      // Several dissents share the party: the same opened note or evidence must tell them apart.
+      const alike = (value) => (text(dissent.original.note) ? text(value.note) === text(dissent.original.note) : !text(value.note) && evidenceKey(value) === evidenceKey(dissent.original));
+      const matching = candidates.filter(alike);
+      const openedMatching = openedSame.filter(alike);
+      if (matching.length === 1 && openedMatching.length === 1) newer = matching[0];
+      else if (matching.length === openedMatching.length && matching.includes(newerList[dissent.from])) newer = newerList[dissent.from];
+    }
+    if (!newer) continue;
     const opened = dissent.original?.evidence;
     dissent.original = structuredClone(newer);
+    dissent.from = newerList.indexOf(newer);
     dissent.by.original = structuredClone(newer.by || { kind: "author" });
     rebaseAtlasEvidence(dissent.evidence, newer.evidence, opened);
   }
@@ -2537,8 +2560,11 @@ function rebaseAtlasEvidence(drafts, list, opened) {
     if (candidates.length === 1 && count(before, key) === 1) newer = candidates[0];
     else {
       const matching = candidates.filter((value) => sameLocators(value, item.original));
-      if (matching.length === 1) newer = matching[0];
-      else if (matching.includes(items[item.from])) newer = items[item.from];
+      const openedMatching = before.filter((value) => pair(value) === key && sameLocators(value, item.original));
+      // Identical opened items cannot be told apart by content: the position
+      // counts only while the group of identical items is the same size.
+      if (matching.length === 1 && openedMatching.length === 1) newer = matching[0];
+      else if (matching.length === openedMatching.length && matching.includes(items[item.from])) newer = items[item.from];
     }
     if (!newer) continue;
     item.original = structuredClone(newer);
