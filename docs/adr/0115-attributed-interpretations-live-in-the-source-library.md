@@ -62,8 +62,8 @@ evidence, audience levels, and AI provenance to scholarly interpretations.
   bibliography export, and no build reads them: a build parses the library with its
   interpretations kept raw and unvalidated, so a problem in one (such as an interpreter whose
   contributor was later removed by hand) never fails a build that cites a source or publishes
-  claim evidence. Admin, every store change, and `openblog check` validate them in full.
-  `openblog check` validates and counts them.
+  claim evidence. Admin, every store change, and `openblog check` validate them in full, and
+  `openblog check` counts them.
   Store functions create, update, and remove one interpretation under the library revision;
   Admin endpoints and controls arrive with the comparison workspace (#54), and publication only
   through the projection #55 will define.
@@ -72,9 +72,15 @@ evidence, audience levels, and AI provenance to scholarly interpretations.
 
 - One file holds the versions and the interpretations made from them, so an interpretation can
   never point at a version a concurrent change removed.
-- An older open.blog keeps the array as an unknown field, but refuses a library whose
-  interpretations name a contributor, because its credit guard sees the `contributor` key. That
-  is a refusal, not data loss.
+- `interpretations` was an unknown library-level field name before; ADR 0112 lists every field
+  name story #22 promotes. An older open.blog keeps the array as an unknown field, but refuses a
+  library whose interpretations name a contributor, because its credit guard sees the
+  `contributor` key. That is a refusal, not data loss. An older release whose library it can
+  read does not know interpretations use sources and contributors, so it lets the author remove
+  a source an interpretation uses or a contributor one names; this release then reports the
+  unresolved `interpretations[n].source` or interpreter until the interpretation is changed
+  (see the downgrade hazards in ADR 0112). Builds are unaffected because they never validate
+  interpretations.
 - A contributor registry entry referenced by an interpretation must be edited, not removed,
   until the interpretation changes.
 - B7.1 can extend interpretations with evidence, levels, and AI provenance as new optional

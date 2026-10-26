@@ -50,16 +50,36 @@ open.blog keeps the new fields verbatim as unknown fields.
   and an import restores it, so an export still imports back unchanged. BibTeX reports each one
   in `losses`.
 - **Admin.** The existing source form keeps fields it does not edit, so editing a record in
-  Admin never drops them. Controls for these fields arrive with the comparison workspace (#54).
+  Admin never drops them. An edited creator keeps its attribution, note, and unknown fields, and
+  an edited reference location keeps its volume and unknown fields; a reference to a record in
+  several volumes shows a Volume field. Other controls arrive with the comparison workspace
+  (#54).
 
 ## Consequences
 
 - Version-specific facts (pages, volumes, folios, revisions) attach only to the version they
   belong to, and are checked offline as structure; nothing claims a revision is better or that a
   shelfmark is current.
-- Libraries that relied on unknown fields named `revises`, `repository`, `shelfmark`, `volumes`,
-  or a location `volume` with a different shape now get a field-scoped diagnostic instead of
-  silent preservation. ADR 0009 reserved this possibility; renaming the field resolves it.
+- Story #22 promotes these previously unknown field names to defined fields: on a record
+  `revises`, `repository`, `shelfmark`, `volumes`, `anonymous`, and `rights` (ADR 0113, 0114);
+  on a location `volume`; on a creator `attribution` and `note` (ADR 0114); and at the library
+  level `interpretations` (ADR 0115). Libraries that relied on unknown fields with these names
+  and a different shape now get a field-scoped diagnostic instead of silent preservation. ADR
+  0009 reserved this possibility; renaming the field resolves it.
+- **Downgrade hazards.** An older open.blog keeps every promoted field verbatim as an unknown
+  field when it reads and writes the library, but it does not know what they mean, so editing
+  with it can leave a library this release refuses until repaired:
+  - it does not count `revises` as a dependency, so it lets the author remove an edition that a
+    revision names, leaving an unresolved `revises`;
+  - it does not know interpretations name sources, so it lets the author remove a source an
+    interpretation uses, leaving an unresolved `interpretations[n].source`, and it lets the
+    registry drop a contributor an interpretation names;
+  - its Admin source form rebuilds an edited reference location as `{ scheme, value }` and an
+    edited creator as `{ name, role }`, dropping the location's `volume` (a page in a
+    multi-volume record then needs its volume again) and the creator's `attribution` and
+    `note`, which can make an anonymous record contradict itself.
+  Each is reported field by field when this release reads the library again; nothing is
+  silently rewritten.
 - None of these fields are public. `public_reference` remains an allowlist, so a build that cites
   a source publishes none of them until a later projection (#55) decides otherwise.
 
