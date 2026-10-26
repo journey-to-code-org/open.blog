@@ -151,6 +151,11 @@ export function researchHref(panel, id = "") {
   return `#/research/${known.id}${id && known.takesId ? `/${encodeURIComponent(id)}` : ""}`;
 }
 
+/** The address of one atlas relationship, opened in the Knowledge Atlas with it focused. */
+export function atlasRelationshipHref(id) {
+  return `${researchHref("atlas")}/relationships/${encodeURIComponent(String(id || ""))}`;
+}
+
 /** Shell routes that are research panels, by the name each view gives the shell. */
 const RESEARCH_SHELL_ROUTES = Object.freeze({ "research-overview": "overview", sources: "sources", research: "notebook", atlas: "atlas", compare: "compare" });
 
@@ -6924,7 +6929,8 @@ export function publicationReviewTarget(finding, { post = "", firstBodyLine = 1 
     case "source-library": case "interpretation": return { kind: "panel", href: researchHref("sources"), label: "Open Sources" };
     case "passage": case "note": case "notebook": return { kind: "panel", href: researchHref("notebook"), label: "Open the research notebook" };
     case "entry": return { kind: "panel", href: researchHref("atlas", id), label: `Open the atlas entry ${id} in the Knowledge Atlas` };
-    case "relationship": case "dating": case "atlas": return { kind: "panel", href: researchHref("atlas"), label: "Open the Knowledge Atlas" };
+    case "relationship": return id ? { kind: "panel", href: atlasRelationshipHref(id), label: `Open the atlas relationship ${id} in the Knowledge Atlas` } : { kind: "panel", href: researchHref("atlas"), label: "Open the Knowledge Atlas" };
+    case "dating": case "atlas": return { kind: "panel", href: researchHref("atlas"), label: "Open the Knowledge Atlas" };
     case "alignment": return { kind: "panel", href: researchHref("compare", id), label: `Open the comparison ${id} in Compare` };
     case "alignments-file": return { kind: "panel", href: researchHref("compare"), label: "Open Compare" };
     default: return null;
@@ -11097,7 +11103,11 @@ export class ObAdmin extends AdminElement {
       renderLists();
     });
 
-    if (focus) {
+    const relationshipFocus = String(focus || "").match(/^relationships\/(.+)$/)?.[1];
+    if (relationshipFocus) {
+      if (relationshipById(relationshipFocus)) selected = { type: "relationship", id: relationshipFocus };
+      else say(`No relationship has the identifier ${relationshipFocus}. It may have been removed.`);
+    } else if (focus) {
       if (entryById(focus)) selected = { type: "entry", id: focus };
       else if (validAtlasId(focus)) {
         selected = { type: "entry", id: null, prefill: { id: focus, kind: "concept" } };

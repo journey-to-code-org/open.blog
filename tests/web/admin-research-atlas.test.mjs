@@ -537,6 +537,18 @@ test("opening an entry moves focus to it and lists its relationships from its si
   assert.equal(root.querySelector("p[data-atlas-standing]").dataset.atlasStanding, "contested");
 }));
 
+test("a relationship's address opens it focused, and an unknown one says so", withDom(async () => {
+  const { app, root } = mountAtlas(atlasApi());
+  await app.showAtlas("relationships/plato-authored-politeia");
+  await tick();
+  assert.equal(globalThis.document.activeElement.id, "oba-atlas-heading");
+  assert.equal(root.querySelector("[data-atlas-sentence]").textContent, `${HOSTILE} authored Politeia`);
+  const other = mountAtlas(atlasApi());
+  await other.app.showAtlas("relationships/gone");
+  assert.match(other.root.textContent, /No relationship has the identifier gone/);
+  assert.equal(other.root.querySelector("[data-atlas-sentence]"), null);
+}));
+
 test("a concept lists the notebook notes that link it", withDom(async () => {
   const { app, root } = mountAtlas(atlasApi());
   await app.showAtlas("allegory");

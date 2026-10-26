@@ -408,6 +408,9 @@ test("every finding links to its exact object and repair", () => {
   assert.equal(target({ object: "source", id: "slings" }).href, "#/research/sources/slings");
   assert.equal(target({ object: "entry", id: "plato" }).href, "#/research/atlas/plato");
   assert.equal(target({ object: "alignment", id: "cave-places", field: "members[1]" }).href, "#/research/compare/cave-places");
+  assert.equal(target({ object: "relationship", id: "plato-taught-aristotle" }).href, "#/research/atlas/relationships/plato-taught-aristotle", "a relationship opens focused, not the generic atlas");
+  assert.equal(target({ object: "relationship", id: "plato-taught-aristotle" }).label, "Open the atlas relationship plato-taught-aristotle in the Knowledge Atlas");
+  assert.equal(target({ object: "relationship", id: "a b/c" }).href, "#/research/atlas/relationships/a%20b%2Fc");
   assert.equal(target({ object: "passage", id: "p1" }).href, "#/research/notebook");
   assert.equal(target({ object: "source-library" }).href, "#/research/sources");
   assert.equal(target({ object: "alignments-file" }).href, "#/research/compare");

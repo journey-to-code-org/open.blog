@@ -121,8 +121,9 @@ would make #194 a migration.
 - **Every item links to its object and repair.** A finding on the post goes to its line in the
   Markdown source (switching the view to Markdown without changing the saved writing-mode
   preference) or to its front matter field; a claim or evidence link opens it in Evidence Studio;
-  a source, atlas entry or comparison opens by its own address in the research workspace
-  (Sources now opens a source by id, `#/research/sources/<id>`), keeping the unsaved draft
+  a source, atlas entry, atlas relationship or comparison opens by its own address in the research
+  workspace (Sources now opens a source by id, `#/research/sources/<id>`, and the Knowledge Atlas a
+  relationship, focused, by `#/research/atlas/relationships/<id>`), keeping the unsaved draft
   (ADR 0133); a file-level finding opens its panel. Going anywhere closes the review without
   saving.
 - **Accessible and keyboard operable.** The review is a modal `dialog` named by its heading and
