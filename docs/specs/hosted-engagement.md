@@ -78,7 +78,18 @@ with its audit event. The hosted schema for every decision is opt in (ADR 0105):
 adds a version, the full state and a reason beside the comment `status` column, which keeps its
 three values for public reads, and a comment audit table; `feedback.sql` adds the item's
 revisions and the audit fields ADR 0083 left. Without `OPENBLOG_MODERATION_ENABLED` the inbox offers
-what the older schema can store. Retention, abuse reports and reader receipts belong to #226.
+what the older schema can store. With engagement protection (ADRs 0130 and 0131) the inbox also
+lists abuse reports with the item each names, upholds them in one transaction, deletes a closed
+item's text for the site Admin, and runs retention from a confirmed dry run.
+
+## Engagement protection
+
+Reader receipts, anonymous abuse reports, deletion requests and the retention run (ADRs 0130 and
+0131) are opt in behind `supabase/protection.sql` and `OPENBLOG_PROTECTION_ENABLED`. Quotas store
+only hourly digests of the client, receipts only their digest, and reports no reporter identity;
+purging overwrites text and keeps state and audit events without it. The rules the function
+applies (`retentionStep`, `planErasure`, `planUphold`) are checked against
+`tests/fixtures/participation-protection.json`, which the Rust policy generates.
 
 ## Testing decisions
 
@@ -89,6 +100,10 @@ what the older schema can store. Retention, abuse reports and reader receipts be
 - Exercise comment submission and text-only rendering through the mounted web component.
 - Exercise Admin settings through authenticated/CSRF-protected routes and browser settings controls.
 - Run the full Rust, browser, documentation-link, formatting, lint, and locked release-build gates.
+- For protection (`tests/web/netlify-protection.test.mjs`): the shared fixture, stored digests
+  that change every hour, credentials absent from every answer, a disabled service, origin and
+  token checks, malformed JSON, floods and replays, races, receipts, reports, upholding, deletion,
+  the retention dry run and run, and the SQL with its rollback.
 
 ## Typed passage feedback
 

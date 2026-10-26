@@ -86,5 +86,8 @@ tables and the function's adoption to #226.
 ## Consequences
 
 - #226 adds the retention job, the private audit table (additive, like [ADR 0080](0080-hosted-feedback-is-one-additive-private-table.md)) and reader
-  receipts, applying these rules; #225 shows reasons and audit history to moderators.
+  receipts, applying these rules; #225 shows reasons and audit history to moderators. (Done in
+  [ADR 0130](0130-reader-receipts-deletion-requests-and-anonymous-abuse-reports.md) and
+  [ADR 0131](0131-retention-runs-from-a-dry-run-and-quotas-keep-only-hourly-digests.md): a purge
+  also raises the item's version, so no earlier view can act on it.)
 - Shorter periods are a configuration change, not a code change, and are validated at load.

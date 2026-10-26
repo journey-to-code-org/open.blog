@@ -30,7 +30,7 @@ default, so you can edit values in place and delete the ones you do not need.
   "home": { "heading": "Latest posts", "intro": "", "showSeries": true },
   "share": { "enabled": true, "networks": ["x", "bluesky", "linkedin", "reddit", "hackernews", "email"] },
   "analytics": { "builtin": true, "showViews": true, "retentionDays": 400, "endpoint": "", "branch": "analytics", "bakeCounts": true },
-  "engagement": { "enabled": false, "comments": true, "analytics": true, "endpoint": "", "feedback": false, "feedbackContact": "" },
+  "engagement": { "enabled": false, "comments": true, "analytics": true, "endpoint": "", "feedback": false, "feedbackContact": "", "receipts": false },
   "snippets": { "head": "", "postFooter": "", "bodyEnd": "" },
   "relatedPosts": 3,
   "cdn": { "url": "", "paths": ["/assets/", "/themes/", "/images/"], "version": "", "maxAge": 86400 },
@@ -101,7 +101,11 @@ These are described in [Sharing, views, analytics, and embeds](features.md).
   go: a plain `mailto:` address or an `https:` contact page, linked from the form. Moderate what
   readers send, with comments, in Admin's **Moderation inbox**; approved notes, with your responses, are kept in
   `content/reader-feedback.json` and shown on the post's page only, and a site with feedback on
-  publishes the post's `evidenceRevisions` notes (ADR 0083).
+  publishes the post's `evidenceRevisions` notes (ADR 0083). `engagement.receipts` (off by
+  default, and left out of the file while off) adds "Check, clarify or withdraw a note you sent"
+  to the form, where a reader uses the private receipt they were given; switch it on only once the
+  hosted function issues receipts (`supabase/protection.sql` and `OPENBLOG_PROTECTION_ENABLED`, see
+  [Privacy, retention and deletion](#privacy-retention-and-deletion)).
 - `snippets` are raw HTML placed on every page (`head`, `bodyEnd`) or under every post
   (`postFooter`): third-party analytics, comments, newsletter forms.
 - `relatedPosts` is how many related posts to show under each post; `0` hides the section.
@@ -323,6 +327,34 @@ other way to take part is a participation kind, off until you switch it on in `p
 
 The rules are recorded in ADRs [0100](adr/0100-one-registry-of-participation-kinds-enabled-per-site-and-post.md)
 to [0103](adr/0103-retention-audit-events-and-abuse-reports-fail-closed.md).
+
+### Privacy, retention and deletion
+
+What the hosted service keeps, and how it goes, once you run the optional
+[engagement protection](../netlify/functions/README.md#engagement-protection-optional) schema
+(ADRs [0130](adr/0130-reader-receipts-deletion-requests-and-anonymous-abuse-reports.md) and
+[0131](adr/0131-retention-runs-from-a-dry-run-and-quotas-keep-only-hourly-digests.md)):
+
+- **Never stored:** a reader's IP address, user agent, e-mail address or any identifier that
+  lasts beyond an hour. Rate limits keep a salted digest of the client for the hour only; page
+  analytics keep a daily digest that changes every day. Service credentials stay in Netlify and
+  never reach Admin's browser or a page.
+- **Receipts:** a reader who sends passage feedback gets a private receipt once; only its digest
+  is stored. With it they can check on the note, agree to be asked to clarify it, answer a
+  clarification request, or withdraw it. Nothing is ever e-mailed.
+- **Withdrawal and deletion:** withdrawing by receipt deletes the note's text, details and the
+  reader's name at once and keeps only its state and a record of decisions without text. If the
+  note was published, the inbox tells you to take it off the post. For a reader who asks you some
+  other way (a commenter, say), first reject or remove the item, then use **Delete its text and
+  name** on it in the inbox.
+- **Abuse reports:** anonymous, never published or counted, and taken only for an item that is
+  public now. Upholding one removes the item in the same decision, or changes only the report if
+  the item is already out of view.
+- **Retention:** nothing is deleted on a schedule. In **Moderation inbox → Retention**, check what
+  retention would do under the periods above, then run it. Pending items expire, the text of
+  closed items and upheld reports is purged after `closedDays`, withdrawn text at once, and
+  records of decisions after `auditDays`. Comments are included only if you set `retention`
+  yourself.
 
 ## Themes
 

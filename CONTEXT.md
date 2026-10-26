@@ -1065,6 +1065,38 @@ moderator loaded. Admin and the hosted function each decide it with the same rul
 conditional write records it with its audit event (ADR 0104).
 _Avoid_: Status change, bulk action, verdict
 
+**Reader receipt**:
+A random secret the hosted function returns once when it takes a reader's note, kept only as its
+digest. Holding it is the only proof of submission: with it the reader reads the note, agrees to
+be asked to clarify, answers a clarification request, or withdraws the note. Comments and abuse
+reports get none (ADR 0130).
+_Avoid_: Account, login, confirmation e-mail, ticket number
+
+**Deletion request**:
+A request that an item's text, details and name be deleted now, by its submitter's receipt (which
+withdraws an open or approved note first) or by the site Admin on an item already closed. Only the
+state and an audit trail without text remain (ADR 0130).
+_Avoid_: Delete row, unpublish, removal
+
+**Purge**:
+Overwriting an item's text, details and reader name, setting when it happened and raising its
+version, with a `purge-content` audit event. A purged item is never approved again and takes no
+further decision.
+_Avoid_: Delete, archive, redact when the text is kept
+
+**Retention run**:
+The site Admin's confirmed application of `participation.retention`: a dry run lists what would
+expire or be purged and how many audit events are old enough, then the run applies exactly the
+items still due as they were. Never scheduled, and never touches comments unless the site set
+retention itself (ADR 0131).
+_Avoid_: Cron job, cleanup script, automatic purge
+
+**Engagement protection**:
+The opt-in hosted schema and switch (`supabase/protection.sql`, `OPENBLOG_PROTECTION_ENABLED`) that
+add receipts, stored abuse reports, purging and the retention run, with replay bounds, all
+additive and rolled back by `protection-rollback.sql` (ADR 0131).
+_Avoid_: Security mode, hardening flag
+
 **Inbox schema**:
 The hosted columns, comment audit table and conditional moderation functions every inbox decision
 needs, added by `supabase/moderation.sql` and `supabase/feedback.sql` and switched on with

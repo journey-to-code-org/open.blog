@@ -107,6 +107,8 @@ through counts or previews, and clarification and removal distinct from approval
 - Comments gain removal and reopening as states of their own, versions and an audit trail once the
   hosted schema allows (ADR 0105); until then the inbox offers what the older schema can store.
 - Third Perspectives, author responses and abuse reports join the list as their stores arrive;
-  upholding a report is decided by the same policy once reports are stored (#226).
+  upholding a report is decided by the same policy once reports are stored (#226). Abuse reports
+  joined with their item's snapshot, and the site Admin's deletion request is an inbox action on
+  closed items ([ADR 0130](0130-reader-receipts-deletion-requests-and-anonymous-abuse-reports.md)).
 - Reader receipts (#226) are what lets a reader answer a clarification or withdraw; the inbox
   already shows those states and never offers the reader's own actions to a moderator.

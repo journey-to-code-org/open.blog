@@ -134,3 +134,33 @@ To undo it, remove `OPENBLOG_MODERATION_ENABLED` and redeploy, then optionally e
 tables and run [`supabase/moderation-rollback.sql`](../../supabase/moderation-rollback.sql), which
 drops exactly what the two steps above added and leaves every comment, feedback item and its
 state in place. Nothing in the inbox e-mails anyone.
+
+## Engagement protection (optional)
+
+Reader receipts, abuse reports, deletion requests and the retention run (ADRs 0130 and 0131) need
+the moderation inbox's schema above, then:
+
+1. If you use passage feedback, run [`supabase/feedback.sql`](../../supabase/feedback.sql) again.
+   It adds `receipt_hash` (the digest of a reader's receipt, never the receipt) with a unique
+   index, `purged_at` and a check that a purged note is never approved to `openblog_feedback`,
+   and the deletion function `openblog_erase_feedback`.
+2. Run [`supabase/protection.sql`](../../supabase/protection.sql). It adds `purged_at` and the same
+   check to `openblog_comments`, the private tables `openblog_abuse_reports` (no reporter
+   identity) and `openblog_abuse_report_events`, the functions `openblog_moderate_report`,
+   `openblog_uphold_report`, `openblog_purge_comment` and `openblog_purge_report`, and lets the
+   service role delete audit events, which only the retention run does.
+3. Set `OPENBLOG_PROTECTION_ENABLED` to `true` (with `OPENBLOG_MODERATION_ENABLED`) and redeploy.
+   Set `"receipts": true` inside `engagement` in `openblog.json` so readers can use their receipts
+   on the page, and `"abuse-report": "open"` in `participation.kinds` to take reports.
+
+The function then returns a receipt with each note (`202 {receipt}`), takes `POST /receipt`
+(read, `consent`, `clarify`, `withdraw`) and `POST /reports`, both origin-checked and quota-bound,
+lists reports in the inbox, upholds them with `openblog_uphold_report`, deletes a closed item's
+text for the site Admin, and serves the retention dry run and run at `GET` and `POST
+/admin/retention`. A repeated note or comment from the same client within the hour answers
+`409 duplicate`. Nothing is e-mailed to anyone.
+
+To undo it, remove `OPENBLOG_PROTECTION_ENABLED` and redeploy, optionally export the report tables,
+and run [`supabase/protection-rollback.sql`](../../supabase/protection-rollback.sql) (before
+`moderation-rollback.sql` if you undo that too). It drops exactly what the steps above added and
+leaves every comment and note in its state; text already purged cannot be restored.

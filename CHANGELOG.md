@@ -37,6 +37,20 @@ All notable changes to open.blog are recorded here. Releases follow
   `reader-feedback.json` keeps them. Turning hosted engagement off, or leaving the hosted service,
   still keeps every published note on your pages.
 
+- Readers and owners get protection without tracking. With the new optional
+  `supabase/protection.sql` (and `feedback.sql` run again) and `OPENBLOG_PROTECTION_ENABLED=true`, a
+  reader who sends passage feedback gets a private receipt, shown once, to check on the note,
+  agree to be asked to clarify it, answer a clarification request, or withdraw it, which deletes
+  its text and their name at once (set `"receipts": true` in `engagement` to offer this on the
+  page). With `"abuse-report": "open"`, readers can report a published note or comment
+  anonymously; reports are never published or counted, and upholding one in the Moderation
+  inbox removes the item in the same decision. The site Admin can delete a closed item's text
+  and name for a reader who asks, and **Moderation inbox → Retention** shows what retention would
+  delete before you run it; nothing is deleted on a schedule, and comments only if you set
+  `participation.retention`. Rate limits now keep only an hourly digest of the client, never one
+  that lasts across hours, and a note or comment sent twice within the hour is taken once.
+  `supabase/protection-rollback.sql` undoes the schema. Nothing is e-mailed to anyone.
+
 ## [0.33.0] - 2026-10-26
 
 - Defined how reader questions, corrections and annotations will point at published text. A

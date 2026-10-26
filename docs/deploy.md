@@ -115,7 +115,9 @@ Admin user approves them in the **Moderation inbox**, which also lists passage f
 To offer every moderation decision, with versions and an audit trail for comments, run the
 additive [`supabase/moderation.sql`](../supabase/moderation.sql) (and `feedback.sql` again if you
 use feedback) and set `OPENBLOG_MODERATION_ENABLED=true` (ADR 0105); see the
-[function setup guide](../netlify/functions/README.md#moderation-inbox). Tokens saved by Admin are bound to the endpoint origin, redirects are not
+[function setup guide](../netlify/functions/README.md#moderation-inbox). Reader receipts, abuse
+reports, deletion requests and the retention run are a further opt-in step,
+[engagement protection](../netlify/functions/README.md#engagement-protection-optional) (ADR 0131). Tokens saved by Admin are bound to the endpoint origin, redirects are not
 followed, and Supabase-backed quotas limit public writes. The function also reads the generated
 comment-policy manifest from `OPENBLOG_SITE_ORIGIN` before comment access, so locked and hidden
 policies are enforced on the server as well as in the page UI. Set `OPENBLOG_SITE_BASE_PATH` when
