@@ -33,6 +33,13 @@ need a reader to answer a clarification or withdraw their own submission.
   Site owners in a publication policy act as the site Admin. Editors and the publication
   `reader` role get nothing here. A coordinator or contributing author whose binding is removed has
   no works, so every grant lapses with it; an item without a work is the site Admin's alone.
+- **A shared publication's works** are the `Post.url` of the post loaded from
+  `posts/{publication_id}.md` (the path `assembly::post_path` writes), resolved at request time
+  from the loaded site (`moderation::SharedWorks`), never stored with the record. A renamed slug
+  therefore moves the work with the post, and a publication whose post is not loaded has no work,
+  so nobody holds a publication role on anything through it. A post that only shares the
+  publication's slug is not its work. Callers build it from the site as Admin loads it, drafts
+  included.
 - **The grant list is complete; every other combination is denied:**
 
   | Action | Site Admin | Coordinator (in scope) | Contributing author | Submitter | System | Public |

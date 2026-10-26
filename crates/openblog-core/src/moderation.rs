@@ -20,8 +20,10 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use crate::collaboration::SharedPublication;
 use crate::config::SiteConfig;
 use crate::date::DateTime;
+use crate::model::Site;
 use crate::participation::{Origin, ParticipationKind, ParticipationMode, TargetShape};
 
 const DAY_SECONDS: i64 = 86_400;
@@ -356,6 +358,45 @@ impl Actor<'_> {
     /// publication this work belongs to. A work-less item is never in scope.
     fn covers(works: &[&str], work: Option<&str>) -> bool {
         work.is_some_and(|work| works.contains(&work))
+    }
+}
+
+/// The published work of each shared publication (ADR 0102): the
+/// [`Post::url`](crate::model::Post::url) of the post loaded from
+/// `posts/{publication_id}.md` ([`crate::assembly::post_path`]). It is
+/// resolved at request time from the loaded site, never stored, so a renamed
+/// slug moves the work with it. A publication whose post is not loaded has no
+/// work yet. Build it from the site as Admin loads it, drafts included.
+#[derive(Clone, Debug)]
+pub struct SharedWorks<'a> {
+    publications: Vec<(&'a SharedPublication, Option<&'a str>)>,
+}
+
+impl<'a> SharedWorks<'a> {
+    pub fn new(records: &'a [SharedPublication], site: &'a Site) -> Self {
+        let publications = records
+            .iter()
+            .map(|record| {
+                let path = crate::assembly::post_path(record);
+                let work = site
+                    .posts
+                    .iter()
+                    .find(|post| post.source == path)
+                    .map(|post| post.url.as_str());
+                (record, work)
+            })
+            .collect();
+        Self { publications }
+    }
+
+    /// The works of one shared publication: its post's path, or none when the
+    /// publication is unknown or its post is not loaded. This is the `works`
+    /// of a coordinator or contributing author acting for it.
+    pub fn works(&self, publication_id: &str) -> &[&'a str] {
+        self.publications
+            .iter()
+            .find(|(record, _)| record.publication_id == publication_id)
+            .map_or(&[], |(_, work)| work.as_slice())
     }
 }
 
