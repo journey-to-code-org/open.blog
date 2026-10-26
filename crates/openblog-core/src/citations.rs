@@ -471,6 +471,99 @@ pub fn public_identifier(scheme: &str, value: &str) -> bool {
     }
 }
 
+/// Why a web address may not be published, or `None` when it may (#63,
+/// ADR 0137): only a plain `http` or `https` address a reader can reach,
+/// without credentials, naming a public host and carrying no query parameter
+/// that is named like a secret. The library already refuses other schemes and
+/// credentials; the boundary also withholds addresses on a private network
+/// (`localhost`, `.local`, `.internal`, loopback, private and link-local IP
+/// ranges) and signed or tokened addresses, which would expose an intranet or
+/// an access key. Only the address is withheld; the rest of the reference is
+/// published.
+pub fn public_url_problem(value: &str) -> Option<&'static str> {
+    let Ok(url) = url::Url::parse(value.trim()) else {
+        return Some("it is not a web address");
+    };
+    if !matches!(url.scheme(), "http" | "https") {
+        return Some("only http and https addresses are published");
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Some("it carries a user name or password");
+    }
+    let private_host = match url.host() {
+        None => true,
+        Some(url::Host::Ipv4(ip)) => {
+            let [a, b, ..] = ip.octets();
+            ip.is_loopback()
+                || ip.is_private()
+                || ip.is_link_local()
+                || ip.is_unspecified()
+                || ip.is_broadcast()
+                || a == 0
+                || (a == 100 && (64..=127).contains(&b))
+        }
+        Some(url::Host::Ipv6(ip)) => {
+            let first = ip.segments()[0];
+            ip.is_loopback()
+                || ip.is_unspecified()
+                || (first & 0xfe00) == 0xfc00
+                || (first & 0xffc0) == 0xfe80
+        }
+        Some(url::Host::Domain(domain)) => {
+            let domain = domain.trim_end_matches('.').to_ascii_lowercase();
+            !domain.contains('.')
+                || [
+                    ".localhost",
+                    ".local",
+                    ".internal",
+                    ".lan",
+                    ".home.arpa",
+                    ".intranet",
+                ]
+                .iter()
+                .any(|suffix| domain.ends_with(suffix))
+        }
+    };
+    if private_host {
+        return Some("it names a private or local network address readers cannot reach");
+    }
+    const SECRET_PARAMETERS: &[&str] = &[
+        "token",
+        "access_token",
+        "auth",
+        "key",
+        "api_key",
+        "apikey",
+        "secret",
+        "password",
+        "pass",
+        "pwd",
+        "sig",
+        "signature",
+        "session",
+        "sessionid",
+        "sid",
+        "x-amz-signature",
+        "x-amz-credential",
+        "x-amz-security-token",
+        "x-goog-signature",
+        "x-goog-credential",
+    ];
+    if url
+        .query_pairs()
+        .any(|(name, _)| SECRET_PARAMETERS.contains(&name.to_ascii_lowercase().as_str()))
+    {
+        return Some("it carries a query parameter named like a key, token or signature");
+    }
+    None
+}
+
+/// Whether an identifier of a record is published: a public scheme, and for
+/// a web address one [`public_url_problem`] accepts.
+pub fn published_identifier(scheme: &str, value: &str) -> bool {
+    public_identifier(scheme, value) && (scheme != "url" || public_url_problem(value).is_none())
+}
+
 pub fn public_reference(record: &SourceRecord) -> PublicReference {
     let mut csl = BTreeMap::new();
     if let Some(Value::Object(bag)) = record.extra.get("csl") {
@@ -506,7 +599,7 @@ pub fn public_reference(record: &SourceRecord) -> PublicReference {
         identifiers: record
             .identifiers
             .iter()
-            .filter(|identifier| public_identifier(&identifier.scheme, &identifier.value))
+            .filter(|identifier| published_identifier(&identifier.scheme, &identifier.value))
             .map(|identifier| (identifier.scheme.clone(), identifier.value.clone()))
             .collect(),
         csl,
