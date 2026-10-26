@@ -1083,7 +1083,9 @@ _Avoid_: Changelog entry, correction notice from a reader; storing the note in p
 
 ## Reader participation
 
-These terms describe how readers point at published text and where their feedback came from.
+These terms describe how readers point at published text, where their feedback came from, and
+the one policy that governs everything readers and authors add to a published post (ADRs 0101 to
+0104).
 Reader data is never research: a notebook **Passage** is an author's excerpt of a source, while a
 **Passage target** points into a published post.
 
@@ -1174,10 +1176,11 @@ form enhances it, and a failed submission falls back to a copy of the note to se
 _Avoid_: Comment box, discussion when the hosted comments are meant
 
 **Feedback moderation**:
-A moderator's decision about one feedback item: approve, reject with a reason, or remove an
-approved item with a reason, in the participation policy's state names (pending, clarification,
-approved, rejected, removed, withdrawn). Each change names the state and version the moderator saw
-and is recorded as an audit event; approval never edits the post (ADR 0083).
+A moderator's decision about one feedback item, taken in the moderation inbox: approve, ask to
+clarify, reject or remove with a reason, or reopen, in the participation policy's state names
+(pending, clarification, approved, rejected, removed, withdrawn). Each change names the state and
+version the moderator saw and is recorded as an audit event; approval never edits the post (ADRs
+0083, 0105).
 _Avoid_: Accepting a correction, verdict, review when a moderation decision is meant
 
 **Passage check**:
@@ -1193,10 +1196,151 @@ consent, and the author's response. Shown on the post's canonical page only, thr
 provenance; portable copies and feeds carry a labelled link instead (ADR 0083).
 _Avoid_: Comments, feedback export, moderation record
 
+**Participation kind**:
+One entry in the closed registry of ways to participate: comment, question, suggested source,
+suggested correction, another interpretation, Third Perspective, author response or abuse report.
+Each has fixed rules: who creates it, what it targets, whether an approved item may be shown, and
+whether a moderator may ask its submitter to clarify. Every kind but comments starts `off`.
+_Avoid_: Comment type, feedback type, category (a Third Perspective prompt), channel
+
+**Participation mode**:
+How one kind behaves on one post: `hidden` (nothing shown or accepted), `locked` (approved items
+shown, nothing accepted) or `open` (approved items shown, new items accepted pending moderation).
+The comment modes, applied to every kind; resolved from the site setting and the post's front
+matter by one resolver.
+_Avoid_: Comment policy when a kind other than comments is meant, visibility, status
+
+**Site participation setting**:
+A kind's value in `participation.kinds`: `off`, `follow-comments`, or the default mode for posts
+that do not name the kind. `off` cannot be overridden by a post.
+_Avoid_: Feature flag, opt-in when the per-post mode is meant
+
+**Participation item**:
+One stored submission of any kind, with its moderation state, version, revision and the text it
+carries. Reader data, never research and never an author's contribution.
+_Avoid_: Comment (unless the kind is comment), post, contribution, message
+
+**Moderation state**:
+Where an item is: pending, clarification requested, approved, rejected, removed or withdrawn.
+Every item starts pending; only approved, at its current revision, can be public.
+_Avoid_: Status when the comment column's three values are meant, published, visible
+
+**Clarification request**:
+A moderator's request, with a reason and only with the submitter's clarification consent, that a
+submitter revise an item. The revision it asks about is never approved or published, even after
+the item is rejected, expires or is reopened (reopening returns it to clarification); only the
+answer, which replaces the text as a new revision and returns to pending, can be. Never sent by
+e-mail.
+_Avoid_: Reply, comment thread, rejection with feedback
+
+**Clarification consent**:
+A submitter's agreement, given when submitting, to be asked to clarify. Without it a moderator can
+only approve or reject.
+_Avoid_: Contact consent, publication consent, feature consent
+
+**Removal**:
+Taking an approved item out of public view, with a reason, by a moderator or by an upheld abuse
+report. Distinct from rejection (never approved) and withdrawal (by the submitter).
+_Avoid_: Deletion, purge, unpublish when retention is meant
+
+**Withdrawal**:
+A submitter taking back their own item, pending, in clarification or approved. Final: a withdrawn
+item is never reopened, and its text is purged at once.
+_Avoid_: Removal, retraction by the author, consent change for display only
+
+**Abuse report**:
+A reader's report that a public item is abusive. Never public, never counted, and never changes
+its target by itself; upholding it removes the target in the same decision or changes nothing.
+_Avoid_: Flag, vote, downvote, complaint
+
 **Author response**:
-The author's public reply to one published note, stored with it and shown under it. Replying
-sends nothing to the reader.
-_Avoid_: Reply notification, correction notice
+An author's public reply to one approved item, written by the site Admin, a coordinator or a
+contributing author of the work. A response to a published note is stored with it in
+`reader-feedback.json` and shown under it (ADR 0083); a response kept as its own participation
+item starts pending like everything else. Replying sends nothing to the reader.
+_Avoid_: Revision note, correction, comment by the author, reply notification
+
+**Moderator**:
+The site Admin, or a coordinator for the works of their publications. Contributing authors read
+and respond but do not moderate; readers act only on their own items as submitters.
+_Avoid_: Admin user when a publication coordinator is meant, editor, owner
+
+**Site Admin (moderation)**:
+The hosted moderation token, or an Admin session acting on a work outside every shared publication
+in which that account holds a binding. On a shared work a bound co-writer is that publication's
+coordinator (site owners included) or contributing author instead. Only the site Admin and the
+submitter see a reader's private name.
+_Avoid_: Admin user, site owner (a publication role), owner
+
+**Reason code**:
+The ground for a moderation decision, such as spam, abusive, personal data, off topic, duplicate,
+rights, unclear or needs source. Never a verdict on whether a reader was right.
+_Avoid_: Verdict, label, rating, "incorrect"
+
+**Moderation audit event**:
+The private record of one submission, transition or purge: item, kind, action, states, actor role,
+the Admin account where there is one, reason, time, revision and version. It never holds text or
+anything identifying a reader, and it outlives purged text.
+_Avoid_: Feedback provenance, log line, history of the text
+
+**Participation retention**:
+How long moderation keeps what it does not publish: pending and clarification items expire,
+rejected and removed text and upheld abuse reports are purged after a period, withdrawn text at
+once, and audit events last longer than any text. Comments are covered only once the site sets
+`participation.retention` itself.
+_Avoid_: Archive, backup, analytics retention
+
+**Moderation inbox**:
+Admin's one list of every hosted participation item, comments and passage feedback today, by
+state and kind, oldest first. Each item is shown, and offered the decisions the one policy accepts
+now, for the role the signed-in account has on that item's work; an item it may not see is left
+out and never counted (ADR 0105).
+_Avoid_: Comment moderation, Reader feedback view, queue when the whole inbox is meant
+
+**Inbox decision**:
+Approve, ask to clarify, reject, remove or reopen one item, naming the state and version the
+moderator loaded. Admin and the hosted function each decide it with the same rules before one
+conditional write records it with its audit event (ADR 0105).
+_Avoid_: Status change, bulk action, verdict
+
+**Reader receipt**:
+A random secret the hosted function returns once when it takes a reader's note, kept only as its
+digest. Holding it is the only proof of submission: with it the reader reads the note, agrees to
+be asked to clarify, answers a clarification request, or withdraws the note. Comments and abuse
+reports get none (ADR 0107).
+_Avoid_: Account, login, confirmation e-mail, ticket number
+
+**Deletion request**:
+A request that an item's text, details and name be deleted now, by its submitter's receipt (which
+withdraws an open or approved note first) or by the site Admin on an item already closed. Only the
+state and an audit trail without text remain (ADR 0107).
+_Avoid_: Delete row, unpublish, removal
+
+**Purge**:
+Overwriting an item's text, details and reader name, setting when it happened and raising its
+version, with a `purge-content` audit event. A purged item is never approved again and takes no
+further decision.
+_Avoid_: Delete, archive, redact when the text is kept
+
+**Retention run**:
+The site Admin's confirmed application of `participation.retention`: a dry run lists what would
+expire or be purged and how many audit events are old enough, then the run applies exactly the
+items still due as they were. Never scheduled, and never touches comments unless the site set
+retention itself (ADR 0108).
+_Avoid_: Cron job, cleanup script, automatic purge
+
+**Engagement protection**:
+The opt-in hosted schema and switch (`supabase/protection.sql`, `OPENBLOG_PROTECTION_ENABLED`) that
+add receipts, stored abuse reports, purging and the retention run, with replay bounds, all
+additive and rolled back by `protection-rollback.sql` (ADR 0108).
+_Avoid_: Security mode, hardening flag
+
+**Inbox schema**:
+The hosted columns, comment audit table and conditional moderation functions every inbox decision
+needs, added by `supabase/moderation.sql` and `supabase/feedback.sql` and switched on with
+`OPENBLOG_MODERATION_ENABLED`. Without it the inbox offers only what the older schema can store
+(ADR 0106).
+_Avoid_: Migration (it is additive and optional), new comment system
 
 **Evidence submission**:
 A suggested source or suggested correction (the two evidence kinds), optionally with an evidence

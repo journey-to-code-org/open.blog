@@ -88,6 +88,18 @@ impl FeedbackKind {
         Self::ALL.into_iter().find(|kind| kind.id() == id)
     }
 
+    /// The participation kind this is (ADR 0101): the same id, in the one
+    /// registry whose site and post modes govern it.
+    pub fn participation_kind(self) -> crate::participation::ParticipationKind {
+        use crate::participation::ParticipationKind;
+        match self {
+            FeedbackKind::Question => ParticipationKind::Question,
+            FeedbackKind::SourceSuggestion => ParticipationKind::SourceSuggestion,
+            FeedbackKind::CorrectionSuggestion => ParticipationKind::CorrectionSuggestion,
+            FeedbackKind::AlternativeInterpretation => ParticipationKind::AlternativeInterpretation,
+        }
+    }
+
     /// A label for moderators and forms. It names the reader's intent.
     pub fn label(self) -> &'static str {
         match self {
@@ -613,7 +625,7 @@ impl ScholarlyFeedback {
 /// (RD12, #211), read by [`crate::feedback_moderation`] (ADR 0083). Public
 /// submissions always start [`FeedbackStatus::Pending`]; an id no version
 /// defines is refused rather than misread.
-pub type FeedbackStatus = crate::feedback_moderation::ModerationState;
+pub type FeedbackStatus = crate::moderation::ModerationState;
 
 /// One item of the hosted moderation list (`GET /admin/feedback`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -626,8 +638,18 @@ pub struct HostedFeedback {
     pub version: u64,
     pub moderated_at: Option<DateTime>,
     /// Why the item was last rejected or removed, if it was.
-    pub reason: Option<crate::feedback_moderation::ReasonCode>,
+    pub reason: Option<crate::moderation::ReasonCode>,
     pub feedback: ScholarlyFeedback,
+    /// The text's revision (ADR 0102), raised only when a clarification
+    /// replaces it; 1 for an item stored before the inbox (ADR 0106).
+    pub revision: u32,
+    /// The revision an approval covers. An item approved before the inbox
+    /// stored none, and was approved at its only revision.
+    pub approved_revision: Option<u32>,
+    /// The revision a moderator last asked the submitter to clarify.
+    pub clarification_asked: Option<u32>,
+    /// The submitter agreed to be asked to clarify.
+    pub clarification_consent: bool,
 }
 
 #[derive(Deserialize)]
@@ -641,9 +663,17 @@ struct WireHosted {
     #[serde(default)]
     reason: Option<String>,
     feedback: Value,
+    #[serde(default)]
+    item_revision: Option<u64>,
+    #[serde(default)]
+    approved_revision: Option<u64>,
+    #[serde(default)]
+    clarification_asked: Option<u64>,
+    #[serde(default)]
+    clarification_consent: Option<bool>,
 }
 
-pub(crate) fn is_uuid(value: &str) -> bool {
+pub fn is_uuid(value: &str) -> bool {
     value.len() == 36
         && value.char_indices().all(|(index, c)| {
             if matches!(index, 8 | 13 | 18 | 23) {
@@ -678,7 +708,7 @@ impl HostedFeedback {
         let reason = wire
             .reason
             .map(|reason| {
-                crate::feedback_moderation::ReasonCode::from_id(&reason).ok_or_else(|| {
+                crate::moderation::ReasonCode::from_id(&reason).ok_or_else(|| {
                     invalid("a hosted feedback item has a reason this version does not know")
                 })
             })
@@ -690,6 +720,36 @@ impl HostedFeedback {
                     .ok_or_else(|| invalid("`moderatedAt` must be a UTC time"))
             })
             .transpose()?;
+        let revision_of = |value: Option<u64>, what: &str| {
+            value
+                .map(|value| {
+                    u32::try_from(value)
+                        .ok()
+                        .filter(|value| (1..=i32::MAX as u32).contains(value))
+                        .ok_or_else(|| invalid(what))
+                })
+                .transpose()
+        };
+        let revision = revision_of(
+            wire.item_revision,
+            "a hosted feedback item needs a positive `itemRevision`",
+        )?
+        .unwrap_or(1);
+        let approved_revision = revision_of(
+            wire.approved_revision,
+            "`approvedRevision` must be a positive revision",
+        )?;
+        let clarification_asked = revision_of(
+            wire.clarification_asked,
+            "`clarificationAsked` must be a positive revision",
+        )?;
+        if approved_revision.is_some_and(|approved| approved > revision)
+            || clarification_asked.is_some_and(|asked| asked > revision)
+        {
+            return Err(invalid(
+                "a hosted feedback item names a revision after its current one",
+            ));
+        }
         Ok(Self {
             id: wire.id,
             status,
@@ -697,6 +757,13 @@ impl HostedFeedback {
             moderated_at,
             reason,
             feedback: ScholarlyFeedback::from_value(&wire.feedback)?,
+            revision,
+            // Only an approved item has an approval; one approved before the
+            // inbox stored none and was approved at its only revision.
+            approved_revision: (status == FeedbackStatus::Approved)
+                .then(|| approved_revision.unwrap_or(revision)),
+            clarification_asked,
+            clarification_consent: wire.clarification_consent.unwrap_or(false),
         })
     }
 }

@@ -251,7 +251,7 @@ for (const name of ["localStorage", "sessionStorage", "indexedDB"]) {
     },
   });
 }
-const { locateSelection, quoteFromSelection, readPassages, safeContact } = await import("../../web/components/ob-passage-feedback.js");
+const { locateSelection, offeredKinds, quoteFromSelection, readPassages, safeContact } = await import("../../web/components/ob-passage-feedback.js");
 const { feedbackCopyText, readFeedbackSubmissionJson } = await import("../../web/components/passage-feedback.js");
 
 const HOSTILE = "<img src=x onerror=alert(1)> & </script>";
@@ -273,7 +273,7 @@ const DATA = {
  * A post page: the article's prose (with a heading anchor link and a note
  * marker the build's text leaves out), the feedback region and the data.
  */
-function page({ data = JSON.stringify(DATA), endpoint = "https://t.dev/api", contact, connect = true } = {}) {
+function page({ data = JSON.stringify(DATA), endpoint = "https://t.dev/api", contact, kinds, connect = true } = {}) {
   globalThis.document = new FakeDocument();
   globalThis.window = new Target();
   const script = new Element("script");
@@ -316,6 +316,7 @@ function page({ data = JSON.stringify(DATA), endpoint = "https://t.dev/api", con
   if (endpoint !== null) host.setAttribute("endpoint", endpoint);
   host.setAttribute("page", "https://t.dev/tides/");
   if (contact !== undefined) host.setAttribute("contact", contact);
+  if (kinds !== undefined) host.setAttribute("kinds", kinds);
   const intro = new Element("p");
   intro.textContent = "Ask a question about a passage.";
   const fallback = new Element("p");
@@ -485,6 +486,18 @@ test("each kind asks for its own details", () => {
   assert.ok(!suggestedField.hidden);
   assert.ok(!ui.control("source").required);
   assert.match(ui.control("kind-hint").textContent, /suggestion until the author decides/);
+});
+
+test("the form offers only the kinds the post has open, and none leaves the static text (ADR 0101)", () => {
+  const view = page({ kinds: "correction-suggestion question" });
+  // The registry's order, whatever order the attribute names them in.
+  assert.deepEqual(parts(view.host).control("kind").options.map((option) => option.value), ["question", "correction-suggestion"]);
+  assert.deepEqual(offeredKinds(null), ["question", "source-suggestion", "correction-suggestion", "alternative-interpretation"]);
+  assert.deepEqual(offeredKinds(" third-perspective  abuse-report "), []);
+  for (const kinds of ["", "third-perspective", "constructor __proto__"]) {
+    const closed = page({ kinds });
+    assert.deepEqual(closed.host.children, [closed.intro, closed.fallback], kinds);
+  }
 });
 
 test("a selection maps onto the build's passage text and is kept when the selection is lost", async () => {
@@ -753,6 +766,17 @@ test("a closed post says so and offers no copy", async () => {
   submit(view);
   await tick();
   assert.match(ui.status.textContent, /closed/);
+  assert.ok(ui.fallback.hidden);
+});
+
+test("a note already sent this hour says it is waiting for review and offers no copy", async () => {
+  const view = page();
+  const ui = parts(view.host);
+  fakeFetch({ status: 409, body: { error: "This note was already sent and is waiting for review.", code: "duplicate" } });
+  fill(view, {});
+  submit(view);
+  await tick();
+  assert.equal(ui.status.textContent, "This note was already sent and is waiting for review.");
   assert.ok(ui.fallback.hidden);
 });
 

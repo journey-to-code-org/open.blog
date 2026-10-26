@@ -286,53 +286,131 @@ export function normalizeStatusFilter(value) {
   return ["published", "scheduled", "draft", "error"].includes(value) ? value : "all";
 }
 
-// Reader feedback moderation (ADR 0083). The states are the participation policy's (RD12). B5
-// writes four of them; clarification and withdrawn are listed read-only, so an item another tool
-// moved there is still seen, and one waiting for clarification can still be rejected.
-export const FEEDBACK_QUEUE_STATES = ["pending", "approved", "rejected", "removed", "clarification", "withdrawn"];
-const FEEDBACK_STATE_LABELS = { pending: "Pending", approved: "Approved", rejected: "Rejected", removed: "Removed", clarification: "Waiting for clarification", withdrawn: "Withdrawn" };
-const FEEDBACK_READ_ONLY_NOTES = {
-  clarification: "Admin does not ask readers to clarify; items here were moved by another tool. You can still reject one.",
-  withdrawn: "Readers took these notes back. They are never published and cannot be changed here.",
+// The moderation inbox (ADR 0105): comments and reader feedback in one list, in the participation
+// policy's states (ADR 0102). The server decides who the signed-in account is on each item's work
+// and sends only what that account may see, with the decisions it may take; these helpers only
+// word and shape what it sent.
+export const MODERATION_STATES = ["pending", "clarification", "approved", "rejected", "removed", "withdrawn"];
+export const MODERATION_STATE_LABELS = { pending: "Pending", clarification: "Waiting for clarification", approved: "Approved", rejected: "Rejected", removed: "Removed", withdrawn: "Withdrawn" };
+export const MODERATION_KINDS = [
+  ["", "All kinds"],
+  ["comment", "Comments"],
+  ["question", "Questions"],
+  ["source-suggestion", "Suggested sources"],
+  ["correction-suggestion", "Suggested corrections"],
+  ["alternative-interpretation", "Other interpretations"],
+  ["abuse-report", "Abuse reports"],
+];
+const MODERATION_STATE_NOTES = {
+  clarification: "These wait for the reader’s answer through their private receipt. The text asked about can never be approved; you can still reject it.",
+  withdrawn: "Readers took these back through their private receipts, and their text was deleted at once. They are never published and cannot be changed.",
 };
 
-/** The queue's status line for one state. */
-export function feedbackQueueSummary(status, count) {
-  const items = `item${count === 1 ? "" : "s"}`;
-  if (status === "clarification") return count ? `${count} ${items} waiting for clarification.` : "No feedback is waiting for clarification.";
-  return count ? `${count} ${status} ${items}.` : `No ${status} feedback.`;
+/** The inbox's address for one state and kind filter. */
+export function moderationHash(state, kind = "") {
+  const known = MODERATION_STATES.includes(state) ? state : "pending";
+  return `#/moderation/${known}${kind && MODERATION_KINDS.some(([id]) => id === kind) ? `?kind=${encodeURIComponent(kind)}` : ""}`;
 }
-const FEEDBACK_CHECK_LABELS = { current: "Current", reanchored: "Re-anchored", stale: "Stale", "unknown-work": "Post not found" };
+
+/** The state and kind an inbox address asks for, anything unknown read as the defaults. */
+export function parseModerationRoute(tail, params) {
+  const state = MODERATION_STATES.includes(tail) ? tail : "pending";
+  const kind = params?.get?.("kind") || "";
+  return { state, kind: MODERATION_KINDS.some(([id]) => id === kind) ? kind : "" };
+}
+
+/** The inbox's status line: how many items are shown, never how many exist unseen. */
+export function inboxSummary(state, count, more) {
+  const items = `item${count === 1 ? "" : "s"}`;
+  const tail = more ? " More are listed after these." : "";
+  if (!count) return state === "clarification" ? "Nothing is waiting for clarification." : `No ${MODERATION_STATE_LABELS[state].toLowerCase()} items.`;
+  if (state === "clarification") return `${count} ${items} waiting for clarification.${tail}`;
+  return `${count} ${MODERATION_STATE_LABELS[state].toLowerCase()} ${items}.${tail}`;
+}
 
 /**
- * The body of one moderation request: the state and version the moderator saw, a reason when the
- * action takes one, and, to approve a passage that is not current, the passage check they read.
+ * The body of one decision: the item's source, id, state and version as loaded, a reason when the
+ * action takes one, and, to approve feedback whose passage is not current, the passage check the
+ * moderator confirmed. Nothing says who is acting: the server knows.
  */
-export function feedbackModerationRequest(item, action, reason, acknowledged) {
-  const request = { id: item.id, action, from: item.status, version: item.version };
+export function moderationRequest(item, action, reason, acknowledged) {
+  const request = { source: item.source, id: item.id, action, from: item.status, version: item.version };
   if (reason) request.reason = reason;
   if (action === "approve" && item.passage?.acknowledge && acknowledged) request.acknowledge = item.passage.check;
   return request;
 }
 
+/** What the signed-in account can do with an item, from the role the server resolved. */
+export function moderationRoleLine(role) {
+  if (role === "coordinator") return "You moderate this as a coordinator of its shared publication. Only the site Admin sees a reader’s private name or reopens a decision.";
+  if (role === "contributing-author") return "You can read this as a contributing author of the work. A coordinator or the site Admin decides.";
+  return "You moderate this as the site Admin.";
+}
+
 /**
- * What a card says when an item's state and the published file disagree, and the fix it offers: an
- * approved note that is not on its post yet, or a removed or rejected one that still is (a removal
- * whose file write failed, or a decision made outside Admin). `published` is null when unknown.
+ * Who sent an item, for moderators only. A comment's name is always shown with it; a reader of
+ * feedback chose whether to show theirs, and a private name reaches only the site Admin.
+ */
+export function moderationReaderLine(reader, source = "feedback") {
+  if (source === "report") return "Reports are anonymous: nothing about the reader who sent it is kept.";
+  if (source === "comment") return reader?.name ? `From ${reader.name}, shown with the comment.` : "From an unnamed commenter.";
+  if (reader?.private) return "The reader gave a name that only the site Admin can see.";
+  if (!reader?.name) return "From an anonymous reader.";
+  return reader.publishName
+    ? `From ${reader.name}, who agreed to show this name if you publish the note.`
+    : `From ${reader.name}. The name stays private: the reader did not agree to show it.`;
+}
+
+/** What a decision did, for the status line after the list reloads. */
+export function moderationOutcome(item, action, result) {
+  const where = item.post ? `“${item.post.title}”` : item.work;
+  if (action === "approve") {
+    if (item.source === "comment") return `Approved. The comment is shown on ${where}.`;
+    return result.published ? `Approved and published on ${where}. Rebuild or publish to update the live site.` : `Approved. ${result.publishError || ""}`.trim();
+  }
+  if (action === "reject") return "Rejected. Nothing was published.";
+  if (action === "request-clarification") return "Asked the reader to clarify. Nothing was published or e-mailed.";
+  if (action === "reopen") return `Reopened. It is ${result.item?.status === "clarification" ? "waiting for clarification" : "pending"} again.`;
+  if (action === "uphold-report") {
+    if (!result.removedTarget) return "Report upheld. The reported item was already out of public view, so nothing else changed.";
+    if (result.published) return `Report upheld and the item removed, but the note is still on the post. ${result.publishError || ""} Take it off the post from the Removed list.`.trim();
+    return `Report upheld. The reported item was removed from ${where}.`;
+  }
+  if (action === "erase") {
+    if (result.published) return `Its text and name were deleted, but the note is still on the post. ${result.publishError || ""}`.trim();
+    return "Its text and name were deleted. Only the private record of decisions remains.";
+  }
+  if (item.source === "comment") return `Removed from ${where}.`;
+  if (result.published) return `Removed, but still on the post. ${result.publishError || ""} Take it off the post from the Removed list.`;
+  return result.publishError ? `Removed. ${result.publishError}` : `Removed from ${where}.`;
+}
+
+/**
+ * What a card says when a feedback item's state and the published file disagree, and the fix it
+ * offers: an approved note that is not on its post yet, or a removed or rejected one that still is
+ * (a removal whose file write failed, or a decision made outside Admin). `published` is null when
+ * unknown.
  */
 export function feedbackPublicationMismatch(item) {
   if (item.status === "approved" && item.published === false) return { notice: "Approved, but not on the site yet.", action: "publish", label: "Publish on the post" };
   if (item.status === "removed" && item.published === true) return { notice: "Removed, but still on the post.", action: "unpublish", label: "Take it off the post" };
   if (item.status === "rejected" && item.published === true) return { notice: "Rejected, but still on the post.", action: "unpublish", label: "Take it off the post" };
+  if (item.status === "withdrawn" && item.published === true) return { notice: "The reader withdrew this note and asked for it to be deleted, but it is still on the post. Take it off now.", action: "unpublish", label: "Take it off the post" };
   return null;
 }
 
-/** Who sent a note, for the moderator only, with the reader's choice about their name. */
-export function feedbackReaderLine(reader) {
-  if (!reader?.name) return "From an anonymous reader.";
-  return reader.publishName
-    ? `From ${reader.name}, who agreed to show this name if you publish the note.`
-    : `From ${reader.name}. The name stays private: the reader did not agree to show it.`;
+/** The retention dry run's summary, in words: what would expire or be purged, by kind. */
+export function retentionSummaryLines(report) {
+  const lines = (report?.summary || []).map((entry) => {
+    const what = entry.step === "expire" ? "expire without a decision" : "have their text, details and names deleted";
+    return `${entry.count} ${entry.kindLabel.toLowerCase()} ${entry.count === 1 ? "item" : "items"} would ${what}.`;
+  });
+  const audit = Object.values(report?.audit || {}).reduce((total, count) => total + (Number(count) || 0), 0);
+  if (audit) lines.push(`${audit} private record${audit === 1 ? "" : "s"} of decisions older than ${report.periods.auditDays} days would be deleted.`);
+  if (!lines.length) lines.push("Nothing is due: retention would change nothing now.");
+  if (!report?.periods?.comments) lines.push("Comments are kept until you act, because participation.retention is not set in openblog.json.");
+  if (report?.truncated) lines.push("More items are due than one run takes; run it again afterwards.");
+  return lines;
 }
 
 /** How the published note would read its passage, in words. */
@@ -341,6 +419,8 @@ export function feedbackPreviewText(preview) {
   const passage = preview.quote ? `quoting “${preview.quote}”` : preview.stale ? "without a quotation, because the passage has changed" : "without a quotation";
   return `On the post it is shown ${passage}, as from ${preview.name || "a reader"}, received ${preview.received}.`;
 }
+
+const FEEDBACK_CHECK_LABELS = { current: "Current", reanchored: "Re-anchored", stale: "Stale", "unknown-work": "Post not found" };
 
 function feedbackPassage(passage) {
   if (!passage) return null;
@@ -355,14 +435,20 @@ function feedbackPassage(passage) {
   );
 }
 
-function feedbackPreview(preview) {
-  return preview ? h("p", { class: "oba-small oba-feedback-preview" }, feedbackPreviewText(preview)) : null;
+/** The item an abuse report names, for moderators: its kind and state, its author if a comment, and its text unless deleted. */
+function reportedItem(target) {
+  if (!target) return h("p", { class: "oba-notice" }, "The reported item no longer exists, so upholding the report changes only the report.");
+  return h(
+    "div",
+    { class: "oba-feedback-passage" },
+    h("h4", {}, "Reported item"),
+    h("p", {}, `${target.kindLabel}${target.authorName ? ` by ${target.authorName}` : ""} · ${target.statusLabel}`),
+    target.body ? h("blockquote", { class: "oba-feedback-body" }, target.body) : h("p", { class: "oba-small" }, "Its text was deleted."),
+  );
 }
 
-export const COMMENT_MODERATION_STATUSES = ["pending", "approved", "rejected"];
-
-export function commentModerationActions(status) {
-  return ["approved", "rejected"].filter((decision) => decision !== status);
+function feedbackPreview(preview) {
+  return preview ? h("p", { class: "oba-small oba-feedback-preview" }, feedbackPreviewText(preview)) : null;
 }
 
 export function saveStateForVersions(saveVersion, editVersion) {
@@ -7193,7 +7279,7 @@ export class ObAdmin extends AdminElement {
     const visible = new Set(visibleAdminModules(this.preferences));
     if (["analytics", "contributors"].includes(this.activeRoute)) visible.add(this.activeRoute);
     if (["sources", "research", "atlas", "compare"].includes(this.activeRoute)) visible.add("evidence");
-    if (this.activeRoute === "feedback") visible.add("analytics");
+    if (this.activeRoute === "moderation") visible.add("analytics");
     return visible;
   }
 
@@ -7333,8 +7419,8 @@ export class ObAdmin extends AdminElement {
     ];
     const activeInfo = active === "analytics"
       ? { title: "Analytics", detail: "Understand readership without tracking individual readers." }
-      : active === "feedback"
-        ? { title: "Reader feedback", detail: "Review what readers sent about passages, respond, and record what changed." }
+      : active === "moderation"
+        ? { title: "Moderation inbox", detail: "Decide on comments and reader feedback in one list, respond, and record what changed." }
       : active === "sources"
         ? { title: "Sources", detail: "Keep private research sources, editions, translations, and references in one library." }
       : active === "research"
@@ -7374,7 +7460,7 @@ export class ObAdmin extends AdminElement {
         "nav",
         { class: "oba-toolbelt", "aria-label": "Admin tools" },
         toolGroup("Content", ...contentTabs),
-        h("div", { class: "oba-progressive-tools", "data-admin-module": "analytics", hidden: !visibleModules.has("analytics") }, toolGroup("Observe", h("a", { class: "oba-tab", "aria-current": active === "analytics" ? "page" : null, href: "#/analytics" }, "Analytics"), h("a", { class: "oba-tab", "aria-current": active === "feedback" ? "page" : null, href: "#/feedback" }, "Reader feedback"))),
+        h("div", { class: "oba-progressive-tools", "data-admin-module": "analytics", hidden: !visibleModules.has("analytics") }, toolGroup("Observe", h("a", { class: "oba-tab", "aria-current": active === "analytics" ? "page" : null, href: "#/analytics" }, "Analytics"), h("a", { class: "oba-tab", "aria-current": active === "moderation" ? "page" : null, href: "#/moderation" }, "Moderation inbox"))),
         h("div", { class: "oba-progressive-tools", "data-admin-module": "evidence", hidden: !visibleModules.has("evidence") }, toolGroup("Research", h("a", { class: "oba-tab", "aria-current": active === "sources" ? "page" : null, href: "#/sources" }, "Sources"), h("a", { class: "oba-tab", "aria-current": active === "research" ? "page" : null, href: "#/research" }, "Notebook"), h("a", { class: "oba-tab", "aria-current": active === "atlas" ? "page" : null, href: "#/atlas" }, "Atlas"), h("a", { class: "oba-tab", "aria-current": active === "compare" ? "page" : null, href: "#/compare" }, "Compare"))),
         h("div", { class: "oba-progressive-tools", "data-admin-module-group": "contributors public-site", hidden: !visibleModules.has("contributors") && !visibleModules.has("public-site") }, toolGroup(
           "Site",
@@ -7556,7 +7642,7 @@ export class ObAdmin extends AdminElement {
       { label: "Pages", category: "Content", run: () => go("#/pages") },
       { label: "Series", category: "Content", run: () => go("#/series") },
       { label: "Analytics", category: "Observe", keywords: "views visitors", run: () => go("#/analytics") },
-      { label: "Reader feedback", category: "Observe", keywords: "moderation questions corrections responses revision notes", run: () => go("#/feedback") },
+      { label: "Moderation inbox", category: "Observe", keywords: "moderation comments reader feedback questions corrections clarification remove responses revision notes", run: () => go("#/moderation") },
       { label: "Sources", category: "Research", keywords: "library bibliography citations editions translations witnesses references", run: () => go("#/sources") },
       { label: "Research notebook", category: "Research", keywords: "passages notes quotations excerpts observations questions capture", run: () => go("#/research") },
       { label: "Knowledge Atlas", category: "Research", keywords: "atlas people works concepts movements events relationships influence explore", run: () => go("#/atlas") },
@@ -7717,7 +7803,7 @@ export class ObAdmin extends AdminElement {
       if (head === "edit" && tail) await this.showEditor(decodeURIComponent(tail));
       else if (head === "new" && KINDS[tail]) await this.showEditor(null, tail);
       else if (head === "analytics") await this.showAnalytics(Number(tail) || 30);
-      else if (head === "feedback") await this.showFeedback(tail);
+      else if (head === "moderation" || head === "feedback") await this.showModeration(tail, params);
       else if (head === "contributors") await this.showContributors();
       else if (head === "sources") await this.showSources();
       else if (head === "research") await this.showResearch();
@@ -12434,52 +12520,8 @@ export class ObAdmin extends AdminElement {
         status,
         h("div", { class: "oba-toolbar" }, save, clear),
       );
-      if (engagement.enabled && engagement.comments && engagement.credential?.configured) {
-        const moderationStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" }, "Loading comments…");
-        const cards = h("div", { class: "oba-assistant-context-cards" });
-        const filters = h("div", { class: "oba-tabs", "aria-label": "Comment moderation status" });
-        moderation = h("section", { "aria-labelledby": "oba-comment-moderation-title" }, h("h2", { id: "oba-comment-moderation-title" }, "Comment moderation"), filters, moderationStatus, cards);
-        const loadComments = async (selectedStatus) => {
-          moderationStatus.textContent = `Loading ${selectedStatus} comments…`;
-          cards.replaceChildren();
-          filters.querySelectorAll("button").forEach((button) => button.setAttribute("aria-selected", String(button.dataset.status === selectedStatus)));
-          const result = await this.api.call("GET", `engagement/comments?status=${selectedStatus}`);
-          const commentsForStatus = Array.isArray(result.comments) ? result.comments : [];
-          moderationStatus.textContent = commentsForStatus.length ? `${commentsForStatus.length} ${selectedStatus} comment${commentsForStatus.length === 1 ? "" : "s"}.` : `No ${selectedStatus} comments.`;
-          const decide = async (comment, decision, card) => {
-            card.querySelectorAll("button").forEach((button) => { button.disabled = true; });
-            try {
-              await this.api.call("PATCH", "engagement/comments", { json: { id: comment.id, status: decision } });
-              await loadComments(selectedStatus);
-            } catch (error) {
-              moderationStatus.textContent = error.message;
-            }
-          };
-          cards.append(...commentsForStatus.map((comment) => {
-            const card = h("article", { class: "oba-context-card" },
-              h("h3", {}, comment.authorName),
-              h("p", { class: "oba-small" }, `${comment.path} · ${formatWhen(comment.createdAt)}`),
-              h("p", {}, comment.body),
-            );
-            card.append(h("div", { class: "oba-toolbar" }, ...commentModerationActions(selectedStatus).map((decision) =>
-              h("button", {
-                class: decision === "approved" ? "oba-btn oba-btn-primary" : "oba-btn oba-btn-danger",
-                type: "button",
-                onClick: () => decide(comment, decision, card),
-              }, decision === "approved" ? "Approve" : "Reject"),
-            )));
-            return card;
-          }));
-        };
-        for (const commentStatus of COMMENT_MODERATION_STATUSES) {
-          filters.append(h("button", { class: "oba-tab", type: "button", "data-status": commentStatus, "aria-selected": String(commentStatus === "pending"), onClick: () => loadComments(commentStatus) }, `${commentStatus[0].toUpperCase()}${commentStatus.slice(1)}`));
-        }
-        try {
-          await loadComments("pending");
-        } catch (error) {
-          moderationStatus.className = "oba-error";
-          moderationStatus.textContent = `Comments could not be loaded. ${error.message}`;
-        }
+      if (engagement.enabled && engagement.credential?.configured) {
+        moderation = h("p", { class: "oba-small" }, "Moderate comments, with reader feedback, in the ", h("a", { href: moderationHash("pending") }, "Moderation inbox"), ".");
       }
     }
     this.mount(
@@ -12497,30 +12539,45 @@ export class ObAdmin extends AdminElement {
     );
   }
 
-  // ---- reader feedback (ADR 0083)
+  // ---- moderation inbox (ADR 0105)
 
   /**
-   * Moderate passage feedback through this server, which alone holds the hosted token, and
-   * look after what the site publishes: responses and revision notes. A passage that moved or
-   * changed is said so before anyone can approve it.
+   * One inbox for comments and reader feedback, moderated through this server, which alone holds
+   * the hosted token. The server sends only what the signed-in account may see on each item's work,
+   * with the decisions it may take; a passage that moved or changed is said so before anyone can
+   * approve it. Published notes keep their responses and revision notes below the list.
    */
-  async showFeedback(requested) {
-    const status = FEEDBACK_QUEUE_STATES.includes(requested) ? requested : "pending";
-    const queueStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite", tabindex: "-1" }, `Loading ${FEEDBACK_STATE_LABELS[status].toLowerCase()} feedback…`);
-    const readOnlyNote = FEEDBACK_READ_ONLY_NOTES[status] ? h("p", { class: "oba-small" }, FEEDBACK_READ_ONLY_NOTES[status]) : null;
-    const queue = h("ol", { class: "oba-feedback-list", "aria-labelledby": "oba-feedback-queue-title" });
+  async showModeration(tail, params) {
+    const { state, kind } = parseModerationRoute(tail, params);
+    const queueStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite", tabindex: "-1" }, `Loading ${MODERATION_STATE_LABELS[state].toLowerCase()} items…`);
+    const stateNote = MODERATION_STATE_NOTES[state] ? h("p", { class: "oba-small" }, MODERATION_STATE_NOTES[state]) : null;
+    const queue = h("ol", { class: "oba-feedback-list oba-moderation-list", "aria-labelledby": "oba-moderation-queue-title" });
+    const more = h("button", { class: "oba-btn", type: "button", hidden: true }, "Show more");
     const publishedStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite", tabindex: "-1" }, "Loading published feedback…");
     const published = h("ol", { class: "oba-feedback-list", "aria-labelledby": "oba-feedback-published-title" });
-    const filters = h(
+    const stateTabs = h(
       "nav",
-      { class: "oba-tabs", "aria-label": "Feedback by moderation state" },
-      FEEDBACK_QUEUE_STATES.map((state) => h("a", { class: "oba-tab", href: `#/feedback/${state}`, "aria-current": state === status ? "page" : null }, FEEDBACK_STATE_LABELS[state])),
+      { class: "oba-tabs oba-moderation-states", "aria-label": "Items by moderation state" },
+      MODERATION_STATES.map((each) => h("a", { class: "oba-tab", href: moderationHash(each, kind), "aria-current": each === state ? "page" : null }, MODERATION_STATE_LABELS[each])),
     );
+    const kindSelect = h("select", { id: "oba-moderation-kind", name: "kind" }, MODERATION_KINDS.map(([id, label]) => h("option", { value: id, selected: id === kind ? "" : null }, label)));
+    kindSelect.value = kind;
+    const kindFilter = h(
+      "form",
+      { class: "oba-moderation-filter", role: "search", "aria-label": "Filter by kind", onSubmit: (event) => {
+        event.preventDefault();
+        location.hash = moderationHash(state, kindSelect.value);
+      } },
+      h("label", { for: "oba-moderation-kind" }, "Kind"), " ", kindSelect, " ",
+      h("button", { class: "oba-btn", type: "submit" }, "Show"),
+    );
+    let next = null;
+    let shown = 0;
     let publishedEtag = "absent";
     // A message for a published card that outlives the reload replacing it, such as a conflict.
     const publishedNotices = new Map();
-    const announce = (line, message, kind) => {
-      line.className = kind ? `oba-${kind}` : "oba-small";
+    const announce = (line, message, kind_) => {
+      line.className = kind_ ? `oba-${kind_}` : "oba-small";
       line.textContent = message;
     };
 
@@ -12537,59 +12594,76 @@ export class ObAdmin extends AdminElement {
       }
     };
 
-    const loadQueue = async () => {
+    // One page of the inbox; `append` keeps what is shown and moves focus to the first new item.
+    const loadQueue = async (append = false) => {
+      const query = new URLSearchParams({ state });
+      if (kind) query.set("kind", kind);
+      if (append && next) query.set("after", next);
+      more.disabled = true;
       try {
-        const result = await this.api.call("GET", `engagement/feedback?status=${status}`);
+        const result = await this.api.call("GET", `engagement/moderation?${query}`);
         const items = Array.isArray(result.items) ? result.items : [];
-        queue.replaceChildren(...items.map((item) => h("li", {}, queueCard(item))));
+        const cards = items.map((item) => h("li", {}, queueCard(item)));
+        if (append) queue.append(...cards);
+        else queue.replaceChildren(...cards);
+        shown = append ? shown + items.length : items.length;
+        next = result.next || null;
+        more.hidden = !next;
         const skipped = result.invalid ? ` ${result.invalid} item${result.invalid === 1 ? " was" : "s were"} not valid and ${result.invalid === 1 ? "is" : "are"} not shown.` : "";
-        announce(queueStatus, feedbackQueueSummary(status, items.length) + skipped);
+        const legacy = result.protocol === "legacy" ? " Some decisions need the hosted moderation schema; see the setup guide." : "";
+        announce(queueStatus, inboxSummary(state, shown, Boolean(next)) + skipped + legacy);
+        if (append) cards[0]?.querySelector("h3")?.focus();
       } catch (error) {
-        queue.replaceChildren();
-        announce(queueStatus, `Feedback could not be loaded. ${error.message}`, error.status === 404 || error.status === 503 ? "notice" : "error");
+        if (!append) queue.replaceChildren();
+        more.hidden = true;
+        announce(queueStatus, `The inbox could not be loaded. ${error.message}`, error.status === 404 || error.status === 503 ? "notice" : "error");
+      } finally {
+        more.disabled = false;
       }
     };
+    more.addEventListener("click", () => loadQueue(true));
 
-    const reloadAll = async (message, kind) => {
+    const reloadAll = async (message, kind_) => {
       await Promise.all([loadQueue(), loadPublished()]);
       if (message) {
-        announce(queueStatus, message, kind);
+        announce(queueStatus, message, kind_);
         queueStatus.focus();
       }
     };
 
     const queueCard = (item) => {
-      const key = item.id;
-      const titleId = `oba-feedback-${key}-title`;
+      const key = `${item.source}-${item.id}`;
+      const titleId = `oba-moderation-${key}-title`;
       const line = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
       const where = item.post ? `“${item.post.title}”` : item.work;
       const card = h(
         "article",
-        { class: "oba-context-card oba-feedback-item", "aria-labelledby": titleId, "data-feedback-id": key },
-        h("h3", { id: titleId }, `${item.kindLabel} on ${where}`),
-        h("p", { class: "oba-small" }, `Received ${formatWhen(item.receivedAt)} · ${item.statusLabel}${item.reasonLabel ? ` (${item.reasonLabel})` : ""}`),
+        { class: "oba-context-card oba-feedback-item oba-moderation-item", "aria-labelledby": titleId, "data-moderation-id": item.id, "data-source": item.source },
+        h("h3", { id: titleId, tabindex: "-1" }, `${item.kindLabel} on ${where}`),
+        h("p", { class: "oba-small" }, `Received ${formatWhen(item.receivedAt)} · ${item.statusLabel}${item.reasonLabel ? ` (${item.reasonLabel})` : ""}${item.public ? " · shown on the post now" : ""}`),
+        item.post ? null : h("p", { class: "oba-notice" }, "No post has this address now: it may have moved, been renamed or been unpublished."),
+        h("p", { class: "oba-small" }, moderationRoleLine(item.role)),
+        item.clarification?.askedAboutThisText ? h("p", { class: "oba-notice" }, "A clarification was asked about this text. It can never be approved; only the reader’s answer can.") : null,
         feedbackPassage(item.passage),
-        h("h4", {}, "The reader’s note"),
-        h("p", { class: "oba-feedback-body" }, item.body),
+        item.purged ? h("p", { class: "oba-notice" }, "Its text, details and any name were deleted. Only the private record of decisions remains.") : null,
+        item.report ? h("p", {}, h("strong", {}, "Ground: "), item.report.groundLabel) : null,
+        item.purged || (item.source === "report" && !item.body) ? null : h("h4", {}, item.source === "comment" ? "The comment" : item.source === "report" ? "What the reader wrote" : "The reader’s note"),
+        item.purged || (item.source === "report" && !item.body) ? null : h("p", { class: "oba-feedback-body" }, item.body),
+        item.source === "report" ? reportedItem(item.target) : null,
         item.details?.sourceUrl ? h("p", {}, "Suggested source: ", h("a", { href: item.details.sourceUrl, target: "_blank", rel: "noopener noreferrer nofollow" }, item.details.sourceUrl)) : null,
         item.details?.suggestedText ? h("div", {}, h("p", {}, "Suggested wording:"), h("blockquote", { class: "oba-feedback-body" }, item.details.suggestedText)) : null,
-        h("p", { class: "oba-small" }, feedbackReaderLine(item.reader)),
+        h("p", { class: "oba-small" }, moderationReaderLine(item.reader, item.source)),
         feedbackPreview(item.publicPreview),
       );
-      const actions = h("div", { class: "oba-toolbar" });
+      const actions = h("div", { class: "oba-moderation-actions" });
       let acknowledge = null;
       const busy = (on) => card.querySelectorAll("button, select, input").forEach((control) => { control.disabled = on; });
       const act = async (action, reason) => {
         busy(true);
-        announce(line, `${action === "approve" ? "Approving" : action === "reject" ? "Rejecting" : "Removing"}…`);
+        announce(line, `${(item.actions.find((option) => option.action === action)?.label) || action}…`);
         try {
-          const result = await this.api.call("PATCH", "engagement/feedback", { json: feedbackModerationRequest(item, action, reason, acknowledge?.checked) });
-          const done = action === "approve"
-            ? result.published ? `Approved and published on ${where}. Rebuild or publish to update the live site.` : `Approved. ${result.publishError || ""}`
-            : action === "reject" ? "Rejected. Nothing was published."
-            : result.published ? `Removed, but still on the post. ${result.publishError || ""} Take it off the post from the Removed list.`
-            : result.publishError ? `Removed. ${result.publishError}` : `Removed from ${where}.`;
-          await reloadAll(done, result.publishError ? "notice" : "ok");
+          const result = await this.api.call("PATCH", "engagement/moderation", { json: moderationRequest(item, action, reason, acknowledge?.checked) });
+          await reloadAll(moderationOutcome(item, action, result), result.publishError ? "notice" : "ok");
         } catch (error) {
           busy(false);
           announce(line, error.message, "error");
@@ -12597,37 +12671,62 @@ export class ObAdmin extends AdminElement {
         }
       };
       for (const option of item.actions || []) {
-        if (option.action === "approve") {
-          if (item.passage?.acknowledge) {
-            const checkId = `oba-feedback-${key}-acknowledge`;
+        const guidanceId = `oba-moderation-${key}-${option.action}-guidance`;
+        const guidance = h("p", { class: "oba-small oba-moderation-guidance", id: guidanceId }, option.guidance || "");
+        if (option.confirm) {
+          // A decision that cannot be undone needs its own confirmation first.
+          const confirmId = `oba-moderation-${key}-${option.action}-confirm`;
+          const confirmBox = h("input", { type: "checkbox", id: confirmId, "aria-describedby": guidanceId });
+          actions.append(h("div", { class: "oba-moderation-action" },
+            h("p", { class: "oba-feedback-acknowledge" }, confirmBox, " ", h("label", { for: confirmId }, option.confirm)),
+            h("button", { class: "oba-btn oba-btn-danger", type: "button", "aria-describedby": guidanceId, onClick: () => {
+              if (!confirmBox.checked) {
+                announce(line, "Confirm that you understand this cannot be undone first.", "error");
+                confirmBox.focus();
+                return;
+              }
+              act(option.action);
+            } }, option.label),
+            guidance));
+          continue;
+        }
+        if (!option.reasons?.length) {
+          if (option.action === "approve" && item.passage?.acknowledge) {
+            const checkId = `oba-moderation-${key}-acknowledge`;
             acknowledge = h("input", { type: "checkbox", id: checkId });
-            card.append(h("p", { class: "oba-feedback-acknowledge" }, acknowledge, " ", h("label", { for: checkId }, "I have read the passage as it is published now, and still want to approve this note.")));
+            actions.append(h("p", { class: "oba-feedback-acknowledge" }, acknowledge, " ", h("label", { for: checkId }, "I have read the passage as it is published now, and still want to approve this note.")));
           }
-          actions.append(h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: () => {
-            if (acknowledge && !acknowledge.checked) {
-              announce(line, "Confirm that you read the passage as it is now before approving.", "error");
-              acknowledge.focus();
-              return;
-            }
-            act("approve");
-          } }, "Approve"));
+          actions.append(h("div", { class: "oba-moderation-action" },
+            h("button", { class: option.action === "approve" ? "oba-btn oba-btn-primary" : "oba-btn", type: "button", "aria-describedby": guidanceId, onClick: () => {
+              if (option.action === "approve" && acknowledge && !acknowledge.checked) {
+                announce(line, "Confirm that you read the passage as it is now before approving.", "error");
+                acknowledge.focus();
+                return;
+              }
+              act(option.action);
+            } }, option.label),
+            guidance));
         } else {
-          const selectId = `oba-feedback-${key}-${option.action}-reason`;
-          const select = h("select", { id: selectId }, h("option", { value: "" }, "Choose a reason"), option.reasons.map((reason) => h("option", { value: reason.id }, reason.label)));
-          actions.append(h("span", { class: "oba-feedback-reason" },
-            h("label", { for: selectId }, option.action === "reject" ? "Reason to reject" : "Reason to remove"), " ", select, " ",
-            h("button", { class: "oba-btn oba-btn-danger", type: "button", onClick: () => {
+          const selectId = `oba-moderation-${key}-${option.action}-reason`;
+          const select = h("select", { id: selectId, "aria-describedby": guidanceId }, h("option", { value: "" }, "Choose a reason"), option.reasons.map((reason) => h("option", { value: reason.id }, reason.label)));
+          actions.append(h("div", { class: "oba-moderation-action oba-feedback-reason" },
+            h("label", { for: selectId }, `Reason to ${option.label.toLowerCase()}`), " ", select, " ",
+            h("button", { class: option.action === "request-clarification" ? "oba-btn" : "oba-btn oba-btn-danger", type: "button", "aria-describedby": guidanceId, onClick: () => {
               if (!select.value) {
                 announce(line, "Choose a reason first.", "error");
                 select.focus();
                 return;
               }
               act(option.action, select.value);
-            } }, option.label)));
+            } }, option.label),
+            guidance));
         }
       }
-      const mismatch = feedbackPublicationMismatch(item);
-      if (mismatch) {
+      if (!item.actions?.length && item.role !== "contributing-author" && !["withdrawn"].includes(item.status)) {
+        actions.append(h("p", { class: "oba-small" }, "No decision is open to you on this item."));
+      }
+      const mismatch = item.source === "feedback" ? feedbackPublicationMismatch(item) : null;
+      if (mismatch && item.role === "site-admin") {
         actions.append(h("button", { class: "oba-btn", type: "button", onClick: async () => {
           busy(true);
           try {
@@ -12639,10 +12738,10 @@ export class ObAdmin extends AdminElement {
           }
         } }, mismatch.label));
         card.append(h("p", { class: "oba-notice" }, mismatch.notice));
-      } else if (item.status === "approved" && item.published === true) {
-        card.append(h("p", { class: "oba-small" }, "Published on the post. ", h("a", { href: `#oba-published-${key}`, onClick: (event) => {
+      } else if (item.source === "feedback" && item.status === "approved" && item.published === true) {
+        card.append(h("p", { class: "oba-small" }, "Published on the post. ", h("a", { href: `#oba-published-${item.id}`, onClick: (event) => {
           event.preventDefault();
-          document.getElementById(`oba-published-${key}-response`)?.focus();
+          document.getElementById(`oba-published-${item.id}-response`)?.focus();
         } }, "Respond or record a revision note")));
       }
       card.append(actions, line);
@@ -12734,12 +12833,71 @@ export class ObAdmin extends AdminElement {
       );
     };
 
+    // Retention (ADRs 0104 and 0108): a dry run first, then a run of exactly what it listed.
+    const retentionStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite", tabindex: "-1" }, "");
+    const retentionReport = h("div", { class: "oba-retention-report" });
+    const checkRetention = h("button", { class: "oba-btn", type: "button" }, "Check what retention would do");
+    const showRetention = async () => {
+      checkRetention.disabled = true;
+      announce(retentionStatus, "Checking what is due…");
+      try {
+        const report = await this.api.call("GET", "engagement/retention");
+        const confirmBox = h("input", { type: "checkbox", id: "oba-retention-confirm" });
+        const auditBox = h("input", { type: "checkbox", id: "oba-retention-audit", checked: "" });
+        const due = (report.items?.length || 0) > 0 || Object.values(report.audit || {}).some((count) => Number(count) > 0);
+        const run = h("button", { class: "oba-btn oba-btn-danger", type: "button", disabled: due ? null : "" }, "Run retention now");
+        run.addEventListener("click", async () => {
+          if (!confirmBox.checked) {
+            announce(retentionStatus, "Confirm that you understand purged text cannot be recovered first.", "error");
+            confirmBox.focus();
+            return;
+          }
+          run.disabled = true;
+          announce(retentionStatus, "Running retention…");
+          try {
+            const result = await this.api.call("POST", "engagement/retention", { json: { asOf: report.asOf, audit: auditBox.checked } });
+            const parts = [`${result.expired} expired`, `${result.purged} purged`];
+            if (result.auditDeleted) parts.push(`${result.auditDeleted} old records deleted`);
+            if (result.skipped) parts.push(`${result.skipped} skipped because they changed or were not due`);
+            retentionReport.replaceChildren();
+            announce(retentionStatus, `Retention ran: ${parts.join(", ")}.${result.more ? " More are due; check again to continue." : ""}`, "ok");
+            retentionStatus.focus();
+            await loadQueue();
+          } catch (error) {
+            run.disabled = false;
+            announce(retentionStatus, error.message, "error");
+            retentionStatus.focus();
+          }
+        });
+        retentionReport.replaceChildren(
+          h("ul", {}, retentionSummaryLines(report).map((text) => h("li", {}, text))),
+          report.items?.length ? h("details", {}, h("summary", {}, `The ${report.items.length} item${report.items.length === 1 ? "" : "s"} due`),
+            h("ul", {}, report.items.map((entry) => h("li", {}, `${entry.kindLabel}, ${entry.statusLabel.toLowerCase()} since ${formatWhen(entry.since)}, on ${entry.work}: ${entry.step === "expire" ? "expires" : "text deleted"}`)))) : null,
+          due ? h("p", { class: "oba-feedback-acknowledge" }, confirmBox, " ", h("label", { for: "oba-retention-confirm" }, "I understand that purged text, details and names cannot be recovered.")) : null,
+          due ? h("p", { class: "oba-feedback-acknowledge" }, auditBox, " ", h("label", { for: "oba-retention-audit" }, `Also delete private records of decisions older than ${report.periods.auditDays} days`)) : null,
+          due ? run : null,
+        );
+        announce(retentionStatus, `Checked as of ${formatWhen(report.asOf)}. Nothing has changed yet.`);
+      } catch (error) {
+        retentionReport.replaceChildren();
+        announce(retentionStatus, error.message, error.status === 404 || error.status === 403 ? "notice" : "error");
+      } finally {
+        checkRetention.disabled = false;
+        retentionStatus.focus();
+      }
+    };
+    checkRetention.addEventListener("click", showRetention);
+
     this.mount(
       this.shell(
-        "feedback",
-        h("p", {}, "Questions, suggested sources, suggested corrections and other interpretations readers sent about passages of your posts. Nothing is published until you approve it, approving never changes your post, and a suggested correction stays a suggestion until you decide to edit the post."),
-        h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-feedback-queue-title" }, h("h2", { id: "oba-feedback-queue-title" }, "Moderation queue"), filters, readOnlyNote, queueStatus, queue),
+        "moderation",
+        h("p", {}, "Comments, the questions, suggested sources, suggested corrections and other interpretations readers sent about passages, and abuse reports, in one list. Nothing is published until it is approved, approving never changes your post, and a suggested correction stays a suggestion until you decide to edit the post. Nothing here e-mails anyone."),
+        h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-moderation-queue-title" }, h("h2", { id: "oba-moderation-queue-title" }, "Moderation queue"), stateTabs, kindFilter, stateNote, queueStatus, queue, more),
         h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-feedback-published-title" }, h("h2", { id: "oba-feedback-published-title" }, "Published on your posts"), publishedStatus, published),
+        h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-retention-title" },
+          h("h2", { id: "oba-retention-title" }, "Retention"),
+          h("p", {}, "Unpublished reader text is not kept for ever: pending notes expire, and the text of rejected, removed and withdrawn items and of upheld reports is deleted after the periods set in openblog.json. Retention never runs on its own. Check what it would do first; nothing changes until you run it, and the private record of each decision is kept longer than any text."),
+          checkRetention, retentionStatus, retentionReport),
       ),
     );
     await Promise.all([loadQueue(), loadPublished()]);

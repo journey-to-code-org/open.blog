@@ -110,6 +110,14 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
         "components/passage-target.js",
         include_str!("../../../web/components/passage-target.js"),
     ),
+    (
+        "components/feedback-receipt.js",
+        include_str!("../../../web/components/feedback-receipt.js"),
+    ),
+    (
+        "components/ob-abuse-report.js",
+        include_str!("../../../web/components/ob-abuse-report.js"),
+    ),
 ];
 
 /// The admin editor. Served only by `serve --admin`, never copied into the
