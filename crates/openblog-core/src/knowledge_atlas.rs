@@ -110,6 +110,10 @@ use EntryKind as K;
 
 struct KindSpec {
     name: &'static str,
+    /// How the edge reads in words from its source to its target, as pages
+    /// and the Admin explorer show it ("member of"); `name` stays the stored
+    /// machine value ("member-of").
+    label: &'static str,
     /// How the edge reads from its target back to its source.
     inverse: &'static str,
     from: &'static [EntryKind],
@@ -123,6 +127,18 @@ struct KindSpec {
 }
 
 const ANY: &[EntryKind] = &EntryKind::ALL;
+
+/// A kind's name in words: its hyphens read as spaces.
+fn words(name: &'static str) -> &'static str {
+    match name {
+        "responds-to" => "responds to",
+        "member-of" => "member of",
+        "participated-in" => "participated in",
+        "part-of" => "part of",
+        "related-to" => "related to",
+        other => other,
+    }
+}
 
 impl RelationshipKind {
     pub const ALL: [Self; 12] = [
@@ -142,7 +158,7 @@ impl RelationshipKind {
 
     fn spec(self) -> KindSpec {
         let (name, inverse, from, to, symmetric, same_kind, acyclic): (
-            _,
+            &'static str,
             _,
             &'static [EntryKind],
             &'static [EntryKind],
@@ -245,6 +261,7 @@ impl RelationshipKind {
         };
         KindSpec {
             name,
+            label: words(name),
             inverse,
             from,
             to,
@@ -256,6 +273,12 @@ impl RelationshipKind {
 
     pub fn as_str(self) -> &'static str {
         self.spec().name
+    }
+
+    /// How the relationship reads in words from its source to its target
+    /// ("member of"). Display words only; [`Self::as_str`] is the stored value.
+    pub fn label(self) -> &'static str {
+        self.spec().label
     }
 
     /// How the relationship reads from its target back to its source. The
@@ -1349,8 +1372,8 @@ pub struct Incident<'a> {
     pub direction: Direction,
     /// The entry at the other end.
     pub other: &'a str,
-    /// `authored` going out, `authored by` coming in; one label for a
-    /// symmetric kind.
+    /// `member of` going out, `has member` coming in, in words; one label
+    /// for a symmetric kind.
     pub label: &'static str,
 }
 
@@ -1587,7 +1610,7 @@ impl Atlas {
                     relationship,
                     direction: Direction::Outgoing,
                     other: &relationship.to,
-                    label: spec.name,
+                    label: spec.label,
                 });
             }
             if relationship.to == id && relationship.from != id {
@@ -1596,7 +1619,7 @@ impl Atlas {
                     direction: Direction::Incoming,
                     other: &relationship.from,
                     label: if spec.symmetric {
-                        spec.name
+                        spec.label
                     } else {
                         spec.inverse
                     },
@@ -2504,6 +2527,11 @@ mod tests {
         assert_eq!(again, atlas);
         assert_eq!(again.to_json(), text);
         for kind in RelationshipKind::ALL {
+            assert_eq!(
+                kind.label(),
+                kind.as_str().replace('-', " "),
+                "the reading label is the stored name in words"
+            );
             assert_eq!(RelationshipKind::parse(kind.as_str()), Some(kind));
             assert!(!kind.from_kinds().is_empty() && !kind.to_kinds().is_empty());
         }
@@ -2871,7 +2899,11 @@ mod tests {
             links,
         )
         .expect("symmetric");
-        assert_eq!(sym.relationships_of("allegory")[0].label, "related-to");
+        assert_eq!(
+            sym.relationships_of("allegory")[0].label,
+            "related to",
+            "an incident reads in words"
+        );
         assert_eq!(
             codes_of(sym.upsert_relationship(
                 Relationship::from_json(edge("r-sym2", "related-to", "allegory", "plato")).unwrap(),

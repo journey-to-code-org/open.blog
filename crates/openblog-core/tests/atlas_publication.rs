@@ -74,6 +74,9 @@ fn atlas_value() -> Value {
              "evidence": [{"source": "plato-republic",
                  "locators": [{"kind": "canonical", "value": "514a"}]}],
              "visibility": "approved"},
+            {"id": "r-member", "kind": "member-of", "from": "plato", "to": "stoics",
+             "assertedBy": {"kind": "author"}, "confidence": "tentative",
+             "evidence": [{"source": "scholar-book"}], "visibility": "approved"},
             {"id": "r-private", "kind": "related-to", "from": "plato", "to": "stoics",
              "assertedBy": {"kind": "author"}, "evidence": [{"source": "scholar-book"}],
              "uncertainty": format!("{PRIVATE} private relationship"), "visibility": "private"},
@@ -154,7 +157,7 @@ fn only_approved_items_and_allowlisted_fields_are_published() {
     );
     assert_eq!(
         ids(&atlas.relationships, |r| &r.id),
-        ["r-authored", "r-discusses"],
+        ["r-authored", "r-discusses", "r-member"],
         "a private relationship, one to a private entry, one with a passage and an unsourced draft stay out"
     );
     assert_eq!(
@@ -197,6 +200,15 @@ fn only_approved_items_and_allowlisted_fields_are_published() {
             "evidence": [{"source": "plato-republic",
                 "locators": [{"kind": "canonical", "value": "514a"}]}],
             "standing": "asserted"})
+    );
+    assert_eq!(
+        value["relationships"][2],
+        json!({"id": "r-member", "kind": "member-of", "from": "plato", "to": "stoics",
+            "label": "member of", "inverseLabel": "has member",
+            "assertedBy": {"kind": "author"}, "confidence": "tentative",
+            "evidence": [{"source": "scholar-book"}],
+            "standing": "asserted"}),
+        "the label reads in words and the kind stays the machine value"
     );
     assert_eq!(
         value["sources"][0],
@@ -278,11 +290,20 @@ fn withdrawing_approval_removes_an_entry_and_every_relationship_touching_it() {
     let mut relationship_only = atlas_value();
     relationship_only["relationships"][0]["visibility"] = json!("private");
     let atlas = project(&relationship_only);
-    assert_eq!(ids(&atlas.relationships, |r| &r.id), ["r-discusses"]);
+    assert_eq!(
+        ids(&atlas.relationships, |r| &r.id),
+        ["r-discusses", "r-member"]
+    );
     assert_eq!(atlas.entries.len(), 4, "the entries stay published");
 
     let files = build(&site(config("https://example.test"), vec![], Some(atlas)));
     assert!(!files["atlas/plato/index.html"].contains("authored"));
+    assert!(
+        files["atlas/plato/index.html"].contains(
+            "<strong>Plato</strong> member of <a href=\"/atlas/stoics/\">The Stoics</a>."
+        ),
+        "a page reads the relationship in words"
+    );
 }
 
 #[test]

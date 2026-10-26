@@ -86,6 +86,8 @@ pub struct PublicRelationship {
     pub kind: RelationshipKind,
     pub from: String,
     pub to: String,
+    /// How the relationship reads in words ("member of"); `kind` stays the
+    /// machine value ("member-of").
     pub label: &'static str,
     pub inverse_label: &'static str,
     pub asserted_by: PublicParty,
@@ -357,7 +359,7 @@ fn public_relationship(r: &Relationship) -> PublicRelationship {
         kind: r.kind,
         from: r.from.clone(),
         to: r.to.clone(),
-        label: r.kind.as_str(),
+        label: r.kind.label(),
         inverse_label: r.kind.inverse_label(),
         asserted_by: public_party(&r.asserted_by),
         confidence: r.confidence,

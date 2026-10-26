@@ -177,7 +177,9 @@ Only the fields shown (and an entry's `summary` and a work's `source`, a dissent
 are published; sources carry the citation allowlist of ADR 0044. Visibility, `unsourced`,
 passage ids, unknown fields, private entries and relationships, relationships touching a
 private entry and notebook data are never published. Entries, relationships and sources are
-sorted by id. URLs are root-relative and follow a site's base path, and `<`, `>` and `&` in
+sorted by id. A relationship's `kind` is the stored machine value (`member-of`); `label` and
+`inverseLabel` are how it reads in words from each end (`member of`, `has member`), as pages and
+the Admin explorer show it. URLs are root-relative and follow a site's base path, and `<`, `>` and `&` in
 text are written as JSON escapes. A relationship is `contested` whenever anyone dissents;
 there is no agreed state.
 
