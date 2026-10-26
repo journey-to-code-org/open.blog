@@ -26,7 +26,8 @@ All notable changes to open.blog are recorded here. Releases follow
   `openblog check`, `openblog build` and the preview server print the same findings, grouped the
   same way, and `openblog check --json` writes the report as deterministic JSON. `check --json`
   always prints one JSON document on standard output, with an `error` field when the site could not
-  be loaded or its checks failed, and exits as `check` does. `check` and `build` list each finding
+  be loaded or its checks failed, and exits as `check` does: `openblog check` now also exits with an error, after printing the report, when a
+  failure of a private file the build reads would refuse the next build. `check` and `build` list each finding
   once, in the report, instead of also printing it as an `evidence` line, and a research site that
   raised nothing prints `Research checks: nothing to review`. The report covers every saved post,
   drafts included, wherever you look, and a post's own review now includes its source-review
