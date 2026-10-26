@@ -1112,3 +1112,30 @@ _Avoid_: Mode or role; a preset never grants or removes permissions
 An Admin control no workspace preference can hide or reorder: Write, Site preview, Settings,
 save state, publish status, conflicts, privacy notices, approvals, and blocking validation.
 _Avoid_: Default tool, pinned tool
+
+**Research workspace**:
+The one Admin destination for an author's research: the Workflow, Sources, Notebook, Atlas and
+Compare panels under `#/research/`, with Claims and the Draft beside them (ADR 0132). Its earlier
+routes redirect into it. It changes where research is reached, never what is stored or published.
+_Avoid_: Research tools, research mode
+
+**Workspace panel**:
+One place in the research workspace an author switches between: a research panel or the draft
+being written. Each has one canonical address and one visibility label.
+_Avoid_: Tab, page, pane (a pane is one view inside the editor)
+
+**Workflow panel**:
+The research workspace's first panel and empty state: the steps from a first source to a cited
+draft, each saying whether it is done. It reads and never writes.
+_Avoid_: Dashboard, onboarding wizard
+
+**Visibility label**:
+The words, repeated in data, that say whether a workspace panel is private research (nothing in
+it is public because it exists) or publishable (readers see it once it is published).
+_Avoid_: Public, shared; a label states what publishing does, not who may read the files
+
+**Kept panel**:
+A workspace panel with unsaved changes that the Admin set aside in memory, instead of discarding,
+while the author opened another panel; reopening it restores it exactly (ADR 0133). Kept panels
+are discarded, after asking, when the author leaves the workspace or signs out.
+_Avoid_: Autosave, draft recovery; nothing is written anywhere
