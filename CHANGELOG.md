@@ -5,6 +5,12 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Defined the format for a private Knowledge Atlas of people, works, concepts, movements and events,
+  with relationships that always name who asserts them, the source evidence and the uncertainty,
+  and that never present a contested relationship as consensus. Research-note concept links now
+  have a defined home in concept entries; existing notebooks are unchanged. Nothing reads or writes
+  an atlas yet, so no site output changes.
+
 ## [0.26.1] - 2026-10-25
 
 - Two people saving to the same shared reflection at once (drafts, invitations, members, reveal

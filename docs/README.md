@@ -64,7 +64,10 @@ editions, translations, witnesses, and references distinct under stable identifi
 [research notebook format](specs/research-notebook.md), which keeps quoted passages and private
 research notes apart from your own prose, with private search and backlinks
 ([ADR 0036](adr/0036-private-notebook-search-and-backlinks.md)), and archive, export, import and
-publication-leak guards ([ADR 0037](adr/0037-private-notebook-lifecycle-export-and-leak-guards.md)).
+publication-leak guards ([ADR 0037](adr/0037-private-notebook-lifecycle-export-and-leak-guards.md)), and the
+[Knowledge Atlas format](specs/knowledge-atlas.md), which keeps people, works, concepts, movements and
+events typed and records every relationship as an attributed, evidence-backed assertion that is
+never presented as consensus.
 
 ## Command reference
 

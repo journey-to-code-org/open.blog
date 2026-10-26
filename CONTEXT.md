@@ -520,6 +520,32 @@ A scheme-qualified position, such as a page, folio, line, or timestamp, inside t
 work, edition, translation, or witness a reference points at.
 _Avoid_: Citation, URL fragment
 
+**Knowledge Atlas**:
+An author's private, versioned map of contextual entries and the attributed relationships between
+them. It reaches public output only through an explicit publication projection of approved items.
+_Avoid_: Knowledge graph or database; ontology; a source of factual truth
+
+**Contextual entry**:
+One person, work, concept, movement, or event in the atlas. Its kind is fixed and decides which
+relationships it may join. A concept entry is what a notebook note's concept link resolves to.
+_Avoid_: Node, record, tag; treating an edition or translation as a work entry
+
+**Attributed relationship**:
+A directed link between two entries that one named party asserts, resting on cited source evidence
+and carrying a confidence and an uncertainty note. Its reverse reading is a label, never a second
+assertion, and it is never inferred from dates or order.
+_Avoid_: Edge or fact; influence inferred from chronology
+
+**Contested relationship**:
+A relationship with at least one recorded, attributed disagreement. There is no state that says
+scholars agree.
+_Avoid_: Consensus, established
+
+**Unsourced draft**:
+The explicit state of a relationship that cites no evidence yet. It can be neither strong nor
+approved.
+_Avoid_: Unverified, low confidence
+
 ## Admin workspace
 
 **Workspace preferences**:
