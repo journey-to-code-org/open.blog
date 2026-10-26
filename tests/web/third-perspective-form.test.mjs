@@ -456,7 +456,7 @@ test("a reflection is sent with exactly the reader's choices and enters pending;
   assert.ok(receipt, "the receipt is shown once");
   const consent = view.host.all().find((node) => node.localName === "input" && node.type === "checkbox" && node.id.endsWith("-consent") && node.id.startsWith("ob-receipt"));
   assert.equal(consent.checked, true, "the receipt shows the consent already given");
-  assert.ok(view.host.all().some((node) => node.textContent === "Check, clarify or withdraw a note you sent"), "readers can use a receipt here");
+  assert.ok(view.host.all().some((node) => node.textContent === "Check, clarify or withdraw a reflection you sent"), "readers can use a receipt here");
 });
 
 test("a pending state is explicit and a second submit waits", async () => {

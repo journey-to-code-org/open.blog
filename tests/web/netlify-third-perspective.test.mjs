@@ -196,8 +196,71 @@ test("a receipt shows the reader their reflection and category, never their cons
   assert.deepEqual(item.details, { category: "connection" });
   assert.equal(item.consent, true);
   assert.doesNotMatch(response.body, new RegExp(digest(RECEIPT)));
-  const approved = fakeDatabase((entry) => (entry.method === "GET" ? [stored({ status: "approved", approved_revision: 1, approved_consent: 1 })] : []));
-  assert.equal(JSON.parse((await receiptCall(approved, { action: "read" })).body).item.published, false, "not shown until the page renders it");
+  assert.equal(item.published, false, "pending is never published");
+});
+
+test("a receipt says a Third Perspective is published only while it is approved at its text under a consent that allows it", async () => {
+  const read = async (extra) => {
+    const database = fakeDatabase((entry) => (entry.method === "GET" && entry.path.endsWith("/openblog_feedback") ? [stored(extra)] : []));
+    const response = await receiptCall(database, { action: "read" });
+    assert.equal(database.requests.find((entry) => entry.path.endsWith("/openblog_feedback")).params.select.split(",").includes("approved_consent"), true, "the consent an approval covers is read");
+    return JSON.parse(response.body).item;
+  };
+  const approved = { status: "approved", approved_revision: 1, approved_consent: 1 };
+  assert.equal((await read(approved)).published, true);
+  // Hiding the name later narrows the consent but keeps publication.
+  const narrowed = { ...approved, details: { ...stored().details, consents: [...stored().details.consents, { number: 2, givenAt: "2026-10-27T10:00:00Z", publish: true, attribution: { publishName: false }, clarification: true }] } };
+  assert.equal((await read(narrowed)).published, true);
+  const revoked = { ...approved, details: { ...stored().details, consents: [...stored().details.consents, { number: 2, givenAt: "2026-10-27T10:00:00Z", publish: false, attribution: { publishName: false }, clarification: false }] } };
+  assert.equal((await read(revoked)).published, false, "a revoked consent is never published");
+  assert.equal((await read({ ...approved, approved_consent: null })).published, false, "an approval that recorded no consent publishes nothing");
+  assert.equal((await read({ ...approved, item_revision: 2 })).published, false, "an approval of an earlier text publishes nothing");
+  assert.equal((await read({ ...approved, clarification_asked: 1 })).published, false);
+  for (const status of ["clarification", "rejected", "removed", "withdrawn"]) assert.equal((await read({ ...approved, status })).published, false, status);
+  // Expired without a decision reads as not published, and never names a reason or a moderator.
+  const expired = await read({ status: "rejected", moderation_reason: "expired", moderated_at: "2026-11-30T00:00:00+00:00" });
+  assert.equal(expired.status, "rejected");
+  assert.equal(expired.published, false);
+  assert.ok(!JSON.stringify(expired).includes("expired"), "no moderation reason is shown");
+  // A deleted reflection keeps only its facts.
+  const deleted = await read({ status: "withdrawn", body: "-", details: {}, reader_name: null, publish_name: false, purged_at: "2026-10-27T10:00:00+00:00" });
+  assert.equal(deleted.purged, true);
+  assert.equal(deleted.body, undefined);
+  assert.equal(deleted.details, undefined);
+});
+
+test("status access by receipt cannot enumerate other readers' reflections", async () => {
+  const database = fakeDatabase((entry) => (entry.method === "GET" && entry.path.endsWith("/openblog_feedback") ? [] : []));
+  // A guessed receipt and a malformed one answer the same, and naming a row's id finds nothing.
+  const guessed = await handlerFor(database)(event("receipt", "POST", { headers: ORIGIN, body: { receipt: "A".repeat(43), action: "read", id: ID(1) } }));
+  const malformed = await handlerFor(database)(event("receipt", "POST", { headers: ORIGIN, body: { receipt: "not a receipt", action: "read", id: ID(1) } }));
+  const missing = await handlerFor(database)(event("receipt", "POST", { headers: ORIGIN, body: { id: ID(1), action: "read" } }));
+  for (const response of [guessed, malformed, missing]) {
+    assert.equal(response.statusCode, 404);
+    assert.deepEqual(JSON.parse(response.body), JSON.parse(guessed.body));
+    assert.equal(JSON.parse(response.body).code, "unknownReceipt");
+  }
+  const lookups = database.requests.filter((entry) => entry.path.endsWith("/openblog_feedback"));
+  assert.equal(lookups.length, 1, "only the well-formed receipt is looked up");
+  assert.equal(lookups[0].params.receipt_hash, `eq.${digest("A".repeat(43))}`);
+  assert.equal(lookups[0].params.id, undefined, "never by id");
+  // A receipt shows its own reflection only: no id, no private name, no consent records, no digest.
+  const own = fakeDatabase((entry) => (entry.method === "GET" && entry.path.endsWith("/openblog_feedback") ? [stored({ status: "approved", approved_revision: 1, approved_consent: 1, reader_name: "Private Ada", publish_name: false })] : []));
+  const response = await receiptCall(own, { action: "read" });
+  const { item } = JSON.parse(response.body);
+  assert.deepEqual(Object.keys(item).sort(), ["body", "clarification", "consent", "details", "kind", "published", "purged", "receivedAt", "status", "version", "work"]);
+  for (const secret of ["Private Ada", ID(1), digest(RECEIPT), RECEIPT, "consents", "approvedConsent", "approved_consent"]) assert.ok(!response.body.includes(secret), secret);
+});
+
+test("a replayed receipt action is refused once the reflection changed", async () => {
+  const database = fakeDatabase((entry) => {
+    if (entry.method === "GET") return [stored({ status: "withdrawn", version: 3, body: "-", details: {}, reader_name: null, publish_name: false, purged_at: "2026-10-26T10:00:00+00:00" })];
+    return [];
+  });
+  const replay = await receiptCall(database, { action: "withdraw", expectedVersion: 2 });
+  assert.equal(replay.statusCode, 409, "the version it names is gone");
+  assert.equal(JSON.parse(replay.body).item.purged, true);
+  assert.equal(writes(database).length, 0, "nothing is written twice");
 });
 
 test("agreeing to be asked through a receipt appends a consent record and raises the version", async () => {

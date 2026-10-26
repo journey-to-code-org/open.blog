@@ -137,7 +137,7 @@ export class ObThirdPerspective extends HTMLElement {
     this.#ui = this.#build(`ob-third-perspective-${instances}`);
     this.querySelector(".ob-third-perspective-static")?.remove();
     this.append(this.#ui.done, this.#ui.form, this.#ui.status, this.#ui.fallback);
-    if (this.#hosted) this.append(receiptManager({ endpoint }));
+    if (this.#hosted) this.append(receiptManager({ endpoint, noun: "reflection" }));
   }
 
   disconnectedCallback() {

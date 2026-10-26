@@ -158,6 +158,16 @@ const receiptDetails = (row) => {
   if (row.kind !== THIRD_PERSPECTIVE_KIND) return details;
   return typeof details.category === "string" ? { category: details.category } : {};
 };
+// Whether an approved Third Perspective may be public now (ADR 0111): approved at its current text,
+// not waiting on a clarification of that text, under an approved consent record that agreed to
+// publication while the consent in effect still does. Only then can the canonical page show it.
+const perspectivePublic = (row) => {
+  const revision = row.item_revision ?? 1;
+  const consents = Array.isArray(row.details?.consents) ? row.details.consents : [];
+  const approved = consents.find((record) => record && record.number === row.approved_consent);
+  return row.status === "approved" && row.approved_revision === revision && row.clarification_asked !== revision
+    && approved?.publish === true && consents.at(-1)?.publish === true;
+};
 // What a reader sees of their own note by its receipt (ADR 0107): its kind,
 // state and version, their own words until they are purged, whether the
 // author asked them to clarify it and why, and whether they agreed to be
@@ -174,8 +184,8 @@ const receiptView = (row) => {
     receivedAt: canonicalTime(row.received_at),
     clarification: asked ? { reason: row.moderation_reason ?? null } : null,
     consent: row.clarification_consent === true,
-    // An approved Third Perspective is shown only once the canonical page renders it (#222).
-    published: row.status === "approved" && row.approved_revision === revision && row.kind !== THIRD_PERSPECTIVE_KIND,
+    // A Third Perspective is published only while its consent still allows it (ADR 0115).
+    published: row.kind === THIRD_PERSPECTIVE_KIND ? perspectivePublic(row) : row.status === "approved" && row.approved_revision === revision,
     purged,
     ...(purged ? {} : { body: row.body, details: receiptDetails(row) }),
   };
@@ -687,10 +697,12 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         // or withdraw and delete it. The receipt is the only proof; nothing
         // identifies the reader, and nothing is e-mailed.
         const receipt = typeof body.receipt === "string" ? body.receipt : "";
+        // With Third Perspectives on, the consent an approval covers decides whether one is published.
+        const receiptColumns = settings.thirdPerspectives ? FEEDBACK_PERSPECTIVE_COLUMNS : FEEDBACK_PROTECTED_COLUMNS;
         if (!RECEIPT.test(receipt)) return json(404, { error: RECEIPT_UNKNOWN, code: "unknownReceipt" }, corsOrigin);
         if (!await consumeQuota(settings, event, "receipts", 30, 3000)) return json(429, { error: "Too many requests from here. Please try again later.", code: "rateLimited" }, corsOrigin);
         const lookup = async () => {
-          const params = new URLSearchParams({ site_id: `eq.${settings.siteId}`, receipt_hash: `eq.${receiptDigest(receipt)}`, select: FEEDBACK_PROTECTED_COLUMNS });
+          const params = new URLSearchParams({ site_id: `eq.${settings.siteId}`, receipt_hash: `eq.${receiptDigest(receipt)}`, select: receiptColumns });
           const rows = await database(settings, `/rest/v1/openblog_feedback?${params}`);
           return Array.isArray(rows) && rows.length === 1 ? rows[0] : null;
         };
@@ -717,7 +729,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
           if (typeof body.consent !== "boolean" || facts.state !== "pending" || !facts.retained) {
             return json(422, { error: "You can change this only while your note is waiting for review.", code: "notAllowed" }, corsOrigin);
           }
-          const params = new URLSearchParams({ site_id: `eq.${settings.siteId}`, id: `eq.${row.id}`, receipt_hash: `eq.${receiptDigest(receipt)}`, status: "eq.pending", version: `eq.${version}`, purged_at: "is.null", select: FEEDBACK_PROTECTED_COLUMNS });
+          const params = new URLSearchParams({ site_id: `eq.${settings.siteId}`, id: `eq.${row.id}`, receipt_hash: `eq.${receiptDigest(receipt)}`, status: "eq.pending", version: `eq.${version}`, purged_at: "is.null", select: receiptColumns });
           if (row.kind === THIRD_PERSPECTIVE_KIND) {
             // A Third Perspective keeps every consent the reader gave as a numbered record (ADR
             // 0110): the change is appended, and the version is raised, so an approval made on
@@ -796,7 +808,8 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         const work = source === "comment" ? target.path : target.work;
         const shown = source === "comment"
           ? facts.state === "approved" && await commentPolicy(settings, work) !== "hidden"
-          : facts.state === "approved" && target.approved_revision === facts.revision && facts.clarificationAsked !== facts.revision && await feedbackPolicy(settings, work, facts.kind) !== "hidden";
+          : facts.state === "approved" && target.approved_revision === facts.revision && facts.clarificationAsked !== facts.revision
+            && (facts.kind !== THIRD_PERSPECTIVE_KIND || perspectivePublic(target)) && await feedbackPolicy(settings, work, facts.kind) !== "hidden";
         if (!facts.retained || !shown) return unavailable();
         const mode = await feedbackPolicy(settings, work, "abuse-report");
         if (mode !== "open") return unavailable();

@@ -193,8 +193,11 @@ records), agrees or declines to be asked (a new consent record, and a new versio
 made on the earlier consent is refused), answers a clarification (the text is replaced; the
 details stay) or withdraws it, which deletes its text and name at once. The inbox lists it with
 `approvedConsent`, and an approval names the text revision and consent record the moderator saw
-(`seenRevision`, `seenConsent`). B5's own `/admin/feedback` view lists only passage feedback.
-Nothing is e-mailed to anyone.
+(`seenRevision`, `seenConsent`). B5's own `/admin/feedback` view lists only passage feedback and
+never decides a Third Perspective, even with the variable unset. A receipt says a reflection is
+published only while its approval and the reader's consent in effect both allow it; Admin writes
+approved reflections to `content/third-perspectives.json`, which the site builds from, so pages
+never read these rows. Nothing is e-mailed to anyone.
 
 To undo it, remove `OPENBLOG_THIRD_PERSPECTIVES_ENABLED` and redeploy, optionally export the rows
 (`where kind = 'third-perspective'`), and run
