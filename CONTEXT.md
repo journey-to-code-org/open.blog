@@ -809,6 +809,25 @@ The author's normalized form of a member's original wording (for example, compos
 expanded abbreviations), stored beside and never in place of the passage or interpretation text.
 _Avoid_: Correction, the text, cleaned excerpt
 
+**Comparison workspace**:
+The Admin research tool that reads one passage alignment as its versions' places side by side or
+in a single column, in the author's member order, with original wording exact and normalizations
+shown only on request (ADR 0124). It reads and edits alignments; it publishes nothing.
+_Avoid_: Parallel text viewer, diff, translation comparison score
+
+**Place identification**:
+The visible line on every compared place naming its version (kind and language), its maker in the
+version's own role (editor, translator, scribe, or interpreters, with attribution certainty), and
+its locator, so a place read or copied alone stays attributed.
+_Avoid_: Caption, citation
+
+**Comparison export**:
+Copying or downloading the places the author explicitly selected in the comparison workspace,
+each with its place identification and rights statement and its wording exactly. Copying waits
+for confirmation when a selected version's rights are unchecked or reserved, and a rights status
+never means permission (ADR 0125).
+_Avoid_: Publishing, sharing, licence check
+
 **Knowledge Atlas**:
 An author's private, versioned map of contextual entries and the attributed relationships between
 them. It reaches public output only through an explicit publication projection of approved items.

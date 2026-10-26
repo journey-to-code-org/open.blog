@@ -99,8 +99,29 @@ or passage an alignment uses cannot be removed, and a notebook or library change
 a valid alignments file invalid is refused.
 
 `GET /admin/api/research/alignments` returns `file`, `revision`, `stored`, `alignments`,
-`notices`, and `notice` (the statement above). `POST` creates and `PUT` updates one alignment
+`notices`, and `notice` (the statement above), and, read under the same snapshot for the
+comparison workspace ([ADR 0124](../adr/0124-the-comparison-workspace-reads-one-snapshot-and-identifies-every-place.md)):
+`sources` (every library record, each version with `rightsStatus` `{ status, label, declared,
+note?, license? }` and every record with its `chain` of the records it realizes), `passages`
+(notebook passages with their exact excerpts), `interpretations` (each interpreter with a
+`display` name, a contributor's registry name or the stated name, and the interpretation's
+`rightsStatus`), and `correspondences` (each value with its "The author reads…" label). Every
+change returns the same view. `POST` creates and `PUT` updates one alignment
 sent as `{ "revision", "alignment" }`; `DELETE` sends `{ "revision", "id" }` and returns the
 `removed` alignment. Bodies are limited to 256 KiB. A stale revision returns `409` with
 `conflict`, the latest `revision`, and the stored `current` alignment; invalid input returns `422`
 with `diagnostics`. Neither writes anything.
+
+## Comparison workspace
+
+Admin Studio's **Compare** view (under Research, beside Notebook and Atlas) reads the view above
+and shows one alignment at a time: a column per version or interpretation in the author's member
+order, side by side or as a single-column ordered list, collapsing to one column on narrow
+screens in the same order. Every place names its version, maker (editor, translator, scribe, or
+interpreters, with attribution certainty), and locator in visible text; original wording is shown
+exactly with its `lang` and a direction from its language tag (`dir="auto"` without one);
+normalizations appear only on request, labelled and under the original; absent members say so in
+words. Copy and download take only the places the author selects, with their rights statements,
+and ask for confirmation when a selected version's rights are unchecked or reserved
+([ADR 0125](../adr/0125-copying-from-a-comparison-takes-only-selected-places-with-their-rights.md)).
+Nothing is published and nothing is stored in the browser.

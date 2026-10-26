@@ -29,6 +29,15 @@ All notable changes to open.blog are recorded here. Releases follow
   check`, synced by the hosted workspace, available to Admin through
   `/admin/api/research/alignments`, and never published. A source, interpretation or passage an
   alignment uses cannot be removed until the alignment stops using it.
+- Admin Studio has a new **Compare** research tool for reading aligned passages across editions,
+  translations, manuscripts and interpretations, side by side or in a single column (which is also
+  how it reads on a phone). Every place names its version, its editor, translator, scribe or
+  interpreters, and its locator; original wording is shown exactly, right-to-left text keeps its
+  direction, your normalizations appear only when you ask and are labelled, and a version that
+  lacks the passage says so. You can add, edit, reorder, and remove alignments and their places
+  there, with your draft kept if someone else changed the alignment first. Copy and download take
+  only the places you select, carry each version's rights statement, and ask you to confirm when a
+  version's rights are unchecked or reserved. Nothing is published.
 - A site that publishes its Knowledge Atlas no longer fails to build when an interpretation in the
   private source library names a contributor who was later removed from the registry.
 
