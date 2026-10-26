@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// The published page of a post with author-written supplements (ADRs 0170-0173) from the real build
+// The published page of a post with author-written supplements (ADRs 0126-0129) from the real build
 // and the real stylesheet and component: the standard, guided and deep-dive controls by keyboard
 // and screen-reader name, state and description, a page that is complete without JavaScript, the
 // choice kept on the device (and the page working when storage is blocked), reduced motion, a

@@ -1,4 +1,4 @@
-//! Author-approved supplements and reading modes (ADRs 0170 and 0171): the
+//! Author-approved supplements and reading modes (ADRs 0126 and 0127): the
 //! marker grammar, nesting, unknown kinds, hand-written Markdown, the
 //! standard-mode byte-for-byte guarantee, mode invariants, escaping, and the
 //! portable and no-JavaScript representations.

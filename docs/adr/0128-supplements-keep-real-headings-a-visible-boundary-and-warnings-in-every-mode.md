@@ -1,20 +1,20 @@
-# ADR 0172: Supplements keep real headings, a visible boundary and their warnings in every mode
+# ADR 0128: Supplements keep real headings, a visible boundary and their warnings in every mode
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#68](https://github.com/journey-to-code-org/open.blog/issues/68)
 - Parent story: [#26](https://github.com/journey-to-code-org/open.blog/issues/26)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Amends: [ADR 0170](0170-a-supplement-is-a-marked-block-quote-the-author-wrote-into-the-post.md),
-  [ADR 0171](0171-a-reading-mode-only-shows-or-hides-supplements-and-every-representation-stays-complete.md)
+- Amends: [ADR 0126](0126-a-supplement-is-a-marked-block-quote-the-author-wrote-into-the-post.md),
+  [ADR 0127](0127-a-reading-mode-only-shows-or-hides-supplements-and-every-representation-stays-complete.md)
 - Contract: [Reading modes](../specs/reading-modes.md)
 
 ## Context
 
-Review of the first definition of supplements (ADRs 0170, 0171) found a panic on a citation inside a
+Review of the first definition of supplements (ADRs 0126, 0127) found a panic on a citation inside a
 supplement, a recipe that read a supplement's lists as its own, no visible boundary around a
 supplement without a stylesheet, findings nobody saw, and several smaller gaps. This records the
-decisions that close them. The reader control (#69) is ADR 0173.
+decisions that close them. The reader control (#69) is ADR 0129.
 
 ## Decision
 

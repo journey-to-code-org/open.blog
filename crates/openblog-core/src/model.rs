@@ -258,7 +258,7 @@ pub struct Post {
     /// them; portable bibliography exports read it (ADR 0050).
     pub(crate) citations: Option<CitationSummary>,
     /// The supplements of a post that opts in to reading modes with
-    /// `readingModes: true` (ADR 0170); `None` for every other post.
+    /// `readingModes: true` (ADR 0126); `None` for every other post.
     pub(crate) reading_depth: Option<crate::reading_depth::ReadingDepth>,
     /// What the post publishes of its approved claims and its revision notes,
     /// for a site that publishes claim evidence (ADR 0075).
@@ -325,7 +325,7 @@ impl Post {
     }
 
     /// The supplements this post publishes for its reading modes, or `None`
-    /// when it has not opted in (ADR 0170).
+    /// when it has not opted in (ADR 0126).
     pub fn reading_depth(&self) -> Option<&crate::reading_depth::ReadingDepth> {
         self.reading_depth.as_ref()
     }
@@ -1392,7 +1392,7 @@ fn load_post_in(
     let fm = &doc.front_matter;
     let mut profile = profile::resolve(fm);
     let is_recipe = profile.behavior == ProfileBehavior::Recipe;
-    // `readingModes: true`, or `{default: guided}` (ADR 0172).
+    // `readingModes: true`, or `{default: guided}` (ADR 0128).
     let reading_setting =
         crate::reading_depth::setting(fm.get("readingModes").or_else(|| fm.get("reading_modes")));
     // Citations are opt-in (ADR 0043): a post without `citations` is read
@@ -1496,7 +1496,7 @@ fn load_post_in(
                     locale: *locale,
                 }),
             claim_evidence_section: with_evidence.is_some(),
-            // Reading modes are opt-in (ADR 0170): without the key every
+            // Reading modes are opt-in (ADR 0126): without the key every
             // block quote renders exactly as before.
             supplements: reading_setting.enabled,
             ..options
@@ -1506,14 +1506,14 @@ fn load_post_in(
         return Err(rendered.errors.join("; "));
     }
     if let Some(depth) = rendered.reading_depth.as_mut() {
-        // The post's own default, else the site's, else standard (ADR 0172).
+        // The post's own default, else the site's, else standard (ADR 0128).
         depth.default_mode = if reading_setting.default_written {
             reading_setting.default_mode
         } else {
             config.reading_modes.default
         };
         // Each unread marker, and each adjustment, is the author's to see in
-        // the build, `check` and Admin warnings (ADR 0172).
+        // the build, `check` and Admin warnings (ADR 0128).
         for finding in &depth.findings {
             let marker = finding.marker.trim();
             profile.warnings.push(if marker.is_empty() {

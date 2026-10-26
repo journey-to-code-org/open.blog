@@ -1,13 +1,13 @@
-# ADR 0175: Reading modes name the article, keep every caveat and give themes stable hooks
+# ADR 0131: Reading modes name the article, keep every caveat and give themes stable hooks
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#71](https://github.com/journey-to-code-org/open.blog/issues/71)
 - Parent story: [#26](https://github.com/journey-to-code-org/open.blog/issues/26)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0172](0172-supplements-keep-real-headings-a-visible-boundary-and-warnings-in-every-mode.md),
-  [ADR 0173](0173-the-reading-mode-control-is-a-native-radio-group-that-enhances-the-static-page.md),
-  [ADR 0174](0174-supplement-layers-render-progressively-from-the-complete-static-page.md)
+- Builds on: [ADR 0128](0128-supplements-keep-real-headings-a-visible-boundary-and-warnings-in-every-mode.md),
+  [ADR 0129](0129-the-reading-mode-control-is-a-native-radio-group-that-enhances-the-static-page.md),
+  [ADR 0130](0130-supplement-layers-render-progressively-from-the-complete-static-page.md)
 - Contract: [Reading modes](../specs/reading-modes.md)
 
 ## Context
