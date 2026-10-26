@@ -7,7 +7,7 @@
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
 - Builds on: [ADR 0054](0054-attributed-evidence-based-relationships.md),
   [ADR 0200](0200-the-atlas-query-projection-is-derived-from-the-public-atlas-alone-and-is-one-more-listed-artifact.md),
-  [ADR 0201](0201-the-query-projection-is-bounded-and-refused-whole-never-truncated-silently.md)
+  [ADR 0201](0201-the-query-projection-is-bounded-clips-text-visibly-and-is-refused-whole-over-a-bound.md)
 
 ## Context
 
@@ -21,8 +21,8 @@ need, with defined behaviour for ambiguity, unknown ids and cycles.
 - **A closed set of operations** on `AtlasQuery`, all read-only over the projection: `entry`,
   `edge` and `source` by id; `lookup` by term; `edges_of` an entry; `trail` from an entry. There is
   no query language, no path search between two entries, no filtering by a property and no ranking.
-- **Lookup is exact after normalization.** A term is whitespace collapsed and lowercased, nothing
-  else: no stemming, translation, transliteration or fuzzy match. It matches an entry's label or
+- **Lookup is exact after normalization.** A term is the text split on Unicode `White_Space`,
+  joined with single spaces and lowercased, nothing else (the exact rule is ADR 0203's): no stemming, translation, transliteration or fuzzy match. It matches an entry's label or
   alias. When two entries share a term, both are returned in id order and nothing picks one:
   choosing is the author's explicit link (#73), not the machine's. Prose is never scanned.
 - **A trail is a bounded breadth-first walk over published relationships**, across either

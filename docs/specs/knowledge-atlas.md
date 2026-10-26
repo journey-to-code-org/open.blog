@@ -375,8 +375,9 @@ not include them.
 ### Query projection
 
 [ADR 0200](../adr/0200-the-atlas-query-projection-is-derived-from-the-public-atlas-alone-and-is-one-more-listed-artifact.md),
-[ADR 0201](../adr/0201-the-query-projection-is-bounded-and-refused-whole-never-truncated-silently.md)
-and [ADR 0202](../adr/0202-queries-are-exact-lookup-and-a-bounded-trail-that-infer-nothing.md).
+[ADR 0201](../adr/0201-the-query-projection-is-bounded-clips-text-visibly-and-is-refused-whole-over-a-bound.md),
+[ADR 0202](../adr/0202-queries-are-exact-lookup-and-a-bounded-trail-that-infer-nothing.md) and
+[ADR 0203](../adr/0203-the-query-file-carries-the-pages-wording-and-a-works-source-and-its-lookup-is-one-shared-algorithm.md).
 While the atlas is published the build also writes `/atlas-query.json`, derived by
 `openblog_core::atlas_query::AtlasQuery::project` from the public atlas above and nothing else, as
 bounded page data for components and search. It is not a page and is not in the sitemap.
@@ -387,39 +388,75 @@ bounded page data for components and search. It is not a page and is not in the 
   "formatVersion": 1,
   "limits": { "maxTextChars": 240, "maxListedEdges": 50, "maxTrailDepth": 3, "maxTrailSteps": 200 },
   "entries": [
-    { "id": "plato", "kind": "person", "label": "Plato", "aliases": ["Aristocles"],
-      "preview": "An Athenian philosopher.", "previewClipped": true,
-      "url": "/atlas/plato/", "out": ["r-authored"] }
+    { "id": "plato", "kind": "person", "kindLabel": "Person", "label": "Plato",
+      "aliases": ["Aristocles"], "preview": "An Athenian philosopher.", "previewClipped": true,
+      "url": "/atlas/plato/", "out": ["r-authored"] },
+    { "id": "republic", "kind": "work", "kindLabel": "Work", "label": "Republic",
+      "source": "plato-republic", "url": "/atlas/republic/", "in": ["r-authored"] }
   ],
   "edges": [
     { "id": "r-authored", "kind": "authored", "from": "plato", "to": "republic",
       "label": "authored", "inverseLabel": "authored by",
       "assertedBy": { "kind": "source", "source": "scholar-book" },
-      "confidence": "plausible", "standing": "contested", "dissents": 1,
-      "evidence": [{ "source": "republic-slings", "locators": [{ "kind": "page", "value": "514" }] }],
+      "assertedByText": "A study",
+      "confidence": "plausible", "confidenceText": "Plausible",
+      "standing": "contested", "standingText": "Contested: 1 recorded dissent.", "dissents": 1,
+      "evidence": [{ "source": "republic-slings", "locators": [{ "kind": "page", "value": "514" }],
+                     "text": "Platonis Rempublicam, p. 514" }],
       "uncertainty": "Authorship of some dialogues is disputed.",
       "url": "/atlas/plato/#atlas-r-r-authored" }
   ],
-  "sources": [{ "id": "scholar-book", "text": "A study" }],
-  "terms": [{ "term": "aristocles", "entries": ["plato"] }]
+  "sources": [
+    { "id": "plato-republic", "text": "Politeia" },
+    { "id": "republic-slings", "text": "Platonis Rempublicam" },
+    { "id": "scholar-book", "text": "A study" }
+  ],
+  "terms": [
+    { "term": "aristocles", "entries": ["plato"] },
+    { "term": "plato", "entries": ["plato"] },
+    { "term": "republic", "entries": ["republic"] }
+  ]
 }
 ```
 
 - Entries, edges, sources and terms are sorted; the file is compact, deterministic, has root-relative
   URLs that follow the base path and escapes `<`, `>` and `&`. It has no `version` key.
+- `formatVersion` stays 1 while the format is unreleased, and adding an optional field to it is not
+  a version change (a reader ignores fields it does not know); removing or renaming a field, or
+  changing what one means, raises it (ADR 0203).
+- Display text is computed in Rust with the pages' own wording and is the only wording a component
+  shows: `kindLabel` on an entry; on a relationship `assertedByText` (the site author's public name
+  for an author-asserted position, a source's public title, or the named party), `confidenceText`
+  and `standingText`; on each evidence item `text`. A work's `source` is the id of the source it
+  stands for; `sources` holds the public text of every source an entry or relationship cites or is
+  attributed to.
 - An entry lists the ids of the relationships that start (`out`) and end (`in`) there, at most 50
   each, and counts the rest as `moreOut` and `moreIn`; `edges` holds every published relationship.
   A relationship is read in its stored direction; `dissents` is a count and the dissents themselves,
   datings and the full summary stay on the pages and in `atlas.json`.
 - `preview` is the first paragraph of the summary, cut to 240 characters with an ellipsis;
   `previewClipped` and `uncertaintyClipped` say when what is shown is less than what is published.
-- `terms` maps a label or alias, lowercased with whitespace collapsed, to every entry that has it.
-  A shared term lists all of them; nothing resolves it.
-- A projection over 2,000 entries, 10,000 relationships or 4 MiB, or one that is not internally
-  consistent, gets no file; `atlas.json` and the pages are unaffected and the Admin preview says why.
+- `terms` maps a label or alias, normalized as below, to every entry that has it. A shared term lists
+  all of them; nothing resolves it. A label or alias longer than 80 characters is not indexed.
+- **Lookup normalization** is exact and is the same in Rust (`atlas_query::normalize_term`) and
+  JavaScript (`web/components/atlas-terms.js`), tested against the shared fixtures in
+  `tests/fixtures/atlas-lookup.json`: split the text on Unicode `White_Space` code points (U+0009 to
+  U+000D, U+0020, U+0085, U+00A0, U+1680, U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F, U+3000),
+  drop the empty pieces, join with one U+0020, and apply the default Unicode lowercase conversion
+  (`str::to_lowercase`; `toLowerCase`), which writes a final sigma as `ς`. Nothing else: no
+  normalization form (a composed and a decomposed `Café` are different terms), no case folding (`ß`
+  stays `ß` and is not `ss`), no stripping of format characters (U+FEFF and U+200B are ordinary
+  characters, unlike in JavaScript's `\s`), no stemming, translation or fuzzy match.
+- A projection over 2,000 entries, 10,000 relationships or 4 MiB (counted with the site's base path
+  in front of every address, as written), or one that is not internally consistent, gets no file;
+  `atlas.json` and the pages are unaffected, the build prints a `boundary:` warning, and the Admin
+  preview says why, with the reason `over-limit` or `inconsistent`.
 - The Rust API (`entry`, `edge`, `source`, `lookup`, `edges_of`, `trail`) is closed and read-only.
   `trail` is a breadth-first walk to depth 3 and 200 steps over either direction, crossing each
   relationship once so a cycle ends it, and says nothing beyond its steps.
 - The publication-boundary manifest lists the file as the `atlas-query` projection, with one item
-  per entry and relationship and the fields each copies, and the build refuses the file if it names
-  anything neither projection publishes.
+  per entry and relationship and the fields each copies, and one item per source it holds. The
+  build refuses the file if it names an entry, relationship or source that the atlas projection or
+  the query projection does not publish, wherever it names it: in the items it lists, in `from`
+  and `to`, in `terms[].entries`, and in every source id (`sources[].id`, `evidence[].source`,
+  `assertedBy.source`, `entries[].source`).

@@ -27,10 +27,18 @@ would make a reader's trail look complete when it is not.
   unpublished entry, an uncited relationship, an unpublished source), gets no query file. The
   refusal names the limit, or ids, and never an item's text or an offending address. `atlas.json`
   and the pages are unaffected and remain the complete fallback, so this is not a build failure:
-  the build leaves the file out, and Admin's manifest shows the withheld `atlas-query` item with
-  the reason `over-limit` and the sentence.
+  the build leaves the file out and prints a `boundary:` warning with the sentence, and Admin's
+  manifest shows the withheld `atlas-query` item with the sentence and a reason that tells the two
+  apart: `over-limit` for a count or size bound, `inconsistent` for an atlas that does not agree
+  with itself.
+- **The byte bound is the size as published.** The build writes the file after prefixing every
+  root-relative address with the site's base path, so the 4 MiB bound is checked with that prefix
+  counted (the build also checks the written file), not on the unprefixed text.
 - **Text is clipped visibly.** A preview is the first paragraph of the published summary, with
-  whitespace collapsed, cut on a character boundary with an ellipsis. `previewClipped` is true
+  whitespace collapsed, cut on a character boundary with an ellipsis, and never between a base
+  character and the combining mark, variation selector or joiner that follows it (the base goes
+  too; only the common extender ranges are recognised, so a script whose marks lie elsewhere can
+  still be cut between a base and a mark). `previewClipped` is true
   whenever the preview is less than the whole summary (cut, or more paragraphs follow), and
   `uncertaintyClipped` whenever the doubt was cut, so a component says "continued on the page" and
   links to the entry. Uncertainty is never dropped, only shortened with that flag.

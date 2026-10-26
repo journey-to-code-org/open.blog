@@ -24,17 +24,19 @@ enforces rather than a property of where the data happens to live.
 ## Decision
 
 - **One input: the public atlas.** `openblog_core::atlas_query::AtlasQuery::project` takes a
-  `&PublicAtlas` and nothing else: no private atlas, notebook, source library or configuration. It
+  `&PublicAtlas`, the site author's public name and the site's base path (ADR 0203), and nothing
+  else: no private atlas, notebook, source library or other configuration. It
   therefore cannot name an unapproved entry, an unsourced or notebook-passage relationship, a
   relationship touching a private entry, or a source no published item cites. It also re-checks
   what it rests on instead of trusting it: every relationship joins two published entries, cites at
   least one source, every cited or attributing source is in the atlas's published sources, ids are
   slugs and unique, and every address is a root-relative address under `/atlas/`.
 - **An allowlist again.** The query types name exactly what they carry. An entry: `id`, `kind`,
-  `label`, `aliases`, `preview`, `previewClipped`, `url`, and the ids of the relationships that start
+  `label`, `aliases`, `source` (a work's), `preview`, `previewClipped`, `url`, and the ids of the relationships that start
   (`out`) and end (`in`) there. A relationship: `id`, `kind`, `from`, `to` (the stored direction),
   `label`, `inverseLabel`, `assertedBy`, `confidence`, `standing`, `dissents` (a count), `evidence`
-  (source id and locators), `uncertainty`, `uncertaintyClipped` and `url`. A source: `id` and its
+  (source id and locators), `uncertainty`, `uncertaintyClipped` and `url`; ADR 0203 adds the
+  pages' own wording as text fields. A source: `id` and its
   public plain `text`. Datings, dissent text and entry summaries beyond the first paragraph are not
   copied: they stay on the pages and in `atlas.json`, which each entry and relationship links to.
   Adding a published atlas field publishes nothing here until it is added here.
@@ -48,7 +50,7 @@ enforces rather than a property of where the data happens to live.
   `openblog-atlas-query` version 1, and it has no `version` key, so it is never mistaken for private
   research. The publication-boundary manifest gains a projection, `atlas-query`, that lists every
   entry and relationship the file holds with the fields it copies; the build's last check refuses
-  the file if it names an entry or relationship that either that projection or the Atlas projection
+  the file if it names an entry or relationship that the Atlas projection or the query projection
   does not publish, and the per-field text guard reads it with the other projection data. It is not
   a page, so it is not in the sitemap and search, feeds, `llms.txt` and portable exports are
   unchanged.

@@ -7,8 +7,9 @@ use std::collections::BTreeMap;
 
 use openblog_core::atlas_publication::PublicAtlas;
 use openblog_core::atlas_query::{
-    AtlasQuery, Direction, QueryRefusal, RefusalKind, ATLAS_QUERY_JSON_FILE, MAX_BYTES, MAX_EDGES,
-    MAX_ENTRIES, MAX_LISTED_EDGES, MAX_TEXT_CHARS, MAX_TRAIL_DEPTH, MAX_TRAIL_STEPS,
+    normalize_term, AtlasQuery, Direction, QueryRefusal, RefusalKind, ATLAS_QUERY_JSON_FILE,
+    MAX_BYTES, MAX_EDGES, MAX_ENTRIES, MAX_LISTED_EDGES, MAX_TEXT_CHARS, MAX_TRAIL_DEPTH,
+    MAX_TRAIL_STEPS,
 };
 use openblog_core::knowledge_atlas::{Atlas, Links};
 use openblog_core::publication_boundary::{
@@ -788,5 +789,56 @@ fn a_clip_never_leaves_half_a_cluster_before_the_ellipsis() {
             }
             assert!(preview.chars().count() <= MAX_TEXT_CHARS, "{name}");
         }
+    }
+}
+
+/// The lookup algorithm is shared with `web/components/atlas-terms.js`: both
+/// read these fixtures, including the characters JavaScript's `\s` and
+/// Unicode White_Space disagree about and the text no normalization joins.
+#[test]
+fn the_lookup_matches_the_shared_fixtures() {
+    let fixtures: Value =
+        serde_json::from_str(include_str!("../../../tests/fixtures/atlas-lookup.json"))
+            .expect("fixtures");
+    let normalize = fixtures["normalize"].as_array().unwrap();
+    assert!(normalize.len() >= 15);
+    for case in normalize {
+        assert_eq!(
+            normalize_term(case["input"].as_str().unwrap()),
+            case["expected"].as_str().unwrap(),
+            "{}",
+            case["name"]
+        );
+    }
+    let entries: Vec<Value> = fixtures["lookup"]["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| {
+            let mut entry = entry(
+                e["id"].as_str().unwrap(),
+                "concept",
+                e["label"].as_str().unwrap(),
+            );
+            if let Some(aliases) = e.get("aliases") {
+                entry["aliases"] = aliases.clone();
+            }
+            entry
+        })
+        .collect();
+    let q = query(&json!({"version": 1, "entries": entries, "relationships": []}));
+    for case in fixtures["lookup"]["cases"].as_array().unwrap() {
+        let found: Vec<&str> = q
+            .lookup(case["query"].as_str().unwrap())
+            .iter()
+            .map(|e| e.id.as_str())
+            .collect();
+        let expected: Vec<&str> = case["ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|id| id.as_str().unwrap())
+            .collect();
+        assert_eq!(found, expected, "{}", case["query"]);
     }
 }

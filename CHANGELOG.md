@@ -9,8 +9,11 @@ All notable changes to open.blog are recorded here. Releases follow
   reading of the published atlas for the context previews and relationship trails to come. It holds
   only what `atlas.json` already publishes: approved entries with a short preview, and approved
   relationships in the direction they were stated, with who asserts them, confidence, standing,
-  uncertainty and sources. Nothing private can be in it, an atlas too large for it is left out
-  without affecting the atlas pages or `atlas.json`, and Admin's "What will be public" lists it.
+  uncertainty and sources, with the pages' own wording (kind, who asserts a position, confidence,
+  standing and evidence) already written out so previews never reword it. Nothing private can be
+  in it, an atlas too large for it (or one that does not agree with itself) is left out with a
+  build warning and without affecting the atlas pages or `atlas.json`, and Admin's "What will be
+  public" lists it, its sources and the reason if it is left out.
   A site that does not publish its atlas builds exactly as before.
 
 ## [0.41.0] - 2026-10-26

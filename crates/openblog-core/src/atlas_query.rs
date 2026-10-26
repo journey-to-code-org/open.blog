@@ -605,8 +605,16 @@ impl AtlasQuery {
     }
 }
 
-/// A term as the lookup compares it: whitespace collapsed to single spaces
-/// and lowercased, nothing else. No stemming, translation or fuzzy matching.
+/// A term as the lookup compares it (ADR 0203): the text split on Unicode
+/// `White_Space` (what `char::is_whitespace` tests: U+0009 to U+000D, U+0020,
+/// U+0085, U+00A0, U+1680, U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F
+/// and U+3000), the words joined with one space, then `str::to_lowercase`
+/// (the default Unicode case conversion with the final-sigma rule, and no
+/// locale). Nothing else: no normalization form, so a composed and a
+/// decomposed spelling are different terms; no case folding, so `ß` stays
+/// `ß`; U+FEFF and U+200B are not white space. No stemming, translation or
+/// fuzzy matching. `web/components/atlas-terms.js` is the same algorithm and
+/// both are tested against `tests/fixtures/atlas-lookup.json`.
 pub fn normalize_term(text: &str) -> String {
     text.split_whitespace()
         .collect::<Vec<_>>()
