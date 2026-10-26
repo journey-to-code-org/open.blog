@@ -7278,7 +7278,15 @@ export function createPublicationReview({ review, mode = "check", api, onDone, i
         h("p", { class: "oba-review-meta oba-small" }, h("code", {}, entry.code), " · ", h("span", { "data-review-place": "true" }, place), " · ", REVIEW_OUTCOME_LABELS[entry.outcome] || entry.outcome),
         h("p", { id: messageId }, h("bdi", {}, entry.message)),
         h("p", { class: "oba-accessibility-repair" }, h("strong", {}, "Next: "), h("bdi", {}, entry.repair)),
-        advisory ? null : h("p", { class: "oba-small" }, "This cannot be acknowledged: it is an integrity or privacy failure the build refuses, so it is fixed instead."),
+        advisory
+          ? null
+          : h(
+              "p",
+              { class: "oba-small", "data-review-gate-note": entry.gate },
+              entry.gate === "withholds"
+                ? "This cannot be acknowledged: acknowledging would not publish it. The comparison stays out of the next build until you check the place and approve it again."
+                : "This cannot be acknowledged: it is an integrity or privacy failure the build refuses, so it is fixed instead.",
+            ),
         h("div", { class: "oba-toolbar" }, actionFor(publicationReviewTarget(entry, context)), actionFor(publicationReviewRelatedTarget(entry)), toggle),
         ackState,
         error,

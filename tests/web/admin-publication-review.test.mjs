@@ -317,6 +317,18 @@ test("groups and findings appear in the server's order and codes, each with its 
   assert.doesNotMatch(root.textContent, /score|\d+%|\bpassed\b|\bverified\b|ready to publish/i);
 }));
 
+test("a finding that withholds says it stays out until the place is checked and approved again, not that the build refuses it", withDom(async () => {
+  const review = REVIEW();
+  review.findings.push({ validator: "comparison-approval", check: "stale-approval", code: "stale-approval", category: "public-boundary", outcome: "detected", gate: "withholds", scope: { object: "alignment", id: "cave-places" }, message: "The approval of `cave-places` is out of date.", repair: "Check the place, then approve it again in Compare.", fingerprint: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" });
+  review.groups.find((group) => group.name === "detected").findings.push(review.findings.length - 1);
+  const { root } = mount(review);
+  const finding = article(root, "stale-approval");
+  assert.equal(toggleOf(finding), undefined, "it has no acknowledge control");
+  assert.match(finding.textContent, /acknowledging would not publish it/);
+  assert.match(finding.textContent, /stays out of the next build until you check the place and approve it again/);
+  assert.doesNotMatch(finding.textContent, /the build refuses/);
+}));
+
 test("only findings the build refuses block, and they cannot be acknowledged", withDom(async () => {
   const { root, view, done } = mount(REVIEW());
   assert.equal(view.confirm.disabled, true);
