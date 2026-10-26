@@ -640,6 +640,10 @@ pub struct HostedFeedback {
     /// Why the item was last rejected or removed, if it was.
     pub reason: Option<crate::moderation::ReasonCode>,
     pub feedback: ScholarlyFeedback,
+    /// The reader's evidence block of a version 2 record (ADR 0138): their
+    /// statement, never checked for truth and never an author's evidence
+    /// link.
+    pub evidence: Option<crate::evidence_submission::EvidenceOffer>,
     /// The text's revision (ADR 0102), raised only when a clarification
     /// replaces it; 1 for an item stored before the inbox (ADR 0106).
     pub revision: u32,
@@ -756,6 +760,21 @@ impl HostedFeedback {
                 "a hosted feedback item names a revision after its current one",
             ));
         }
+        // A version 2 record is an evidence submission (ADR 0138); every
+        // other version is read by B5's reader, which refuses what it does
+        // not know.
+        let (feedback, evidence) = if wire.feedback.get("version").and_then(Value::as_u64)
+            == Some(crate::evidence_submission::EVIDENCE_SUBMISSION_VERSION)
+        {
+            let record = crate::evidence_submission::EvidenceRecord::from_value(&wire.feedback)
+                .map_err(|error| match error.feedback {
+                    Some(code) => FeedbackError::new(code, error.message),
+                    None => invalid("a hosted evidence submission is not valid"),
+                })?;
+            (record.feedback, record.evidence)
+        } else {
+            (ScholarlyFeedback::from_value(&wire.feedback)?, None)
+        };
         let decisions = wire
             .decisions
             .map(|value| {
@@ -773,7 +792,8 @@ impl HostedFeedback {
             version: wire.version,
             moderated_at,
             reason,
-            feedback: ScholarlyFeedback::from_value(&wire.feedback)?,
+            feedback,
+            evidence,
             revision,
             // Only an approved item has an approval; one approved before the
             // inbox stored none and was approved at its only revision.

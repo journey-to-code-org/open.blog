@@ -663,3 +663,256 @@ impl ReferenceReport {
             .contains(&Some(ReferenceStatus::NotPublished))
     }
 }
+
+/// The most claims, cited sources and site sources a post's evidence choices
+/// list; a post or site with more lists the first ones.
+const MAX_CHOICES: usize = 500;
+
+/// How a public source reads in a list: its title and year, or its id.
+fn reference_label(reference: &crate::citations::PublicReference) -> String {
+    match (&reference.title, &reference.issued) {
+        (Some(title), Some(issued)) => format!("{title} ({issued})"),
+        (Some(title), None) => title.clone(),
+        _ => reference.key.clone(),
+    }
+}
+
+impl PublishedReferences {
+    /// What one post publishes, from its public output only: its published
+    /// claims and their published evidence links (ADR 0075), the sources
+    /// those links use and the sources its published citations cite (ADR
+    /// 0048). Never the private claims file or Source Library.
+    pub fn of_post(post: &crate::model::Post) -> Self {
+        let mut references = post
+            .claim_evidence()
+            .map(Self::from_post_evidence)
+            .unwrap_or_default();
+        if let Some(summary) = post.citations() {
+            for reference in &summary.references {
+                references.sources.insert(reference.key.clone());
+            }
+        }
+        references
+    }
+}
+
+impl SitePublishedSources {
+    /// Every source a site's published posts publish, as
+    /// [`PublishedReferences::of_post`] reads each. A draft publishes
+    /// nothing, even in a preview that loads it.
+    pub fn of_site(site: &crate::model::Site) -> Self {
+        let posts: Vec<PublishedReferences> = site
+            .posts
+            .iter()
+            .filter(|post| !post.draft)
+            .map(PublishedReferences::of_post)
+            .collect();
+        Self::from_posts(&posts)
+    }
+}
+
+/// The public label of a source the site publishes: the citation text of a
+/// published evidence link's source, or a published citation's title.
+pub fn published_source_label(site: &crate::model::Site, id: &str) -> Option<String> {
+    site.posts
+        .iter()
+        .filter(|post| !post.draft)
+        .find_map(|post| {
+            let evidence = post.claim_evidence().and_then(|evidence| {
+                evidence
+                    .sources
+                    .iter()
+                    .find(|source| source.reference.key == id)
+                    .map(|source| source.text.clone())
+            });
+            evidence.or_else(|| {
+                post.citations().and_then(|summary| {
+                    summary
+                        .references
+                        .iter()
+                        .find(|reference| reference.key == id)
+                        .map(reference_label)
+                })
+            })
+        })
+}
+
+/// How a published evidence link's relation reads before its source.
+fn relation_words(relation: Relation) -> &'static str {
+    match relation {
+        Relation::Supports => "Supported by",
+        Relation::Contradicts => "Contradicted by",
+        Relation::Contextualizes => "Given context by",
+    }
+}
+
+/// How a reader's stance reads to an editor: the reader's statement, never a
+/// finding.
+pub fn stance_words(stance: Relation) -> &'static str {
+    match stance {
+        Relation::Supports => "The reader says it supports the passage",
+        Relation::Contradicts => "The reader says it contradicts the passage",
+        Relation::Contextualizes => "The reader says it gives context to the passage",
+    }
+}
+
+/// A published claim's published evidence links, each with its relation, in
+/// relation order and file order within one.
+fn claim_links(
+    claim: &crate::claim_publication::PublicClaim,
+) -> impl Iterator<Item = (Relation, &crate::claim_publication::PublicEvidenceLink)> {
+    [
+        (Relation::Supports, &claim.supports),
+        (Relation::Contradicts, &claim.contradicts),
+        (Relation::Contextualizes, &claim.contextualizes),
+    ]
+    .into_iter()
+    .flat_map(|(relation, links)| links.iter().map(move |link| (relation, link)))
+}
+
+fn link_label(
+    site: &crate::model::Site,
+    relation: Relation,
+    link: &crate::claim_publication::PublicEvidenceLink,
+) -> String {
+    let source = published_source_label(site, &link.source).unwrap_or_else(|| link.source.clone());
+    format!("{} {source}", relation_words(relation))
+}
+
+/// What a reader may name in a post's evidence offer, from public output
+/// only (ADR 0138): the post's published claims with their published
+/// evidence links, the sources the post publishes (to question a citation),
+/// and the sources the whole site publishes (to offer one). Each is `{id,
+/// label}`; a claim also lists its links. The form offers only these, so a
+/// reader never has to guess an id and nothing private is ever listed.
+pub fn reference_choices(post: &crate::model::Post, site: &crate::model::Site) -> Value {
+    let claims: Vec<Value> = post
+        .claim_evidence()
+        .map(|evidence| {
+            evidence
+                .claims
+                .iter()
+                .take(MAX_CHOICES)
+                .map(|claim| {
+                    let links: Vec<Value> = claim_links(claim)
+                        .map(|(relation, link)| {
+                            serde_json::json!({"id": link.id, "label": link_label(site, relation, link)})
+                        })
+                        .collect();
+                    serde_json::json!({
+                        "id": claim.id,
+                        "label": format!("Claim {}: {}", claim.number, claim.statement),
+                        "links": links,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let label = |id: &str| published_source_label(site, id).unwrap_or_else(|| id.to_string());
+    let cited: Vec<Value> = PublishedReferences::of_post(post)
+        .sources()
+        .take(MAX_CHOICES)
+        .map(|id| serde_json::json!({"id": id, "label": label(id)}))
+        .collect();
+    let mut site_sources: Vec<(String, String)> = SitePublishedSources::of_site(site)
+        .sources
+        .iter()
+        .map(|id| (label(id), id.clone()))
+        .collect();
+    site_sources.sort();
+    let sources: Vec<Value> = site_sources
+        .into_iter()
+        .take(MAX_CHOICES)
+        .map(|(label, id)| serde_json::json!({"id": id, "label": label}))
+        .collect();
+    serde_json::json!({"version": 1, "claims": claims, "citations": cited, "sources": sources})
+}
+
+/// An evidence offer as an editor reviews it beside the post (ADR 0138):
+/// each reference the reader named, whether the post (or, for the offered
+/// source, the site) publishes it now, and for a published one its public
+/// label, so the editor can compare the offer with the claim or citation it
+/// targets. A reference that is not published reads only as not published,
+/// never as private or mistyped. `post` is the post that has the item's
+/// address now, if any.
+pub fn evidence_review(
+    offer: &EvidenceOffer,
+    post: Option<&crate::model::Post>,
+    site: &crate::model::Site,
+) -> Value {
+    let published = post.map(PublishedReferences::of_post).unwrap_or_default();
+    let report = published.check(offer, &SitePublishedSources::of_site(site));
+    let public = |status: Option<ReferenceStatus>| status == Some(ReferenceStatus::Published);
+    let mut view = serde_json::json!({ "stale": report.any_unpublished() });
+    let claim = post
+        .and_then(crate::model::Post::claim_evidence)
+        .zip(offer.claim.as_deref())
+        .and_then(|(evidence, id)| evidence.claims.iter().find(|claim| claim.id == id))
+        .filter(|_| public(report.claim));
+    if let Some(id) = &offer.claim {
+        let mut entry = serde_json::json!({"id": id, "published": public(report.claim)});
+        if let Some(claim) = claim {
+            entry["label"] = serde_json::json!(format!("Claim {}", claim.number));
+            entry["statement"] = serde_json::json!(claim.statement);
+            entry["url"] = serde_json::json!(claim.url);
+            if let Some(quote) = &claim.quote {
+                entry["quote"] = serde_json::json!(quote);
+            }
+            entry["links"] = Value::Array(
+                claim_links(claim)
+                    .map(|(relation, link)| {
+                        serde_json::json!({
+                            "id": link.id,
+                            "relation": relation.as_str(),
+                            "label": link_label(site, relation, link),
+                        })
+                    })
+                    .collect(),
+            );
+        }
+        view["claim"] = entry;
+    }
+    if let Some(id) = &offer.evidence_link {
+        let mut entry = serde_json::json!({"id": id, "published": public(report.evidence_link)});
+        let link = claim
+            .filter(|_| public(report.evidence_link))
+            .and_then(|claim| claim_links(claim).find(|(_, link)| &link.id == id));
+        if let Some((relation, link)) = link {
+            entry["label"] = serde_json::json!(link_label(site, relation, link));
+        }
+        view["evidenceLink"] = entry;
+    }
+    for (key, id, status) in [
+        ("citation", &offer.citation, report.citation),
+        ("source", &offer.source, report.source),
+    ] {
+        if let Some(id) = id {
+            let mut entry = serde_json::json!({"id": id, "published": public(status)});
+            if let Some(label) = published_source_label(site, id).filter(|_| public(status)) {
+                entry["label"] = serde_json::json!(label);
+            }
+            view[key] = entry;
+        }
+    }
+    if !offer.locators.is_empty() {
+        view["locators"] = Value::Array(
+            offer
+                .locators
+                .iter()
+                .map(|locator| {
+                    let mut item =
+                        serde_json::json!({"kind": locator.kind.as_str(), "value": locator.value});
+                    if let Some(to) = &locator.to {
+                        item["to"] = serde_json::json!(to);
+                    }
+                    item
+                })
+                .collect(),
+        );
+    }
+    if let Some(stance) = offer.stance {
+        view["stance"] = serde_json::json!(stance.as_str());
+        view["stanceLabel"] = serde_json::json!(stance_words(stance));
+    }
+    view
+}
