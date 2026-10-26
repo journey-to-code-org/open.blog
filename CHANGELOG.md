@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-10-26
+
 - Reader participation now has one policy. Comments keep `engagement.comments` and `comments:`
   exactly as before; questions, suggested sources and corrections, other interpretations, Third
   Perspectives, author responses and abuse reports are each off until `participation.kinds` in
@@ -36,7 +38,6 @@ All notable changes to open.blog are recorded here. Releases follow
   site or a post, takes its published notes off those pages until you switch it back on;
   `reader-feedback.json` keeps them. Turning hosted engagement off, or leaving the hosted service,
   still keeps every published note on your pages.
-
 - Readers and owners get protection without tracking. With the new optional
   `supabase/protection.sql` (and `feedback.sql` run again) and `OPENBLOG_PROTECTION_ENABLED=true`, a
   reader who sends passage feedback gets a private receipt, shown once, to check on the note,
