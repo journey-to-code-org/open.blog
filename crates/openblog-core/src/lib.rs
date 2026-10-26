@@ -37,6 +37,7 @@
 //! - [`third_perspective`]: a reader's consented, moderated reflection on a published work, and its one public form
 //! - [`perspective_publication`]: approved Third Perspectives as the site publishes and its canonical pages show them
 //! - [`attributed_perspective`]: stable targets at one author's section of a shared reflection, and who may answer a Third Perspective about it
+//! - [`future_suggestion`]: a reader's question or source suggestion for future work, kept private to the editors, never entering the Source Library by itself
 //! - [`author_response`]: an author's answer to a Third Perspective as the hosted store keeps it, the request that stores it and the checks that it still belongs under its parent
 
 pub mod accessibility;
@@ -74,6 +75,7 @@ pub mod feedback_publication;
 pub mod feeds;
 pub mod field_journal;
 pub mod frontmatter;
+pub mod future_suggestion;
 pub mod interpretation;
 pub mod invitation;
 pub mod knowledge_atlas;

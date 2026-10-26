@@ -1198,9 +1198,10 @@ _Avoid_: Comments, feedback export, moderation record
 
 **Participation kind**:
 One entry in the closed registry of ways to participate: comment, question, suggested source,
-suggested correction, another interpretation, Third Perspective, author response or abuse report.
-Each has fixed rules: who creates it, what it targets, whether an approved item may be shown, and
-whether a moderator may ask its submitter to clarify. Every kind but comments starts `off`.
+suggested correction, another interpretation, Third Perspective, author response, abuse report or
+future suggestion. Each has fixed rules: who creates it, what it targets, whether an approved item may
+be shown (a future suggestion's approval admits it to the editors' queue instead), and whether a
+moderator may ask its submitter to clarify. Every kind but comments starts `off`.
 _Avoid_: Comment type, feedback type, category (a Third Perspective prompt), channel
 
 **Participation mode**:
@@ -1736,3 +1737,67 @@ stores its responder, named by the name the section is published under, shown on
 Third Perspective it answers are both public and its stored responder is the section's contributor,
 and never nested or sent to the reader (ADR 0129, 0130).
 _Avoid_: Reply thread, discussion, notification
+
+## Future suggestions
+
+What a reader sends the editors for possible future work (ADRs 0190 to 0195). One more participation
+kind, `future-suggestion`, in the one policy; private to the editors and never public.
+
+**Future suggestion**:
+A reader's question, text, video, audio recording or other source offered to the editors for
+possible future work, with an optional public link, bibliographic hints, a series or article it is
+about, the reader's chosen display name and optional contact. Untrusted reader text: it is never a
+source, citation, claim or research note, and never public in any state.
+_Avoid_: Request, submission to the library, tip, vote, feature request
+
+**Suggestion type**:
+What is suggested: a question (words only), a text, a video, an audio recording or another source.
+A closed set that describes the form of the thing, never its worth.
+_Avoid_: Category, genre, priority
+
+**Editors' queue**:
+The private list of future suggestions an editor has accepted. Approving a future suggestion admits
+it here and publishes nothing; it is kept while accepted and leaves only when an editor closes it,
+the reader withdraws it or retention purges it after it is closed (ADR 0190).
+_Avoid_: Published suggestions, backlog, roadmap, public wishlist
+
+**Editorial interest**:
+All that accepting a future suggestion means: the editors are interested in exploring it. Not
+agreement, checking, endorsement, rights clearance or a promise to publish (ADR 0194).
+_Avoid_: Approval of the claim, endorsement, verified, cleared
+
+**Suggestion hints**:
+The reader's own statement of a suggested source's title, creators, year, publisher and identifiers,
+checked for shape only and never fetched or verified. Never a stable source identifier or a citation
+(ADR 0191).
+_Avoid_: Metadata, source record, citation
+
+**Suggestion contact**:
+An optional e-mail address a reader gives with their agreement to be contacted about one
+suggestion. Private to the site Admin and the submitter, excluded from audit events, conversions and
+library candidates, and never used by the system to send anything (ADR 0193).
+_Avoid_: Subscription, mailing list, account email
+
+**Suggestion standing**:
+Where a suggestion is with the editors (received, waiting for the reader, editors are interested,
+linked to future work, not taken forward, withdrawn), derived from the moderation state and any
+conversion and never stored as a state of its own (ADR 0194).
+_Avoid_: Status, ranking, score, popularity
+
+**Duplicate suggestion group**:
+Suggestions that name the same source (the same identifier or link, however written), shown to
+editors as lists of ids so they can be handled together. Never a count or a signal of demand
+(ADR 0194).
+_Avoid_: Most requested, trending, vote count
+
+**Conversion**:
+A recorded link from an accepted suggestion to a draft, series or Source Library record an author
+made from it: the target's id, when and which Admin account recorded it, and nothing of the reader.
+Recording one creates nothing (ADR 0195).
+_Avoid_: Import, promotion, automatic episode
+
+**Library candidate**:
+The unverified link and hints of an accepted suggestion, offered to its author to copy into a
+Source Library record they choose to make. Never the reader's words, name or contact, and never
+written to the library by the system (ADR 0195).
+_Avoid_: Imported source, pending source, library suggestion

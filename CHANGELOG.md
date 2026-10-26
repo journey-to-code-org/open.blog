@@ -3,6 +3,17 @@
 All notable changes to open.blog are recorded here. Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+- The records for readers' future-question and source suggestions are defined (RD13.1): a new
+  participation kind, `future-suggestion`, for a question, text, video, audio or other source with
+  an optional public link, bibliographic hints, a series or article it is about, a chosen display
+  name and optional contact. It is off everywhere and has no form or hosted route yet, so no page,
+  feed or output changes. When it arrives, a suggestion will be private to the editors, accepting
+  one will mean editorial interest only (not agreement, checking or rights), contact will be visible
+  only to the site Admin and the reader, and nothing will enter the private research library unless
+  an author chooses to. No SQL changes.
+
 ## [0.40.0] - 2026-10-26
 
 - A reader's Third Perspective about one author's section of a shared reflection, and that

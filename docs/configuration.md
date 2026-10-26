@@ -336,7 +336,9 @@ other way to take part is a participation kind, off until you switch it on in `p
 ```
 
 - `kinds` takes `question`, `source-suggestion`, `correction-suggestion`,
-  `alternative-interpretation`, `third-perspective`, `author-response` and `abuse-report`. Each is
+  `alternative-interpretation`, `third-perspective`, `author-response`, `abuse-report` and
+  `future-suggestion` (defined, with no form or hosted route yet, so setting it changes no page;
+  [ADR 0190](adr/0190-a-future-suggestion-is-one-more-participation-kind-whose-approval-publishes-nothing.md)). Each is
   `off` (the default: front matter cannot turn it on), `hidden`, `locked` or `open` (switched on,
   and the mode of posts that do not name it), or `follow-comments` (each post's mode is its
   `comments:` setting). `abuse-report` is `off` or `open` for the whole site. A post chooses its
