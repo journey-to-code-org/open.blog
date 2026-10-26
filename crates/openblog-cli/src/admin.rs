@@ -5412,19 +5412,67 @@ fn sync_published_perspective(
         Ok(id) => id,
         Err(response) => return response,
     };
-    let (protocol, third_perspectives, item) =
-        match hosted_inbox_item(state, moderation_inbox::Source::Feedback, &id) {
-            Ok(found) => found,
-            Err(response) => return response,
-        };
+    let found = match hosted_inbox_lookup(state, moderation_inbox::Source::Feedback, &id) {
+        Ok(found) => found,
+        Err(response) => return response,
+    };
     let sources = match inbox_sources(state) {
         Ok(sources) => sources,
         Err(response) => return response,
+    };
+    let Some((protocol, third_perspectives, item)) = found else {
+        // The hosted row is gone. Removing is always safe, so the site Admin
+        // (bound in no shared publication) may take the copy off the site;
+        // publishing needs the row.
+        if publish {
+            return Response::error(404, "No such item");
+        }
+        return remove_unlisted_publication(state, &sources, session, &id, false);
     };
     let role = sources.inbox(session, protocol, third_perspectives, |inbox| {
         inbox.actor(&item).role()
     });
     apply_perspective_sync(state, role, third_perspectives, &item, &id, publish)
+}
+
+/// Take a published reflection (`answer` false) or answer off the site when
+/// its hosted row is missing: only the site Admin, and only a removal.
+fn remove_unlisted_publication(
+    state: &AppState,
+    sources: &InboxSources,
+    session: &auth::Session,
+    id: &str,
+    answer: bool,
+) -> Response {
+    if !retention_admin(sources, session) {
+        return Response::json(
+            403,
+            &json!({ "error": "Only the site Admin can change what the site publishes.", "code": "denied" }),
+        );
+    }
+    let mut status = lock(&state.build);
+    let _transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let path = match third_perspectives_path(state) {
+        Ok(path) => path,
+        Err(response) => return response,
+    };
+    let outcome = if answer {
+        unpublish_published_answer(&path, id)
+    } else {
+        unpublish_perspective(&path, id)
+    };
+    if let Err(error) = outcome {
+        return Response::error(409, &error);
+    }
+    let build = feedback_build_json(&state.rebuild_locked(&mut status));
+    eprintln!(
+        "admin: {} {id} unpublished (no hosted row)",
+        if answer { "author response" } else { "third perspective" }
+    );
+    Response::json(200, &json!({ "published": false, "build": build }))
 }
 
 /// What a publish or take-off does once the hosted copy is read and the
@@ -5501,18 +5549,23 @@ fn sync_published_answer(
         Ok(id) => id,
         Err(response) => return response,
     };
-    let (protocol, third_perspectives, item) =
-        match hosted_inbox_item(state, moderation_inbox::Source::Feedback, &id) {
-            Ok(found) => found,
-            Err(response) => return response,
-        };
-    if item.kind != ParticipationKind::AuthorResponse {
-        return Response::error(404, "No such author response");
-    }
+    let found = match hosted_inbox_lookup(state, moderation_inbox::Source::Feedback, &id) {
+        Ok(found) => found,
+        Err(response) => return response,
+    };
     let sources = match inbox_sources(state) {
         Ok(sources) => sources,
         Err(response) => return response,
     };
+    let Some((protocol, third_perspectives, item)) = found else {
+        if publish {
+            return Response::error(404, "No such item");
+        }
+        return remove_unlisted_publication(state, &sources, session, &id, true);
+    };
+    if item.kind != ParticipationKind::AuthorResponse {
+        return Response::error(404, "No such author response");
+    }
     let role = sources.inbox(session, protocol, third_perspectives, |inbox| {
         inbox.actor(&item).role()
     });
@@ -23251,6 +23304,53 @@ What I read:
         let unknown =
             apply_perspective_sync(&f.state, admin, false, &approved, FEEDBACK_ITEM_ID, false);
         assert_eq!(unknown.status, 200);
+        // With the hosted row gone, taking the copy off is still the site
+        // Admin's: one bound in a shared publication is refused, anyone else
+        // removes it, because removing is always safe.
+        assert_eq!(sync(admin, &approved, true).status, 200);
+        let make = |records| InboxSources {
+            config: site.config.clone(),
+            published: site.clone(),
+            loaded: site.clone(),
+            records,
+            admin_users: vec!["owner-admin".into(), "site-admin".into()],
+            contributor_ids: vec!["owner".into()],
+        };
+        let session = |user: &str| auth::Session {
+            user: user.into(),
+            credential: String::new(),
+            csrf: String::new(),
+            expires: std::time::Instant::now() + Duration::from_secs(3600),
+        };
+        let bound = make(vec![author_answers::record()]);
+        let refused = remove_unlisted_publication(
+            &f.state,
+            &bound,
+            &session("owner-admin"),
+            FEEDBACK_ITEM_ID,
+            false,
+        );
+        assert_eq!(refused.status, 403);
+        assert!(!perspective_publication::ThirdPerspectivesFile::from_json(
+            &fs::read_to_string(&path).unwrap()
+        )
+        .unwrap()
+        .items
+        .is_empty());
+        let removed = remove_unlisted_publication(
+            &f.state,
+            &make(Vec::new()),
+            &session("site-admin"),
+            FEEDBACK_ITEM_ID,
+            false,
+        );
+        assert_eq!(removed.status, 200);
+        assert!(perspective_publication::ThirdPerspectivesFile::from_json(
+            &fs::read_to_string(&path).unwrap()
+        )
+        .unwrap()
+        .items
+        .is_empty());
     }
 
     // ---- Author responses (#223, ADRs 0165 to 0169)
@@ -23305,7 +23405,7 @@ What I read:
             });
         }
 
-        fn record() -> SharedPublication {
+        pub(super) fn record() -> SharedPublication {
             let mut record = SharedPublication::create(&NewSharedPublication {
                 publication_id: PUBLICATION.into(),
                 title: "Tides, together".into(),
