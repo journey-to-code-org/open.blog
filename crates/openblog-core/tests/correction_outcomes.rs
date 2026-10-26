@@ -833,7 +833,40 @@ fn a_page_address_is_escaped_in_the_links_an_outcome_carries() {
         };
         let html = openblog_core::feedback_publication::outcome_html(&public, outcome, hostile);
         assert!(!html.contains("\"onmouseover=\""), "{html}");
-        linked += html.matches("href=\"https://example.test/a&quot;onmouseover=&quot;x&amp;y#").count();
+        linked += html
+            .matches("href=\"https://example.test/a&quot;onmouseover=&quot;x&amp;y#")
+            .count();
     }
-    assert!(linked >= 2, "the change and the evidence links were checked");
+    assert!(
+        linked >= 2,
+        "the change and the evidence links were checked"
+    );
+}
+
+#[test]
+fn an_evidence_outcome_whose_link_is_withheld_is_still_published_without_naming_it() {
+    let bare = load(true, CAVE, None);
+    let mut withheld = decision("accepted-as-evidence");
+    withheld.extent = Some("full".into());
+    withheld.revision_note = Some(NOTE.into());
+    let mut file = ReaderFeedbackFile::default();
+    file.publish(
+        with_id(
+            note(&bare, "source-suggestion", "A source.", false),
+            ID_EVIDENCE,
+        )
+        .with_decision(Some(withheld))
+        .expect("a decision whose link is withheld is a valid published decision"),
+    )
+    .unwrap();
+    let text = file.to_json();
+    assert!(!text.contains("claimEvidence"), "{text}");
+    let page = build(&load(true, CAVE, Some(text)))["cave/index.html"].clone();
+    let article = article(section(&page), ID_EVIDENCE).to_string();
+    assert!(
+        article.contains("data-outcome=\"accepted-as-evidence\""),
+        "{article}"
+    );
+    assert!(article.contains("The evidence the author recorded is not published on this page."));
+    assert!(!article.contains("Evidence the author recorded:"));
 }

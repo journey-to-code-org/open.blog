@@ -393,6 +393,7 @@ export function moderationOutcome(item, action, result) {
  */
 export function feedbackPublicationMismatch(item) {
   if (item.status === "approved" && item.published === false) return { notice: "Approved, but not on the site yet.", action: "publish", label: "Publish on the post" };
+  if (item.status === "approved" && item.published === true && item.decisionPublished === false) return { notice: "The decision on the post is not the one you recorded.", action: "publish-decision", label: "Update the published decision" };
   if (item.status === "removed" && item.published === true) return { notice: "Removed, but still on the post.", action: "unpublish", label: "Take it off the post" };
   if (item.status === "rejected" && item.published === true) return { notice: "Rejected, but still on the post.", action: "unpublish", label: "Take it off the post" };
   if (item.status === "withdrawn" && item.published === true) return { notice: "The reader withdrew this note and asked for it to be deleted, but it is still on the post. Take it off now.", action: "unpublish", label: "Take it off the post" };
@@ -12988,7 +12989,7 @@ export class ObAdmin extends AdminElement {
           busy(true);
           try {
             await this.api.call("POST", `engagement/feedback/${mismatch.action}`, { json: { id: item.id } });
-            await reloadAll(mismatch.action === "publish" ? `Published on ${where}.` : `Taken off ${where}. Rebuild or publish to update the live site.`, "ok");
+            await reloadAll(mismatch.action === "publish" ? `Published on ${where}.` : mismatch.action === "publish-decision" ? `Decision updated on ${where}. Rebuild or publish to update the live site.` : `Taken off ${where}. Rebuild or publish to update the live site.`, "ok");
           } catch (error) {
             busy(false);
             announce(line, error.message, "error");

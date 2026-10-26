@@ -274,7 +274,9 @@ impl ClaimEvidenceRef {
         set.link(&self.link).is_some_and(|link| {
             link.claim == self.claim
                 && set.is_projected(link)
-                && set.claim(&self.claim).is_some_and(|claim| claim.post == post)
+                && set
+                    .claim(&self.claim)
+                    .is_some_and(|claim| claim.post == post)
         })
     }
 }

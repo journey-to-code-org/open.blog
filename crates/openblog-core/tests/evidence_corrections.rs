@@ -809,7 +809,8 @@ fn copying_a_decision_publicly_drops_an_evidence_link_that_is_not_published() {
         decided: "2026-10-27".into(),
         superseded: 0,
     };
-    let kept = decision("tide-height", "tide-height-ada").with_published_evidence(Some(&set), "tides");
+    let kept =
+        decision("tide-height", "tide-height-ada").with_published_evidence(Some(&set), "tides");
     assert!(kept.claim_evidence.is_some());
     for dropped in [
         decision("tide-height", "tide-private-link").with_published_evidence(Some(&set), "tides"),

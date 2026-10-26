@@ -56,7 +56,9 @@ already uses, and a portable copy must say what the canonical page says without 
     recorded words, unlinked;
   - **the evidence the author recorded**, as a link to the claim's heading labelled by its relation
     and source, only while the post still publishes that claim and link; otherwise one sentence says
-    the recorded evidence is no longer published, naming nothing;
+    the recorded evidence is not published on this page, naming nothing (the wording is neutral on
+    purpose: a CI build lacks the git-ignored claims file, so it cannot tell a withdrawn link from a
+    link it cannot read);
   - the author's rationale, escaped, paragraph by paragraph.
 - **A suggestion nobody decided is unresolved**, never settled: "Unresolved: not yet decided by the
   author", with the sentence that it is a reader's suggestion and not a settled correction. This
@@ -125,3 +127,25 @@ already uses, and a portable copy must say what the canonical page says without 
 ## Domain language
 
 **Published outcome** and **Unresolved suggestion** are defined in [`CONTEXT.md`](../../CONTEXT.md).
+
+## Amendments after review
+
+- **A public decision names only what the post publishes.** The claims file is private and the
+  published decision is public, so a decision is refused (`claimEvidenceNotPublished`) unless its
+  claim and evidence link are approved and published (`ClaimSet::is_projected`) on the item's post,
+  the decision form lists only such links, and the link is checked again when the decision is
+  copied into `reader-feedback.json` (on approval, on "Publish on the post" and when a decision is
+  recorded). A link that is not publishable then is omitted from the published decision and a
+  private id is never copied; an accepted-as-evidence outcome without a link is still a valid
+  published decision, and the page says the evidence is not published on this page.
+- **The conservative choice for rendering.** The published decision carries only the claim and link
+  ids, not the claim's statement or the source text, so the page still needs the claims file to
+  render the link and shows the neutral sentence without it. Copying public text into the file was
+  rejected: it would make a second copy that can drift from the claims file.
+- **Recovery carries the decision, and a difference is repairable.** "Publish on the post" reads
+  the item through the inbox, which carries decisions. The inbox flags a published note whose
+  decision is not the one in force (`decisionPublished`) and offers "Update the published
+  decision", which republishes only the decision. An outcome is written only for a note readers see
+  now: approved at its current text.
+- A decision takes the build lock before the content lock, as other writers do, and releases both
+  before the hosted call.

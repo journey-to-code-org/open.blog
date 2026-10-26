@@ -98,6 +98,17 @@ test("the public preview never quotes a changed passage, and a mismatch with the
   assert.deepEqual(card("removed", true), { notice: "Removed, but still on the post.", action: "unpublish", label: "Take it off the post" });
   assert.equal(card("approved", null), null);
   assert.equal(card("pending", true), null);
+  // The decision on the post is not the one in force: say so, and offer the repair.
+  const decision = (decisionPublished) => feedbackPublicationMismatch({ status: "approved", published: true, decisionPublished });
+  assert.deepEqual(decision(false), { notice: "The decision on the post is not the one you recorded.", action: "publish-decision", label: "Update the published decision" });
+  assert.equal(decision(true), null);
+  assert.equal(decision(undefined), null);
+  assert.equal(feedbackPublicationMismatch({ status: "approved", published: false, decisionPublished: false }).action, "publish");
+});
+
+test("repairing the published decision is posted to its own route and announced", () => {
+  assert.match(admin, /`engagement\/feedback\/\$\{mismatch\.action\}`/);
+  assert.match(admin, /mismatch\.action === "publish-decision"/);
 });
 
 test("the view builds every control as text with its own label, and never as markup", () => {

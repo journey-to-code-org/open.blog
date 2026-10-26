@@ -138,6 +138,22 @@ impl PublishedDecision {
         self
     }
 
+    /// Whether the decision a published note carries is the one in force: both absent, or the
+    /// same outcome and words. An evidence link the file leaves out is not a difference, because
+    /// the file only ever holds links the claims file published when it was written.
+    pub fn agrees(published: Option<&Self>, in_force: Option<&Self>) -> bool {
+        match (published, in_force) {
+            (None, None) => true,
+            (Some(published), Some(in_force)) => {
+                let mut withheld = in_force.clone();
+                withheld.claim_evidence = None;
+                published == in_force
+                    || (published.claim_evidence.is_none() && *published == withheld)
+            }
+            _ => false,
+        }
+    }
+
     /// The decision in force on an item whose text is at `item_revision`, if the log has one: a
     /// decision about an earlier text is not in force, so it is not published.
     pub fn in_force(log: &DecisionLog, item_revision: u32) -> Option<Self> {
@@ -185,7 +201,24 @@ impl PublishedDecision {
                 post: post.to_string(),
                 note,
             }),
-            claim_evidence: self.claim_evidence.clone(),
+            // The public file leaves out an evidence link the claims file does not publish
+            // (`with_published_evidence`), so an outcome that needs one is checked with a
+            // placeholder that is never compared or written.
+            claim_evidence: self.claim_evidence.clone().or_else(|| {
+                (outcome == DecisionOutcome::AcceptedAsEvidence).then(|| ClaimEvidenceRef {
+                    claim: self
+                        .revision_note
+                        .as_ref()
+                        .and_then(|note| {
+                            crate::claim_publication::revision_notes(std::slice::from_ref(note))
+                                .ok()?
+                                .pop()?
+                                .claim
+                        })
+                        .unwrap_or_else(|| "withheld".into()),
+                    link: "withheld".into(),
+                })
+            }),
             addressed_by: (outcome == DecisionOutcome::AlreadyAddressed).then(|| item.to_string()),
         };
         let checked = content
@@ -856,7 +889,9 @@ fn outcome_of(item: &PublishedFeedback, post: &Post, unresolved: bool) -> Option
         rationale: decision.rationale.clone(),
         decided: Some(decision.decided.clone()),
         superseded: decision.superseded,
-        evidence_withdrawn: decision.claim_evidence.is_some() && evidence.is_none(),
+        evidence_withdrawn: (decision.claim_evidence.is_some()
+            || outcome == DecisionOutcome::AcceptedAsEvidence)
+            && evidence.is_none(),
         change,
         evidence,
     })
@@ -956,7 +991,11 @@ pub fn outcome_html(item: &PublicFeedback, outcome: &PublicOutcome, page: &str) 
     if let Some(change) = &outcome.change {
         let words = change_words(change);
         let words = match &change.fragment {
-            Some(fragment) => format!("<a href=\"{}\">{}</a>", attr(&format!("{page}#{fragment}")), text(&words)),
+            Some(fragment) => format!(
+                "<a href=\"{}\">{}</a>",
+                attr(&format!("{page}#{fragment}")),
+                text(&words)
+            ),
             None => text(&words),
         };
         html.push_str(&format!(
