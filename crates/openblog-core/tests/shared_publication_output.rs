@@ -12,6 +12,7 @@ use openblog_core::config::SiteConfig;
 use openblog_core::contributor::Contributor;
 use openblog_core::draft::DraftSet;
 use openblog_core::feeds;
+use openblog_core::media_moment::MomentSet;
 use openblog_core::model::{LoadOptions, Site, SourceFile, Sources};
 use openblog_core::portability::PortableProjection;
 use openblog_core::render;
@@ -122,12 +123,24 @@ fn approved_titled(title: &str, texts: &[(&str, &str)]) -> Assembly {
     }
     let mut approvals = ApprovalSet::new();
     for who in ALL {
-        let seen = with_subject(&record, None, &set, &SynthesisSet::new(), &ALL, |s| {
-            approvals.binding_for(s, who).unwrap()
-        });
-        with_subject(&record, None, &set, &SynthesisSet::new(), &ALL, |s| {
-            approvals.approve(who, who, s, &seen, true, T)
-        })
+        let seen = with_subject(
+            &record,
+            None,
+            &set,
+            &SynthesisSet::new(),
+            &MomentSet::new(),
+            &ALL,
+            |s| approvals.binding_for(s, who).unwrap(),
+        );
+        with_subject(
+            &record,
+            None,
+            &set,
+            &SynthesisSet::new(),
+            &MomentSet::new(),
+            &ALL,
+            |s| approvals.approve(who, who, s, &seen, true, T),
+        )
         .unwrap();
     }
     assemble(
@@ -135,6 +148,7 @@ fn approved_titled(title: &str, texts: &[(&str, &str)]) -> Assembly {
         None,
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &approvals,
         &ALL,
         DATE,
@@ -477,6 +491,7 @@ fn an_arranged_reflection_reaches_every_representation_in_reading_order_without_
             Some(&structure),
             &set,
             &SynthesisSet::new(),
+            &MomentSet::new(),
             &ALL,
             |s| approvals.binding_for(s, who).unwrap(),
         );
@@ -485,6 +500,7 @@ fn an_arranged_reflection_reaches_every_representation_in_reading_order_without_
             Some(&structure),
             &set,
             &SynthesisSet::new(),
+            &MomentSet::new(),
             &ALL,
             |s| approvals.approve(who, who, s, &seen, true, T),
         )
@@ -495,6 +511,7 @@ fn an_arranged_reflection_reaches_every_representation_in_reading_order_without_
         Some(&structure),
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &approvals,
         &ALL,
         DATE,

@@ -12,6 +12,7 @@ use openblog_core::collaboration::{
     Participant, SharedPublication, SourceKind,
 };
 use openblog_core::draft::DraftSet;
+use openblog_core::media_moment::MomentSet;
 use openblog_core::synthesis::SynthesisSet;
 
 const T: i64 = 1_800_000_000;
@@ -81,10 +82,18 @@ fn approve(
     active: &[&str],
     who: &str,
 ) {
-    with_subject(record, None, set, &SynthesisSet::new(), active, |subject| {
-        let seen = approvals.binding_for(subject, who).unwrap();
-        approvals.approve(who, who, subject, &seen, true, T)
-    })
+    with_subject(
+        record,
+        None,
+        set,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        active,
+        |subject| {
+            let seen = approvals.binding_for(subject, who).unwrap();
+            approvals.approve(who, who, subject, &seen, true, T)
+        },
+    )
     .unwrap();
 }
 
@@ -99,6 +108,7 @@ fn gate(
         None,
         set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         approvals,
         active,
         DATE,
@@ -121,16 +131,24 @@ fn change(
     next: ApprovalPolicy,
     expected: u64,
 ) -> Result<PolicyChange, PolicyError> {
-    with_subject(record, None, set, &SynthesisSet::new(), active, |subject| {
-        approvals.change_policy(
-            next,
-            expected,
-            true,
-            RuleAuthority::SiteOwner,
-            subject,
-            active,
-        )
-    })
+    with_subject(
+        record,
+        None,
+        set,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        active,
+        |subject| {
+            approvals.change_policy(
+                next,
+                expected,
+                true,
+                RuleAuthority::SiteOwner,
+                subject,
+                active,
+            )
+        },
+    )
 }
 
 #[test]
@@ -227,9 +245,15 @@ fn a_concurrent_approval_and_policy_change_cannot_both_count() {
     let set = drafts(&["ann", "bo"]);
     let loaded = ApprovalSet::new();
     // Ann reads her token, then a coordinator changes the policy from the same loaded state.
-    let seen = with_subject(&record, None, &set, &SynthesisSet::new(), &ALL, |s| {
-        loaded.binding_for(s, "ann").unwrap()
-    });
+    let seen = with_subject(
+        &record,
+        None,
+        &set,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &ALL,
+        |s| loaded.binding_for(s, "ann").unwrap(),
+    );
     let mut changed = loaded.clone();
     change(
         &record,
@@ -242,9 +266,15 @@ fn a_concurrent_approval_and_policy_change_cannot_both_count() {
     .unwrap();
     // Approving against the changed set with the old token is stale; nothing is recorded.
     let before = changed.clone();
-    let result = with_subject(&record, None, &set, &SynthesisSet::new(), &ALL, |s| {
-        changed.approve("ann", "ann", s, &seen, true, T)
-    });
+    let result = with_subject(
+        &record,
+        None,
+        &set,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &ALL,
+        |s| changed.approve("ann", "ann", s, &seen, true, T),
+    );
     assert_eq!(result, Err(openblog_core::approval::ApprovalError::Stale));
     assert_eq!(changed, before);
     // And an approval that landed first is cleared by the change that follows it.
@@ -349,9 +379,15 @@ fn under_membership_churn_no_rule_publishes_without_every_writers_own_approval()
                 approved.push(*who);
             }
         }
-        let readiness = with_subject(&base, None, &set, &SynthesisSet::new(), &active, |s| {
-            approvals.evaluate(s).unwrap()
-        });
+        let readiness = with_subject(
+            &base,
+            None,
+            &set,
+            &SynthesisSet::new(),
+            &MomentSet::new(),
+            &active,
+            |s| approvals.evaluate(s).unwrap(),
+        );
         // The named list in another order is the same rule with the same answer.
         if let ApprovalRequirement::NamedAuthors(named) = &requirement {
             let mut reversed = approvals.clone();

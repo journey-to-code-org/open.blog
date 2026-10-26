@@ -197,12 +197,109 @@ reserved and item headings start at level five (ADR 0027). Portable output carri
 attribution and stable anchors; summaries stop before it and summary-only feeds omit it (ADR 0028).
 _Avoid_: Summary, consensus, comments
 
+**Media moment**:
+A participant's located note on one of a shared publication's own sources. It points at the source
+reference by id and at a place in it through one to eight notebook Locators: a timestamp or range for
+video and audio, and pages, chapters or other textual locators for text. It holds a moment quotation,
+a moment observation, or both. The participant who made it always comes from the session. A moment is
+private to its owner unless it is proposed for the publication. Even then, another author sees it only
+while it is sealed to the owner's draft revision that author may read. Approval binds the exact
+moments proposed for the piece, and each owner must approve it (ADR 0062, 0063).
+_Avoid_: Annotation, clip, transcript, comment
+
+**Moment quotation**:
+Words from the source, stored exactly as quoted and kept short: at most 1,000 characters, never a
+transcript. It carries an optional speaker, an optional language, and an explicit quotation rights
+status and provenance. It is never the participant's prose (ADR 0062).
+_Avoid_: Excerpt when the notebook's passage is meant, observation
+
+**Speaker**:
+Who said a moment quotation in the source, as a plain name. It is neither the source attribution nor
+the participant who quoted it (ADR 0062).
+_Avoid_: Author, creator, participant
+
+**Moment observation**:
+The participant's own words about a media moment, written as untrusted Markdown with no raw HTML,
+images, headings, footnotes or non-HTTP(S) links (ADR 0062).
+_Avoid_: Quotation, note when the notebook's research note is meant
+
+**Quotation rights**:
+The participant's own statement of whether a moment quotation may be republished: unknown, brief
+quotation, permission, open licence, public domain, or their own words. It is always paired with
+provenance: transcribed, copied, or supplied. It is never a legal determination, and a quotation
+whose rights are unknown cannot be proposed for the piece (ADR 0062).
+_Avoid_: Licence check, clearance, fair use ruling
+
+**Quotation attribution**:
+The one line that credits a moment quotation wherever it shows: its speaker when named, the source's
+title and kind as the record holds them now, and the moment's location, such as "The host, in Episode
+4 (Podcast), from 1:02 to 1:10" (ADR 0065).
+_Avoid_: Byline, credit line when the participant is meant
+
+**Rights guidance**:
+Neutral text explaining what a quotation rights status states and what helps co-authors review it,
+always shown with the statement that the status is the participant's own and that open.blog does not
+check rights. It never says that a use is allowed (ADR 0065).
+_Avoid_: Legal advice, clearance, permission check
+
+**Rights note**:
+The participant's optional one-line note on a moment quotation's rights status, such as who gave
+permission or which licence applies. It is covered by the seal and approval, shown to co-authors, and
+never published (ADR 0065).
+_Avoid_: Licence field, permission record
+
+**Quotation warning**:
+Advice about a moment quotation that names no speaker or is longer than the 300-character guide for a
+brief quotation. It never judges accuracy and never blocks saving, proposing, approving or publishing
+(ADR 0065).
+_Avoid_: Error, violation, plagiarism flag
+
+**Moment seal**:
+The digest of an owner's proposed media moments, written when the owner offers a draft revision and
+tied to that revision. It covers the moments' own content only, never the source's title or link,
+and it is written once per revision. Another author sees the owner's proposed moments only while
+the seal for the revision they may read still matches them; an edit after the offer stays private
+until a newer revision is offered (ADR 0063, 0064).
+_Avoid_: Snapshot, lock, approval
+
+**EditMoments**:
+The collaboration grant to capture, edit and remove one's own media moments and read the ones other
+authors revealed. Contributors hold it for themselves only, because a proposed moment makes its owner
+a required approver (ADR 0064).
+_Avoid_: EditSynthesis, EditDraft
+
+**Published moment**:
+The public projection of an approved media moment: where it is (the source's title and kind and the
+location, times read like `1:02`), who noted it (a display name), the quotation's words, language and
+quotation attribution, the observation, and the moment link. It has no field for rights, the rights
+note, provenance, ids, intent or seals, so none can be published. The gate appends every moment
+proposed for the piece, in order, after the rest of the Post under "Moments in the sources"; private
+moments never enter (ADR 0066).
+_Avoid_: Embed, clip, player, annotation
+
+**Moment link**:
+The published link of a moment, derived from its source's stored address and never stored: a link
+that starts at the moment where the provider's time parameter is known (YouTube), otherwise the
+original link unchanged, and no link at all when the source has no safe address, so the location
+stays text. Its label names the source and, when it starts there, the time (ADR 0062, 0066).
+_Avoid_: Embed, timestamp URL field
+
+**Moment frame**:
+The closed HTML grammar a Post body carries for published moments (`section`, `figure`, `blockquote`
+with the quotation's `lang`, `figcaption`, a link paragraph) around each observation's own Markdown.
+The page, the preview and portable HTML render it through the production renderer; portable Markdown,
+text and `llms-full.txt` read it back exactly and state the same facts without HTML, and the portable
+semantic check requires every fact in order (ADR 0067).
+_Avoid_: Widget, component, shortcode
+
 **Combined preview**:
 The side-effect-free review of the whole piece an author sees before approving: every author's
 section in order at its exact latest revision (an author who wrote nothing has no section and
 does not block it), each author's approval state (approved, awaiting, or
 stale), and whether the piece is complete and ready. A section appears only if the reader may read
-that latest revision; every other case is one identical placeholder. It opens with a "Preview, not
+that latest revision; every other case is one identical placeholder. An author's proposed media
+moments are part of their section: it shows only while they are sealed to the revision shown, and
+the moments the reader may see are listed with it (ADR 0064). It opens with a "Preview, not
 published" notice, runs no script and loads nothing (ADR 0021).
 _Avoid_: Draft view, published page, staging copy
 

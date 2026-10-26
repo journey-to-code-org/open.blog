@@ -2832,6 +2832,196 @@ function rememberPromptsDismissed(dismissed) {
   }
 }
 
+// ---------------------------------------------------------------- media moments (ADR 0062 to 0064)
+
+/** Where in a source a moment can sit. Folios are never offered: a shared source is no manuscript. */
+export const MOMENT_LOCATOR_KINDS = Object.freeze([
+  { value: "timestamp", label: "Time", hint: "Seconds or h:mm:ss, such as 75 or 1:02:03." },
+  { value: "page", label: "Page", hint: "A page number or label, such as 12 or xiv." },
+  { value: "chapter", label: "Chapter", hint: "A chapter number or name." },
+  { value: "section", label: "Section", hint: "A section number or name." },
+  { value: "line", label: "Line", hint: "A line number." },
+  { value: "canonical", label: "Canonical reference", hint: "A standard reference, such as Republic 514a." },
+]);
+
+/**
+ * The participant's statement about republishing a quotation. There is no default on purpose. The
+ * labels are statements the participant makes; nothing here grants or judges a use (ADR 0065).
+ */
+export const QUOTATION_RIGHTS = Object.freeze([
+  { value: "unknown", label: "Not checked yet (keeps the moment private)" },
+  { value: "briefQuotation", label: "A brief quotation for commentary or review" },
+  { value: "permission", label: "The rights holder gave permission" },
+  { value: "openLicense", label: "The source is under an open licence" },
+  { value: "publicDomain", label: "The source is in the public domain" },
+  { value: "ownWords", label: "These are my own words" },
+]);
+
+/** Where a quotation's words came from. */
+export const QUOTATION_PROVENANCE = Object.freeze([
+  { value: "transcribed", label: "I transcribed it from the media" },
+  { value: "copied", label: "Copied from published text, captions or a transcript" },
+  { value: "supplied", label: "Supplied by the speaker or rights holder" },
+]);
+
+const MAX_LOCATOR_CHARS = 64;
+
+/**
+ * Read a typed time the way the server does: seconds, m:ss or h:mm:ss, each later part two digits
+ * below 60, with an optional decimal fraction. The same text always gives the same answer, and
+ * anything else (1h2m, 1:2, 1:60, a sign, a space) is null rather than a guess.
+ */
+export function parseMomentTimestamp(text) {
+  const value = String(text ?? "");
+  const match = /^(\d+(?::[0-5]\d){0,2})(?:\.(\d+))?$/.exec(value);
+  if (!match) return null;
+  let seconds = 0;
+  for (const part of match[1].split(":")) {
+    seconds = seconds * 60 + Number(part);
+    if (!Number.isSafeInteger(seconds)) return null;
+  }
+  return { seconds, fraction: (match[2] || "").replace(/0+$/, "") };
+}
+
+/** Whether time `a` is strictly before time `b`, compared exactly as the server compares them. */
+function timeBefore(a, b) {
+  if (a.seconds !== b.seconds) return a.seconds < b.seconds;
+  const width = Math.max(a.fraction.length, b.fraction.length);
+  return a.fraction.padEnd(width, "0") < b.fraction.padEnd(width, "0");
+}
+
+/** What is wrong with one typed location, or "" when the server would accept its shape. */
+export function momentLocationError(kind, value, to) {
+  const label = MOMENT_LOCATOR_KINDS.find((entry) => entry.value === kind)?.label || "Location";
+  for (const [text, name] of [[value, "start"], [to, "end"]]) {
+    if (name === "end" && (text === undefined || text === null || text === "")) continue;
+    const typed = String(text ?? "");
+    if (!typed) return `Give the ${label.toLowerCase()} where the moment is.`;
+    if (typed.trim() !== typed || [...typed].length > MAX_LOCATOR_CHARS || /[\u0000-\u001f\u007f;[\]]/.test(typed) || typed.includes(" to ")) {
+      return `Write the ${name} of the location without surrounding spaces, brackets or semicolons, in up to ${MAX_LOCATOR_CHARS} characters.`;
+    }
+    if (kind === "timestamp" && !parseMomentTimestamp(typed)) return `Write the ${name} time as seconds or h:mm:ss, such as 75 or 1:02:03.`;
+  }
+  if (kind === "timestamp" && to && !timeBefore(parseMomentTimestamp(value), parseMomentTimestamp(to))) {
+    return "The end time must come after the start time.";
+  }
+  return "";
+}
+
+/**
+ * The request body for a typed moment, or the field to fix and why. `form` holds the typed
+ * values; `keep` carries what the form does not edit (further locators, the quotation language),
+ * so editing a moment never drops them.
+ */
+export function momentPayload(form, keep = {}) {
+  if (!form.source) return { error: "Choose the source this moment is in.", field: "source" };
+  const locationError = momentLocationError(form.kind, form.value, form.to);
+  if (locationError) return { error: locationError, field: form.value && !momentLocationError(form.kind, form.value, "") ? "to" : "value" };
+  const locator = { kind: form.kind, value: form.value };
+  if (form.to) locator.to = form.to;
+  const moment = { source: form.source, locators: [locator, ...(keep.locators || [])], intent: form.publish ? "publication" : "private" };
+  if (form.quote) {
+    if (!form.rights) return { error: "Say what rights apply to the quotation. Choose “Not checked yet” if nobody has checked.", field: "rights" };
+    if (!form.provenance) return { error: "Say where the quoted words came from.", field: "provenance" };
+    if (form.publish && form.rights === "unknown") return { error: "A quotation whose rights are not checked yet stays private. Choose a rights status, or do not propose this moment for the piece.", field: "rights" };
+    const quotation = { text: form.quote, rights: form.rights, provenance: form.provenance };
+    const speaker = String(form.speaker ?? "").trim();
+    if (speaker) quotation.speaker = speaker;
+    const rightsNote = String(form.rightsNote ?? "").trim();
+    if (rightsNote) quotation.rightsNote = rightsNote;
+    if (keep.language) quotation.language = keep.language;
+    moment.quotation = quotation;
+  }
+  if (String(form.observation ?? "").trim()) moment.observation = form.observation;
+  if (!moment.quotation && !moment.observation) return { error: "Add a quotation, an observation, or both.", field: "quote" };
+  return { moment };
+}
+
+/**
+ * Warnings about a typed quotation, from the server's quotation guide so the panel says exactly what
+ * the preview says: no speaker named, and longer than the brief-quotation guide (counted in Unicode
+ * characters, newlines included, as the server counts). They never block saving. Without a guide
+ * (an older server) there are none rather than a guess.
+ */
+export function quotationNotices(form, guide) {
+  const text = String(form?.quote ?? "");
+  if (!text || !guide?.notices) return [];
+  const notices = [];
+  const note = (code) => guide.notices[code] && notices.push({ code, message: guide.notices[code] });
+  if (!String(form.speaker ?? "").trim()) note("noSpeaker");
+  if (Number.isSafeInteger(guide.briefQuotationChars) && [...text].length > guide.briefQuotationChars) note(form.rights === "briefQuotation" ? "longForBriefQuotation" : "long");
+  return notices;
+}
+
+/** The neutral guidance for a rights status, followed by the statement that it is the participant's own word. */
+export function rightsGuidanceText(rights, guide) {
+  const entry = (guide?.rights || []).find((item) => item.value === rights);
+  if (!entry) return guide?.statement || "";
+  return [entry.guidance, guide.statement].filter(Boolean).join(" ");
+}
+
+/** Moments in reading order: by the source's place in the reflection, then by time, then as made. */
+export function sortMoments(moments, sources) {
+  const place = (moment) => {
+    const index = (sources || []).findIndex((source) => source.id === moment.source);
+    return index < 0 ? Number.MAX_SAFE_INTEGER : index;
+  };
+  const start = (moment) => {
+    const locator = (moment.locators || []).find((entry) => entry.kind === "timestamp");
+    return locator ? parseMomentTimestamp(locator.value) : null;
+  };
+  const made = (moment) => Number(/^moment-(\d+)$/.exec(moment.id || "")?.[1] ?? Number.MAX_SAFE_INTEGER);
+  return (moments || [])
+    .map((moment, index) => ({ moment, index }))
+    .sort((a, b) => {
+      const byPlace = place(a.moment) - place(b.moment);
+      if (byPlace) return byPlace;
+      const [x, y] = [start(a.moment), start(b.moment)];
+      if (x && y && (timeBefore(x, y) || timeBefore(y, x))) return timeBefore(x, y) ? -1 : 1;
+      if (x && !y) return -1;
+      if (y && !x) return 1;
+      return made(a.moment) - made(b.moment) || a.index - b.index;
+    })
+    .map((entry) => entry.moment);
+}
+
+/** One moment as words: which source, where, and who can see it. */
+export function momentText(moment, sources) {
+  const source = (sources || []).find((entry) => entry.id === moment?.source);
+  const name = source ? `${source.title} (${source.kindLabel || "Source"})` : "A source that is no longer listed";
+  const intent = moment?.intent === "publication" ? "Proposed for the piece: shared with the revision you offer, and every author must approve it." : "Private: only you can see it.";
+  return `${name}, ${moment?.location || "no location"}. ${intent}`;
+}
+
+/** The link to follow for a moment, as words that say whether it starts at the moment. */
+export function momentLinkText(moment) {
+  if (!moment?.link?.href) return "";
+  const start = (moment.locators || []).find((entry) => entry.kind === "timestamp")?.value;
+  return moment.link.atTime && start ? `Open the source at ${start}` : "Open the source (find the location yourself)";
+}
+
+/**
+ * What an offer's response says about the writer's proposed moments: nothing when they were shared
+ * or the writer has none, the write-once advice when that revision was already sealed with other
+ * moments, and the server's note when they could not be stored (they stay private).
+ */
+export function offeredMomentsText(result) {
+  if (result?.momentsShared === false) return " Your moments changed after you first offered this revision, so those changes stay private until you save and offer a newer revision.";
+  if (result && "momentsShared" in result && result.momentsShared === null) return ` ${result.momentsNote || "Your moments could not be shared with this revision, so they stay private. Offer this revision again to share them."}`;
+  return "";
+}
+
+/** Sort a failed moments request into what to tell the person. What they typed is never lost. */
+export function momentsFailure(error) {
+  const status = error?.status;
+  const text = error?.data?.error || error?.message || "";
+  if (!status) return { kind: "offline", message: "Could not reach the server. You may be offline. What you typed is still here and has not been saved." };
+  if (status === 409) return { kind: "conflict", message: text || "The moments changed elsewhere. What you typed is still here; review the current moments and save again." };
+  if (status === 404 || status === 403) return { kind: "denied", message: "You cannot work on moments in this reflection, or your access changed. What you typed is still here; copy it before reloading." };
+  if (status === 422) return { kind: "invalid", message: text || "That moment could not be saved. What you typed is still here.", field: error?.data?.field || "" };
+  return { kind: "other", message: text || "That did not work. What you typed is still here; try again." };
+}
+
 // ---------------------------------------------------------------- shared reflection series
 
 /** The select value for "type a new series title". A series address can never contain brackets. */
@@ -7711,6 +7901,9 @@ export class ObAdmin extends AdminElement {
         const result = await this.api.call(method, path, { json });
         status.textContent = done(result);
         await loadSharing();
+        // An offer seals the writer's proposed moments and a reveal may share others' moments, so
+        // the moments panel reads them again, keeping anything typed there.
+        if (path === "collaboration/reveal/ready") await moments?.load(false);
         // The control that was pressed is gone; keep keyboard and screen-reader users in place.
         sharing.querySelector(`#${prefix}-sharing-heading`)?.focus();
         return true;
@@ -8124,7 +8317,7 @@ export class ObAdmin extends AdminElement {
             });
             yes.addEventListener("click", () =>
               runSharing("PUT", "collaboration/reveal/ready", { publicationId: id, revision }, (result) =>
-                result?.revealed ? "Revealed. Everyone who offered can now read the offered revisions." : "Offered. Nothing is shared until the rule is met.",
+                `${result?.revealed ? "Revealed. Everyone who offered can now read the offered revisions." : "Offered. Nothing is shared until the rule is met."}${offeredMomentsText(result)}`,
               ),
             );
           });
@@ -8176,7 +8369,8 @@ export class ObAdmin extends AdminElement {
 
     renderPrompts();
     const synthesis = (publication.roles || []).includes("contributor") ? this.synthesisPanel(publication, index) : null;
-    const details = h("details", { class: "oba-invitations oba-draft" }, h("summary", {}, "Your draft"), heading, h("p", { class: "oba-small" }, "Only you can read this draft. Nothing here is published."), status, problem, denied, editor, sharing, synthesis?.element);
+    const moments = (publication.roles || []).includes("contributor") ? this.momentsPanel(publication, index) : null;
+    const details = h("details", { class: "oba-invitations oba-draft" }, h("summary", {}, "Your draft"), heading, h("p", { class: "oba-small" }, "Only you can read this draft. Nothing here is published."), status, problem, denied, editor, sharing, moments?.element, synthesis?.element);
     let loaded = false;
     details.addEventListener("toggle", async () => {
       if (!details.open || loaded) return;
@@ -8197,6 +8391,7 @@ export class ObAdmin extends AdminElement {
       }
       await loadSharing();
       await synthesis?.load();
+      await moments?.load();
     });
     return details;
   }
@@ -8447,6 +8642,402 @@ export class ObAdmin extends AdminElement {
       status,
       problem,
       list,
+      form,
+    );
+    return { element: root, load };
+  }
+
+  /**
+   * Media moments: the writer's own located observations and quotations in the reflection's
+   * sources (ADR 0062 to 0064). Private by default; a moment proposed for the piece goes with the
+   * draft revision the writer offers and every author approves it. Loads only when asked and only
+   * for a contributor of this reflection. Links are the server's, derived from the source's own
+   * address, so a missing or unsupported embed still leaves a working link or the location as text.
+   */
+  momentsPanel(publication, index) {
+    const id = publication.publicationId;
+    const prefix = `oba-moments-${index}`;
+    const heading = h("h4", { id: `${prefix}-heading`, tabindex: "-1" }, "Moments in the sources");
+    const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const problem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
+    const list = h("ul", { class: "oba-moments-list", "aria-label": "Your moments" });
+    const sharedBlock = h("div", { class: "oba-moments-shared", hidden: true });
+    const form = h("form", { class: "oba-moments-form", novalidate: true, "aria-labelledby": `${prefix}-form-heading` });
+    const root = h("div", { class: "oba-moments", hidden: true });
+    let current = { revision: 0, moments: [], shared: [], sources: [], you: "" };
+    // What the writer typed survives a conflict, a refusal and a reload: the form is rebuilt
+    // around it. `editing` names the moment being changed and keeps what the form cannot edit.
+    const blank = () => ({ source: "", kind: "timestamp", value: "", to: "", quote: "", speaker: "", rights: "", rightsNote: "", provenance: "", observation: "", publish: false });
+    let typed = blank();
+    let editing = null;
+    // One save at a time: while a change is in flight the buttons that would start another are
+    // disabled and a repeat submit is ignored, so a second request never carries a stale revision.
+    // `typedEdits` counts the writer's own changes so a finished save never wipes newer typing.
+    let busy = false;
+    let typedEdits = 0;
+    let formButtons = [];
+    const itemButtons = new Set();
+    const gate = (button) => {
+      if (!button) return button;
+      button.disabled = busy;
+      if (busy) button.setAttribute("aria-disabled", "true");
+      else button.removeAttribute("aria-disabled");
+      return button;
+    };
+    const setBusy = (value) => {
+      busy = value;
+      for (const button of [...formButtons, ...itemButtons]) gate(button);
+    };
+    const controls = new Map();
+    const fields = new Map();
+    let submit = (event) => event.preventDefault();
+    form.addEventListener("submit", (event) => submit(event));
+
+    const clearProblem = () => {
+      problem.hidden = true;
+      problem.textContent = "";
+      for (const field of fields.values()) field.removeAttribute?.("aria-invalid");
+    };
+    // The server names the field of the writer's own submission; the form marks that control.
+    const SERVER_FIELDS = { source: "source", locators: "value", quotation: "quote", speaker: "speaker", content: "quote", rights: "rights", rightsNote: "rightsNote", observation: "observation" };
+    const fail = (message, field) => {
+      problem.textContent = message;
+      problem.hidden = false;
+      const control = fields.get(field);
+      if (control) control.setAttribute("aria-invalid", "true");
+      problem.focus();
+    };
+    const focusTo = (keys) => {
+      for (const key of [keys].flat()) {
+        const control = key ? controls.get(key) : null;
+        if (control && !control.disabled) {
+          control.focus();
+          return;
+        }
+      }
+      heading.focus();
+    };
+    const send = async (change, done, focusKeys) => {
+      if (busy) return false;
+      clearProblem();
+      setBusy(true);
+      try {
+        current = await this.api.call("POST", "collaboration/moments", { json: { publicationId: id, expectedRevision: current.revision, change } });
+        setBusy(false);
+        render();
+        status.textContent = done;
+        focusTo(typeof focusKeys === "function" ? focusKeys() : focusKeys);
+        return true;
+      } catch (error) {
+        setBusy(false);
+        const failure = momentsFailure(error);
+        fail(failure.message, SERVER_FIELDS[failure.field]);
+        // A conflict reloads the current moments around what was typed; a denial keeps the notice
+        // and the typed text visible.
+        if (failure.kind === "conflict") await load(false);
+        return false;
+      }
+    };
+
+    const sourceName = (sourceId) => {
+      const source = current.sources.find((entry) => entry.id === sourceId);
+      return source ? `${source.title} (${source.kindLabel})` : "A source that is no longer listed";
+    };
+
+    // `stater` names whose rights statement it is: "you" for the writer's own moments.
+    const momentBody = (moment, stater = "you") => {
+      const parts = [];
+      if (moment.quotation) {
+        const rights = QUOTATION_RIGHTS.find((entry) => entry.value === moment.quotation.rights)?.label || "";
+        const provenance = QUOTATION_PROVENANCE.find((entry) => entry.value === moment.quotation.provenance)?.label || "";
+        const statement = stater === "you" ? "Rights, as you state them" : `Rights, as ${stater} states them`;
+        const notices = Array.isArray(moment.notices) ? moment.notices : [];
+        parts.push(
+          h(
+            "figure",
+            { class: "oba-moment-quote" },
+            h("blockquote", {}, h("p", { class: "oba-draft-revealed" }, moment.quotation.text)),
+            // The server's one attribution line: speaker, source and location, as every view shows it.
+            h("figcaption", { class: "oba-small" }, `— ${moment.attribution || `${sourceName(moment.source)}, ${moment.location}`}`),
+          ),
+          h("p", { class: "oba-small" }, `${statement}: ${rights}. ${provenance}.`, moment.quotation.rightsNote ? ` Rights note: ${moment.quotation.rightsNote}` : ""),
+          notices.length
+            ? h("ul", { class: "oba-moment-notices", "aria-label": "Things to check in this quotation" }, notices.map((notice) => h("li", {}, notice.message)))
+            : null,
+        );
+      }
+      if (moment.observation) parts.push(h("pre", { class: "oba-draft-revealed", tabindex: "0", "aria-label": "Observation" }, moment.observation));
+      const linkText = momentLinkText(moment);
+      parts.push(
+        linkText
+          ? h("p", {}, h("a", { href: moment.link.href, rel: "noopener noreferrer external", target: "_blank" }, linkText, h("span", { class: "oba-sr" }, ` in ${sourceName(moment.source)} (opens in a new tab)`)))
+          : h("p", { class: "oba-small" }, "This source has no link. The location is kept with the moment."),
+      );
+      return parts;
+    };
+
+    const itemView = (moment, position, total) => {
+      const actions = h("div", { class: "oba-toolbar" });
+      const edit = h("button", { class: "oba-btn", type: "button", "aria-label": `Edit moment ${position + 1} of ${total}` }, "Edit");
+      const remove = h("button", { class: "oba-btn", type: "button", "aria-label": `Remove moment ${position + 1} of ${total}` }, "Remove");
+      const confirmHolder = h("div", {});
+      itemButtons.add(gate(edit));
+      itemButtons.add(gate(remove));
+      edit.addEventListener("click", () => {
+        if (busy) return;
+        const [first, ...rest] = moment.locators || [];
+        editing = { id: moment.id, position, locators: rest, language: moment.quotation?.language || "" };
+        typed = {
+          source: moment.source,
+          kind: first?.kind || "timestamp",
+          value: first?.value || "",
+          to: first?.to || "",
+          quote: moment.quotation?.text || "",
+          speaker: moment.quotation?.speaker || "",
+          rights: moment.quotation?.rights || "",
+          rightsNote: moment.quotation?.rightsNote || "",
+          provenance: moment.quotation?.provenance || "",
+          observation: moment.observation || "",
+          publish: moment.intent === "publication",
+        };
+        renderForm();
+        status.textContent = `Editing moment ${position + 1}. The source stays the same; to locate another source, add a new moment.`;
+        fields.get("value")?.focus();
+      });
+      remove.addEventListener("click", () => {
+        if (busy) return;
+        const yes = h("button", { class: "oba-btn oba-btn-danger", type: "button" }, "Remove this moment");
+        const no = h("button", { class: "oba-btn", type: "button" }, "Cancel");
+        const box = h(
+          "div",
+          { class: "oba-confirm", role: "group", "aria-labelledby": `${prefix}-remove-${moment.id}`, tabindex: "-1" },
+          h("p", { id: `${prefix}-remove-${moment.id}`, class: "oba-confirm-title" }, `Remove moment ${position + 1}?`),
+          h("p", { class: "oba-small" }, moment.intent === "publication" ? "It is taken out of the piece, and every approval must be given again." : "It is deleted. Nobody else ever saw it."),
+          h("div", { class: "oba-toolbar" }, yes, no),
+        );
+        itemButtons.add(gate(yes));
+        itemButtons.add(gate(no));
+        confirmHolder.replaceChildren(box);
+        box.focus();
+        const close = () => {
+          confirmHolder.replaceChildren();
+          remove.focus();
+        };
+        no.addEventListener("click", close);
+        box.addEventListener("keydown", (event) => {
+          if (event.key === "Escape") close();
+        });
+        yes.addEventListener("click", () => {
+          if (busy) return;
+          if (editing?.id === moment.id) {
+            editing = null;
+            typed = blank();
+          }
+          send({ action: "remove", id: moment.id }, "Moment removed.", "list-heading");
+        });
+      });
+      controls.set(`${moment.id}:edit`, edit);
+      actions.append(edit, remove);
+      return h(
+        "li",
+        { class: "oba-moment" },
+        h("p", { class: "oba-small" }, h("strong", {}, `Moment ${position + 1} of ${total}. `), momentText(moment, current.sources)),
+        ...momentBody(moment),
+        actions,
+        confirmHolder,
+      );
+    };
+
+    const select = (selectId, options, value, placeholder) =>
+      h(
+        "select",
+        { id: selectId },
+        placeholder ? h("option", { value: "", selected: !value }, placeholder) : null,
+        options.map((option) => h("option", { value: option.value, selected: option.value === value }, option.label)),
+      );
+
+    const renderForm = () => {
+      fields.clear();
+      const bind = (key, control, event = "input") => {
+        fields.set(key, control);
+        control.addEventListener(event, () => {
+          typedEdits += 1;
+          typed[key] = control.getAttribute("type") === "checkbox" ? control.checked : control.value;
+          control.removeAttribute?.("aria-invalid");
+        });
+        return control;
+      };
+      const sourceSelect = bind(
+        "source",
+        select(`${prefix}-source`, current.sources.map((source) => ({ value: source.id, label: `${source.title} (${source.kindLabel})` })), typed.source, "Choose a source"),
+        "change",
+      );
+      sourceSelect.disabled = Boolean(editing);
+      const kind = bind("kind", select(`${prefix}-kind`, MOMENT_LOCATOR_KINDS, typed.kind), "change");
+      const hint = h("p", { class: "oba-small", id: `${prefix}-location-hint` });
+      const syncHint = () => {
+        hint.textContent = MOMENT_LOCATOR_KINDS.find((entry) => entry.value === kind.value)?.hint || "";
+      };
+      kind.addEventListener("change", syncHint);
+      const value = bind("value", h("input", { id: `${prefix}-value`, type: "text", autocomplete: "off", spellcheck: "false", "aria-describedby": `${prefix}-location-hint`, value: typed.value }));
+      const to = bind("to", h("input", { id: `${prefix}-to`, type: "text", autocomplete: "off", spellcheck: "false", "aria-describedby": `${prefix}-location-hint`, value: typed.to }));
+      const quote = bind("quote", h("textarea", { id: `${prefix}-quote`, rows: "3", "aria-describedby": `${prefix}-quote-hint` }));
+      quote.value = typed.quote;
+      const speaker = bind("speaker", h("input", { id: `${prefix}-speaker`, type: "text", autocomplete: "off", "aria-describedby": `${prefix}-speaker-hint`, value: typed.speaker }));
+      const rights = bind("rights", select(`${prefix}-rights`, QUOTATION_RIGHTS, typed.rights, "Choose a rights status"), "change");
+      rights.setAttribute("aria-describedby", `${prefix}-rights-guidance`);
+      const rightsNote = bind("rightsNote", h("input", { id: `${prefix}-rightsNote`, type: "text", autocomplete: "off", maxlength: "500", "aria-describedby": `${prefix}-rights-note-hint`, value: typed.rightsNote }));
+      // Guidance follows the chosen status; warnings follow the typed words. Both are advice that
+      // never blocks saving, and the live region speaks only when what it says changes.
+      const rightsGuidance = h("p", { class: "oba-small", id: `${prefix}-rights-guidance`, "aria-live": "polite" });
+      const quoteCount = h("p", { class: "oba-small", id: `${prefix}-quote-count` });
+      const quoteNotices = h("ul", { class: "oba-moment-notices", id: `${prefix}-quote-notices`, "aria-live": "polite", "aria-label": "Things to check in this quotation" });
+      let shownNotices = null;
+      const syncGuidance = () => {
+        const guide = current.quotationGuide;
+        rightsGuidance.textContent = typed.rights ? rightsGuidanceText(typed.rights, guide) : guide?.statement || "";
+        const count = [...String(typed.quote ?? "")].length;
+        quoteCount.textContent = count ? `${count} of ${guide?.maxQuotationChars || 1000} characters.${guide?.briefQuotationChars ? ` Above ${guide.briefQuotationChars} counts as long.` : ""}` : "";
+        const notices = quotationNotices(typed, guide);
+        const key = notices.map((notice) => notice.code).join(" ");
+        if (key !== shownNotices) {
+          shownNotices = key;
+          quoteNotices.replaceChildren(...notices.map((notice) => h("li", {}, notice.message)));
+          quoteNotices.hidden = notices.length === 0;
+        }
+      };
+      for (const control of [quote, speaker]) control.addEventListener("input", syncGuidance);
+      rights.addEventListener("change", syncGuidance);
+      const provenance = bind("provenance", select(`${prefix}-provenance`, QUOTATION_PROVENANCE, typed.provenance, "Choose where the words came from"), "change");
+      const observation = bind("observation", h("textarea", { id: `${prefix}-observation`, rows: "4" }));
+      observation.value = typed.observation;
+      const publish = bind("publish", h("input", { id: `${prefix}-publish`, type: "checkbox", checked: typed.publish, "aria-describedby": `${prefix}-publish-hint` }), "change");
+      const save = h("button", { class: "oba-btn oba-btn-primary", type: "submit" }, editing ? "Save changes" : "Add moment");
+      const cancel = editing ? h("button", { class: "oba-btn", type: "button" }, "Cancel editing") : null;
+      formButtons = [save, cancel].filter(Boolean);
+      for (const button of formButtons) gate(button);
+      cancel?.addEventListener("click", () => {
+        if (busy) return;
+        const position = editing.position;
+        const editedId = editing.id;
+        editing = null;
+        typed = blank();
+        renderForm();
+        status.textContent = `Edit of moment ${position + 1} cancelled. Nothing was changed.`;
+        focusTo(`${editedId}:edit`);
+      });
+      submit = async (event) => {
+        event.preventDefault();
+        if (busy) return;
+        clearProblem();
+        const result = momentPayload(typed, editing || {});
+        if (result.error) {
+          fail(result.error, result.field);
+          return;
+        }
+        const editedId = editing?.id;
+        const change = editedId ? { action: "edit", id: editedId, moment: result.moment } : { action: "add", moment: result.moment };
+        const before = new Set(current.moments.map((moment) => moment.id));
+        const done = editedId ? (result.moment.intent === "publication" ? "Moment saved. Every author must approve the piece again." : "Moment saved.") : result.moment.intent === "publication" ? "Moment added and proposed for the piece. It is shared with the next revision you offer." : "Moment added. Only you can see it.";
+        const typedBefore = typedEdits;
+        const stored = await send(change, done, () => {
+          const added = current.moments.find((moment) => !before.has(moment.id));
+          return [`${editedId || added?.id}:edit`, "list-heading"];
+        });
+        // Reset only a form the writer left alone; text typed during the save stays as typed.
+        if (stored && typedEdits === typedBefore) {
+          editing = null;
+          typed = blank();
+          renderForm();
+        }
+      };
+      const field = (control, label, extra = null) => h("div", { class: "oba-field" }, h("label", { for: control.id }, label), control, extra);
+      form.replaceChildren(
+        h("h5", { id: `${prefix}-form-heading` }, editing ? `Edit moment ${editing.position + 1}` : "Add a moment"),
+        field(sourceSelect, "Source", editing ? h("p", { class: "oba-small" }, "A moment keeps its source.") : null),
+        h(
+          "fieldset",
+          {},
+          h("legend", {}, "Where in the source"),
+          field(kind, "Kind of location"),
+          hint,
+          field(value, "Location"),
+          field(to, "Ends at (optional, for a range)"),
+        ),
+        h(
+          "fieldset",
+          {},
+          h("legend", {}, "Quotation (optional)"),
+          h("p", { class: "oba-small", id: `${prefix}-quote-hint` }, "Someone else's words, exactly as said or written, up to 1,000 characters. Quote a moment; never paste a transcript."),
+          field(quote, "Quoted words", h("div", {}, quoteCount, quoteNotices)),
+          field(speaker, "Speaker (optional)", h("p", { class: "oba-small", id: `${prefix}-speaker-hint` }, "Who said or wrote the words in the source. The quotation is credited to the speaker, the source and the location you give.")),
+          field(rights, "Rights (your statement)", rightsGuidance),
+          field(rightsNote, "Rights note (optional)", h("p", { class: "oba-small", id: `${prefix}-rights-note-hint` }, "One line for your co-authors, such as who gave permission and when, or which licence applies. It is never published.")),
+          field(provenance, "Where the words came from"),
+        ),
+        field(observation, "Your observation (Markdown, optional)"),
+        h("div", { class: "oba-field oba-check" }, publish, " ", h("label", { for: publish.id }, "Propose this moment for the piece")),
+        h("p", { class: "oba-small", id: `${prefix}-publish-hint` }, "A proposed moment is shared with the next draft revision you offer, and every author must approve it before anything is published. Later edits stay private until you offer a newer revision."),
+        h("div", { class: "oba-toolbar" }, save, cancel),
+      );
+      syncHint();
+      syncGuidance();
+    };
+
+    const listHeading = h("h5", { id: `${prefix}-list-heading`, tabindex: "-1" }, "Your moments");
+    controls.set("list-heading", listHeading);
+
+    const render = () => {
+      const moments = sortMoments(current.moments, current.sources);
+      if (editing && !moments.some((moment) => moment.id === editing.id)) editing = null;
+      const keep = controls.get("list-heading");
+      itemButtons.clear();
+      controls.clear();
+      controls.set("list-heading", keep);
+      list.replaceChildren(...moments.map((moment, position) => itemView(moment, position, moments.length)));
+      list.hidden = moments.length === 0;
+      listHeading.textContent = moments.length ? `Your moments (${moments.length})` : "Your moments (none yet)";
+      const shared = current.shared || [];
+      sharedBlock.replaceChildren(
+        h("h5", {}, "Moments others shared with you"),
+        ...shared.map((entry) =>
+          h(
+            "section",
+            { "aria-label": `Moments from ${entry.participant?.displayName || "a participant"}` },
+            h("p", { class: "oba-small" }, h("strong", {}, entry.participant?.displayName || "A participant")),
+            h(
+              "ul",
+              { class: "oba-moments-list" },
+              sortMoments(entry.moments, current.sources).map((moment) =>
+                h("li", { class: "oba-moment" }, h("p", { class: "oba-small" }, `${sourceName(moment.source)}, ${moment.location}.`), ...momentBody(moment, entry.participant?.displayName || "a participant")),
+              ),
+            ),
+          ),
+        ),
+      );
+      sharedBlock.hidden = shared.length === 0;
+      renderForm();
+      root.hidden = false;
+    };
+
+    const load = async (announce = true) => {
+      try {
+        current = await this.api.call("GET", `collaboration/moments?publicationId=${encodeURIComponent(id)}`);
+        render();
+        if (announce) status.textContent = "";
+      } catch {
+        if (announce) root.hidden = true;
+      }
+    };
+
+    root.append(
+      heading,
+      h("p", { class: "oba-small" }, "Pin an observation or a short quotation to a time, page or chapter in one of this reflection's sources. Moments are private to you unless you propose them for the piece. Nothing here is published yet."),
+      status,
+      problem,
+      listHeading,
+      list,
+      sharedBlock,
       form,
     );
     return { element: root, load };
