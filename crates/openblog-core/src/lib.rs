@@ -42,6 +42,7 @@ pub mod escape;
 pub mod feeds;
 pub mod field_journal;
 pub mod frontmatter;
+pub mod interpretation;
 pub mod invitation;
 pub mod knowledge_atlas;
 pub mod markdown;

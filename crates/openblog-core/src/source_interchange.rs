@@ -78,7 +78,7 @@ pub(crate) const PRESERVED_FIELDS: &[&str] = &[
 /// Private notes never enter the library through an import, so they cannot
 /// reach an export a person shares.
 pub(crate) const NOTE_FIELDS: &[&str] = &["abstract", "annote", "keyword", "note"];
-const CUSTOM_KEYS: [&str; 8] = [
+const CUSTOM_KEYS: [&str; 14] = [
     "openblog-kind",
     "openblog-of",
     "openblog-basedOn",
@@ -87,6 +87,25 @@ const CUSTOM_KEYS: [&str; 8] = [
     "openblog-creators",
     "openblog-identifiers",
     "openblog-extra",
+    "openblog-anonymous",
+    "openblog-revises",
+    "openblog-repository",
+    "openblog-shelfmark",
+    "openblog-volumes",
+    "openblog-rights",
+];
+/// Version provenance fields (ADR 0112, 0113, 0114) that CSL has no variable
+/// for. Each travels verbatim in its own `custom` key, so an export imports
+/// back unchanged. CSL's own `archive`, `archive_location`, and
+/// `number-of-volumes` stay preserved CSL description and are never read as
+/// these fields.
+const PROVENANCE_FIELDS: [(&str, &str); 6] = [
+    ("openblog-anonymous", "anonymous"),
+    ("openblog-revises", "revises"),
+    ("openblog-repository", "repository"),
+    ("openblog-shelfmark", "shelfmark"),
+    ("openblog-volumes", "volumes"),
+    ("openblog-rights", "rights"),
 ];
 /// Strong identifiers that mark two records as the same published thing.
 const DUPLICATE_SCHEMES: [&str; 5] = ["doi", "isbn", "issn", "pmid", "pmcid"];
@@ -588,7 +607,10 @@ fn map_item(raw: Value) -> Mapped {
         ("openblog-basedOn", "basedOn"),
         ("openblog-location", "location"),
         ("openblog-archived", "archived"),
-    ] {
+    ]
+    .into_iter()
+    .chain(PROVENANCE_FIELDS)
+    {
         if let Some(value) = custom.remove(custom_key) {
             provided.insert(field.into());
             mapped.object.insert(field.into(), value);
@@ -1155,6 +1177,24 @@ fn merge(
     if provided.contains("archived") {
         merged.archived = incoming.archived;
     }
+    if provided.contains("anonymous") {
+        merged.anonymous = incoming.anonymous;
+    }
+    if provided.contains("revises") {
+        merged.revises.clone_from(&incoming.revises);
+    }
+    if provided.contains("repository") {
+        merged.repository.clone_from(&incoming.repository);
+    }
+    if provided.contains("shelfmark") {
+        merged.shelfmark.clone_from(&incoming.shelfmark);
+    }
+    if provided.contains("volumes") {
+        merged.volumes = incoming.volumes;
+    }
+    if provided.contains("rights") {
+        merged.rights.clone_from(&incoming.rights);
+    }
     for creator in &incoming.creators {
         let found = merged.creators.iter_mut().find(|held| {
             held.name == creator.name
@@ -1376,6 +1416,13 @@ fn csl_item(record: &SourceRecord) -> Value {
     if record.archived {
         custom.insert("openblog-archived".into(), Value::Bool(true));
     }
+    if let Ok(Value::Object(mut fields)) = serde_json::to_value(record) {
+        for (custom_key, field) in PROVENANCE_FIELDS {
+            if let Some(value) = fields.remove(field) {
+                custom.insert(custom_key.into(), value);
+            }
+        }
+    }
     if !creators.is_empty() {
         custom.insert("openblog-creators".into(), Value::Array(creators));
     }
@@ -1535,6 +1582,8 @@ fn public_record(reference: &PublicReference) -> SourceRecord {
             .map(|creator| SourceCreator {
                 name: creator.name.clone(),
                 role: creator.role.clone(),
+                attribution: None,
+                note: None,
                 extra: BTreeMap::new(),
             })
             .collect(),
@@ -1554,6 +1603,12 @@ fn public_record(reference: &PublicReference) -> SourceRecord {
             })
             .collect(),
         archived: false,
+        anonymous: false,
+        revises: None,
+        repository: None,
+        shelfmark: None,
+        volumes: None,
+        rights: None,
         extra,
     }
 }
@@ -1807,6 +1862,46 @@ fn bibtex_entry(record: &SourceRecord, losses: &mut Vec<ExportLoss>) -> String {
     }
     if record.archived {
         lose("archived", "the archived flag is open.blog's own");
+    }
+    if record.anonymous {
+        lose(
+            "anonymous",
+            "BibTeX cannot say that a source names no maker",
+        );
+    }
+    if record.revises.is_some() {
+        lose(
+            "revises",
+            "BibTeX cannot express which edition this one revises",
+        );
+    }
+    if record.repository.is_some() || record.shelfmark.is_some() {
+        lose(
+            "shelfmark",
+            "BibTeX has no field for a witness's repository and shelfmark",
+        );
+    }
+    if record.volumes.is_some() {
+        lose(
+            "volumes",
+            "the declared number of volumes is open.blog's own",
+        );
+    }
+    if record.rights.is_some() {
+        lose(
+            "rights",
+            "the rights declaration is the author's private statement and BibTeX has no field for it",
+        );
+    }
+    if record
+        .creators
+        .iter()
+        .any(|creator| creator.attribution.is_some() || creator.note.is_some())
+    {
+        lose(
+            "creators",
+            "BibTeX cannot express how firmly a name is attributed",
+        );
     }
     let unknown: Vec<&String> = record
         .extra
