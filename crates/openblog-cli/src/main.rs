@@ -898,11 +898,6 @@ fn check_knowledge_atlas(
     )))
 }
 
-/// Validate the private claims file when one is stored, against the stored
-/// library and notebook. A missing file is not mentioned. Approved links the
-/// projection leaves out, and anchors that no longer match the saved draft,
-/// are non-blocking notices that name ids and states, never authored text.
-/// Counts are given per relation and never combined.
 /// What `check` prints for the claims file: a summary, projection notices
 /// and the evidence findings (ADR 0090).
 type ClaimsCheck = (
@@ -911,6 +906,12 @@ type ClaimsCheck = (
     Vec<openblog_core::research::EvidenceFinding>,
 );
 
+/// Validate the private claims file when one is stored, against the stored
+/// library and notebook. A missing file is not mentioned. Approved links the
+/// projection leaves out are non-blocking notices that name ids and states,
+/// never authored text; anchors that moved or no longer match the saved draft
+/// are evidence findings (ADR 0090), with the other gaps and prompts. Counts
+/// are given per relation and never combined.
 fn check_claims(
     root: &std::path::Path,
     contributors: &std::collections::BTreeMap<String, openblog_core::contributor::Contributor>,

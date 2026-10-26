@@ -1985,11 +1985,11 @@ fn atlas_store_error(
 
 // ---- claims and evidence links (Evidence Studio, ADR 0081 to 0083) ----------
 
-/// The anchor texts claims are checked against: every saved post's body, by
-/// slug. Unsaved editor text is never used.
 /// The saved drafts by slug, with each post's content path for findings.
 type SavedPosts = (claims::Drafts, BTreeMap<String, String>);
 
+/// The anchor texts claims are checked against: every saved post's body, by
+/// slug. Unsaved editor text is never used.
 fn claim_drafts(state: &AppState) -> Result<SavedPosts, Response> {
     let config = site::load_config(&state.root).map_err(|error| Response::error(500, &error))?;
     Ok(claims_store::read_saved_posts(

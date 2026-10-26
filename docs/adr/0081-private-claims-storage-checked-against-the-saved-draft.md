@@ -31,10 +31,14 @@ the draft and the store as they were.
   or interrupted write leaves the file byte for byte. Symlinks, directories, non-UTF-8 and
   oversized files are reported, never replaced, and messages name the claims file.
 - **Anchors are checked against the saved post, never the editor.** `claims_store::read_saved_posts`
-  reads every saved post under `content/posts` and keeps its anchor text
-  (`claims::anchor_text`) by slug, decided as the build decides it (`claims::post_slug`). A post
-  that cannot be read, a symlink, and a slug two posts share are left out, so nothing in them can
-  be verified. Admin reads the drafts and writes the file while holding the content lock that
+  reads every saved post by the build's own rules: the build's walk of the configured content
+  folder (`site::content_files`), the files `openblog_core::classify_source` calls posts, minus a
+  README and anything under a `_`-prefixed name (`site::not_content`, so a `posts/_drafts/` copy
+  never shadows the post). It keeps each post's anchor text (`claims::anchor_text`) by slug,
+  decided as the build decides it (`claims::post_slug`). A build reuses the posts it has already
+  read (`claims_store::drafts_from_sources`) instead of reading them again. A post that cannot be
+  read, a symlink, an oversized post, and a slug two posts share are left out, so nothing in them
+  can be verified. Admin reads the drafts and writes the file while holding the content lock that
   post saves hold, so a post save cannot slip between the check and the write.
 - **A new or changed anchor must be verified.** `claims::check_claim_anchor` accepts a claim's
   anchor only if the exact words are at the exact offsets of the saved draft. Moved
