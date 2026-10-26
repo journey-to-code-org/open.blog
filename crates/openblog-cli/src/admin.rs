@@ -3276,6 +3276,7 @@ fn engagement_settings(state: &AppState) -> Response {
             "comments": config.engagement.comments,
             "analytics": config.engagement.analytics,
             "endpoint": config.engagement.endpoint,
+            "feedback": config.engagement.feedback,
             "etag": etag,
             "credential": credential,
         }),
@@ -3353,7 +3354,20 @@ fn save_engagement_settings(state: &AppState, req: &Request) -> Response {
         Ok(_) => return Response::error(500, "openblog.json must contain a JSON object"),
         Err(error) => return Response::error(500, &format!("invalid openblog.json: {error}")),
     };
-    value["engagement"] = json!({ "enabled": enabled, "comments": comments, "analytics": analytics, "endpoint": endpoint });
+    // Merge into the existing object, so settings this form does not manage
+    // (the passage-feedback opt-in, ADR 0089) survive a save unchanged.
+    let mut engagement = match value.get("engagement") {
+        Some(Json::Object(existing)) => existing.clone(),
+        _ => serde_json::Map::new(),
+    };
+    engagement.insert("enabled".into(), json!(enabled));
+    engagement.insert("comments".into(), json!(comments));
+    engagement.insert("analytics".into(), json!(analytics));
+    engagement.insert("endpoint".into(), json!(endpoint));
+    if let Some(feedback) = body["feedback"].as_bool() {
+        engagement.insert("feedback".into(), json!(feedback));
+    }
+    value["engagement"] = Json::Object(engagement);
     let candidate = match serde_json::to_string_pretty(&value) {
         Ok(value) => format!("{value}\n"),
         Err(error) => {
@@ -14485,8 +14499,74 @@ mod tests {
             config.engagement.enabled && config.engagement.comments && config.engagement.analytics
         );
         assert_eq!(config.engagement.endpoint, "https://blog.example/api");
+        assert!(!config.engagement.feedback);
 
-        let saved_json = body_json(&saved);
+        // The passage-feedback opt-in, set in openblog.json, survives a save
+        // that does not mention it, and can be changed explicitly.
+        let config_path = f.dir.join(site::CONFIG_FILE);
+        let mut on_disk: Json =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        on_disk["engagement"]["feedback"] = json!(true);
+        fs::write(
+            &config_path,
+            serde_json::to_string_pretty(&on_disk).unwrap(),
+        )
+        .unwrap();
+        let current = body_json(&handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/engagement/settings"),
+                &session,
+                false,
+            ),
+        ));
+        assert_eq!(current["feedback"], true);
+        let kept = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/engagement/settings",
+                    json!({
+                        "enabled": true,
+                        "comments": false,
+                        "analytics": true,
+                        "endpoint": "https://blog.example/api",
+                        "etag": current["etag"],
+                        "credentialAction": "keep",
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(kept.status, 200);
+        let config = site::load_config(&f.dir).unwrap();
+        assert!(config.engagement.feedback && !config.engagement.comments);
+        let off = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/engagement/settings",
+                    json!({
+                        "enabled": true,
+                        "comments": true,
+                        "analytics": true,
+                        "endpoint": "https://blog.example/api",
+                        "feedback": false,
+                        "etag": body_json(&kept)["etag"],
+                        "credentialAction": "keep",
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(off.status, 200);
+        assert!(!site::load_config(&f.dir).unwrap().engagement.feedback);
+
+        let saved_json = body_json(&off);
         let moved = handle(
             &f.state,
             &authed(
