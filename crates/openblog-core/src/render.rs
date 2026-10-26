@@ -995,10 +995,13 @@ impl<'a> Renderer<'a> {
             } else {
                 crate::attributed_perspective::AttributedSections::of_post(post)
             };
-        let attributed_words = if attributed.sections().is_empty() {
-            ""
-        } else {
-            " To write about one author’s section, name it by its author and its place among that author’s sections, such as “MINA, section 1”."
+        // The example names the first real section, never a made-up author.
+        let attributed_words = match attributed.sections().first() {
+            None => String::new(),
+            Some(first) => format!(
+                " To write about one author’s section, name it by its author and its place among that author’s sections, such as “{}, section 1”.",
+                text(&first.author)
+            ),
         };
         let attributed_element = attributed_sections_element(post, &attributed);
         Some(format!(
