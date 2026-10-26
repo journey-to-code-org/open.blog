@@ -171,7 +171,9 @@ test("a claim is made from selected multi-byte words and opposing evidence is li
   expect(links.map((link) => link.relation)).toEqual(["supports", "contradicts"]);
   expect(links[0].evidence).toEqual({ source: "slings-2003", locators: [{ kind: "page", value: "514" }], passage: "p1" });
 
-  // An overlapping claim is a separate span of the same draft.
+  // An overlapping claim is a separate span of the same draft, selected back in Write.
+  await showPane(page, "write");
+  await expect(markdown(page)).toBeVisible();
   await makeClaim(page, "Πλάτων", "Plato alone.");
   expect(JSON.parse(storedClaims()).claims).toHaveLength(2);
 });
