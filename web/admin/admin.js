@@ -3294,7 +3294,7 @@ export function createAlignmentForm({ api, state, item = null, idPrefix = "oba-a
         const idInput = control("id");
         if (idInput) idInput.value = draft.id;
       }
-    } }), "Your private name for it, such as The cave: opening image."),
+    } }), "Your name for it, such as The cave: opening image. It becomes the public title only if you approve the comparison for publication."),
     editing ? null : field("id", "Identifier", h("input", { type: "text", value: draft.id, autocomplete: "off", spellcheck: "false", onInput: (event) => { idTouched = true; draft.id = event.target.value.trim(); } }), "Lowercase letters, digits and hyphens. It cannot change later."),
     field("correspondence", "How the places correspond", h("select", { onChange: (event) => { draft.correspondence = event.target.value; } }, (state.correspondences || ALIGNMENT_CORRESPONDENCES).map((item) => h("option", { value: item.value, selected: draft.correspondence === item.value }, item.label))), "Your reading. There is no choice for “the same”: aligning places never says they mean the same thing."),
     h(
