@@ -161,6 +161,17 @@ Only the author can give or withdraw it; a site owner or coordinator cannot, and
 never replaces it; the publish gate checks it again at publication (ADR 0022). It is not an electronic signature, and alone it does not assign public credit.
 _Avoid_: Publication, Work credit, timeless consent
 
+**Approval rule**:
+The publication's choice of whose approval publication needs: every author (the default), everyone
+who wrote, the writers plus named participants, or the writers plus every author holding chosen
+roles. Every writer, and everyone named on a synthesis item, always approves; a rule only adds
+approvers and never counts, votes or stands in for anyone. A named person who leaves, or a role no
+author holds, keeps the piece blocked until the rule changes. Site owners and coordinators change
+it against the revision they read, with an explicit confirmation, and a real change clears every
+approval. It is bound into every approval and shown in the combined preview. It never changes who
+reads which draft: reveal stays one group (ADR 0043).
+_Avoid_: Quorum, vote, approval threshold, reveal group
+
 **Synthesis item**:
 An optional statement the authors of a shared reflection make together: an agreement, difference,
 question, application or uncertainty, written as untrusted Markdown and attributed in order to one,

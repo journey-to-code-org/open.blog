@@ -635,6 +635,8 @@ fn authenticated_api(
         ("PUT", "collaboration/draft") => save_own_draft(state, req, session),
         ("GET", "collaboration/reveal") => read_reveal_state(state, req, session),
         ("PUT", "collaboration/reveal/policy") => set_reveal_policy(state, req, session),
+        ("GET", "collaboration/approval-policy") => read_approval_policy(state, req, session),
+        ("PUT", "collaboration/approval-policy") => set_approval_policy(state, req, session),
         ("GET", "collaboration/reflection") => read_arrangement(state, req, session),
         ("PUT", "collaboration/reflection") => save_arrangement(state, req, session),
         ("PUT", "collaboration/reveal/ready") => set_reveal_ready(state, req, session),
@@ -5886,6 +5888,16 @@ fn prepare_post(
                 "This reflection cannot be published yet: it needs a title and at least one written section. Nothing was changed.",
             ))
         }
+        Err(AssemblyError::RuleUnmet { named, roles }) => {
+            return Err(Response::json(
+                409,
+                &json!({
+                    "error": "The approval rule cannot be met as things stand: a person it names is no longer an author, or no author holds a role it lists. Change the rule, or restore that access or role. Nothing was changed.",
+                    "unmetNamed": named,
+                    "unmetRoles": roles,
+                }),
+            ))
+        }
     };
     let config = site::load_config(&state.root).map_err(|error| publish_failed(&error))?;
     let path = resolve_content_path(&state.root, &config, &assembly.path)
@@ -6637,6 +6649,10 @@ fn reconcile_approvals(
 struct RevealPolicyRequest {
     publication_id: String,
     policy: RevealPolicy,
+    /// The policy the requester read. When given and no longer current, the change is refused,
+    /// so two coordinators cannot overwrite each other unseen (ADR 0043).
+    #[serde(default)]
+    expected_policy: Option<RevealPolicy>,
 }
 
 #[derive(serde::Deserialize)]
@@ -6899,6 +6915,15 @@ fn set_reveal_policy(state: &AppState, req: &Request, session: &auth::Session) -
     let Ok(mut set) = draft_set_for(stored.set.as_ref(), record) else {
         return Response::error(500, "Sharing could not be changed. Nothing was changed.");
     };
+    if body
+        .expected_policy
+        .is_some_and(|expected| expected != set.policy())
+    {
+        return Response::error(
+            409,
+            "The sharing rule changed since you loaded it. Reload to see the current rule; nothing was changed.",
+        );
+    }
     set.set_policy(body.policy);
     eprintln!(
         "admin: changed the reveal policy of shared publication {}",
@@ -6911,6 +6936,281 @@ fn set_reveal_policy(state: &AppState, req: &Request, session: &auth::Session) -
         &set,
         json!({ "policy": set.policy() }),
     )
+}
+
+// ---------------------------------------------------------------------------
+// The approval rule of a shared reflection (ADR 0043)
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct ApprovalPolicyRequest {
+    publication_id: String,
+    /// The policy revision the requester read.
+    expected_revision: u64,
+    policy: openblog_core::approval::ApprovalPolicy,
+    /// That the requester accepts that a real change clears every standing approval.
+    #[serde(default)]
+    confirmed: bool,
+}
+
+/// Every refusal reads the same, so a request cannot confirm that a reflection exists.
+fn approval_policy_not_found() -> Response {
+    Response::error(
+        404,
+        "That shared reflection was not found, or you cannot choose its approval rule.",
+    )
+}
+
+/// Whether the signed-in user may choose the approval rule, decided by the single entry point.
+fn may_set_approval_policy(
+    transaction: &InvitationTransaction<'_>,
+    record: &SharedPublication,
+    session: &auth::Session,
+) -> bool {
+    transaction
+        .with_identities(|identities| {
+            record.authorize(
+                &session.user,
+                identities,
+                AuthorizationAction::SetApprovalPolicy,
+                AuthorizationTarget::Publication,
+            )
+        })
+        .is_ok()
+}
+
+/// Active authors who hold the approve grant for themselves: the only people a named or
+/// role-based rule may add, because nobody else can ever approve.
+fn active_approvers(
+    transaction: &InvitationTransaction<'_>,
+    record: &SharedPublication,
+    active: &[String],
+) -> Vec<String> {
+    record
+        .authorization
+        .bindings
+        .iter()
+        .filter(|binding| active.contains(&binding.participant_id))
+        .filter(|binding| {
+            transaction
+                .with_identities(|identities| {
+                    record.authorize(
+                        &binding.admin_user,
+                        identities,
+                        AuthorizationAction::ApproveContribution,
+                        AuthorizationTarget::Participant(&binding.participant_id),
+                    )
+                })
+                .is_ok()
+        })
+        .map(|binding| binding.participant_id.clone())
+        .collect()
+}
+
+/// The rule and where the piece stands under it, for someone who holds the policy grant (who
+/// also holds the publish grant, so may already learn who has not approved, ADR 0022). Display
+/// names and roles only: no prose, revision or digest.
+fn approval_policy_json(
+    record: &SharedPublication,
+    inputs: &GateInputs,
+    set: &openblog_core::approval::ApprovalSet,
+    approvers: &[String],
+) -> Json {
+    use openblog_core::assembly::{display_names, with_subject};
+    let active = inputs.active.iter().map(String::as_str).collect::<Vec<_>>();
+    let (rule, required, missing) = with_subject(
+        record,
+        inputs.structure.structure.as_ref(),
+        &inputs.drafts,
+        &inputs.synthesis,
+        &active,
+        |subject| {
+            let required = set.required(subject);
+            let missing = required
+                .iter()
+                .filter(|id| !set.is_approved(subject, id))
+                .cloned()
+                .collect::<Vec<_>>();
+            (
+                openblog_core::preview::rule_for(record, set, subject),
+                required,
+                missing,
+            )
+        },
+    );
+    let people = record
+        .collaboration
+        .participants
+        .iter()
+        .filter(|participant| approvers.contains(&participant.id))
+        .map(|participant| {
+            json!({ "participantId": participant.id, "displayName": participant.display_name })
+        })
+        .collect::<Vec<_>>();
+    json!({
+        "policy": rule.policy,
+        "revision": rule.revision,
+        "summary": rule.summary,
+        "unmetNamed": rule.unmet_named,
+        "unmetRoles": rule.unmet_roles,
+        "required": display_names(record, required.iter().map(String::as_str)),
+        "missing": display_names(record, missing.iter().map(String::as_str)),
+        "approvers": people,
+        "published": matches!(
+            inputs.outcome.outcome,
+            Some(openblog_core::assembly::Outcome::Published { .. })
+        ),
+    })
+}
+
+/// The approval rule, for a site owner or coordinator. Everyone else gets the same not-found as
+/// a missing publication; authors see the rule in the combined preview.
+fn read_approval_policy(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    let Some(publication_id) = req.query.get("publicationId") else {
+        return approval_policy_not_found();
+    };
+    let Ok(transaction) = invitation_transaction(state, publication_id) else {
+        return approval_policy_not_found();
+    };
+    let Some(record) = transaction.record.clone() else {
+        return approval_policy_not_found();
+    };
+    if !may_set_approval_policy(&transaction, &record, session) {
+        return approval_policy_not_found();
+    }
+    let inputs = match gate_inputs(state, &transaction, &record) {
+        Ok(inputs) => inputs,
+        Err(response) => return response,
+    };
+    let approvers = active_approvers(&transaction, &record, &inputs.active);
+    Response::json(
+        200,
+        &approval_policy_json(&record, &inputs, &inputs.approvals.set, &approvers),
+    )
+}
+
+/// A site owner or coordinator changes whose approval publication needs, against the policy
+/// revision they read and with an explicit confirmation, because a real change clears every
+/// standing approval. The change is written with a compare-and-swap, so a concurrent approval or
+/// policy change is a conflict, never an overwrite, and the response re-evaluates the piece
+/// under the new rule. It records no approval for anyone.
+fn set_approval_policy(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    use openblog_core::approval::{role_with_article, PolicyChange, PolicyError};
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<ApprovalPolicyRequest>(&req.body) else {
+        return shared_problem(
+            "policy",
+            "This approval rule is not valid. Reload Admin Studio and try again.",
+        );
+    };
+    let Ok(transaction) = invitation_transaction(state, &body.publication_id) else {
+        return approval_policy_not_found();
+    };
+    let Some(record) = transaction.record.clone() else {
+        return approval_policy_not_found();
+    };
+    if !may_set_approval_policy(&transaction, &record, session) {
+        return approval_policy_not_found();
+    }
+    let inputs = match gate_inputs(state, &transaction, &record) {
+        Ok(inputs) => inputs,
+        Err(response) => return response,
+    };
+    if matches!(
+        inputs.outcome.outcome,
+        Some(openblog_core::assembly::Outcome::Published { .. })
+    ) {
+        return published_already();
+    }
+    let approvers = active_approvers(&transaction, &record, &inputs.active);
+    let approver_ids = approvers.iter().map(String::as_str).collect::<Vec<_>>();
+    let active = inputs.active.iter().map(String::as_str).collect::<Vec<_>>();
+    let mut next = inputs.approvals.set.clone();
+    let result = openblog_core::assembly::with_subject(
+        &record,
+        inputs.structure.structure.as_ref(),
+        &inputs.drafts,
+        &inputs.synthesis,
+        &active,
+        |subject| {
+            next.change_policy(
+                body.policy.clone(),
+                body.expected_revision,
+                body.confirmed,
+                subject,
+                &approver_ids,
+            )
+        },
+    );
+    let cleared = match result {
+        Ok(PolicyChange::Unchanged) => None,
+        Ok(PolicyChange::Changed { cleared }) => Some(cleared),
+        Err(PolicyError::Stale) => {
+            return Response::error(
+                409,
+                "The approval rule changed since you loaded it. Reload to see the current rule; nothing was changed.",
+            )
+        }
+        Err(PolicyError::Invalid) => {
+            return shared_problem(
+                "policy",
+                "Choose at least one person or role, each only once. Nothing was changed.",
+            )
+        }
+        Err(PolicyError::Unconfirmed) => {
+            return shared_problem(
+                "confirmed",
+                "Confirm that changing the rule clears every approval, so every required author approves again. Nothing was changed.",
+            )
+        }
+        Err(PolicyError::Unmeetable(gaps)) => {
+            let mut problems = Vec::new();
+            let names = openblog_core::assembly::display_names(
+                &record,
+                gaps.named.iter().map(String::as_str),
+            );
+            let unknown = gaps.named.len() - names.len();
+            if !names.is_empty() {
+                problems.push(format!("{} cannot approve this piece", names.join(", ")));
+            }
+            if unknown > 0 {
+                problems.push("a chosen person is not part of this reflection".to_string());
+            }
+            for role in &gaps.roles {
+                problems.push(format!("no author is {}", role_with_article(*role)));
+            }
+            return shared_problem(
+                "policy",
+                &format!(
+                    "This rule could never be met: {}. Only authors with the contributor role can approve. Nothing was changed.",
+                    problems.join("; ")
+                ),
+            );
+        }
+    };
+    if cleared.is_some() {
+        if let Err(error) = crate::shared_publications::replace_approvals(
+            &state.root,
+            &body.publication_id,
+            &inputs.approvals,
+            &next,
+        ) {
+            return publish_store_problem(error);
+        }
+        eprintln!(
+            "admin: changed the approval rule of shared publication {}",
+            body.publication_id
+        );
+    }
+    let mut response = approval_policy_json(&record, &inputs, &next, &approvers);
+    if let Some(object) = response.as_object_mut() {
+        object.insert("changed".into(), json!(cleared.is_some()));
+        object.insert("cleared".into(), json!(cleared.unwrap_or(0)));
+    }
+    Response::json(200, &response)
 }
 
 // ---------------------------------------------------------------------------
@@ -17485,6 +17785,326 @@ mod tests {
         );
         assert_eq!(publish_as(&f, &grace, &id).status, 404);
         assert_eq!(state_trees(&f), before);
+    }
+
+    fn approval_policy_read(f: &Fixture, who: &Session, id: &str) -> Response {
+        handle(
+            &f.state,
+            &authed(
+                req(
+                    "GET",
+                    &format!("/admin/api/collaboration/approval-policy?publicationId={id}"),
+                ),
+                who,
+                false,
+            ),
+        )
+    }
+
+    fn approval_policy_write(f: &Fixture, who: &Session, body: Json, csrf: bool) -> Response {
+        handle(
+            &f.state,
+            &authed(
+                json_req("PUT", "/admin/api/collaboration/approval-policy", body),
+                who,
+                csrf,
+            ),
+        )
+    }
+
+    fn rule_body(id: &str, revision: u64, policy: Json, confirmed: bool) -> Json {
+        json!({ "publicationId": id, "expectedRevision": revision, "policy": policy, "confirmed": confirmed })
+    }
+
+    fn approvals_file(f: &Fixture, id: &str) -> Json {
+        serde_json::from_str(
+            &fs::read_to_string(f.dir.join(format!(
+                ".openblog/private/collaboration/approvals/{id}.json"
+            )))
+            .unwrap(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn the_approval_rule_is_chosen_with_the_grant_a_confirmation_and_the_revision_read() {
+        let (f, mikey, grace, ada, id) = approval_fixture("approval-rule");
+        // Linus joins as a contributor and writes nothing, so under "every author" he blocks.
+        let linus = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "linus",
+            "yet another horse",
+            json!(["contributor"]),
+        );
+        for who in [&mikey, &grace] {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        let stale_token = approval_body(&f, &mikey, &id);
+        assert_eq!(
+            body_json(&publish_as(&f, &ada, &id))["missing"],
+            json!(["Linus"])
+        );
+
+        // Reading and changing the rule: site owners and coordinators only; everyone else gets
+        // the same not-found as an unknown publication, and nothing changes.
+        let unknown = approval_policy_read(&f, &ada, "shared-ffffffffffff");
+        assert_eq!(unknown.status, 404);
+        for who in [&grace, &linus] {
+            let denied = approval_policy_read(&f, who, &id);
+            assert_eq!(denied.status, 404);
+            assert_eq!(denied.body, unknown.body);
+        }
+        let read = approval_policy_read(&f, &ada, &id);
+        assert_eq!(read.status, 200);
+        assert_no_prose(&read);
+        let read = body_json(&read);
+        assert_eq!(read["policy"]["requirement"], "allAuthors");
+        assert_eq!(read["revision"], 0);
+        assert_eq!(read["required"], json!(["Mikey", "Grace", "Linus"]));
+        assert_eq!(read["missing"], json!(["Linus"]));
+        assert_eq!(read["approvers"].as_array().unwrap().len(), 3);
+        assert_eq!(approval_policy_read(&f, &mikey, &id).status, 200);
+
+        let before = state_trees(&f);
+        let contributing = json!({ "requirement": "contributingAuthors" });
+        for who in [&grace, &linus] {
+            let denied =
+                approval_policy_write(&f, who, rule_body(&id, 0, contributing.clone(), true), true);
+            assert_eq!(denied.status, 404);
+        }
+        let no_csrf = approval_policy_write(
+            &f,
+            &ada,
+            rule_body(&id, 0, contributing.clone(), true),
+            false,
+        );
+        assert!(no_csrf.status == 401 || no_csrf.status == 403);
+        // Unconfirmed, stale, malformed and unknown-field requests change nothing.
+        let unconfirmed = approval_policy_write(
+            &f,
+            &ada,
+            rule_body(&id, 0, contributing.clone(), false),
+            true,
+        );
+        assert_eq!(unconfirmed.status, 422);
+        assert_eq!(body_json(&unconfirmed)["field"], "confirmed");
+        assert_eq!(
+            approval_policy_write(
+                &f,
+                &ada,
+                rule_body(&id, 3, contributing.clone(), true),
+                true
+            )
+            .status,
+            409
+        );
+        for policy in [
+            json!({ "requirement": { "namedAuthors": [] } }),
+            json!({ "requirement": "everyone" }),
+            json!({ "requirement": "allAuthors", "extra": 1 }),
+            json!({ "requirement": { "authorsWithRoles": ["editor", "editor"] } }),
+        ] {
+            assert_eq!(
+                approval_policy_write(&f, &ada, rule_body(&id, 0, policy, true), true).status,
+                422
+            );
+        }
+        // Resubmitting the current rule is a no-op: no confirmation needed, nothing written.
+        let same = approval_policy_write(
+            &f,
+            &ada,
+            rule_body(&id, 0, json!({ "requirement": "allAuthors" }), false),
+            true,
+        );
+        assert_eq!(same.status, 200);
+        assert_eq!(body_json(&same)["changed"], false);
+        assert_eq!(state_trees(&f), before);
+
+        // A confirmed change clears every approval, advances the revision once and re-evaluates.
+        let changed = approval_policy_write(
+            &f,
+            &ada,
+            rule_body(&id, 0, contributing.clone(), true),
+            true,
+        );
+        assert_eq!(changed.status, 200);
+        let changed = body_json(&changed);
+        assert_eq!(changed["changed"], true);
+        assert_eq!(changed["cleared"], 2);
+        assert_eq!(changed["revision"], 1);
+        assert_eq!(changed["required"], json!(["Mikey", "Grace"]));
+        assert_eq!(changed["missing"], json!(["Mikey", "Grace"]));
+        assert!(approvals_file(&f, &id)["approvals"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        assert_eq!(state_trees(&f)[0], before[0]);
+        assert_eq!(state_trees(&f)[1], before[1]);
+        // A second change from the revision already used loses the race.
+        assert_eq!(
+            approval_policy_write(
+                &f,
+                &ada,
+                rule_body(&id, 0, json!({ "requirement": "allAuthors" }), true),
+                true
+            )
+            .status,
+            409
+        );
+        // An approval read under the old rule no longer lands.
+        assert_eq!(post_api(&f, &mikey, "approve", stale_token).status, 409);
+        // The preview shows the rule, its version and that Linus is not required.
+        let preview = body_json(&preview_call(&f, &mikey, &id));
+        assert_eq!(preview["preview"]["rule"]["revision"], 1);
+        assert_eq!(
+            preview["preview"]["rule"]["policy"]["requirement"],
+            "contributingAuthors"
+        );
+        let linus_section = preview["preview"]["sections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["displayName"] == "Linus")
+            .unwrap()
+            .clone();
+        assert_eq!(linus_section["required"], false);
+        assert_eq!(linus_section["approval"], "awaiting");
+        assert!(preview_document_text(&f, &mikey, &preview)
+            .contains("Approval rule: Everyone who wrote a section"));
+        // Once both writers approve again the piece publishes; nobody approved for Linus.
+        for who in [&mikey, &grace] {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        let stored = approvals_file(&f, &id);
+        assert_eq!(stored["approvals"].as_array().unwrap().len(), 2);
+        assert_eq!(publish_as(&f, &ada, &id).status, 200);
+        // A published reflection keeps its rule.
+        assert_eq!(
+            approval_policy_write(
+                &f,
+                &ada,
+                rule_body(&id, 1, json!({ "requirement": "allAuthors" }), true),
+                true
+            )
+            .status,
+            409
+        );
+    }
+
+    #[test]
+    fn a_named_approver_who_leaves_blocks_publishing_until_the_rule_changes() {
+        let (f, mikey, grace, ada, id) = approval_fixture("approval-rule-churn");
+        let record = stored_record(&f, &id);
+        let grace_id = participant_of(&f, &id, "grace");
+        let ada_id = participant_of(&f, &id, "ada");
+        // Rules the authors could never meet are refused: Ada coordinates but is not an author,
+        // nobody holds the editor role, and an unknown participant cannot approve.
+        for (policy, says) in [
+            (
+                json!({ "requirement": { "namedAuthors": [ada_id] } }),
+                "Ada cannot approve",
+            ),
+            (
+                json!({ "requirement": { "authorsWithRoles": ["editor"] } }),
+                "no author is an editor",
+            ),
+            (
+                json!({ "requirement": { "namedAuthors": ["PARTICIPANT-99"] } }),
+                "not part of this reflection",
+            ),
+        ] {
+            let refused = approval_policy_write(&f, &ada, rule_body(&id, 0, policy, true), true);
+            assert_eq!(refused.status, 422);
+            let message = body_json(&refused)["error"].as_str().unwrap().to_string();
+            assert!(message.contains(says), "{message}");
+        }
+        // Grace must approve the final piece, even if she later loses access.
+        let named = approval_policy_write(
+            &f,
+            &ada,
+            rule_body(
+                &id,
+                0,
+                json!({ "requirement": { "namedAuthors": [grace_id] } }),
+                true,
+            ),
+            true,
+        );
+        assert_eq!(
+            named.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&named.body)
+        );
+        let named = body_json(&named);
+        assert!(named["summary"]
+            .as_str()
+            .unwrap()
+            .contains("and so must Grace."));
+        for who in [&mikey, &grace] {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        let removed = post_api(
+            &f,
+            &mikey,
+            "members/remove",
+            json!({ "publicationId": id, "participantId": grace_id, "expectedRevision": record.authorization.revision }),
+        );
+        assert_eq!(removed.status, 200);
+        assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        // Mikey's approval does not stand in for Grace's: publishing is refused with the reason.
+        let before = state_trees(&f);
+        let refused = publish_as(&f, &ada, &id);
+        assert_eq!(refused.status, 409);
+        assert_no_prose(&refused);
+        assert_eq!(body_json(&refused)["unmetNamed"], json!(["Grace"]));
+        assert_eq!(state_trees(&f), before);
+        let preview = body_json(&preview_call(&f, &mikey, &id));
+        assert_eq!(preview["preview"]["rule"]["unmetNamed"], json!(["Grace"]));
+        assert_eq!(preview["preview"]["ready"], false);
+        assert!(preview_document_text(&f, &mikey, &preview).contains("Grace can no longer approve"));
+        let read = body_json(&approval_policy_read(&f, &ada, &id));
+        assert_eq!(read["unmetNamed"], json!(["Grace"]));
+        // The resolution: a coordinator changes the rule, and the remaining author approves again.
+        let resolved = approval_policy_write(
+            &f,
+            &ada,
+            rule_body(
+                &id,
+                1,
+                json!({ "requirement": "contributingAuthors" }),
+                true,
+            ),
+            true,
+        );
+        assert_eq!(resolved.status, 200);
+        assert_eq!(body_json(&resolved)["unmetNamed"], json!([]));
+        assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        assert_eq!(publish_as(&f, &ada, &id).status, 200);
+    }
+
+    #[test]
+    fn a_reveal_rule_change_names_the_rule_it_replaces() {
+        let (f, _mikey, _grace, ada, id) = approval_fixture("reveal-rule-race");
+        let before = state_trees(&f);
+        let stale = reveal_call(
+            &f,
+            &ada,
+            "policy",
+            json!({ "publicationId": id, "policy": "allReady", "expectedPolicy": "independent" }),
+        );
+        assert_eq!(stale.status, 409);
+        assert_eq!(state_trees(&f), before);
+        let current = reveal_call(
+            &f,
+            &ada,
+            "policy",
+            json!({ "publicationId": id, "policy": "allReady", "expectedPolicy": "voluntary" }),
+        );
+        assert_eq!(current.status, 200);
+        assert_eq!(body_json(&current)["policy"], "allReady");
     }
 
     #[test]

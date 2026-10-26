@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::approval::{public_metadata, ApprovalSet, ApprovalSubject, Readiness, Section};
-use crate::collaboration::{valid_admin_username, SharedPublication};
+use crate::collaboration::{valid_admin_username, AuthorizationRole, SharedPublication};
 use crate::draft::DraftSet;
 use crate::frontmatter::{self, Value};
 use crate::reflection::{compose, strip_part_markers, ComposedTurn, ReflectionStructure};
@@ -34,6 +34,14 @@ pub enum AssemblyError {
     /// Required approvals are missing or no longer match the content. Holds display names, for a
     /// requester who already holds the publish grant.
     Blocked { missing: Vec<String> },
+    /// The approval rule cannot be met by the authors as they are now, whatever anyone approves:
+    /// a named participant (display names here) is no longer an author, or no author holds a
+    /// listed role. Someone with the policy grant changes the rule, or the maintainer restores the
+    /// person or gives the role (ADR 0043).
+    RuleUnmet {
+        named: Vec<String>,
+        roles: Vec<AuthorizationRole>,
+    },
     /// The record cannot make a Post: no title, no section, or an author without a profile.
     Invalid,
     /// A section contains raw HTML or a link or image with an active address (`javascript:`,
@@ -144,11 +152,24 @@ pub fn with_subject<R>(
     metadata.extend(synthesis.binding_frame());
     let metadata: Vec<&str> = metadata.iter().map(String::as_str).collect();
     let attributed = synthesis.attributed_authors();
+    // The roles each author holds, for role-based approval rules (ADR 0043).
+    let roles: Vec<(&str, AuthorizationRole)> = authors
+        .iter()
+        .flat_map(|author| {
+            record
+                .authorization
+                .bindings
+                .iter()
+                .filter(move |binding| binding.participant_id == *author)
+                .flat_map(move |binding| binding.roles.iter().map(move |role| (*author, *role)))
+        })
+        .collect();
     ask(&ApprovalSubject {
         authors: &authors,
         sections: &sections,
         metadata: &metadata,
         attributed: &attributed,
+        roles: &roles,
     })
 }
 
@@ -301,7 +322,13 @@ pub fn assemble(
         approvals.evaluate(subject)
     }) {
         Ok(Readiness::Ready) => {}
-        Ok(Readiness::Blocked { missing }) => {
+        Ok(Readiness::Blocked { gaps, .. }) if !gaps.is_empty() => {
+            return Err(AssemblyError::RuleUnmet {
+                named: display_names(record, gaps.named.iter().map(String::as_str)),
+                roles: gaps.roles,
+            })
+        }
+        Ok(Readiness::Blocked { missing, .. }) => {
             return Err(AssemblyError::Blocked {
                 missing: display_names(record, missing.iter().map(String::as_str)),
             })

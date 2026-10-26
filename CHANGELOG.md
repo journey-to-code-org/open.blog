@@ -10,6 +10,14 @@ All notable changes to open.blog are recorded here. Releases follow
   role changes, and removals (participants and roles only, never links or prose), and role
   changes keep approvals and continuing-conversation attribution in step. Existing records need no
   migration.
+- Site owners and coordinators can choose a shared reflection's approval rule in Admin: every
+  author, everyone who wrote, the writers plus named people, or the writers plus everyone with a
+  chosen role, and whether an approval covers one's own sections or the whole piece. Everyone who
+  wrote always approves their own words. Changing the rule needs a confirmation, clears every
+  approval, and is refused if someone else changed it first or if the authors could never meet
+  it. If a named person leaves, or nobody holds a listed role, publishing waits until the rule
+  changes. The combined preview shows the rule. Changing the sharing rule now refuses to overwrite
+  a change made elsewhere.
 
 ## [0.24.0] - 2026-10-25
 
