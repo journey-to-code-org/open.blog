@@ -199,6 +199,9 @@ pub struct PortableProjection<'a> {
     participation: Option<CommentsPolicy>,
     /// The post's place in a collaborative series, when it is a part of one (ADR 0041).
     series: Option<SeriesContext>,
+    /// The claim evidence the post publishes (ADR 0075), which every portable
+    /// artifact must carry whole.
+    claim_evidence: Option<&'a crate::claim_publication::PostEvidence>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -687,6 +690,8 @@ impl<'a> PortableProjection<'a> {
                 web_libraries: None,
                 // Generated notes are ordinary footnotes here, linked to the canonical article.
                 citation_notes: None,
+                // The section is ordinary content in a portable copy.
+                claim_evidence_section: false,
             },
             runner_languages: (!config.code_runner.endpoint.is_empty())
                 .then(|| config.code_runner.languages.clone()),
@@ -698,6 +703,7 @@ impl<'a> PortableProjection<'a> {
                 && !config.engagement.endpoint.trim().is_empty())
             .then_some(post.comments),
             series: None,
+            claim_evidence: post.claim_evidence(),
         })
     }
 
@@ -1651,6 +1657,16 @@ impl<'a> PortableProjection<'a> {
     }
 
     fn ensure_semantics(&self, format: RepresentationFormat, artifact: &str) -> Result<(), String> {
+        // Claim evidence fails closed: a copy that dropped or reordered any of
+        // it could show support without its contradiction (ADR 0075).
+        if let Some(evidence) = self.claim_evidence {
+            if !crate::claim_publication::carried_whole(artifact, evidence) {
+                return Err(format!(
+                    "{} [claim-evidence-lost] claim-evidence: the {format:?} copy does not carry every published claim with its supporting and contradicting evidence; refusing to publish a partial copy",
+                    self.source_path
+                ));
+            }
+        }
         let diagnostics = self.analyze_portable_artifact(format, artifact)?;
         if diagnostics.is_empty() {
             return Ok(());

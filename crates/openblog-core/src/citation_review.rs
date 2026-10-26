@@ -72,6 +72,7 @@ pub fn review_citations<'l>(
             },
             message,
             repair,
+            object: None,
         }
     };
     let scan = scan_citations(markdown);
@@ -197,6 +198,7 @@ pub fn review_citations<'l>(
                 lines.join(", ")
             ),
             repair: "Compare each location with the source itself, for example with a notebook passage captured there.".into(),
+            object: None,
         });
     }
     findings

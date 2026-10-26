@@ -16,6 +16,45 @@ All notable changes to open.blog are recorded here. Releases follow
   until it changes. Existing libraries read and save exactly as before, and none of this is
   published.
 
+## [0.32.0] - 2026-10-26
+
+- Defined the format for private claims in draft posts and evidence links that record whether a
+  source supports, contradicts or contextualizes each claim, with rationale, uncertainty, review
+  state and provenance. A citation alone never asserts support, contradicting evidence cannot be
+  hidden while support is published, and nothing judges evidence or scores it. Nothing reads or
+  writes these files yet, so no site output changes.
+- Withdrawing consent on a claim or a contradicting evidence link is never refused: an approved
+  link on a private claim, and approved support beside a private contradiction, stay private and
+  are reported as notices instead of making the claims file invalid.
+- Evidence Studio in the post editor can now record claims: select words in a saved draft to make
+  a claim, then link supporting, contradicting or contextualizing evidence from your notebook
+  passages or source library with a rationale, confidence and uncertainty. Supporting and
+  contradicting evidence are listed side by side and never combined into one figure. Each claim
+  shows whether its words are still where you selected them (verified, moved, stale or
+  ambiguous) and can be re-anchored; a stale or ambiguous range is refused without changing the
+  draft or the claims. Claims are stored privately in `.openblog/private/research/claims.json`,
+  checked by `openblog check`, synced by the hosted workspace, and never reach your site, feeds,
+  search, `llms.txt` or exports. A source or passage an evidence link uses cannot be removed
+  until the link stops using it.
+- Claims now come with evidence gaps and review prompts: a claim with no evidence, contradicting
+  evidence without a note on how the post addresses it, only supporting evidence on a claim you
+  marked uncertain, a link resting on an archived source or passage, a link with no location or
+  no rationale, a location nobody has checked, a suggestion nobody has reviewed, and claim words
+  that moved or are gone. Each names what was checked and what to do next, and none says whether
+  a claim is true. `openblog check`, `openblog build` (as warnings, only when the private claims
+  file is present, and never in the site) and Evidence Studio show the same findings in the same
+  order. A claim's anchor that is still in place now reads "In place" rather than "Verified".
+- Sites can now publish the claims and evidence you approved: turn on `claimEvidence.publish` and
+  each post with approved claims gains a "Claims and evidence" section, readable without
+  JavaScript, listing every claim's supporting and contradicting evidence side by side with the
+  references, locations, your rationale, confidence and uncertainty, and marking a claim with
+  published contradiction as contested. The same text reaches portable copies, feeds and
+  `llms.txt`, and `/claim-evidence.json` holds the same data. Support is never published while a
+  contradicting link stays private, private notes and passages never are, and withdrawing approval
+  removes the item from the next build. Dated revision notes written in a post's front matter as
+  `evidenceRevisions` are published in the same section and stay published even when the private
+  claims file is gone. Sites that leave the setting off are unchanged.
+
 ## [0.31.0] - 2026-10-26
 
 - Contributors to a shared reflection can pin moments to its sources in Admin: a time or range in

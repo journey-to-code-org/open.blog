@@ -128,6 +128,7 @@ pub fn update(
         library.upsert(record.clone(), contributors)?;
         keep_notebook_valid(root, &before, library, vec![record.id.clone()])?;
         keep_atlas_valid(root, &before, library, std::slice::from_ref(&record.id))?;
+        keep_claims_valid(root, &before, library, std::slice::from_ref(&record.id))?;
         keep_posts_citable(root, &before, library, std::slice::from_ref(&record.id))
     })
     .map(|(snapshot, ())| snapshot)
@@ -179,6 +180,7 @@ pub fn import_csl(
             .collect();
         keep_notebook_valid(root, &before, library, moved.clone())?;
         keep_atlas_valid(root, &before, library, &moved)?;
+        keep_claims_valid(root, &before, library, &moved)?;
         keep_posts_citable(root, &before, library, &moved)?;
         Ok(plan)
     })
@@ -241,6 +243,33 @@ fn keep_atlas_valid(
             field: None,
             message: format!(
                 "the change would leave the Knowledge Atlas invalid, so nothing was saved ({message}); adjust the affected entries and relationships first"
+            ),
+        }]
+    })
+}
+
+/// A library change must not leave a valid claims file invalid, for example by
+/// re-pointing a reference so an evidence locator turns ambiguous. Like the
+/// atlas check it runs under the library lock, which every claims write also
+/// holds, and a claims file that was already unreadable does not block
+/// unrelated library edits.
+fn keep_claims_valid(
+    root: &Path,
+    before: &SourceLibrary,
+    after: &SourceLibrary,
+    ids: &[String],
+) -> Result<(), Vec<SourceDiagnostic>> {
+    if crate::claims_store::check_against_library(root, before).is_err() {
+        return Ok(());
+    }
+    crate::claims_store::check_against_library(root, after).map_err(|message| {
+        vec![SourceDiagnostic {
+            code: SourceDiagnosticCode::StillUsed,
+            index: None,
+            source_id: ids.first().cloned(),
+            field: None,
+            message: format!(
+                "the change would leave the claims file invalid, so nothing was saved ({message}); adjust the affected evidence links first"
             ),
         }]
     })
@@ -341,6 +370,24 @@ pub fn remove(
                     "{} in the Knowledge Atlas still use this source ({}); remove them or change their evidence first",
                     using.len(),
                     using.join(", ")
+                ),
+            )]);
+        }
+        // Evidence links in the claims file rest on sources too; claims
+        // writes hold this lock as well.
+        let using = crate::claims_store::uses_of_source(root, library, id)
+            .map_err(|message| vec![still_used(id, message)])?;
+        if !using.is_empty() {
+            return Err(vec![still_used(
+                id,
+                format!(
+                    "{} evidence link{} in the claims file still rest{} on this source ({}); remove {} or change {} evidence first",
+                    using.len(),
+                    if using.len() == 1 { "" } else { "s" },
+                    if using.len() == 1 { "s" } else { "" },
+                    using.join(", "),
+                    if using.len() == 1 { "it" } else { "them" },
+                    if using.len() == 1 { "its" } else { "their" },
                 ),
             )]);
         }
