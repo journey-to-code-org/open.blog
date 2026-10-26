@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   ObAdmin,
+  atlasBuildText,
   atlasConfidenceText,
   atlasDiagnosticControl,
   atlasDissentDraft,
@@ -842,6 +843,12 @@ test("the atlas is reachable from the research tools, the palette and the router
   assert.match(admin, /label: "Knowledge Atlas", category: "Research"/);
   assert.equal(safeDecodeURIComponent("the%20good"), "the good");
   assert.equal(safeDecodeURIComponent("%E0%A4%A"), "");
+});
+
+test("a save says whether the published atlas was rebuilt, only when the site publishes it", () => {
+  assert.equal(atlasBuildText(undefined), "");
+  assert.equal(atlasBuildText({ ok: true, files: 9 }), " The published Knowledge Atlas was rebuilt.");
+  assert.equal(atlasBuildText({ ok: false, error: "the Knowledge Atlas cannot be published" }), " The change is saved, but the site could not be rebuilt: the Knowledge Atlas cannot be published");
 });
 
 test("atlas code never parses text as markup and announces changes", () => {

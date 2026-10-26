@@ -1801,10 +1801,34 @@ fn atlas_request(req: &Request) -> Result<(Json, String), Response> {
     Ok((body, revision))
 }
 
-fn atlas_saved(snapshot: &atlas_store::Snapshot, key: &str, item: Json, create: bool) -> Response {
+fn atlas_saved(
+    state: &AppState,
+    snapshot: &atlas_store::Snapshot,
+    key: &str,
+    item: Json,
+    create: bool,
+) -> Response {
     let mut view = atlas_view(snapshot);
     view[key] = item;
+    attach_atlas_build(state, &mut view);
     Response::json(if create { 201 } else { 200 }, &view)
+}
+
+/// While the site publishes its atlas (ADR 0063), a saved atlas change is
+/// published at once, so granting or withdrawing approval reaches the public
+/// site without waiting for another save. The outcome travels as `build`; a
+/// site that does not publish its atlas is not rebuilt.
+fn attach_atlas_build(state: &AppState, view: &mut Json) {
+    let publishes = site::load_config(&state.root)
+        .map(|config| config.knowledge_atlas.publish)
+        .unwrap_or(false);
+    if !publishes {
+        return;
+    }
+    view["build"] = match state.rebuild() {
+        Ok(report) => json!({ "ok": true, "files": report.files }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    };
 }
 
 /// Create (`POST`) or update (`PUT`) one entry from its full JSON form.
@@ -1827,7 +1851,7 @@ fn save_atlas_entry(state: &AppState, req: &Request, create: bool) -> Response {
     match saved {
         Ok(snapshot) => {
             let item = json!(snapshot.atlas.entry(&id));
-            atlas_saved(&snapshot, "entry", item, create)
+            atlas_saved(state, &snapshot, "entry", item, create)
         }
         Err(error) => atlas_store_error(state, error, Some((true, &id))),
     }
@@ -1853,7 +1877,7 @@ fn save_atlas_relationship(state: &AppState, req: &Request, create: bool) -> Res
     match saved {
         Ok(snapshot) => {
             let item = json!(snapshot.atlas.relationship(&id));
-            atlas_saved(&snapshot, "relationship", item, create)
+            atlas_saved(state, &snapshot, "relationship", item, create)
         }
         Err(error) => atlas_store_error(state, error, Some((false, &id))),
     }
@@ -1879,13 +1903,18 @@ fn remove_atlas_item(state: &AppState, req: &Request, entry: bool) -> Response {
             Ok((snapshot, removal)) => {
                 let mut view = atlas_view(&snapshot);
                 view["unresolvedNotes"] = json!(removal.unresolved_notes);
+                attach_atlas_build(state, &mut view);
                 Response::json(200, &view)
             }
             Err(error) => atlas_store_error(state, error, Some((true, id))),
         }
     } else {
         match atlas_store::remove_relationship(&state.root, &revision, id, &contributors) {
-            Ok(snapshot) => Response::json(200, &atlas_view(&snapshot)),
+            Ok(snapshot) => {
+                let mut view = atlas_view(&snapshot);
+                attach_atlas_build(state, &mut view);
+                Response::json(200, &view)
+            }
             Err(error) => atlas_store_error(state, error, Some((false, id))),
         }
     }
@@ -12932,6 +12961,51 @@ mod tests {
             crate::atlas_store::load(&f.dir, &none).unwrap().revision,
             withdrawn.revision
         );
+    }
+
+    #[test]
+    fn an_atlas_change_rebuilds_the_site_only_while_it_publishes_its_atlas() {
+        let f = fixture_with_sources("atlas-publication-rebuild");
+        let session = login_ok(&f);
+        seeded_atlas(&f);
+        let none = BTreeMap::new();
+        let dist = f.dir.join("dist");
+        let page = dist.join(format!("atlas/{}/index.html", ATLAS_SENTINELS[0].1));
+        let withdraw = |revision: &str, visibility: &str| {
+            let snapshot = crate::atlas_store::load(&f.dir, &none).unwrap();
+            let mut person = json!(snapshot.atlas.entry(ATLAS_SENTINELS[0].1).unwrap());
+            person["visibility"] = json!(visibility);
+            notebook_call(
+                &f,
+                &session,
+                "PUT",
+                "/admin/api/research/atlas/entries",
+                json!({ "revision": revision, "entry": person }),
+            )
+        };
+
+        // Off: the change is saved and nothing is built.
+        let revision = crate::atlas_store::load(&f.dir, &none).unwrap().revision;
+        let (status, body) = withdraw(&revision, "private");
+        assert_eq!(status, 200, "{body}");
+        assert!(body.get("build").is_none());
+        assert!(!dist.join("atlas.json").exists());
+
+        // On: approving publishes at once, and withdrawing removes the page at once.
+        let config_path = f.dir.join(site::CONFIG_FILE);
+        let mut config: Json = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+        config["knowledgeAtlas"] = json!({"publish": true});
+        fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+        let (status, body) = withdraw(body["revision"].as_str().unwrap(), "approved");
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(body["build"]["ok"], true, "{body}");
+        assert!(page.exists(), "approval is published by the save");
+        let (status, body) = withdraw(body["revision"].as_str().unwrap(), "private");
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(body["build"]["ok"], true, "{body}");
+        assert!(!page.exists(), "withdrawal is published by the save");
+        let published = fs::read(dist.join("atlas.json")).unwrap();
+        assert!(atlas_leaked(&published).is_empty());
     }
 
     #[test]

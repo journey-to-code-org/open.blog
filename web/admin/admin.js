@@ -1815,6 +1815,13 @@ export function atlasDiagnosticControl(field, type = "entry") {
 }
 
 /** Server diagnostics as one line of text; a cycle or a blocking relationship names the relationship. */
+/** What a save or removal did to the published site, when the site publishes its atlas. */
+export function atlasBuildText(build) {
+  if (!build || typeof build !== "object") return "";
+  if (build.ok) return " The published Knowledge Atlas was rebuilt.";
+  return ` The change is saved, but the site could not be rebuilt: ${String(build.error || "unknown error")}`;
+}
+
 export function atlasErrorMessage(error) {
   const diagnostics = Array.isArray(error?.data?.diagnostics) ? error.data.diagnostics : [];
   if (!diagnostics.length) return error?.data?.error || error?.message || "The atlas could not be changed.";
@@ -2282,7 +2289,7 @@ export function createAtlasForm({ api, state, type = "entry", item = null, prefi
         field("from-year", "From year", h("input", { type: "text", inputmode: "numeric", value: draft.fromYear, autocomplete: "off", onInput: (event) => { draft.fromYear = event.target.value; } })),
         field("until-year", "Until year", h("input", { type: "text", inputmode: "numeric", value: draft.untilYear, autocomplete: "off", onInput: (event) => { draft.untilYear = event.target.value; } })),
       ),
-      check("approved", "Approved for the publication projection", draft.approved, (on) => { draft.approved = on; }, "Your consent that a future publication projection may include this entry. Nothing is published from here, and clearing it withdraws the consent."),
+      check("approved", "Approved for the publication projection", draft.approved, (on) => { draft.approved = on; }, "Your consent to publish this entry on the site's Knowledge Atlas pages and atlas.json, once the site turns on knowledgeAtlas.publish. Only its label, other names, summary, years and work source are published. Clearing it removes the entry from the next build."),
     );
     return fields;
   };
@@ -2356,7 +2363,7 @@ export function createAtlasForm({ api, state, type = "entry", item = null, prefi
         draft.contestedBy.map(dissentEditor),
         h("button", { class: "oba-btn", type: "button", id: `${idPrefix}-add-dissent`, "data-atlas-add-dissent": "true", disabled: draft.contestedBy.length >= MAX_ATLAS_DISSENTS, onClick: () => { draft.contestedBy.push(atlasDissentDraft({ by: { kind: "named" } })); rerender(`dissent-${draft.contestedBy.length - 1}-name`); } }, "Add a dissent"),
       ),
-      check("approved", "Approved for the publication projection", draft.approved, (on) => { draft.approved = on; }, "Your consent that a future publication projection may include it, only while both entries are approved too. An unsourced draft or evidence pointing into the private notebook cannot be approved."),
+      check("approved", "Approved for the publication projection", draft.approved, (on) => { draft.approved = on; }, "Your consent to publish it with the Knowledge Atlas, only while both entries are approved too, with who asserts it, its evidence, confidence, doubt and dissents. An unsourced draft or evidence pointing into the private notebook cannot be approved. Clearing it removes it from the next build."),
     ];
     return fields;
   };
@@ -2441,7 +2448,7 @@ export function createAtlasForm({ api, state, type = "entry", item = null, prefi
       busy = false;
       touched = false;
       say("");
-      onSaved?.({ type, item: result[key] || null });
+      onSaved?.({ type, item: result[key] || null, build: result.build });
     } catch (error) {
       busy = false;
       if (error.status === 409 && error.data?.conflict) {
@@ -6365,12 +6372,12 @@ export class ObAdmin extends AdminElement {
       renderNotices();
     };
 
-    const onSaved = ({ type, item }) => {
+    const onSaved = ({ type, item, build }) => {
       if (this.viewVersion !== mountedView) return;
       if (item) selected = { type, id: item.id };
       renderLists();
       renderPanel(true);
-      say(type === "entry" ? "Entry saved to the private atlas." : "Relationship saved to the private atlas.", "oba-ok");
+      say(`${type === "entry" ? "Entry saved to the private atlas." : "Relationship saved to the private atlas."}${atlasBuildText(build)}`, build && !build.ok ? "oba-error" : "oba-ok");
     };
     const onRefreshed = () => {
       if (this.viewVersion === mountedView) renderLists();
@@ -6394,7 +6401,7 @@ export class ObAdmin extends AdminElement {
           h("li", { "data-atlas-standing": incident.standing }, atlasStandingText(relationship, state.sources)),
           h("li", {}, atlasEvidenceText(relationship)),
           relationship.uncertainty ? h("li", {}, `Uncertain: ${relationship.uncertainty}`) : null,
-          h("li", {}, relationship.visibility !== "approved" ? "Private" : incident.projected ? "Approved; a publication projection may include it" : "Approved, but stays private while an entry it joins is private"),
+          h("li", {}, relationship.visibility !== "approved" ? "Private" : incident.projected ? "Approved; published with the Knowledge Atlas when the site publishes it" : "Approved, but stays private while an entry it joins is private"),
         ),
         h(
           "div",
@@ -6457,7 +6464,7 @@ export class ObAdmin extends AdminElement {
         const concept = selected.prefill?.kind === "concept" && selected.prefill?.id;
         panel.replaceChildren(
           heading(concept ? `New concept ${selected.prefill.id}` : "New entry"),
-          h("p", { class: "oba-small" }, concept ? "Notebook notes that link this concept resolve to it once it is saved." : "Private; never published unless you approve it for a future publication projection."),
+          h("p", { class: "oba-small" }, concept ? "Notebook notes that link this concept resolve to it once it is saved." : "Private; never published unless you approve it and the site publishes its Knowledge Atlas."),
           form.element,
         );
         return;
@@ -6545,8 +6552,8 @@ export class ObAdmin extends AdminElement {
         renderPanel();
         const unresolved = Array.isArray(result.unresolvedNotes) ? result.unresolvedNotes : [];
         say(
-          `Removed from the private atlas.${unresolved.length ? ` ${plural(unresolved.length, "notebook note")} now ${unresolved.length === 1 ? "links" : "link"} to a concept with no entry (${unresolved.join(", ")}). Adding the concept again resolves ${unresolved.length === 1 ? "it" : "them"}.` : ""}`,
-          "oba-ok",
+          `Removed from the private atlas.${unresolved.length ? ` ${plural(unresolved.length, "notebook note")} now ${unresolved.length === 1 ? "links" : "link"} to a concept with no entry (${unresolved.join(", ")}). Adding the concept again resolves ${unresolved.length === 1 ? "it" : "them"}.` : ""}${atlasBuildText(result.build)}`,
+          result.build && !result.build.ok ? "oba-error" : "oba-ok",
         );
         newEntryButton.focus();
       } catch (error) {
