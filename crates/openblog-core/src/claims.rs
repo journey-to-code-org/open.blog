@@ -90,8 +90,9 @@ pub enum Origin {
     Suggested,
 }
 
-/// A span of the draft's UTF-8 source, as byte offsets, with the exact text
-/// seen there when it was recorded so a later edit can be detected.
+/// A span of the draft's anchor text (see [`anchor_text`]), as UTF-8 byte
+/// offsets, with the exact text seen there when it was recorded so a later
+/// edit can be detected.
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct Anchor {
     pub start: usize,
@@ -116,17 +117,40 @@ pub enum AnchorCheck {
 }
 
 impl Anchor {
+    /// Check the anchor against a draft's anchor text (see [`anchor_text`]).
+    /// Occurrences are counted overlapping, so "ha ha" in "ha ha ha" is
+    /// ambiguous, and the search stops at the second one.
     pub fn check(&self, draft: &str) -> AnchorCheck {
         if draft.get(self.start..self.end) == Some(self.text.as_str()) {
             return AnchorCheck::Verified;
         }
-        let mut found = draft.match_indices(self.text.as_str()).map(|(i, _)| i);
-        match (found.next(), found.next()) {
-            (None, _) => AnchorCheck::Stale,
-            (Some(start), None) => AnchorCheck::Moved { start },
-            _ => AnchorCheck::Ambiguous,
+        let Some(first) = draft.find(self.text.as_str()) else {
+            return AnchorCheck::Stale;
+        };
+        // Resume one character after the first hit, so an overlapping
+        // occurrence is still found.
+        let step = draft[first..].chars().next().map_or(1, char::len_utf8);
+        if draft[first + step..].contains(self.text.as_str()) {
+            AnchorCheck::Ambiguous
+        } else {
+            AnchorCheck::Moved { start: first }
         }
     }
+}
+
+/// The text claim anchors index for one post source: the body after a
+/// leading byte-order mark and the front matter are removed, exactly as
+/// [`crate::frontmatter::parse`] yields it, with every CRLF folded to LF.
+/// Anchor offsets are UTF-8 byte offsets into this text, and anchor text
+/// keeps `\n` only. Admin and every check use this one function, so the
+/// offsets a selection produces are the offsets a check reads.
+pub fn anchor_text(source: &str) -> Result<String, String> {
+    let body = crate::frontmatter::parse(source)?.body;
+    Ok(if body.contains("\r\n") {
+        body.replace("\r\n", "\n")
+    } else {
+        body
+    })
 }
 
 /// A statement made in one draft post.
@@ -1386,6 +1410,26 @@ mod tests {
         );
         assert_eq!(anchor.check("The cave"), AnchorCheck::Stale);
         assert_eq!(anchor.check("caves! and caves!"), AnchorCheck::Ambiguous);
+        // Occurrences are counted overlapping.
+        let overlap = Anchor {
+            start: 20,
+            end: 25,
+            text: "ha ha".into(),
+            extra: BTreeMap::new(),
+        };
+        assert_eq!(overlap.check("ha ha ha"), AnchorCheck::Ambiguous);
+        assert_eq!(overlap.check("oh ha ha!"), AnchorCheck::Moved { start: 3 });
+        assert_eq!(
+            overlap.check("\u{e9}\u{e9} ha ha"),
+            AnchorCheck::Moved { start: 5 }
+        );
+        let accented = Anchor {
+            start: 9,
+            end: 13,
+            text: "\u{e9}\u{e9}".into(),
+            extra: BTreeMap::new(),
+        };
+        assert_eq!(accented.check("\u{e9}\u{e9}\u{e9}"), AnchorCheck::Ambiguous);
         let inside = Anchor {
             start: 1,
             end: 3,
@@ -1406,6 +1450,37 @@ mod tests {
             json!({"start": 5, "end": 5, "text": ""}),
         );
         assert!(parse(v).is_err());
+    }
+
+    #[test]
+    fn anchors_index_the_body_after_bom_and_front_matter_with_lf_only() {
+        let source = "\u{feff}---\r\ntitle: Caves\r\n---\r\nThe caves!\r\nare \u{e9}dge.\r\n";
+        let body = anchor_text(source).unwrap();
+        assert_eq!(body, "The caves!\nare \u{e9}dge.");
+        let anchor = Anchor {
+            start: 4,
+            end: 14,
+            text: "caves!\nare".into(),
+            extra: BTreeMap::new(),
+        };
+        assert_eq!(anchor.check(&body), AnchorCheck::Verified);
+        // Without front matter only the BOM goes and CRLF still folds.
+        assert_eq!(
+            anchor_text("\u{feff}The caves!\r\nare").unwrap(),
+            "The caves!\nare"
+        );
+        assert_eq!(
+            anchor.check(&anchor_text("The caves!\r\nare").unwrap()),
+            AnchorCheck::Verified
+        );
+        assert!(anchor_text("---\ntitle: x\n").is_err());
+        // Anchor text keeps `\n` only: a carriage return is refused.
+        let mut v = sample();
+        v["claims"][0]["anchor"] = json!({"start": 0, "end": 2, "text": "a\r"});
+        assert_eq!(codes(parse(v)), [Code::InvalidField]);
+        let mut v = sample();
+        v["claims"][0]["anchor"] = json!({"start": 4, "end": 14, "text": "caves!\nare"});
+        assert!(parse(v).is_ok());
     }
 
     #[test]

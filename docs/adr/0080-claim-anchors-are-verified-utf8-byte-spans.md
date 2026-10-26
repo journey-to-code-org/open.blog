@@ -15,13 +15,22 @@ evidence to different words than the author chose.
 ## Decision
 
 - **Anchor is byte offsets plus the recorded text.** `anchor` is `{start, end, text}` with
-  `start` and `end` UTF-8 byte offsets into the post source and `text` the exact bytes at that
-  span when recorded. It is the author's own draft prose, not a quotation. The contract requires
-  `start < end` and `end - start == text.len()`. A claim without an anchor is a statement claim.
+  `start` and `end` UTF-8 byte offsets into the post's *anchor text* and `text` the exact bytes at
+  that span when recorded. It is the author's own draft prose, not a quotation. The contract
+  requires `start < end` and `end - start == text.len()`. A claim without an anchor is a statement
+  claim.
+- **Anchor text is the body, LF only.** Offsets index the post body after a leading byte-order
+  mark and the front matter are removed, as `frontmatter::parse` yields it, with every CRLF folded
+  to LF. `claims::anchor_text(source)` produces exactly this text; Admin selections, checks and
+  tests all use it, so a selection and a later check can never disagree about offsets. Anchor
+  `text` keeps `
+` only: a carriage return (like any other control character except tab) is
+  refused. Editing the front matter never moves an anchor.
 - **Check, do not repair.** `Anchor::check(draft)` returns `Verified` (text at the offsets),
   `Moved { start }` (occurs exactly once elsewhere: reported, never rewritten), `Stale` (gone) or
-  `Ambiguous` (several occurrences, offsets wrong). Offsets inside a multi-byte character never
-  panic. #45 refuses to save a link on a stale or ambiguous range and leaves the draft and claims
+  `Ambiguous` (several occurrences, offsets wrong). Occurrences are counted overlapping, so
+  "ha ha" in "ha ha ha" is ambiguous, and the search stops at the second. Offsets inside a
+  multi-byte character never panic. #45 refuses to save a link on a stale or ambiguous range and leaves the draft and claims
   file unchanged.
 - **Storage is deferred.** The planned private file is
   `.openblog/private/research/claims.json`, owned by a later store with the atlas store's
