@@ -2191,9 +2191,16 @@ fn assistant_configuration_ready(config: &SiteConfig, credential_configured: boo
         }
 }
 
+thread_local! {
+    /// The provider timeout in tests. It leaves a loaded machine plenty of time to answer; a test
+    /// that exercises the timeout itself shortens it.
+    static TEST_PROVIDER_TIMEOUT: std::cell::Cell<Duration> =
+        const { std::cell::Cell::new(Duration::from_secs(10)) };
+}
+
 fn assistant_provider_timeout(provider: AssistantProviderKind, test_mode: bool) -> Duration {
     if test_mode {
-        return Duration::from_millis(300);
+        return TEST_PROVIDER_TIMEOUT.with(std::cell::Cell::get);
     }
     match provider {
         // Structured-output grammars can take additional time to compile on first use.
@@ -2446,7 +2453,7 @@ fn write_private_bytes_atomic(path: &Path, contents: &[u8]) -> Result<(), String
     #[cfg(not(unix))]
     fs::write(&temporary, contents)
         .map_err(|error| format!("cannot write private Assistant credential: {error}"))?;
-    fs::rename(&temporary, path).map_err(|error| {
+    crate::fsutil::replace_file(&temporary, path).map_err(|error| {
         let _ = fs::remove_file(&temporary);
         format!("cannot replace private Assistant credential: {error}")
     })
@@ -5566,8 +5573,11 @@ fn new_invitation_ids() -> Result<(String, String), String> {
 /// Everything a request to change invitations needs, loaded in one transaction: the record, the
 /// current identities, and the lock guards. The guards drop with this value.
 struct InvitationTransaction<'a> {
-    _build: MutexGuard<'a, BuildStatus>,
+    // Fields drop in declaration order. The lock file must go before the build mutex is
+    // released: otherwise the next request waiting on the mutex finds the lock file still there
+    // and is refused as if another write were active.
     _filesystem: Option<crate::transaction::ContentTransactionLock>,
+    _build: MutexGuard<'a, BuildStatus>,
     record: Option<SharedPublication>,
     admin_users: Vec<String>,
     contributor_ids: Vec<String>,
@@ -8192,7 +8202,7 @@ fn write_atomic_bytes(path: &Path, contents: &[u8]) -> Result<(), String> {
     }
     let tmp = path.with_extension("md.tmp");
     fs::write(&tmp, contents).map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
-    fs::rename(&tmp, path).map_err(|e| {
+    crate::fsutil::replace_file(&tmp, path).map_err(|e| {
         let _ = fs::remove_file(&tmp);
         format!("cannot replace {}: {e}", path.display())
     })
@@ -8417,7 +8427,7 @@ fn write_document_bundle(
                 fs::create_dir_all(parent)
                     .map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
             }
-            fs::rename(from, to).map_err(|error| {
+            crate::fsutil::retry_transient(|| fs::rename(from, to)).map_err(|error| {
                 format!("cannot retire private track {}: {error}", from.display())
             })?;
         }
@@ -8734,10 +8744,12 @@ fn move_files_transactionally(moves: &[(PathBuf, PathBuf)]) -> Result<(), String
     }
     let mut moved = Vec::new();
     for (from, to) in moves {
-        if let Err(error) = fs::rename(from, to) {
+        if let Err(error) = crate::fsutil::retry_transient(|| fs::rename(from, to)) {
             let mut rollback_errors = Vec::new();
             for (moved_from, moved_to) in moved.iter().rev() {
-                if let Err(rollback) = fs::rename(moved_to, moved_from) {
+                if let Err(rollback) =
+                    crate::fsutil::retry_transient(|| fs::rename(moved_to, moved_from))
+                {
                     rollback_errors.push(rollback.to_string());
                 }
             }
@@ -9749,6 +9761,14 @@ mod tests {
 
     static QUIZ_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+    /// Serializes tests that change the Assistant environment. One test failing while holding it
+    /// must not fail every later one too.
+    fn quiz_env() -> std::sync::MutexGuard<'static, ()> {
+        QUIZ_ENV
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     struct EnvRestore {
         name: &'static str,
         value: Option<std::ffi::OsString>,
@@ -9796,6 +9816,29 @@ mod tests {
         Fixture { state, dir }
     }
 
+    /// The one call a fake provider expects. A request that fails before reaching the provider
+    /// panics this thread after a bound instead of leaving the test joined on it forever.
+    fn accept_provider_call(listener: &TcpListener) -> std::net::TcpStream {
+        listener.set_nonblocking(true).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        loop {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    stream.set_nonblocking(false).unwrap();
+                    return stream;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "the fake provider was never called"
+                    );
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => panic!("the fake provider could not accept: {error}"),
+            }
+        }
+    }
+
     fn quiz_provider(
         status: u16,
         body: String,
@@ -9804,8 +9847,8 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let handle = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            stream.set_read_timeout(Some(Duration::from_secs(1))).ok();
+            let mut stream = accept_provider_call(&listener);
+            stream.set_read_timeout(Some(Duration::from_secs(10))).ok();
             let mut request = Vec::new();
             let mut chunk = [0u8; 4096];
             loop {
@@ -9854,8 +9897,8 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let (sender, receiver) = std::sync::mpsc::channel();
         let handle = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            stream.set_read_timeout(Some(Duration::from_secs(1))).ok();
+            let mut stream = accept_provider_call(&listener);
+            stream.set_read_timeout(Some(Duration::from_secs(10))).ok();
             let mut request = Vec::new();
             let mut chunk = [0u8; 4096];
             let (header_end, content_length) = loop {
@@ -12355,7 +12398,7 @@ mod tests {
 
     #[test]
     fn assistant_status_is_authenticated_and_never_exposes_credentials() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
         let f = fixture("assistant-status");
 
@@ -12410,7 +12453,7 @@ mod tests {
 
     #[test]
     fn engagement_settings_are_authenticated_write_only_and_conflict_safe() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _key = EnvRestore::capture(ENGAGEMENT_ENVIRONMENT_NAME);
         let _origin = EnvRestore::capture(ENGAGEMENT_ORIGIN_ENVIRONMENT_NAME);
         std::env::remove_var(ENGAGEMENT_ENVIRONMENT_NAME);
@@ -12557,7 +12600,7 @@ mod tests {
 
     #[test]
     fn assistant_provider_settings_are_editable_without_disclosing_credentials() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
         std::env::remove_var("OPENBLOG_LESSONS_API_KEY");
         let f = fixture("assistant-provider-settings");
@@ -12701,7 +12744,7 @@ mod tests {
 
     #[test]
     fn anthropic_provider_settings_use_the_native_adapter_without_a_custom_endpoint() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
         let _anthropic_key = EnvRestore::capture("ANTHROPIC_API_KEY");
         std::env::remove_var("OPENBLOG_LESSONS_API_KEY");
@@ -12793,7 +12836,7 @@ mod tests {
         );
         assert_eq!(
             assistant_provider_timeout(AssistantProviderKind::Anthropic, true),
-            Duration::from_millis(300)
+            Duration::from_secs(10)
         );
     }
 
@@ -12843,7 +12886,7 @@ mod tests {
 
     #[test]
     fn openai_provider_settings_use_a_fixed_native_destination() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _key = EnvRestore::capture("OPENAI_API_KEY");
         std::env::remove_var("OPENAI_API_KEY");
         let f = fixture("openai-provider-settings");
@@ -12889,7 +12932,7 @@ mod tests {
 
     #[test]
     fn legacy_targetless_private_credentials_are_never_sent_to_a_provider() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
         std::env::remove_var("OPENBLOG_LESSONS_API_KEY");
         let f = fixture("legacy-assistant-credential-target");
@@ -12945,7 +12988,7 @@ mod tests {
 
     #[test]
     fn environment_credentials_are_scoped_to_the_selected_provider() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _custom_key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
         let _anthropic_key = EnvRestore::capture("ANTHROPIC_API_KEY");
         std::env::set_var("OPENBLOG_LESSONS_API_KEY", "custom-secret");
@@ -12981,7 +13024,7 @@ mod tests {
 
     #[test]
     fn assistant_generation_rejects_calls_beyond_the_server_limit() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
         let f = fixture("assistant-concurrency-limit");
         let session = login_ok(&f);
@@ -13009,7 +13052,7 @@ mod tests {
 
     #[test]
     fn document_review_sends_the_unsaved_snapshot_and_returns_only_validated_findings() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
         let f = fixture("assistant-document-review");
         let saved_path = f.dir.join("content/posts/hello-world.md");
@@ -13149,7 +13192,7 @@ mod tests {
 
     #[test]
     fn inline_completion_requires_csrf_and_uses_the_unsaved_snapshot_and_selected_context() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
         let f = fixture("assistant-inline-completion");
         fs::create_dir_all(f.dir.join("assistant/context")).unwrap();
@@ -13199,13 +13242,13 @@ mod tests {
                 true,
             ),
         );
-        provider.join().unwrap();
         assert_eq!(
             response.status,
             200,
             "{}",
             String::from_utf8_lossy(&response.body)
         );
+        provider.join().unwrap();
         assert_eq!(body_json(&response), json!({ "completion": " softly." }));
         assert!(!String::from_utf8_lossy(&response.body).contains("completion-secret"));
 
@@ -13295,7 +13338,7 @@ mod tests {
 
     #[test]
     fn inline_completion_fails_safely_for_missing_credentials_and_invalid_provider_output() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
         std::env::remove_var("OPENBLOG_LESSONS_API_KEY");
         let f = fixture("assistant-inline-completion-errors");
@@ -13335,15 +13378,20 @@ mod tests {
         set_quiz_endpoint(&f, &endpoint);
         std::env::set_var("OPENBLOG_LESSONS_API_KEY", "completion-secret");
         let invalid = handle(&f.state, &request());
+        assert_eq!(
+            invalid.status,
+            502,
+            "{}",
+            String::from_utf8_lossy(&invalid.body)
+        );
         server.join().unwrap();
-        assert_eq!(invalid.status, 502);
         assert!(String::from_utf8_lossy(&invalid.body).contains("invalid-result"));
         assert!(!String::from_utf8_lossy(&invalid.body).contains("completion-secret"));
     }
 
     #[test]
     fn inline_completion_obeys_the_shared_assistant_concurrency_limit() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
         let f = fixture("assistant-inline-completion-concurrency");
         set_quiz_endpoint(&f, "https://assistant.example/generate");
@@ -13380,7 +13428,7 @@ mod tests {
 
     #[test]
     fn code_interaction_is_authenticated_grounded_and_strictly_validated() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
         let f = fixture("assistant-code-interaction");
         let generated = json!({
@@ -13410,8 +13458,13 @@ mod tests {
             403
         );
         let response = handle(&f.state, &authed(request(), &session, true));
+        assert_eq!(
+            response.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
         provider.join().unwrap();
-        assert_eq!(response.status, 200);
         assert_eq!(body_json(&response)["kind"], "challenge");
         assert_eq!(body_json(&response)["language"], "rust");
         assert!(!String::from_utf8_lossy(&response.body).contains("code-secret"));
@@ -13475,7 +13528,7 @@ mod tests {
 
     #[test]
     fn code_interaction_obeys_the_shared_assistant_concurrency_limit() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
         let f = fixture("assistant-code-interaction-concurrency");
         set_quiz_endpoint(&f, "https://assistant.example/generate");
@@ -13501,7 +13554,7 @@ mod tests {
 
     #[test]
     fn document_review_rejects_the_entire_provider_result_when_one_finding_is_invalid() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
         let f = fixture("assistant-invalid-review");
         let response_body = json!({
@@ -13540,8 +13593,13 @@ mod tests {
                 true,
             ),
         );
+        assert_eq!(
+            response.status,
+            502,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
         provider.join().unwrap();
-        assert_eq!(response.status, 502);
         let error = body_json(&response);
         assert_eq!(error["code"], "invalid-result");
         assert!(error.get("findings").is_none());
@@ -14642,7 +14700,7 @@ mod tests {
 
     #[test]
     fn quiz_generation_handles_provider_boundary_failures() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
         let f = fixture("quiz-provider");
         let session = login_ok(&f);
@@ -14702,9 +14760,17 @@ mod tests {
             ),
         ];
         for (status, body, delay, label, expected) in cases {
+            // Only the timeout case gives up before its slow provider answers.
+            let timeout = if delay.is_zero() {
+                Duration::from_secs(10)
+            } else {
+                Duration::from_millis(300)
+            };
+            TEST_PROVIDER_TIMEOUT.with(|limit| limit.set(timeout));
             let (endpoint, server) = quiz_provider(status, body, delay);
             set_quiz_endpoint(&f, &endpoint);
             let response = handle(&f.state, &request());
+            TEST_PROVIDER_TIMEOUT.with(|limit| limit.set(Duration::from_secs(10)));
             assert_eq!(response.status, 502, "{label}");
             let response_body = String::from_utf8_lossy(&response.body);
             assert!(response_body.contains(expected), "{label}: {response_body}");
@@ -14724,8 +14790,13 @@ mod tests {
         let (endpoint, server) = quiz_provider(200, body, Duration::ZERO);
         set_quiz_endpoint(&f, &endpoint);
         let response = handle(&f.state, &request());
+        assert_eq!(
+            response.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
         server.join().unwrap();
-        assert_eq!(response.status, 200);
         assert_eq!(body_json(&response)["questions"][0]["correctIndex"], 0);
     }
 
@@ -18387,6 +18458,45 @@ series: letters
         assert_eq!(draft_call(&f, &mikey, &id, 1, "x").status, 500);
         assert_eq!(draft_read(&f, &mikey, &id).status, 500);
         assert_eq!(fs::read(&outside).unwrap(), before);
+    }
+
+    #[test]
+    fn a_finished_collaboration_request_frees_the_content_lock_before_the_next_one_runs() {
+        let (f, _mikey, id) = invitation_fixture("transaction-handoff");
+        let Ok(transaction) = invitation_transaction(&f.state, &id) else {
+            panic!("the transaction could not start");
+        };
+        // On Windows, hold the lock file the way a scanner can, so removing it takes a moment.
+        #[cfg(windows)]
+        let held = {
+            use std::os::windows::fs::OpenOptionsExt;
+            const FILE_SHARE_READ: u32 = 1;
+            const FILE_SHARE_WRITE: u32 = 2;
+            fs::OpenOptions::new()
+                .read(true)
+                .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+                .open(f.dir.join(".openblog/content-transaction.lock"))
+                .unwrap()
+        };
+        let next_found_the_lock_free = std::thread::scope(|scope| {
+            #[cfg(windows)]
+            scope.spawn(move || {
+                std::thread::sleep(Duration::from_millis(150));
+                drop(held);
+            });
+            let next = scope.spawn(|| {
+                // The next request runs as soon as it holds the build mutex.
+                let _build = lock(&f.state.build);
+                crate::transaction::ContentTransactionLock::acquire(&f.state.root).is_ok()
+            });
+            std::thread::sleep(Duration::from_millis(20));
+            drop(transaction);
+            next.join().unwrap()
+        });
+        assert!(
+            next_found_the_lock_free,
+            "the next request was refused as a concurrent write"
+        );
     }
 
     #[test]

@@ -278,7 +278,7 @@ fn change<T>(
     edit: impl Fn(&mut SourceLibrary) -> Result<T, Vec<SourceDiagnostic>>,
 ) -> Result<(Snapshot, T), StoreError> {
     change_using(root, expected_revision, contributors, edit, |from, to| {
-        fs::rename(from, to)
+        crate::fsutil::replace_file(from, to)
     })
 }
 

@@ -353,7 +353,7 @@ fn change(
     edit: &Edit<'_, ()>,
 ) -> Result<Snapshot, StoreError> {
     change_using(root, expected_revision, contributors, edit, |from, to| {
-        fs::rename(from, to)
+        crate::fsutil::replace_file(from, to)
     })
 }
 

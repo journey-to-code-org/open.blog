@@ -5,6 +5,16 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Two people saving to the same shared reflection at once (drafts, invitations, members, reveal
+  and approval changes) are no longer refused now and then with "another content write is
+  active": a finished request now releases the content lock before the next one starts.
+- On Windows, saves no longer fail with "Access is denied" when another program, such as an
+  antivirus or indexing scanner or a backup or sync client, briefly has the file open. Admin and
+  CLI writes wait out the hold for up to five seconds, and a compare-and-swap save still refuses,
+  rather than overwrites, a file someone changed in the meantime. Reading a shared reflection or
+  the login list while it is being replaced waits the same way instead of failing, and a content
+  lock file such a program holds is no longer left behind to block later writes.
+
 ## [0.26.0] - 2026-10-25
 
 - Feeds and portable copies of a part of a collaborative series now say which series it belongs
