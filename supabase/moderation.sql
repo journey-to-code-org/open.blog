@@ -87,7 +87,20 @@ as $$
            version = version + 1
      where id = p_id
        and site_id = p_site_id
-       and coalesce(moderation_state, status) = p_from
+       -- The full state counts only while `status` still holds its legacy
+       -- value: a write made without OPENBLOG_MODERATION_ENABLED changes
+       -- `status` alone, and then `status` is the comment's state.
+       and (case
+              when moderation_state is not null
+               and status = case moderation_state
+                              when 'pending' then 'pending'
+                              when 'clarification' then 'pending'
+                              when 'approved' then 'approved'
+                              else 'rejected'
+                            end
+              then moderation_state
+              else status
+            end) = p_from
        and version = p_expected_version
        and p_to in ('pending', 'approved', 'rejected', 'removed')
     returning *

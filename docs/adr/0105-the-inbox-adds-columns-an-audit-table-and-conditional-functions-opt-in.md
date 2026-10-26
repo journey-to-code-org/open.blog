@@ -38,7 +38,7 @@ private public.
   - The insert-only `openblog_comment_events` audit table (comment, action, states, reason, actor,
     actor role, time, version; never text or a name), private like ADR 0080's tables.
   - `openblog_moderate_comment(...)` applies one decision only while the comment still has the
-    state (`coalesce(moderation_state, status)`) and version both Admin and the function saw,
+    state and version both Admin and the function saw,
     raises the version and inserts the event, in one statement, writing only a comment's four
     states.
 - **Passage feedback** (`supabase/feedback.sql`, run again to add them):
@@ -54,6 +54,14 @@ private public.
     about, reopening it to anything but clarification, and asking a reader who did not consent. A
     submitter's clarification (`p_body`) replaces the text as the next revision; no route offers
     it until reader receipts exist (#226).
+- **`status` decides when the two columns disagree.** A comment's state is its
+  `moderation_state` only while `status` still holds that state's legacy value; otherwise it is
+  its `status`. A decision taken while the variable was unset writes `status` alone, so after the
+  variable is set again a comment approved, reopened or rejected in between reads as what its
+  `status` says, never as the stale full state (a comment removed and then reopened without the
+  schema is pending, not removed). The function's reads, the inbox's state filters and
+  `openblog_moderate_comment`'s condition all apply this one rule (`commentState` and
+  `commentStateFilter` in `netlify/lib/participation-moderation.mjs`).
 - **Opt in, with the older schema still served.** `OPENBLOG_MODERATION_ENABLED=true` tells the
   function the schema is there. Without it, the inbox still lists comments and feedback and offers
   only what the older schema can store: comments are approved, rejected, removed (stored as

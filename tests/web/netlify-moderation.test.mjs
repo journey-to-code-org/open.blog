@@ -8,7 +8,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createHandler } from "../../netlify/functions/engagement.mjs";
-import { INBOX_ACTIONS, legacySupports, planTransition } from "../../netlify/lib/participation-moderation.mjs";
+import { INBOX_ACTIONS, MODERATION_STATES, commentState, commentStateFilter, legacyCommentStatus, legacySupports, planTransition } from "../../netlify/lib/participation-moderation.mjs";
 import { planModeration } from "../../netlify/lib/feedback-moderation.mjs";
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
@@ -130,7 +130,7 @@ test("comments and feedback are merged oldest first and paged by a keyset cursor
   assert.equal(page.items[0].version, 1);
   const [comments, rows] = database.requests;
   assert.equal(comments.params.site_id, "eq.lantern");
-  assert.equal(comments.params.and, "(or(moderation_state.eq.pending,and(moderation_state.is.null,status.eq.pending)))");
+  assert.equal(comments.params.and, "(and(status.eq.pending,or(moderation_state.is.null,moderation_state.not.in.(clarification))))");
   assert.match(comments.params.select, /version,moderation_state,moderation_reason$/);
   assert.equal(comments.params.order, "created_at.asc,id.asc");
   assert.equal(comments.params.limit, "4");
@@ -142,7 +142,7 @@ test("comments and feedback are merged oldest first and paged by a keyset cursor
   assert.equal(database.requests.length, 1, "a comment filter asks only the comment store");
   assert.equal(
     database.requests[0].params.and,
-    `(moderation_state.eq.removed,or(created_at.gt."2026-10-26T10:00:03.123456Z",and(created_at.eq."2026-10-26T10:00:03.123456Z",id.gt.${ID(3)})))`,
+    `(and(status.eq.rejected,moderation_state.eq.removed),or(created_at.gt."2026-10-26T10:00:03.123456Z",and(created_at.eq."2026-10-26T10:00:03.123456Z",id.gt.${ID(3)})))`,
   );
   // Comments never wait for clarification: only the feedback store is asked.
   database.requests.length = 0;
@@ -179,6 +179,95 @@ test("an older schema is read and paged as it is, and feedback stays out until i
   await commentsOnly(event("GET", { query: { state: "pending" } }));
   assert.deepEqual(database.requests.map((request) => request.path), ["/rest/v1/openblog_comments"]);
   assert.equal((await commentsOnly(event("GET", { query: { id: ID(2), source: "feedback" } }))).statusCode, 422);
+});
+
+/** Evaluate the PostgREST conditions the inbox writes (and, or, eq, is.null, not.in) on a row. */
+const matches = (condition, row) => {
+  const group = /^(and|or)\((.*)\)$/.exec(condition);
+  if (group) {
+    const parts = [];
+    let depth = 0;
+    let start = 0;
+    for (let index = 0; index < group[2].length; index += 1) {
+      const char = group[2][index];
+      if (char === "(") depth += 1;
+      if (char === ")") depth -= 1;
+      if (char === "," && depth === 0) {
+        parts.push(group[2].slice(start, index));
+        start = index + 1;
+      }
+    }
+    parts.push(group[2].slice(start));
+    return group[1] === "and" ? parts.every((part) => matches(part, row)) : parts.some((part) => matches(part, row));
+  }
+  const [column, ...rest] = condition.split(".");
+  const operator = rest.join(".");
+  const value = row[column] ?? null;
+  if (operator === "is.null") return value === null;
+  if (operator.startsWith("eq.")) return value === operator.slice(3);
+  const notIn = /^not\.in\.\((.*)\)$/.exec(operator);
+  if (notIn) return value !== null && !notIn[1].split(",").includes(value);
+  throw new Error(`unknown condition ${condition}`);
+};
+
+test("a comment's state filter matches exactly the rows its two columns read as that state", () => {
+  for (const status of ["pending", "approved", "rejected"]) {
+    for (const moderationState of [null, ...MODERATION_STATES]) {
+      const row = { status, moderation_state: moderationState };
+      const state = commentState(moderationState, status);
+      assert.equal(legacyCommentStatus(state), status, "a state never contradicts what public reads see");
+      for (const asked of MODERATION_STATES) {
+        const filter = commentStateFilter(asked);
+        assert.equal(filter !== null && matches(filter, row), asked === state && filter !== null, `${asked} ${JSON.stringify(row)}`);
+      }
+    }
+  }
+});
+
+test("decisions taken while the full schema was switched off read back as their status once it is on again", async () => {
+  // One stored comment, written as the database would: the full function only while its state and
+  // version match, the older route by its status alone.
+  const row = comment(1, { version: 1, moderation_state: null, moderation_reason: null });
+  const database = fakeDatabase((request) => {
+    if (request.path.endsWith("/rpc/openblog_moderate_comment")) {
+      const { p_from, p_to, p_expected_version, p_reason } = request.body;
+      if (commentState(row.moderation_state, row.status) !== p_from || row.version !== p_expected_version) return [];
+      Object.assign(row, { moderation_state: p_to, status: legacyCommentStatus(p_to), moderation_reason: p_reason, version: row.version + 1 });
+      return [{ ...row }];
+    }
+    if (request.method === "PATCH") {
+      if (request.params.status !== `eq.${row.status}`) return [];
+      Object.assign(row, request.body);
+      return [{ ...row }];
+    }
+    // Only the columns asked for, as PostgREST answers.
+    const selected = Object.fromEntries(request.params.select.split(",").map((column) => [column, row[column]]));
+    if (request.params.id) return [selected];
+    return matches(request.params.and.slice(1, -1), row) ? [selected] : [];
+  });
+  const on = handlerFor(full, database);
+  const off = handlerFor(environment, database);
+  const listed = async (handler, state) => JSON.parse((await handler(event("GET", { query: { state, kind: "comment" } }))).body).items.map((item) => item.status);
+  const send = async (handler, body) => {
+    const response = await handler(event("PATCH", { body: decision(body) }));
+    assert.equal(response.statusCode, 200, response.body);
+    return JSON.parse(response.body).item;
+  };
+  // With the schema: approved, then removed.
+  await send(on, { action: "approve", from: "pending", expectedVersion: 1 });
+  assert.equal((await send(on, { action: "remove", from: "approved", reason: "spam", expectedVersion: 2 })).status, "removed");
+  assert.deepEqual(await listed(on, "removed"), ["removed"]);
+  // Without it: reopened and approved again, which writes `status` alone.
+  assert.equal((await send(off, { action: "reopen", from: "rejected", expectedVersion: 1 })).status, "pending");
+  assert.equal((await send(off, { action: "approve", from: "pending", expectedVersion: 1 })).status, "approved");
+  assert.deepEqual({ status: row.status, moderation_state: row.moderation_state }, { status: "approved", moderation_state: "removed" });
+  // With it again: the live comment is approved, never shown as removed, and can be removed afresh.
+  assert.deepEqual(await listed(on, "approved"), ["approved"]);
+  assert.deepEqual(await listed(on, "removed"), []);
+  const one = JSON.parse((await on(event("GET", { query: { id: ID(1), source: "comment" } }))).body);
+  assert.equal(one.items[0].status, "approved");
+  assert.equal((await send(on, { action: "remove", from: "approved", reason: "abusive", expectedVersion: 3 })).status, "removed");
+  assert.deepEqual({ status: row.status, moderation_state: row.moderation_state, version: row.version }, { status: "rejected", moderation_state: "removed", version: 4 });
 });
 
 const decision = (extra = {}) => ({ source: "comment", id: ID(1), action: "approve", from: "pending", expectedVersion: 4, actor: "ada", actorRole: "site-admin", ...extra });
@@ -314,7 +403,8 @@ test("the inbox's schema is additive, private and opt-in, and its rollback drops
   assert.match(added, /revoke all on public\.openblog_comment_events from public, anon, authenticated, service_role;\s*grant select, insert on public\.openblog_comment_events to service_role;/);
   // Public reads keep `status`, and nothing not public is ever stored there as approved.
   assert.match(added, /status = case p_to when 'pending' then 'pending' when 'approved' then 'approved' else 'rejected' end/);
-  assert.match(added, /coalesce\(moderation_state, status\) = p_from\s+and version = p_expected_version/);
+  // The full state counts only while `status` still holds its legacy value (ADR 0105).
+  assert.match(added, /when moderation_state is not null\s+and status = case moderation_state\s+when 'pending' then 'pending'\s+when 'clarification' then 'pending'\s+when 'approved' then 'approved'\s+else 'rejected'\s+end\s+then moderation_state\s+else status\s+end\) = p_from\s+and version = p_expected_version/);
   assert.doesNotMatch(baseSchema, /moderation_state|openblog_comment_events/);
 
   // The feedback side adds columns to its own tables and guards the clarification rule in SQL.

@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { FEEDBACK_KINDS, canonicalTime, readFeedbackSubmissionJson, receiveFeedback } from "../../web/components/passage-feedback.js";
 import { MODERATION_STATES, auditActor, planModeration } from "../lib/feedback-moderation.mjs";
-import { INBOX_ACTIONS, MODERATOR_ROLES, PARTICIPATION_KINDS, legacyCommentStatus, legacySupports, planTransition } from "../lib/participation-moderation.mjs";
+import { INBOX_ACTIONS, MODERATOR_ROLES, PARTICIPATION_KINDS, commentState, commentStateFilter, legacyCommentStatus, legacySupports, planTransition } from "../lib/participation-moderation.mjs";
 
 const json = (statusCode, value, origin = "") => ({
   statusCode,
@@ -71,11 +71,13 @@ const COMMENT_COLUMNS = "id,path,author_name,body,status,created_at,moderated_at
 const COMMENT_INBOX_COLUMNS = `${COMMENT_COLUMNS},version,moderation_state,moderation_reason`;
 
 // A comment row as an inbox item (ADR 0104). Without the inbox's schema a
-// comment has only its three statuses and is always at version 1.
+// comment has only its three statuses and is always at version 1; with it,
+// its full state, unless a write made without the schema has since changed
+// its status (ADR 0105).
 const inboxComment = (row) => ({
   source: "comment",
   id: row.id,
-  status: row.moderation_state ?? row.status,
+  status: commentState(row.moderation_state, row.status),
   version: row.version ?? 1,
   moderatedAt: row.moderated_at ? canonicalTime(row.moderated_at) : null,
   reason: row.moderation_reason ?? null,
@@ -178,10 +180,10 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
     const time = source === "comment" ? "created_at" : "received_at";
     const conditions = [];
     if (source === "comment") {
-      if (settings.moderation && state === "removed") conditions.push("moderation_state.eq.removed");
-      else if (!["pending", "approved", "rejected"].includes(state)) return [];
-      else if (settings.moderation) conditions.push(`or(moderation_state.eq.${state},and(moderation_state.is.null,status.eq.${state}))`);
-      else conditions.push(`status.eq.${state}`);
+      const filter = settings.moderation ? commentStateFilter(state) : null;
+      if (filter) conditions.push(filter);
+      else if (!settings.moderation && ["pending", "approved", "rejected"].includes(state)) conditions.push(`status.eq.${state}`);
+      else return [];
     } else {
       conditions.push(`status.eq.${state}`);
       if (kind) conditions.push(`kind.eq.${kind}`);

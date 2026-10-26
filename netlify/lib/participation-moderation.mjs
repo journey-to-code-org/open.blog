@@ -121,6 +121,34 @@ export function legacyCommentStatus(state) {
   return "rejected";
 }
 
+// The four states a comment can be in (ADR 0105): it never waits for clarification and is never
+// withdrawn.
+export const COMMENT_STATES = Object.freeze(["pending", "approved", "rejected", "removed"]);
+
+/**
+ * A comment's state from its two columns (ADR 0105). `moderation_state` is trusted only while
+ * `status` still holds its legacy value: a write made while OPENBLOG_MODERATION_ENABLED was off
+ * changes `status` alone, and the state it left behind is then out of date, so `status` decides.
+ */
+export function commentState(moderationState, status) {
+  if (MODERATION_STATES.includes(moderationState) && legacyCommentStatus(moderationState) === status) return moderationState;
+  return status;
+}
+
+/**
+ * The PostgREST condition for comments in `state` under the full schema, matching exactly the rows
+ * `commentState` reads as `state`; null when no comment can be in it.
+ */
+export function commentStateFilter(state) {
+  if (!COMMENT_STATES.includes(state)) return null;
+  const status = legacyCommentStatus(state);
+  if (state !== status) return `and(status.eq.${status},moderation_state.eq.${state})`;
+  // Every other state stored under this status, which, when current, wins over it.
+  const others = MODERATION_STATES.filter((other) => other !== state && legacyCommentStatus(other) === status);
+  if (!others.length) return `status.eq.${status}`;
+  return `and(status.eq.${status},or(moderation_state.is.null,moderation_state.not.in.(${others.join(",")})))`;
+}
+
 /**
  * Whether an older hosted schema can store `action` on `kind` (ADR 0105): comments can be approved,
  * rejected, removed (stored as rejected) and reopened; passage feedback approved, rejected and
