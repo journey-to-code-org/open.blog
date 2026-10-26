@@ -41,6 +41,20 @@ All notable changes to open.blog are recorded here. Releases follow
   rights are unchecked or reserved. Nothing is published.
 - A site that publishes its Knowledge Atlas no longer fails to build when an interpretation in the
   private source library names a contributor who was later removed from the registry.
+- Sites can now publish the passage comparisons you approve. Turn on `comparisons.publish` in
+  `openblog.json`, then tick "Approve this comparison for publication" on an alignment in Admin's
+  Compare tool: the site gains `/comparisons/`, a page for each approved comparison and
+  `/comparisons.json`. Every place names its version, its editor, translator, scribe or
+  interpreters, its locators and the rights statement you recorded. Its wording is quoted exactly,
+  in its own language and direction, only where you state the version's rights as permission, an
+  open licence, the public domain or your own work, and only up to 1,000 characters; a version
+  whose rights are unknown or reserved is identified but never quoted. Interpretations are
+  attributed and kept apart from the text they interpret, your normalizations appear only if you
+  choose, and your notes on places, rights notes and unapproved alignments are never published.
+  Before approving, each place in Compare says what a public page would show; saving rebuilds the
+  site at once, and clearing approval removes the page. The pages need no JavaScript and read on a
+  phone and in print. Sites that do not turn it on are unchanged and never read the alignments
+  file.
 
 ## [0.33.0] - 2026-10-26
 

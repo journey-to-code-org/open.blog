@@ -52,7 +52,8 @@ false`. No text is trimmed or Unicode-normalized.
 | `uncertainty` | Optional, at most 2,000 characters. |
 | `recordedBy` | `{ "kind": "author" }` (default), `{ "kind": "source", "source": id }`, or `{ "kind": "named", "name": text }`. |
 | `evidence` | Up to 20 `{ "source", "locators"?, "passage"? }`, as in the Knowledge Atlas. |
-| `visibility` | Always `private`. |
+| `visibility` | `private` (the default) or `approved`: the author's consent to publish it as a comparison ([ADR 0128](../adr/0128-publish-approved-comparisons-as-one-rights-gated-projection.md)). |
+| `publishNormalized` | Optional `true`: publish members' normalizations, labelled, beside wording that is itself published. Written only when true. |
 
 ## Members
 
@@ -99,7 +100,8 @@ or passage an alignment uses cannot be removed, and a notebook or library change
 a valid alignments file invalid is refused.
 
 `GET /admin/api/research/alignments` returns `file`, `revision`, `stored`, `alignments`,
-`notices`, and `notice` (the statement above), and, read under the same snapshot for the
+`notices`, `notice` (the statement above), and `publication` (see [Publication](#publication)),
+and, read under the same snapshot for the
 comparison workspace ([ADR 0124](../adr/0124-the-comparison-workspace-reads-one-snapshot-and-identifies-every-place.md)):
 `sources` (every library record, each version with `rightsStatus` `{ status, label, declared,
 note?, license? }` and every record with its `chain` of the records it realizes), `passages`
@@ -124,4 +126,31 @@ normalizations appear only on request, labelled and under the original; absent m
 words. Copy and download take only the places the author selects, with their rights statements,
 and ask for confirmation when a selected version's rights are unchecked or reserved
 ([ADR 0125](../adr/0125-copying-from-a-comparison-takes-only-selected-places-with-their-rights.md)).
-Nothing is published and nothing is stored in the browser.
+Nothing is stored in the browser.
+
+## Publication
+
+With `"comparisons": {"publish": true}` in `openblog.json`, a full build publishes every
+`approved` alignment as a comparison ([ADR 0128](../adr/0128-publish-approved-comparisons-as-one-rights-gated-projection.md)):
+`/comparisons/`, a page per comparison at `/comparisons/<id>/`, and `/comparisons.json`
+(`{"format": "openblog-comparison-projection", "formatVersion": 1, "notice", "comparisons",
+"sources"}`). While the switch is off, no build reads the alignments file.
+
+Each published place is identified by its version (the public reference, kind, language and
+makers) or its interpretation (kind and interpreters), its locators, and its version's rights
+statement. Its original wording is published exactly, with `lang` and `dir`, only when the
+author states the version's or interpretation's rights as `permission`, `openLicense`,
+`publicDomain`, or `ownWork`, and only when it is at most 1,000 characters; otherwise the place
+says why its wording is not shown (`withheld`: `rights` or `length`). Normalizations are
+published only with `publishNormalized` and beside shown wording. Notes on places, rights notes,
+notebook passage ids, interpretation uncertainty notes, unknown fields and unapproved alignments
+are never published. Rights statements are the author's declarations, not legal judgements.
+
+A damaged alignments file, library or notebook refuses a full build and `check` while
+publication is on, naming the file; an Admin save is never stopped by it. A build without an
+alignments file (CI, a static host) publishes empty comparisons and warns. While publication is
+on, `comparisons` is a reserved path and every Admin alignments change rebuilds the site and
+returns `build`. The alignments view also returns `publication` (`publish`, `url`,
+`maxExcerptChars`, and `places`: per alignment, one of `shown`, `withheld-rights`,
+`withheld-length`, `unquoted` or `absent` per member) so the author can see what a page would
+show before approving.

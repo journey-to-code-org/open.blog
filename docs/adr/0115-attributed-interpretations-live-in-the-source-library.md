@@ -69,6 +69,10 @@ evidence, audience levels, and AI provenance to scholarly interpretations.
   through the projection #55 will define. (Amended 2026-10-26: the comparison workspace reads
   interpretations but does not edit them; their Admin endpoints and controls moved to B7.2,
   authoring interpretations in Admin Studio, [#89](https://github.com/journey-to-code-org/open.blog/issues/89).)
+  (Amended by [ADR 0128](0128-publish-approved-comparisons-as-one-rights-gated-projection.md):
+  a build that publishes comparisons reads the library with its interpretations validated,
+  and publishes an interpretation's text only inside an approved comparison, through the
+  rights gate.)
 
 ## Consequences
 

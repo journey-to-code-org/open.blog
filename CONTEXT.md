@@ -785,7 +785,8 @@ _Avoid_: Credit, author, creator
 **Passage alignment**:
 The author's private record that places in two or more versions or interpretations correspond,
 attributed and optionally evidenced. It never says the places mean the same thing and never
-treats a version as authoritative (ADR 0116).
+treats a version as authoritative (ADR 0116). It is published only once approved, through the
+comparison projection (ADR 0128).
 _Avoid_: Equivalence, parallel text, translation memory, automatic alignment
 
 **Alignment member**:
@@ -812,7 +813,9 @@ _Avoid_: Correction, the text, cleaned excerpt
 **Comparison workspace**:
 The Admin research tool that reads one passage alignment as its versions' places side by side or
 in a single column, in the author's member order, with original wording exact and normalizations
-shown only on request (ADR 0124). It reads and edits alignments; it publishes nothing.
+shown only on request (ADR 0124). It reads and edits alignments, previews what a public page
+would show for each place, and records approval; it publishes only through the comparison
+projection.
 _Avoid_: Parallel text viewer, diff, translation comparison score
 
 **Place identification**:
@@ -828,6 +831,25 @@ for confirmation when a selected version's rights are unchecked or reserved, and
 never means permission. The author's private notes on places are left out unless the author ticks
 "Include my notes on places" (ADR 0125).
 _Avoid_: Publishing, sharing, licence check
+
+**Comparison projection**:
+The one public form of passage comparisons: approved alignments, each reduced to an explicit
+allowlist of fields, with every place identified and its wording passed through the rights gate.
+The comparison pages and `comparisons.json` are both rendered from it (ADR 0128).
+_Avoid_: Public alignments, parallel text export
+
+**Comparison publication switch**:
+The site setting `comparisons.publish`. Off by default, when no build reads the alignments file;
+on, the build publishes the comparison projection. Each alignment still needs the author's
+approval.
+_Avoid_: Treating approval alone as publication
+
+**Rights gate**:
+The rule that a compared place's wording is published only when the author's rights statement
+for its version or interpretation is permission, open licence, public domain, or own work, and the
+wording is a brief excerpt (at most 1,000 characters). Otherwise the place is identified and
+located, never quoted. It follows the author's declaration and is never a legal judgement.
+_Avoid_: Licence check, copyright clearance, fair-use test
 
 **Knowledge Atlas**:
 An author's private, versioned map of contextual entries and the attributed relationships between

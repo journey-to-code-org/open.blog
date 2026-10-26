@@ -55,7 +55,10 @@ places; the atlas (ADR 0054) already attributes assertions and rests them on evi
   `confidence` (`tentative` by default), and an `uncertainty` note.
 - **Private only.** `visibility` is always `private` and any other value is refused. Publishing
   comparisons is #55's decision, through the publication projection, with rights statuses
-  (ADR 0113); nothing in this format can mark an alignment public.
+  (ADR 0113); nothing in this format can mark an alignment public. (Amended by
+  [ADR 0128](0128-publish-approved-comparisons-as-one-rights-gated-projection.md): `approved`
+  records the author's consent for the comparison projection, which publishes only while the
+  site opts in; no other value is accepted.)
 - **Stale places are notices.** A member whose locators no longer match the passage it names
   (the passage was re-located since it was aligned) is a `stale-locator` notice, and one resting
   on an archived source or passage is an `archived-member` notice. Neither is an error, and both
