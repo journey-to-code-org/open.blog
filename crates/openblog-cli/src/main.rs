@@ -5,6 +5,9 @@ mod admin_preferences;
 mod analytics;
 mod assistant;
 mod assistant_storage;
+// Atlas changes are driven by tests until the Admin atlas workspace (#50) calls them.
+#[cfg_attr(not(test), allow(dead_code))]
+mod atlas_store;
 mod auth;
 mod clock;
 mod contributor_migration;
@@ -406,6 +409,14 @@ fn run(raw: &[String]) -> Result<(), String> {
                 println!("{summary}");
             }
             if let Some(summary) = check_research_notebook(&root, &site.config.contributors)? {
+                println!("{summary}");
+            }
+            if let Some((summary, notices)) =
+                check_knowledge_atlas(&root, &site.config.contributors)?
+            {
+                for notice in notices {
+                    eprintln!("notice: {notice}");
+                }
                 println!("{summary}");
             }
             Ok(())
@@ -831,6 +842,36 @@ fn check_research_notebook(
     }))
 }
 
+/// Validate the private Knowledge Atlas when one is stored, against the stored
+/// library and notebook. Like them it is never built, so a missing atlas is
+/// not mentioned. Approved relationships the publication projection would
+/// leave out are non-blocking notices that name ids, never authored text.
+fn check_knowledge_atlas(
+    root: &std::path::Path,
+    contributors: &std::collections::BTreeMap<String, openblog_core::contributor::Contributor>,
+) -> Result<Option<(String, Vec<String>)>, String> {
+    let snapshot = atlas_store::load(root, contributors).map_err(|error| error.to_string())?;
+    if !snapshot.stored {
+        return Ok(None);
+    }
+    let notices = snapshot
+        .atlas
+        .notices()
+        .iter()
+        .map(|notice| format!("{}: {notice}", atlas_store::ATLAS_FILE))
+        .collect();
+    Ok(Some((
+        format!(
+            "OK: private Knowledge Atlas {} has {} entr{} and {} relationship(s); builds never read or publish it.",
+            atlas_store::ATLAS_FILE,
+            snapshot.atlas.entries.len(),
+            if snapshot.atlas.entries.len() == 1 { "y" } else { "ies" },
+            snapshot.atlas.relationships.len()
+        ),
+        notices,
+    )))
+}
+
 /// Remove an Admin username from every shared publication binding, under the content
 /// transaction lock so a running Admin server cannot interleave a write.
 fn revoke_shared_publication_bindings(root: &std::path::Path, name: &str) -> Result<(), String> {
@@ -891,6 +932,63 @@ mod tests {
         let error = check_research_notebook(&root, &contributors).unwrap_err();
         assert!(
             error.contains(".openblog/private/research/notebook.json: notes[0] `n`")
+                && error.contains("(unknown-source)"),
+            "{error}"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn check_reports_the_private_atlas_only_when_it_is_stored() {
+        let root = std::env::temp_dir().join(format!(
+            "openblog-check-atlas-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let contributors = std::collections::BTreeMap::new();
+        assert_eq!(check_knowledge_atlas(&root, &contributors), Ok(None));
+        assert!(!root.join(".openblog").exists());
+
+        let library = root.join(source_store::LIBRARY_FILE);
+        std::fs::create_dir_all(library.parent().unwrap()).unwrap();
+        std::fs::write(
+            &library,
+            r#"{"version":1,"sources":[{"id":"w","kind":"work","title":"W"}]}"#,
+        )
+        .unwrap();
+        let path = root.join(atlas_store::ATLAS_FILE);
+        std::fs::write(
+            &path,
+            r#"{"version":1,"entries":[{"id":"a","kind":"person","label":"ob-secret-label"},{"id":"b","kind":"work","label":"B","source":"w","visibility":"approved"}],"relationships":[{"id":"r","kind":"authored","from":"a","to":"b","assertedBy":{"kind":"author"},"evidence":[{"source":"w"}],"visibility":"approved"}]}"#,
+        )
+        .unwrap();
+        let (summary, notices) = check_knowledge_atlas(&root, &contributors)
+            .unwrap()
+            .unwrap();
+        assert!(
+            summary.contains("2 entries and 1 relationship(s)"),
+            "{summary}"
+        );
+        assert_eq!(notices.len(), 1, "{notices:?}");
+        assert!(
+            notices[0].contains("relationships[0] `r` from")
+                && notices[0].contains("(private-endpoint)")
+                && !notices[0].contains("ob-secret-label"),
+            "{notices:?}"
+        );
+
+        std::fs::write(
+            &path,
+            r#"{"version":1,"entries":[{"id":"b","kind":"work","label":"B","source":"gone"}]}"#,
+        )
+        .unwrap();
+        let error = check_knowledge_atlas(&root, &contributors).unwrap_err();
+        assert!(
+            error.contains(".openblog/private/research/atlas.json: entries[0] `b` source")
                 && error.contains("(unknown-source)"),
             "{error}"
         );

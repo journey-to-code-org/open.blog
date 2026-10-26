@@ -199,7 +199,9 @@ pub fn update_note(
     )
 }
 
-/// Remove a passage no note links to.
+/// Remove a passage no note links to and no Knowledge Atlas evidence points
+/// to. An atlas that cannot be read blocks removal, since it cannot be shown
+/// to be free of pointers into the passage.
 pub fn remove_passage(
     root: &Path,
     expected_revision: &str,
@@ -210,7 +212,29 @@ pub fn remove_passage(
         root,
         expected_revision,
         contributors,
-        &|notebook, library| notebook.remove_passage(id, library).map(|_| ()),
+        &|notebook, library| {
+            let blocked = |message: String| {
+                vec![diagnostic(
+                    NoteDiagnosticCode::StillLinked,
+                    "passages",
+                    id,
+                    None,
+                    message,
+                )]
+            };
+            let using = crate::atlas_store::uses_of_passage(root, library, notebook, id)
+                .map_err(blocked)?;
+            if !using.is_empty() {
+                return Err(blocked(format!(
+                    "{} Knowledge Atlas relationship{} cite{} this passage as evidence ({}); change or remove that evidence first",
+                    using.len(),
+                    if using.len() == 1 { "" } else { "s" },
+                    if using.len() == 1 { "s" } else { "" },
+                    using.join(", ")
+                )));
+            }
+            notebook.remove_passage(id, library).map(|_| ())
+        },
     )
 }
 
@@ -375,16 +399,16 @@ fn change_using(
         source_store::create_private_directory(directory).map_err(storage)?;
     }
     // Check again now that every directory exists.
-    let path = notebook_path(root)?;
-    let _lock = FileLock::acquire(lock_path(&path), "research notebook write", LOCK_WAIT)
-        .map_err(StoreError::Storage)?;
+    let _lock = lock_notebook(root)?;
     // The library lock is taken second, everywhere, so a source removal that
-    // checks the notebook cannot interleave with this write.
+    // checks the notebook cannot interleave with this write. A Knowledge Atlas
+    // write takes its own lock before both, so the atlas read below is stable.
     let _library_lock = source_store::lock_library(root).map_err(library_blocked)?;
 
     let current = load(root, contributors)?;
     let mut notebook = checked(&current, expected_revision)?;
     edit(&mut notebook, &current.library).map_err(StoreError::Invalid)?;
+    keep_atlas_valid(root, &current, &notebook)?;
     let text = notebook.to_json();
     commit(&path, text.as_bytes(), rename)?;
     source_store::remove_interrupted_writes(&path);
@@ -393,6 +417,36 @@ fn change_using(
         revision: source_store::revision(text.as_bytes()),
         stored: true,
         library: current.library,
+    })
+}
+
+/// Take the notebook's write lock. The Knowledge Atlas takes it after its own
+/// and before the library's, the one order every store uses.
+pub(crate) fn lock_notebook(root: &Path) -> Result<FileLock, StoreError> {
+    let path = notebook_path(root)?;
+    FileLock::acquire(lock_path(&path), "research notebook write", LOCK_WAIT)
+        .map_err(StoreError::Storage)
+}
+
+/// A notebook change must not leave a valid Knowledge Atlas invalid, for
+/// example by removing a passage its evidence points to. An atlas that was
+/// already unreadable does not block unrelated notebook edits; it is reported
+/// when it is next read (and still blocks removing a passage).
+fn keep_atlas_valid(root: &Path, current: &Snapshot, edited: &Notebook) -> Result<(), StoreError> {
+    if crate::atlas_store::check_against(root, &current.library, &current.notebook).is_err() {
+        return Ok(());
+    }
+    crate::atlas_store::check_against(root, &current.library, edited).map_err(|message| {
+        StoreError::Invalid(vec![NoteDiagnostic {
+            code: NoteDiagnosticCode::StillLinked,
+            collection: None,
+            index: None,
+            id: None,
+            field: None,
+            message: format!(
+                "the change would leave the Knowledge Atlas invalid, so nothing was saved ({message}); change the atlas first"
+            ),
+        }])
     })
 }
 
@@ -407,7 +461,8 @@ fn checked(current: &Snapshot, expected_revision: &str) -> Result<Notebook, Stor
     Ok(current.notebook.clone())
 }
 
-fn read(root: &Path, library: SourceLibrary) -> Result<Snapshot, StoreError> {
+/// Read and validate the stored notebook against `library`, never creating anything.
+pub(crate) fn read(root: &Path, library: SourceLibrary) -> Result<Snapshot, StoreError> {
     let path = notebook_path(root)?;
     let metadata = match fs::symlink_metadata(&path) {
         Ok(metadata) => metadata,
