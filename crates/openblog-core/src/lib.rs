@@ -78,6 +78,7 @@ pub mod passage_target;
 pub mod portability;
 pub mod preview;
 pub mod profile;
+pub mod publication_boundary;
 pub mod publication_review;
 pub mod published_moment;
 mod raw_html;
