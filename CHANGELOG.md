@@ -10,6 +10,19 @@ All notable changes to open.blog are recorded here. Releases follow
   state and provenance. A citation alone never asserts support, contradicting evidence cannot be
   hidden while support is published, and nothing judges evidence or scores it. Nothing reads or
   writes these files yet, so no site output changes.
+- Withdrawing consent on a claim or a contradicting evidence link is never refused: an approved
+  link on a private claim, and approved support beside a private contradiction, stay private and
+  are reported as notices instead of making the claims file invalid.
+- Evidence Studio in the post editor can now record claims: select words in a saved draft to make
+  a claim, then link supporting, contradicting or contextualizing evidence from your notebook
+  passages or source library with a rationale, confidence and uncertainty. Supporting and
+  contradicting evidence are listed side by side and never combined into one figure. Each claim
+  shows whether its words are still where you selected them (verified, moved, stale or
+  ambiguous) and can be re-anchored; a stale or ambiguous range is refused without changing the
+  draft or the claims. Claims are stored privately in `.openblog/private/research/claims.json`,
+  checked by `openblog check`, synced by the hosted workspace, and never reach your site, feeds,
+  search, `llms.txt` or exports. A source or passage an evidence link uses cannot be removed
+  until the link stops using it.
 
 ## [0.29.0] - 2026-10-26
 

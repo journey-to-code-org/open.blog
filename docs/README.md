@@ -87,7 +87,13 @@ or verdict ([ADR 0078](adr/0078-claims-and-evidence-links-record-the-authors-rea
 publishes support while contradiction is withheld
 ([ADR 0079](adr/0079-contradicting-evidence-is-never-hidden-or-published-alone.md)), and checks
 claim anchors against the draft without repairing them
-([ADR 0080](adr/0080-claim-anchors-are-verified-utf8-byte-spans.md)).
+([ADR 0080](adr/0080-claim-anchors-are-verified-utf8-byte-spans.md)), stored privately and
+checked against each post's saved draft
+([ADR 0081](adr/0081-private-claims-storage-checked-against-the-saved-draft.md)) with a lock
+order and guards that keep the sources and passages it uses
+([ADR 0082](adr/0082-claims-take-their-lock-after-the-atlas-and-guard-their-sources.md)), and
+authored from a selection in Evidence Studio with supporting and contradicting evidence side by
+side ([ADR 0083](adr/0083-claims-are-authored-from-a-selection-in-evidence-studio.md)).
 
 ## Command reference
 
@@ -97,7 +103,7 @@ openblog init [dir] [--title "..."] [--github-pages]
 openblog new "Title" [--series s] [--tags a,b] [--draft] [--recipe]
 openblog build [--drafts] [--out dir]   Write the site to dist/
 openblog serve [--admin] [--drafts] [--host 127.0.0.1] [--port 8080]
-openblog check                          Validate content, themes, and the private source library, notebook and Knowledge Atlas, write nothing
+openblog check                          Validate content, themes, and the private source library, notebook, Knowledge Atlas and claims, write nothing
 openblog export <slug> [--format markdown|csl-json|bibtex] [--out path] [--write]
                                         Preview or write portable Markdown, or the post's
                                         cited references as CSL JSON or BibTeX

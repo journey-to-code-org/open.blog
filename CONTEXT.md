@@ -681,6 +681,16 @@ Comparing a claim's recorded span with the current anchor text: verified, moved,
 ambiguous. It reports and never repairs.
 _Avoid_: Auto-relocation
 
+**Saved draft**:
+A post's text as stored in its file, which every claim anchor is checked against. Unsaved editor
+text never is; the author saves the post before anchoring a claim in new words.
+_Avoid_: Editor buffer, live text
+
+**Re-anchor**:
+The author choosing a claim's words again in the saved draft, after they moved, went stale or
+became ambiguous. Evidence cannot be added to a stale or ambiguous claim until it is re-anchored.
+_Avoid_: Auto-fix, relocation by the software
+
 ## Admin workspace
 
 **Workspace preferences**:

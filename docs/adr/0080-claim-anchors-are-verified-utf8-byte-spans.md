@@ -33,9 +33,9 @@ evidence to different words than the author chose.
   file unchanged.
 - **Storage is deferred.** The planned private file is
   `.openblog/private/research/claims.json`, owned by a later store with the atlas store's
-  revision-checked, lock-and-rename writes and the hosted allow-list. This task defines the core
-  types, validation and canonical JSON only, so no site output or file changes. Failures are
-  diagnostics scoped to collection, id and field and never repeat authored text.
+  revision-checked, lock-and-rename writes and the hosted allow-list (now ADR 0081). This task
+  defines the core types, validation and canonical JSON only, so no site output or file changes.
+  Failures are diagnostics scoped to collection, id and field and never repeat authored text.
 - **Edits are all-or-nothing.** `upsert_*` and `remove_*` validate the whole edited set exactly as
   a file is read and leave it unchanged on any problem. An unknown field cannot shadow a defined
   one; unknown fields otherwise round-trip.

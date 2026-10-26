@@ -1,11 +1,15 @@
 # Claims and evidence links format
 
 Private claims in draft posts and the author's evidence links, owned by
-`openblog_core::claims`. Decisions:
+`openblog_core::claims` and stored in `.openblog/private/research/claims.json`. Decisions:
 [ADR 0078](../adr/0078-claims-and-evidence-links-record-the-authors-reading.md),
-[ADR 0079](../adr/0079-contradicting-evidence-is-never-hidden-or-published-alone.md) and
-[ADR 0080](../adr/0080-claim-anchors-are-verified-utf8-byte-spans.md). Nothing here reaches a
-public page, feed, export or search index; a later projection copies approved items only.
+[ADR 0079](../adr/0079-contradicting-evidence-is-never-hidden-or-published-alone.md),
+[ADR 0080](../adr/0080-claim-anchors-are-verified-utf8-byte-spans.md),
+[ADR 0081](../adr/0081-private-claims-storage-checked-against-the-saved-draft.md),
+[ADR 0082](../adr/0082-claims-take-their-lock-after-the-atlas-and-guard-their-sources.md) and
+[ADR 0083](../adr/0083-claims-are-authored-from-a-selection-in-evidence-studio.md). Nothing here
+reaches a public page, feed, export or search index; a later projection copies approved items
+only.
 
 ```json
 {
@@ -44,6 +48,13 @@ public page, feed, export or search index; a later projection copies approved it
   approved. An approved link on a private claim (`private-endpoint`) and approved support beside a
   private contradiction (`undisclosed-contradiction`) are valid, stay private, and are reported as
   non-blocking notices, so withdrawing consent is never refused.
+- **Saving through Admin:** a new or changed anchor must be verified against the post's saved
+  draft (`stale-anchor`, `ambiguous-anchor`, `anchor-mismatch` for moved words, `unknown-post`).
+  A link cannot be added or changed while its claim's anchor is stale or ambiguous; removing a
+  link and withdrawing its approval are always allowed. Every change names the file's revision.
+- **Guards:** a source or notebook passage an evidence link uses cannot be removed, and a
+  library or notebook change that would leave the file invalid is refused. Locks are taken in
+  the order atlas, claims, notebook, library.
 - **Never present:** truth value, score, net result, verified state.
 - **Limits:** 4 MiB file, 20,000 claims, 100,000 links, statements 2,000 characters, rationale
   4,000.
