@@ -135,6 +135,9 @@ test("a claim is made from selected multi-byte words and opposing evidence is li
   expect(saved.claims[0].post).toBe("on-caves");
   await expect(claimHeading(page, "plato-is-named")).toBeFocused();
   await expect(studio(page).locator('[data-claims-anchor="verified"]')).toHaveCount(1);
+  // A claim with no evidence yet shows that gap and what to do, never a verdict.
+  await expect(studio(page).locator('[data-claims-finding="claim-evidence-missing"]')).toContainText("Next: Link the sources you relied on");
+  await expect(studio(page).locator("[data-claims-findings-summary]")).toContainText("never whether a claim is true");
 
   // Supporting evidence from a notebook passage, entirely from the keyboard.
   await page.getByRole("button", { name: "Link evidence to the claim: Plato is named." }).focus();

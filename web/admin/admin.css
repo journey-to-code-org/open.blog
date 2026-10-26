@@ -2678,6 +2678,26 @@ html[data-admin-density="compact"] .oba-pane {
   border-top: var(--ob-border-width) solid var(--oba-panel-border);
 }
 
+/* Gaps and prompts: a list of actions, marked by outcome without colour alone (the label says it). */
+.oba-claim-findings ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-claim-finding {
+  padding: 0.25rem 0 0.25rem 0.75rem;
+  border-inline-start: 3px solid var(--oba-panel-border);
+}
+
+.oba-claim-finding.is-detected {
+  border-inline-start-color: var(--ob-color-accent);
+}
+
+.oba-claim-finding code {
+  overflow-wrap: anywhere;
+}
+
 .oba-claim h4,
 .oba-claim h5,
 .oba-claim p,

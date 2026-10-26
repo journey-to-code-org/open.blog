@@ -2596,7 +2596,7 @@ export function visualSelectionAnchor(body, selected, block) {
 export function claimAnchorStatusText(status) {
   switch (status?.status) {
     case "verified":
-      return "Verified: the words are where you selected them in the saved draft.";
+      return "In place: the words are still where you selected them in the saved draft. This compares text positions only, not whether the claim is true.";
     case "moved":
       return "Moved: the words now appear once, elsewhere in the saved draft. Re-anchor to keep evidence on them.";
     case "stale":
@@ -2613,6 +2613,30 @@ export function claimLinkColumns(links, claimId) {
   const columns = { supports: [], contradicts: [], contextualizes: [] };
   for (const link of Array.isArray(links) ? links : []) if (link.claim === claimId && columns[link.relation]) columns[link.relation].push(link);
   return columns;
+}
+
+/**
+ * The evidence gaps and review prompts (ADR 0090) about one claim and its links, in the order the
+ * server reviewed them, which is the order `openblog check` prints. Only well-formed findings are kept.
+ */
+export function claimFindings(findings, claimId) {
+  return (Array.isArray(findings) ? findings : []).filter(
+    (finding) => finding && finding.object?.claim === claimId && typeof finding.code === "string" && typeof finding.message === "string" && typeof finding.repair === "string",
+  );
+}
+
+const CLAIM_FINDING_OUTCOMES = [
+  { outcome: "detected", label: "detected" },
+  { outcome: "potential", label: "potential" },
+  { outcome: "needs-review", label: "needing review" },
+];
+
+/** A post's findings as words: one total with each outcome counted apart, framed as gaps, never as a verdict. */
+export function claimFindingsSummary(findings) {
+  const list = Array.isArray(findings) ? findings : [];
+  if (!list.length) return "No evidence gaps or review prompts for this post's claims from the checks that ran.";
+  const parts = CLAIM_FINDING_OUTCOMES.map(({ outcome, label }) => `${list.filter((finding) => finding.outcome === outcome).length} ${label}`);
+  return `${plural(list.length, "evidence gap or review prompt", "evidence gaps and review prompts")} for this post's claims: ${parts.join(", ")}. They show what the record lacks or what only you can check, never whether a claim is true.`;
 }
 
 /** Counts per relation as words, deliberately three figures that are never combined. */
@@ -2728,10 +2752,10 @@ export function claimsErrorMessage(error) {
 }
 
 export function applyClaimsState(state, result) {
-  for (const key of ["revision", "file", "claims", "links", "sources", "passages", "notices", "anchors", "counts", "projected", "post"]) {
+  for (const key of ["revision", "file", "claims", "links", "sources", "passages", "notices", "findings", "anchors", "counts", "projected", "post"]) {
     if (result && result[key] !== undefined) state[key] = result[key];
   }
-  for (const key of ["claims", "links", "sources", "passages", "notices", "projected"]) if (!Array.isArray(state[key])) state[key] = [];
+  for (const key of ["claims", "links", "sources", "passages", "notices", "findings", "projected"]) if (!Array.isArray(state[key])) state[key] = [];
   for (const key of ["anchors", "counts"]) if (!state[key] || typeof state[key] !== "object") state[key] = {};
   return state;
 }
@@ -2755,6 +2779,7 @@ export function createClaimsStudio({ api, post, selection, idPrefix = "oba-claim
   const formRegion = h("div", { class: "oba-claim-form-region" });
   const undoRegion = h("div", { class: "oba-claim-undo", "data-claims-undo": "true" });
   const noticeRegion = h("div", { class: "oba-claim-notices", "data-claims-notices": "true" });
+  const findingsSummary = h("p", { class: "oba-small", "data-claims-findings-summary": "true", hidden: true });
   const say = (text, kind = "oba-small") => {
     status.className = kind;
     status.textContent = text;
@@ -3135,6 +3160,26 @@ export function createClaimsStudio({ api, post, selection, idPrefix = "oba-claim
       );
     };
     const blocked = anchorState && ["stale", "ambiguous"].includes(anchorState.status);
+    const findings = claimFindings(state.findings, claim.id);
+    const prompts = findings.length
+      ? h(
+          "section",
+          { class: "oba-claim-findings", "data-claims-findings": claim.id, "aria-label": `Evidence gaps and prompts for the claim: ${claim.statement}` },
+          h("h5", {}, `Gaps and prompts (${findings.length})`),
+          h(
+            "ul",
+            {},
+            findings.map((finding) =>
+              h(
+                "li",
+                { class: `oba-claim-finding is-${finding.outcome}`, "data-claims-finding": finding.code },
+                h("p", {}, h("code", {}, finding.code), ` (${CLAIM_FINDING_OUTCOMES.find((item) => item.outcome === finding.outcome)?.label || finding.outcome}): `, finding.message),
+                h("p", { class: "oba-small" }, h("strong", {}, "Next: "), finding.repair),
+              ),
+            ),
+          ),
+        )
+      : null;
     return h(
       "article",
       { class: "oba-claim", "data-claims-claim": claim.id, "aria-labelledby": `${idPrefix}-claim-${claim.id}` },
@@ -3145,6 +3190,7 @@ export function createClaimsStudio({ api, post, selection, idPrefix = "oba-claim
       h("p", { class: "oba-small", "data-claims-counts": claim.id }, claimCountsText(state.counts[claim.id])),
       h("div", { class: "oba-claim-columns" }, column("supports"), column("contradicts")),
       column("contextualizes"),
+      prompts,
       h(
         "div",
         { class: "oba-toolbar" },
@@ -3175,6 +3221,9 @@ export function createClaimsStudio({ api, post, selection, idPrefix = "oba-claim
       return link && claimById(link.claim)?.post === state.post;
     });
     noticeRegion.replaceChildren(...notices.map((notice) => h("p", { class: "oba-small", "data-claims-notice": notice.code }, `Link ${notice.id}: ${notice.message}`)));
+    const ids = new Set(claims.map((claim) => claim.id));
+    findingsSummary.hidden = claims.length === 0;
+    findingsSummary.textContent = claims.length ? claimFindingsSummary(state.findings.filter((finding) => ids.has(finding.object?.claim))) : "";
   };
   root.append(
     h("h3", { id: `${idPrefix}-heading` }, "Claims and evidence"),
@@ -3184,6 +3233,7 @@ export function createClaimsStudio({ api, post, selection, idPrefix = "oba-claim
     undoRegion,
     formRegion,
     noticeRegion,
+    findingsSummary,
     list,
   );
 

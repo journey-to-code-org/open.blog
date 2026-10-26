@@ -7,6 +7,8 @@ import {
   claimCountsText,
   claimDiagnosticControl,
   claimDraft,
+  claimFindings,
+  claimFindingsSummary,
   claimLinkColumns,
   claimPayload,
   claimSelectionAnchor,
@@ -314,7 +316,8 @@ test("links are grouped by relation in file order and counted apart, never nette
   const text = claimCountsText({ supports: 1, contradicts: 2, contextualizes: 0 });
   assert.equal(text, "1 supporting link, 2 contradicting links, 0 contextualizing links");
   assert.doesNotMatch(text, /net|score|verdict|-1|total/i);
-  for (const status of ["verified", "moved", "stale", "ambiguous"]) assert.match(claimAnchorStatusText({ status }), new RegExp(status, "i"));
+  for (const status of ["moved", "stale", "ambiguous"]) assert.match(claimAnchorStatusText({ status }), new RegExp(status, "i"));
+  assert.match(claimAnchorStatusText({ status: "verified" }), /^In place/);
   assert.match(claimAnchorStatusText(null), /No anchor/);
 });
 
@@ -358,7 +361,7 @@ test("a post's claims list their supporting and contradicting evidence side by s
   assert.match(columns.children[0].textContent, /Supporting \(1\)/);
   assert.match(columns.children[1].textContent, /Contradicting \(2\)/);
   assert.match(root.textContent, /1 supporting link, 2 contradicting links, 0 contextualizing links/);
-  assert.match(withData(root, "claimsAnchor", "verified")[0].textContent, /Verified/);
+  assert.match(withData(root, "claimsAnchor", "verified")[0].textContent, /In place/);
   assert.match(root.textContent, /Disputed\./);
   assert.match(root.textContent, /Stored privately in \.openblog\/private\/research\/claims\.json/);
   assert.doesNotMatch(root.querySelector("[data-claims-list]").textContent, /score|verdict|true claim|proven|net /i);
@@ -568,6 +571,47 @@ test("approved support held back by a private contradiction says so, and notices
   const studio = await mountStudio(api);
   assert.match(studio.element.textContent, /Approved, but held back until its claim and every contradicting link on it are approved/);
   assert.match(withData(studio.element, "claimsNotice", "private-endpoint")[0].textContent, /^Link l1: the claim `c1` is private/);
+}));
+
+const FINDINGS = () => [
+  { code: "claim-contradiction-undiscussed", outcome: "needs-review", source: { path: "posts/2026-01-07-on-caves.md", field: "claims[c1].uncertainty" }, message: "Claim `c1` has 2 contradicting evidence links and no uncertainty note saying how the post addresses them.", repair: "Discuss the contradicting evidence in the post, then record how in the claim's uncertainty note in Evidence Studio.", object: { claim: "c1" } },
+  { code: "claim-location-unreviewed", outcome: "needs-review", source: { path: "posts/2026-01-07-on-caves.md", field: "links[l1].reviewState" }, message: `Evidence link \`l1\` gives a location. ${HOSTILE}`, repair: "Compare the location with the source.", object: { claim: "c1", link: "l1" } },
+  { code: "claim-locator-missing", outcome: "potential", source: { path: "posts/2026-01-07-on-caves.md", field: "links[l2].evidence.locators" }, message: "Evidence link `l2` names source `scholar` but no page or other location in it.", repair: "Add where it is.", object: { claim: "c1", link: "l2" } },
+  { code: "claim-evidence-missing", outcome: "potential", source: { path: ".openblog/private/research/claims.json", field: "claims[c9]" }, message: "Claim `c9` has no evidence links.", repair: "Link the sources you relied on.", object: { claim: "c9" } },
+];
+
+test("evidence gaps are kept per claim in review order and summarised as gaps, never verdicts", () => {
+  assert.deepEqual(claimFindings(FINDINGS(), "c1").map((finding) => finding.code), ["claim-contradiction-undiscussed", "claim-location-unreviewed", "claim-locator-missing"]);
+  assert.deepEqual(claimFindings([null, { object: { claim: "c1" } }, ...FINDINGS()], "c9").map((finding) => finding.code), ["claim-evidence-missing"]);
+  const summary = claimFindingsSummary(claimFindings(FINDINGS(), "c1"));
+  assert.equal(summary, "3 evidence gaps and review prompts for this post's claims: 0 detected, 1 potential, 2 needing review. They show what the record lacks or what only you can check, never whether a claim is true.");
+  assert.match(claimFindingsSummary([]), /^No evidence gaps or review prompts/);
+  assert.doesNotMatch(`${summary} ${claimFindingsSummary([])}`, /verified|score|proven|correct/i);
+  // A position check is never labelled as verifying the claim.
+  assert.doesNotMatch(claimAnchorStatusText({ status: "verified" }), /^Verified/);
+  assert.match(claimAnchorStatusText({ status: "verified" }), /text positions only, not whether the claim is true/);
+});
+
+test("Evidence Studio lists each claim's gaps and prompts with the action to take, as text", withDom(async () => {
+  const api = claimsApi({ "GET research/claims?path=posts%2F2026-01-07-on-caves.md": () => view({ findings: FINDINGS() }) });
+  const studio = await mountStudio(api);
+  const root = studio.element;
+  const section = withData(root, "claimsFindings", "c1")[0];
+  assert.ok(section, "the claim has a findings section");
+  assert.match(section.getAttribute("aria-label"), /^Evidence gaps and prompts for the claim: /);
+  assert.equal(section.querySelector("h5").textContent, "Gaps and prompts (3)");
+  const items = section.querySelectorAll("li");
+  assert.deepEqual(items.map((item) => item.dataset.claimsFinding), ["claim-contradiction-undiscussed", "claim-location-unreviewed", "claim-locator-missing"]);
+  assert.match(items[0].textContent, /claim-contradiction-undiscussed \(needing review\): Claim `c1` has 2 contradicting/);
+  assert.match(items[0].textContent, /Next: Discuss the contradicting evidence/);
+  // Hostile text in a message stays text.
+  assert.ok(items[1].textContent.includes(HOSTILE));
+  assert.equal(root.querySelectorAll("img").length, 0);
+  // Another post's claim and its finding are not shown here.
+  assert.equal(withData(root, "claimsFindings", "c9").length, 0);
+  const summary = root.querySelector("[data-claims-findings-summary]");
+  assert.equal(summary.hidden, false);
+  assert.match(summary.textContent, /^3 evidence gaps and review prompts for this post's claims: 0 detected, 1 potential, 2 needing review\./);
 }));
 
 test("every claims control is labelled and the relation is a fieldset with a legend", withDom(async () => {
