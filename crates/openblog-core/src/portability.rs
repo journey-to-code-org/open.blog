@@ -872,10 +872,11 @@ impl<'a> PortableProjection<'a> {
             }
             if !labels.contains(&label) {
                 labels.push(label);
+                let (href, verb) = self.capability_link(capability);
                 html.push_str(&format!(
-                    "<p class=\"ob-portable-note\"><strong>{}</strong>: see it on <a href=\"{}\">the original article</a>.</p>\n",
+                    "<p class=\"ob-portable-note\"><strong>{}</strong>: {verb} <a href=\"{}\">the original article</a>.</p>\n",
                     escape::text(label),
-                    escape::attr(&self.canonical_url)
+                    escape::attr(&href)
                 ));
             }
         }
@@ -1159,10 +1160,20 @@ impl<'a> PortableProjection<'a> {
             let Some(label) = capability.portable_label() else {
                 continue;
             };
-            let note = format!(
-                "> **{label}:** this interaction is available on the [canonical article]({}).\n\n",
-                markdown_destination(&self.canonical_url)
-            );
+            let (href, verb) = self.capability_link(capability);
+            let note = if capability.id
+                == crate::perspective_publication::THIRD_PERSPECTIVES_CAPABILITY
+            {
+                format!(
+                    "> **{label}:** {verb} the [canonical article]({}).\n\n",
+                    markdown_destination(&href)
+                )
+            } else {
+                format!(
+                    "> **{label}:** this interaction is available on the [canonical article]({}).\n\n",
+                    markdown_destination(&href)
+                )
+            };
             if !output.contains(&note) {
                 output.push_str(&note);
             }
@@ -1463,7 +1474,7 @@ impl<'a> PortableProjection<'a> {
                 facts.push(SemanticFact::new(
                     "canonical-only-interaction",
                     "canonical link",
-                    &self.canonical_url,
+                    self.capability_link(capability).0,
                 ));
             }
         }
@@ -1729,6 +1740,32 @@ impl<'a> PortableProjection<'a> {
             series_clause(" This part is by ", &names(&series.part_authors)),
             series_clause(" Series contributors: ", &names(&series.contributors)),
         ))
+    }
+
+    /// Where a capability's labelled note points on the canonical article, and
+    /// how it says so. Third Perspectives link to their own section: the
+    /// reflections when there are any ("see it on"), otherwise the form
+    /// ("take part on"); everything else links to the article itself.
+    fn capability_link(&self, capability: &CapabilityDescriptor) -> (String, &'static str) {
+        if capability.id != crate::perspective_publication::THIRD_PERSPECTIVES_CAPABILITY {
+            return (self.canonical_url.clone(), "see it on");
+        }
+        // Only the form has a renderer: nothing is approved yet.
+        let offered_only =
+            capability.native_renderer == Some(crate::render::THIRD_PERSPECTIVE_ANCHOR);
+        let anchor = if offered_only {
+            crate::render::THIRD_PERSPECTIVE_ANCHOR
+        } else {
+            crate::perspective_publication::THIRD_PERSPECTIVES_ANCHOR
+        };
+        (
+            format!("{}#{anchor}", self.canonical_url),
+            if offered_only {
+                "take part on"
+            } else {
+                "see it on"
+            },
+        )
     }
 
     fn participation_url(&self) -> String {

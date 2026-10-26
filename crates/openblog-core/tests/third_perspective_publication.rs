@@ -409,7 +409,8 @@ fn feeds_portable_copies_search_and_llms_carry_only_a_labelled_canonical_link() 
             "conversation",
             "Mina Unique",
             ID_1,
-            "ob-third-perspectives",
+            // The section itself, never copied; the link's anchor is allowed.
+            "ob-third-perspectives-title",
         ] {
             assert!(!contents.contains(secret), "{secret} in {path}");
         }
@@ -417,7 +418,7 @@ fn feeds_portable_copies_search_and_llms_carry_only_a_labelled_canonical_link() 
     let projection = PortableProjection::from_post(&site.posts[0], &site.config).unwrap();
     let html = projection.portable_html().unwrap();
     assert!(
-        html.html.contains("<p class=\"ob-portable-note\"><strong>Third Perspectives</strong>: see it on <a href=\"https://t.dev/posts/tides/\">the original article</a>.</p>"),
+        html.html.contains("<p class=\"ob-portable-note\"><strong>Third Perspectives</strong>: see it on <a href=\"https://t.dev/posts/tides/#ob-third-perspectives\">the original article</a>.</p>"),
         "{}",
         html.html
     );
@@ -428,8 +429,12 @@ fn feeds_portable_copies_search_and_llms_carry_only_a_labelled_canonical_link() 
         .find(|capability| capability.id == "third-perspectives")
         .unwrap();
     assert_eq!(capability.fallback_renderer, Some("labeled-canonical-link"));
+    assert_eq!(
+        capability.native_renderer, None,
+        "the canonical section is plain HTML with no renderer"
+    );
     let markdown = projection.portable_markdown().unwrap();
-    assert!(markdown.contains("> **Third Perspectives:** this interaction is available on the [canonical article](https://t.dev/posts/tides/)."));
+    assert!(markdown.contains("> **Third Perspectives:** see it on the [canonical article](https://t.dev/posts/tides/#ob-third-perspectives)."));
     assert!(!markdown.contains("Mina Unique") && !markdown.contains("conversation"));
     // The feed's copy of the post links the same way.
     assert!(files["llms-full.txt"]
@@ -499,8 +504,13 @@ fn an_open_post_without_approved_reflections_links_portable_copies_to_its_form()
         .portable_html()
         .unwrap()
         .html;
-    assert!(html.contains("<strong>Third Perspectives</strong>: see it on"));
-    assert!(!html.contains("ob-third-perspective\""));
+    assert!(html.contains("<strong>Third Perspectives</strong>: take part on <a href=\"https://t.dev/posts/tides/#ob-third-perspective\">the original article</a>."));
+    assert!(!html.contains("id=\"ob-third-perspective\"") && !html.contains("<section"));
+    let markdown = PortableProjection::from_post(&site.posts[0], &site.config)
+        .unwrap()
+        .portable_markdown()
+        .unwrap();
+    assert!(markdown.contains("> **Third Perspectives:** take part on the [canonical article](https://t.dev/posts/tides/#ob-third-perspective)."));
     // Locked with nothing approved: nothing to see there, so no link.
     let locked = site_with(HOSTED, LOCKED_KIND, None);
     assert!(!locked.posts[0]

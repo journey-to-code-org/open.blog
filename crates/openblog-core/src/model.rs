@@ -1237,11 +1237,11 @@ fn attach_third_perspectives(
         if !post.third_perspectives.is_empty() || offered {
             post.capabilities.push(CapabilityDescriptor::describe(
                 publication::THIRD_PERSPECTIVES_CAPABILITY,
-                Some(if post.third_perspectives.is_empty() {
-                    crate::render::THIRD_PERSPECTIVE_ANCHOR
-                } else {
-                    publication::THIRD_PERSPECTIVES_ANCHOR
-                }),
+                // The region's component renders only the form: with reflections to
+                // show, the canonical section is plain HTML and has no renderer.
+                post.third_perspectives
+                    .is_empty()
+                    .then_some(crate::render::THIRD_PERSPECTIVE_ANCHOR),
             ));
         }
     }
