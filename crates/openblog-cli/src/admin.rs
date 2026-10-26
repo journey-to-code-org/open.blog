@@ -8215,7 +8215,7 @@ fn write_atomic(path: &Path, contents: &str) -> Result<(), String> {
 fn restore_file(path: &Path, previous: Option<&[u8]>) -> Result<(), String> {
     match previous {
         Some(contents) => write_atomic_bytes(path, contents),
-        None if path.exists() => fs::remove_file(path)
+        None if path.exists() => crate::fsutil::retry_transient(|| fs::remove_file(path))
             .map_err(|error| format!("cannot remove {} during rollback: {error}", path.display())),
         None => Ok(()),
     }

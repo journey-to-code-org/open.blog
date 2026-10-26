@@ -135,12 +135,12 @@ pub fn load_all(root: &Path) -> Result<Vec<(PathBuf, SharedPublication)>, String
     paths.sort();
     let mut records = Vec::new();
     for path in paths {
-        if crate::fsutil::retry_transient(|| fs::metadata(&path)).map_or(true, |metadata| {
+        if fs::metadata(&path).map_or(true, |metadata| {
             metadata.len() > MAX_SHARED_PUBLICATION_BYTES as u64
         }) {
             continue;
         }
-        let Ok(text) = crate::fsutil::read_to_string(&path) else {
+        let Ok(text) = fs::read_to_string(&path) else {
             continue;
         };
         let Ok(record) = SharedPublication::from_json(&text) else {
@@ -361,7 +361,7 @@ fn replace_text(
         return Err(ReplaceError::Conflict);
     }
     let Some(text) = next else {
-        return match fs::remove_file(&target) {
+        return match crate::fsutil::retry_transient(|| fs::remove_file(&target)) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
             Err(error) => Err(ReplaceError::Storage(format!(
