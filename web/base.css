@@ -1675,6 +1675,41 @@ ob-comments {
   font-size: 1rem;
 }
 
+/* Approved Third Perspectives on a work's canonical page (ADR 0115): readers' reflections, set
+   apart from the authors' text, static and without a script. */
+.ob-third-perspectives {
+  margin-block: var(--ob-space-8, 2rem);
+  border-top: 1px solid var(--ob-color-border);
+  padding-top: var(--ob-space-6, 1.5rem);
+}
+
+.ob-third-perspectives-list {
+  display: grid;
+  gap: var(--ob-space-6, 1.5rem);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-perspective {
+  max-inline-size: 42rem;
+  min-inline-size: 0;
+  border-inline-start: 3px solid var(--ob-color-border);
+  padding-inline-start: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.ob-perspective h3 {
+  margin-block: 0 .5rem;
+  font-size: 1.1rem;
+}
+
+.ob-perspective-meta,
+.ob-perspective-earlier {
+  color: var(--ob-color-subtle, inherit);
+  font-size: .9rem;
+}
+
 ob-passage-feedback {
   display: block;
 }

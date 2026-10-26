@@ -146,7 +146,7 @@ fn resolve_social_metadata(config: &SiteConfig, input: SocialMetadataInput<'_>) 
 /// participation link can target.
 const FEEDBACK_ANCHOR: &str = "ob-feedback";
 /// The id of a post's Third Perspective region (ADR 0114).
-const THIRD_PERSPECTIVE_ANCHOR: &str = "ob-third-perspective";
+pub(crate) const THIRD_PERSPECTIVE_ANCHOR: &str = "ob-third-perspective";
 /// The id of the page data element that holds a post's passage text.
 pub const PASSAGE_DATA_ELEMENT_ID: &str = "ob-passages";
 
@@ -1489,6 +1489,13 @@ impl<'a> Renderer<'a> {
         if let Some((region, _)) = &passage_feedback {
             body.push_str(region);
         }
+        // Approved Third Perspectives, each a reader's and never an author's,
+        // are shown on the canonical page only (ADRs 0111 and 0115), apart
+        // from the authors' text and before the form that asks for more.
+        body.push_str(&crate::perspective_publication::render_section(
+            post.third_perspectives(),
+            reports_endpoint,
+        ));
         let third_perspective = self.third_perspective(post);
         if let Some(region) = &third_perspective {
             body.push_str(region);
@@ -3337,6 +3344,7 @@ mod tests {
                 source_library: None,
                 claim_evidence: None,
                 reader_feedback: None,
+                third_perspectives: None,
             },
             LoadOptions::default(),
         )

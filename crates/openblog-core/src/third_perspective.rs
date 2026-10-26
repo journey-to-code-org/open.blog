@@ -873,7 +873,7 @@ fn forbidden_in_body(character: char) -> bool {
 /// A reflection as stored: line breaks as `\n`, trimmed, 1 to
 /// [`MAX_BODY_CHARS`] characters of plain text. It is never read as
 /// Markdown or HTML.
-fn normalize_body(value: &str) -> Option<String> {
+pub(crate) fn normalize_body(value: &str) -> Option<String> {
     let text = value.replace("\r\n", "\n").replace('\r', "\n");
     let text = text.trim();
     let count = text.chars().count();
@@ -1654,32 +1654,21 @@ impl SubmittedCopy {
         ) {
             (Some(approved), Some(current)) if approved == current => Some(current),
             _ => None,
-        }
-        .filter(|name| !matches_credit(name, &work.credited))
-        .map(str::to_string);
-        let anchor = &self.provenance.target.section;
-        let (about, section, stale) = match (&self.provenance.target.selector, target) {
-            (PassageSelector::Work, _) => (About::Work, None, false),
-            (_, TargetStatus::Current { section }) => (About::Section, section.clone(), false),
-            (_, TargetStatus::Stale { section_present }) => (
-                About::Section,
-                anchor.clone().filter(|_| *section_present),
-                true,
-            ),
         };
-        Some(ApprovedResponse {
-            kind: KIND,
-            role: READER_ROLE,
-            work: self.provenance.work.clone(),
-            about,
-            section,
-            stale,
-            earlier_revision: self.provenance.revision != work.revision,
-            category: self.category,
-            body: self.body.clone(),
-            name,
-            received: self.provenance.received_at.ymd(),
-        })
+        project(
+            PublicParts {
+                work: &self.provenance.work,
+                revision: &self.provenance.revision,
+                target: &self.provenance.target,
+                category: self.category,
+                body: &self.body,
+                name,
+                received: self.provenance.received_at.ymd(),
+            },
+            mode,
+            work,
+            target,
+        )
     }
 
     /// An approved response an editor features: only while it is public and
@@ -1699,6 +1688,65 @@ impl SubmittedCopy {
             && self.consent().feature_revision == Some(selection.revision);
         covered.then_some(FeaturedPublication { response })
     }
+}
+
+/// What the one public projection reads of an approved copy: only parts
+/// that may be public once the caller has checked approval and consent. A
+/// published record (`perspective_publication`) keeps exactly these, so the
+/// canonical page and the inbox's preview project through the same code.
+pub(crate) struct PublicParts<'a> {
+    pub work: &'a str,
+    /// The passage revision the reader saw.
+    pub revision: &'a str,
+    pub target: &'a PassageTarget,
+    pub category: Option<ResponseCategory>,
+    pub body: &'a str,
+    /// The name both the approved and the current consent show, if any.
+    pub name: Option<&'a str>,
+    /// The day it was received, `YYYY-MM-DD`.
+    pub received: String,
+}
+
+/// The one public projection (ADR 0111), once approval and consent allow
+/// it: only where the kind shows approved items, only on the work it is
+/// about, never with a name the work credits, and with the target's
+/// standing in the work as published now.
+pub(crate) fn project(
+    parts: PublicParts<'_>,
+    mode: ParticipationMode,
+    work: &PublishedWork,
+    target: &TargetStatus,
+) -> Option<ApprovedResponse> {
+    if !mode.shows_approved() || work.path != parts.work {
+        return None;
+    }
+    let name = parts
+        .name
+        .filter(|name| !matches_credit(name, &work.credited))
+        .map(str::to_string);
+    let anchor = &parts.target.section;
+    let (about, section, stale) = match (&parts.target.selector, target) {
+        (PassageSelector::Work, _) => (About::Work, None, false),
+        (_, TargetStatus::Current { section }) => (About::Section, section.clone(), false),
+        (_, TargetStatus::Stale { section_present }) => (
+            About::Section,
+            anchor.clone().filter(|_| *section_present),
+            true,
+        ),
+    };
+    Some(ApprovedResponse {
+        kind: KIND,
+        role: READER_ROLE,
+        work: parts.work.to_string(),
+        about,
+        section,
+        stale,
+        earlier_revision: parts.revision != work.revision,
+        category: parts.category,
+        body: parts.body.to_string(),
+        name,
+        received: parts.received,
+    })
 }
 
 /// Whether `name` is a name the work credits, compared the way a reader would

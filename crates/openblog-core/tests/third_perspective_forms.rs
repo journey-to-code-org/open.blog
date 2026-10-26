@@ -1,9 +1,10 @@
 //! The Third Perspective region on published pages (#221, ADR 0114): only a
 //! post where the kind is `open` under the one participation policy carries
 //! the region, its no-JavaScript text with the site's feedback contact, the
-//! passage data and the form's script. A locked or hidden post, a site that
-//! leaves the kind off and every feed and portable file are unchanged, and
-//! the form sends through the hosted service only where it issues receipts.
+//! passage data and the form's script. A locked or hidden post and a site
+//! that leaves the kind off are unchanged, feeds and portable files carry no
+//! form (only the labelled canonical link of ADR 0115), and the form sends
+//! through the hosted service only where it issues receipts.
 
 use std::collections::BTreeMap;
 
