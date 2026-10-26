@@ -1,4 +1,4 @@
-//! The published reference and citation-preview data contract (ADR 0064):
+//! The published reference and citation-preview data contract (ADR 0059):
 //! every citation resolves to a visible reference, versions and locations
 //! stay distinct, legacy posts are unchanged, output is deterministic,
 //! script-safe and holds nothing private.

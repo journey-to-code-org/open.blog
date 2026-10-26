@@ -1,19 +1,19 @@
-# ADR 0066: Citation previews are one progressive, non-modal component that shows the page's own data as text
+# ADR 0061: Citation previews are one progressive, non-modal component that shows the page's own data as text
 
 - Status: Accepted
 - Date: 2026-10-25
 - Decision issue: [#66](https://github.com/journey-to-code-org/open.blog/issues/66)
 - Parent story: [#25](https://github.com/journey-to-code-org/open.blog/issues/25)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0064](0064-published-reference-data-for-citation-previews.md),
-  [ADR 0065](0065-citation-navigation-is-static-html-checked-at-build.md)
+- Builds on: [ADR 0059](0059-published-reference-data-for-citation-previews.md),
+  [ADR 0060](0060-citation-navigation-is-static-html-checked-at-build.md)
 - Contract: [Citation format](../specs/citations.md)
 
 ## Context
 
 A post that publishes citations already reads fully without JavaScript: each marker is a
-`doc-noteref` link to a focusable note, and the page carries its reference data inline (ADR 0064,
-ADR 0065). B1 asks for a preview of the cited source beside the marker, so a reader can check a
+`doc-noteref` link to a focusable note, and the page carries its reference data inline (ADR 0059,
+ADR 0060). B1 asks for a preview of the cited source beside the marker, so a reader can check a
 reference without losing their place, with predictable open, close, Escape, outside interaction
 and focus return, for keyboard, pointer, touch and screen-reader users. It must never remove the
 underlying link, show anything but pre-rendered safe text and allowlisted links, or reach outside

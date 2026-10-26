@@ -1,4 +1,4 @@
-# ADR 0064: Previews read one inline reference document projected from the published citations
+# ADR 0059: Previews read one inline reference document projected from the published citations
 
 - Status: Accepted
 - Date: 2026-10-25

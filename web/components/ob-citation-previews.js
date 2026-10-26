@@ -1,10 +1,10 @@
 // <ob-citation-previews> shows a preview of the cited source next to each
-// citation marker of a post that publishes citations (ADR 0066). The page is
+// citation marker of a post that publishes citations (ADR 0061). The page is
 // complete without it: every marker stays a link to its note, and the notes
 // are the references.
 //
 // The preview shows only the page's own reference data, the
-// <script type="application/json" id="ob-references"> element (ADR 0064), and
+// <script type="application/json" id="ob-references"> element (ADR 0059), and
 // only as text. Its one outside link is the data's `link`, checked again here
 // to be a plain http(s) address. Nothing is fetched and nothing is stored.
 //

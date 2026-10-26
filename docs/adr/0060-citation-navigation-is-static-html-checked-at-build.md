@@ -1,4 +1,4 @@
-# ADR 0065: Citation navigation is static HTML, and the build checks it against the reference data
+# ADR 0060: Citation navigation is static HTML, and the build checks it against the reference data
 
 - Status: Accepted
 - Date: 2026-10-25
@@ -6,13 +6,13 @@
 - Parent story: [#25](https://github.com/journey-to-code-org/open.blog/issues/25)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
 - Builds on: [ADR 0048](0048-citations-publish-through-the-one-publication-projection.md),
-  [ADR 0064](0064-published-reference-data-for-citation-previews.md)
+  [ADR 0059](0059-published-reference-data-for-citation-previews.md)
 - Contract: [Citation format](../specs/citations.md)
 
 ## Context
 
 A3 already writes each generated marker as a `doc-noteref` link named "Citation N" with its own
-id, and ends each note with one `doc-backlink` per citing marker. ADR 0064 defined the reader
+id, and ends each note with one `doc-backlink` per citing marker. ADR 0059 defined the reader
 reference data but did not put it on the page. Before the preview component (#66), a reader with
 no JavaScript, a keyboard or a screen reader must be able to follow a citation to its reference and
 return to the same place, on screen and on paper.

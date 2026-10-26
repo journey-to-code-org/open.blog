@@ -1,4 +1,4 @@
-// DOM-contract tests for <ob-citation-previews> (ADR 0066): keyboard, pointer
+// DOM-contract tests for <ob-citation-previews> (ADR 0061): keyboard, pointer
 // and touch use, Escape and focus return, outside interaction, viewport
 // edges, several markers, hostile data, unsafe links, disconnection, and the
 // page's styles for reduced motion and print.

@@ -58,11 +58,11 @@ struct Meta<'a> {
     image_alt: Option<String>,
     json_ld: Option<String>,
     /// The reader reference data of a post that publishes citations, as its
-    /// `<script type="application/json">` element (ADR 0064); `None` on every
+    /// `<script type="application/json">` element (ADR 0059); `None` on every
     /// other page, which is then written exactly as before.
     reader_references: Option<String>,
     /// The `<ob-citation-previews>` element that enhances the markers with
-    /// previews from that data (ADR 0066), present exactly when the data is.
+    /// previews from that data (ADR 0061), present exactly when the data is.
     citation_previews: Option<String>,
     theme: &'a Theme,
     published: Option<String>,

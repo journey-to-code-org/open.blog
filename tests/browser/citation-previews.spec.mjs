@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// The citation preview component on a published reader page (ADR 0066): keyboard, pointer and
+// The citation preview component on a published reader page (ADR 0061): keyboard, pointer and
 // touch use, Escape and focus return, outside interaction, viewport edges, reduced motion, hostile
 // data, no requests of its own, the strict content security policy, and an unchanged page without
 // JavaScript.

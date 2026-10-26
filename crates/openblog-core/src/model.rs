@@ -303,7 +303,7 @@ impl Post {
     }
 
     /// The reader-facing reference data of this post's published citations
-    /// (ADR 0064), or `None` when it publishes none.
+    /// (ADR 0059), or `None` when it publishes none.
     pub fn reader_references(&self) -> Option<crate::reader_references::ReaderReferences> {
         self.citations.as_ref().and_then(|summary| {
             crate::reader_references::ReaderReferences::from_summary(summary).ok()

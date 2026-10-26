@@ -128,12 +128,12 @@ ids so no other element has it (the author's own headings keep the ids they have
 citations), and each generated note has `tabindex="-1"`, so following a marker moves focus
 to its note without JavaScript; the author's own footnotes stay outside it, unchanged. The
 reached note or marker is outlined (`:target`), long addresses wrap, and print hides only the
-back links ([ADR 0065](../adr/0065-citation-navigation-is-static-html-checked-at-build.md)).
+back links ([ADR 0060](../adr/0060-citation-navigation-is-static-html-checked-at-build.md)).
 Portable copies keep ordinary footnotes that link to the note on the canonical article.
 
 ## Reader references
 
-[ADR 0064](../adr/0064-published-reference-data-for-citation-previews.md) defines the data a
+[ADR 0059](../adr/0059-published-reference-data-for-citation-previews.md) defines the data a
 citation preview reads, `openblog_core::reader_references::ReaderReferences`
 (`Post::reader_references`), projected from the published citations and absent for a post that
 publishes none.
@@ -161,7 +161,7 @@ there is no separate file in version 1.
 
 ## Citation previews
 
-[ADR 0066](../adr/0066-citation-previews-are-a-progressive-non-modal-component.md) defines
+[ADR 0061](../adr/0061-citation-previews-are-a-progressive-non-modal-component.md) defines
 `<ob-citation-previews>` (`web/components/ob-citation-previews.js`). Only the page of a post that
 publishes citations loads it: its module script follows the `ob-references` element in the
 `<head>`, and one empty `<ob-citation-previews note-label="Go to note">` (`Go to reference` for a

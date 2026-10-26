@@ -133,7 +133,7 @@ impl CitationLocale {
     }
 
     /// The words of a citation preview's link to the note (`notes`) or the
-    /// reference list entry (`bibliography`) a marker leads to (ADR 0066).
+    /// reference list entry (`bibliography`) a marker leads to (ADR 0061).
     pub fn go_to_words(self, style: CitationStyle) -> &'static str {
         match style {
             CitationStyle::Notes => self.strings().go_to.0,
@@ -275,7 +275,7 @@ pub struct CitationSummary {
 }
 
 /// One citation as published: which note its marker points at, which
-/// reference it cites and where in it (ADR 0064). Numbers are one-based and
+/// reference it cites and where in it (ADR 0059). Numbers are one-based and
 /// follow order of first citation, as the notes do.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CitationPlacement {

@@ -1,5 +1,5 @@
 //! The published reference data a reader-facing citation preview uses
-//! (ADR 0064).
+//! (ADR 0059).
 //!
 //! A post that publishes citations (ADR 0048) already shows each citation as
 //! a note marker linked to a visible note. This module projects the same
@@ -68,7 +68,7 @@ pub struct ReaderCitation {
     pub locators: Vec<PublicLocator>,
     /// The locators as readers see them in the notes' locale (`p. 514–520,
     /// l. 3`), pre-rendered plain text for a preview to show as text (ADR
-    /// 0066). Absent when the citation has no locators.
+    /// 0061). Absent when the citation has no locators.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub formatted: Option<String>,
 }
