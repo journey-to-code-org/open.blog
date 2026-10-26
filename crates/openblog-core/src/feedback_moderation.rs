@@ -367,7 +367,7 @@ impl PassageCheck {
     }
 }
 
-fn stale_reason_id(reason: StaleReason) -> &'static str {
+pub(crate) fn stale_reason_id(reason: StaleReason) -> &'static str {
     match reason {
         StaleReason::QuoteNotFound => "quoteNotFound",
         StaleReason::ContextChanged => "contextChanged",

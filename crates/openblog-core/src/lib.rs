@@ -29,6 +29,8 @@
 //! - [`passage_target`]: stable passage targets in published text, resolved as current, re-anchored or stale
 //! - [`feedback_provenance`]: which revision a reader's feedback was about and when, with consent-gated attribution
 //! - [`scholarly_feedback`]: typed reader questions, suggested sources and corrections and other interpretations, as submitted and as received
+//! - [`evidence_submission`]: suggested sources and corrections with the published claim, citation and source a reader names, never verified
+//! - [`correction_decision`]: the author's correction decision on an evidence submission, the only thing that labels a correction
 
 pub mod accessibility;
 pub mod alignment;
@@ -50,10 +52,12 @@ pub mod collaboration;
 pub mod comparison_publication;
 pub mod config;
 pub mod contributor;
+pub mod correction_decision;
 pub mod date;
 pub mod draft;
 pub mod embed;
 pub mod escape;
+pub mod evidence_submission;
 pub mod feedback_moderation;
 pub mod feedback_provenance;
 pub mod feedback_publication;
