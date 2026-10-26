@@ -715,6 +715,12 @@ export class ObPassageFeedback extends HTMLElement {
       ui.status.textContent = "Feedback on this post is closed, so your note was not sent.";
       return;
     }
+    // The same note from here within the hour (ADR 0131): it is already with the author, so there
+    // is nothing to copy and send again.
+    if (outcome.status === 409 && outcome.code === "duplicate") {
+      ui.status.textContent = "This note was already sent and is waiting for review.";
+      return;
+    }
     const reason =
       outcome.status === 0
         ? "Your note could not be sent: the feedback service did not answer."

@@ -769,6 +769,17 @@ test("a closed post says so and offers no copy", async () => {
   assert.ok(ui.fallback.hidden);
 });
 
+test("a note already sent this hour says it is waiting for review and offers no copy", async () => {
+  const view = page();
+  const ui = parts(view.host);
+  fakeFetch({ status: 409, body: { error: "This note was already sent and is waiting for review.", code: "duplicate" } });
+  fill(view, {});
+  submit(view);
+  await tick();
+  assert.equal(ui.status.textContent, "This note was already sent and is waiting for review.");
+  assert.ok(ui.fallback.hidden);
+});
+
 test("a refusal the service reports for one field is shown on that field", async () => {
   const view = page();
   const ui = parts(view.host);
