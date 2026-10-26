@@ -309,7 +309,8 @@ function openFakeEditor(app, hash, editor) {
 // ---------------------------------------------------------------- routes
 
 test("research panels share one route namespace and the earlier routes redirect into it", () => {
-  assert.deepEqual(RESEARCH_PANELS.map((panel) => panel.id), ["overview", "sources", "notebook", "atlas", "compare"]);
+  assert.deepEqual(RESEARCH_PANELS.map((panel) => panel.id), ["overview", "sources", "notebook", "atlas", "compare", "public"]);
+  assert.equal(researchHref("public", "x"), "#/research/public", "What will be public opens no item by id");
   assert.equal(researchHref("overview"), "#/research/overview");
   assert.equal(researchHref("atlas", "the good/2"), "#/research/atlas/the%20good%2F2", "an item id is one encoded segment");
   assert.equal(researchHref("notebook", "cave"), "#/research/notebook", "panels that do not open items by id ignore one");
@@ -436,8 +437,8 @@ test("research panels are listed as private and the draft as publishable, in wor
     }
   }
   const links = nav.querySelectorAll("a");
-  assert.deepEqual(links.map((link) => link.textContent), ["Workflow", "Sources", "Notebook", "Atlas", "Compare", "Claims", "Draft"]);
-  assert.deepEqual(links.map((link) => link.attributes.href), ["#/research/overview", "#/research/sources", "#/research/notebook", "#/research/atlas", "#/research/compare", "#/edit/posts%2Fa.md?pane=evidence", "#/edit/posts%2Fa.md"]);
+  assert.deepEqual(links.map((link) => link.textContent), ["Workflow", "Sources", "Notebook", "Atlas", "Compare", "What will be public", "Claims", "Draft"]);
+  assert.deepEqual(links.map((link) => link.attributes.href), ["#/research/overview", "#/research/sources", "#/research/notebook", "#/research/atlas", "#/research/compare", "#/research/public", "#/edit/posts%2Fa.md?pane=evidence", "#/edit/posts%2Fa.md"]);
   assert.deepEqual(links.filter((link) => link.attributes["aria-current"] === "page").map((link) => link.textContent), ["Atlas"]);
   assert.equal(navItem(root, "draft").querySelector("bdi").textContent, "A <b>draft</b>", "the draft's title is text");
   assert.equal(root.querySelector("[data-workspace-visibility]").dataset.visibility, "private");

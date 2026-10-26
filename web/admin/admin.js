@@ -132,6 +132,7 @@ export const RESEARCH_PANELS = Object.freeze([
   Object.freeze({ id: "notebook", label: "Notebook", title: "Research notebook", legacy: "research", detail: "Capture quoted passages and your own notes about them, privately, tied to your sources." }),
   Object.freeze({ id: "atlas", label: "Atlas", title: "Knowledge Atlas", legacy: "atlas", takesId: true, detail: "Relate people, works, concepts, movements and events privately, with who asserts each link and on what evidence." }),
   Object.freeze({ id: "compare", label: "Compare", title: "Compare versions", legacy: "compare", takesId: true, detail: "Read aligned passages across editions, translations, witnesses and interpretations, side by side or in one column." }),
+  Object.freeze({ id: "public", label: "What will be public", title: "What will be public", detail: "See exactly which research each projection publishes, with the fields it copies, and why everything else stays private." }),
 ]);
 
 /** What a workspace panel's label says about who can see it, in words as well as in data. */
@@ -157,7 +158,7 @@ export function atlasRelationshipHref(id) {
 }
 
 /** Shell routes that are research panels, by the name each view gives the shell. */
-const RESEARCH_SHELL_ROUTES = Object.freeze({ "research-overview": "overview", sources: "sources", research: "notebook", atlas: "atlas", compare: "compare" });
+const RESEARCH_SHELL_ROUTES = Object.freeze({ "research-overview": "overview", sources: "sources", research: "notebook", atlas: "atlas", compare: "compare", "research-public": "public" });
 
 /** The research panel a shell route shows, or null. */
 export function researchPanelForRoute(route) {
@@ -6961,6 +6962,196 @@ export function publicationReviewAcknowledgementText(state) {
   return "";
 }
 
+// ---------------------------------------------------------------- what will be public (#63, ADR 0137)
+
+/** How each research projection is named in the preview. */
+export const BOUNDARY_PROJECTIONS = Object.freeze({
+  citations: "Citations",
+  "claim-evidence": "Claims and evidence",
+  atlas: "Knowledge Atlas",
+  datings: "Datings",
+  comparisons: "Comparisons",
+  "context-links": "Links to research pages",
+});
+
+/** How each kind of research item is named. */
+export const BOUNDARY_KINDS = Object.freeze({
+  source: "Source",
+  claim: "Claim",
+  "evidence-link": "Evidence link",
+  entry: "Atlas entry",
+  relationship: "Relationship",
+  dating: "Dating",
+  comparison: "Comparison",
+  "atlas-page": "Atlas page",
+  "comparison-page": "Comparison page",
+});
+
+/** Why an item or a field is withheld, in a few words. The server's message says exactly which. */
+export const BOUNDARY_REASONS = Object.freeze({
+  "projection-off": "The site does not publish this",
+  "not-approved": "Not approved: private research",
+  unsourced: "An unsourced draft",
+  "notebook-passage": "Rests on a notebook passage",
+  "private-dependency": "Depends on research that is not published",
+  "contradiction-withheld": "Contradicting evidence is still private",
+  "post-not-published": "Its post is not published",
+  "stale-approval": "Approved before what it rests on changed",
+  "unsafe-url": "A web address readers should not be given",
+  "private-identifier": "An identifier that is never published",
+  rights: "Wording withheld under its rights statement",
+  length: "Wording longer than a brief excerpt",
+  "stale-anchor": "The anchored words have changed",
+  "page-not-published": "The linked page is not published",
+});
+
+const BOUNDARY_STORES = Object.freeze({
+  "source-library": "Source library",
+  notebook: "Research notebook",
+  atlas: "Knowledge Atlas",
+  claims: "Claims",
+  alignments: "Alignments",
+  acknowledgements: "Review acknowledgements",
+});
+
+/** Where an item of the preview is changed, by its own address in the research workspace, or null. */
+export function boundaryItemHref(item) {
+  const id = String(item?.id || "");
+  switch (item?.kind) {
+    case "source": return researchHref("sources", id);
+    case "entry": case "atlas-page": return researchHref("atlas", id);
+    case "relationship": return atlasRelationshipHref(id);
+    case "dating": return researchHref("atlas");
+    case "comparison": case "comparison-page": return researchHref("compare", id);
+    default: return null;
+  }
+}
+
+/** One line counting what the preview publishes and withholds. Never a score. */
+export function boundaryCountsText(manifest) {
+  const reports = Array.isArray(manifest?.projections) ? manifest.projections : [];
+  const published = reports.reduce((sum, report) => sum + (report.published?.length || 0), 0);
+  const withheld = reports.reduce((sum, report) => sum + (report.withheld?.length || 0), 0);
+  return `${published} published, ${withheld} withheld.`;
+}
+
+/**
+ * The preview of what the research projections publish (#63, ADR 0137): one section per
+ * projection with its switch, what it publishes and the fields it copies, and what it withholds
+ * and why, then what is never published. `level` is the heading level of each projection.
+ * Read-only: nothing here saves or publishes anything.
+ */
+export function createBoundaryPreview({ manifest, idPrefix = "oba-boundary", level = 2, scope = "site" }) {
+  const heading = (offset, attrs, text) => h(`h${Math.min(6, level + offset)}`, attrs, text);
+  const reports = Array.isArray(manifest?.projections) ? manifest.projections : [];
+  const root = h("div", { class: "oba-boundary", "data-boundary-preview": scope });
+  root.append(
+    h(
+      "p",
+      { class: "oba-small", "data-boundary-intro": "true" },
+      scope === "post"
+        ? "What this post publishes of your research when it is published, and what stays private and why. Only what you approved reaches readers, and only the fields listed."
+        : "Nothing in your research is public because it exists. Each projection publishes only what you approved, and only the fields listed; everything else stays private, with the reason. This is what the next build publishes.",
+    ),
+  );
+  if (manifest?.refused) root.append(h("p", { class: "oba-error", "data-boundary-refused": "true" }, `The next build is refused: ${manifest.refused}`));
+  for (const missing of Array.isArray(manifest?.unavailable) ? manifest.unavailable : []) {
+    root.append(h("p", { class: "oba-notice", "data-boundary-unavailable": missing.store }, `${BOUNDARY_STORES[missing.store] || missing.store} could not be read: ${missing.message} Repair ${missing.file} by hand. Nothing was changed.`));
+  }
+  const itemTitle = (item) => h("strong", {}, h("bdi", {}, item.label || item.id));
+  const itemKind = (item) => h("span", { class: "oba-small" }, ` ${BOUNDARY_KINDS[item.kind] || item.kind} `, h("code", {}, item.id));
+  const repair = (item, text) => {
+    const href = boundaryItemHref(item);
+    return href ? h("a", { class: "oba-btn", href, "data-boundary-open": `${item.kind}:${item.id}` }, text) : null;
+  };
+  reports.forEach((report, position) => {
+    const key = report.projection;
+    const titleId = `${idPrefix}-${position}-title`;
+    const published = Array.isArray(report.published) ? report.published : [];
+    const withheld = Array.isArray(report.withheld) ? report.withheld : [];
+    const section = h("section", { class: "oba-boundary-projection", "data-boundary-projection": key, "aria-labelledby": titleId });
+    section.append(
+      heading(0, { id: titleId }, BOUNDARY_PROJECTIONS[key] || key),
+      h(
+        "p",
+        { class: "oba-small", "data-boundary-switch": report.enabled ? "on" : "off" },
+        key === "citations"
+          ? "A post publishes citations when its front matter sets citations; each cited source publishes only its public description."
+          : report.enabled
+            ? `On (${report.switch} in openblog.json): approved items below are published.`
+            : `Off: ${report.switch} is off in openblog.json, so nothing from here is published.`,
+      ),
+    );
+    if (report.blocked) section.append(h("p", { class: "oba-error", "data-boundary-blocked": key }, `Not previewed: ${report.blocked}`));
+    const publishedId = `${idPrefix}-${position}-published`;
+    section.append(heading(1, { id: publishedId }, `Published (${published.length})`));
+    section.append(
+      published.length
+        ? h(
+            "ul",
+            { class: "oba-boundary-list", "aria-labelledby": publishedId },
+            published.map((item) =>
+              h(
+                "li",
+                { class: "oba-boundary-item", "data-boundary-item": `${item.kind}:${item.id}`, "data-boundary-state": "published" },
+                h("p", {}, h("span", { class: "oba-visibility", "data-visibility": "publishable" }, "Published"), " ", itemTitle(item), itemKind(item)),
+                h("p", { class: "oba-small" }, `Publishes: ${(item.fields || []).join(", ") || "nothing but its identity"}.`),
+                item.posts?.length ? h("p", { class: "oba-small" }, `With ${item.posts.length === 1 ? "the post" : "the posts"} `, item.posts.flatMap((slug, index) => [index ? ", " : "", h("code", {}, slug)])) : null,
+                item.url ? h("p", { class: "oba-small" }, "Public address: ", h("code", {}, item.url)) : null,
+                item.withheldFields?.length
+                  ? h(
+                      "ul",
+                      { class: "oba-boundary-fields", "aria-label": `Fields of ${item.label || item.id} that stay private` },
+                      item.withheldFields.map((field) =>
+                        h("li", { "data-boundary-field": field.field, "data-boundary-reason": field.reason }, h("span", { class: "oba-visibility", "data-visibility": "private" }, "Withheld"), ` ${field.field}: ${BOUNDARY_REASONS[field.reason] || field.reason}. ${field.message}`),
+                      ),
+                    )
+                  : null,
+              ),
+            ),
+          )
+        : h("p", { class: "oba-small" }, report.enabled ? "Nothing yet." : "Nothing: this projection is off."),
+    );
+    const withheldId = `${idPrefix}-${position}-withheld`;
+    section.append(heading(1, { id: withheldId }, `Withheld (${withheld.length})`));
+    section.append(
+      withheld.length
+        ? h(
+            "ul",
+            { class: "oba-boundary-list", "aria-labelledby": withheldId },
+            withheld.map((item) =>
+              h(
+                "li",
+                { class: "oba-boundary-item", "data-boundary-item": `${item.kind}:${item.id}`, "data-boundary-state": "withheld", "data-boundary-reason": item.reason },
+                h("p", {}, h("span", { class: "oba-visibility", "data-visibility": "private" }, "Withheld"), " ", itemTitle(item), itemKind(item)),
+                h("p", { class: "oba-small" }, h("strong", {}, `${BOUNDARY_REASONS[item.reason] || item.reason}. `), item.message),
+                repair(item, `Open ${BOUNDARY_KINDS[item.kind]?.toLowerCase() || "item"} ${item.id}`),
+              ),
+            ),
+          )
+        : h("p", { class: "oba-small" }, "Nothing withheld."),
+    );
+    root.append(section);
+  });
+  const never = Array.isArray(manifest?.never) ? manifest.never : [];
+  if (never.length) {
+    const neverId = `${idPrefix}-never`;
+    root.append(
+      h(
+        "section",
+        { class: "oba-boundary-projection", "data-boundary-never": "true", "aria-labelledby": neverId },
+        heading(0, { id: neverId }, "Never published"),
+        h(
+          "ul",
+          { class: "oba-boundary-list" },
+          never.map((item) => h("li", { "data-boundary-never-store": item.store }, h("span", { class: "oba-visibility", "data-visibility": "private" }, "Private research"), " ", h("strong", {}, `${BOUNDARY_STORES[item.store] || item.store} (${item.count})`), `: ${item.what}`)),
+        ),
+      ),
+    );
+  }
+  return root;
+}
+
 /**
  * The research review's content (#62, ADR 0135): findings grouped by what blocks the build and
  * by outcome, each with its place, its validator's message and repair, a link to where it is
@@ -8890,6 +9081,7 @@ export class ObAdmin extends AdminElement {
       { label: "Research notebook", category: "Research", keywords: "passages notes quotations excerpts observations questions capture", run: () => go(researchHref("notebook")) },
       { label: "Knowledge Atlas", category: "Research", keywords: "atlas people works concepts movements events relationships influence explore", run: () => go(researchHref("atlas")) },
       { label: "Compare versions", category: "Research", keywords: "compare alignments editions translations witnesses interpretations passages side by side", run: () => go(researchHref("compare")) },
+      { label: "What will be public", category: "Research", keywords: "public preview publish boundary private withheld approved projection manifest", run: () => go(researchHref("public")) },
       ...(this.workspaceDraft && !this.editor
         ? [{ label: "Back to draft", category: "Research", keywords: `return draft editor writing ${this.workspaceDraft.title}`, run: () => go(draftRoute(this.workspaceDraft.hash)) }]
         : []),
@@ -9133,6 +9325,7 @@ export class ObAdmin extends AdminElement {
     else if (panel === "notebook") await this.showResearch();
     else if (panel === "atlas") await this.showAtlas(id);
     else if (panel === "compare") await this.showCompare(id);
+    else if (panel === "public") await this.showPublicPreview();
     else await this.showResearchOverview();
   }
 
@@ -10090,6 +10283,51 @@ export class ObAdmin extends AdminElement {
         ),
       ),
     );
+  }
+
+  // ---- what will be public (#63, ADR 0137)
+
+  async showPublicPreview() {
+    const mountedView = this.nextViewVersion();
+    const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-boundary-status": "true" });
+    const content = h("div", { class: "oba-boundary-content" });
+    const refresh = h("button", { class: "oba-btn", type: "button", "data-boundary-refresh": "true" }, "Refresh");
+    const load = async (announce) => {
+      refresh.disabled = true;
+      status.className = "oba-small";
+      status.textContent = "Reading what the next build publishes…";
+      try {
+        const manifest = await this.api.call("GET", "research/boundary");
+        if (this.viewVersion !== mountedView) return;
+        content.replaceChildren(createBoundaryPreview({ manifest, idPrefix: "oba-boundary-site", level: 2, scope: "site" }));
+        status.textContent = `${announce ? "Refreshed. " : ""}${boundaryCountsText(manifest)}`;
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 401) {
+          this.showSessionEnded("Your session ended. Sign in again to see what will be public.");
+          return;
+        }
+        if (this.viewVersion !== mountedView) return;
+        content.replaceChildren(h("p", { class: "oba-error", role: "alert" }, `What will be public could not be read. ${error?.data?.error || error?.message || ""} Nothing was changed.`));
+        status.textContent = "";
+      } finally {
+        refresh.disabled = false;
+      }
+    };
+    refresh.addEventListener("click", () => void load(true));
+    this.mount(
+      this.shell(
+        "research-public",
+        h(
+          "section",
+          { class: "oba-boundary-panel", "aria-labelledby": "oba-boundary-heading" },
+          h("h2", { id: "oba-boundary-heading" }, "What the next build publishes"),
+          h("div", { class: "oba-toolbar" }, refresh),
+          status,
+          content,
+        ),
+      ),
+    );
+    await load(false);
   }
 
   // ---- research notebook
@@ -14699,6 +14937,15 @@ export class Editor {
       h("div", { class: "oba-toolbar" }, ui.evidenceExportCsl, ui.evidenceExportBibtex),
       ui.evidenceExportStatus,
     );
+    ui.boundaryStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-boundary-post-status": "true" });
+    ui.boundaryContent = h("div", { class: "oba-boundary-content" });
+    ui.boundaryRegion = h(
+      "section",
+      { class: "oba-boundary-post", "data-boundary-post": "true", "aria-labelledby": "oba-boundary-post-heading", hidden: true },
+      h("h3", { id: "oba-boundary-post-heading", tabindex: "-1" }, "What this post makes public"),
+      ui.boundaryStatus,
+      ui.boundaryContent,
+    );
     ui.claimsRegion = h("div", { class: "oba-claims-region", "data-claims-region": "true" });
     ui.status = h("div", { role: "status", "aria-live": "polite" });
     ui.documentStats = h("span", { class: "oba-small" });
@@ -15342,8 +15589,14 @@ export class Editor {
                 ),
                 ui.evidenceCounts,
                 kind === "posts"
-                  ? h("div", { class: "oba-toolbar" }, h("button", { class: "oba-btn", type: "button", "data-review-open": "true", onClick: () => this.reviewResearch("check") }, "Review research before publishing"))
+                  ? h(
+                      "div",
+                      { class: "oba-toolbar" },
+                      h("button", { class: "oba-btn", type: "button", "data-review-open": "true", onClick: () => this.reviewResearch("check") }, "Review research before publishing"),
+                      h("button", { class: "oba-btn", type: "button", "data-boundary-post-open": "true", "aria-controls": "oba-boundary-post-heading", onClick: () => this.previewBoundary() }, "What this post makes public"),
+                    )
                   : null,
+                kind === "posts" ? ui.boundaryRegion : null,
                 ui.evidenceMetadata,
                 ui.evidenceExports,
                 h("h3", {}, "Author-controlled signals"),
@@ -18181,6 +18434,35 @@ export class Editor {
     const status = this.currentStatus();
     if (!["published", "scheduled"].includes(status) || status === this.initialStatus()) return false;
     return researchReviewApplies(fields, this.ui.profile?.value);
+  }
+
+  /**
+   * Show what this post publishes of the research, read from the draft as it stands through the
+   * build's own projection (#63, ADR 0137). Read-only: nothing is saved, published or changed.
+   */
+  async previewBoundary() {
+    const ui = this.ui;
+    if (this.previewingBoundary) return;
+    this.previewingBoundary = true;
+    ui.boundaryRegion.hidden = false;
+    ui.boundaryStatus.textContent = "Reading what this post publishes…";
+    try {
+      const manifest = await this.app.api.call("POST", "research/boundary", {
+        json: { kind: this.kind, path: this.doc.path, fields: this.collect(), body: ui.body.value, ...this.creditRequestFields() },
+      });
+      ui.boundaryContent.replaceChildren(createBoundaryPreview({ manifest, idPrefix: "oba-boundary-post", level: 4, scope: "post" }));
+      ui.boundaryStatus.textContent = `Read from the draft as it stands, unsaved changes included: ${boundaryCountsText(manifest)}`;
+    } catch (error) {
+      if (error?.status === 401) {
+        this.app.showSessionEnded("Your session ended. Sign in again to return to your unsaved draft.");
+        return;
+      }
+      ui.boundaryContent.replaceChildren(h("p", { class: "oba-error", role: "alert" }, `What this post makes public could not be read. ${error?.data?.error || error?.message || ""} Your draft is unchanged.`));
+      ui.boundaryStatus.textContent = "";
+    } finally {
+      this.previewingBoundary = false;
+    }
+    ui.boundaryRegion.querySelector("#oba-boundary-post-heading")?.focus();
   }
 
   /**

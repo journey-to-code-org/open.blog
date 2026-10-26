@@ -3929,3 +3929,49 @@ a.oba-btn-primary {
     flex: 1 1 100%;
   }
 }
+
+/* What will be public (ADR 0137): one section per projection, items that wrap at any width or zoom.
+   Published and withheld are told apart in words; the border style only repeats it. */
+.oba-boundary-projection {
+  margin-block: 1.25rem;
+  min-width: 0;
+}
+
+.oba-boundary-list {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0.5rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-boundary-item {
+  min-width: 0;
+  padding: 0.6rem 0.8rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius-sm);
+  overflow-wrap: anywhere;
+}
+
+.oba-boundary-item[data-boundary-state="withheld"] {
+  border-style: dashed;
+}
+
+.oba-boundary-item p {
+  margin: 0.2rem 0;
+}
+
+.oba-boundary-fields {
+  margin: 0.3rem 0 0;
+  padding-inline-start: 1.1rem;
+}
+
+.oba-boundary code,
+.oba-boundary bdi {
+  overflow-wrap: anywhere;
+}
+
+.oba-boundary-post {
+  margin-top: 1rem;
+  min-width: 0;
+}
