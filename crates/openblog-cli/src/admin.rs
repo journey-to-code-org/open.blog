@@ -763,6 +763,8 @@ fn authenticated_api(
         ("DELETE", "track-upload") => discard_track(state, req),
         ("POST", "preview") => preview(state, req),
         ("POST", "research/review") => review_before_publication(state, req),
+        ("GET", "research/boundary") => boundary_site(state),
+        ("POST", "research/boundary") => boundary_post(state, req),
         ("PUT", "research/review/acknowledgements") => change_acknowledgement(state, req, true),
         ("DELETE", "research/review/acknowledgements") => change_acknowledgement(state, req, false),
         ("POST", "portability/acknowledge") => acknowledge_portability(state, req),
@@ -1531,6 +1533,10 @@ fn draft_research(state: &AppState) -> Response {
                     notebook: &snapshot.notebook,
                     contributors: &contributors,
                 };
+                let stale = openblog_core::comparison_publication::stale_approvals(
+                    &snapshot.alignments,
+                    inputs,
+                );
                 let items: Vec<Json> = snapshot
                     .alignments
                     .alignments
@@ -1540,6 +1546,7 @@ fn draft_research(state: &AppState) -> Response {
                         // Published exactly when the build's projection would publish it.
                         let published = comparisons_published
                             && approved
+                            && !stale.contains_key(&alignment.id)
                             && PublicComparison::project(alignment, inputs).is_ok();
                         json!({
                             "id": alignment.id,
@@ -13389,6 +13396,73 @@ fn review_before_publication(state: &AppState, req: &Request) -> Response {
     Response::json(200, &view)
 }
 
+/// What the research projections will publish for the whole site, and why
+/// everything else is withheld (#63, ADR 0137): the same load, projections
+/// and manifest a build of the saved files uses. Read-only and Admin-only.
+fn boundary_site(state: &AppState) -> Response {
+    let _guard = lock(&state.build);
+    let (mut site, _) = match site::load_site(&state.root, false, Some(clock::now())) {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            return Response::json(
+                422,
+                &json!({
+                    "error": format!(
+                        "The site could not be loaded, so nothing can be previewed: {} Nothing was changed.",
+                        error.lines().next().unwrap_or_default()
+                    ),
+                }),
+            )
+        }
+    };
+    let refused =
+        crate::private_guard::refuse_private_research_in_public_inputs(&state.root, &site.config)
+            .err();
+    let manifest = crate::boundary::site_preview(&state.root, &mut site);
+    let mut view = serde_json::to_value(&manifest).unwrap_or_else(|_| json!({}));
+    view["refused"] = json!(refused);
+    Response::json(200, &view)
+}
+
+/// What one post will publish of the research, from the editor's unsaved
+/// fields and body, read as the review reads them (#63, ADR 0137): its
+/// citations' public descriptions, its claim evidence, and the atlas and
+/// comparison pages it links to, with why the rest is withheld.
+fn boundary_post(state: &AppState, req: &Request) -> Response {
+    if let Err(r) = require_json(req) {
+        return r;
+    }
+    let mut body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid JSON"),
+    };
+    if body["kind"].as_str().unwrap_or("posts") != "posts" || !body["fields"].is_object() {
+        return Response::error(422, "Only a post's fields and body are previewed");
+    }
+    // Read as a draft, as the review reads it, so a citation the build would
+    // refuse once published does not stop the preview (ADR 0135).
+    body["fields"]["draft"] = json!("true");
+    let mut draft = match load_draft_site(state, &body) {
+        Ok(draft) => draft,
+        Err(response) => return response,
+    };
+    let blocked = crate::boundary::project(&state.root, &mut draft.site);
+    let stores = crate::boundary::Stores::read(&state.root, &draft.site.config);
+    let Some(post) = draft
+        .site
+        .posts
+        .iter()
+        .find(|post| post.source == draft.rel)
+    else {
+        return Response::error(422, "The post was not found in the site model");
+    };
+    let manifest = crate::boundary::manifest(&draft.site, &stores, &blocked, Some(post));
+    Response::json(
+        200,
+        &serde_json::to_value(&manifest).unwrap_or_else(|_| json!({})),
+    )
+}
+
 /// Acknowledge an advisory finding, or withdraw an acknowledgement (ADR 0136).
 /// Only a code the contract lets an author acknowledge is accepted; the
 /// change names the file's revision and is written atomically or not at all.
@@ -15304,6 +15378,530 @@ mod tests {
                 "nothing is repaired or replaced"
             );
         }
+    }
+
+    // ---- the private-to-public research boundary (#63, ADR 0137) ----------------
+
+    /// Text seeded in a private field: it must appear in no public artifact.
+    fn leak(label: &str) -> String {
+        format!("ZqxLeak {label} sentinel words kept private")
+    }
+
+    /// Text seeded in an approved, projected field: it must be published.
+    fn public_text(label: &str) -> String {
+        format!("ZqxPublic {label} approved projected words")
+    }
+
+    const LEAKS: &[&str] = &[
+        "libraryrightsnote",
+        "librarynote",
+        "libraryunknown",
+        "libraryidentifier",
+        "passagehidden",
+        "locatorextra",
+        "passagestale",
+        "notetext",
+        "alignmentlabel",
+        "alignmentrationale",
+        "stalerationale",
+        "entryunknown",
+        "datingnote",
+        "entrylabel",
+        "entrysummary",
+        "relationshipdoubt",
+        "claimunknown",
+        "claimstatement",
+        "linkrationale",
+        "ackpath",
+    ];
+    const PUBLICS: &[&str] = &[
+        "passagewording",
+        "comparisonrationale",
+        "entrysummary",
+        "datingnote",
+        "relationshipdoubt",
+        "claimstatement",
+        "linkrationale",
+    ];
+    /// The unsafe web address of a source, whose last segment is a sentinel.
+    const URL_SENTINEL: &str = "ZqxLeakUrlSegmentSentinelAbcdefghijkl";
+
+    /// Every private research file, as the boundary names them.
+    fn research_store_files(f: &Fixture) -> Vec<Vec<u8>> {
+        openblog_core::publication_boundary::Store::ALL
+            .iter()
+            .map(|store| fs::read(f.dir.join(store.file())).unwrap())
+            .collect()
+    }
+
+    /// A site that publishes every research projection, with a sentinel in
+    /// every private store and field and in every approved projected field.
+    fn boundary_fixture(tag: &str) -> Fixture {
+        let f = fixture(tag);
+        let write = |file: &str, value: Json| {
+            let path = f.dir.join(file);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, value.to_string()).unwrap();
+        };
+        write(
+            crate::source_store::LIBRARY_FILE,
+            json!({"version": 1, "sources": [
+                {"id": "plato", "kind": "work", "title": "Politeia"},
+                {"id": "slings", "kind": "edition", "of": "plato", "title": "Slings edition",
+                    "rights": {"status": "publicDomain", "note": leak("libraryrightsnote")},
+                    "notes": leak("librarynote"),
+                    "shelfNote": leak("libraryunknown"),
+                    "identifiers": [
+                        {"scheme": "url", "value": format!("http://files.internal/{URL_SENTINEL}")},
+                        {"scheme": "shelfmark", "value": leak("libraryidentifier")}
+                    ]},
+                {"id": "bloom", "kind": "translation", "of": "plato", "language": "en", "title": "Bloom"}
+            ]}),
+        );
+        write(
+            crate::notebook_store::NOTEBOOK_FILE,
+            json!({"version": 1,
+            "passages": [
+                {"id": "cave", "source": "slings", "excerpt": {"text": public_text("passagewording")},
+                    "locators": [{"kind": "page", "value": "514"}]},
+                {"id": "hidden", "source": "slings", "excerpt": {"text": leak("passagehidden")},
+                    "locators": [{"kind": "page", "value": "515", "privateNote": leak("locatorextra")}]},
+                {"id": "moved", "source": "slings", "excerpt": {"text": leak("passagestale")},
+                    "locators": [{"kind": "page", "value": "600"}]}
+            ],
+            "notes": [{"id": "why", "kind": "question", "text": leak("notetext"), "passages": ["cave"]}]}),
+        );
+        write(
+            crate::alignment_store::ALIGNMENTS_FILE,
+            json!({"version": 1, "alignments": [
+                {"id": "cave-places", "label": "The cave", "visibility": "approved",
+                    "rationale": public_text("comparisonrationale"),
+                    "members": [{"source": "slings", "passage": "cave"}, {"source": "bloom", "absent": true}]},
+                {"id": "private-places", "label": leak("alignmentlabel"), "rationale": leak("alignmentrationale"),
+                    "members": [{"source": "slings", "passage": "hidden"}, {"source": "bloom", "absent": true}]},
+                {"id": "stale-places", "label": "Moved", "visibility": "approved", "rationale": leak("stalerationale"),
+                    "members": [{"source": "slings", "passage": "moved", "locators": [{"kind": "page", "value": "601"}]},
+                        {"source": "bloom", "absent": true}]}
+            ]}),
+        );
+        write(
+            crate::atlas_store::ATLAS_FILE,
+            json!({"version": 2, "entries": [
+                {"id": "plato-person", "kind": "person", "label": "Plato", "summary": public_text("entrysummary"),
+                    "visibility": "approved", "shelf": leak("entryunknown"),
+                    "dates": [
+                        {"id": "born", "aspect": "birth", "date": {"at": {"year": -428, "circa": true}},
+                            "assertedBy": {"kind": "author"}, "evidence": [{"source": "slings"}],
+                            "visibility": "approved", "note": public_text("datingnote")},
+                        {"id": "died", "aspect": "death", "date": {"at": {"year": -348}},
+                            "assertedBy": {"kind": "author"}, "evidence": [{"source": "slings"}],
+                            "note": leak("datingnote")}
+                    ]},
+                {"id": "politeia", "kind": "work", "label": "Politeia", "source": "plato", "visibility": "approved"},
+                {"id": "the-good", "kind": "concept", "label": leak("entrylabel"), "summary": leak("entrysummary")}
+            ], "relationships": [
+                {"id": "plato-authored-politeia", "kind": "authored", "from": "plato-person", "to": "politeia",
+                    "assertedBy": {"kind": "author"}, "evidence": [{"source": "slings"}],
+                    "uncertainty": public_text("relationshipdoubt"), "visibility": "approved"},
+                {"id": "politeia-discusses-good", "kind": "discusses", "from": "politeia", "to": "the-good",
+                    "assertedBy": {"kind": "author"}, "evidence": [{"source": "slings"}],
+                    "uncertainty": leak("relationshipdoubt"), "visibility": "approved"}
+            ]}),
+        );
+        write(
+            crate::claims_store::CLAIMS_FILE,
+            json!({"version": 1, "claims": [
+                {"id": "c1", "post": "cave", "statement": public_text("claimstatement"), "visibility": "approved",
+                    "shelf": leak("claimunknown")},
+                {"id": "c2", "post": "cave", "statement": leak("claimstatement")}
+            ], "links": [
+                {"id": "l1", "claim": "c1", "relation": "contextualizes", "evidence": {"source": "slings"},
+                    "visibility": "approved", "rationale": public_text("linkrationale")},
+                {"id": "l2", "claim": "c1", "relation": "supports", "evidence": {"source": "slings"},
+                    "rationale": leak("linkrationale")}
+            ]}),
+        );
+        write(
+            crate::research_review::ACKNOWLEDGEMENTS_FILE,
+            json!({"version": 1, "acknowledgements": [
+                {"validator": "research-profile", "code": "abstract-missing", "object": "post",
+                    "path": format!("posts/{}.md", leak("ackpath")),
+                    "fingerprint": "0123456789abcdef0123456789abcdef"}
+            ]}),
+        );
+        fs::write(
+            f.dir.join("content/posts/cave.md"),
+            "---\ntitle: Cave\ndate: 2026-10-01\nprofile: research\ncitations: notes\n---\n\n## Abstract\n\nThe cave educates [@slings, page 514].\n\nSee [Plato](/atlas/plato-person/), [the Good](/atlas/the-good/) and [the places](/comparisons/cave-places/).\n\n## References\n",
+        )
+        .unwrap();
+        let config_path = f.dir.join("openblog.json");
+        let mut config: Json =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        config["knowledgeAtlas"] = json!({"publish": true});
+        config["comparisons"] = json!({"publish": true});
+        config["claimEvidence"] = json!({"publish": true});
+        fs::write(&config_path, config.to_string()).unwrap();
+        f
+    }
+
+    fn production(root: &std::path::Path) -> site::BuildReport {
+        site::build(
+            root,
+            &site::BuildOptions {
+                include_drafts: false,
+                out_override: None,
+                now: Some(clock::now()),
+            },
+        )
+        .unwrap_or_else(|error| panic!("the build failed: {error}"))
+    }
+
+    /// Every public artifact: the built site (pages, feeds, search index,
+    /// `llms.txt`, JSON artifacts) and each published post's portable
+    /// Markdown and HTML and its bibliography exports.
+    fn public_artifacts(root: &std::path::Path) -> Vec<(String, String)> {
+        let out = root.join("dist");
+        let mut artifacts: Vec<(String, String)> = fsutil::walk(&out)
+            .into_iter()
+            .map(|file| {
+                (
+                    fsutil::relative(&out, &file),
+                    String::from_utf8_lossy(&fs::read(&file).unwrap()).to_string(),
+                )
+            })
+            .collect();
+        let (site, _) = site::load_site(root, false, Some(clock::now())).unwrap();
+        for post in &site.posts {
+            let projection =
+                openblog_core::portability::PortableProjection::for_site(&site, post).unwrap();
+            artifacts.push((
+                format!("portable markdown of {}", post.slug),
+                projection.portable_markdown().unwrap(),
+            ));
+            artifacts.push((
+                format!("portable html of {}", post.slug),
+                projection.portable_html().unwrap().html,
+            ));
+            for format in [
+                crate::portable_export::Format::CslJson,
+                crate::portable_export::Format::Bibtex,
+            ] {
+                if let Ok(export) = crate::portable_export::bibliography_export(post, format) {
+                    artifacts.push((
+                        format!("{format:?} export of {}", post.slug),
+                        export.content,
+                    ));
+                }
+            }
+        }
+        artifacts
+    }
+
+    #[test]
+    fn a_sentinel_in_every_private_store_reaches_no_public_artifact_and_approved_fields_do() {
+        let f = boundary_fixture("boundary-corpus");
+        let before = research_store_files(&f);
+        let report = production(&f.dir);
+        let artifacts = public_artifacts(&f.dir);
+        assert!(artifacts.iter().any(|(path, _)| path == "llms.txt"));
+        assert!(artifacts.iter().any(|(path, _)| path.ends_with(".xml")));
+        assert!(artifacts.iter().any(|(path, _)| path.contains("search")));
+        for label in LEAKS {
+            let needle = leak(label).to_lowercase();
+            for (path, text) in &artifacts {
+                assert!(
+                    !text.to_lowercase().contains(&needle),
+                    "the private {label} reached {path}"
+                );
+            }
+        }
+        for (path, text) in &artifacts {
+            assert!(
+                !text.contains(URL_SENTINEL),
+                "the unsafe address reached {path}"
+            );
+            assert!(
+                !text.contains("files.internal"),
+                "the unsafe address reached {path}"
+            );
+        }
+        for label in PUBLICS {
+            let needle = public_text(label);
+            assert!(
+                artifacts.iter().any(|(_, text)| text.contains(&needle)),
+                "the approved {label} was not published"
+            );
+        }
+        // The stale approval and the unsafe address are withheld by name, not silently.
+        assert!(
+            report.warnings.iter().any(|w| w.starts_with("boundary:")
+                && w.contains("`stale-places`")
+                && w.contains("members[0].locators")),
+            "{:?}",
+            report.warnings
+        );
+        assert!(
+            report.warnings.iter().any(|w| w.starts_with("boundary:")
+                && w.contains("`slings`")
+                && w.contains("private or local network")),
+            "{:?}",
+            report.warnings
+        );
+        for warning in &report.warnings {
+            for label in LEAKS {
+                assert!(!warning.contains(&leak(label)), "{warning}");
+            }
+        }
+        assert_eq!(
+            before,
+            research_store_files(&f),
+            "nothing private is changed by a build"
+        );
+    }
+
+    fn withheld_reason(manifest: &Json, projection: &str, id: &str) -> String {
+        manifest["projections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|report| report["projection"] == projection)
+            .flat_map(|report| report["withheld"].as_array().unwrap())
+            .find(|item| item["id"] == id)
+            .unwrap_or_else(|| panic!("{id} is not withheld from {projection}: {manifest}"))
+            ["reason"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    }
+
+    fn published_ids(manifest: &Json, projection: &str, kind: &str) -> Vec<String> {
+        manifest["projections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|report| report["projection"] == projection)
+            .flat_map(|report| report["published"].as_array().unwrap())
+            .filter(|item| item["kind"] == kind)
+            .map(|item| item["id"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn the_admin_preview_and_the_build_consume_the_same_projection() {
+        let f = boundary_fixture("boundary-preview");
+        let session = login_ok(&f);
+        let unauthenticated = handle(&f.state, &req("GET", "/admin/api/research/boundary"));
+        assert_eq!(unauthenticated.status, 401);
+        let read = || {
+            let response = handle(
+                &f.state,
+                &authed(req("GET", "/admin/api/research/boundary"), &session, false),
+            );
+            assert_eq!(
+                response.status,
+                200,
+                "{}",
+                String::from_utf8_lossy(&response.body)
+            );
+            let mut view = body_json(&response);
+            assert!(view["refused"].is_null(), "{view}");
+            view.as_object_mut().unwrap().remove("refused");
+            view
+        };
+        let preview = read();
+        let report = production(&f.dir);
+        assert_eq!(
+            preview,
+            serde_json::to_value(&report.boundary).unwrap(),
+            "the preview is the manifest the build checked its output against"
+        );
+        assert_eq!(read(), preview, "the preview is deterministic");
+
+        assert_eq!(
+            published_ids(&preview, "atlas", "entry"),
+            ["plato-person", "politeia"]
+        );
+        assert_eq!(
+            published_ids(&preview, "atlas", "relationship"),
+            ["plato-authored-politeia"]
+        );
+        assert_eq!(published_ids(&preview, "datings", "dating"), ["born"]);
+        assert_eq!(
+            published_ids(&preview, "comparisons", "comparison"),
+            ["cave-places"]
+        );
+        assert_eq!(published_ids(&preview, "claim-evidence", "claim"), ["c1"]);
+        assert_eq!(
+            published_ids(&preview, "claim-evidence", "evidence-link"),
+            ["l1"]
+        );
+        assert_eq!(published_ids(&preview, "citations", "source"), ["slings"]);
+        for (projection, id, reason) in [
+            ("atlas", "the-good", "not-approved"),
+            ("atlas", "politeia-discusses-good", "private-dependency"),
+            ("datings", "died", "not-approved"),
+            ("comparisons", "private-places", "not-approved"),
+            ("comparisons", "stale-places", "stale-approval"),
+            ("claim-evidence", "c2", "not-approved"),
+            ("claim-evidence", "l2", "not-approved"),
+        ] {
+            assert_eq!(withheld_reason(&preview, projection, id), reason, "{id}");
+        }
+        let citations = preview["projections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|report| report["projection"] == "citations")
+            .unwrap();
+        let slings = &citations["published"][0];
+        assert_eq!(slings["posts"], json!(["cave"]));
+        let withheld_fields: Vec<(&str, &str)> = slings["withheldFields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|field| {
+                (
+                    field["field"].as_str().unwrap(),
+                    field["reason"].as_str().unwrap(),
+                )
+            })
+            .collect();
+        assert!(
+            withheld_fields.contains(&("identifiers.url", "unsafe-url")),
+            "{withheld_fields:?}"
+        );
+        assert!(
+            withheld_fields.contains(&("identifiers.shelfmark", "private-identifier")),
+            "{withheld_fields:?}"
+        );
+        let never: Vec<&str> = preview["never"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["store"].as_str().unwrap())
+            .collect();
+        for store in [
+            "source-library",
+            "notebook",
+            "atlas",
+            "claims",
+            "alignments",
+            "acknowledgements",
+        ] {
+            assert!(never.contains(&store), "{store}: {never:?}");
+        }
+    }
+
+    #[test]
+    fn one_posts_preview_names_its_citations_claims_and_linked_pages() {
+        let f = boundary_fixture("boundary-post");
+        let session = login_ok(&f);
+        let before = research_store_files(&f);
+        let saved = fs::read(f.dir.join("content/posts/cave.md")).unwrap();
+        let body = json!({
+            "kind": "posts",
+            "path": "posts/cave.md",
+            "fields": {"title": "Cave", "date": "2026-10-01", "profile": "research", "citations": "notes"},
+            "body": "The cave educates [@slings, page 514].\n\nSee [Plato](/atlas/plato-person/), [the Good](/atlas/the-good/), [the places](/comparisons/cave-places/) and [moved](/comparisons/stale-places/).\n",
+        });
+        let without_csrf = handle(
+            &f.state,
+            &authed(
+                json_req("POST", "/admin/api/research/boundary", body.clone()),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(without_csrf.status, 403);
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req("POST", "/admin/api/research/boundary", body),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            response.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
+        let manifest = body_json(&response);
+        assert_eq!(
+            manifest["scope"],
+            json!({"kind": "post", "path": "posts/cave.md", "slug": "cave"})
+        );
+        assert_eq!(published_ids(&manifest, "citations", "source"), ["slings"]);
+        assert_eq!(published_ids(&manifest, "claim-evidence", "claim"), ["c1"]);
+        assert_eq!(
+            withheld_reason(&manifest, "claim-evidence", "c2"),
+            "not-approved"
+        );
+        assert_eq!(
+            published_ids(&manifest, "context-links", "atlas-page"),
+            ["plato-person"]
+        );
+        assert_eq!(
+            published_ids(&manifest, "context-links", "comparison-page"),
+            ["cave-places"]
+        );
+        for id in ["the-good", "stale-places"] {
+            assert_eq!(
+                withheld_reason(&manifest, "context-links", id),
+                "page-not-published"
+            );
+        }
+        assert_eq!(
+            before,
+            research_store_files(&f),
+            "the preview changes no research file"
+        );
+        assert_eq!(
+            fs::read(f.dir.join("content/posts/cave.md")).unwrap(),
+            saved,
+            "or the post"
+        );
+    }
+
+    #[test]
+    fn a_build_with_private_research_but_no_projections_is_byte_for_byte_the_legacy_build() {
+        let snapshot = |root: &std::path::Path| -> Vec<(String, Vec<u8>)> {
+            let out = root.join("dist");
+            let mut files: Vec<(String, Vec<u8>)> = fsutil::walk(&out)
+                .into_iter()
+                .map(|file| (fsutil::relative(&out, &file), fs::read(&file).unwrap()))
+                .collect();
+            files.sort();
+            files
+        };
+        let f = fixture("boundary-legacy");
+        production(&f.dir);
+        let legacy = snapshot(&f.dir);
+        let seeded = boundary_fixture("boundary-legacy-seeded");
+        let config_path = seeded.dir.join("openblog.json");
+        let mut config: Json =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        for switch in ["knowledgeAtlas", "comparisons", "claimEvidence"] {
+            config.as_object_mut().unwrap().remove(switch);
+        }
+        fs::write(&config_path, config.to_string()).unwrap();
+        fs::remove_file(seeded.dir.join("content/posts/cave.md")).unwrap();
+        production(&seeded.dir);
+        let with_research = snapshot(&seeded.dir);
+        assert_eq!(
+            legacy.iter().map(|(path, _)| path).collect::<Vec<_>>(),
+            with_research
+                .iter()
+                .map(|(path, _)| path)
+                .collect::<Vec<_>>()
+        );
+        for ((path, a), (_, b)) in legacy.iter().zip(&with_research) {
+            assert!(a == b, "{path} differs once private research is stored");
+        }
+        // And twice in a row, the output is the same bytes.
+        production(&seeded.dir);
+        assert_eq!(snapshot(&seeded.dir), with_research);
     }
 
     /// A research post for the pre-publication review (#62): the draft-side
