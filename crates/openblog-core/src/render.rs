@@ -253,6 +253,43 @@ fn attributed_sections_element(
     )
 }
 
+/// Give each attributed section of a rendered reflection its `ob-by-` anchor
+/// and put the conversation about it at the end of its own turn. `None`
+/// unless the body's turns are exactly the attributed sections, in order.
+fn anchor_sections(
+    html: &str,
+    sections: &crate::attributed_perspective::AttributedSections,
+    conversations: &std::collections::BTreeMap<
+        String,
+        Vec<&crate::perspective_publication::PublicPerspective>,
+    >,
+    reports: Option<&str>,
+) -> Option<String> {
+    const OPEN: &str = "<section class=\"ob-turn ob-lane-";
+    let starts: Vec<usize> = html.match_indices(OPEN).map(|(at, _)| at).collect();
+    if starts.len() != sections.sections().len() {
+        return None;
+    }
+    let mut out = String::with_capacity(html.len() + 512);
+    let mut at = 0;
+    for (start, section) in starts.iter().zip(sections.sections()) {
+        let tag_end = start + html[*start..].find('>')?;
+        let close = tag_end + html[tag_end..].find("</section>")?;
+        let anchor = section.anchor();
+        out.push_str(&html[at..tag_end]);
+        out.push_str(&format!(" id=\"{}\"", attr(&anchor)));
+        out.push_str(&html[tag_end..close]);
+        if let Some(items) = conversations.get(&anchor) {
+            out.push_str(&crate::perspective_publication::render_conversation(
+                &anchor, items, reports,
+            ));
+        }
+        at = close;
+    }
+    out.push_str(&html[at..]);
+    Some(out)
+}
+
 fn resolved_post_canonical(config: &SiteConfig, post: &Post) -> Option<String> {
     match (&post.research, &post.canonical) {
         (Some(_), Some(url)) => Some(config.absolute(url)),
@@ -1012,6 +1049,36 @@ impl<'a> Renderer<'a> {
         ))
     }
 
+    /// The post's body HTML. For a shared reflection whose author responses
+    /// are not hidden, each author's section gets its `ob-by-` anchor and the
+    /// reflections about its current text, with the author's answer, follow
+    /// the author's words inside that section's own turn (ADR 0178). Anything
+    /// that does not line up (a body that is not a reflection, a section
+    /// count that differs from the attributed sections) is left exactly as it
+    /// is, so a page without answers is byte for byte what it was.
+    fn prose_with_conversations<'p>(&self, post: &'p Post) -> std::borrow::Cow<'p, str> {
+        use std::borrow::Cow;
+        let c = &self.site.config;
+        if participation::published_mode(c, post, ParticipationKind::AuthorResponse)
+            == ParticipationMode::Hidden
+        {
+            return Cow::Borrowed(&post.html);
+        }
+        let sections = crate::attributed_perspective::AttributedSections::of_post(post);
+        if sections.sections().is_empty() {
+            return Cow::Borrowed(&post.html);
+        }
+        let reports = (participation::effective_mode(c, post, ParticipationKind::AbuseReport)
+            == ParticipationMode::Open)
+            .then(|| c.engagement.endpoint.trim().trim_end_matches('/'));
+        let (in_section, _) =
+            crate::perspective_publication::split_by_section(post.third_perspectives());
+        match anchor_sections(&post.html, &sections, &in_section, reports) {
+            Some(html) => Cow::Owned(html),
+            None => Cow::Borrowed(&post.html),
+        }
+    }
+
     fn site_header(&self, theme: &Theme, current: &str) -> String {
         let c = &self.site.config;
         let mut links: Vec<(String, String)> = c
@@ -1542,7 +1609,7 @@ impl<'a> Renderer<'a> {
         body.push_str(&format!(
             "<ob-code{}><div class=\"ob-prose e-content\">{}</div></ob-code>\n",
             self.code_attr(theme, Some(post)),
-            post.html
+            self.prose_with_conversations(post)
         ));
         if post.recipe.is_some() {
             body.push_str("</ob-recipe>\n");

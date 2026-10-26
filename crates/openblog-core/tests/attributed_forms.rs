@@ -312,17 +312,36 @@ fn a_published_reflection_about_an_authors_section_says_whose_and_never_claims_w
     let section = |files: &BTreeMap<String, String>| {
         let page = &files["shared-tides/index.html"];
         let start = page.find("<section id=\"ob-third-perspectives\"").unwrap();
-        page[start..start + page[start..].find("</section>\n").unwrap()].to_string()
+        page[start
+            ..start
+                + page[start..]
+                    .find(
+                        "</section>
+",
+                    )
+                    .unwrap()]
+            .to_string()
     };
-    // The section is as the reader read it: named by its author, not linked.
-    let current = section(&published(BOTH_OPEN, &TURNS, vec![item.clone()]));
-    assert!(current.contains("About a section by MINA"), "{current}");
-    assert!(!current.contains("since"), "{current}");
+    // The section is as the reader read it: its author's section has an
+    // anchor now, so the reflection follows it there, labelled as a reader's,
+    // and is not listed a second time (ADR 0178).
+    let files = published(BOTH_OPEN, &TURNS, vec![item.clone()]);
+    let page = &files["shared-tides/index.html"];
+    assert!(page.contains("id=\"ob-by-mina-0\""), "{page}");
+    let listed = section(&files);
     assert!(
-        !current.contains("href=\"#ob-by-"),
-        "no anchor exists to link to yet"
+        listed.contains("shown after that section") && !listed.contains("I read the harbour"),
+        "the list only points to it: {listed}"
     );
-    assert!(!current.contains("revised or removed"));
+    let turn = &page[page.find("id=\"ob-by-mina-0\"").unwrap()..];
+    let turn = &turn[..turn.find("</section>").unwrap()];
+    assert!(turn.contains(TURNS[0].1));
+    assert!(
+        turn.find(TURNS[0].1).unwrap() < turn.find("ob-conversation").unwrap(),
+        "the conversation follows the author's words"
+    );
+    assert!(turn.contains("Third Perspective from a reader"), "{turn}");
+    assert!(turn.contains("I read the harbour differently."));
     // Her section was rewritten: it says changed or removed, never which.
     let edited = section(&published(
         BOTH_OPEN,
