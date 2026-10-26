@@ -33,6 +33,10 @@ All notable changes to open.blog are recorded here. Releases follow
   to each other for keyboard and screen-reader users. Only the cited sources' public description
   is published. An unknown key or ambiguous page stops that post with its line and a fix. Posts
   without `citations` are unchanged.
+- A draft (or a post waiting for its date) with an unresolved citation no longer stops the build
+  or previews of other posts: it gets a warning and keeps the citation as text until it publishes.
+  A source library edit that would break a published post's citations is refused and names the
+  post and line. `citations: yes` and `on` now work like `true`.
 
 ## [0.25.0] - 2026-10-25
 

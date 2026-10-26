@@ -22,8 +22,8 @@ publish byte for byte as before, and the source library is private author resear
 ## Decision
 
 - **Opt in per post.** A post publishes citations only when its front matter sets
-  `citations: notes` or `citations: bibliography` (`true` means `notes`; `false` or no key means
-  not at all). Anything else is an error for that post. A post that opts in but cites nothing is
+  `citations: notes` or `citations: bibliography` (`true`, `yes` and `on` mean `notes`; `false`,
+  `no`, `off` or no key means not at all, as for every boolean front matter field). Anything else is an error for that post. A post that opts in but cites nothing is
   published exactly as if it had not.
 - **One published body.** At load, an opted-in post's citations are scanned with the core
   scanner, resolved against the library, and each `[@...]` span is replaced by an ordinary
@@ -35,7 +35,8 @@ publish byte for byte as before, and the source library is private author resear
   the `citations` capability is registered as fully portable with a `markdown-footnotes`
   fallback.
 - **Labels never collide.** Generated labels use the prefix `cite-` unless an author footnote
-  already uses `cite-` plus a number; then `cite2-`, `cite3-` and so on. The author's footnotes
+  already uses `cite-` plus a number, or the text holds a literal `[^cite-N]` in any case (plain
+  text until a definition appears); then `cite2-`, `cite3-` and so on. The author's footnotes
   keep their labels, text and markup, and share one numbering with the generated ones (first use,
   as the HTML writer numbers them).
 - **Markers stay markers.** A `(`, `[` or `:` straight after a generated marker is escaped, so it

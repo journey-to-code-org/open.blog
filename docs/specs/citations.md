@@ -80,11 +80,14 @@ with no citation in the body, the post publishes exactly as before.
 
 | Step | Rule |
 | --- | --- |
-| Scan and resolve | The core scanner and resolver. Any diagnostic, a missing library or an unreadable library refuses the post with its file line, key, code and a repair hint, before anything is written. |
-| Rewrite | Each citation becomes a footnote reference `[^cite-N]` (`cite2-` and so on when the author already uses `cite-` plus a number). `bibliography` adds ` (locators)` after the marker. A following `(`, `[` or `:` is escaped. |
+| Scan and resolve | The core scanner and resolver. For a post the load publishes, any diagnostic, a missing library or an unreadable library refuses the post with its file line, key, code and a repair hint, before anything is written. A draft, a post held back until its date and, in an Admin preview, every other document get a warning instead and keep their citations as text. |
+| Rewrite | Each citation becomes a footnote reference `[^cite-N]` (`cite2-` and so on when the author already uses `cite-` plus a number as a footnote or as literal `[^cite-N]` text, in any case). `bibliography` adds ` (locators)` after the marker. A following `(`, `[` or `:` is escaped. |
 | Notes | Appended under `## Notes` or `## References` (localized) as `[^cite-N]: reference, locators.` in order of first citation: one per distinct citation (`notes`) or per reference (`bibliography`). Text is escaped Markdown from the public reference only. |
 | Check | The result is parsed again; it must hold one generated marker per citation and one note per number, or the post is refused. |
 | Publish | `Post::publication_markdown` feeds the native page and the portable projection (portable HTML, Markdown, text, RSS, JSON Feed, `llms.txt`, destinations). The authored file never changes. |
+
+A source library edit (`update`, CSL import or removal) that would stop a published, opted-in
+post's citations from resolving is refused with `still-used`, naming the post's path and line.
 
 On the native page a generated marker is
 `<sup class="footnote-reference ob-citation"><a href="#cite-1" id="cite-1-ref-1" role="doc-noteref"><span class="ob-visually-hidden">Citation </span>1</a></sup>`
