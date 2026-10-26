@@ -261,6 +261,16 @@ export function readTargetJson(text) {
   return readValue(value, integerTokens(String(text)));
 }
 
+/**
+ * Read a passage target nested in a larger JSON document: `value` is the
+ * parsed target and `text` its exact JSON source, so `version` and `start`
+ * are checked as written, as the build checks them. No size limit applies;
+ * the enclosing document has its own.
+ */
+export function readTargetSource(value, text) {
+  return readValue(value, integerTokens(String(text)));
+}
+
 /** The target for the whole post: no section and no selector. */
 export function createWorkTarget() {
   return freeze({ version: PASSAGE_TARGET_VERSION, kind: "work" });

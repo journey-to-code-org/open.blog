@@ -734,6 +734,30 @@ whether the passage is stale, its section, the quoted text only while it is stil
 a name only with consent.
 _Avoid_: Feedback export, moderation record
 
+**Feedback kind**:
+What a reader says they are offering about a passage: a question, a suggested source, a suggested
+correction or another interpretation. The reader's stated intent, never a verdict: a suggested
+correction is not a correction until an author decides.
+_Avoid_: Correction (for a submission), category, vote, rating
+
+**Feedback submission**:
+What a reader sends: the kind, the work, the passage revision seen, the passage target, the text,
+the kind's details (a source link, suggested wording) and the reader's attribution choice. Nothing
+else about the reader.
+_Avoid_: Comment, message, report
+
+**Scholarly feedback record**:
+A received submission: its kind, text and details with the feedback provenance, including when the
+receiver got it and by which channel. Reader data, never research, and never published except
+through its public projection after moderation.
+_Avoid_: Comment row, research note, correction
+
+**Hosted feedback transport**:
+The optional, opt-in path that carries feedback submissions to the site's hosted function and
+stores them pending moderation. Without it, the canonical page and a copy-and-send fallback
+remain.
+_Avoid_: Feedback service, comment system, backend when the opt-in path is meant
+
 ## Admin workspace
 
 **Workspace preferences**:

@@ -23,6 +23,7 @@
 //! - [`atlas_publication`]: the one public projection of its approved items, for pages and `atlas.json`
 //! - [`passage_target`]: stable passage targets in published text, resolved as current, re-anchored or stale
 //! - [`feedback_provenance`]: which revision a reader's feedback was about and when, with consent-gated attribution
+//! - [`scholarly_feedback`]: typed reader questions, suggested sources and corrections and other interpretations, as submitted and as received
 
 pub mod accessibility;
 pub mod approval;
@@ -63,6 +64,7 @@ pub mod research;
 pub mod research_bundle;
 pub mod research_notes;
 pub mod research_search;
+pub mod scholarly_feedback;
 pub mod search;
 pub mod shared_series;
 pub mod shared_source;
