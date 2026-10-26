@@ -1212,9 +1212,9 @@ Never an A4 evidence link and never copied into research.
 _Avoid_: Evidence (for the author's evidence links), vote, endorsement
 
 **Published references**:
-The claims, evidence links and sources one post publishes, the only things a reader's evidence
-block is checked against. A reference outside them reads only as not published here, never as
-private.
+The claims, evidence links and sources one post publishes, the things a reader's evidence block is
+checked against (an offered source is checked against the sources the whole site publishes). A
+reference outside them reads only as not published here, never as private.
 _Avoid_: Claims file, Source Library lookup
 
 **Correction decision**:
@@ -1234,11 +1234,12 @@ Every correction decision about one item, oldest first and numbered from 1. A ne
 how many it saw and supersedes the last without removing it.
 _Avoid_: Overwriting a decision, audit trail when moderation events are meant
 
-**Standing**:
-How an item reads to readers and editors: a question, another interpretation, a proposed source,
+**Item standing**:
+How a reader's item reads to readers and editors: a question, another interpretation, a proposed source,
 a challenged citation or a possible error until the author decides, then the outcome in force. It
 depends on the kind, the evidence block and the decision only, never on counts.
-_Avoid_: Status (moderation), score, consensus
+_Avoid_: Standing on its own (it collides with claim and relationship standing), status
+(moderation), score, consensus
 
 **Public decision**:
 The public form of an item's decision in force (outcome, extent, reason, rationale, revision note,
