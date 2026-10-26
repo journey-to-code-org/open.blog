@@ -125,6 +125,10 @@ pub fn role_catalog() -> Vec<CreditRole> {
         .collect()
 }
 
+/// The contributor id of a legacy post's default credit, which comes from the site author in
+/// `openblog.json` rather than from the contributor registry.
+pub const SITE_AUTHOR_ID: &str = "site-author";
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResolvedCredit {
     pub contributor_id: String,
@@ -204,7 +208,7 @@ pub fn resolve(
         };
         return Ok((
             vec![ResolvedCredit {
-                contributor_id: "site-author".into(),
+                contributor_id: SITE_AUTHOR_ID.into(),
                 contributor,
                 roles: vec![CreditRole {
                     vocabulary: RoleVocabulary::Crossref,

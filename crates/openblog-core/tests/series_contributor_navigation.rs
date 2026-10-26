@@ -26,6 +26,13 @@ fn config(site_author: &str) -> SiteConfig {
         ("dee", "Dee", "https://example.org/dee"),
         ("eve", HOSTILE, "https://example.org/eve"),
         ("mal", MARKUP, ""),
+        // The site owner in the registry, as a shared reflection credits them, with the site
+        // author's own profile link, with none, and a namesake with another link.
+        ("owner", "Site Owner", "https://example.test/about/"),
+        ("owner-bare", "Site Owner", ""),
+        ("namesake", "Site Owner", "https://elsewhere.example/"),
+        // A second registry entry for Ann, with her name and link.
+        ("ann-again", "Ann", "https://example.org/ann"),
     ] {
         config.contributors.insert(
             id.into(),
@@ -443,6 +450,56 @@ fn hostile_names_stay_text_or_fail_the_build() {
         &[(vec![loose], vec![credits("loose", &["mal"], &[])])],
     );
     assert!(refused.is_err());
+}
+
+#[test]
+fn a_person_credited_under_two_ids_is_named_once() {
+    // The reproduced case: the site author writes an ordinary part, then co-writes a shared
+    // reflection under their registry id. The legacy credit and the registry credit are one
+    // person, with the same link or with none on the registry side.
+    for owner in ["owner", "owner-bare"] {
+        let files = build(&[(
+            vec![
+                post("o1", "letters", "2026-04-01", Some(1), ""),
+                post("o2", "letters", "2026-05-01", Some(2), ""),
+            ],
+            vec![credits("o2", &[owner, "bo"], &[])],
+        )]);
+        let series = series_body(page(&files, "series/letters/index.html"));
+        assert!(
+            series.contains("Contributors: Site Owner and Bo</p>"),
+            "{owner}: {series}"
+        );
+    }
+    // Two registry ids with the same name and link are one person too.
+    let files = build(&[(
+        vec![
+            post("o1", "letters", "2026-04-01", Some(1), ""),
+            post("o2", "letters", "2026-05-01", Some(2), ""),
+        ],
+        vec![
+            credits("o1", &["ann", "bo"], &[]),
+            credits("o2", &["ann-again", "cy"], &[]),
+        ],
+    )]);
+    let series = series_body(page(&files, "series/letters/index.html"));
+    assert!(
+        series.contains("Contributors: Ann, Bo, and Cy</p>"),
+        "{series}"
+    );
+    // A namesake with a different profile link is a different person and keeps their place.
+    let files = build(&[(
+        vec![
+            post("o1", "letters", "2026-04-01", Some(1), ""),
+            post("o2", "letters", "2026-05-01", Some(2), ""),
+        ],
+        vec![credits("o2", &["namesake", "bo"], &[])],
+    )]);
+    let series = series_body(page(&files, "series/letters/index.html"));
+    assert!(
+        series.contains("Contributors: Site Owner, Site Owner, and Bo</p>"),
+        "{series}"
+    );
 }
 
 #[test]

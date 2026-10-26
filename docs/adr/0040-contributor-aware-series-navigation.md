@@ -35,6 +35,11 @@ and next links, who wrote a collaborative part and who wrote the ordinary parts 
   part, not as a special case. Names come from each post's author credits in credit order. A name
   that is empty (such as an unset site author) is left out, and a part with no named author gets
   no "By", never an empty one.
+- **One person is named once** in the Contributors line, even when credited under two ids. A
+  legacy post's default site-author credit and a registry credit with the same name are the same
+  person when their profile URLs agree or either has none (the owner co-writing a shared
+  reflection under their registry id); any other two credits are the same person when name and
+  URL both match. A namesake with a different profile URL keeps their own place.
 - **Names are plain, escaped text.** The series never links a name or marks it up as a post author
   (`h-card`, `rel="author"`), whether or not the contributor has a profile URL; each post's own
   byline keeps doing that. An unknown contributor already stops the load, and a name the portable
