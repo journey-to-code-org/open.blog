@@ -574,7 +574,7 @@ pub fn published_atlas(
             "the Knowledge Atlas cannot be published ({error}); run `openblog check` and repair it, or set `knowledgeAtlas.publish` to false. Nothing was written."
         )
     };
-    let snapshot = crate::atlas_store::load(root, &config.contributors)
+    let snapshot = crate::atlas_store::load_for_build(root, &config.contributors)
         .map_err(|error| unpublishable(error.to_string()))?;
     if !snapshot.stored {
         warnings.push(unstored_atlas_warning());
@@ -1241,6 +1241,40 @@ mod tests {
             .unwrap();
         assert!(page.contains("Slings"), "{page}");
         for (_, bytes) in dist_bytes(&root) {
+            assert!(!String::from_utf8_lossy(&bytes).contains("ob-interpretation-secret"));
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn an_interpretation_naming_a_removed_contributor_never_breaks_an_atlas_build() {
+        let root = project_with_private_library(
+            "interpretation-atlas-build",
+            r#"{"knowledgeAtlas":{"publish":true}}"#,
+        );
+        // No contributor registry: `ada` was removed after she was named.
+        let library = r#"{"version":1,"sources":[{"id":"plato","kind":"work","title":"Politeia"},{"id":"slings","kind":"edition","of":"plato","title":"Slings"}],"interpretations":[{"id":"cave-mine","kind":"reading","source":"slings","text":"ob-interpretation-secret","interpreters":[{"contributor":"ada"}]}]}"#;
+        fs::write(root.join(crate::source_store::LIBRARY_FILE), library).unwrap();
+        fs::remove_file(root.join(crate::notebook_store::NOTEBOOK_FILE)).unwrap();
+        fs::write(
+            root.join(crate::atlas_store::ATLAS_FILE),
+            r#"{"version":1,"entries":[{"id":"cave","kind":"concept","label":"The cave","visibility":"approved"},{"id":"politeia","kind":"work","label":"Politeia","source":"plato","visibility":"approved"}],"relationships":[]}"#,
+        )
+        .unwrap();
+        assert!(
+            crate::source_store::load(&root, &Default::default()).is_err(),
+            "Admin and check still report the unresolved interpreter"
+        );
+        assert!(crate::atlas_store::load(&root, &Default::default()).is_err());
+        production_build(&root);
+        let dist = dist_bytes(&root);
+        let atlas = dist
+            .iter()
+            .find(|(path, _)| path.ends_with("atlas.json"))
+            .map(|(_, bytes)| String::from_utf8_lossy(bytes).into_owned())
+            .expect("the atlas is published");
+        assert!(atlas.contains("The cave"), "{atlas}");
+        for (_, bytes) in dist {
             assert!(!String::from_utf8_lossy(&bytes).contains("ob-interpretation-secret"));
         }
         fs::remove_dir_all(root).unwrap();
