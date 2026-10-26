@@ -14431,6 +14431,22 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
         }
     }
 
+    if !created {
+        // A bound body states each section's author (ADR 0176) and only
+        // compose writes that. A manual edit may not change the binding
+        // sequence, nor move an existing turn to another name or contributor,
+        // whether through the body, the credits or both at once.
+        if let Err(message) = refuse_turn_rebinding(
+            &path,
+            credit_path.as_deref(),
+            text_body,
+            &credit_edit,
+            &config,
+        ) {
+            return Response::error(422, &message);
+        }
+    }
+
     if let Err(problems) = validate_candidate(&state.root, &config, &rel, &source, &credit_edit) {
         return Response::json(
             422,
@@ -14482,6 +14498,61 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
         if created { 201 } else { 200 },
         &json!({ "path": rel, "etag": etag(&source), "creditEtag": credit_etag, "status": post_status, "url": url, "build": build_json, "trackUrl": track_upload.as_ref().map(|track| &track.url) }),
     )
+}
+
+/// Refuse a save that would change who a published shared-reflection turn is
+/// attributed to (ADR 0176). Compares the stored body with the stored credits
+/// against the new body with the credits as they will be after the save.
+fn refuse_turn_rebinding(
+    path: &Path,
+    sidecar: Option<&Path>,
+    new_body: &str,
+    credit_edit: &CreditEdit,
+    config: &SiteConfig,
+) -> Result<(), String> {
+    let Ok(old_source) = fs::read_to_string(path) else {
+        return Ok(());
+    };
+    let Ok(old_document) = frontmatter::parse(&old_source) else {
+        return Ok(());
+    };
+    let old_credits = match sidecar {
+        Some(sidecar) => read_optional_bytes(sidecar)?,
+        None => None,
+    };
+    let old_credits = old_credits.and_then(|bytes| String::from_utf8(bytes).ok());
+    let new_credits = match credit_edit {
+        CreditEdit::Unchanged => old_credits.clone(),
+        CreditEdit::Remove => None,
+        CreditEdit::Set(contents) => Some(contents.clone()),
+    };
+    if attributed_perspective::turn_binding_sequence(&old_document.body)
+        != attributed_perspective::turn_binding_sequence(new_body)
+    {
+        return Err("The `ob-turn-by-` classes that bind each section of a shared reflection to its author can only be written by composing the reflection, so a manual edit may not add, remove, reorder or change them.".into());
+    }
+    let old = attributed_perspective::AttributedSections::from_published(
+        &old_document.body,
+        old_credits.as_deref(),
+        &config.contributors,
+    );
+    if old.sections().is_empty() {
+        return Ok(());
+    }
+    let new = attributed_perspective::AttributedSections::from_published(
+        new_body,
+        new_credits.as_deref(),
+        &config.contributors,
+    );
+    let moved = old.sections().iter().enumerate().any(|(index, section)| {
+        new.sections().get(index).is_some_and(|next| {
+            next.author != section.author || next.contribution != section.contribution
+        })
+    });
+    if moved {
+        return Err("This edit would move an existing section of a shared reflection to another author’s name or contributor id, so it is refused. Edit the words, not who they are attributed to.".into());
+    }
+    Ok(())
 }
 
 /// Publication status and public URL of a just-saved document.
@@ -28532,6 +28603,118 @@ What I read:
         // The same credits in the same order are saved as usual.
         assert_eq!(
             put(&fetched, json!([author("ada"), author("grace")])).status,
+            200
+        );
+    }
+
+    #[test]
+    fn a_body_and_credits_edited_together_cannot_move_a_section_to_another_author() {
+        use openblog_core::reflection::{compose_bound, ComposedTurn, Placement, ReflectionLayout};
+        let f = fixture("credit-swap");
+        let config_path = f.dir.join("openblog.json");
+        let mut config: Json =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        config["contributors"] = json!({ "ada": { "name": "Ada" }, "grace": { "name": "Grace" } });
+        fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
+        let session = login_ok(&f);
+        let turns = [("Ada", "One."), ("Grace", "Two.")];
+        let composed: Vec<ComposedTurn<'_>> = turns
+            .iter()
+            .enumerate()
+            .map(|(round, (name, text))| ComposedTurn {
+                round,
+                round_prompt: None,
+                display_name: name,
+                label: None,
+                placement: Placement { lane: 0, lanes: 1 },
+                body: (*text).to_string(),
+            })
+            .collect();
+        let body = compose_bound(
+            ReflectionLayout::Sequential,
+            &composed,
+            &[Some("ada"), Some("grace")],
+        );
+        let author = |id: &str| json!({"contributor": id, "roles": [{"vocabulary": "crossref", "role": "author"}]});
+        let created = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/document",
+                    json!({
+                        "kind": "posts",
+                        "fields": {"title": "Shared", "date": "2026-01-01"},
+                        "body": body,
+                        "credits": [author("ada"), author("grace")]
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(created.status, 201);
+        let rel = body_json(&created)["path"].as_str().unwrap().to_string();
+        let fetched = body_json(&handle(
+            &f.state,
+            &authed(
+                req("GET", &format!("/admin/api/document?path={rel}")),
+                &session,
+                false,
+            ),
+        ));
+        let put = |new_body: &str, credits: Json| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "PUT",
+                        &format!("/admin/api/document?path={rel}"),
+                        json!({
+                            "fields": fetched["fields"], "body": new_body,
+                            "etag": fetched["etag"], "credits": credits,
+                            "creditEtag": fetched["creditEtag"]
+                        }),
+                    ),
+                    &session,
+                    true,
+                ),
+            )
+        };
+        let sidecar = f.dir.join("content/posts/2026-01-01-shared.credits.json");
+        let before = fs::read_to_string(&sidecar).unwrap();
+        // Swapping the bound classes and the credits order in one request.
+        let swapped = body
+            .replace("ob-turn-by-ada", "ob-turn-by-x")
+            .replace("ob-turn-by-grace", "ob-turn-by-ada")
+            .replace("ob-turn-by-x", "ob-turn-by-grace");
+        let refused = put(&swapped, json!([author("grace"), author("ada")]));
+        assert_eq!(
+            refused.status,
+            422,
+            "{}",
+            String::from_utf8_lossy(&refused.body)
+        );
+        // Swapping the printed names while the classes stay put.
+        let renamed = body
+            .replace(">Ada<", ">x<")
+            .replace(">Grace<", ">Ada<")
+            .replace(">x<", ">Grace<");
+        assert_eq!(
+            put(&renamed, json!([author("ada"), author("grace")])).status,
+            422
+        );
+        // A manual edit that only changes the binding sequence.
+        let unbound = body.replacen(" ob-turn-by-ada", "", 1);
+        assert_eq!(
+            put(&unbound, json!([author("ada"), author("grace")])).status,
+            422
+        );
+        assert_eq!(fs::read_to_string(&sidecar).unwrap(), before);
+        // Editing the words is still saved.
+        let reworded = body.replace("One.", "One, revised.");
+        assert_eq!(
+            put(&reworded, json!([author("ada"), author("grace")])).status,
             200
         );
     }

@@ -283,6 +283,24 @@ impl Standing {
     }
 }
 
+/// The contributor keys a body's `ob-turn-by-` classes state, in document
+/// order. Only compose writes them (ADR 0176), so a manual edit that changes
+/// this sequence is a forged or broken binding.
+pub fn turn_binding_sequence(body: &str) -> Vec<String> {
+    let prefix = crate::reflection::CONTRIBUTOR_CLASS_PREFIX;
+    let mut keys = Vec::new();
+    let mut rest = body;
+    while let Some(at) = rest.find(prefix) {
+        let after = &rest[at + prefix.len()..];
+        let end = after
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+            .unwrap_or(after.len());
+        keys.push(after[..end].to_string());
+        rest = &after[end..];
+    }
+    keys
+}
+
 /// Every attributed section of one work as it is published now.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AttributedSections {
