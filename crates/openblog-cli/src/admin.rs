@@ -4535,7 +4535,8 @@ fn published_feedback_file(state: &AppState) -> Option<feedback_publication::Rea
 
 /// `GET engagement/moderation?state=&kind=&after=`: one page of the inbox,
 /// oldest first, holding only what this account may see. Nothing counts what
-/// it may not see, so no count or preview reveals a pending item.
+/// it may not see, so no count or preview reveals a pending item
+/// (`collect_inbox_page`).
 fn moderation_inbox_page(state: &AppState, req: &Request, session: &auth::Session) -> Response {
     let wanted_state = req.query.get("state").map_or("pending", String::as_str);
     let Some(wanted_state) = moderation::ModerationState::from_id(wanted_state) else {
@@ -4549,45 +4550,113 @@ fn moderation_inbox_page(state: &AppState, req: &Request, session: &auth::Sessio
     if !after.is_empty() && !moderation_inbox::is_cursor(after) {
         return Response::error(422, "Invalid page cursor");
     }
-    let page_size = moderation_inbox::PAGE_SIZE.to_string();
-    let mut query = vec![("state", wanted_state.id()), ("limit", page_size.as_str())];
-    if !kind.is_empty() {
-        query.push(("kind", kind));
-    }
-    if !after.is_empty() {
-        query.push(("after", after));
-    }
-    let value = match hosted_moderation_call(state, &query, None) {
-        Ok((200, value)) => value,
-        Ok(_) => return Response::error(502, "hosted engagement returned an invalid inbox"),
-        Err(response) => return response,
-    };
-    let page = match moderation_inbox::read_page(&value) {
-        Ok(page) => page,
-        Err(error) => return Response::error(502, &error),
-    };
     let sources = match inbox_sources(state) {
         Ok(sources) => sources,
         Err(response) => return response,
     };
-    let published = published_feedback_file(state);
-    let items: Vec<Json> = sources.inbox(session, page.protocol, |inbox| {
-        page.items
+    let bound = sources.records.iter().any(|record| {
+        record
+            .authorization
+            .bindings
             .iter()
-            .filter_map(|item| inbox_view(inbox, item, published.as_ref()))
-            .collect()
+            .any(|binding| binding.admin_user == session.user)
     });
+    let published = published_feedback_file(state);
+    let page_size = moderation_inbox::PAGE_SIZE.to_string();
+    let collected = collect_inbox_page(
+        bound,
+        (!after.is_empty()).then(|| after.to_string()),
+        |cursor| {
+            let mut query = vec![("state", wanted_state.id()), ("limit", page_size.as_str())];
+            if !kind.is_empty() {
+                query.push(("kind", kind));
+            }
+            if let Some(cursor) = cursor {
+                query.push(("after", cursor));
+            }
+            match hosted_moderation_call(state, &query, None) {
+                Ok((200, value)) => moderation_inbox::read_page(&value)
+                    .map_err(|error| Response::error(502, &error)),
+                Ok(_) => Err(Response::error(
+                    502,
+                    "hosted engagement returned an invalid inbox",
+                )),
+                Err(response) => Err(response),
+            }
+        },
+        |page| {
+            sources.inbox(session, page.protocol, |inbox| {
+                page.items
+                    .iter()
+                    .filter_map(|item| inbox_view(inbox, item, published.as_ref()))
+                    .collect()
+            })
+        },
+    );
+    let collected = match collected {
+        Ok(collected) => collected,
+        Err(response) => return response,
+    };
     Response::json(
         200,
         &json!({
             "state": wanted_state.id(),
             "kind": kind,
-            "protocol": page.protocol.id(),
-            "items": items,
-            "invalid": page.invalid,
-            "next": page.next,
+            "protocol": collected.protocol.id(),
+            "items": collected.items,
+            "invalid": collected.invalid,
+            "next": collected.next,
         }),
     )
+}
+
+/// One page of the inbox as one account sees it.
+struct CollectedPage {
+    protocol: moderation_inbox::Protocol,
+    items: Vec<Json>,
+    invalid: usize,
+    next: Option<String>,
+}
+
+/// The most hosted pages one inbox page may read for an account that may not
+/// see every item.
+const MAX_INBOX_REQUESTS: usize = 20;
+
+/// Read hosted pages from `cursor`, keeping what `visible` lets the account
+/// see. An account that sees everything gets one hosted page. One `bound` in
+/// a shared publication, which may not, is given further pages until it has
+/// a page of items it may see, the list ends or `MAX_INBOX_REQUESTS` pages
+/// were read, so an empty page or a next link never betrays items hidden
+/// from it; and it is never told how many items failed validation, which it
+/// might not have been allowed to see.
+fn collect_inbox_page(
+    bound: bool,
+    mut cursor: Option<String>,
+    mut fetch: impl FnMut(Option<&str>) -> Result<moderation_inbox::HostedPage, Response>,
+    mut visible: impl FnMut(&moderation_inbox::HostedPage) -> Vec<Json>,
+) -> Result<CollectedPage, Response> {
+    let mut items = Vec::new();
+    let mut invalid = 0;
+    let mut requests = 0;
+    loop {
+        let page = fetch(cursor.as_deref())?;
+        requests += 1;
+        invalid += page.invalid;
+        items.extend(visible(&page));
+        cursor = page.next.clone();
+        if !bound
+            || cursor.is_none()
+            || items.len() >= moderation_inbox::PAGE_SIZE
+            || requests >= MAX_INBOX_REQUESTS
+        {
+            return Ok(CollectedPage {
+                protocol: page.protocol,
+                items,
+                invalid: if bound { 0 } else { invalid },
+                next: cursor,
+            });
+        }
+    }
 }
 
 /// One item read again from the hosted inbox, with what it can store.
@@ -17719,6 +17788,169 @@ mod tests {
             )["error"],
             "Choose a reason to reject."
         );
+    }
+
+    /// A hosted inbox page of `items` (each visible or not to the test's
+    /// viewer), with `invalid` broken items and a next cursor unless last.
+    fn inbox_page(items: &[bool], invalid: usize, next: bool) -> moderation_inbox::HostedPage {
+        let comment = |n: usize| {
+            json!({
+                "source": "comment", "id": format!("00000000-0000-4000-8000-{n:012}"),
+                "status": "pending", "version": 1,
+                "comment": {"path": "/p/", "authorName": if items[n % items.len().max(1)] { "seen" } else { "hidden" }, "body": "Hi", "createdAt": "2026-10-26T10:00:00Z"},
+            })
+        };
+        moderation_inbox::HostedPage {
+            protocol: moderation_inbox::Protocol::Full,
+            items: (0..items.len())
+                .map(|n| moderation_inbox::InboxItem::from_value(&comment(n)).unwrap())
+                .collect(),
+            invalid,
+            next: next.then(|| {
+                format!(
+                    "2026-10-26T10:00:00.000000Z~00000000-0000-4000-8000-{:012}",
+                    items.len()
+                )
+            }),
+        }
+    }
+
+    fn seen_only(page: &moderation_inbox::HostedPage) -> Vec<Json> {
+        page.items
+            .iter()
+            .filter(|item| matches!(&item.content, moderation_inbox::Content::Comment { author_name, .. } if author_name == "seen"))
+            .map(|item| json!(item.id))
+            .collect()
+    }
+
+    #[test]
+    fn an_inbox_page_never_betrays_items_its_viewer_may_not_see() {
+        // Someone who sees everything gets exactly one hosted page, its next
+        // link and the count of broken items.
+        let mut asked = Vec::new();
+        let page = collect_inbox_page(
+            false,
+            Some("2026-10-26T10:00:00.000000Z~00000000-0000-4000-8000-000000000000".into()),
+            |cursor| {
+                asked.push(cursor.map(str::to_string));
+                Ok(inbox_page(&[true, true], 1, true))
+            },
+            seen_only,
+        )
+        .unwrap();
+        assert_eq!(asked.len(), 1);
+        assert!(asked[0].is_some());
+        assert_eq!((page.items.len(), page.invalid), (2, 1));
+        assert!(page.next.is_some());
+
+        // A co-writer whose first pages hold only others' items is given the
+        // next pages until it has items of its own or the list ends, and is
+        // never told how many items were broken.
+        let pages = [
+            inbox_page(&[false, false], 2, true),
+            inbox_page(&[false], 0, true),
+            inbox_page(&[true, false], 0, false),
+        ];
+        let mut calls = 0;
+        let page = collect_inbox_page(
+            true,
+            None,
+            |_| {
+                calls += 1;
+                Ok(pages[calls - 1].clone())
+            },
+            seen_only,
+        )
+        .unwrap();
+        assert_eq!(calls, 3);
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.invalid, 0);
+        assert_eq!(
+            page.next, None,
+            "the list ended: no link hints at hidden items"
+        );
+
+        // Nothing of theirs at all: an empty page with no next link, after
+        // at most the bounded number of hosted pages.
+        let mut calls = 0;
+        let page = collect_inbox_page(
+            true,
+            None,
+            |_| {
+                calls += 1;
+                Ok(inbox_page(&[false; 3], 0, true))
+            },
+            seen_only,
+        )
+        .unwrap();
+        assert_eq!(calls, MAX_INBOX_REQUESTS);
+        assert!(page.items.is_empty());
+
+        // A failing provider stops at once and says so.
+        let failed =
+            collect_inbox_page(true, None, |_| Err(Response::error(502, "down")), seen_only);
+        assert_eq!(failed.err().unwrap().status, 502);
+    }
+
+    #[test]
+    fn hosted_inbox_answers_pass_on_refusals_and_no_secret() {
+        assert_eq!(
+            hosted_moderation_answer(409, json!({ "code": "conflict" }))
+                .unwrap()
+                .0,
+            409
+        );
+        assert_eq!(
+            hosted_moderation_answer(403, json!({ "code": "denied" }))
+                .unwrap()
+                .0,
+            403
+        );
+        assert_eq!(
+            hosted_moderation_answer(404, json!({ "code": "notFound" }))
+                .unwrap()
+                .0,
+            404
+        );
+        let older =
+            hosted_moderation_answer(404, json!({ "error": "No such engagement operation." }))
+                .unwrap_err();
+        assert!(String::from_utf8_lossy(&older.body).contains("deploy netlify/functions"));
+        assert_eq!(
+            hosted_moderation_answer(403, json!({ "error": "Origin is not allowed." }))
+                .unwrap_err()
+                .status,
+            502
+        );
+        let refused = hosted_moderation_answer(
+            422,
+            json!({ "error": "Run supabase/moderation.sql first.", "code": "notAllowed" }),
+        )
+        .unwrap_err();
+        assert_eq!(refused.status, 422);
+        assert_eq!(
+            body_json(&refused),
+            json!({ "error": "Run supabase/moderation.sql first.", "code": "notAllowed" })
+        );
+        for (status, value) in [
+            (
+                500,
+                json!({ "error": "relation openblog_comments sb_secret_x" }),
+            ),
+            (401, json!({ "error": "Admin authorization is required." })),
+            (
+                422,
+                json!({ "error": format!("{} sb_secret_x", "x".repeat(400)), "code": "sb_secret" }),
+            ),
+        ] {
+            let body =
+                String::from_utf8_lossy(&hosted_moderation_answer(status, value).unwrap_err().body)
+                    .to_string();
+            assert!(
+                !body.contains("sb_secret") && !body.contains("relation"),
+                "{body}"
+            );
+        }
     }
 
     #[test]
