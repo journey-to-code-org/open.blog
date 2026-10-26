@@ -3,6 +3,12 @@
 //! stay distinct, legacy posts are unchanged, output is deterministic,
 //! script-safe and holds nothing private.
 
+use std::collections::BTreeMap;
+
+use openblog_core::bibliography::{
+    CitationLocale, CitationPlacement, CitationStyle, CitationSummary,
+};
+use openblog_core::citations::PublicReference;
 use openblog_core::model::LibrarySource;
 use openblog_core::reader_references::{ReaderReferences, READER_REFERENCES_VERSION};
 use openblog_core::{LoadOptions, Site, SiteConfig, SourceFile, Sources};
@@ -280,4 +286,61 @@ fn reference_links_resolve_every_stored_doi_form() {
             Some("https://doi.org/10.1000/resolver"),
         ]
     );
+}
+
+#[test]
+fn a_reference_with_nothing_but_its_key_previews_as_its_key() {
+    // The library requires a title of a work, so the bare reference is built
+    // directly, as a summary the projection could be handed.
+    let bare = PublicReference {
+        key: "bare-source".into(),
+        kind: "work",
+        title: None,
+        creators: Vec::new(),
+        issued: None,
+        language: None,
+        identifiers: Vec::new(),
+        csl: BTreeMap::new(),
+    };
+    let summary = CitationSummary {
+        style: CitationStyle::Notes,
+        locale: CitationLocale::En,
+        citations: 1,
+        notes: 1,
+        references: vec![bare],
+        prefix: "cite-".into(),
+        placements: vec![CitationPlacement {
+            reference: 1,
+            note: 1,
+            locators: Vec::new(),
+        }],
+    };
+    let data = ReaderReferences::from_summary(&summary).unwrap();
+    let reference = &data.references[0];
+    assert_eq!(reference.formatted, "bare-source");
+    assert_eq!(reference.link, None);
+    let json: serde_json::Value = serde_json::from_str(&data.to_json()).unwrap();
+    let entry = &json["references"][0];
+    assert!(entry.get("link").is_none(), "{entry}");
+    // No field is present but empty: no "", [], {} or null anywhere.
+    fn no_empty(value: &serde_json::Value, path: &str) {
+        match value {
+            serde_json::Value::Null => panic!("{path} is null"),
+            serde_json::Value::String(text) => assert!(!text.is_empty(), "{path} is empty"),
+            serde_json::Value::Array(items) => {
+                assert!(!items.is_empty(), "{path} is empty");
+                for (index, item) in items.iter().enumerate() {
+                    no_empty(item, &format!("{path}[{index}]"));
+                }
+            }
+            serde_json::Value::Object(fields) => {
+                assert!(!fields.is_empty(), "{path} is empty");
+                for (name, field) in fields {
+                    no_empty(field, &format!("{path}.{name}"));
+                }
+            }
+            _ => {}
+        }
+    }
+    no_empty(entry, "references[0]");
 }
