@@ -2657,16 +2657,23 @@ fn comparison_version(
                 if let Some(language) = &source.reference.language {
                     facts.push(format!("language {language}"));
                 }
+                if version.anonymous {
+                    facts.push("anonymous".to_string());
+                }
                 out.push_str(&format!(
                     "<p class=\"ob-meta\">{}</p>\n",
                     text(&facts.join(", "))
                 ));
+                // Each maker reads as an interpreter does: the name, then how
+                // firmly the author ties it to the version (ADR 0114).
                 let mut roles: Vec<(String, Vec<String>)> = Vec::new();
-                for creator in &source.reference.creators {
-                    let role = capitalized(creator.role.as_deref().unwrap_or("creator"));
+                for maker in &version.makers {
+                    let role = capitalized(maker.role.as_deref().unwrap_or("creator"));
+                    let name =
+                        comparison_publication::attributed_name(&maker.name, maker.attribution);
                     match roles.iter_mut().find(|(known, _)| *known == role) {
-                        Some((_, names)) => names.push(creator.name.clone()),
-                        None => roles.push((role, vec![creator.name.clone()])),
+                        Some((_, names)) => names.push(name),
+                        None => roles.push((role, vec![name])),
                     }
                 }
                 for (role, names) in roles {

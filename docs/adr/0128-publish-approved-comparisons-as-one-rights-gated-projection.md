@@ -66,14 +66,17 @@ published here.
   registry. Each published comparison names exactly: `id`, `label`, its `url`,
   `correspondence` and its "The author reads…" label, `recordedBy`, `confidence`, `rationale`,
   `uncertainty`, `evidence` (source and public locators only), and `versions` in the author's
-  first-appearance order. A version is `source` (the edition, translation or witness) or
-  `interpretation` (with the source it interprets, its kind, and its interpreters' public names,
-  a contributor's registry name or the stated name, with attribution certainty, or `anonymous`),
+  first-appearance order. A version is `source` (the edition, translation or witness, with its
+  `makers`: each one's name, role and attribution certainty, and `anonymous` when the author
+  records it so, read on the page as an interpreter heading reads, such as "Translator: Ibn
+  Tibbon (disputed)") or `interpretation` (with the source it interprets, its kind, and its
+  interpreters' public names, a contributor's registry name or the stated name, with
+  attribution certainty, or `anonymous`),
   its rights `status`, `label` and an open licence's name, and its places: public locators,
   `absent`, and either `text` (`text`, `language`, `dir`), or `withheld` (`rights` or
   `length`), or neither when no wording is quoted. Sources are the citation allowlist of ADR 0044
-  for exactly the sources a comparison uses. Notes on places, rights notes, notebook passage ids,
-  interpretation uncertainty notes, unknown fields at every level, unapproved alignments, and
+  for exactly the sources a comparison uses. Notes on places, rights notes, attribution notes,
+  notebook passage ids, interpretation uncertainty notes, unknown fields at every level, unapproved alignments, and
   normalizations the author did not choose have no place in these types.
 - **Correspondence, never equivalence.** Every page and the artifact carry the alignment notice
   and the comparison's correspondence label, and interpretations are headed "Rendering by …" or

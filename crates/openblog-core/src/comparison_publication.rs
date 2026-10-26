@@ -120,6 +120,14 @@ pub struct PublicVersion {
     pub source: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub interpretation: Option<PublicInterpretation>,
+    /// For a source version, its makers as the author attributes them, with
+    /// how firmly each is tied to it (ADR 0114). The attribution note stays
+    /// private. An interpretation's makers are its interpreters.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub makers: Vec<PublicMaker>,
+    /// For a source version, that the author records it as anonymous.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub anonymous: bool,
     /// The author's statement of the rights in this version's text.
     pub rights: PublicRights,
     pub places: Vec<PublicPlace>,
@@ -134,6 +142,16 @@ pub struct PublicInterpretation {
     pub interpreters: Vec<PublicInterpreter>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub anonymous: bool,
+}
+
+/// One maker of a source version: an editor, translator, scribe or author.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct PublicMaker {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attribution: Option<AttributionCertainty>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -530,6 +548,8 @@ fn public_member(
             kind: VersionKind::Interpretation,
             source: interpretation.source.clone(),
             interpretation: Some(public_interpretation(interpretation, inputs.contributors)),
+            makers: Vec::new(),
+            anonymous: false,
             rights: public_rights(interpretation.rights.as_ref(), rights),
             places: Vec::new(),
         };
@@ -588,6 +608,16 @@ fn public_member(
         kind: VersionKind::Source,
         source: source.to_string(),
         interpretation: None,
+        makers: record
+            .creators
+            .iter()
+            .map(|creator| PublicMaker {
+                name: creator.name.clone(),
+                role: creator.role.clone(),
+                attribution: creator.attribution,
+            })
+            .collect(),
+        anonymous: record.anonymous,
         rights: public_rights(record.rights.as_ref(), rights),
         places: Vec::new(),
     };
@@ -641,6 +671,15 @@ pub fn withheld_text(withheld: Withheld, rights: &PublicRights) -> String {
     }
 }
 
+/// A name with how firmly the author ties it to the text, the way an
+/// interpretation's heading and a version's makers both read.
+pub fn attributed_name(name: &str, attribution: Option<AttributionCertainty>) -> String {
+    match attribution {
+        Some(certainty) => format!("{name} ({})", certainty.as_str()),
+        None => name.to_string(),
+    }
+}
+
 /// An interpretation's heading: what it is and who made it.
 pub fn interpretation_heading(interpretation: &PublicInterpretation) -> String {
     let kind = match interpretation.kind {
@@ -653,10 +692,7 @@ pub fn interpretation_heading(interpretation: &PublicInterpretation) -> String {
         let names: Vec<String> = interpretation
             .interpreters
             .iter()
-            .map(|i| match i.attribution {
-                Some(certainty) => format!("{} ({})", i.name, certainty.as_str()),
-                None => i.name.clone(),
-            })
+            .map(|i| attributed_name(&i.name, i.attribution))
             .collect();
         format!("{kind} by {}", names.join("; "))
     }

@@ -7,13 +7,13 @@ use std::collections::BTreeMap;
 
 use openblog_core::alignment::AlignmentSet;
 use openblog_core::comparison_publication::{
-    displays_wording, ComparisonInputs, PublicComparison, PublicComparisons, VersionKind, Withheld,
-    MAX_PUBLIC_EXCERPT_CHARS, PUBLIC_COMPARISONS_FORMAT,
+    attributed_name, displays_wording, ComparisonInputs, PublicComparison, PublicComparisons,
+    VersionKind, Withheld, MAX_PUBLIC_EXCERPT_CHARS, PUBLIC_COMPARISONS_FORMAT,
 };
 use openblog_core::contributor::Contributor;
 use openblog_core::knowledge_atlas::Links;
 use openblog_core::research_notes::Notebook;
-use openblog_core::source_library::{RightsStatus, SourceLibrary};
+use openblog_core::source_library::{AttributionCertainty, RightsStatus, SourceLibrary};
 use serde_json::{json, Value};
 
 const SECRET: &str = "ob-comparison-secret";
@@ -48,7 +48,9 @@ fn library() -> SourceLibrary {
              "rights": {"status": "rightsReserved"}},
             {"id": "hebrew", "kind": "translation", "of": "republic", "language": "he", "title": "המדינה",
              "rights": {"status": "openLicense", "license": "CC-BY-4.0"}},
-            {"id": "paris", "kind": "witness", "of": "republic", "title": "Paris gr. 1807"},
+            {"id": "paris", "kind": "witness", "of": "republic", "title": "Paris gr. 1807",
+             "anonymous": true, "creators": [{"name": "Ephraim", "role": "scribe", "attribution": "disputed",
+             "note": format!("{SECRET} attribution note")}]},
             {"id": "long", "kind": "edition", "of": "republic", "title": "Long", "rights": {"status": "ownWork"}},
             {"id": "unused", "kind": "edition", "of": "republic", "title": format!("{SECRET} unused")}
         ], "interpretations": [
@@ -306,4 +308,40 @@ fn a_preview_shows_what_an_unapproved_alignment_would_publish() {
         .map(|p| p.member)
         .collect();
     assert_eq!(order, (0..8).collect::<Vec<_>>());
+}
+
+#[test]
+fn versions_keep_their_makers_attribution_and_anonymity() {
+    let published = project(&fixture());
+    let versions = &published.comparisons[0].versions;
+    let version = |source: &str| {
+        versions
+            .iter()
+            .find(|v| v.kind == VersionKind::Source && v.source == source)
+            .unwrap()
+    };
+    let paris = version("paris");
+    assert!(paris.anonymous);
+    assert_eq!(paris.makers.len(), 1);
+    assert_eq!(paris.makers[0].name, "Ephraim");
+    assert_eq!(paris.makers[0].role.as_deref(), Some("scribe"));
+    assert_eq!(
+        paris.makers[0].attribution,
+        Some(AttributionCertainty::Disputed)
+    );
+    let burnet = version("burnet");
+    assert!(!burnet.anonymous);
+    assert_eq!(burnet.makers[0].attribution, None);
+    assert_eq!(
+        attributed_name(&paris.makers[0].name, paris.makers[0].attribution),
+        "Ephraim (disputed)"
+    );
+    let json = published.to_json();
+    assert!(json.contains(
+        r#""makers":[{"name":"Ephraim","role":"scribe","attribution":"disputed"}],"anonymous":true"#
+    ));
+    assert!(
+        !json.contains("attribution note"),
+        "the attribution note stays private"
+    );
 }

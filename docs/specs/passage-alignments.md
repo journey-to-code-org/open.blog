@@ -136,9 +136,10 @@ With `"comparisons": {"publish": true}` in `openblog.json`, a full build publish
 (`{"format": "openblog-comparison-projection", "formatVersion": 1, "notice", "comparisons",
 "sources"}`). While the switch is off, no build reads the alignments file.
 
-Each published place is identified by its version (the public reference, kind, language and
-makers) or its interpretation (kind and interpreters), its locators, and its version's rights
-statement. Its original wording is published exactly, with `lang` and `dir`, only when the
+Each published place is identified by its version (the public reference, kind, language,
+`makers` with each one's role and attribution certainty, and `anonymous` when the author records
+it so) or its interpretation (kind and interpreters with theirs), its locators, and its version's
+rights statement. Attribution notes stay private. Its original wording is published exactly, with `lang` and `dir`, only when the
 author states the version's or interpretation's rights as `permission`, `openLicense`,
 `publicDomain`, or `ownWork`, and only when it is at most 1,000 characters; otherwise the place
 says why its wording is not shown (`withheld`: `rights` or `length`). Normalizations are

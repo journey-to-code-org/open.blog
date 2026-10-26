@@ -1906,7 +1906,7 @@ mod tests {
               {{"id":"republic","kind":"work","title":"PUBLIC Republic","notes":"{PRIVATE_MARKER} note"}},
               {{"id":"burnet","kind":"edition","of":"republic","title":"PUBLIC Burnet","language":"grc","creators":[{{"name":"PUBLIC John Burnet","role":"editor"}}],"rights":{{"status":"publicDomain","note":"{PRIVATE_MARKER} rights note"}},"identifiers":[{{"scheme":"shelf","value":"{PRIVATE_MARKER}"}}]}},
               {{"id":"grube","kind":"translation","of":"republic","language":"en","title":"PUBLIC Grube","rights":{{"status":"rightsReserved"}}}},
-              {{"id":"hebrew","kind":"translation","of":"republic","language":"he","title":"PUBLIC המדינה","rights":{{"status":"openLicense","license":"PUBLIC CC-BY-4.0"}}}},
+              {{"id":"hebrew","kind":"translation","of":"republic","language":"he","title":"PUBLIC המדינה","anonymous":true,"creators":[{{"name":"PUBLIC Ibn Tibbon","role":"translator","attribution":"disputed","note":"{PRIVATE_MARKER} who disputes it"}}],"rights":{{"status":"openLicense","license":"PUBLIC CC-BY-4.0"}}}},
               {{"id":"unused","kind":"edition","of":"republic","title":"{PRIVATE_MARKER} unused"}}],
              "interpretations":[
               {{"id":"mine","kind":"rendering","source":"burnet","language":"en","locators":[{{"kind":"canonical","value":"514a"}}],"text":"PUBLIC rendering","interpreters":[{{"name":"PUBLIC Ada"}}],"rights":{{"status":"ownWork"}},"uncertainty":"{PRIVATE_MARKER} doubt"}}]}}"#
@@ -2058,6 +2058,18 @@ mod tests {
             )
         );
         assert!(page.contains("Rendering by PUBLIC Ada"));
+        // A version's makers read as interpreters do, with how firmly each is
+        // attributed, and an anonymous version says so.
+        assert!(
+            page.contains(
+                "<p class=\"ob-meta\">Translator: <bdi>PUBLIC Ibn Tibbon (disputed)</bdi></p>"
+            ),
+            "{page}"
+        );
+        assert!(page.contains("<p class=\"ob-meta\">Translation, language he, anonymous</p>"));
+        assert!(json.contains(
+            r#""makers":[{"name":"PUBLIC Ibn Tibbon","role":"translator","attribution":"disputed"}],"anonymous":true"#
+        ));
         assert!(page.contains("It does not say they mean the same thing"));
         let article = &page[page
             .find("<article class=\"ob-page ob-comparison\">")
