@@ -16,6 +16,7 @@ import {
   evidenceLinkPayload,
   utf8Length,
   validateEvidenceLinkDraft,
+  visualBlockSpans,
   visualSelectionAnchor,
 } from "../../web/admin/admin.js";
 
@@ -275,11 +276,34 @@ test("selections become UTF-8 byte anchors in the saved draft's terms", () => {
   assert.match(claimSelectionAnchor("x".repeat(2100), 0, 2100).error, /at most 2000/);
 });
 
-test("visual selections anchor only to words that occur once, counted overlapping", () => {
-  assert.deepEqual(visualSelectionAnchor("Oh, ha ha!", "ha ha"), { anchor: { start: 4, end: 9, text: "ha ha" } });
-  assert.match(visualSelectionAnchor("ha ha ha", "ha ha").error, /more than once/);
-  assert.match(visualSelectionAnchor("**bold** words", "bold words").error, /formatted differently/);
-  assert.match(visualSelectionAnchor("text", "  ").error, /Select the words/);
+test("visual selections anchor only to words that occur once in their own block, counted overlapping", () => {
+  const first = { index: 0, type: "paragraph" };
+  assert.deepEqual(visualSelectionAnchor("Oh, ha ha!", "ha ha", first), { anchor: { start: 4, end: 9, text: "ha ha" } });
+  assert.match(visualSelectionAnchor("ha ha ha", "ha ha", first).error, /more than once in that block/);
+  assert.match(visualSelectionAnchor("**bold** words", "bold words", first).error, /formatted differently/);
+  assert.match(visualSelectionAnchor("text", "  ", first).error, /Select the words/);
+  // A selection that is not inside one known block is refused rather than searched for.
+  assert.match(visualSelectionAnchor("Oh, ha ha!", "ha ha", { index: -1 }).error, /Switch to Markdown/);
+  assert.match(visualSelectionAnchor("Oh, ha ha!", "ha ha", { index: 3, type: "paragraph" }).error, /inside one paragraph/);
+  assert.match(visualSelectionAnchor("Oh, ha ha!", "ha ha", { index: 0, type: "heading" }).error, /inside one paragraph/);
+});
+
+test("visual selections never anchor to the same words formatted differently elsewhere", () => {
+  // The rendered "The big cave" reads as "big cave", which the Markdown writes only later as plain text.
+  const body = "The *big* cave is dark.\n\nA big cave again.\n";
+  assert.deepEqual(visualBlockSpans(body), [
+    { type: "paragraph", start: 0, end: 24 },
+    { type: "paragraph", start: 25, end: body.length },
+  ]);
+  assert.match(visualSelectionAnchor(body, "big cave", { index: 0, type: "paragraph" }).error, /formatted differently/);
+  // The same words selected in the second block anchor there, in byte terms.
+  const later = body.indexOf("big cave again");
+  assert.deepEqual(visualSelectionAnchor(body, "big cave", { index: 1, type: "paragraph" }), { anchor: { start: later, end: later + 8, text: "big cave" } });
+  // A soft line break inside a paragraph matches a space in the selection.
+  const wrapped = "# Caves\n\nThe cave\neducates.\n";
+  const at = wrapped.indexOf("cave\neducates");
+  assert.deepEqual(visualSelectionAnchor(wrapped, "cave educates", { index: 1, type: "paragraph" }), { anchor: { start: at, end: at + 13, text: "cave\neducates" } });
+  assert.deepEqual(visualSelectionAnchor(wrapped, "Caves", { index: 0, type: "heading" }), { anchor: { start: 2, end: 7, text: "Caves" } });
 });
 
 test("links are grouped by relation in file order and counted apart, never netted", () => {

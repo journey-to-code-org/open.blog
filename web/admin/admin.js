@@ -2545,26 +2545,52 @@ export function claimSelectionAnchor(body, start, end) {
   return { anchor: { start: offset, end: offset + utf8Length(text), text } };
 }
 
-/** Occurrences of `text` in `body`, counted overlapping and stopping at the second, as the server counts. */
-function claimOccurrences(body, text) {
-  const first = body.indexOf(text);
-  if (first < 0) return { count: 0, first };
-  const step = String.fromCodePoint(body.codePointAt(first)).length;
-  return { count: body.indexOf(text, first + step) < 0 ? 1 : 2, first };
+/**
+ * The source span of each block the visual editor shows, in display order (blank runs skipped),
+ * as `{ type, start, end }` offsets into `body`. The visual editor renders one element per block,
+ * so the nth `[data-visual-block]` or protected card is the nth span here.
+ */
+export function visualBlockSpans(body) {
+  const spans = [];
+  let offset = 0;
+  for (const block of parseVisualMarkdown(String(body ?? ""))) {
+    const end = offset + block.source.length;
+    if (block.type !== "space") spans.push({ type: block.type, start: offset, end });
+    offset = end;
+  }
+  return spans;
 }
 
 /**
  * The anchor for words selected in the visual editor, which shows formatted text rather than the
- * Markdown: accepted only when the words occur exactly once in the Markdown body.
+ * Markdown. `block` names the visual block holding the whole selection (`{ index, type }`, its
+ * position among the editor's blocks); the words are looked for only in that block's Markdown,
+ * spaces matching any run of whitespace, and accepted only when they occur there exactly once, so
+ * formatting elsewhere in the draft can never move the anchor to other words.
  */
-export function visualSelectionAnchor(body, selected) {
+export function visualSelectionAnchor(body, selected, block) {
   const words = String(selected ?? "").replace(/\s+/g, " ").trim();
   if (!words) return { error: "Select the words of the claim in the draft first." };
+  const markdownMode = "Switch to Markdown and select the words there.";
   const raw = String(body ?? "");
-  const { count, first } = claimOccurrences(raw, words);
-  if (count === 0) return { error: "Those words are formatted differently in the Markdown. Switch to Markdown and select them there." };
-  if (count > 1) return { error: "Those words occur more than once in the draft. Switch to Markdown and select the occurrence you mean." };
-  return claimSelectionAnchor(raw, first, first + words.length);
+  // The visual editor reads CRLF and lone CR as LF; only CRLF folds the same way on both sides.
+  if (raw.replace(/\r\n/g, "\n").includes("\r")) return { error: `The draft has line endings the visual editor cannot map back. ${markdownMode}` };
+  const text = raw.replace(/\r\n/g, "\n");
+  const index = Number.isInteger(block?.index) ? block.index : -1;
+  const span = visualBlockSpans(text)[index];
+  if (!span || (block?.type && block.type !== span.type)) return { error: `Select words inside one paragraph, heading, list or quote. ${markdownMode}` };
+  const source = text.slice(span.start, span.end);
+  const pattern = new RegExp(words.split(" ").map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s+"), "gu");
+  const found = [];
+  for (let match = pattern.exec(source); match && found.length < 2; match = pattern.exec(source)) {
+    found.push(match);
+    // Resume one character after this hit, so an overlapping occurrence is still found.
+    pattern.lastIndex = match.index + String.fromCodePoint(source.codePointAt(match.index)).length;
+  }
+  if (found.length === 0) return { error: `Those words are formatted differently in the Markdown. ${markdownMode}` };
+  if (found.length > 1) return { error: `Those words occur more than once in that block. ${markdownMode}` };
+  const start = span.start + found[0].index;
+  return claimSelectionAnchor(text, start, start + found[0][0].length);
 }
 
 export function claimAnchorStatusText(status) {
@@ -10624,7 +10650,14 @@ export class Editor {
 
   /** The words selected in the draft, as a claim anchor (`{ anchor }`) or the reason there is none (`{ error }`). */
   claimSelection() {
-    if (this.editorMode === "visual") return visualSelectionAnchor(this.ui.body.value, this.visualSelection?.toString?.() || "");
+    if (this.editorMode === "visual") {
+      const range = this.visualSelection;
+      const blockOf = (node) => (node?.nodeType === 1 ? node : node?.parentElement)?.closest?.("[data-visual-block]") || null;
+      const block = blockOf(range?.startContainer);
+      const whole = block && block === blockOf(range?.endContainer) && block.parentElement === this.ui.richBody;
+      const index = whole ? [...this.ui.richBody.children].indexOf(block) : -1;
+      return visualSelectionAnchor(this.ui.body.value, range?.toString?.() || "", { index, type: whole ? block.dataset.visualBlock : "" });
+    }
     return claimSelectionAnchor(this.ui.body.value, this.ui.body.selectionStart, this.ui.body.selectionEnd);
   }
 

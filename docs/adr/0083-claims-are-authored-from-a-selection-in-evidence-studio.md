@@ -25,9 +25,12 @@ prominently as supporting evidence, and never imply that the software judged the
   only how to start. Nothing else in Admin changes.
 - **A selection becomes an anchor the server confirms.** In Markdown mode the textarea selection
   is converted to UTF-8 byte offsets of the anchor text (CRLF folded, leading newlines dropped as
-  a save drops them, surrounding spaces trimmed). In visual mode, which shows formatted text, the
-  selected words are used only when they occur exactly once in the Markdown (overlaps counted);
-  otherwise the author is asked to select them in Markdown. The editor then asks the server to
+  a save drops them and the server's anchor text drops them, surrounding spaces trimmed). In
+  visual mode, which shows formatted text, the selection must lie inside one visual block; the
+  selected words are looked for only in that block's Markdown source (spaces matching any
+  whitespace run) and used only when they occur there exactly once (overlaps counted). Searching
+  the whole draft could anchor "big cave" from "The *big* cave" to a later plain "big cave".
+  Otherwise the author is asked to select them in Markdown. The editor then asks the server to
   check the anchor against the saved draft it was made in, and opens the claim form only on
   `verified`. Unsaved changes are never sent as the draft: the author is told to save first.
 - **The claim form** takes the statement in the author's words (prefilled with the selected
