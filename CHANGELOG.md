@@ -5,6 +5,15 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Groundwork for authors answering a reader's Third Perspective about their own section of a shared
+  reflection (nothing is shown or accepted yet): a section is named by its author and its text and
+  never by which side it is on, so a note reaches the intended author after layouts change or
+  sections move, and says honestly when that section has since changed or gone instead of pointing
+  at other words. Only the contributor who wrote the section, signed in as their own bound account,
+  may answer as its author; a contributor registry entry alone, a coordinator or a site owner
+  cannot. Answers will start pending like everything else and appear only while the reader's note
+  does. Nothing is stored or published by this change, and existing posts are unchanged.
+
 ## [0.37.0] - 2026-10-26
 
 - Approved Third Perspectives now appear on the work's canonical page, in a "Third Perspectives"

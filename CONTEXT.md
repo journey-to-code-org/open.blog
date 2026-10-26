@@ -1468,3 +1468,31 @@ else: waiting for review (never published), asked to clarify, approved and shown
 reflection, approved but not shown, not published, or withdrawn. Looked up by the receipt alone,
 so it cannot enumerate anyone else's reflection (ADR 0115).
 _Avoid_: Public queue, submission list, tracking id
+
+**Attributed section**:
+One author's section of a published shared reflection, named by that author's opaque contribution
+id, its place among that author's sections and the digest of its text, never by a side, lane or
+column. Its anchor is `ob-by-{contribution}-{nth}`, an ordinary Third Perspective section target
+(ADR 0160).
+_Avoid_: Left author, right author, column, nth turn on the page
+
+**Attributed target**:
+What a Third Perspective about an attributed section stores: the reserved anchor and the required
+digest, as one ordinary section target. Resolved by author and text against the sections as
+published now: current (perhaps moved), or stale as changed, removed or ambiguous, and never
+pointed at other words or another author (ADR 0161).
+_Avoid_: Permalink to a position, retargeting, nearest section
+
+**Author response permission**:
+The one grant, `RespondAsAuthor`, that lets a contributor answer a Third Perspective about their
+own attributed section: the contributor role on their own participant, with account, registry key
+and participant all still current, and still published under the same name. A contributor registry
+entry alone, a coordinator, a site owner, an editor and the moderation token never hold it; they
+may moderate the answer but not write it (ADR 0162).
+_Avoid_: Registry access, author role, impersonation, reply right
+
+**Author answer**:
+A response written under that grant: the author's own words as an ordinary pending `author-response`,
+named by the name the section is published under, shown only while it and the Third Perspective it
+answers are both public, and never nested or sent to the reader (ADR 0163).
+_Avoid_: Reply thread, discussion, notification
