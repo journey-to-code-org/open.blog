@@ -31,6 +31,17 @@ All notable changes to open.blog are recorded here. Releases follow
   which date is right, never changes your atlas, and never links entries because their dates are
   close. The summary also says how many datings were indexed. Builds and published pages are
   unchanged.
+- Admin Studio's Knowledge Atlas can now add and edit datings on entries and relationships: pick
+  what is dated (only what that kind of entry can have), at one point, a duration, a window, an
+  unknown date or relative to another entry, at the precision your source gives, with BCE or CE
+  chosen separately, circa and the calendar, who dates it, on what evidence or as an unsourced
+  draft, with a note and approval. Each dating reads back as you type ("not before the 420s
+  BCE"), and keeping your draft after someone else changed the atlas keeps their datings too.
+- A new Chronology view lists every dating as text: competing datings of the same thing side by
+  side and never resolved, grouped by century, decade or year, with filters for a time window,
+  aspect, competing datings and datings to check, and a line saying what is shown. Datings that
+  cannot all hold are listed to check, each linking to the dating. Each entry also shows its own
+  chronology. Nothing here is published.
 - Chronology prompts from `openblog check` are now always listed in the same order, even when two
   parties record the same author.
 
