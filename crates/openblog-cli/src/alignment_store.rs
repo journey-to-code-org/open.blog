@@ -132,7 +132,25 @@ pub fn load_for_build(
     let library = source_store::load_for_build(root, contributors)
         .map_err(|error| library_blocked(error).to_string())?
         .library;
-    let mut snapshot = against_library(root, library).map_err(|error| error.to_string())?;
+    let snapshot = against_library(root, library).map_err(|error| error.to_string())?;
+    interpretations_for_build(snapshot, contributors)
+}
+
+/// [`load_for_build`] against a library and notebook already read for a build.
+pub fn load_for_build_with(
+    root: &Path,
+    contributors: &BTreeMap<String, Contributor>,
+    library: SourceLibrary,
+    notebook: Notebook,
+) -> Result<Snapshot, String> {
+    let snapshot = read(root, library, notebook).map_err(|error| error.to_string())?;
+    interpretations_for_build(snapshot, contributors)
+}
+
+fn interpretations_for_build(
+    mut snapshot: Snapshot,
+    contributors: &BTreeMap<String, Contributor>,
+) -> Result<Snapshot, String> {
     let named: std::collections::BTreeSet<String> = snapshot
         .alignments
         .alignments

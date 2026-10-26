@@ -11,19 +11,24 @@
 //! or an approved projection holds it too. A refusal names the output, the
 //! private file, the record and the field, never the text.
 
+use std::cell::OnceCell;
 use std::collections::BTreeSet;
 use std::fs;
 use std::io::Read;
 use std::path::Path;
 
 use openblog_core::comparison_publication::{stale_approvals, ComparisonInputs};
+use openblog_core::contributor::Contributor;
 use openblog_core::model::Post;
 use openblog_core::publication_boundary::{
     BoundaryInputs, BoundaryManifest, ItemKind, PrivateText, Projection, Store, Switches,
     Unavailable,
 };
+use openblog_core::research_notes::Notebook;
+use openblog_core::source_library::SourceLibrary;
 use openblog_core::{OutputFile, Site};
 use serde_json::Value;
+use std::collections::BTreeMap;
 
 use crate::{
     alignment_store, atlas_store, claims_store, fsutil, notebook_store, research_review,
@@ -46,15 +51,28 @@ pub struct Blocked {
 }
 
 /// Attach the atlas and comparison projections to the site exactly as a
-/// build does. A projection that cannot be built is reported, not attached.
-pub fn project(root: &Path, site: &mut Site) -> Blocked {
+/// build does, over the research read once into `shared`. A projection that
+/// cannot be built is reported, not attached.
+pub fn project_with(root: &Path, site: &mut Site, shared: &Shared) -> Blocked {
     let mut blocked = Blocked::default();
     let config = site.config.clone();
-    match crate::site::published_atlas(root, &config, &mut site.warnings) {
+    let projected = match shared.atlas(root) {
+        Some(loaded) => {
+            crate::site::published_atlas_from(&config, loaded.as_ref(), &mut site.warnings)
+        }
+        None => crate::site::published_atlas(root, &config, &mut site.warnings),
+    };
+    match projected {
         Ok(atlas) => site.atlas = atlas,
         Err(error) => blocked.atlas = Some(error),
     }
-    match crate::site::published_comparisons(root, &config, &mut site.warnings) {
+    let projected = match shared.alignments(root) {
+        Some(loaded) => {
+            crate::site::published_comparisons_from(&config, loaded.as_ref(), &mut site.warnings)
+        }
+        None => crate::site::published_comparisons(root, &config, &mut site.warnings),
+    };
+    match projected {
         Ok(comparisons) => site.comparisons = comparisons,
         Err(error) => blocked.comparisons = Some(error),
     }
@@ -62,14 +80,91 @@ pub fn project(root: &Path, site: &mut Site) -> Blocked {
     blocked
 }
 
+/// The source library and notebook, and the atlas and alignments read
+/// against them, read once and shared by the projections, the manifest and
+/// the preview of one build or one Admin request, instead of once by each.
+/// Nothing is read until something asks, and nothing is written.
+pub struct Shared {
+    contributors: BTreeMap<String, Contributor>,
+    library: Option<SourceLibrary>,
+    library_error: Option<String>,
+    notebook: Option<Notebook>,
+    notebook_error: Option<String>,
+    atlas: OnceCell<Result<atlas_store::Snapshot, String>>,
+    alignments: OnceCell<Result<alignment_store::Snapshot, String>>,
+}
+
+impl Shared {
+    /// Read the library and the notebook, as a build reads them, when any
+    /// private research file is stored.
+    pub fn read(root: &Path, config: &openblog_core::SiteConfig) -> Self {
+        let mut shared = Self {
+            contributors: config.contributors.clone(),
+            library: None,
+            library_error: None,
+            notebook: None,
+            notebook_error: None,
+            atlas: OnceCell::new(),
+            alignments: OnceCell::new(),
+        };
+        let any_research = Store::ALL
+            .iter()
+            .any(|&store| store != Store::Acknowledgements && stored(root, store));
+        if !any_research {
+            return shared;
+        }
+        match source_store::load_for_build(root, &shared.contributors) {
+            Ok(snapshot) => shared.library = Some(snapshot.library),
+            Err(error) => {
+                shared.library_error = Some(error.to_string());
+                return shared;
+            }
+        }
+        if let Some(library) = shared.library.clone() {
+            match notebook_store::read(root, library) {
+                Ok(snapshot) => shared.notebook = Some(snapshot.notebook),
+                Err(error) => shared.notebook_error = Some(error.to_string()),
+            }
+        }
+        shared
+    }
+
+    fn both(&self) -> Option<(&SourceLibrary, &Notebook)> {
+        Some((self.library.as_ref()?, self.notebook.as_ref()?))
+    }
+
+    /// The atlas, read once, or `None` when the library or notebook it is
+    /// read against could not be, so the caller reads and reports it itself.
+    fn atlas(&self, root: &Path) -> Option<&Result<atlas_store::Snapshot, String>> {
+        let (library, notebook) = self.both()?;
+        Some(self.atlas.get_or_init(|| {
+            atlas_store::from_parts(root, library.clone(), notebook.clone())
+                .map_err(|error| error.to_string())
+        }))
+    }
+
+    /// The alignments, read once as a build reads them.
+    fn alignments(&self, root: &Path) -> Option<&Result<alignment_store::Snapshot, String>> {
+        let (library, notebook) = self.both()?;
+        Some(self.alignments.get_or_init(|| {
+            alignment_store::load_for_build_with(
+                root,
+                &self.contributors,
+                library.clone(),
+                notebook.clone(),
+            )
+        }))
+    }
+}
+
 /// The private research files, read on their own so one that cannot be read
 /// is named and the others still explain what they withhold.
-pub struct Stores {
-    library: Option<openblog_core::source_library::SourceLibrary>,
-    notebook: Option<openblog_core::research_notes::Notebook>,
-    atlas: Option<openblog_core::knowledge_atlas::Atlas>,
+pub struct Stores<'a> {
+    library: Option<&'a SourceLibrary>,
+    notebook: Option<&'a Notebook>,
+    atlas: Option<&'a openblog_core::knowledge_atlas::Atlas>,
     claims: Option<openblog_core::claims::ClaimSet>,
-    alignments: Option<alignment_store::Snapshot>,
+    alignments: Option<&'a alignment_store::Snapshot>,
     acknowledgements: Option<usize>,
     unavailable: Vec<Unavailable>,
 }
@@ -82,10 +177,10 @@ fn first_line(text: &str) -> String {
     text.lines().next().unwrap_or_default().to_string()
 }
 
-impl Stores {
-    /// Read every private research file that is stored. Nothing is written.
-    pub fn read(root: &Path, config: &openblog_core::SiteConfig) -> Self {
-        let contributors = &config.contributors;
+impl<'a> Stores<'a> {
+    /// Every private research file that is stored, over the research read
+    /// once into `shared`. Nothing is written.
+    pub fn read(root: &Path, shared: &'a Shared) -> Self {
         let mut unavailable = Vec::new();
         let mut fail = |store: Store, message: String| {
             unavailable.push(Unavailable {
@@ -94,43 +189,42 @@ impl Stores {
                 message: first_line(&message),
             });
         };
-        let any_research = Store::ALL
-            .iter()
-            .any(|&store| store != Store::Acknowledgements && stored(root, store));
-        let mut library = None;
-        if any_research {
-            match source_store::load_for_build(root, contributors) {
-                Ok(snapshot) => library = Some(snapshot.library),
-                Err(error) => fail(Store::SourceLibrary, error.to_string()),
-            }
+        if let Some(error) = &shared.library_error {
+            fail(Store::SourceLibrary, error.clone());
         }
+        let library = shared.library.as_ref();
         let mut notebook = None;
-        if let Some(library) = library.clone().filter(|_| stored(root, Store::Notebook)) {
-            match notebook_store::read(root, library) {
-                Ok(snapshot) => notebook = Some(snapshot.notebook),
-                Err(error) => fail(Store::Notebook, error.to_string()),
+        if library.is_some() && stored(root, Store::Notebook) {
+            match (&shared.notebook, &shared.notebook_error) {
+                (Some(read), _) => notebook = Some(read),
+                (None, Some(error)) => fail(Store::Notebook, error.clone()),
+                (None, None) => {}
             }
         }
         let ready = library.is_some() && (notebook.is_some() || !stored(root, Store::Notebook));
         let mut atlas = None;
         if ready && stored(root, Store::Atlas) {
-            match atlas_store::load_for_build(root, contributors) {
-                Ok(snapshot) => atlas = Some(snapshot.atlas),
-                Err(error) => fail(Store::Atlas, error.to_string()),
+            match shared.atlas(root) {
+                Some(Ok(snapshot)) => atlas = Some(&snapshot.atlas),
+                Some(Err(error)) => fail(Store::Atlas, error.clone()),
+                None => {}
             }
         }
         let mut claims = None;
         if ready && stored(root, Store::Claims) {
-            match claims_store::load(root, contributors) {
-                Ok(snapshot) => claims = Some(snapshot.claims),
-                Err(error) => fail(Store::Claims, error.to_string()),
+            if let Some((library, notebook)) = shared.both() {
+                match claims_store::from_parts(root, library.clone(), notebook.clone()) {
+                    Ok(snapshot) => claims = Some(snapshot.claims),
+                    Err(error) => fail(Store::Claims, error.to_string()),
+                }
             }
         }
         let mut alignments = None;
         if ready && stored(root, Store::Alignments) {
-            match alignment_store::load_for_build(root, contributors) {
-                Ok(snapshot) => alignments = Some(snapshot),
-                Err(error) => fail(Store::Alignments, error),
+            match shared.alignments(root) {
+                Some(Ok(snapshot)) => alignments = Some(snapshot),
+                Some(Err(error)) => fail(Store::Alignments, error.clone()),
+                None => {}
             }
         }
         let mut acknowledgements = None;
@@ -156,12 +250,12 @@ impl Stores {
 /// everything else is withheld: for the whole site, or for one post.
 pub fn manifest(
     site: &Site,
-    stores: &Stores,
+    stores: &Stores<'_>,
     blocked: &Blocked,
     post: Option<&Post>,
 ) -> BoundaryManifest {
     let contributors = &site.config.contributors;
-    let stale = stores.alignments.as_ref().map(|snapshot| {
+    let stale = stores.alignments.map(|snapshot| {
         stale_approvals(
             &snapshot.alignments,
             ComparisonInputs {
@@ -179,14 +273,11 @@ pub fn manifest(
         public_comparisons: site.comparisons.as_ref(),
         comparisons_blocked: blocked.comparisons.as_deref(),
         claims_blocked: blocked.claims.as_deref(),
-        library: stores.library.as_ref(),
-        notebook: stores.notebook.as_ref(),
-        atlas: stores.atlas.as_ref(),
+        library: stores.library,
+        notebook: stores.notebook,
+        atlas: stores.atlas,
         claims: stores.claims.as_ref(),
-        alignments: stores
-            .alignments
-            .as_ref()
-            .map(|snapshot| &snapshot.alignments),
+        alignments: stores.alignments.map(|snapshot| &snapshot.alignments),
         stale_comparisons: stale.as_ref(),
         acknowledgements: stores.acknowledgements,
         unavailable: &stores.unavailable,
@@ -200,9 +291,9 @@ pub fn manifest(
 /// The site-wide manifest a build of the saved files would publish, for the
 /// Admin preview: the same load, projections and manifest as `generate_site`,
 /// with a projection that cannot be built reported instead of refusing.
-pub fn site_preview(root: &Path, site: &mut Site) -> BoundaryManifest {
-    let blocked = project(root, site);
-    let stores = Stores::read(root, &site.config);
+pub fn site_preview(root: &Path, site: &mut Site, shared: &Shared) -> BoundaryManifest {
+    let blocked = project_with(root, site, shared);
+    let stores = Stores::read(root, shared);
     manifest(site, &stores, &blocked, None)
 }
 
@@ -315,6 +406,19 @@ fn guard(root: &Path, site: &Site) -> PrivateText {
                 allow_reference(&mut guard, reference);
             }
         }
+    }
+    // The site's own addresses, which every page, feed and sitemap repeats:
+    // a note that merely pastes a link to a public page is not a leak.
+    let base = config.url.trim_end_matches('/');
+    for url in site
+        .posts
+        .iter()
+        .map(|post| &post.url)
+        .chain(site.pages.iter().map(|page| &page.url))
+        .chain(site.tags.iter().map(|tag| &tag.url))
+        .chain(site.series.iter().map(|series| &series.url))
+    {
+        guard.allow_text(&format!("{base}{url}"));
     }
     for page in &site.pages {
         guard.allow_text(&page.title);
@@ -565,8 +669,9 @@ mod tests {
 
     fn checked(root: &Path, files: &[OutputFile]) -> Result<(), String> {
         let (mut site, _) = crate::site::load_site(root, false, None).unwrap();
-        let blocked = project(root, &mut site);
-        let stores = Stores::read(root, &site.config);
+        let shared = Shared::read(root, &site.config);
+        let blocked = project_with(root, &mut site, &shared);
+        let stores = Stores::read(root, &shared);
         let manifest = manifest(&site, &stores, &blocked, None);
         check_output(root, &site, &manifest, files)
     }
@@ -795,6 +900,29 @@ mod tests {
     }
 
     #[test]
+    fn a_note_that_only_pastes_a_link_to_a_public_page_is_not_a_leak() {
+        let root = research_site("links");
+        write_post(&root, "linked-post", "", "A post.");
+        let (site, _) = crate::site::load_site(&root, false, None).unwrap();
+        let link = format!(
+            "{}{}",
+            site.config.url.trim_end_matches('/'),
+            site.posts[0].url
+        );
+        let path = root.join(".openblog/private/research/notebook.json");
+        let mut notebook: Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        notebook["notes"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({"id": "n3", "kind": "observation", "text": link}));
+        fs::write(&path, notebook.to_string()).unwrap();
+        let built = build_into(&root, &root.join("out"));
+        assert!(built.is_ok(), "{link}: {:?}", built.err());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn a_draft_or_unrelated_content_file_does_not_make_private_text_public() {
         let root = research_site("draft");
         // A draft quotes the note; the build does not publish the draft, so
@@ -868,7 +996,8 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         crate::scaffold::init(&root, Some("Guard"), false).unwrap();
         let (site, _) = crate::site::load_site(&root, false, None).unwrap();
-        let stores = Stores::read(&root, &site.config);
+        let shared = Shared::read(&root, &site.config);
+        let stores = Stores::read(&root, &shared);
         assert!(stores.library.is_none() && stores.unavailable.is_empty());
         let manifest = manifest(&site, &stores, &Blocked::default(), None);
         assert!(manifest.never.is_empty());

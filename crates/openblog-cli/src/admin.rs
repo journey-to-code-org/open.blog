@@ -1354,9 +1354,7 @@ fn draft_research_rights(
 /// Nothing is written and nothing here is public.
 fn draft_research(state: &AppState) -> Response {
     use openblog_core::atlas_publication::{entry_url, ATLAS_URL};
-    use openblog_core::comparison_publication::{
-        comparison_url, ComparisonInputs, PublicComparison, COMPARISONS_URL,
-    };
+    use openblog_core::comparison_publication::{ComparisonInputs, COMPARISONS_URL};
     let contributors = source_contributors(state);
     let config = site::load_config(&state.root).ok();
     let atlas_published = config
@@ -1533,26 +1531,36 @@ fn draft_research(state: &AppState) -> Response {
                     notebook: &snapshot.notebook,
                     contributors: &contributors,
                 };
-                let stale = openblog_core::comparison_publication::stale_approvals(
-                    &snapshot.alignments,
-                    inputs,
-                );
+                // The projection a build would write, once: an item is
+                // published exactly when that projection holds it. A set the
+                // build would refuse publishes nothing.
+                let projection = comparisons_published
+                    .then(|| {
+                        openblog_core::comparison_publication::PublicComparisons::project(
+                            &snapshot.alignments,
+                            inputs,
+                        )
+                        .ok()
+                    })
+                    .flatten();
                 let items: Vec<Json> = snapshot
                     .alignments
                     .alignments
                     .iter()
                     .map(|alignment| {
                         let approved = alignment.is_approved();
-                        // Published exactly when the build's projection would publish it.
-                        let published = comparisons_published
-                            && approved
-                            && !stale.contains_key(&alignment.id)
-                            && PublicComparison::project(alignment, inputs).is_ok();
+                        let url = projection.as_ref().and_then(|public| {
+                            public
+                                .comparisons
+                                .iter()
+                                .find(|comparison| comparison.id == alignment.id)
+                                .map(|comparison| comparison.url.clone())
+                        });
                         json!({
                             "id": alignment.id,
                             "label": alignment.label,
                             "approved": approved,
-                            "url": published.then(|| comparison_url(&alignment.id)),
+                            "url": url,
                             "interpretations": alignment
                                 .members
                                 .iter()
@@ -13180,7 +13188,9 @@ fn acknowledge_portability(state: &AppState, req: &Request) -> Response {
 /// loads it: unsaved fields and body, credits as edited, drafts left out
 /// except this one. The build lock is held while it lives.
 struct DraftSite<'s> {
-    _guard: MutexGuard<'s, BuildStatus>,
+    /// Held until [`DraftSite::release`], so a caller can drop the lock as
+    /// soon as it has read the files it needs.
+    guard: Option<MutexGuard<'s, BuildStatus>>,
     site: openblog_core::Site,
     themes: openblog_core::theme::ThemeSet,
     rel: String,
@@ -13190,6 +13200,13 @@ struct DraftSite<'s> {
     /// The line of the composed source where the editor's first body line is.
     first_body_line: usize,
     portable_config: openblog_core::config::SiteConfig,
+}
+
+impl DraftSite<'_> {
+    /// Let go of the build lock: the files are read, the rest is computation.
+    fn release(&mut self) {
+        self.guard = None;
+    }
 }
 
 fn load_draft_site<'s>(state: &'s AppState, body: &Json) -> Result<DraftSite<'s>, Response> {
@@ -13292,7 +13309,7 @@ fn load_draft_site<'s>(state: &'s AppState, body: &Json) -> Result<DraftSite<'s>
         }
     };
     Ok(DraftSite {
-        _guard: guard,
+        guard: Some(guard),
         site: preview_site,
         themes,
         rel,
@@ -13400,8 +13417,13 @@ fn review_before_publication(state: &AppState, req: &Request) -> Response {
 /// everything else is withheld (#63, ADR 0137): the same load, projections
 /// and manifest a build of the saved files uses. Read-only and Admin-only.
 fn boundary_site(state: &AppState) -> Response {
-    let _guard = lock(&state.build);
-    let (mut site, _) = match site::load_site(&state.root, false, Some(clock::now())) {
+    // The build lock covers the content snapshot only. The research stores
+    // have their own atomic-replace protocol, so reading them, projecting
+    // and building the manifest happen without holding it.
+    let guard = lock(&state.build);
+    let loaded = site::load_site(&state.root, state.include_drafts, Some(clock::now()));
+    drop(guard);
+    let (mut site, _) = match loaded {
         Ok(loaded) => loaded,
         Err(error) => {
             return Response::json(
@@ -13418,7 +13440,8 @@ fn boundary_site(state: &AppState) -> Response {
     let refused =
         crate::private_guard::refuse_private_research_in_public_inputs(&state.root, &site.config)
             .err();
-    let manifest = crate::boundary::site_preview(&state.root, &mut site);
+    let shared = crate::boundary::Shared::read(&state.root, &site.config);
+    let manifest = crate::boundary::site_preview(&state.root, &mut site, &shared);
     let mut view = serde_json::to_value(&manifest).unwrap_or_else(|_| json!({}));
     view["refused"] = json!(refused);
     Response::json(200, &view)
@@ -13446,8 +13469,10 @@ fn boundary_post(state: &AppState, req: &Request) -> Response {
         Ok(draft) => draft,
         Err(response) => return response,
     };
-    let blocked = crate::boundary::project(&state.root, &mut draft.site);
-    let stores = crate::boundary::Stores::read(&state.root, &draft.site.config);
+    draft.release();
+    let shared = crate::boundary::Shared::read(&state.root, &draft.site.config);
+    let blocked = crate::boundary::project_with(&state.root, &mut draft.site, &shared);
+    let stores = crate::boundary::Stores::read(&state.root, &shared);
     let Some(post) = draft
         .site
         .posts
@@ -15685,6 +15710,74 @@ mod tests {
             .filter(|item| item["kind"] == kind)
             .map(|item| item["id"].as_str().unwrap().to_string())
             .collect()
+    }
+
+    #[test]
+    fn the_site_preview_reads_drafts_exactly_when_the_server_builds_them() {
+        let draft = "---\ntitle: Drafty\ndate: 2026-10-02\ndraft: true\ncitations: notes\n---\n\nSee [@bloom, page 3].\n";
+        let cited = |f: &Fixture| {
+            let session = login_ok(f);
+            let response = handle(
+                &f.state,
+                &authed(req("GET", "/admin/api/research/boundary"), &session, false),
+            );
+            assert_eq!(
+                response.status,
+                200,
+                "{}",
+                String::from_utf8_lossy(&response.body)
+            );
+            published_ids(&body_json(&response), "citations", "source")
+        };
+        let mut f = boundary_fixture("boundary-drafts");
+        fs::write(f.dir.join("content/posts/drafty.md"), draft).unwrap();
+        assert_eq!(cited(&f), ["slings"], "a draft is not built or previewed");
+        f.state = Arc::new(AppState::new(f.dir.clone(), None, true, true));
+        assert_eq!(
+            cited(&f),
+            ["bloom", "slings"],
+            "serving drafts, the preview shows what that build publishes"
+        );
+    }
+
+    #[test]
+    fn the_draft_panel_lists_a_comparison_as_published_only_when_the_projection_holds_it() {
+        let f = boundary_fixture("boundary-draft-panel");
+        let session = login_ok(&f);
+        let response = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/research/draft"), &session, false),
+        );
+        assert_eq!(response.status, 200);
+        let panel = body_json(&response);
+        let urls: std::collections::BTreeMap<String, Json> = panel["comparisons"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| {
+                (
+                    item["id"].as_str().unwrap().to_string(),
+                    item["url"].clone(),
+                )
+            })
+            .collect();
+        assert_eq!(urls["cave-places"], json!("/comparisons/cave-places/"));
+        assert!(urls["private-places"].is_null(), "not approved");
+        assert!(
+            urls["stale-places"].is_null(),
+            "its approval is stale, so the projection does not hold it"
+        );
+        let report = production(&f.dir);
+        let published = published_ids(
+            &serde_json::to_value(&report.boundary).unwrap(),
+            "comparisons",
+            "comparison",
+        );
+        assert_eq!(
+            published,
+            ["cave-places"],
+            "the build agrees with the panel"
+        );
     }
 
     #[test]

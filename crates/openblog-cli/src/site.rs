@@ -628,13 +628,27 @@ pub fn published_atlas(
     if !config.knowledge_atlas.publish {
         return Ok(None);
     }
+    let loaded = crate::atlas_store::load_for_build(root, &config.contributors)
+        .map_err(|error| error.to_string());
+    published_atlas_from(config, loaded.as_ref(), warnings)
+}
+
+/// [`published_atlas`] over an atlas snapshot already read (or the reason it
+/// could not be), so one read serves the build, the preview and the guard.
+pub fn published_atlas_from(
+    config: &SiteConfig,
+    loaded: Result<&crate::atlas_store::Snapshot, &String>,
+    warnings: &mut Vec<String>,
+) -> Result<Option<openblog_core::atlas_publication::PublicAtlas>, String> {
+    if !config.knowledge_atlas.publish {
+        return Ok(None);
+    }
     let unpublishable = |error: String| {
         format!(
             "the Knowledge Atlas cannot be published ({error}); run `openblog check` and repair it, or set `knowledgeAtlas.publish` to false. Nothing was written."
         )
     };
-    let snapshot = crate::atlas_store::load_for_build(root, &config.contributors)
-        .map_err(|error| unpublishable(error.to_string()))?;
+    let snapshot = loaded.map_err(|error| unpublishable(error.clone()))?;
     if !snapshot.stored {
         warnings.push(unstored_atlas_warning());
     }
@@ -717,13 +731,26 @@ pub fn published_comparisons(
     if !config.comparisons.publish {
         return Ok(None);
     }
+    let loaded = crate::alignment_store::load_for_build(root, &config.contributors);
+    published_comparisons_from(config, loaded.as_ref(), warnings)
+}
+
+/// [`published_comparisons`] over an alignments snapshot already read (or
+/// the reason it could not be).
+pub fn published_comparisons_from(
+    config: &SiteConfig,
+    loaded: Result<&crate::alignment_store::Snapshot, &String>,
+    warnings: &mut Vec<String>,
+) -> Result<Option<openblog_core::comparison_publication::PublicComparisons>, String> {
+    if !config.comparisons.publish {
+        return Ok(None);
+    }
     let unpublishable = |error: String| {
         format!(
             "passage comparisons cannot be published ({error}); run `openblog check` and repair it, or set `comparisons.publish` to false. Nothing was written."
         )
     };
-    let snapshot = crate::alignment_store::load_for_build(root, &config.contributors)
-        .map_err(unpublishable)?;
+    let snapshot = loaded.map_err(|error| unpublishable(error.clone()))?;
     if !snapshot.stored {
         warnings.push(unstored_comparisons_warning());
     }
@@ -777,7 +804,8 @@ pub fn generate_site_with_boundary(
     // The research projections, attached exactly as the Admin preview of the
     // boundary attaches them (ADR 0137); here a projection that cannot be
     // built refuses the output.
-    let blocked = crate::boundary::project(root, site);
+    let shared = crate::boundary::Shared::read(root, &site.config);
+    let blocked = crate::boundary::project_with(root, site, &shared);
     if let Some(error) = blocked.atlas.as_ref().or(blocked.comparisons.as_ref()) {
         return Err(error.clone());
     }
@@ -794,7 +822,7 @@ pub fn generate_site_with_boundary(
     }
     // What the projections publish and withhold; a stale approval or an
     // unsafe web address withholds only what it affects, and is named.
-    let stores = crate::boundary::Stores::read(root, &site.config);
+    let stores = crate::boundary::Stores::read(root, &shared);
     let manifest = crate::boundary::manifest(site, &stores, &blocked, None);
     site.warnings.extend(manifest.build_warnings());
     // Required destinations (including full-content feeds) must succeed before

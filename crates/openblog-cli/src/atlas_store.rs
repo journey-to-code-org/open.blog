@@ -128,6 +128,15 @@ pub fn load_for_build(
     against_library(root, library)
 }
 
+/// The atlas against a library and notebook already read for a build.
+pub fn from_parts(
+    root: &Path,
+    library: SourceLibrary,
+    notebook: Notebook,
+) -> Result<Snapshot, StoreError> {
+    read(root, library, notebook)
+}
+
 fn against_library(root: &Path, library: SourceLibrary) -> Result<Snapshot, StoreError> {
     let notebook = notebook_store::read(root, library.clone())
         .map_err(notebook_blocked)?
