@@ -175,6 +175,7 @@ impl ReaderReferences {
     pub fn check_page(&self, html: &str) -> Result<(), String> {
         let elements = element_ids(html);
         let tags = |id: &str| elements.get(id).map_or(&[][..], Vec::as_slice);
+        let fragments: BTreeSet<&str> = attribute_after(html, " href=\"#").into_iter().collect();
         for citation in &self.citations {
             for (id, what) in [
                 (&citation.marker, "a citation marker"),
@@ -193,7 +194,7 @@ impl ReaderReferences {
                     citation.marker, citation.note
                 ));
             }
-            if !html.contains(&format!(" href=\"#{}\"", citation.marker)) {
+            if !fragments.contains(citation.marker.as_str()) {
                 return Err(format!(
                     "nothing links back to the marker `{}`",
                     citation.marker
