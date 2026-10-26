@@ -23,6 +23,8 @@ import {
   textDirection,
   validateAlignmentDraft,
   versionMakerText,
+  canonicalAdminHash,
+  researchHref,
 } from "../../web/admin/admin.js";
 
 // The comparison workspace (A6.3, ADR 0090 and ADR 0091): aligned places across versions side by
@@ -996,11 +998,11 @@ test("an empty workspace explains what an alignment is", withDom(async () => {
 
 // ---------------------------------------------------------------- wiring and styles
 
-test("the workspace is reachable from the research tools, the palette and the router", () => {
-  assert.match(admin, /href: "#\/compare" \}, "Compare"\)/);
-  assert.match(admin, /head === "compare"\) await this\.showCompare\(safeDecodeURIComponent\(tail\)\)/);
+test("the workspace is reachable from the research workspace, the palette and the router", () => {
+  assert.equal(researchHref("compare", "opening"), "#/research/compare/opening");
+  assert.equal(canonicalAdminHash("#/compare/opening"), "#/research/compare/opening", "the earlier address redirects");
+  assert.match(admin, /panel === "compare"\) await this\.showCompare\(id\)/);
   assert.match(admin, /label: "Compare versions", category: "Research"/);
-  assert.match(admin, /\["sources", "research", "atlas", "compare"\]\.includes\(this\.activeRoute\)/);
 });
 
 test("the comparison never parses stored text as markup and stores nothing in the browser", () => {

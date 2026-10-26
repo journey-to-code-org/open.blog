@@ -31,7 +31,7 @@ test("palette reports filtered results and supports keyboard selection", () => {
 });
 
 test("workspace navigation protects unsaved editor changes", () => {
-  assert.match(admin, /shouldGuardNavigation\(this\.dirty, this\.currentHash, nextHash\)/);
-  assert.match(admin, /history\.replaceState\(null, "", this\.currentHash\)/);
+  assert.match(admin, /planWorkspaceNavigation\(\{/);
+  assert.match(admin, /if \(plan\.confirm\.length && !\(await this\.confirmLeave\(plan\.confirm\)\)\) \{\n\s*history\.replaceState\(null, "", this\.currentHash\);/);
   assert.match(admin, /this\.currentHash = location\.hash/);
 });

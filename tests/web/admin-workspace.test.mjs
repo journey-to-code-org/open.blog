@@ -10,7 +10,7 @@ test("admin shell exposes a grouped publishing workspace", () => {
   assert.match(admin, /oba-tool-group/);
   assert.match(admin, /"aria-label": "Admin tools"/);
   assert.match(admin, /oba-context-bar/);
-  assert.match(admin, /h\("h1", \{\}, activeInfo\.title\)/);
+  assert.match(admin, /h\("h1", \{ id: "oba-page-heading", tabindex: "-1" \}, activeInfo\.title\)/);
 });
 
 test("posts edit an optional subtitle directly under the title", () => {

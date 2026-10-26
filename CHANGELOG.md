@@ -5,6 +5,20 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Admin Studio gathers Sources, the research notebook, the Knowledge Atlas, Compare and claims
+  into one **Research workspace** under `#/research/`, with its own navigation that labels every
+  research panel as private research and the draft as publishable, in words that screen readers
+  announce. Its first panel, Workflow, leads from a first source to a cited draft and says how far
+  your research has come. Switching between the draft and research panels now keeps unsaved
+  changes in each, and returns to them exactly as you left them; leaving the workspace, opening
+  another document, signing out or closing the page still asks first, naming where the unsaved
+  work is. Notebook, atlas and comparison forms are now protected like the editor. The earlier
+  `#/sources`, `#/research`, `#/atlas` and `#/compare` addresses redirect to the same panels.
+  Guided and Advanced show the workspace in the main navigation, Simple reaches it from Advanced
+  tools and `Ctrl+K`, and Custom lets you choose. Every Admin page gains a skip link, focus moves
+  to the new page's heading after navigation, and the Admin header no longer overflows a 320 pixel
+  screen.
+
 ## [0.34.0] - 2026-10-26
 
 - The private source library can now record more about each version of a work: which earlier

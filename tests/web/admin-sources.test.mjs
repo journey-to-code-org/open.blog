@@ -20,6 +20,8 @@ import {
   sourceRelationOptions,
   sourceTargetVolumes,
   validateSourceDraft,
+  canonicalAdminHash,
+  researchHref,
 } from "../../web/admin/admin.js";
 
 const admin = readFileSync(new URL("../../web/admin/admin.js", import.meta.url), "utf8");
@@ -551,8 +553,9 @@ test("a stale edit shows a conflict, keeps the draft, and only an explicit choic
 const sourceView = () => admin.slice(admin.indexOf("async showSources()"), admin.indexOf("// ---- analytics"));
 
 test("the sources route is reachable from the research tools, the palette, and the router", () => {
-  assert.match(admin, /href: "#\/sources"/);
-  assert.match(admin, /head === "sources"\) await this\.showSources\(\)/);
+  assert.equal(researchHref("sources"), "#/research/sources");
+  assert.equal(canonicalAdminHash("#/sources"), "#/research/sources", "the earlier address redirects");
+  assert.match(admin, /panel === "sources"\) await this\.showSources\(\)/);
   assert.match(admin, /label: "Sources", category: "Research"/);
   assert.match(sourceView(), /"sources\/archive"/);
   assert.doesNotMatch(sourceView(), /innerHTML|insertAdjacentHTML|outerHTML/, "source text is never parsed as markup");

@@ -15,6 +15,7 @@ export const ADMIN_OPTIONAL_MODULES = Object.freeze([
   "optimize",
   "accessibility",
   "evidence",
+  "research",
   "assistant",
   "analytics",
   "contributors",
@@ -50,7 +51,7 @@ export function visibleAdminModules(preferences, available = ADMIN_OPTIONAL_MODU
   const normalized = normalizeAdminPreferences(preferences);
   const candidates = normalized.moduleOrder.filter((module) => available.includes(module));
   if (normalized.preset === "simple") return [];
-  if (normalized.preset === "guided") return candidates.filter((module) => ["accessibility", "evidence", "assistant"].includes(module));
+  if (normalized.preset === "guided") return candidates.filter((module) => ["accessibility", "evidence", "research", "assistant"].includes(module));
   if (normalized.preset === "custom") return candidates.filter((module) => !normalized.hiddenModules.includes(module));
   return candidates;
 }
@@ -65,6 +66,7 @@ export const ADMIN_MODULE_LABELS = Object.freeze({
   optimize: "Optimize",
   accessibility: "Accessibility",
   evidence: "Evidence Studio",
+  research: "Research workspace",
   assistant: "Assistant",
   analytics: "Analytics",
   contributors: "Contributors",
@@ -78,6 +80,7 @@ export const ADMIN_MODULE_DETAILS = Object.freeze({
   optimize: "Search and sharing readiness checks",
   accessibility: "Findings and repairs for readers using assistive technology",
   evidence: "Research structure, identifiers, and references",
+  research: "Sources, notebook, atlas, and comparisons beside your draft",
   assistant: "Optional AI review, knowledge checks, and runnable-code proposals",
   analytics: "Reader trends without individual tracking",
   contributors: "Bylines, identities, and contribution credits",
@@ -86,7 +89,7 @@ export const ADMIN_MODULE_DETAILS = Object.freeze({
 
 const ADMIN_TOOL_GOALS = Object.freeze([
   { goal: "assist", label: "Get writing help", modules: ["assistant"] },
-  { goal: "review", label: "Check quality and research", modules: ["accessibility", "evidence", "optimize", "field"] },
+  { goal: "review", label: "Check quality and research", modules: ["accessibility", "evidence", "research", "optimize", "field"] },
   { goal: "distribute", label: "Share and distribute", modules: ["social", "release", "public-site"] },
   { goal: "collaborate", label: "Collaborate and understand readers", modules: ["contributors", "analytics"] },
 ]);
@@ -110,6 +113,123 @@ export function editorPaneLayout(preferences, panes) {
     primary: [...ADMIN_ESSENTIAL_PANES.filter((pane) => panes.includes(pane)), ...visible],
     more: normalized.moduleOrder.filter((pane) => optional.includes(pane) && !visible.includes(pane)),
   };
+}
+
+// ---------------------------------------------------------------- research workspace
+
+/**
+ * The research workspace's panels (ADR 0132), in the order research travels: from a source to
+ * a draft. Each research panel is private author research. The draft is the only publishable
+ * panel, and research reaches readers only through what a post cites or what the author
+ * approves for it. `legacy` is the earlier top-level route that now redirects here.
+ */
+export const RESEARCH_PANELS = Object.freeze([
+  Object.freeze({ id: "overview", label: "Workflow", title: "Research workspace", detail: "Go from a source to a cited draft, and see where each part of your research stands." }),
+  Object.freeze({ id: "sources", label: "Sources", title: "Sources", legacy: "sources", detail: "Keep private research sources, editions, translations, and references in one library." }),
+  Object.freeze({ id: "notebook", label: "Notebook", title: "Research notebook", legacy: "research", detail: "Capture quoted passages and your own notes about them, privately, tied to your sources." }),
+  Object.freeze({ id: "atlas", label: "Atlas", title: "Knowledge Atlas", legacy: "atlas", takesId: true, detail: "Relate people, works, concepts, movements and events privately, with who asserts each link and on what evidence." }),
+  Object.freeze({ id: "compare", label: "Compare", title: "Compare versions", legacy: "compare", takesId: true, detail: "Read aligned passages across editions, translations, witnesses and interpretations, side by side or in one column." }),
+]);
+
+/** What a workspace panel's label says about who can see it, in words as well as in data. */
+export const WORKSPACE_VISIBILITY = Object.freeze({
+  private: Object.freeze({ label: "Private research", detail: "Private research: nothing here is public unless you approve it for a post." }),
+  publishable: Object.freeze({ label: "Publishable", detail: "Publishable: readers see this document once you publish it." }),
+});
+
+/** Editor views an address may open with `?pane=`; anything else is ignored. */
+const EDITOR_PANES = Object.freeze(["write", "preview", "social", "release", "field", "optimize", "settings", "accessibility", "evidence", "assistant"]);
+
+const researchPanel = (id) => RESEARCH_PANELS.find((panel) => panel.id === id) || null;
+
+/** The address of a research panel, and of one item in it when the panel opens items by id. */
+export function researchHref(panel, id = "") {
+  const known = researchPanel(panel) || RESEARCH_PANELS[0];
+  return `#/research/${known.id}${id && known.takesId ? `/${encodeURIComponent(id)}` : ""}`;
+}
+
+/** Shell routes that are research panels, by the name each view gives the shell. */
+const RESEARCH_SHELL_ROUTES = Object.freeze({ "research-overview": "overview", sources: "sources", research: "notebook", atlas: "atlas", compare: "compare" });
+
+/** The research panel a shell route shows, or null. */
+export function researchPanelForRoute(route) {
+  return RESEARCH_SHELL_ROUTES[route] || null;
+}
+
+/**
+ * The canonical address for a requested one. Research routes from before the workspace
+ * (`#/sources`, `#/research`, `#/atlas/<id>`, `#/compare/<id>`) redirect into it with their
+ * item and query kept, and an unknown research panel opens the workflow. Every other address
+ * is returned unchanged.
+ */
+export function canonicalAdminHash(hash) {
+  const value = String(hash || "");
+  const [route, ...queryParts] = value.replace(/^#\/?/, "").split("?");
+  const query = queryParts.length ? `?${queryParts.join("?")}` : "";
+  const [head, ...rest] = route.split("/");
+  const tail = rest.join("/");
+  if (head === "research") {
+    // The bare route was the notebook's, so it keeps meaning the notebook.
+    if (!tail) return `#/research/notebook${query}`;
+    const [panelId, ...item] = tail.split("/");
+    const panel = researchPanel(panelId);
+    if (!panel) return "#/research/overview";
+    return `#/research/${panel.id}${panel.takesId && item.join("/") ? `/${item.join("/")}` : ""}${query}`;
+  }
+  const legacy = RESEARCH_PANELS.find((panel) => panel.legacy && panel.legacy === head);
+  if (legacy) return `#/research/${legacy.id}${legacy.takesId && tail ? `/${tail}` : ""}${query}`;
+  return value;
+}
+
+/** An editor address without its query, which names a view of the draft rather than another draft. */
+export function draftRoute(hash) {
+  return String(hash || "").split("?")[0];
+}
+
+/**
+ * The workspace panel an address opens: a research panel's id, `draft` for a document in the
+ * editor, or null outside the research workspace.
+ */
+export function workspacePanelKey(hash) {
+  const { head, tail } = parseAdminHash(canonicalAdminHash(hash));
+  if (head === "research") return tail.split("/")[0] || null;
+  if ((head === "edit" && tail) || (head === "new" && ["posts", "pages", "series"].includes(tail))) return "draft";
+  return null;
+}
+
+/**
+ * What moving from one address to another does to unsaved work (ADR 0133). Switching to
+ * another workspace panel keeps a panel with unsaved changes, instead of discarding it, and a
+ * kept panel is reopened exactly as it was left. Asking first is kept for the moves that would
+ * replace unsaved work: reloading the same panel, leaving the workspace, or opening another
+ * document while a draft is kept. `kept` lists the kept panels as `{ key, hash, dirty }`.
+ */
+export function planWorkspaceNavigation({ fromHash = "", toHash = "", currentDirty = false, saving = false, kept = [] } = {}) {
+  const from = fromHash ? workspacePanelKey(fromHash) : null;
+  const to = workspacePanelKey(toHash);
+  const plan = { keep: null, restore: null, discard: [], confirm: [] };
+  if (currentDirty && fromHash !== toHash) {
+    // A save in flight still owns the editor and its address, so the draft is not kept mid-save.
+    const keepable = from && from !== "overview" && to && to !== from && !(from === "draft" && saving);
+    if (keepable) plan.keep = from;
+    else plan.confirm.push(from || "current");
+  }
+  for (const item of kept) {
+    if (to === null || (item.key === "draft" && to === "draft" && draftRoute(item.hash) !== draftRoute(toHash))) {
+      if (item.dirty) plan.confirm.push(item.key);
+      plan.discard.push(item.key);
+    } else if (item.key === to) plan.restore = item.key;
+  }
+  return plan;
+}
+
+/** The question asked before unsaved work is discarded, naming every place it is in. */
+export function unsavedWorkQuestion(labels) {
+  if (!labels.some(Boolean)) return "You have unsaved changes. Leave without saving?";
+  // An unnamed place is the open view, which is not a workspace panel.
+  const named = [...new Set(labels.map((label) => label || "this view"))];
+  const list = named.length === 1 ? named[0] : `${named.slice(0, -1).join(", ")} and ${named[named.length - 1]}`;
+  return `You have unsaved changes in ${list}. Leave without saving?`;
 }
 
 // Earlier releases remembered the writing mode only in this browser. This
@@ -1677,7 +1797,7 @@ export function createCaptureForm({ api, state, entry = null, entryType = "passa
     const cancel = h("button", { class: "oba-btn", type: "button", "data-capture-cancel": "true", onClick: () => onCancel?.() }, "Cancel");
     root.replaceChildren(
       ...fields,
-      noSources ? h("p", { class: "oba-notice" }, "Add a source to the library first, then capture passages from it. ", h("a", { href: "#/sources" }, "Open sources")) : null,
+      noSources ? h("p", { class: "oba-notice" }, "Add a source to the library first, then capture passages from it. ", h("a", { href: researchHref("sources") }, "Open sources")) : null,
       errorBox,
       conflict ? conflictNotice() : null,
       h("div", { class: "oba-toolbar" }, save, cancel),
@@ -6268,6 +6388,15 @@ export class ObAdmin extends AdminElement {
   dirty = false;
   editVersion = 0;
   viewVersion = 0;
+  // Every mount takes the next serial; a kept view returns with the version it had (ADR 0133).
+  viewSerial = 0;
+  // The open view's own unsaved-changes test, for views whose forms keep their own state.
+  viewDirty = null;
+  // Research workspace panels kept with unsaved changes while another panel is open, by key.
+  kept = new Map();
+  // The document the research workspace returns to: { hash, kind, title }.
+  workspaceDraft = null;
+  workspaceMain = null;
   skipRoute = false;
   currentHash = "";
   preferences = normalizeAdminPreferences();
@@ -6289,7 +6418,7 @@ export class ObAdmin extends AdminElement {
     });
     addEventListener("hashchange", () => this.onHash());
     addEventListener("beforeunload", (e) => {
-      if (this.dirty) {
+      if (this.hasUnsavedWork()) {
         e.preventDefault();
         e.returnValue = "";
       }
@@ -6421,7 +6550,7 @@ export class ObAdmin extends AdminElement {
   shownShellModules() {
     const visible = new Set(visibleAdminModules(this.preferences));
     if (["analytics", "contributors"].includes(this.activeRoute)) visible.add(this.activeRoute);
-    if (["sources", "research", "atlas", "compare"].includes(this.activeRoute)) visible.add("evidence");
+    if (researchPanelForRoute(this.activeRoute)) visible.add("research");
     if (this.activeRoute === "feedback") visible.add("analytics");
     return visible;
   }
@@ -6471,8 +6600,113 @@ export class ObAdmin extends AdminElement {
   mount(...nodes) {
     this.editor?.dispose();
     this.editor = null;
-    this.viewVersion += 1;
+    this.viewDirty = null;
+    this.viewVersion = ++this.viewSerial;
     this.replaceChildren(...nodes);
+  }
+
+  /** The version the next mounted view will have, for views that prepare before mounting. */
+  nextViewVersion() {
+    return this.viewSerial + 1;
+  }
+
+  /** Whether the open view has unsaved changes, in the editor or in a view's own form. */
+  hasUnsavedView() {
+    return Boolean(this.dirty || this.viewDirty?.());
+  }
+
+  /** Whether any unsaved work exists, in the open view or in a kept workspace panel. */
+  hasUnsavedWork() {
+    return this.hasUnsavedView() || [...this.kept.values()].some((record) => record.isDirty());
+  }
+
+  /** How the unsaved-changes question names a workspace panel. */
+  workspaceLabel(key) {
+    if (key === "draft") {
+      const title = this.editor?.currentTitle?.() || this.kept.get("draft")?.editor?.currentTitle?.() || this.workspaceDraft?.title;
+      return title ? `the draft “${title}”` : "the draft";
+    }
+    return researchPanel(key)?.label || "";
+  }
+
+  /** Keep the open workspace panel, unsaved changes and all, while another panel opens. */
+  keepCurrentView(key) {
+    const editor = key === "draft" ? this.editor : null;
+    if (editor) {
+      if (this.workspaceDraft) this.workspaceDraft.title = editor.currentTitle();
+      editor.suspend();
+      // Taken out of the shell so the next mount does not dispose it.
+      this.editor = null;
+    }
+    const viewDirty = this.viewDirty;
+    this.kept.set(key, {
+      key,
+      hash: this.currentHash,
+      active: this.activeRoute,
+      nodes: this.workspaceMain ? [...this.workspaceMain.childNodes] : [],
+      viewVersion: this.viewVersion,
+      viewDirty,
+      editor,
+      isDirty: () => Boolean(editor || viewDirty?.()),
+    });
+    this.viewDirty = null;
+  }
+
+  discardKept(key) {
+    this.kept.get(key)?.editor?.dispose();
+    this.kept.delete(key);
+  }
+
+  /** Put a kept panel back exactly as it was left; its pending work applies to it again. */
+  restoreKept(key, requestedHash) {
+    const record = this.kept.get(key);
+    this.kept.delete(key);
+    this.editor?.dispose();
+    this.editor = null;
+    this.viewVersion = record.viewVersion;
+    this.viewDirty = record.viewDirty;
+    // A kept research panel reopens where it was left; the draft can open on another of its views.
+    const hash = key === "draft" ? requestedHash : record.hash;
+    if (location.hash !== hash) history.replaceState(null, "", hash);
+    this.currentHash = hash;
+    this.replaceChildren(this.shell(record.active, ...record.nodes));
+    const label = key === "draft" ? "Your draft" : researchPanel(key)?.label || "This panel";
+    if (record.editor) {
+      this.editor = record.editor;
+      this.dirty = true;
+      record.editor.resume();
+      if (!this.openRequestedPane(hash) && record.editor.root?.dataset.editorView === "write") record.editor.writingSurface().focus();
+      else this.focusPageHeading();
+    } else this.focusPageHeading();
+    this.announceWorkspace(`${label} is as you left it, with your unsaved changes.${hash !== requestedHash ? " Save or discard them before opening another item here." : ""}`);
+  }
+
+  /** Clear everything kept for this sign-in, so another sign-in never sees it. */
+  forgetWorkspace() {
+    for (const key of [...this.kept.keys()]) this.discardKept(key);
+    this.workspaceDraft = null;
+  }
+
+  focusPageHeading() {
+    this.querySelector?.("#oba-page-heading")?.focus();
+  }
+
+  /** Say what a workspace move did, after the new region exists so it is announced. */
+  announceWorkspace(text) {
+    const region = this.workspaceStatus;
+    if (!region) return;
+    setTimeout(() => {
+      region.textContent = text;
+    }, 0);
+  }
+
+  /** Open the editor view a `?pane=` address names, such as Evidence Studio's claims. */
+  openRequestedPane(hash) {
+    const pane = parseAdminHash(hash).params.get("pane");
+    if (!pane || !this.editor || !EDITOR_PANES.includes(pane)) return false;
+    if (!this.editor.root?.querySelector(`[data-pane="${pane}"]`)) return false;
+    this.editor.activatePane(pane, true);
+    return true;
   }
 
   showFatal(err) {
@@ -6480,6 +6714,7 @@ export class ObAdmin extends AdminElement {
   }
 
   showLogin(message = "") {
+    this.forgetWorkspace();
     const user = h("input", { id: "oba-user", type: "text", autocomplete: "username", required: true, autocapitalize: "none", spellcheck: "false" });
     const pass = h("input", { id: "oba-pass", type: "password", autocomplete: "current-password", required: true });
     const status = h("p", { class: "oba-error", role: "alert", hidden: !message }, message);
@@ -6553,6 +6788,11 @@ export class ObAdmin extends AdminElement {
     const toolGroup = (label, ...tools) =>
       h("div", { class: "oba-tool-group" }, h("span", { class: "oba-tool-label" }, label), h("div", { class: "oba-tool-actions" }, tools));
     const visibleModules = this.shownShellModules();
+    const panel = researchPanelForRoute(active);
+    const inDraft = Boolean(KINDS[active]) && workspacePanelKey(globalThis.location?.hash) === "draft";
+    // The research workspace's own navigation: always on its panels, and beside a draft when the
+    // workspace is part of the chosen layout or holds kept work to return to.
+    const showResearchNav = Boolean(panel) || (inDraft && (visibleModules.has("research") || this.kept.size > 0));
     const contentTabs = [
       h("a", { class: "oba-tab", "aria-current": active === "overview" ? "page" : null, href: "#/overview" }, "Overview"),
       ...Object.entries(KINDS).map(([kind, info]) =>
@@ -6564,14 +6804,8 @@ export class ObAdmin extends AdminElement {
       ? { title: "Analytics", detail: "Understand readership without tracking individual readers." }
       : active === "feedback"
         ? { title: "Reader feedback", detail: "Review what readers sent about passages, respond, and record what changed." }
-      : active === "sources"
-        ? { title: "Sources", detail: "Keep private research sources, editions, translations, and references in one library." }
-      : active === "research"
-        ? { title: "Research notebook", detail: "Capture quoted passages and your own notes about them, privately, tied to your sources." }
-      : active === "atlas"
-        ? { title: "Knowledge Atlas", detail: "Relate people, works, concepts, movements and events privately, with who asserts each link and on what evidence." }
-      : active === "compare"
-        ? { title: "Compare versions", detail: "Read aligned passages across editions, translations, witnesses and interpretations, side by side or in one column." }
+      : panel
+        ? { title: researchPanel(panel).title, detail: researchPanel(panel).detail }
       : active === "contributors"
         ? { title: "Contributors", detail: "Manage reusable public identities for bylines and contribution credits." }
       : active === "shared"
@@ -6579,9 +6813,15 @@ export class ObAdmin extends AdminElement {
       : active === "overview"
         ? { title: "Overview", detail: "See what is live, what needs attention, and what to work on next." }
         : { title: KINDS[active]?.label || "Workspace", detail: "Create, review, and publish content from the files you own." };
+    const main = h("main", { class: "oba-workspace-content", id: "oba-main", tabindex: "-1" }, ...content);
+    this.workspaceMain = main;
+    const visibility = panel ? "private" : showResearchNav ? "publishable" : null;
+    this.workspaceStatus = h("p", { class: "oba-workspace-status", role: "status", "aria-live": "polite", "data-workspace-status": "true" });
     return h(
       "div",
       { class: "oba-shell" },
+      // The hash names Admin routes, so the skip link moves focus itself instead of navigating.
+      h("a", { class: "oba-skip-link", href: "#oba-main", onClick: (event) => { event.preventDefault(); main.focus(); } }, "Skip to main content"),
       h(
         "header",
         { class: "oba-app-header" },
@@ -6604,7 +6844,8 @@ export class ObAdmin extends AdminElement {
         { class: "oba-toolbelt", "aria-label": "Admin tools" },
         toolGroup("Content", ...contentTabs),
         h("div", { class: "oba-progressive-tools", "data-admin-module": "analytics", hidden: !visibleModules.has("analytics") }, toolGroup("Observe", h("a", { class: "oba-tab", "aria-current": active === "analytics" ? "page" : null, href: "#/analytics" }, "Analytics"), h("a", { class: "oba-tab", "aria-current": active === "feedback" ? "page" : null, href: "#/feedback" }, "Reader feedback"))),
-        h("div", { class: "oba-progressive-tools", "data-admin-module": "evidence", hidden: !visibleModules.has("evidence") }, toolGroup("Research", h("a", { class: "oba-tab", "aria-current": active === "sources" ? "page" : null, href: "#/sources" }, "Sources"), h("a", { class: "oba-tab", "aria-current": active === "research" ? "page" : null, href: "#/research" }, "Notebook"), h("a", { class: "oba-tab", "aria-current": active === "atlas" ? "page" : null, href: "#/atlas" }, "Atlas"), h("a", { class: "oba-tab", "aria-current": active === "compare" ? "page" : null, href: "#/compare" }, "Compare"))),
+        // One entry for the whole research workspace; its panels are listed in the workspace's own navigation.
+        h("div", { class: "oba-progressive-tools", "data-admin-module": "research", hidden: !visibleModules.has("research") }, toolGroup("Research", h("a", { class: "oba-tab", "aria-current": panel ? "true" : null, href: researchHref("overview") }, "Research workspace"))),
         h("div", { class: "oba-progressive-tools", "data-admin-module-group": "contributors public-site", hidden: !visibleModules.has("contributors") && !visibleModules.has("public-site") }, toolGroup(
           "Site",
           h("a", { class: "oba-tab", "data-admin-module": "contributors", hidden: !visibleModules.has("contributors"), "aria-current": active === "contributors" ? "page" : null, href: "#/contributors" }, "Contributors"),
@@ -6614,12 +6855,55 @@ export class ObAdmin extends AdminElement {
       h(
         "section",
         { class: "oba-context-bar", "aria-label": "Workspace status" },
-        h("div", { class: "oba-context-copy" }, h("span", { class: "oba-eyebrow" }, "Workspace"), h("h1", {}, activeInfo.title), h("p", {}, activeInfo.detail)),
+        h("div", { class: "oba-context-copy" }, h("span", { class: "oba-eyebrow" }, panel || showResearchNav ? "Research workspace" : "Workspace"), h("h1", { id: "oba-page-heading", tabindex: "-1" }, activeInfo.title), h("p", {}, activeInfo.detail)),
+        visibility ? h("p", { class: "oba-visibility-note", "data-visibility": visibility, "data-workspace-visibility": "true" }, WORKSPACE_VISIBILITY[visibility].detail) : null,
         h("span", { class: "oba-spacer" }),
         publishBox,
       ),
+      showResearchNav ? this.researchNav(panel || "draft", !panel && this.kept.size === 0) : null,
+      this.workspaceStatus,
       (this.preferencesWarning = h("p", { class: "oba-preferences-warning", role: "status", hidden: !this.preferencesError }, this.preferencesError)),
-      h("main", { class: "oba-workspace-content" }, ...content),
+      main,
+    );
+  }
+
+  /**
+   * The research workspace's navigation (ADR 0132): private research panels in one labelled
+   * group, the publishable draft in another, and a note on every panel that holds kept unsaved
+   * changes. `followsPreset` lets the layout preference hide it beside a draft.
+   */
+  researchNav(current, followsPreset = false) {
+    const draft = this.workspaceDraft;
+    const keptNote = (key) => (this.kept.get(key)?.isDirty() ? h("span", { class: "oba-research-kept", id: `oba-research-${key}-kept` }, "Unsaved changes kept") : null);
+    const item = (key, label, href, visibility, extra = null, extraId = "") => {
+      const kept = keptNote(key);
+      const describedBy = [`oba-research-${visibility}-label`, extraId, kept ? kept.id : ""].filter(Boolean).join(" ");
+      return h(
+        "li",
+        { class: "oba-research-item", "data-research-panel": key, "data-visibility": visibility },
+        h("a", { class: "oba-tab", href, "aria-current": current === key ? "page" : null, "aria-describedby": describedBy }, label),
+        extra,
+        kept,
+      );
+    };
+    const draftTitle = draft ? h("span", { class: "oba-research-draft-title", id: "oba-research-draft-title" }, h("bdi", {}, draft.title || "Untitled draft")) : h("span", { class: "oba-small", id: "oba-research-draft-title" }, "No draft open: start a post");
+    const privateItems = [
+      ...RESEARCH_PANELS.map((panel) => item(panel.id, panel.label, researchHref(panel.id), "private")),
+      // Claims are private research recorded in the draft's Evidence Studio.
+      draft ? item("claims", "Claims", `${draftRoute(draft.hash)}?pane=evidence`, "private", h("span", { class: "oba-small", id: "oba-research-claims-where" }, "in the draft"), "oba-research-claims-where") : null,
+    ];
+    const group = (visibility, items) =>
+      h(
+        "div",
+        { class: "oba-research-group", "data-visibility": visibility },
+        h("span", { class: "oba-visibility", id: `oba-research-${visibility}-label`, "data-visibility": visibility }, WORKSPACE_VISIBILITY[visibility].label),
+        h("ul", { "aria-labelledby": `oba-research-${visibility}-label` }, items),
+      );
+    return h(
+      "nav",
+      { class: "oba-research-nav", "aria-label": "Research workspace", "data-admin-module": followsPreset ? "research" : null },
+      group("private", privateItems),
+      group("publishable", [item("draft", "Draft", draft ? draftRoute(draft.hash) : "#/new/posts", "publishable", draftTitle, "oba-research-draft-title")]),
     );
   }
 
@@ -6650,6 +6934,7 @@ export class ObAdmin extends AdminElement {
     const tools = {
       analytics: ["Analytics", () => (location.hash = "#/analytics")],
       contributors: ["Contributors", () => (location.hash = "#/contributors")],
+      research: ["Research workspace", () => (location.hash = researchHref("overview"))],
       "public-site": ["View site", () => open("/", "_blank", "noopener")],
     };
     for (const pane of panes) tools[pane] = [this.editor.paneLabels[pane], () => this.editor.activatePane(pane, true)];
@@ -6786,10 +7071,14 @@ export class ObAdmin extends AdminElement {
       { label: "Series", category: "Content", run: () => go("#/series") },
       { label: "Analytics", category: "Observe", keywords: "views visitors", run: () => go("#/analytics") },
       { label: "Reader feedback", category: "Observe", keywords: "moderation questions corrections responses revision notes", run: () => go("#/feedback") },
-      { label: "Sources", category: "Research", keywords: "library bibliography citations editions translations witnesses references", run: () => go("#/sources") },
-      { label: "Research notebook", category: "Research", keywords: "passages notes quotations excerpts observations questions capture", run: () => go("#/research") },
-      { label: "Knowledge Atlas", category: "Research", keywords: "atlas people works concepts movements events relationships influence explore", run: () => go("#/atlas") },
-      { label: "Compare versions", category: "Research", keywords: "compare alignments editions translations witnesses interpretations passages side by side", run: () => go("#/compare") },
+      { label: "Research workspace", category: "Research", keywords: "workflow start source draft research overview", run: () => go(researchHref("overview")) },
+      { label: "Sources", category: "Research", keywords: "library bibliography citations editions translations witnesses references", run: () => go(researchHref("sources")) },
+      { label: "Research notebook", category: "Research", keywords: "passages notes quotations excerpts observations questions capture", run: () => go(researchHref("notebook")) },
+      { label: "Knowledge Atlas", category: "Research", keywords: "atlas people works concepts movements events relationships influence explore", run: () => go(researchHref("atlas")) },
+      { label: "Compare versions", category: "Research", keywords: "compare alignments editions translations witnesses interpretations passages side by side", run: () => go(researchHref("compare")) },
+      ...(this.workspaceDraft && !this.editor
+        ? [{ label: "Back to draft", category: "Research", keywords: `return draft editor writing ${this.workspaceDraft.title}`, run: () => go(draftRoute(this.workspaceDraft.hash)) }]
+        : []),
       { label: "Contributors", category: "Site", keywords: "authors credits orcid identity", run: () => go("#/contributors") },
       { label: "View site", category: "Site", keywords: "public blog", run: () => open("/", "_blank", "noopener") },
       { label: "Advanced tools", category: "Workspace", keywords: "more optional hidden ai assistant research distribution", run: () => this.openAdvancedTools() },
@@ -6924,34 +7213,64 @@ export class ObAdmin extends AdminElement {
     box.replaceChildren(h("span", { class: "oba-small" }, summary + (st.auto ? " · auto" : "")), " ", button);
   }
 
-  async confirmLeave() {
-    if (!this.dirty) return true;
-    return confirm("You have unsaved changes. Leave without saving?");
+  /**
+   * Ask before unsaved work is discarded. `keys` names where it is (workspace panel keys, or
+   * "current" for the open view); without them, all unsaved work is asked about, as signing out does.
+   */
+  async confirmLeave(keys = null) {
+    if (!keys) {
+      if (!this.hasUnsavedWork()) return true;
+      keys = [...(this.hasUnsavedView() ? [workspacePanelKey(this.currentHash) || "current"] : []), ...[...this.kept.values()].filter((record) => record.isDirty()).map((record) => record.key)];
+    }
+    return confirm(unsavedWorkQuestion(keys.map((key) => (key === "current" ? "" : this.workspaceLabel(key)))));
   }
 
   async onHash() {
     if (this.skipRoute) {
       this.skipRoute = false;
       this.currentHash = location.hash;
+      // A saved new document now has its own address; the workspace returns to that one.
+      if (this.editor && this.workspaceDraft) this.workspaceDraft.hash = location.hash;
       return;
     }
-    const nextHash = location.hash || "#/overview";
-    if (shouldGuardNavigation(this.dirty, this.currentHash, nextHash) && !(await this.confirmLeave())) {
+    const requested = location.hash || "#/overview";
+    const nextHash = canonicalAdminHash(requested);
+    // Earlier research routes redirect without adding a history entry.
+    if (location.hash && nextHash !== requested) history.replaceState(null, "", nextHash);
+    const previousHash = this.currentHash;
+    if (this.editor && this.workspaceDraft) this.workspaceDraft.title = this.editor.currentTitle();
+    // Another view of the open draft, such as its claims: switch views, never reload the draft.
+    if (this.editor && workspacePanelKey(nextHash) === "draft" && draftRoute(nextHash) === draftRoute(previousHash)) {
+      this.currentHash = nextHash;
+      this.openRequestedPane(nextHash);
+      return;
+    }
+    const plan = planWorkspaceNavigation({
+      fromHash: previousHash,
+      toHash: nextHash,
+      currentDirty: this.hasUnsavedView(),
+      saving: Boolean(this.editor?.saving),
+      kept: [...this.kept.values()].map((record) => ({ key: record.key, hash: record.hash, dirty: record.isDirty() })),
+    });
+    if (plan.confirm.length && !(await this.confirmLeave(plan.confirm))) {
       history.replaceState(null, "", this.currentHash);
       return;
     }
-    const { head, tail, params } = parseAdminHash(location.hash);
+    for (const key of plan.discard) this.discardKept(key);
+    if (plan.keep) this.keepCurrentView(plan.keep);
     this.dirty = false;
+    if (plan.restore) {
+      this.restoreKept(plan.restore, nextHash);
+      return;
+    }
+    const { head, tail, params } = parseAdminHash(nextHash);
     try {
       if (head === "edit" && tail) await this.showEditor(decodeURIComponent(tail));
       else if (head === "new" && KINDS[tail]) await this.showEditor(null, tail);
       else if (head === "analytics") await this.showAnalytics(Number(tail) || 30);
       else if (head === "feedback") await this.showFeedback(tail);
       else if (head === "contributors") await this.showContributors();
-      else if (head === "sources") await this.showSources();
-      else if (head === "research") await this.showResearch();
-      else if (head === "atlas") await this.showAtlas(safeDecodeURIComponent(tail));
-      else if (head === "compare") await this.showCompare(safeDecodeURIComponent(tail));
+      else if (head === "research") await this.showResearchPanel(tail);
       else if (head === "shared" && tail === "new") await this.showSharedReflectionForm();
       else if (head === "shared" && tail.startsWith("accept/")) await this.showInvitationAccept(invitationTokenFromHash(location.hash));
       else if (head === "shared") await this.showSharedReflections();
@@ -6962,6 +7281,28 @@ export class ObAdmin extends AdminElement {
       else this.showFatal(err);
     }
     this.currentHash = location.hash || "#/overview";
+    // A link that started this move left with the old view; give focus to the new page's heading
+    // unless the view placed it itself.
+    if (previousHash && !this.ownsFocus()) this.focusPageHeading();
+  }
+
+  /** Whether keyboard focus is somewhere in the mounted Admin view (or an open dialog). */
+  ownsFocus() {
+    const active = document.activeElement;
+    if (!active || active === document.body || active.isConnected === false) return false;
+    if (document.querySelector?.("dialog[open]")) return true;
+    return Boolean(this.contains?.(active));
+  }
+
+  /** Open one research panel from its canonical address: `<panel>[/<item id>]`. */
+  async showResearchPanel(tail) {
+    const [panel, ...item] = tail.split("/");
+    const id = safeDecodeURIComponent(item.join("/"));
+    if (panel === "sources") await this.showSources();
+    else if (panel === "notebook") await this.showResearch();
+    else if (panel === "atlas") await this.showAtlas(id);
+    else if (panel === "compare") await this.showCompare(id);
+    else await this.showResearchOverview();
   }
 
   // ---- list
@@ -7358,7 +7699,7 @@ export class ObAdmin extends AdminElement {
     let dirty = false;
     let busy = false;
     const filters = { query: "", kind: "all", archived: "active" };
-    const mountedView = this.viewVersion + 1;
+    const mountedView = this.nextViewVersion();
 
     const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
     const say = (text, kind = "oba-small") => {
@@ -7821,6 +8162,94 @@ export class ObAdmin extends AdminElement {
         h("div", { class: "oba-source-layout" }, h("nav", { "aria-label": "Sources" }, list), panel),
       ),
     );
+    // The research workspace keeps this panel, instead of losing it, while another one is open.
+    this.viewDirty = () => dirty;
+  }
+
+  // ---- research workspace
+
+  /**
+   * The research workspace's first panel (ADR 0132): the source-to-draft workflow and where
+   * each step stands. The library and the notebook are read separately, so one that cannot be
+   * read is reported in its own step while the others still show. Nothing here writes.
+   */
+  async showResearchOverview() {
+    const [library, notebook] = await Promise.allSettled([this.api.call("GET", "sources"), this.api.call("GET", "research/notebook")]);
+    for (const result of [library, notebook]) {
+      if (result.status === "rejected" && result.reason?.status === 401) throw result.reason;
+    }
+    const active = (items) => (Array.isArray(items) ? items.filter((item) => !item.archived) : []);
+    const sources = library.status === "fulfilled" ? active(library.value.sources) : null;
+    const passages = notebook.status === "fulfilled" ? active(notebook.value.passages) : null;
+    const notes = notebook.status === "fulfilled" ? active(notebook.value.notes) : null;
+    const draft = this.workspaceDraft;
+    const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
+    const link = (href, text, primary = false) => h("a", { class: `oba-btn${primary ? " oba-btn-primary" : ""}`, href }, text);
+    const step = (key, title, visibility, body, state, done, actions) =>
+      h(
+        "li",
+        { class: "oba-research-step", "data-research-step": key, "data-done": done, "data-visibility": visibility, "aria-labelledby": `oba-research-step-${key}` },
+        h("h3", { id: `oba-research-step-${key}` }, title),
+        h("p", { class: "oba-visibility", "data-visibility": visibility }, WORKSPACE_VISIBILITY[visibility].label),
+        h("p", {}, body),
+        h("p", { class: done === "unreadable" ? "oba-error" : "oba-small", "data-research-step-state": "true" }, state),
+        h("div", { class: "oba-toolbar" }, actions),
+      );
+    const unreadable = (what, message, file) => `${what} could not be read. ${message}${file ? ` Repair ${file} by hand, then reload this view.` : ""} Nothing was changed.`;
+    const empty = sources?.length === 0 && passages?.length === 0;
+    const steps = h(
+      "ol",
+      { class: "oba-research-steps" },
+      step(
+        "source",
+        "Add a source",
+        "private",
+        "Record the work you are reading, then the edition, translation, or witness you quote from. Each record keeps a stable ID that citations and notes point to.",
+        sources === null ? unreadable("The source library", sourceErrorMessage(library.reason), library.reason?.data?.file) : sources.length ? `Done: ${plural(sources.length, "source")} in the library.` : "Not started: the library is empty.",
+        sources === null ? "unreadable" : String(sources.length > 0),
+        [link(researchHref("sources"), sources?.length ? "Open Sources" : "Add your first source", sources?.length === 0)],
+      ),
+      step(
+        "passage",
+        "Capture a passage",
+        "private",
+        "Quote the exact words with where they sit in the source, and keep your own notes and open questions beside them.",
+        passages === null ? unreadable("The research notebook", notebookErrorMessage(notebook.reason), notebook.reason?.data?.file) : passages.length ? `Done: ${plural(passages.length, "passage")} and ${plural(notes.length, "note")}.` : "Not started: no passages captured yet.",
+        passages === null ? "unreadable" : String(passages.length > 0),
+        [link(researchHref("notebook"), passages?.length ? "Open the Notebook" : "Capture a passage", Boolean(sources?.length) && passages?.length === 0)],
+      ),
+      step(
+        "relate",
+        "Relate and compare",
+        "private",
+        "Optional. Map who asserts what about the people, works, and ideas you research, and read versions of a passage side by side.",
+        "Optional: use these whenever they help.",
+        "optional",
+        [link(researchHref("atlas"), "Open the Atlas"), link(researchHref("compare"), "Compare versions")],
+      ),
+      step(
+        "draft",
+        "Cite it in a draft",
+        "publishable",
+        "In the draft's Write view, choose Insert citation and pick the source and its locator. Readers see only what the citation makes public; your passages and notes stay private.",
+        draft ? h("span", {}, "Your draft: ", h("bdi", {}, draft.title || "Untitled draft")) : "No draft open yet.",
+        draft ? "true" : "false",
+        [draft ? link(draftRoute(draft.hash), "Back to the draft", true) : link("#/new/posts", "Start a post", Boolean(passages?.length))],
+      ),
+    );
+    this.mount(
+      this.shell(
+        "research-overview",
+        h(
+          "section",
+          { class: "oba-research-overview", "aria-labelledby": "oba-research-overview-heading" },
+          h("h2", { id: "oba-research-overview-heading" }, empty ? "Start your research" : "From source to draft"),
+          h("p", {}, empty ? "Your research workspace is empty. These steps take you from a source to a cited draft. Everything before the draft stays private." : "Pick up where you left off. Switching between these panels keeps any unsaved changes."),
+          steps,
+          h("p", { class: "oba-small" }, "Sources, notebook, atlas, comparisons, and claims are private research stored under .openblog/private/research. Nothing there is public because it exists: a post shows a source's reference only when it cites it, and atlas relationships, claim evidence, and comparisons only when you approve them."),
+        ),
+      ),
+    );
   }
 
   // ---- research notebook
@@ -7842,7 +8271,7 @@ export class ObAdmin extends AdminElement {
       return;
     }
     const state = { revision: loaded.revision, sources: loaded.sources, passages: loaded.passages, notes: loaded.notes };
-    const mountedView = this.viewVersion + 1;
+    const mountedView = this.nextViewVersion();
     let selected = null; // null, "new", or { type, id }
     let form = null;
     let busy = false;
@@ -8006,7 +8435,7 @@ export class ObAdmin extends AdminElement {
               "nav",
               { class: "oba-atlas-concept-links", "aria-label": "Concepts in the Knowledge Atlas", "data-atlas-concepts": "true" },
               h("p", { class: "oba-small" }, "Concepts in the Knowledge Atlas:"),
-              h("ul", {}, entry.concepts.map((concept) => h("li", {}, h("a", { href: `#/atlas/${encodeURIComponent(concept)}`, "data-atlas-concept": concept }, concept)))),
+              h("ul", {}, entry.concepts.map((concept) => h("li", {}, h("a", { href: researchHref("atlas", concept), "data-atlas-concept": concept }, concept)))),
             )
           : null,
         backlinks,
@@ -8313,6 +8742,7 @@ export class ObAdmin extends AdminElement {
         ),
       ),
     );
+    this.viewDirty = () => Boolean(form?.isDirty());
   }
 
   // ---- knowledge atlas
@@ -8342,7 +8772,7 @@ export class ObAdmin extends AdminElement {
       return;
     }
     const state = applyAtlasState({}, loaded);
-    const mountedView = this.viewVersion + 1;
+    const mountedView = this.nextViewVersion();
     const filters = { query: "", kind: "" };
     let selected = null; // null, or { type: "entry" | "relationship", id: string | null, prefill }
     let form = null;
@@ -8498,7 +8928,7 @@ export class ObAdmin extends AdminElement {
               { "aria-labelledby": "oba-atlas-explorer-notes", "data-atlas-notes": "true" },
               h("h4", { class: "oba-small-heading", id: "oba-atlas-explorer-notes" }, `Notebook notes linking this concept (${notes.length})`),
               notes.length ? h("ul", {}, notes.map((note) => h("li", {}, `${note.preview} (${note.kind === "question" ? "question" : "observation"}, ${note.id})`))) : h("p", { class: "oba-small" }, "No notebook note links this concept yet."),
-              notes.length ? h("p", { class: "oba-small" }, h("a", { href: "#/research" }, "Open the research notebook")) : null,
+              notes.length ? h("p", { class: "oba-small" }, h("a", { href: researchHref("notebook") }, "Open the research notebook")) : null,
             )
           : null,
       );
@@ -8648,6 +9078,7 @@ export class ObAdmin extends AdminElement {
         h("div", { class: "oba-source-layout", id: "oba-atlas-lists" }, listNav, panel),
       ),
     );
+    this.viewDirty = () => Boolean(form?.isDirty());
     if (selected) panel.querySelector("#oba-atlas-heading")?.focus();
   }
 
@@ -8670,7 +9101,7 @@ export class ObAdmin extends AdminElement {
       return;
     }
     const state = applyAlignmentState({}, loaded);
-    const mountedView = this.viewVersion + 1;
+    const mountedView = this.nextViewVersion();
     // How the comparison reads; kept for this visit only, so nothing is written to the browser.
     const options = { layout: "columns", normalized: false, notes: false, version: "" };
     let selected = null; // null, or { id: string | null, editing: boolean }
@@ -9113,6 +9544,7 @@ export class ObAdmin extends AdminElement {
         h("div", { class: "oba-source-layout", id: "oba-compare-lists" }, listNav, panel),
       ),
     );
+    this.viewDirty = () => Boolean(form?.isDirty());
     if (selected) panel.querySelector("#oba-compare-heading")?.focus();
   }
 
@@ -11780,9 +12212,12 @@ export class ObAdmin extends AdminElement {
       doc = { path: null, kind: newKind, etag: null, fields: {}, body: "" };
     }
     const editor = new Editor(this, doc);
+    // The research workspace returns to this document until another one is opened.
+    this.workspaceDraft = { hash: draftRoute(location.hash), kind: doc.kind, title: String(doc.fields?.title || doc.fields?.name || "") };
     this.mount(this.shell(doc.kind, editor.render()));
     this.editor = editor;
     editor.afterMount();
+    this.openRequestedPane(location.hash);
   }
 }
 
@@ -13222,6 +13657,30 @@ export class Editor {
     if (this.ui?.assistantCompletion) this.ui.assistantCompletion.hidden = true;
     if (this.ui?.assistantCompletionText) this.ui.assistantCompletionText.textContent = "";
     if (message && this.ui?.assistantAutocompleteStatus) this.ui.assistantAutocompleteStatus.textContent = message;
+  }
+
+  /** The title as typed so far, for the research workspace's way back to this draft. */
+  currentTitle() {
+    return String(this.ui?.title?.value ?? this.f.title ?? this.f.name ?? "").trim();
+  }
+
+  /**
+   * Pause background work while the research workspace keeps this draft out of view, as
+   * navigating away always has: a pending preview or autocomplete request is dropped.
+   */
+  suspend() {
+    clearTimeout(this.previewTimer);
+    this.previewRequest += 1;
+    this.assistantAutocompleteGeneration = (this.assistantAutocompleteGeneration || 0) + 1;
+    this.assistantAutocompleteQueued = false;
+    clearTimeout(this.assistantAutocompleteTimer);
+    this.assistantAutocompleteAbort?.abort();
+    this.dismissAssistantCompletion("", false);
+  }
+
+  /** Back in view: refresh the open view from the draft as it stands. */
+  resume() {
+    this.activatePane?.(this.root?.dataset.editorView || "write");
   }
 
   dispose() {
@@ -15498,6 +15957,8 @@ export class Editor {
     try {
       await this.app.api.call("DELETE", `document?path=${encodeURIComponent(this.doc.path)}`);
       this.app.dirty = false;
+      // The research workspace no longer offers a way back to a document in the trash.
+      if (this.app.workspaceDraft?.hash === `#/edit/${encodeURIComponent(this.doc.path)}`) this.app.workspaceDraft = null;
       location.hash = `#/${this.kind}`;
     } catch (err) {
       this.flash("error", err.message);

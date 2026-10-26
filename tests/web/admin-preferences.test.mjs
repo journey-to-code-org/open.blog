@@ -227,7 +227,7 @@ test("the default workspace is calm while every optional module remains known", 
 });
 
 test("guided, advanced, and custom presets disclose the intended modules", () => {
-  assert.deepEqual(visibleAdminModules({ preset: "guided" }), ["accessibility", "evidence", "assistant"]);
+  assert.deepEqual(visibleAdminModules({ preset: "guided" }), ["accessibility", "evidence", "research", "assistant"]);
   assert.deepEqual(visibleAdminModules({ preset: "advanced" }), ADMIN_OPTIONAL_MODULES);
   const custom = normalizeAdminPreferences({
     preset: "custom",
@@ -382,17 +382,20 @@ const toolbeltLinks = (root) =>
 
 test("every preset applies its toolbelt modules and the open route always stays marked current", withDom(async () => {
   const content = ["Overview", "Posts", "Pages", "Series", "Shared reflections"];
+  const research = "Research workspace";
   const cases = [
     [{ preset: "simple" }, "overview", content],
-    [{ preset: "simple" }, "sources", [...content, "Sources", "Notebook", "Atlas", "Compare"]],
-    [{ preset: "guided" }, "posts", [...content, "Sources", "Notebook", "Atlas", "Compare"]],
-    [{ preset: "advanced" }, "overview", [...content, "Analytics", "Reader feedback", "Sources", "Notebook", "Atlas", "Compare", "Contributors"]],
-    [{ preset: "custom", hiddenModules: ["contributors"] }, "overview", [...content, "Analytics", "Reader feedback", "Sources", "Notebook", "Atlas", "Compare"]],
+    [{ preset: "simple" }, "sources", [...content, research]],
+    [{ preset: "guided" }, "posts", [...content, research]],
+    [{ preset: "advanced" }, "overview", [...content, "Analytics", "Reader feedback", research, "Contributors"]],
+    [{ preset: "custom", hiddenModules: ["contributors"] }, "overview", [...content, "Analytics", "Reader feedback", research]],
+    [{ preset: "custom", hiddenModules: ["research"] }, "overview", [...content, "Analytics", "Reader feedback", "Contributors"]],
+    [{ preset: "custom", hiddenModules: ["research"] }, "atlas", [...content, "Analytics", "Reader feedback", research, "Contributors"]],
     [{ preset: "simple" }, "analytics", [...content, "Analytics", "Reader feedback"]],
     [{ preset: "simple" }, "feedback", [...content, "Analytics", "Reader feedback"]],
-    [{ preset: "guided" }, "feedback", [...content, "Analytics", "Reader feedback", "Sources", "Notebook", "Atlas", "Compare"]],
-    [{ preset: "guided" }, "contributors", [...content, "Sources", "Notebook", "Atlas", "Compare", "Contributors"]],
-    [{ preset: "custom", hiddenModules: ["analytics"] }, "analytics", [...content, "Analytics", "Reader feedback", "Sources", "Notebook", "Atlas", "Compare", "Contributors"]],
+    [{ preset: "guided" }, "feedback", [...content, "Analytics", "Reader feedback", research]],
+    [{ preset: "guided" }, "contributors", [...content, research, "Contributors"]],
+    [{ preset: "custom", hiddenModules: ["analytics"] }, "analytics", [...content, "Analytics", "Reader feedback", research, "Contributors"]],
   ];
   for (const [preferences, active, expected] of cases) {
     const app = appWith(fakeApi({}));
@@ -400,9 +403,12 @@ test("every preset applies its toolbelt modules and the open route always stays 
     const root = renderShell(app, active);
     const label = `${preferences.preset} on ${active}`;
     assert.deepEqual(toolbeltLinks(root), expected, label);
-    const current = root.querySelector("nav").querySelectorAll("a").filter((link) => link.attributes["aria-current"] === "page");
+    // One page is current; on a research panel the toolbelt marks the workspace it belongs to.
+    const current = root.querySelectorAll("a").filter((link) => link.attributes["aria-current"] === "page");
     assert.equal(current.length, 1, `${label} marks one current item`);
     assert.equal(hiddenWithin(current[0], root), false, `${label} shows the current item`);
+    const section = root.querySelector("nav").querySelectorAll("a").filter((link) => link.attributes["aria-current"] === "true");
+    assert.deepEqual(section.map((link) => link.textContent), ["sources", "atlas"].includes(active) ? [research] : [], `${label} marks the research workspace only inside it`);
   }
 }));
 

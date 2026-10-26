@@ -9,13 +9,15 @@ pub const SCHEMA_VERSION: u32 = 1;
 pub const MAX_FILE_BYTES: usize = 64 * 1024;
 /// Largest accepted `PUT /admin/api/preferences` body.
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
-pub const OPTIONAL_MODULES: [&str; 10] = [
+pub const OPTIONAL_MODULES: [&str; 11] = [
     "social",
     "release",
     "field",
     "optimize",
     "accessibility",
     "evidence",
+    // The research workspace's place in the main navigation (ADR 0132).
+    "research",
     "assistant",
     "analytics",
     "contributors",
@@ -430,6 +432,31 @@ mod tests {
         assert_eq!(
             loaded.preferences.hidden_modules,
             vec!["social".to_string()]
+        );
+        loaded.preferences.validate().unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn preferences_saved_before_the_research_workspace_gain_it_at_the_end() {
+        let root = fixture("research-module");
+        let path = preference_path(&root, "alice").unwrap();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            br#"{"schemaVersion":1,"preset":"custom","density":"comfortable","editorMode":"visual",
+            "moduleOrder":["social","release","field","optimize","accessibility","evidence",
+            "assistant","analytics","contributors","public-site"],"hiddenModules":["evidence"]}"#,
+        )
+        .unwrap();
+        let loaded = load(&root, "alice").unwrap();
+        assert_eq!(
+            loaded.preferences.module_order.last().map(String::as_str),
+            Some("research")
+        );
+        assert_eq!(
+            loaded.preferences.hidden_modules,
+            vec!["evidence".to_string()]
         );
         loaded.preferences.validate().unwrap();
         fs::remove_dir_all(root).unwrap();

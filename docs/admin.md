@@ -49,8 +49,8 @@ the main navigation focused on content and the essential **Write**, **Site previ
 and the header's **Advanced tools** dialog groups every optional tool by goal: getting
 writing help (the optional AI Assistant, including knowledge checks and runnable-code
 proposals), checking quality and research, sharing and distribution, and collaboration and
-readership. **Guided** adds Accessibility, Evidence Studio, and Assistant to the editor bar,
-**Advanced** shows everything, and **Custom** lets you show or hide each optional tool. In
+readership. **Guided** adds Accessibility, Evidence Studio, and Assistant to the editor bar
+and the Research workspace to the main navigation, **Advanced** shows everything, and **Custom** lets you show or hide each optional tool. In
 every preset you can reorder optional tools with the up and down buttons, choose comfortable
 or compact spacing, pick a default Visual or Markdown writing mode, and **Restore defaults**.
 Open **Personalize** from the header, from Advanced tools, or by searching for
@@ -254,9 +254,42 @@ citation and choose **Cite**. Press Ctrl+Z or **Undo citation** right after inse
 the draft and caret exactly. Escape closes the dialog without changing anything. See
 [Citation format](specs/citations.md).
 
+### Move between research and your draft
+
+Sources, the research notebook, the Knowledge Atlas, Compare, and claims form one **Research
+workspace** (`#/research/`). Open it from **Research workspace** in the main navigation (shown in
+Guided and Advanced, and in Custom when you choose it), from **Advanced tools** in any layout, or
+by searching with `Ctrl+K`. Its first panel, **Workflow**, lists the steps from a first source to
+a cited draft and says how far each has come: add a source, capture a passage, relate and compare
+if that helps, then cite it from the draft with **Cite a source**. If the library or notebook
+cannot be read, only its own step says so, with the file to repair; nothing is changed.
+
+The workspace's navigation sits under the page title. It lists the research panels under
+**Private research** and the draft under **Publishable**, and screen readers hear the same label
+with each link. Private research is never public because it exists: a post shows a source's
+reference only when it cites it, and atlas relationships, claim evidence, and comparisons only
+when you approve them. **Claims** opens the draft's Evidence Studio, and **Draft** returns to the
+document you were writing (`Ctrl+K` → **Back to draft** works too).
+
+Switching between the draft and research panels never loses unsaved changes. A panel you leave
+with unsaved changes is kept as it was, marked **Unsaved changes kept**, and reopens exactly as you
+left it, with a short announcement. Panels without unsaved changes reload, so they always show the
+latest files. Admin still asks first, naming where the unsaved work is, before you leave the
+workspace for another page, open a different document while a draft is kept, sign out, or close
+or reload the page. Kept work stays only in this page's memory: it is never saved, stored in the
+browser, or sent anywhere, and signing out discards it. A kept panel saves against the revision
+it read, so if the file changed elsewhere meanwhile you get the usual conflict choice instead of
+an overwrite. The earlier addresses `#/sources`, `#/research`, `#/atlas/<id>`, and
+`#/compare/<id>` open the same panels. See
+[ADR 0132](adr/0132-the-research-workspace-is-one-admin-destination-with-one-route-namespace.md)
+and [ADR 0133](adr/0133-workspace-panels-keep-unsaved-changes-while-another-panel-opens.md).
+
+Every Admin page starts with a **Skip to main content** link, and after you move to another page
+keyboard focus starts at its heading.
+
 ### Compare versions of a passage
 
-**Research → Compare** lists your private passage alignments. Open one to read its places in
+**Research workspace → Compare** lists your private passage alignments. Open one to read its places in
 each edition, translation, manuscript, or interpretation, side by side or, with **Layout → Single
 column**, one version after another (narrow screens use the same order). Every place shows its
 version, its editor, translator, scribe or interpreters, and its locator. Original wording is
