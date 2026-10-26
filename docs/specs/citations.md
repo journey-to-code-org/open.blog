@@ -171,7 +171,7 @@ bibliography, in the citation locale) ends `<main>`.
 | --- | --- |
 | Keyboard | Focusing a marker opens its preview straight after the marker, so Tab continues into its links; the marker is `aria-describedby` its text while it is open. Escape closes it and returns focus to the marker. Enter follows the marker's link. |
 | Pointer | Hovering a marker opens it after 250 ms; leaving the marker and preview closes it after 300 ms. A click follows the link. |
-| Touch | A first tap opens the preview; its "Go to note" link or a second tap follows the link. |
+| Touch | A first tap opens the preview; its "Go to note" link or a second tap follows the link. Only a click that ends a touch press on the same marker is a tap: Enter, a script or a screen reader's activation always follows the link. |
 | Anywhere else | Focusing or pressing outside the marker and preview closes it. One preview is open at a time. |
 
 The preview (`role="group"`, named by its marker) shows the reference's `formatted` text, the

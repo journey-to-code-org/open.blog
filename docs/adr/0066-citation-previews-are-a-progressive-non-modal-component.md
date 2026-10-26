@@ -43,7 +43,11 @@ the page.
   with the pointer closes it after 300 ms unless the keyboard is using it. Only one preview is
   open at a time.
 - **Touch.** A first tap on a marker opens its preview instead of following the link; the
-  preview's "Go to note" link and a second tap on the marker both follow it.
+  preview's "Go to note" link and a second tap on the marker both follow it. A first tap is only a
+  click that ends a primary touch `pointerdown` on the same marker while its preview is closed. A
+  press the browser cancels, that focus leaves, or that is followed by a press elsewhere is
+  forgotten, and a click with `detail` 0 (Enter, a script, or a screen reader activating the
+  link, which on a touch screen often comes with no press at all) always follows the link.
 - **Text only, links allowlisted.** The preview shows the reference's `formatted` text and the
   citation's new `formatted` locator text, assigned with `textContent`. Its outside link is the
   data's `link` only, checked again in the browser to be an absolute `http(s)` address with a

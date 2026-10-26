@@ -370,31 +370,93 @@ test("hovering opens after a moment, and leaving both closes it", (t) => {
 });
 
 test("a click or Enter still follows the link; a first tap opens the preview instead", () => {
-  const { host, markers } = page();
+  const { host, markers, after } = page();
   const marker = markers["cite-1-ref-1"];
   // Mouse: press, focus, click. The link is followed and the preview closes.
-  marker.dispatch("pointerdown", { pointerType: "mouse" });
+  marker.dispatch("pointerdown", { pointerType: "mouse", isPrimary: true });
   marker.focus();
-  let click = marker.dispatch("click");
+  let click = marker.dispatch("click", { detail: 1 });
   assert.equal(click.defaultPrevented, false);
   assert.ok(!isOpen(host));
   // Keyboard Enter is a click without a pointer.
   marker.focus();
-  click = marker.dispatch("click");
+  click = marker.dispatch("click", { detail: 0 });
   assert.equal(click.defaultPrevented, false);
   // Touch: the first tap opens the preview and stays on the page...
-  document.body.dispatch("pointerdown", { pointerType: "touch" });
+  after.focus();
+  document.body.dispatch("pointerdown", { pointerType: "touch", isPrimary: true });
   marker.dispatch("pointerenter", { pointerType: "touch", bubbles: false });
-  marker.dispatch("pointerdown", { pointerType: "touch" });
+  marker.dispatch("pointerdown", { pointerType: "touch", isPrimary: true });
   marker.focus();
-  click = marker.dispatch("click");
+  click = marker.dispatch("click", { detail: 1 });
   assert.equal(click.defaultPrevented, true);
   assert.ok(isOpen(host));
   // ...and a second tap on the same marker follows the link.
-  marker.dispatch("pointerdown", { pointerType: "touch" });
-  click = marker.dispatch("click");
+  marker.dispatch("pointerdown", { pointerType: "touch", isPrimary: true });
+  click = marker.dispatch("click", { detail: 1 });
   assert.equal(click.defaultPrevented, false);
   assert.ok(!isOpen(host));
+});
+
+/** A touch press on a marker whose preview is closed, focus elsewhere first. */
+function touchPress(marker, away) {
+  away.focus();
+  marker.dispatch("pointerdown", { pointerType: "touch", isPrimary: true });
+}
+
+test("a touch press that never becomes a tap leaves Enter following the link", () => {
+  const { host, markers, after } = page();
+  const marker = markers["cite-1-ref-1"];
+  // The browser takes the press back (a scroll, say): a later Enter follows the link.
+  touchPress(marker, after);
+  marker.dispatch("pointercancel", { pointerType: "touch", bubbles: false });
+  marker.focus();
+  let click = marker.dispatch("click", { detail: 0 });
+  assert.equal(click.defaultPrevented, false);
+  // Focus leaves the marker after the press: the press is forgotten.
+  touchPress(marker, after);
+  marker.focus();
+  marker.dispatch("blur", { bubbles: false });
+  after.focus();
+  marker.focus();
+  click = marker.dispatch("click", { detail: 1 });
+  assert.equal(click.defaultPrevented, false);
+  // A press anywhere else forgets it too.
+  touchPress(marker, after);
+  after.dispatch("pointerdown", { pointerType: "mouse", isPrimary: true });
+  after.focus();
+  marker.focus();
+  click = marker.dispatch("click", { detail: 1 });
+  assert.equal(click.defaultPrevented, false);
+  assert.ok(!isOpen(host), "following the link closes the preview");
+});
+
+test("keyboard, scripted and assistive-technology activation always follow the link", () => {
+  const { markers, after } = page();
+  const marker = markers["cite-1-ref-1"];
+  // `detail` 0 is never a tap, even straight after a touch press.
+  touchPress(marker, after);
+  let click = marker.dispatch("click", { detail: 0 });
+  assert.equal(click.defaultPrevented, false);
+  // A screen reader's double-tap on a touch screen: a click with no press before it.
+  after.focus();
+  click = marker.dispatch("click", { detail: 1 });
+  assert.equal(click.defaultPrevented, false);
+  // A press on one marker never makes a click on another a first tap.
+  touchPress(markers["cite-2-ref-1"], after);
+  click = marker.dispatch("click", { detail: 1 });
+  assert.equal(click.defaultPrevented, false);
+  // A second finger is not a tap either; a mouse or pen press is not a touch.
+  for (const press of [
+    { pointerType: "touch", isPrimary: false },
+    { pointerType: "pen", isPrimary: true },
+    { pointerType: "mouse", isPrimary: true },
+  ]) {
+    after.focus();
+    marker.dispatch("pointerdown", press);
+    click = marker.dispatch("click", { detail: 1 });
+    assert.equal(click.defaultPrevented, false, JSON.stringify(press));
+  }
 });
 
 test("the preview stays inside the viewport, below the marker or above it", () => {

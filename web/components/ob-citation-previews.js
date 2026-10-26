@@ -13,7 +13,9 @@
 // page; Escape closes it and returns focus to the marker. Pointer: hovering a
 // marker opens it, leaving both closes it, a click still follows the link.
 // Touch: the first tap opens the preview, which links to the note; a second
-// tap on the marker follows it. Pressing or focusing anything else closes it.
+// tap on the marker follows it. Only a click ending a touch press on the
+// marker is a tap, so Enter and assistive technology always follow the link.
+// Pressing or focusing anything else closes it.
 
 export const DATA_ELEMENT_ID = "ob-references";
 export const SUPPORTED_VERSION = 1;
@@ -99,10 +101,10 @@ export class ObCitationPreviews extends HTMLElement {
       }, { signal });
       marker.addEventListener("pointerenter", (event) => this.hover(marker, event), { signal });
       marker.addEventListener("pointerleave", (event) => this.leave(event), { signal });
-      marker.addEventListener("pointerdown", (event) => {
-        this.pointer = event.pointerType;
-        this.wasOpen = this.isOpen(marker);
-      }, { signal });
+      marker.addEventListener("pointerdown", (event) => this.press(marker, event), { signal });
+      // A press that the browser takes back, or focus that moves away, ends it.
+      marker.addEventListener("pointercancel", () => (this.pressed = null), { signal });
+      marker.addEventListener("blur", () => (this.pressed = null), { signal });
       marker.addEventListener("click", (event) => this.activate(marker, event), { signal });
     }
     if (!this.markers.size) {
@@ -125,6 +127,7 @@ export class ObCitationPreviews extends HTMLElement {
     this.popover?.remove();
     this.popover = null;
     this.markers = null;
+    this.pressed = null;
   }
 
   /** The one preview element, moved next to whichever marker it describes. */
@@ -265,11 +268,28 @@ export class ObCitationPreviews extends HTMLElement {
     }, CLOSE_DELAY);
   }
 
-  /** A first tap opens the preview; any other activation follows the link. */
+  /**
+   * Remembers a primary touch press on a marker, and whether its preview was
+   * already open, for the click that follows it. Any other press forgets it.
+   */
+  press(marker, event) {
+    this.pressed =
+      event.pointerType === "touch" && event.isPrimary !== false
+        ? { marker, wasOpen: this.isOpen(marker) }
+        : null;
+  }
+
+  /**
+   * A first tap opens the preview; any other activation follows the link. A
+   * first tap is only a click that ends a touch press on the same marker
+   * whose preview was closed. A click with `detail` 0 (Enter, a script, or
+   * assistive technology activating the link) or with no touch press before
+   * it always follows the link.
+   */
   activate(marker, event) {
-    const firstTap = this.pointer === "touch" && !this.wasOpen;
-    this.pointer = null;
-    this.wasOpen = false;
+    const pressed = this.pressed;
+    this.pressed = null;
+    const firstTap = Boolean(pressed) && pressed.marker === marker && !pressed.wasOpen && event.detail !== 0;
     if (firstTap) {
       event.preventDefault();
       this.open(marker);
@@ -295,8 +315,11 @@ export class ObCitationPreviews extends HTMLElement {
 
   /** Pressing or focusing anything but the open preview and its marker closes it. */
   outside(event) {
-    if (!this.current) return;
     const target = event.target;
+    if (this.pressed && event.type === "pointerdown" && !this.pressed.marker.contains?.(target)) {
+      this.pressed = null;
+    }
+    if (!this.current) return;
     if (target === this.current || this.current.contains?.(target) || this.popover.contains(target)) return;
     this.close();
   }
