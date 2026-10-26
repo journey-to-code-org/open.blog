@@ -5,6 +5,7 @@
 use openblog_core::citation_review::review_citations;
 use openblog_core::model::LibrarySource;
 use openblog_core::research::{EvidenceCode, EvidenceFinding, EvidenceOutcome};
+use openblog_core::source_interchange::{export_cited_bibtex, export_cited_csl_json};
 use openblog_core::source_library::SourceLibrary;
 use openblog_core::{LoadOptions, Site, SiteConfig, SourceFile, Sources};
 
@@ -249,4 +250,100 @@ fn a_site_load_reports_findings_for_opted_in_posts_only() {
     for post in site.posts.iter().filter(|p| p.slug != "cited") {
         assert!(post.citations().is_none(), "{}", post.slug);
     }
+}
+
+#[test]
+fn exports_hold_only_the_public_description_in_citation_order() {
+    let site = load(vec![(
+        "posts/cited.md",
+        "---\ntitle: Cited\ndate: 2026-10-01\ncitations: notes\n---\nSee [@hostile], [@slings-2003, page 3] and [@hostile].\n",
+    )]);
+    let references = &site.posts[0].citations().unwrap().references;
+    let csl = export_cited_csl_json(references);
+    let bibtex = export_cited_bibtex(references);
+    for content in [&csl.content, &bibtex.content] {
+        assert!(!content.contains(PRIVATE), "{content}");
+        assert!(
+            !content.contains("my-drive") && !content.contains("never-cited"),
+            "{content}"
+        );
+        assert!(
+            !content.contains("openblog-") && !content.contains("custom"),
+            "{content}"
+        );
+    }
+    assert_eq!((csl.count, bibtex.count), (2, 2));
+
+    let items: serde_json::Value = serde_json::from_str(&csl.content).unwrap();
+    assert_eq!(items[0]["id"], "hostile");
+    assert_eq!(items[0]["type"], "webpage");
+    assert_eq!(items[0]["URL"], "https://example.org/a}b");
+    assert_eq!(items[1]["id"], "slings-2003");
+    assert_eq!(items[1]["type"], "book");
+    assert_eq!(items[1]["DOI"], "10.1000/xyz");
+    assert_eq!(items[1]["publisher"], "Oxford University Press");
+    assert_eq!(
+        items[1]["issued"],
+        serde_json::json!({"date-parts": [[2003]]})
+    );
+    assert!(
+        items[1].get("PMID").is_none(),
+        "a malformed PMID is never exported"
+    );
+    assert_eq!(
+        items[1]["editor"],
+        serde_json::json!([{"literal": "S. R. Slings"}])
+    );
+    let csl_losses: Vec<(&str, &str)> = csl
+        .losses
+        .iter()
+        .map(|loss| (loss.source_id.as_str(), loss.field.as_str()))
+        .collect();
+    assert_eq!(
+        csl_losses,
+        vec![("hostile", "creators[1]"), ("slings-2003", "kind")]
+    );
+
+    assert!(
+        bibtex.content.starts_with("@misc{hostile,\n"),
+        "{}",
+        bibtex.content
+    );
+    assert!(
+        bibtex.content.contains("\n@book{slings-2003,\n"),
+        "{}",
+        bibtex.content
+    );
+    assert!(
+        bibtex.content.contains("title = {Braces \\textbraceright{} \\textbraceleft{} and \\textbackslash{} backslash, 100\\% \\& \\$x\\$ \\_under\\_ \\#tag \\~{} \\^{} \"quotes\" </script>}"),
+        "{}",
+        bibtex.content
+    );
+    assert!(
+        bibtex.content.contains("author = {{Smith, Jones and Co}}"),
+        "{}",
+        bibtex.content
+    );
+    assert!(
+        bibtex.content.contains("url = {https://example.org/a%7Db}"),
+        "{}",
+        bibtex.content
+    );
+    assert_eq!(
+        bibtex.content.matches('{').count() - bibtex.content.matches("\\textbraceleft{}").count(),
+        bibtex.content.matches('}').count() - bibtex.content.matches("\\textbraceright{}").count()
+    );
+    assert!(bibtex
+        .losses
+        .iter()
+        .any(|loss| loss.source_id == "slings-2003" && loss.field == "kind"));
+    assert!(bibtex
+        .losses
+        .iter()
+        .any(|loss| loss.source_id == "hostile" && loss.field == "creators[1]"));
+
+    // Deterministic: the same references always export the same bytes.
+    assert_eq!(export_cited_csl_json(references), csl);
+    assert_eq!(export_cited_bibtex(references), bibtex);
+    assert_eq!(export_cited_csl_json(&[]).content, "[]\n");
 }
