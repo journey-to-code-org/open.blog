@@ -5,6 +5,79 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-10-26
+
+- The private Knowledge Atlas can now record uncertain chronology. Entries and relationships
+  carry datings: each says who dates what (a birth, a composition, a span), on which cited
+  evidence and how firmly, at the precision given (a day, month, year, decade or century,
+  optionally circa), as a point, a duration, a window ("before" or "after"), an explicit
+  unknown, or relative to another entry ("composed after the Phaedo"). BCE years have no year 0,
+  calendars are named and never converted, and competing datings are kept side by side and never
+  resolved. A relative dating never becomes or supports a relationship.
+- The atlas file is now version 2. A version 1 atlas is still read, and its next change writes
+  version 2, turning each entry's `bounds` years into a private, unsourced dating by the author
+  with nothing lost. Datings are private by default and approval follows the atlas projection.
+  The Admin entry form no longer edits years; it keeps an entry's datings unchanged when you save.
+- If your site publishes its atlas, the years your approved entries showed from `bounds`
+  disappear from /atlas/ pages and `atlas.json` on your next build, and stay gone until you cite
+  and approve a dating for each entry. An uncited date is never published. `openblog build` and `openblog check` now warn about this,
+  naming each affected entry and how many datings it holds, and Admin's atlas notices list each
+  entry too.
+- `openblog check` now points out atlas datings that cannot all hold as recorded: a death dated
+  before a birth, a work composed after the death or before the birth of the person recorded as
+  its author, a publication before the composition, an activity or membership dated outside a
+  life, relative datings that order the same works both ways round or in a loop, and a relative
+  dating that the absolute dates disagree with. Each notice names the datings by id with the
+  values as you stated them and asks you to check them against the cited evidence; it never says
+  which date is right, never changes your atlas, and never links entries because their dates are
+  close. The summary also says how many datings were indexed. Builds and published pages are
+  unchanged.
+- Admin Studio's Knowledge Atlas can now add and edit datings on entries and relationships: pick
+  what is dated (only what that kind of entry can have), at one point, a duration, a window, an
+  unknown date or relative to another entry, at the precision your source gives, with BCE or CE
+  chosen separately, circa and the calendar, who dates it, on what evidence or as an unsourced
+  draft, with a note and approval. Each dating reads back as you type ("not before the 420s
+  BCE"), and keeping your draft after someone else changed the atlas keeps their datings too.
+- A new Chronology view lists every dating as text: competing datings of the same thing side by
+  side and never resolved, grouped by century, decade or year, with filters for a time window,
+  aspect, competing datings and datings to check, and a line saying what is shown. Datings that
+  cannot all hold are listed to check, each linking to the dating. Each entry also shows its own
+  chronology. Nothing here is published.
+- Chronology prompts from `openblog check` are now always listed in the same order, even when two
+  parties record the same author.
+- Sites that publish their Knowledge Atlas now publish the datings you approved and cited. Each
+  entry's page lists its datings by what they date, with who dates each one, how firmly, the cited
+  evidence and your note, at the precision given and with BCE written out ("between c. 428 BCE
+  and 427 BCE", "the 380s BCE"). Competing datings stand side by side and are never resolved; a
+  relationship's datings appear under "When it held". `atlas.json` gains a `datings` list with
+  the same fields, the date as data and in words, and the first and last year each covers.
+  Unsourced, private and passage-cited datings, datings of unpublished items, datings relative to
+  a private entry, and your check prompts are never published, and an atlas without approved
+  datings builds exactly as before. The warning about entries without public years now names
+  only the entries that still have none.
+- `/atlas/` ends with a timeline when datings are published: an ordered list by century of every
+  published dating in full, then what cannot be placed in time, then the relative chronology. It
+  reads completely without JavaScript and prints whole; with JavaScript you can show one aspect
+  or only aspects with competing datings and go to a period from the keyboard, and a status line
+  says what is shown. Filters show or hide a whole dated aspect, never one dating or its
+  evidence. A dating relative to another entry links to that entry, whose page lists the datings
+  that point at it with links back, so relative chronology can be followed step by step; nothing
+  is worked out from dates.
+- Long unbroken titles in archive-style lists, such as the atlas index, now wrap instead of
+  making the page scroll sideways on a phone.
+
+### Fixed
+
+- Keeping your draft after someone else changed the atlas no longer mixes up two pieces of evidence
+  that cite the same source and passage. Before, removing or reordering evidence elsewhere could
+  make one item lose its stored fields and take the other's (introduced in 0.29.0 for relationship
+  and dissent evidence). Evidence now rests on its own stored copy wherever it moved, told apart by
+  its locators when several items share a source and passage, and otherwise keeps your draft's copy.
+  This repairs keep-draft for relationship evidence from the atlas release, and covers dating
+  evidence too.
+- On a phone or at high zoom (320 pixels wide), Admin's header now wraps instead of making every
+  Admin view scroll sideways.
+
 ## [0.34.0] - 2026-10-26
 
 - The private source library can now record more about each version of a work: which earlier

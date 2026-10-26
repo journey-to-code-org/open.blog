@@ -226,7 +226,7 @@ pub fn remove_passage(
                 .map_err(blocked)?;
             if !using.is_empty() {
                 return Err(blocked(format!(
-                    "{} Knowledge Atlas relationship{} cite{} this passage as evidence ({}); change or remove that evidence first",
+                    "{} Knowledge Atlas item{} cite{} this passage as evidence ({}); change or remove that evidence first",
                     using.len(),
                     if using.len() == 1 { "" } else { "s" },
                     if using.len() == 1 { "s" } else { "" },

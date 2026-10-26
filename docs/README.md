@@ -80,7 +80,18 @@ events typed and records every relationship as an attributed, evidence-backed as
 never presented as consensus, stored privately beside the notebook
 ([ADR 0055](adr/0055-private-knowledge-atlas-storage.md)) with one lock order and guards that
 keep sources and passages it uses from being removed
-([ADR 0056](adr/0056-one-lock-order-and-cross-store-research-guards.md)), and the
+([ADR 0056](adr/0056-one-lock-order-and-cross-store-research-guards.md)), and dates its entries
+and relationships with attributed, cited datings at their stated precision that keep competing
+datings side by side
+([ADR 0093](adr/0093-uncertain-dates-are-attributed-datings-at-their-stated-precision.md)), whose
+only temporal relationship is an asserted relative dating
+([ADR 0094](adr/0094-temporal-relationships-are-relative-datings-never-inferred.md)) and which
+replace version 1's `bounds` privately
+([ADR 0095](adr/0095-atlas-version-2-supersedes-bounds-and-keeps-datings-private.md)), indexed
+in one deterministic display order
+([ADR 0096](adr/0096-the-chronology-index-orders-every-dating-for-display-only.md)) with
+structural prompts that never judge which dating is right
+([ADR 0097](adr/0097-chronology-prompts-are-structural-and-never-verdicts.md)), and the
 [claims and evidence links format](specs/claims-evidence.md), which records the author's own
 reading of which sources support, contradict or contextualize a claim in a draft, with no score
 or verdict ([ADR 0068](adr/0068-claims-and-evidence-links-record-the-authors-reading.md)), never

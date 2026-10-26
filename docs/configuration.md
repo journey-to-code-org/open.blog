@@ -260,7 +260,10 @@ credential names, and safety behavior.
 Knowledge Atlas: `/atlas/`, a page per approved entry at `/atlas/<id>/`, and the same data as
 `/atlas.json`. Only entries you approved, and relationships you approved whose entries are both
 approved, are published, each with who asserts it, its evidence, confidence, doubt and any
-dissent; private notes, notebook passages and unapproved items never are. While it is off, no
+dissent; private notes, notebook passages and unapproved items never are. Datings you approved
+on published items, each cited, are shown on the entry's page with who dates it, the evidence
+and your note, competing datings side by side, and on a timeline at the end of `/atlas/` that
+reads without JavaScript. While it is off, no
 build reads the atlas. Clearing an approval removes the item from the next build. Add
 `{ "label": "Atlas", "href": "/atlas/" }` to `nav` to link it from the header. See the
 [Knowledge Atlas format](specs/knowledge-atlas.md#publication).

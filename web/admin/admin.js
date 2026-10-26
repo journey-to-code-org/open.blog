@@ -1927,15 +1927,31 @@ export function atlasRelationshipSentence(relationship, entries = []) {
 export function atlasDiagnosticControl(field, type = "entry") {
   const path = String(field || "");
   const name = path.replace(/\[\d+\].*$/, "").split(".")[0];
-  if (type === "entry") {
-    if (name === "bounds") return path.endsWith("until") ? "until-year" : "from-year";
-    return { id: "id", kind: "kind", label: "label", aliases: "aliases", summary: "summary", source: "source", visibility: "approved" }[name] || "";
-  }
   const evidenceControl = (prefix, rest) => {
     const found = rest.match(/^evidence\[(\d+)\]\.?(source|passage|locators)?/);
     return found ? `${prefix}evidence-${found[1]}-${found[2] || "source"}` : "";
   };
   const party = (prefix, rest) => (rest.endsWith("source") ? `${prefix}-source` : rest.endsWith("name") ? `${prefix}-name` : prefix);
+  if (name === "dates") {
+    const dating = path.match(/^dates\[(\d+)\](?:\.(.*))?$/);
+    if (!dating) return "dates";
+    const [, index, rest = ""] = dating;
+    const prefix = `dating-${index}`;
+    if (["id", "aspect", "confidence", "unsourced", "note"].includes(rest)) return `${prefix}-${rest}`;
+    if (rest === "visibility") return `${prefix}-approved`;
+    if (rest.startsWith("assertedBy")) return party(`${prefix}-asserted`, rest);
+    if (rest.startsWith("evidence")) return evidenceControl(`${prefix}-`, rest) || `${prefix}-evidence`;
+    const date = rest.match(/^date(?:\.(at|from|to|notBefore|notAfter|unknown|relative)(?:\.(\w+))?)?/);
+    if (!date) return prefix;
+    const [, slot, key] = date;
+    if (!slot || slot === "unknown") return `${prefix}-form`;
+    if (slot === "relative") return `${prefix}-relative-${["order", "entry", "aspect"].includes(key) ? key : "entry"}`;
+    const base = `${prefix}-${DATE_SLOT_IDS[slot]}`;
+    if (["month", "day", "calendar", "circa"].includes(key)) return `${base}-${key}`;
+    if (["year", "decade", "century"].includes(key)) return `${base}-value`;
+    return `${base}-precision`;
+  }
+  if (type === "entry") return { id: "id", kind: "kind", label: "label", aliases: "aliases", summary: "summary", source: "source", visibility: "approved" }[name] || "";
   const dissent = path.match(/^contestedBy\[(\d+)\](?:\.(.*))?$/);
   if (dissent) {
     const [, index, rest = ""] = dissent;
@@ -1967,10 +1983,11 @@ export function atlasErrorMessage(error) {
 
 /** Copy the parts of an atlas response that describe the stored atlas into the view state. */
 export function applyAtlasState(state, result) {
-  for (const key of ["revision", "file", "entries", "relationships", "sources", "passages", "kinds", "notices", "missingConcepts"]) {
+  for (const key of ["revision", "file", "entries", "relationships", "sources", "passages", "kinds", "notices", "chronology", "missingConcepts"]) {
     if (result && result[key] !== undefined) state[key] = result[key];
   }
   for (const key of ["entries", "relationships", "sources", "passages", "notices", "missingConcepts"]) if (!Array.isArray(state[key])) state[key] = [];
+  if (!state.chronology || typeof state.chronology !== "object") state.chronology = { timeline: [], prompts: [], unlisted: 0 };
   return state;
 }
 
@@ -2014,7 +2031,6 @@ function atlasEvidencePayload(draft) {
 
 export function atlasEntryDraft(record = null, prefill = {}) {
   const entry = record && typeof record === "object" ? record : {};
-  const year = (value) => (Number.isInteger(value) ? String(value) : "");
   return {
     original: record ? structuredClone(record) : null,
     id: typeof entry.id === "string" ? entry.id : String(prefill.id || ""),
@@ -2023,17 +2039,16 @@ export function atlasEntryDraft(record = null, prefill = {}) {
     aliases: (Array.isArray(entry.aliases) ? entry.aliases : []).join("\n"),
     summary: typeof entry.summary === "string" ? entry.summary : "",
     source: typeof entry.source === "string" ? entry.source : "",
-    fromYear: year(entry.bounds?.from),
-    untilYear: year(entry.bounds?.until),
+    datings: (Array.isArray(entry.dates) ? entry.dates : []).map((dating) => atlasDatingDraft(dating)),
     approved: entry.visibility === "approved",
   };
 }
 
-/** The full entry to send. Unknown stored fields, including those inside `bounds`, are carried over. */
+/** The full entry to send, carrying unknown fields on the entry and at every level of its datings. */
 export function atlasEntryPayload(draft) {
   const original = draft.original || {};
   const record = { ...original };
-  for (const field of ["aliases", "summary", "source", "bounds"]) delete record[field];
+  for (const field of ["aliases", "summary", "source", "dates"]) delete record[field];
   record.id = String(draft.id || "").trim();
   record.kind = draft.kind;
   record.label = String(draft.label ?? "").trim();
@@ -2041,22 +2056,11 @@ export function atlasEntryPayload(draft) {
   if (aliases.length) record.aliases = aliases;
   if (String(draft.summary ?? "").trim()) record.summary = draft.summary;
   if (draft.kind === "work" && draft.source) record.source = draft.source;
-  const bounds = { ...(original.bounds || {}) };
-  delete bounds.from;
-  delete bounds.until;
-  if (String(draft.fromYear ?? "").trim()) bounds.from = Number(String(draft.fromYear).trim());
-  if (String(draft.untilYear ?? "").trim()) bounds.until = Number(String(draft.untilYear).trim());
-  if (Object.keys(bounds).length) record.bounds = bounds;
+  const dates = (draft.datings || []).map(atlasDatingPayload);
+  if (dates.length) record.dates = dates;
   record.visibility = draft.approved ? "approved" : "private";
   return record;
 }
-
-const atlasYearProblem = (value, field, label) => {
-  const text = String(value ?? "").trim();
-  if (!text) return null;
-  const year = /^-?\d{1,6}$/.test(text) ? Number(text) : NaN;
-  return Number.isInteger(year) && year !== 0 && Math.abs(year) <= 100000 ? null : { field, message: `${label} must be a whole year between -100000 and 100000; negative is BCE and there is no year 0.` };
-};
 
 /** A quick, advisory check; the server's validation stays authoritative. */
 export function validateAtlasEntryDraft(draft, { sources = [], used = [], creating = false } = {}) {
@@ -2073,9 +2077,6 @@ export function validateAtlasEntryDraft(draft, { sources = [], used = [], creati
   if (new Set(aliases).size !== aliases.length) return { field: "aliases", message: "Each other name may appear only once." };
   if (codePoints(draft.summary) > MAX_ATLAS_SUMMARY_CHARS) return { field: "summary", message: `A summary is limited to ${MAX_ATLAS_SUMMARY_CHARS} characters.` };
   if (draft.kind === "work" && draft.source && !sources.some((source) => source.id === draft.source && source.kind === "work")) return { field: "source", message: "Choose a work from your source library, or none." };
-  const year = atlasYearProblem(draft.fromYear, "from-year", "The start year") || atlasYearProblem(draft.untilYear, "until-year", "The end year");
-  if (year) return year;
-  if (String(draft.fromYear).trim() && String(draft.untilYear).trim() && Number(draft.fromYear) > Number(draft.untilYear)) return { field: "until-year", message: "The end year must not be earlier than the start year." };
   return null;
 }
 
@@ -2093,6 +2094,7 @@ export function atlasRelationshipDraft(record = null, prefill = {}) {
     unsourced: Boolean(value.unsourced),
     uncertainty: typeof value.uncertainty === "string" ? value.uncertainty : "",
     contestedBy: (Array.isArray(value.contestedBy) ? value.contestedBy : []).map((item, index) => atlasDissentDraft(item, index)),
+    datings: (Array.isArray(value.dates) ? value.dates : []).map((dating) => atlasDatingDraft(dating)),
     approved: value.visibility === "approved",
   };
 }
@@ -2113,43 +2115,65 @@ export function atlasDissentDraft(record = {}, from = null) {
  * Rests a relationship draft on a newer stored copy. Every nested item read
  * from the store takes the newer copy of the item it came from, wherever that
  * item still exists, so fields added elsewhere at any level survive the save.
- * An item rests on the newer copy only while the stored item at its index is
- * still the same item (evidence: the same source and passage; a dissent: the
- * same party). When items were removed elsewhere, the index points at another
- * item, and the draft keeps its own copy rather than take that item's fields.
+ * A dissent rests on the newer dissent known by its party while that party is
+ * unique in the opened and the newer lists; when several share a party, the
+ * same opened note or evidence must also match, and if that still leaves
+ * several, only the one at the dissent's own index qualifies. Evidence rests on the newer item known by its
+ * source and passage (see `rebaseAtlasEvidence`). When an item cannot be told
+ * apart from another, the draft keeps its own copy rather than take that
+ * item's fields.
  */
 export function rebaseAtlasRelationshipDraft(draft, current) {
-  const stored = (list, from) => (Array.isArray(list) && Number.isInteger(from) && list[from] && typeof list[from] === "object" ? list[from] : null);
   const text = (value) => (typeof value === "string" ? value : "");
-  const sameEvidence = (a = {}, b = {}) => text(a.source) === text(b.source) && text(a.passage) === text(b.passage);
-  const party = (value) => (value && typeof value === "object" ? value : {});
-  const sameDissent = (a = {}, b = {}) => {
-    const [x, y] = [party(a.by), party(b.by)];
-    return text(x.kind) === text(y.kind) && text(x.source) === text(y.source) && text(x.name) === text(y.name);
+  const object = (value) => value && typeof value === "object";
+  const party = (value) => (object(value) ? value : {});
+  const partyKey = (dissent) => {
+    const by = party(dissent?.by);
+    return JSON.stringify([text(by.kind), text(by.source), text(by.name)]);
   };
-  const rebaseEvidence = (drafts, list) => {
-    for (const item of drafts) {
-      const newer = stored(list, item.from);
-      if (newer && sameEvidence(newer, item.original)) item.original = structuredClone(newer);
-    }
-  };
+  const evidenceKey = (dissent) =>
+    JSON.stringify((Array.isArray(dissent?.evidence) ? dissent.evidence : []).map((item) => [text(item?.source), text(item?.passage), JSON.stringify(Array.isArray(item?.locators) ? item.locators : [])]));
+  const openedFrom = draft.original?.dates;
+  const openedEvidence = draft.original?.evidence;
+  const openedDissents = Array.isArray(draft.original?.contestedBy)
+    ? draft.original.contestedBy
+    : draft.contestedBy.filter((item) => Number.isInteger(item.from)).map((item) => item.original);
   draft.original = structuredClone(current);
   draft.assertedBy.original = structuredClone(current.assertedBy || { kind: "author" });
-  rebaseEvidence(draft.evidence, current.evidence);
+  rebaseAtlasEvidence(draft.evidence, current.evidence, openedEvidence);
+  const newerList = Array.isArray(current.contestedBy) ? current.contestedBy : [];
   for (const dissent of draft.contestedBy) {
-    const newer = stored(current.contestedBy, dissent.from);
-    if (!newer || !sameDissent(newer, dissent.original)) continue;
+    if (!Number.isInteger(dissent.from) || !object(dissent.original)) continue;
+    const key = partyKey(dissent.original);
+    const sameParty = (list) => list.filter((value) => object(value) && partyKey(value) === key);
+    const candidates = sameParty(newerList);
+    const openedSame = sameParty(openedDissents);
+    let newer = null;
+    if (candidates.length === 1 && openedSame.length === 1) newer = candidates[0];
+    else {
+      // Several dissents share the party: the same opened note or evidence must tell them apart.
+      const alike = (value) => (text(dissent.original.note) ? text(value.note) === text(dissent.original.note) : !text(value.note) && evidenceKey(value) === evidenceKey(dissent.original));
+      const matching = candidates.filter(alike);
+      const openedMatching = openedSame.filter(alike);
+      if (matching.length === 1 && openedMatching.length === 1) newer = matching[0];
+      else if (matching.length === openedMatching.length && matching.includes(newerList[dissent.from])) newer = newerList[dissent.from];
+    }
+    if (!newer) continue;
+    const opened = dissent.original?.evidence;
     dissent.original = structuredClone(newer);
+    dissent.from = newerList.indexOf(newer);
     dissent.by.original = structuredClone(newer.by || { kind: "author" });
-    rebaseEvidence(dissent.evidence, newer.evidence);
+    rebaseAtlasEvidence(dissent.evidence, newer.evidence, opened);
   }
+  // Datings carry ids, so they rest on the newer copy by identity, never by position.
+  rebaseAtlasDatings(draft.datings || [], current.dates, openedFrom);
   return draft;
 }
 
 /** The full relationship to send, carrying unknown fields at every level the form edits. */
 export function atlasRelationshipPayload(draft) {
   const record = { ...(draft.original || {}) };
-  for (const field of ["evidence", "unsourced", "uncertainty", "contestedBy"]) delete record[field];
+  for (const field of ["evidence", "unsourced", "uncertainty", "contestedBy", "dates"]) delete record[field];
   record.id = String(draft.id || "").trim();
   record.kind = draft.kind;
   record.from = draft.from;
@@ -2171,6 +2195,8 @@ export function atlasRelationshipPayload(draft) {
     return item;
   });
   if (dissents.length) record.contestedBy = dissents;
+  const dates = (draft.datings || []).map(atlasDatingPayload);
+  if (dates.length) record.dates = dates;
   record.visibility = draft.approved ? "approved" : "private";
   return record;
 }
@@ -2236,6 +2262,559 @@ export function validateAtlasRelationshipDraft(draft, { entries = [], kinds = nu
     if (notebookPointer) return { field: "approved", message: "An approved relationship cannot point into your private notebook; clear the passage and keep the source and locators." };
   }
   return null;
+}
+
+// ---- chronology: datings authored in the editors, and the explorer (ADR 0093 to 0097, 0098)
+
+/** The five date forms, exactly one per dating. A competing date is its own dating. */
+export const ATLAS_DATE_FORMS = Object.freeze([
+  { form: "at", label: "At one point" },
+  { form: "range", label: "Lasting from one point to another" },
+  { form: "window", label: "At some time within a window" },
+  { form: "unknown", label: "Unknown: the party says it is not known" },
+  { form: "relative", label: "Before, after or during another entry's dated aspect" },
+]);
+export const ATLAS_PRECISIONS = Object.freeze([
+  { value: "year", label: "Year" },
+  { value: "month", label: "Month" },
+  { value: "day", label: "Day" },
+  { value: "decade", label: "Decade" },
+  { value: "century", label: "Century" },
+]);
+const ATLAS_ASPECT_LABELS = Object.freeze({
+  span: "Span (a lifetime, a duration, or when it held)",
+  birth: "Birth",
+  death: "Death",
+  active: "Activity (floruit)",
+  composition: "Composition",
+  publication: "Publication",
+  emergence: "Emergence",
+});
+const ATLAS_ASPECT_NOUNS = Object.freeze({ span: "span", birth: "birth", death: "death", active: "activity", composition: "composition", publication: "publication", emergence: "emergence" });
+const ATLAS_ORDER_LABELS = Object.freeze({ before: "Before", after: "After", during: "During (within an aspect that lasts)" });
+const SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const DATE_SLOTS = ["at", "from", "to", "notBefore", "notAfter"];
+const DATE_SLOT_IDS = Object.freeze({ at: "at", from: "from", to: "to", notBefore: "not-before", notAfter: "not-after" });
+const FORM_SLOTS = Object.freeze({ at: ["at"], range: ["from", "to"], window: ["notBefore", "notAfter"], unknown: [], relative: [] });
+const DATE_FORM_KEYS = ["at", "from", "to", "notBefore", "notAfter", "unknown", "relative"];
+const POINT_KEYS = ["year", "month", "day", "decade", "century", "circa", "calendar"];
+const RELATIVE_KEYS = ["order", "entry", "aspect"];
+const DATING_KEYS = ["id", "aspect", "date", "assertedBy", "confidence", "evidence", "unsourced", "note", "visibility"];
+const DEFAULT_MAX_DATINGS = 20;
+const DEFAULT_MAX_YEAR = 100000;
+
+export const atlasAspectLabel = (aspect) => ATLAS_ASPECT_LABELS[aspect] || String(aspect || "");
+const aspectNoun = (aspect) => ATLAS_ASPECT_NOUNS[aspect] || String(aspect || "");
+const capitalize = (text) => (text ? text[0].toUpperCase() + text.slice(1) : text);
+const extrasOf = (value, known) => {
+  const extras = {};
+  if (value && typeof value === "object" && !Array.isArray(value)) for (const [key, item] of Object.entries(value)) if (!known.includes(key)) extras[key] = structuredClone(item);
+  return extras;
+};
+/** A whole number typed as digits only, or NaN. */
+const wholeNumber = (text) => (/^\d+$/.test(String(text ?? "").trim()) ? Number(String(text).trim()) : NaN);
+const daysInMonth = (month) => (month === 2 ? 29 : [4, 6, 9, 11].includes(month) ? 30 : 31);
+
+/** The aspects an owner may be dated by, read from the server's table: an entry kind, or "relationship". */
+export function atlasAspects(kinds, owner) {
+  return (kinds?.aspects || []).filter((spec) => (owner === "relationship" ? spec.relationship : (spec.entries || []).includes(owner)));
+}
+
+/** A historical year as text: negative is BCE, and there is no year 0. */
+export function atlasYearText(year) {
+  return year < 0 ? `${-year} BCE` : `${year} CE`;
+}
+
+const ordinal = (n) => {
+  const tens = n % 100;
+  const suffix = tens >= 11 && tens <= 13 ? "th" : { 1: "st", 2: "nd", 3: "rd" }[n % 10] || "th";
+  return `${n}${suffix}`;
+};
+
+/** A point read back at its own precision, exactly as the core writes it: "c. 428 BCE", "the 380s BCE". */
+export function atlasPointText(point) {
+  if (!point || typeof point !== "object") return "";
+  let text = point.circa ? "c. " : "";
+  if (Number.isInteger(point.year) && point.year !== 0) {
+    if (Number.isInteger(point.month) && Number.isInteger(point.day)) text += `${point.day} `;
+    if (Number.isInteger(point.month)) text += `${SHORT_MONTHS[point.month - 1] || "?"} `;
+    text += atlasYearText(point.year);
+  } else if (Number.isInteger(point.decade) && point.decade !== 0) {
+    text += `${point.circa ? "" : "the "}${Math.abs(point.decade)}s ${point.decade < 0 ? "BCE" : "CE"}`;
+  } else if (Number.isInteger(point.century) && point.century !== 0) {
+    text += `${ordinal(Math.abs(point.century))} century ${point.century < 0 ? "BCE" : "CE"}`;
+  } else return "";
+  if (point.calendar === "gregorian" || point.calendar === "julian") text += ` (${point.calendar})`;
+  return text;
+}
+
+/** A date expression as stated, mirroring the core's text; a relative dating names the other entry by label when `entries` are given. */
+export function atlasDateText(date, entries = null) {
+  const value = date && typeof date === "object" ? date : {};
+  const ends = (a, b, both, and, first, last) => {
+    if (a && b) return `${both}${atlasPointText(a)} ${and} ${atlasPointText(b)}`;
+    if (a) return `${first} ${atlasPointText(a)}`;
+    if (b) return `${last} ${atlasPointText(b)}`;
+    return "open";
+  };
+  if (value.at) return atlasPointText(value.at);
+  if (value.from || value.to) return ends(value.from, value.to, "from ", "to", "from", "until");
+  if (value.notBefore || value.notAfter) return ends(value.notBefore, value.notAfter, "between ", "and", "not before", "not after");
+  if (value.unknown === true) return "unknown";
+  const relative = value.relative;
+  if (relative && typeof relative === "object") {
+    if (!entries) return `${relative.order} \`${relative.entry}\` ${relative.aspect}`;
+    return `${relative.order} the ${aspectNoun(relative.aspect)} of ${atlasEntryName(entries, relative.entry)}`;
+  }
+  return "";
+}
+
+/** `fallback` is the precision of a point the record does not state: "open" (an omitted end) or a precision for a new point. */
+export function atlasPointDraft(point = null, fallback = "open") {
+  const value = point && typeof point === "object" && !Array.isArray(point) ? point : null;
+  const draft = { extras: extrasOf(value, POINT_KEYS), precision: value ? "year" : fallback, magnitude: "", era: "ce", month: "", day: "", circa: Boolean(value?.circa), calendar: ["gregorian", "julian"].includes(value?.calendar) ? value.calendar : "" };
+  const signed = (n) => {
+    draft.magnitude = String(Math.abs(n));
+    draft.era = n < 0 ? "bce" : "ce";
+  };
+  if (Number.isInteger(value?.year)) {
+    signed(value.year);
+    if (Number.isInteger(value.month)) {
+      draft.month = String(value.month);
+      draft.precision = "month";
+      if (Number.isInteger(value.day)) {
+        draft.day = String(value.day);
+        draft.precision = "day";
+      }
+    }
+  } else if (Number.isInteger(value?.decade)) {
+    signed(value.decade);
+    draft.precision = "decade";
+  } else if (Number.isInteger(value?.century)) {
+    signed(value.century);
+    draft.precision = "century";
+  }
+  return draft;
+}
+
+/** The point to send, or undefined for an open end. Unknown fields the point carried are kept. */
+export function atlasPointPayload(draft) {
+  if (!draft || draft.precision === "open") return undefined;
+  const sign = draft.era === "bce" ? -1 : 1;
+  const record = {};
+  if (draft.precision === "decade") record.decade = sign * wholeNumber(draft.magnitude);
+  else if (draft.precision === "century") record.century = sign * wholeNumber(draft.magnitude);
+  else {
+    record.year = sign * wholeNumber(draft.magnitude);
+    if (draft.precision === "month" || draft.precision === "day") {
+      record.month = wholeNumber(draft.month);
+      if (draft.precision === "day") record.day = wholeNumber(draft.day);
+    }
+  }
+  if (draft.circa) record.circa = true;
+  if (draft.calendar && (draft.precision === "month" || draft.precision === "day")) record.calendar = draft.calendar;
+  for (const [key, value] of Object.entries(draft.extras || {})) if (!(key in record)) record[key] = structuredClone(value);
+  return record;
+}
+
+/**
+ * One dating as the editor holds it. `storedId` is the identity of the stored
+ * dating it was read from (null for a new one): a draft rests on a newer
+ * stored copy by that identity, never by its position in the list.
+ */
+export function atlasDatingDraft(record = null, defaults = {}) {
+  const value = record && typeof record === "object" ? record : {};
+  const date = value.date && typeof value.date === "object" ? value.date : {};
+  const form = date.at ? "at" : date.from || date.to ? "range" : date.notBefore || date.notAfter ? "window" : date.unknown === true ? "unknown" : date.relative ? "relative" : "at";
+  const relative = date.relative && typeof date.relative === "object" ? date.relative : {};
+  const points = {};
+  for (const slot of DATE_SLOTS) {
+    // A slot of the stored form that is absent is an open end; other slots wait, blank, in case the form changes.
+    const stated = Boolean(record) && FORM_SLOTS[form].includes(slot);
+    points[slot] = atlasPointDraft(date[slot], slot === "at" || (!stated && (slot === "from" || slot === "notBefore")) ? "year" : "open");
+  }
+  return {
+    storedId: record && typeof value.id === "string" ? value.id : null,
+    original: record ? structuredClone(record) : {},
+    id: typeof value.id === "string" ? value.id : String(defaults.id || ""),
+    idTouched: Boolean(record),
+    aspect: typeof value.aspect === "string" ? value.aspect : String(defaults.aspect || ""),
+    form,
+    points,
+    dateExtras: extrasOf(date, DATE_FORM_KEYS),
+    relative: {
+      extras: extrasOf(relative, RELATIVE_KEYS),
+      order: ["before", "after", "during"].includes(relative.order) ? relative.order : "after",
+      entry: typeof relative.entry === "string" ? relative.entry : "",
+      aspect: typeof relative.aspect === "string" ? relative.aspect : "",
+    },
+    assertedBy: atlasAttributionDraft(value.assertedBy),
+    confidence: ATLAS_CONFIDENCE.some((item) => item.value === value.confidence) ? value.confidence : "tentative",
+    evidence: (Array.isArray(value.evidence) ? value.evidence : []).map((item, index) => atlasEvidenceDraft(item, index)),
+    unsourced: Boolean(value.unsourced),
+    note: typeof value.note === "string" ? value.note : "",
+    approved: value.visibility === "approved",
+  };
+}
+
+/** The full dating to send, carrying unknown fields on the dating, its date, its points and its relative target. */
+export function atlasDatingPayload(draft) {
+  const date = {};
+  if (draft.form === "unknown") date.unknown = true;
+  else if (draft.form === "relative") {
+    date.relative = { order: draft.relative.order, entry: draft.relative.entry, aspect: draft.relative.aspect };
+    for (const [key, value] of Object.entries(draft.relative.extras || {})) if (!(key in date.relative)) date.relative[key] = structuredClone(value);
+  } else {
+    for (const slot of FORM_SLOTS[draft.form] || []) {
+      const point = atlasPointPayload(draft.points[slot]);
+      if (point) date[slot] = point;
+    }
+  }
+  for (const [key, value] of Object.entries(draft.dateExtras || {})) if (!(key in date)) date[key] = structuredClone(value);
+  const record = { id: String(draft.id || "").trim(), aspect: draft.aspect, date, assertedBy: atlasAttributionPayload(draft.assertedBy), confidence: draft.confidence };
+  const evidence = draft.evidence.map(atlasEvidencePayload);
+  if (evidence.length) record.evidence = evidence;
+  else if (draft.unsourced) record.unsourced = true;
+  if (String(draft.note ?? "").trim()) record.note = draft.note;
+  record.visibility = draft.approved ? "approved" : "private";
+  for (const [key, value] of Object.entries(draft.original || {})) if (!DATING_KEYS.includes(key) && !(key in record)) record[key] = structuredClone(value);
+  return record;
+}
+
+/** What a dating draft reads as, for the editor's live text; incomplete points say so rather than guess. */
+export function atlasDatingReading(draft, entries = []) {
+  if (draft.form === "unknown") return "unknown";
+  if (draft.form === "relative") {
+    const { order, entry, aspect } = draft.relative;
+    if (!entry || !aspect) return "not complete yet: choose the other entry and its aspect";
+    return atlasDateText({ relative: { order, entry, aspect } }, entries);
+  }
+  const date = atlasDatingPayload({ ...draft, original: {}, dateExtras: {}, evidence: [], assertedBy: { original: {}, kind: "author" } }).date;
+  const slots = FORM_SLOTS[draft.form] || [];
+  if (slots.some((slot) => date[slot] && !atlasPointText(date[slot]))) return "not complete yet";
+  if (draft.form === "at" && !date.at) return "not complete yet";
+  return atlasDateText(date);
+}
+
+function pointKeys(point) {
+  const years = Number.isInteger(point.year) ? [point.year, point.year] : Number.isInteger(point.decade) ? (point.decade > 0 ? [point.decade, point.decade + 9] : [point.decade - 9, point.decade]) : point.century > 0 ? [(point.century - 1) * 100 + 1, point.century * 100] : [point.century * 100, point.century * 100 + 99];
+  const month = Number.isInteger(point.month) ? point.month : null;
+  return {
+    years,
+    first: month ? [point.year, month, point.day || 1] : [years[0], 1, 1],
+    last: month ? [point.year, month, point.day || daysInMonth(month)] : [years[1], 12, 31],
+  };
+}
+const compareKeys = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+
+/** Whether `start` can begin no later than `end` ends, as the core decides it: months and days only within one calendar. */
+function notReversed(start, end) {
+  const [a, b] = [pointKeys(start), pointKeys(end)];
+  return (start.calendar || "") === (end.calendar || "") ? compareKeys(a.first, b.last) <= 0 : a.years[0] <= b.years[1];
+}
+
+function atlasPointProblem(point, base, name, maxYear) {
+  if (point.precision === "open") return null;
+  const n = wholeNumber(point.magnitude);
+  if (point.precision === "decade") {
+    if (!(n >= 10 && n % 10 === 0 && n + 9 <= maxYear)) return { field: `${base}-value`, message: `${name}: enter a decade as a multiple of 10, such as 1380 for 1380 to 1389 CE, or 380 with BCE for 389 to 380 BCE.` };
+    return null;
+  }
+  if (point.precision === "century") {
+    if (!(n >= 1 && n <= maxYear / 100)) return { field: `${base}-value`, message: `${name}: enter a century as a number from 1 to ${maxYear / 100}, such as 4 for the 4th century.` };
+    return null;
+  }
+  if (!(n >= 1 && n <= maxYear)) return { field: `${base}-value`, message: `${name}: enter a year from 1 to ${maxYear} without a minus sign, and choose BCE or CE. There is no year 0.` };
+  if (point.precision === "month" || point.precision === "day") {
+    const month = wholeNumber(point.month);
+    if (!(month >= 1 && month <= 12)) return { field: `${base}-month`, message: `${name}: choose a month.` };
+    if (point.precision === "day") {
+      const day = wholeNumber(point.day);
+      if (!(day >= 1 && day <= daysInMonth(month))) return { field: `${base}-day`, message: `${name}: enter a day of ${MONTH_NAMES[month - 1]}, from 1 to ${daysInMonth(month)}.` };
+    }
+  }
+  return null;
+}
+
+/**
+ * A quick, advisory check of an item's datings; the server stays
+ * authoritative. Fields name the dating's controls (`dating-1-at-value`).
+ * `used` lists every identifier a new dating may not take.
+ */
+export function validateAtlasDatings(datings, { owner = "", ownerId = "", kinds = null, entries = [], sources = [], passages = [], used = [] } = {}) {
+  const max = kinds?.maxDatings || DEFAULT_MAX_DATINGS;
+  const maxYear = kinds?.maxYear || DEFAULT_MAX_YEAR;
+  if (datings.length > max) return { field: "dates", message: `An entry or relationship may have at most ${max} datings.` };
+  const allowed = atlasAspects(kinds, owner);
+  const seen = new Set();
+  for (const [index, dating] of datings.entries()) {
+    const p = `dating-${index}`;
+    const name = `Dating ${index + 1}`;
+    const id = String(dating.id || "").trim();
+    if (!validAtlasId(id)) return { field: `${p}-id`, message: `${name} needs an identifier of lowercase letters, digits and single hyphens, at most 64 characters.` };
+    if (used.includes(id) || seen.has(id)) return { field: `${p}-id`, message: `${name}'s identifier is already used in the atlas; choose another.` };
+    seen.add(id);
+    const spec = allowed.find((item) => item.aspect === dating.aspect);
+    if (!spec) return { field: `${p}-aspect`, message: `Choose what ${name.toLowerCase()} dates.` };
+    if (dating.form === "range" && !spec.durative) return { field: `${p}-form`, message: `${name}: a ${dating.aspect} happens at one time; give a window instead of a duration.` };
+    const slots = FORM_SLOTS[dating.form] || [];
+    for (const slot of slots) {
+      const problem = atlasPointProblem(dating.points[slot], `${p}-${DATE_SLOT_IDS[slot]}`, name, maxYear);
+      if (problem) return problem;
+    }
+    if (slots.length === 2) {
+      const [start, end] = slots.map((slot) => atlasPointPayload(dating.points[slot]));
+      if (!start && !end) return { field: `${p}-${DATE_SLOT_IDS[slots[0]]}-precision`, message: `${name} needs at least one end; leave only the other one open.` };
+      if (start && end && !notReversed(start, end)) return { field: `${p}-${DATE_SLOT_IDS[slots[1]]}-value`, message: `${name}: the start is later than the end. Check the years and BCE or CE.` };
+    }
+    if (dating.form === "relative") {
+      const target = entries.find((entry) => entry.id === dating.relative.entry);
+      if (!target) return { field: `${p}-relative-entry`, message: `${name}: choose the entry it is dated against.` };
+      const aspect = atlasAspects(kinds, target.kind).find((item) => item.aspect === dating.relative.aspect);
+      if (!aspect) return { field: `${p}-relative-aspect`, message: `${name}: choose an aspect a ${target.kind} has.` };
+      if (dating.relative.order === "during" && !aspect.durative) return { field: `${p}-relative-aspect`, message: `${name}: during needs an aspect that lasts: span, activity or composition.` };
+      if (target.id === ownerId && aspect.aspect === dating.aspect) return { field: `${p}-relative-aspect`, message: `${name} cannot be dated against the aspect it dates.` };
+    }
+    const party = atlasPartyProblem(dating.assertedBy, sources, `${p}-asserted`);
+    if (party) return party;
+    if (dating.evidence.length > MAX_ATLAS_EVIDENCE) return { field: `${p}-evidence`, message: `A dating may cite at most ${MAX_ATLAS_EVIDENCE} pieces of evidence.` };
+    const evidence = atlasEvidenceProblem(dating.evidence, sources, passages, `${p}-`, `${name.toLowerCase()} evidence`);
+    if (evidence) return evidence;
+    if (!dating.evidence.length && !dating.unsourced) return { field: `${p}-evidence`, message: `Add evidence to ${name.toLowerCase()}, or mark it as an unsourced draft.` };
+    if (!dating.evidence.length && dating.confidence === "strong") return { field: `${p}-confidence`, message: `${name}: an unsourced dating cannot be strong; cite evidence first.` };
+    if (codePoints(dating.note) > MAX_ATLAS_UNCERTAINTY_CHARS) return { field: `${p}-note`, message: `A dating's note is limited to ${MAX_ATLAS_UNCERTAINTY_CHARS} characters.` };
+    if (dating.approved) {
+      if (!dating.evidence.length) return { field: `${p}-approved`, message: `${name}: an unsourced dating cannot be approved; cite evidence first.` };
+      if (dating.evidence.some((item) => item.passage)) return { field: `${p}-approved`, message: `${name}: an approved dating cannot point into your private notebook; clear the passage and keep the source and locators.` };
+    }
+  }
+  return null;
+}
+
+/**
+ * Rests nested evidence drafts on a newer stored list. Evidence has no id, so
+ * an item is known by its source and passage, but only while that pair is
+ * unambiguous: exactly one item in the copy the draft was opened from
+ * (`opened`) and exactly one in the newer list share it, and the draft rests
+ * on that newer item wherever it now sits. When several items share the pair,
+ * the newer item must also carry the opened copy's locators; if that still
+ * leaves several, only the one at the draft's own index qualifies. Otherwise
+ * the draft keeps its own copy rather than borrow another item's fields.
+ */
+function rebaseAtlasEvidence(drafts, list, opened) {
+  const text = (value) => (typeof value === "string" ? value : "");
+  const object = (value) => value && typeof value === "object";
+  const pair = (value) => (object(value) ? JSON.stringify([text(value.source), text(value.passage)]) : null);
+  const locators = (value) => (Array.isArray(value?.locators) ? value.locators : []);
+  const sameLocators = (a, b) => {
+    const [x, y] = [locators(a), locators(b)];
+    return x.length === y.length && x.every((item, index) => object(item) && object(y[index]) && sameLocator(item, y[index]));
+  };
+  const items = Array.isArray(list) ? list : [];
+  const before = Array.isArray(opened) ? opened : drafts.filter((item) => Number.isInteger(item.from)).map((item) => item.original);
+  const count = (values, key) => values.filter((value) => pair(value) === key).length;
+  for (const item of drafts) {
+    if (!Number.isInteger(item.from) || !object(item.original)) continue;
+    const key = pair(item.original);
+    const candidates = items.filter((value) => pair(value) === key);
+    let newer = null;
+    if (candidates.length === 1 && count(before, key) === 1) newer = candidates[0];
+    else {
+      const matching = candidates.filter((value) => sameLocators(value, item.original));
+      const openedMatching = before.filter((value) => pair(value) === key && sameLocators(value, item.original));
+      // Identical opened items cannot be told apart by content: the position
+      // counts only while the group of identical items is the same size.
+      if (matching.length === 1 && openedMatching.length === 1) newer = matching[0];
+      else if (matching.length === openedMatching.length && matching.includes(items[item.from])) newer = items[item.from];
+    }
+    if (!newer) continue;
+    item.original = structuredClone(newer);
+    item.from = items.indexOf(newer);
+  }
+}
+
+/**
+ * Rests an item's dating drafts on the newer stored datings, by identity:
+ * each draft read from the store takes the newer copy of the dating with the
+ * same id, wherever it now sits, so fields added elsewhere at every level
+ * survive. A dating removed elsewhere keeps the draft's copy. A dating added
+ * elsewhere (not in the copy the draft was opened from) joins the draft, so
+ * keeping the draft never drops it. Returns how many were added.
+ */
+export function rebaseAtlasDatings(datings, stored, openedFrom = []) {
+  const list = (Array.isArray(stored) ? stored : []).filter((item) => item && typeof item === "object" && typeof item.id === "string");
+  const byId = new Map(list.map((item) => [item.id, item]));
+  for (const dating of datings) {
+    const newer = dating.storedId ? byId.get(dating.storedId) : null;
+    if (!newer) continue;
+    const date = newer.date && typeof newer.date === "object" ? newer.date : {};
+    const opened = dating.original?.evidence;
+    dating.original = structuredClone(newer);
+    dating.dateExtras = extrasOf(date, DATE_FORM_KEYS);
+    for (const slot of DATE_SLOTS) if (date[slot] && typeof date[slot] === "object") dating.points[slot].extras = extrasOf(date[slot], POINT_KEYS);
+    if (date.relative && typeof date.relative === "object") dating.relative.extras = extrasOf(date.relative, RELATIVE_KEYS);
+    dating.assertedBy.original = structuredClone(newer.assertedBy || { kind: "author" });
+    rebaseAtlasEvidence(dating.evidence, newer.evidence, opened);
+  }
+  const known = new Set([...(Array.isArray(openedFrom) ? openedFrom : []).map((item) => item?.id), ...datings.map((dating) => dating.storedId).filter(Boolean)]);
+  const added = list.filter((item) => !known.has(item.id)).map((item) => atlasDatingDraft(item));
+  datings.push(...added);
+  return added.length;
+}
+
+/** Rests an entry draft on a newer stored copy: its own unknown fields, and its datings by identity. */
+export function rebaseAtlasEntryDraft(draft, current) {
+  const openedFrom = draft.original?.dates;
+  draft.original = structuredClone(current);
+  rebaseAtlasDatings(draft.datings, current?.dates, openedFrom);
+  return draft;
+}
+
+/** What the editor says about an item's datings. */
+export function atlasDatesText(count) {
+  const n = Number.isInteger(count) && count > 0 ? count : 0;
+  const kept = n ? `${plural(n, "dating")}. ` : "No datings yet. ";
+  return `${kept}Each dating records who dates what, on which evidence, at the precision they state. Competing datings stay side by side; nothing picks one, averages them or converts calendars.`;
+}
+
+/** A dating's standing for publication, in words. Approved datings publish only while the site publishes its atlas. */
+export function atlasDatingVisibilityText(record, projected) {
+  if (record?.visibility !== "approved") return "Private";
+  return projected ? "Approved for the publication projection; published with the atlas while the site publishes it" : "Approved, but stays private while what it dates, or the entry it is dated against, is private";
+}
+
+/** The explorer's time window from the filter fields, in historical years (negative is BCE). */
+export function atlasChronologyWindow(filters = {}, maxYear = DEFAULT_MAX_YEAR) {
+  const read = (text, era) => {
+    if (!String(text ?? "").trim()) return { year: null };
+    const n = wholeNumber(text);
+    if (!(n >= 1 && n <= maxYear)) return { problem: true };
+    return { year: era === "bce" ? -n : n };
+  };
+  const from = read(filters.fromYear, filters.fromEra || "bce");
+  const to = read(filters.toYear, filters.toEra || "ce");
+  if (from.problem || to.problem) return { active: false, from: null, to: null, problem: "Enter whole years from 1 without a minus sign, and choose BCE or CE; there is no year 0. The time window is not applied." };
+  if (from.year !== null && to.year !== null && from.year > to.year) return { active: false, from: from.year, to: to.year, problem: "The time window starts after it ends, so it is not applied." };
+  return { active: from.year !== null || to.year !== null, from: from.year, to: to.year, problem: "" };
+}
+
+/** The heading a dated aspect is listed under at a zoom level: by century, decade or year it begins in. */
+export function atlasChronologyGroupLabel(year, zoom = "century") {
+  if (zoom === "none") return "";
+  if (!Number.isInteger(year)) return "No earliest point stated (open start)";
+  const era = year < 0 ? "BCE" : "CE";
+  const magnitude = Math.abs(year);
+  if (zoom === "year") return atlasYearText(year);
+  if (zoom === "decade") {
+    const decade = Math.floor(magnitude / 10) * 10;
+    return decade ? `the ${decade}s ${era}` : `1 to 9 ${era}`;
+  }
+  return `${ordinal(Math.ceil(magnitude / 100))} century ${era}`;
+}
+
+/** The name of a dated item: an entry's label, or a relationship read in its stored direction. */
+function atlasOwnerName(state, collection, id) {
+  if (collection === "entries") return atlasEntryName(state.entries, id);
+  const relationship = (state.relationships || []).find((item) => item.id === id);
+  return relationship ? atlasRelationshipSentence(relationship, state.entries) : `${id} (missing)`;
+}
+
+/**
+ * The chronology explorer's model, from the server's chronology index. A
+ * dated aspect (one item's datings of one aspect) keeps all its competing
+ * datings together, in the index's one display order. Filters show or hide a
+ * whole dated aspect and never one of its competing datings: a dating outside
+ * the time window is kept and marked when a competitor falls inside it. A
+ * dated aspect with no absolute dating is listed apart, never placed in time.
+ */
+export function atlasChronologyModel(state, filters = {}) {
+  const chronology = state.chronology || {};
+  const timeline = Array.isArray(chronology.timeline) ? chronology.timeline : [];
+  const prompts = Array.isArray(chronology.prompts) ? chronology.prompts : [];
+  const promptCount = new Map();
+  for (const prompt of prompts) for (const id of prompt.datings || []) promptCount.set(id, (promptCount.get(id) || 0) + 1);
+  const records = new Map();
+  for (const item of [...(state.entries || []), ...(state.relationships || [])]) for (const dating of item.dates || []) records.set(dating.id, dating);
+  const rows = [];
+  const byKey = new Map();
+  for (const item of timeline) {
+    const key = `${item.collection}:${item.owner}:${item.aspect}`;
+    let row = byKey.get(key);
+    if (!row) {
+      row = { key, owner: item.owner, collection: item.collection, aspect: item.aspect, name: atlasOwnerName(state, item.collection, item.owner), datings: [] };
+      byKey.set(key, row);
+      rows.push(row);
+    }
+    row.datings.push({ ...item, record: records.get(item.id) || null, prompts: promptCount.get(item.id) || 0, inWindow: null });
+  }
+  const window = atlasChronologyWindow(filters, state.kinds?.maxYear);
+  const overlaps = (dating) => (dating.endYear ?? Infinity) >= (window.from ?? -Infinity) && (dating.startYear ?? -Infinity) <= (window.to ?? Infinity);
+  for (const row of rows) {
+    row.placed = row.datings.find((dating) => dating.placement === "dated") || null;
+    row.startYear = row.placed ? row.placed.startYear : null;
+    for (const dating of row.datings) dating.inWindow = window.active && dating.placement === "dated" ? overlaps(dating) : null;
+  }
+  const words = foldAtlasText(filters.query).split(" ").filter(Boolean);
+  const matches = (row) => {
+    if (filters.aspect && row.aspect !== filters.aspect) return false;
+    if (filters.competing && row.datings.length < 2) return false;
+    if (filters.prompted && !row.datings.some((dating) => dating.prompts)) return false;
+    if (words.length) {
+      const haystack = foldAtlasText(`${row.owner} ${row.name}`);
+      if (!words.every((word) => haystack.includes(word))) return false;
+    }
+    if (window.active && row.placed) return row.datings.some((dating) => dating.inWindow);
+    return true;
+  };
+  const shown = rows.filter(matches);
+  const zoom = ["century", "decade", "year", "none"].includes(filters.zoom) ? filters.zoom : "century";
+  const groups = [];
+  for (const row of shown.filter((item) => item.placed)) {
+    const label = atlasChronologyGroupLabel(row.startYear, zoom);
+    if (groups.length && groups[groups.length - 1].label === label) groups[groups.length - 1].rows.push(row);
+    else groups.push({ label, rows: [row] });
+  }
+  const relative = shown.flatMap((row) => row.datings.filter((dating) => dating.placement === "relative").map((dating) => ({ row, dating })));
+  return {
+    rows,
+    groups,
+    unplaced: shown.filter((row) => !row.placed),
+    relative,
+    prompts,
+    unlisted: Number.isInteger(chronology.unlisted) ? chronology.unlisted : 0,
+    window,
+    zoom,
+    total: { rows: rows.length, datings: timeline.length },
+    shown: { rows: shown.length, datings: shown.reduce((sum, row) => sum + row.datings.length, 0) },
+  };
+}
+
+/** The explorer's visible state in words: what is shown, and every filter and the zoom level in force. */
+export function atlasChronologyStatus(model, filters = {}) {
+  const parts = [`Showing ${model.shown.rows} of ${plural(model.total.rows, "dated aspect")} (${model.shown.datings} of ${plural(model.total.datings, "dating")})`];
+  if (filters.aspect) parts.push(`${aspectNoun(filters.aspect)} only`);
+  if (String(filters.query ?? "").trim()) parts.push(`matching “${String(filters.query).trim()}”`);
+  if (model.window.active) {
+    if (model.window.from !== null) parts.push(`from ${atlasYearText(model.window.from)}`);
+    if (model.window.to !== null) parts.push(`to ${atlasYearText(model.window.to)}`);
+  }
+  if (filters.competing) parts.push("only aspects with competing datings");
+  if (filters.prompted) parts.push("only datings with a check prompt");
+  parts.push(model.zoom === "none" ? "not grouped" : `grouped by the ${model.zoom} each begins in`);
+  return `${parts.join("; ")}.${model.window.problem ? ` ${model.window.problem}` : ""}`;
+}
+
+/** A dating as read in the explorer: the index's text, a relative dating with the other entry's label, or unknown said plainly. */
+export function atlasChronologyReading(dating, entries = []) {
+  if (dating.placement === "relative" && dating.record?.date?.relative) return atlasDateText(dating.record.date, entries);
+  if (dating.placement === "unknown") return "Unknown, as the party states";
+  return String(dating.text || "");
+}
+
+/** "Composition of Laws: after the activity of Plato". */
+export function atlasRelativeSentence(rowName, aspect, dating, entries = []) {
+  return `${capitalize(aspectNoun(aspect))} of ${rowName}: ${atlasChronologyReading(dating, entries)}`;
 }
 
 /**
@@ -2344,7 +2923,7 @@ export function createAtlasForm({ api, state, type = "entry", item = null, prefi
   };
 
   /** One list of evidence: library source, optional notebook passage, locators. */
-  const evidenceEditor = (list, prefix, names) => {
+  const evidenceEditor = (list, prefix, names, onAdd = null) => {
     const items = list.map((evidence, index) => {
       const base = `${prefix}evidence-${index}`;
       const passages = (state.passages || []).filter((passage) => (!evidence.source || passage.source === evidence.source) && (!passage.archived || passage.id === evidence.passage));
@@ -2383,6 +2962,7 @@ export function createAtlasForm({ api, state, type = "entry", item = null, prefi
         onClick: () => {
           list.push(atlasEvidenceDraft());
           if (list === draft.evidence) draft.unsourced = false;
+          onAdd?.();
           rerender(`${prefix}evidence-${list.length - 1}-source`);
         },
       }, names.add),
@@ -2406,11 +2986,198 @@ export function createAtlasForm({ api, state, type = "entry", item = null, prefi
     );
   };
 
+
+  // ---- dating parts (ADR 0093, ADR 0098)
+  const datingOwner = () => (isEntry ? draft.kind : "relationship");
+  const datingAspects = () => atlasAspects(state.kinds, datingOwner());
+  /** Every identifier a new dating may not take: the atlas's entries, relationships and other items' datings. */
+  const datingIdsInUse = () => {
+    const own = new Set((draft.original?.dates || []).map((dating) => dating?.id));
+    const others = [...(state.entries || []), ...(state.relationships || [])].flatMap((record) => (Array.isArray(record.dates) ? record.dates : []).map((dating) => dating.id)).filter((id) => !own.has(id));
+    return [...used(), ...others, ...(!editing && draft.id ? [draft.id] : [])];
+  };
+  const suggestDatingId = (dating) => {
+    const others = draft.datings.filter((item) => item !== dating).map((item) => item.id);
+    const owner = String(draft.id || "").trim() || (isEntry ? "entry" : "relationship");
+    return suggestAtlasId(`${owner}-${dating.aspect || "date"}`, [...datingIdsInUse(), ...others], "dating");
+  };
+  const refreshReading = (index) => {
+    const target = control(`dating-${index}-reads`);
+    if (target) target.textContent = `Reads: ${atlasDatingReading(draft.datings[index], state.entries || [])}`;
+  };
+
+  /** One point at its own precision: a year (with month and day), a decade or a century, BCE or CE, optionally circa. */
+  const pointEditor = (dating, index, slot, legend, openLabel = "") => {
+    const point = dating.points[slot];
+    const base = `dating-${index}-${DATE_SLOT_IDS[slot]}`;
+    const parts = [
+      field(
+        `${base}-precision`,
+        "Precision",
+        h(
+          "select",
+          { onChange: (event) => { point.precision = event.target.value; rerender(`${base}-precision`); } },
+          openLabel ? h("option", { value: "open", selected: point.precision === "open" }, openLabel) : null,
+          ATLAS_PRECISIONS.map((item) => h("option", { value: item.value, selected: point.precision === item.value }, item.label)),
+        ),
+        openLabel ? "Open leaves this end unstated. Nothing widens, narrows or rounds what you state." : "State it as finely as the party does, and no finer.",
+      ),
+    ];
+    if (point.precision !== "open") {
+      const valueLabel = { decade: "Decade", century: "Century" }[point.precision] || "Year";
+      const valueHint = {
+        decade: "Named as decades are: 1380 with CE is 1380 to 1389 CE; 380 with BCE is 389 to 380 BCE.",
+        century: "An ordinal number: 4 is the 4th century, 301 to 400 CE or 400 to 301 BCE.",
+      }[point.precision] || "Digits only, with no minus sign; choose BCE or CE below. There is no year 0: 1 BCE is followed by 1 CE.";
+      parts.push(
+        field(`${base}-value`, valueLabel, h("input", { type: "text", inputmode: "numeric", autocomplete: "off", spellcheck: "false", value: point.magnitude, onInput: (event) => { point.magnitude = event.target.value.trim(); refreshReading(index); } }), valueHint),
+        field(`${base}-era`, "Era", h("select", { onChange: (event) => { point.era = event.target.value; refreshReading(index); } }, h("option", { value: "bce", selected: point.era === "bce" }, "BCE (before the Common Era)"), h("option", { value: "ce", selected: point.era === "ce" }, "CE (the Common Era)"))),
+      );
+      if (point.precision === "month" || point.precision === "day") {
+        parts.push(field(`${base}-month`, "Month", h("select", { onChange: (event) => { point.month = event.target.value; refreshReading(index); } }, h("option", { value: "", selected: !point.month }, "Choose a month"), MONTH_NAMES.map((name, position) => h("option", { value: String(position + 1), selected: point.month === String(position + 1) }, name)))));
+        if (point.precision === "day") parts.push(field(`${base}-day`, "Day", h("input", { type: "text", inputmode: "numeric", autocomplete: "off", value: point.day, onInput: (event) => { point.day = event.target.value.trim(); refreshReading(index); } })));
+        parts.push(field(`${base}-calendar`, "Calendar of the month and day", h("select", { onChange: (event) => { point.calendar = event.target.value; refreshReading(index); } }, h("option", { value: "", selected: !point.calendar }, "As the cited party gives it (unspecified)"), h("option", { value: "gregorian", selected: point.calendar === "gregorian" }, "Gregorian"), h("option", { value: "julian", selected: point.calendar === "julian" }, "Julian")), "Nothing converts calendars. Points stated in different calendars are compared by year only; record any other reckoning in the note."));
+      }
+      parts.push(check(`${base}-circa`, "Circa: the party gives it as approximate", point.circa, (on) => { point.circa = on; refreshReading(index); }));
+    }
+    return h("fieldset", { class: "oba-atlas-point", id: `${idPrefix}-${base}`, tabindex: "-1" }, h("legend", {}, legend), parts);
+  };
+
+  /** A relative dating: before, after or during another entry's dated aspect, only as asserted. */
+  const relativeEditor = (dating, index) => {
+    const base = `dating-${index}-relative`;
+    const relative = dating.relative;
+    const entries = state.entries || [];
+    const target = entries.find((entry) => entry.id === relative.entry) || null;
+    const fits = (spec) => relative.order !== "during" || spec.durative;
+    const aspects = target ? atlasAspects(state.kinds, target.kind).filter(fits) : [];
+    const keepAspect = () => {
+      const now = entries.find((entry) => entry.id === relative.entry) || null;
+      if (relative.aspect && !(now && atlasAspects(state.kinds, now.kind).filter(fits).some((spec) => spec.aspect === relative.aspect))) {
+        relative.aspect = "";
+        return true;
+      }
+      return false;
+    };
+    return h(
+      "fieldset",
+      { class: "oba-atlas-point", id: `${idPrefix}-${base}`, tabindex: "-1" },
+      h("legend", {}, "Dated against"),
+      field(`${base}-order`, "Order", h("select", { onChange: (event) => { relative.order = event.target.value; const cleared = keepAspect(); rerender(`${base}-order`); if (cleared) say("The other entry's aspect does not last, so it was cleared; during needs one that lasts."); } }, (state.kinds?.orders || ["before", "after", "during"]).map((order) => h("option", { value: order, selected: relative.order === order }, ATLAS_ORDER_LABELS[order] || order))), "Asserted and cited like any dating. Nothing infers an order from absolute dates, and it never makes a relationship."),
+      field(`${base}-entry`, "Other entry", h("select", { onChange: (event) => { relative.entry = event.target.value; const cleared = keepAspect(); rerender(`${base}-entry`); if (cleared) say("That entry does not have the chosen aspect, so it was cleared."); } }, h("option", { value: "", selected: !relative.entry }, "Choose an entry"), entries.map((entry) => h("option", { value: entry.id, selected: relative.entry === entry.id }, `${entry.label} (${atlasKindLabel(entry.kind).toLowerCase()}, ${entry.id})`)))),
+      field(`${base}-aspect`, "Its dated aspect", h("select", { onChange: (event) => { relative.aspect = event.target.value; refreshReading(index); } }, h("option", { value: "", selected: !relative.aspect }, target ? "Choose an aspect" : "Choose the entry first"), aspects.map((spec) => h("option", { value: spec.aspect, selected: relative.aspect === spec.aspect }, atlasAspectLabel(spec.aspect)))), "Only aspects that entry's kind has are offered; during offers only aspects that last."),
+    );
+  };
+
+  const datingEditor = (dating, index) => {
+    const p = `dating-${index}`;
+    const number = index + 1;
+    const aspects = datingAspects();
+    const spec = aspects.find((item) => item.aspect === dating.aspect) || null;
+    const forms = {
+      at: () => [pointEditor(dating, index, "at", "The point")],
+      range: () => [pointEditor(dating, index, "from", "From", "Open: no stated start"), pointEditor(dating, index, "to", "To", "Open: no stated end")],
+      window: () => [pointEditor(dating, index, "notBefore", "Not before (the earliest it can be)", "Open: no earliest point, so before the latest"), pointEditor(dating, index, "notAfter", "Not after (the latest it can be)", "Open: no latest point, so after the earliest")],
+      unknown: () => [h("p", { class: "oba-small" }, "Recorded as the party's statement that the date is unknown: never a missing value or a placeholder year.")],
+      relative: () => [relativeEditor(dating, index)],
+    };
+    return h(
+      "fieldset",
+      { class: "oba-atlas-dating", id: `${idPrefix}-${p}`, tabindex: "-1", "data-atlas-dating": String(index) },
+      h("legend", {}, `Dating ${number}`),
+      dating.storedId
+        ? h("p", { class: "oba-small" }, `Identifier: ${dating.id}. It cannot change; prompts and pages name the dating by it.`)
+        : field(`${p}-id`, "Identifier", h("input", { type: "text", value: dating.id, autocomplete: "off", spellcheck: "false", onInput: (event) => { dating.idTouched = true; dating.id = event.target.value.trim(); } }), "Lowercase letters, digits and hyphens, unique across the atlas. It cannot change once saved."),
+      field(
+        `${p}-aspect`,
+        "What it dates",
+        h(
+          "select",
+          { onChange: (event) => {
+            dating.aspect = event.target.value;
+            if (!dating.storedId && !dating.idTouched) dating.id = suggestDatingId(dating);
+            const lasts = datingAspects().find((item) => item.aspect === dating.aspect)?.durative;
+            if (dating.form === "range" && !lasts) {
+              dating.form = "window";
+              dating.points.notBefore = dating.points.from;
+              dating.points.notAfter = dating.points.to;
+              rerender(`${p}-aspect`);
+              say(`A ${dating.aspect} happens at one time, so the duration became a window with the same ends.`);
+              return;
+            }
+            rerender(`${p}-aspect`);
+          } },
+          spec ? null : h("option", { value: "", selected: true }, "Choose an aspect"),
+          aspects.map((item) => h("option", { value: item.aspect, selected: dating.aspect === item.aspect }, atlasAspectLabel(item.aspect))),
+        ),
+        isEntry ? `Only aspects a ${draft.kind} can have are offered. Several datings may date the same aspect.` : "A relationship is dated only by its span: when it held. It dates the relationship and is not evidence for it.",
+      ),
+      h(
+        "fieldset",
+        { class: "oba-atlas-date-form", id: `${idPrefix}-${p}-form`, tabindex: "-1" },
+        h("legend", {}, "When"),
+        ATLAS_DATE_FORMS.map(({ form, label }) => {
+          const id = `${idPrefix}-${p}-form-${form}`;
+          const blocked = form === "range" && spec && !spec.durative;
+          return h("div", { class: "oba-capture-check" }, h("input", { id, type: "radio", name: `${idPrefix}-${p}-form`, value: form, checked: dating.form === form, disabled: Boolean(blocked) && dating.form !== form, onChange: () => { dating.form = form; rerender(`${p}-form-${form}`); } }), h("label", { for: id }, label));
+        }),
+        spec && !spec.durative ? h("p", { class: "oba-small" }, `A ${dating.aspect} happens at one time, so its uncertainty is a window, not a duration.`) : null,
+      ),
+      forms[dating.form] ? forms[dating.form]() : null,
+      h("p", { class: "oba-atlas-reads", id: `${idPrefix}-${p}-reads`, "data-atlas-reads": String(index) }, `Reads: ${atlasDatingReading(dating, state.entries || [])}`),
+      partyEditor(`${p}-asserted`, "Dated by", dating.assertedBy, "Who gives this date. It is attribution, not a contributor credit."),
+      field(`${p}-confidence`, "Confidence", h("select", { onChange: (event) => { dating.confidence = event.target.value; } }, ATLAS_CONFIDENCE.map((item) => h("option", { value: item.value, selected: dating.confidence === item.value }, item.label))), "How firmly that party holds this date, never how widely it is accepted. An unsourced draft cannot be strong."),
+      h(
+        "fieldset",
+        { class: "oba-atlas-evidence-list", id: `${idPrefix}-${p}-evidence`, tabindex: "-1" },
+        h("legend", {}, `Evidence for dating ${number}`),
+        evidenceEditor(dating.evidence, `${p}-`, { item: (n) => `Dating ${number} evidence ${n}`, add: `Add evidence to dating ${number}`, remove: (n) => `Remove evidence ${n} from dating ${number}` }, () => { dating.unsourced = false; }),
+        check(`${p}-unsourced`, "Unsourced draft: no evidence yet", dating.unsourced && !dating.evidence.length, (on) => { dating.unsourced = on; }, dating.evidence.length ? "Remove all evidence to mark this dating as an unsourced draft." : "The explicit draft state for a dating that cites nothing yet. It can be neither strong nor approved.", dating.evidence.length > 0),
+      ),
+      field(`${p}-note`, "Note (optional)", h("textarea", { rows: 2, value: dating.note, onInput: (event) => { dating.note = event.target.value; } }), "What is doubtful, or how the party reckons the date (a regnal year, an Olympiad). Stored as text."),
+      check(`${p}-approved`, "Approved for the publication projection", dating.approved, (on) => { dating.approved = on; }, "Your consent for this dating alone. It needs cited evidence and no notebook passage, and it stays private while what it dates, or the entry it is dated against, is private. While the site publishes its atlas, an approved dating appears on the entry's page, the timeline and atlas.json with who dates it, the evidence and the note."),
+      h("button", { class: "oba-btn oba-btn-danger", type: "button", "data-atlas-remove-dating": String(index), onClick: () => { draft.datings.splice(index, 1); rerender("add-dating"); say(`Dating ${number} removed. Nothing is stored until you save.`); } }, `Remove dating ${number}`),
+    );
+  };
+
+  const datingsEditor = () => {
+    const aspects = datingAspects();
+    const max = state.kinds?.maxDatings || DEFAULT_MAX_DATINGS;
+    return h(
+      "fieldset",
+      { class: "oba-atlas-dates", id: `${idPrefix}-dates`, tabindex: "-1" },
+      h("legend", {}, "Dates"),
+      h("p", { class: "oba-small", "data-atlas-dates-summary": "true" }, atlasDatesText(draft.datings.length)),
+      draft.datings.map(datingEditor),
+      h("button", {
+        class: "oba-btn",
+        type: "button",
+        id: `${idPrefix}-add-dating`,
+        "data-atlas-add-dating": "true",
+        disabled: draft.datings.length >= max || !aspects.length,
+        onClick: () => {
+          const dating = atlasDatingDraft(null, { aspect: aspects[0]?.aspect || "" });
+          draft.datings.push(dating);
+          dating.id = suggestDatingId(dating);
+          rerender(`dating-${draft.datings.length - 1}-aspect`);
+        },
+      }, "Add a dating"),
+    );
+  };
+
   const entryFields = () => {
     const fields = [];
     if (editing) fields.push(h("p", { class: "oba-small" }, `Kind: ${atlasKindLabel(draft.kind)}. An entry keeps its kind; record a different kind of thing as a new entry. Identifier: ${draft.id}.`));
     else {
-      fields.push(field("kind", "Kind", h("select", { onChange: (event) => { draft.kind = event.target.value; if (draft.kind !== "work") draft.source = ""; rerender("kind"); } }, ATLAS_ENTRY_KINDS.map((kind) => h("option", { value: kind.kind, selected: draft.kind === kind.kind }, kind.label))), "It decides which relationships the entry may join, and it cannot change later."));
+      fields.push(field("kind", "Kind", h("select", { onChange: (event) => {
+        draft.kind = event.target.value;
+        if (draft.kind !== "work") draft.source = "";
+        const allowed = datingAspects();
+        const moved = draft.datings.filter((dating) => dating.aspect && !allowed.some((item) => item.aspect === dating.aspect));
+        for (const dating of moved) dating.aspect = "";
+        rerender("kind");
+        if (moved.length) say(`${plural(moved.length, "dating")} dated an aspect a ${draft.kind} does not have, so ${moved.length === 1 ? "its aspect was" : "their aspects were"} cleared.`);
+      } }, ATLAS_ENTRY_KINDS.map((kind) => h("option", { value: kind.kind, selected: draft.kind === kind.kind }, kind.label))), "It decides which relationships the entry may join, and it cannot change later."));
     }
     fields.push(field("label", "Label", h("input", { type: "text", value: draft.label, autocomplete: "off", onInput: (event) => {
       draft.label = event.target.value;
@@ -2427,15 +3194,8 @@ export function createAtlasForm({ api, state, type = "entry", item = null, prefi
     );
     if (draft.kind === "work") fields.push(field("source", "Source-library work (optional)", sourceSelect(draft.source, (value) => { draft.source = value; }, "work"), "Editions, translations and witnesses are cited as evidence, never made entries."));
     fields.push(
-      h(
-        "fieldset",
-        { class: "oba-atlas-dates" },
-        h("legend", {}, "Dates (optional)"),
-        h("p", { class: "oba-small", id: `${idPrefix}-dates-hint` }, "Whole years; negative is BCE and there is no year 0. Dates are context only: nothing is ordered or related by them."),
-        field("from-year", "From year", h("input", { type: "text", inputmode: "numeric", value: draft.fromYear, autocomplete: "off", onInput: (event) => { draft.fromYear = event.target.value; } })),
-        field("until-year", "Until year", h("input", { type: "text", inputmode: "numeric", value: draft.untilYear, autocomplete: "off", onInput: (event) => { draft.untilYear = event.target.value; } })),
-      ),
-      check("approved", "Approved for the publication projection", draft.approved, (on) => { draft.approved = on; }, "Your consent to publish this entry on the site's Knowledge Atlas pages and atlas.json, once the site turns on knowledgeAtlas.publish. Only its label, other names, summary, years and work source are published. Clearing it removes the entry from the next build."),
+      datingsEditor(),
+      check("approved", "Approved for the publication projection", draft.approved, (on) => { draft.approved = on; }, "Your consent to publish this entry on the site's Knowledge Atlas pages and atlas.json, once the site turns on knowledgeAtlas.publish. Only its label, other names, summary and work source are published, with the datings you approve one by one. Clearing it removes the entry and its datings from the next build."),
     );
     return fields;
   };
@@ -2509,6 +3269,7 @@ export function createAtlasForm({ api, state, type = "entry", item = null, prefi
         draft.contestedBy.map(dissentEditor),
         h("button", { class: "oba-btn", type: "button", id: `${idPrefix}-add-dissent`, "data-atlas-add-dissent": "true", disabled: draft.contestedBy.length >= MAX_ATLAS_DISSENTS, onClick: () => { draft.contestedBy.push(atlasDissentDraft({ by: { kind: "named" } })); rerender(`dissent-${draft.contestedBy.length - 1}-name`); } }, "Add a dissent"),
       ),
+      datingsEditor(),
       check("approved", "Approved for the publication projection", draft.approved, (on) => { draft.approved = on; }, "Your consent to publish it with the Knowledge Atlas, only while both entries are approved too, with who asserts it, its evidence, confidence, doubt and dissents. An unsourced draft or evidence pointing into the private notebook cannot be approved. Clearing it removes it from the next build."),
     ];
     return fields;
@@ -2547,9 +3308,11 @@ export function createAtlasForm({ api, state, type = "entry", item = null, prefi
       say("Showing the stored copy.");
     } else {
       // The author has seen the newer copy: the draft now rests on it, and its unknown fields carry over.
-      if (isEntry) draft.original = structuredClone(current);
+      const before = draft.datings.length;
+      if (isEntry) rebaseAtlasEntryDraft(draft, current);
       else rebaseAtlasRelationshipDraft(draft, current);
-      say("Your draft now rests on the latest copy. Review it, then save.");
+      const added = draft.datings.length - before;
+      say(`Your draft now rests on the latest copy.${added ? ` ${plural(added, "dating")} added elsewhere ${added === 1 ? "was" : "were"} added to your draft.` : ""} Review it, then save.`);
     }
     rerender(isEntry ? "label" : "kind");
   };
@@ -2583,6 +3346,8 @@ export function createAtlasForm({ api, state, type = "entry", item = null, prefi
       ? validateAtlasEntryDraft(draft, { sources: state.sources || [], used: used(), creating: !editing })
       : validateAtlasRelationshipDraft(draft, { entries: state.entries || [], kinds: state.kinds, sources: state.sources || [], passages: state.passages || [] });
     if (problem) return fail(problem.message, problem.field);
+    const datingProblem = validateAtlasDatings(draft.datings, { owner: datingOwner(), ownerId: isEntry ? draft.id : "", kinds: state.kinds, entries: state.entries || [], sources: state.sources || [], passages: state.passages || [], used: datingIdsInUse() });
+    if (datingProblem) return fail(datingProblem.message, datingProblem.field);
     if (!isEntry && !editing) draft.id = suggestAtlasId(`${draft.from}-${draft.kind}-${draft.to}`, used(), "relationship");
     busy = true;
     root.querySelector("[data-atlas-save]")?.setAttribute("disabled", "");
@@ -2621,6 +3386,12 @@ export function createAtlasForm({ api, state, type = "entry", item = null, prefi
   return {
     element: root,
     isDirty: () => touched && !busy,
+    /** Moves focus to one dating's fieldset, as a check prompt's link does. */
+    focusDating(index) {
+      const target = control(`dating-${index}`);
+      target?.focus();
+      return Boolean(target);
+    },
     focus() {
       (control(isEntry ? (editing ? "label" : "kind") : "kind") || root.querySelector("input,select,textarea,button"))?.focus();
     },
@@ -8368,6 +9139,7 @@ export class ObAdmin extends AdminElement {
     const panel = h("section", { class: "oba-source-editor", "aria-labelledby": "oba-atlas-heading" });
     const newEntryButton = h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-atlas-new": "entry", onClick: () => open({ type: "entry", id: null }) }, "New entry");
     const newRelationshipButton = h("button", { class: "oba-btn", type: "button", "data-atlas-new": "relationship", onClick: () => open({ type: "relationship", id: null }) }, "New relationship");
+    const chronologyButton = h("button", { class: "oba-btn", type: "button", "data-atlas-chronology": "true", onClick: () => open({ type: "chronology", id: null }) }, "Chronology");
     const entryById = (id) => state.entries.find((entry) => entry.id === id) || null;
     const relationshipById = (id) => state.relationships.find((relationship) => relationship.id === id) || null;
     const joinCount = (id) => state.relationships.filter((relationship) => relationship.from === id || relationship.to === id).length;
@@ -8381,7 +9153,7 @@ export class ObAdmin extends AdminElement {
             "section",
             { class: "oba-notice", "aria-labelledby": "oba-atlas-notices-heading" },
             h("h2", { class: "oba-small-heading", id: "oba-atlas-notices-heading" }, "Notices"),
-            h("ul", {}, state.notices.map((notice) => h("li", {}, `Relationship ${notice.id}, ${notice.field}: ${notice.message}`))),
+            h("ul", {}, state.notices.map((notice) => h("li", { "data-atlas-notice": notice.code }, `${notice.collection === "entries" ? "Entry" : "Relationship"} ${notice.id}, ${notice.field}: ${notice.message}`))),
           ),
         );
       }
@@ -8504,6 +9276,210 @@ export class ObAdmin extends AdminElement {
       );
     };
 
+
+    // ---- chronology explorer (ADR 0098): lists only, competing datings side by side, never resolved
+    const chronologyFilters = { query: "", aspect: "", fromYear: "", fromEra: "bce", toYear: "", toEra: "ce", zoom: "century", competing: false, prompted: false };
+    const openItem = (collection, id, focusDating = null) => open({ type: collection === "entries" ? "entry" : "relationship", id, focusDating });
+    const datingPosition = (field) => {
+      const found = String(field || "").match(/^dates\[(\d+)\]$/);
+      return found ? Number(found[1]) : null;
+    };
+
+    const chronologyDatingItem = (dating) => {
+      const record = dating.record || {};
+      const confidence = ATLAS_CONFIDENCE.find((item) => item.value === (record.confidence || "tentative")) || ATLAS_CONFIDENCE[0];
+      const facts = [
+        `Dated by ${atlasAttributionText(record.assertedBy, state.sources)}`,
+        `${confidence.label} confidence, as held by that party`,
+        record.unsourced ? "Unsourced draft: no evidence cited yet" : `Rests on ${plural(Array.isArray(record.evidence) ? record.evidence.length : 0, "piece")} of evidence`,
+        record.note ? `Note: ${record.note}` : null,
+        atlasDatingVisibilityText(record, dating.projected),
+        dating.inWindow === false ? "Outside the time window; listed because a competing dating falls inside it" : null,
+        dating.prompts ? `${plural(dating.prompts, "check prompt")}: see Datings to check` : null,
+      ];
+      return h(
+        "li",
+        { class: "oba-chronology-dating", "data-chronology-dating": dating.id, "data-placement": dating.placement, "data-in-window": dating.inWindow === false ? "false" : null },
+        h("p", {}, h("strong", {}, atlasChronologyReading(dating, state.entries)), h("span", { class: "oba-small" }, ` (dating ${dating.id})`)),
+        h("ul", { class: "oba-atlas-facts" }, facts.filter(Boolean).map((fact) => h("li", {}, fact))),
+      );
+    };
+
+    /** One dated aspect: every dating of it, side by side, with how many compete. */
+    const chronologyRow = (row, { withOwner = true } = {}) => {
+      const competing = row.datings.length > 1;
+      const title = withOwner ? `${row.name}: ${aspectNoun(row.aspect)}` : capitalize(aspectNoun(row.aspect));
+      return h(
+        "li",
+        { class: "oba-chronology-row", "data-chronology-row": row.key },
+        h("p", { class: "oba-chronology-title" }, h("strong", {}, title)),
+        h(
+          "p",
+          { class: "oba-small", "data-chronology-competing": String(row.datings.length) },
+          competing ? `${row.datings.length} competing datings, side by side. None is preferred, and nothing here resolves them.` : "1 dating; no competing dating is recorded.",
+        ),
+        h("ul", { class: competing ? "oba-chronology-competing" : "oba-chronology-single", "aria-label": `Datings of the ${aspectNoun(row.aspect)} of ${row.name}` }, row.datings.map(chronologyDatingItem)),
+        withOwner
+          ? h("div", { class: "oba-toolbar" }, h("button", { class: "oba-btn", type: "button", "data-atlas-open-dated": row.owner, onClick: () => openItem(row.collection, row.owner, datingPosition(row.datings[0]?.field)) }, row.collection === "entries" ? `Open ${row.name}` : `Open relationship: ${row.name}`))
+          : null,
+      );
+    };
+
+    const chronologyPrompt = (prompt) => {
+      const name = atlasOwnerName(state, prompt.collection, prompt.id);
+      const first = Array.isArray(prompt.datings) ? prompt.datings[0] : "";
+      return h(
+        "li",
+        { class: "oba-chronology-prompt", "data-chronology-prompt": prompt.code },
+        h("p", {}, h("strong", {}, "Check: "), String(prompt.message || "")),
+        h("button", { class: "oba-btn", type: "button", "data-atlas-check": first, onClick: () => openItem(prompt.collection, prompt.id, datingPosition(prompt.field)) }, `Check dating ${first} of ${name}`),
+      );
+    };
+
+    const chronologyPrompts = (prompts, unlisted, headingId, scoped = false) =>
+      h(
+        "section",
+        { class: "oba-chronology-prompts", "aria-labelledby": headingId, "data-chronology-prompts": "true" },
+        h("h3", { class: "oba-small-heading", id: headingId }, `Datings to check (${prompts.length + unlisted})`),
+        h("p", { class: "oba-small" }, "Prompts, never verdicts: each names recorded datings that cannot all hold as stated. None says which is right, and a recorded disagreement can stay side by side as it is. They never block a save."),
+        prompts.length ? h("ul", { class: "oba-atlas-incidents" }, prompts.map(chronologyPrompt)) : h("p", { class: "oba-small" }, scoped ? "Nothing to check here." : "Nothing to check: no recorded datings contradict each other as stated."),
+        unlisted ? h("p", { class: "oba-small" }, `${plural(unlisted, "more prompt")} not listed.`) : null,
+      );
+
+    const relativeList = (items, headingId, empty) =>
+      h(
+        "section",
+        { "aria-labelledby": headingId, "data-chronology-relative": "true" },
+        h("h3", { class: "oba-small-heading", id: headingId }, `Relative datings (${items.length})`),
+        h("p", { class: "oba-small" }, "Each is one party's assertion, never inferred from absolute dates, and none makes or supports a relationship."),
+        items.length
+          ? h(
+              "ul",
+              { class: "oba-atlas-incidents" },
+              items.map(({ row, dating }) => {
+                const target = dating.record?.date?.relative?.entry;
+                return h(
+                  "li",
+                  { "data-chronology-relative-dating": dating.id },
+                  h("p", {}, atlasRelativeSentence(row.name, row.aspect, dating, state.entries)),
+                  h("p", { class: "oba-small" }, `Dated by ${atlasAttributionText(dating.record?.assertedBy, state.sources)} (dating ${dating.id}).`),
+                  h(
+                    "div",
+                    { class: "oba-toolbar" },
+                    h("button", { class: "oba-btn", type: "button", "aria-label": `Open ${row.name} at dating ${dating.id}`, onClick: () => openItem(row.collection, row.owner, datingPosition(dating.field)) }, `Open ${row.name}`),
+                    target && entryById(target) ? h("button", { class: "oba-btn", type: "button", "data-atlas-go": target, onClick: () => open({ type: "entry", id: target }) }, `Explore ${atlasEntryName(state.entries, target)}`) : null,
+                  ),
+                );
+              }),
+            )
+          : h("p", { class: "oba-small" }, empty),
+      );
+
+    /** The datings of one entry or relationship, and the relative datings and prompts that concern it. */
+    const ownChronology = (collection, id, name) => {
+      const model = atlasChronologyModel(state, { zoom: "none" });
+      const rows = model.rows.filter((row) => row.collection === collection && row.owner === id);
+      const pointing = collection === "entries" ? model.rows.flatMap((row) => row.datings.filter((dating) => dating.placement === "relative" && dating.record?.date?.relative?.entry === id && row.owner !== id).map((dating) => ({ row, dating }))) : [];
+      const prompts = model.prompts.filter((prompt) => prompt.collection === collection && prompt.id === id);
+      const headingId = `oba-atlas-chronology-of-${collection}`;
+      return h(
+        "section",
+        { class: "oba-atlas-explorer oba-chronology", "aria-labelledby": headingId, "data-atlas-chronology-of": id },
+        h("h3", { id: headingId }, collection === "entries" ? `Chronology of ${name}` : "When this relationship held"),
+        rows.length ? h("ul", { class: "oba-chronology-rows" }, rows.map((row) => chronologyRow(row, { withOwner: false }))) : h("p", { class: "oba-small" }, "No datings yet. Add one under Dates in the editor below."),
+        collection === "entries" && pointing.length ? relativeList(pointing, `${headingId}-relative`, "") : null,
+        prompts.length ? chronologyPrompts(prompts, 0, `${headingId}-prompts`, true) : null,
+      );
+    };
+
+    const renderChronologyPanel = () => {
+      const filters = chronologyFilters;
+      const results = h("div", { class: "oba-chronology-results", id: "oba-chronology-results" });
+      const status = h("p", { class: "oba-small", id: "oba-chronology-status", role: "status", "aria-live": "polite", "data-chronology-status": "true" });
+      const aspects = [...new Set((state.kinds?.aspects || []).map((spec) => spec.aspect))];
+      const control = (id, labelText, input, hint) => {
+        input.id = id;
+        input.setAttribute("aria-controls", "oba-chronology-results");
+        if (hint) input.setAttribute("aria-describedby", `${id}-hint`);
+        return h("div", { class: "oba-field" }, h("label", { for: id }, labelText), input, hint ? h("p", { class: "oba-small", id: `${id}-hint` }, hint) : null);
+      };
+      const era = (key) => h("select", { onChange: (event) => { filters[key] = event.target.value; renderResults(); } }, h("option", { value: "bce", selected: filters[key] === "bce" }, "BCE"), h("option", { value: "ce", selected: filters[key] === "ce" }, "CE"));
+      const toggle = (id, key, labelText) => {
+        const input = h("input", { id, type: "checkbox", checked: filters[key], "aria-controls": "oba-chronology-results", onChange: (event) => { filters[key] = event.target.checked; renderResults(); } });
+        return h("div", { class: "oba-capture-check" }, input, h("label", { for: id }, labelText));
+      };
+      const renderResults = () => {
+        const model = atlasChronologyModel(state, filters);
+        status.textContent = atlasChronologyStatus(model, filters);
+        const parts = [chronologyPrompts(model.prompts, model.unlisted, "oba-chronology-prompts-heading")];
+        const rowList = (rows) => h("ol", { class: "oba-chronology-rows" }, rows.map((row) => chronologyRow(row)));
+        const empty = model.total.datings ? "No dated aspect matches these filters. Clear them to see every dating." : "No datings yet. Add one under Dates when you edit an entry or relationship.";
+        parts.push(
+          h(
+            "section",
+            { "aria-labelledby": "oba-chronology-timeline-heading", "data-chronology-timeline": "true" },
+            h("h3", { class: "oba-small-heading", id: "oba-chronology-timeline-heading" }, "Timeline"),
+            h("p", { class: "oba-small" }, "In one display order: by the earliest day each states, an open start first. Order is for reading only; it never relates two datings or the things they date, and circa never moves a point."),
+            !model.groups.length
+              ? h("p", { class: "oba-notice", "data-chronology-empty": "true" }, empty)
+              : model.zoom === "none"
+                ? rowList(model.groups.flatMap((group) => group.rows))
+                : h(
+                    "ol",
+                    { class: "oba-chronology-groups" },
+                    model.groups.map((group, position) => {
+                      const id = `oba-chronology-group-${position}`;
+                      return h("li", { "aria-labelledby": id, "data-chronology-group": group.label }, h("h4", { class: "oba-small-heading", id }, `${group.label} (${plural(group.rows.length, "dated aspect")})`), rowList(group.rows));
+                    }),
+                  ),
+          ),
+        );
+        if (model.unplaced.length) {
+          parts.push(
+            h(
+              "section",
+              { "aria-labelledby": "oba-chronology-unplaced-heading", "data-chronology-unplaced": "true" },
+              h("h3", { class: "oba-small-heading", id: "oba-chronology-unplaced-heading" }, `Not placed in time (${model.unplaced.length})`),
+              h("p", { class: "oba-small" }, "Dated only relative to another entry, or stated as unknown, so they have no position on the timeline and the time window does not filter them."),
+              rowList(model.unplaced),
+            ),
+          );
+        }
+        parts.push(relativeList(model.relative, "oba-chronology-relative-heading", model.total.datings ? "No relative dating among the datings shown." : "No relative datings yet."));
+        results.replaceChildren(...parts);
+      };
+      const query = h("input", { type: "search", autocomplete: "off", spellcheck: "false", value: filters.query, placeholder: "Label or ID", onInput: (event) => { filters.query = event.target.value; renderResults(); } });
+      const fromYear = h("input", { type: "text", inputmode: "numeric", autocomplete: "off", value: filters.fromYear, onInput: (event) => { filters.fromYear = event.target.value; renderResults(); } });
+      const toYear = h("input", { type: "text", inputmode: "numeric", autocomplete: "off", value: filters.toYear, onInput: (event) => { filters.toYear = event.target.value; renderResults(); } });
+      const controls = h(
+        "div",
+        { class: "oba-chronology-filters", role: "search", "aria-label": "Filter the chronology" },
+        control("oba-chronology-query", "Entry or relationship", query),
+        control("oba-chronology-aspect", "Aspect", h("select", { onChange: (event) => { filters.aspect = event.target.value; renderResults(); } }, h("option", { value: "", selected: !filters.aspect }, "All aspects"), aspects.map((aspect) => h("option", { value: aspect, selected: filters.aspect === aspect }, atlasAspectLabel(aspect))))),
+        h(
+          "fieldset",
+          { class: "oba-chronology-window" },
+          h("legend", {}, "Time window"),
+          h("p", { class: "oba-small", id: "oba-chronology-window-hint" }, "Whole years without a minus sign; choose BCE or CE. Leave either end empty to keep it open. A dated aspect is listed when any of its datings overlaps the window, with all its competing datings."),
+          h("div", { class: "oba-toolbar" }, control("oba-chronology-from", "From year", fromYear), control("oba-chronology-from-era", "From era", era("fromEra")), control("oba-chronology-to", "To year", toYear), control("oba-chronology-to-era", "To era", era("toEra"))),
+        ),
+        control("oba-chronology-zoom", "Group by (zoom)", h("select", { onChange: (event) => { filters.zoom = event.target.value; renderResults(); } }, [["century", "Century"], ["decade", "Decade"], ["year", "Year"], ["none", "No grouping"]].map(([value, text]) => h("option", { value, selected: filters.zoom === value }, text))), "Groups each dated aspect under the century, decade or year its earliest dating begins in."),
+        toggle("oba-chronology-competing", "competing", "Only aspects with competing datings"),
+        toggle("oba-chronology-prompted", "prompted", "Only datings with a check prompt"),
+        h("div", { class: "oba-toolbar" }, h("button", { class: "oba-btn", type: "button", "data-chronology-clear": "true", onClick: () => { Object.assign(filters, { query: "", aspect: "", fromYear: "", fromEra: "bce", toYear: "", toEra: "ce", zoom: "century", competing: false, prompted: false }); renderPanel(); panel.querySelector("#oba-chronology-query")?.focus(); say("Chronology filters cleared."); } }, "Clear filters")),
+      );
+      fromYear.setAttribute("aria-describedby", "oba-chronology-window-hint");
+      toYear.setAttribute("aria-describedby", "oba-chronology-window-hint");
+      renderResults();
+      panel.replaceChildren(
+        heading("Chronology"),
+        h("p", { class: "oba-small" }, "Every dating in the private atlas, as text. Competing datings stand side by side and nothing is preferred, merged or averaged; relative and unknown datings are kept. Only you see this view."),
+        controls,
+        status,
+        results,
+      );
+    };
+
     const renderEntryPanel = () => {
       const entry = selected.id ? entryById(selected.id) : null;
       if (selected.id && !entry) {
@@ -8535,6 +9511,7 @@ export class ObAdmin extends AdminElement {
           h("button", { class: "oba-btn", type: "button", "data-atlas-relate": "to", disabled: lonely, onClick: () => open({ type: "relationship", id: null, prefill: { to: entry.id } }) }, "Add a relationship to this entry"),
         ),
         explorer,
+        ownChronology("entries", entry.id, entry.label),
         h("section", { class: "oba-atlas-edit", "aria-labelledby": "oba-atlas-edit-heading" }, h("h3", { id: "oba-atlas-edit-heading" }, "Edit entry"), form.element),
         joins ? h("p", { class: "oba-small" }, `${plural(joins, "relationship")} ${joins === 1 ? "joins" : "join"} this entry, so it cannot be removed until ${joins === 1 ? "it is" : "they are"} removed.`) : null,
         h("div", { class: "oba-toolbar" }, h("button", { class: "oba-btn oba-btn-danger", type: "button", "data-atlas-remove": "entry", onClick: () => remove() }, "Remove entry")),
@@ -8558,6 +9535,7 @@ export class ObAdmin extends AdminElement {
           ? h("p", { class: "oba-small", "data-atlas-standing": relationship.contestedBy?.length ? "contested" : "asserted" }, `${atlasStandingText(relationship, state.sources)}. ${atlasConfidenceText(relationship)}. ${atlasEvidenceText(relationship)}. ID ${relationship.id}.`)
           : h("p", { class: "oba-small" }, "Choose the kind first: it decides which entries may stand at each end. A relationship is one party's claim on cited evidence."),
         ends.length ? h("div", { class: "oba-toolbar" }, ends.map((id) => (entryById(id) ? h("button", { class: "oba-btn", type: "button", "data-atlas-go": id, onClick: () => open({ type: "entry", id }) }, `Explore ${atlasEntryName(state.entries, id)}`) : null))) : null,
+        relationship ? ownChronology("relationships", relationship.id, atlasRelationshipSentence(relationship, state.entries)) : null,
         form.element,
         relationship ? h("div", { class: "oba-toolbar" }, h("button", { class: "oba-btn oba-btn-danger", type: "button", "data-atlas-remove": "relationship", onClick: () => remove() }, "Remove relationship")) : null,
       );
@@ -8568,11 +9546,16 @@ export class ObAdmin extends AdminElement {
       if (!selected) {
         panel.replaceChildren(
           heading("Knowledge Atlas"),
-          h("p", { class: "oba-notice" }, state.entries.length ? "Choose an entry to see its relationships and edit it, or add a new one." : "Add your first entry: a person, work, concept, movement or event."),
+          h("p", { class: "oba-notice" }, state.entries.length ? "Choose an entry to see its relationships and chronology and edit it, or add a new one. Chronology lists every dating as text." : "Add your first entry: a person, work, concept, movement or event."),
         );
-      } else if (selected.type === "entry") renderEntryPanel();
+      } else if (selected.type === "chronology") renderChronologyPanel();
+      else if (selected.type === "entry") renderEntryPanel();
       else renderRelationshipPanel();
-      if (moveFocus) panel.querySelector("#oba-atlas-heading")?.focus();
+      if (moveFocus) {
+        // A check prompt's link lands on the dating it names; anything else lands on the heading.
+        const dating = Number.isInteger(selected?.focusDating) && form?.focusDating(selected.focusDating);
+        if (!dating) panel.querySelector("#oba-atlas-heading")?.focus();
+      }
     };
 
     const open = (target) => {
@@ -8641,6 +9624,7 @@ export class ObAdmin extends AdminElement {
           h("div", { class: "oba-field" }, h("label", { for: "oba-atlas-kind-filter" }, "Kind"), kindFilter),
           newEntryButton,
           newRelationshipButton,
+          chronologyButton,
         ),
         count,
         status,
