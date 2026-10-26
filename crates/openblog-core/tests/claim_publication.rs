@@ -512,3 +512,87 @@ fn citations_and_claim_evidence_share_one_publication_body() {
 fn generation_is_deterministic() {
     assert_eq!(build(&site(true, &claims())), build(&site(true, &claims())));
 }
+
+/// A post that cites a source and holds, in a supplement, the headings a claim section and a note
+/// list would otherwise be numbered around: `### Claim 1` and `## Cite 1`.
+fn supplement_post(front: &str) -> String {
+    format!(
+        "---\ntitle: The cave\ndate: 2026-10-20\ncitations: notes\n{front}---\n\
+The cave educates. Later the sun appears.[@slings]\n\n\
+> [!supplement kind=context]\n> ### Claim 1\n> Words.\n>\n> ## Cite 1\n> More words.\n"
+    )
+}
+
+fn supplement_site(front: &str) -> Site {
+    let library = json!({"version": 1, "sources": [
+        {"id": "plato", "kind": "work", "title": "PUBLIC Politeia"},
+        {"id": "slings", "kind": "edition", "of": "plato", "title": "PUBLIC Slings", "issued": "2003"},
+        {"id": "critic", "kind": "work", "title": "PUBLIC Critic"}]})
+    .to_string();
+    Site::load(
+        config(true),
+        Sources {
+            posts: vec![post("posts/cave.md", &supplement_post(front))],
+            claim_evidence: Some(ClaimEvidenceSource::Stored(projection(&claims()))),
+            source_library: Some(openblog_core::model::LibrarySource::Text(SourceFile {
+                path: ".openblog/private/research/sources.json".into(),
+                contents: library,
+            })),
+            ..Default::default()
+        },
+        LoadOptions::default(),
+    )
+    .unwrap_or_else(|errors| panic!("{errors:?}"))
+}
+
+#[test]
+fn claim_and_citation_targets_follow_the_ids_an_opted_in_page_renders() {
+    let id_of = |html: &str, tag: &str| -> Vec<String> {
+        html.split(&format!("<{tag} "))
+            .skip(1)
+            .filter_map(|rest| rest.split("id=\"").nth(1))
+            .map(|rest| rest.split('"').next().unwrap().to_string())
+            .collect()
+    };
+    let urls = |site: &Site| -> Vec<String> {
+        cave(site)
+            .claim_evidence()
+            .unwrap()
+            .claims
+            .iter()
+            .map(|claim| claim.url.clone())
+            .collect()
+    };
+
+    // Opted in: the supplement's headings are the supplement's own, so the claim section's
+    // `Claim 1` heading takes the plain slug and the note list keeps the plain `cite-` prefix.
+    let on = supplement_site("readingModes: true\n");
+    let page = build(&on)["posts/cave/index.html"].clone();
+    let headings = id_of(&page, "h3");
+    assert!(headings.contains(&"claim-1".to_string()), "{headings:?}");
+    assert!(
+        headings.iter().any(|id| id.starts_with("ob-supplement-")),
+        "{headings:?}"
+    );
+    assert_eq!(urls(&on)[0], "/posts/cave/#claim-1");
+    assert_eq!(urls(&on)[1], "/posts/cave/#claim-2");
+    for url in urls(&on) {
+        let fragment = url.split('#').nth(1).unwrap();
+        assert!(page.contains(&format!("id=\"{fragment}\"")), "{url}");
+    }
+    assert!(page.contains("id=\"cite-1\""), "{page}");
+    assert!(!page.contains("cite2-"), "{page}");
+
+    // The same body without the flag is read as before: the author's headings are ordinary
+    // headings, take the plain slugs first, and the claim and the notes are numbered after them.
+    let off = supplement_site("");
+    let page = build(&off)["posts/cave/index.html"].clone();
+    assert_eq!(urls(&off)[0], "/posts/cave/#claim-1-2");
+    assert_eq!(urls(&off)[1], "/posts/cave/#claim-2");
+    for url in urls(&off) {
+        let fragment = url.split('#').nth(1).unwrap();
+        assert!(page.contains(&format!("id=\"{fragment}\"")), "{url}");
+    }
+    assert!(page.contains("id=\"cite2-1\""), "{page}");
+    assert!(!page.contains("ob-supplement-"), "{page}");
+}
