@@ -1002,3 +1002,54 @@ fn an_import_cannot_take_an_interpretations_id() {
     );
     assert!(plan.diagnostics.is_empty());
 }
+
+#[test]
+fn a_build_validates_only_the_interpretations_it_names() {
+    // The second interpretation is broken; nothing published names it.
+    let text =
+        edited(|v| v["interpretations"][1]["interpreters"][0] = json!({"contributor": "grace"}));
+    let mut library = SourceLibrary::parse_for_build(&text, &contributors())
+        .expect("a build never validates interpretations wholesale");
+    assert!(library.interpretations.is_empty());
+    assert!(
+        library.has_interpretation("cave-reading-adam"),
+        "raw entries still exist"
+    );
+    assert!(!library.has_interpretation("nowhere"));
+
+    let named = std::collections::BTreeSet::from(["cave-514a-ada".to_string()]);
+    library
+        .validate_interpretations_for_build(&named, &contributors())
+        .expect("the named interpretation is valid");
+    assert_eq!(
+        library
+            .interpretation("cave-514a-ada")
+            .map(|interpretation| interpretation.text.lines().count()),
+        Some(2)
+    );
+    assert!(library.interpretation("cave-reading-adam").is_none());
+
+    // Naming the broken one refuses, naming its id and stored position.
+    let mut library = SourceLibrary::parse_for_build(&text, &contributors()).unwrap();
+    let named = std::collections::BTreeSet::from(["cave-reading-adam".to_string()]);
+    let failures = library
+        .validate_interpretations_for_build(&named, &contributors())
+        .expect_err("a named interpretation must be valid");
+    assert_eq!(failures.len(), 1);
+    assert_eq!(failures[0].0, "cave-reading-adam");
+    assert_eq!(
+        failures[0]
+            .1
+            .iter()
+            .map(|d| (d.code, d.field.clone().unwrap_or_default()))
+            .collect::<Vec<_>>(),
+        [(
+            SourceDiagnosticCode::UnresolvedRelationship,
+            "interpretations[1].interpreters[0].contributor".to_string()
+        )]
+    );
+    assert!(
+        library.interpretations.is_empty(),
+        "nothing is added on failure"
+    );
+}

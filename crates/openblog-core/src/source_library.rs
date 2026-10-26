@@ -945,6 +945,96 @@ impl SourceLibrary {
             .find(|interpretation| interpretation.id == id)
     }
 
+    /// Whether the library holds an interpretation with this identifier,
+    /// validated or, in a library read by [`Self::parse_for_build`], still
+    /// raw. A build checks that the alignments it reads point at entries
+    /// that exist without validating every interpretation (ADR 0115).
+    pub fn has_interpretation(&self, id: &str) -> bool {
+        self.interpretation(id).is_some()
+            || self.raw_interpretations().is_some_and(|items| {
+                items
+                    .iter()
+                    .any(|item| item.get("id").and_then(Value::as_str) == Some(id))
+            })
+    }
+
+    fn raw_interpretations(&self) -> Option<&Vec<Value>> {
+        self.extra.get("interpretations").and_then(Value::as_array)
+    }
+
+    /// For a build that publishes comparisons (ADR 0128): validate exactly
+    /// the raw interpretations with these identifiers, each with the same
+    /// field, id and contributor checks as a full parse, and add them to
+    /// [`Self::interpretations`]. Every other interpretation stays raw and
+    /// unvalidated, so a problem in one that nothing published uses never
+    /// stops the build. Problems are grouped by the identifier named, with
+    /// field paths at the entry's position in the stored array. An
+    /// identifier with no raw entry is left for the caller to report.
+    pub fn validate_interpretations_for_build(
+        &mut self,
+        ids: &BTreeSet<String>,
+        contributors: &BTreeMap<String, Contributor>,
+    ) -> Result<(), Vec<(String, Vec<SourceDiagnostic>)>> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let Some(items) = self.raw_interpretations() else {
+            if self.extra.contains_key("interpretations") {
+                let problem = library_diagnostic(
+                    SourceDiagnosticCode::InvalidField,
+                    Some("interpretations"),
+                    "interpretations must be a JSON array".into(),
+                );
+                return Err(ids
+                    .iter()
+                    .map(|id| (id.clone(), vec![problem.clone()]))
+                    .collect());
+            }
+            return Ok(());
+        };
+        let identities: Vec<(usize, String, Option<ResearchSourceKind>)> = self
+            .sources
+            .iter()
+            .enumerate()
+            .map(|(index, record)| (index, record.id.clone(), Some(record.kind)))
+            .collect();
+        let mut validated = Vec::new();
+        let mut failures = Vec::new();
+        for id in ids {
+            let (positions, entries): (Vec<usize>, Vec<Value>) = items
+                .iter()
+                .enumerate()
+                .filter(|(_, item)| item.get("id").and_then(Value::as_str) == Some(id))
+                .map(|(position, item)| (position, item.clone()))
+                .unzip();
+            if entries.is_empty() {
+                continue;
+            }
+            let mut diagnostics = Vec::new();
+            let parsed = interpretation::parse_all(
+                Some(Value::Array(entries)),
+                &identities,
+                contributors,
+                &mut diagnostics,
+            );
+            if diagnostics.is_empty() {
+                validated.extend(parsed);
+            } else {
+                for diagnostic in &mut diagnostics {
+                    if let Some(field) = &mut diagnostic.field {
+                        *field = at_stored_position(field, &positions);
+                    }
+                }
+                failures.push((id.clone(), diagnostics));
+            }
+        }
+        if !failures.is_empty() {
+            return Err(failures);
+        }
+        self.interpretations.extend(validated);
+        Ok(())
+    }
+
     /// Interpretations made from this source's text, in library order.
     pub fn interpretations_of<'a>(
         &'a self,
@@ -1038,6 +1128,21 @@ impl std::io::Write for ByteCounter {
 /// Unknown fields that collide with a defined field. With flattened extras the
 /// colliding key would be written twice and the unknown value would replace
 /// the typed one on the next read, so such an edit is refused instead.
+/// Rewrite a field path such as `interpretations[1].text`, whose index is a
+/// position in a filtered array, to the entry's position in the stored one.
+fn at_stored_position(field: &str, positions: &[usize]) -> String {
+    let Some(rest) = field.strip_prefix("interpretations[") else {
+        return field.to_string();
+    };
+    let Some((index, tail)) = rest.split_once(']') else {
+        return field.to_string();
+    };
+    match index.parse::<usize>().ok().and_then(|i| positions.get(i)) {
+        Some(stored) => format!("interpretations[{stored}]{tail}"),
+        None => field.to_string(),
+    }
+}
+
 fn shadowed_fields(library: &SourceLibrary) -> Vec<SourceDiagnostic> {
     let mut diagnostics = Vec::new();
     let message = || "an unknown field cannot shadow a defined field".to_string();

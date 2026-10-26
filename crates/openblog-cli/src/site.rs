@@ -640,10 +640,11 @@ fn unstored_atlas_warning() -> String {
 
 /// The public comparison projection, when the site opts in to publishing
 /// comparisons (ADR 0128). A site that does not never reads the private
-/// alignments file. The file is read and validated against the library (with
-/// its interpretations) and the notebook exactly as Admin reads it, and a
-/// problem refuses the build before anything is written, naming the file and
-/// ids only; an Admin save, which only loads content, is never stopped by it.
+/// alignments file. The file is read and validated against the library and
+/// the notebook, and of the library's interpretations only those an approved
+/// alignment publishes are validated (ADR 0115); a problem refuses the build
+/// before anything is written, naming the file and ids only. An Admin save,
+/// which only loads content, is never stopped by it.
 ///
 /// The alignments file is private and Git-ignored, so a build from a clone
 /// finds none and publishes no comparisons: that build is warned in
@@ -661,8 +662,8 @@ pub fn published_comparisons(
             "passage comparisons cannot be published ({error}); run `openblog check` and repair it, or set `comparisons.publish` to false. Nothing was written."
         )
     };
-    let snapshot = crate::alignment_store::load(root, &config.contributors)
-        .map_err(|error| unpublishable(error.to_string()))?;
+    let snapshot = crate::alignment_store::load_for_build(root, &config.contributors)
+        .map_err(unpublishable)?;
     if !snapshot.stored {
         warnings.push(unstored_comparisons_warning());
     }
@@ -2129,6 +2130,65 @@ mod tests {
             load_site(&root, true, None).is_ok(),
             "loading content is not stopped"
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_broken_interpretation_no_approved_comparison_publishes_never_stops_the_build() {
+        let root = project_publishing_comparisons("comparisons-stray-interpretation");
+        let path = root.join(crate::source_store::LIBRARY_FILE);
+        let mut library: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        // An interpreter whose contributor was later removed by hand.
+        library["interpretations"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "id": "stray", "kind": "reading", "source": "grube",
+                "text": format!("{PRIVATE_MARKER} stray reading"),
+                "interpreters": [{"contributor": "removed"}]
+            }));
+        fs::write(&path, library.to_string()).unwrap();
+        // An unapproved alignment may still name it.
+        let alignments_path = root.join(crate::alignment_store::ALIGNMENTS_FILE);
+        let alignments = fs::read_to_string(&alignments_path).unwrap().replacen(
+            r#"{"source":"grube","absent":true}"#,
+            r#"{"source":"grube","absent":true},{"interpretation":"stray"}"#,
+            1,
+        );
+        assert!(alignments.contains(r#""interpretation":"stray""#));
+        fs::write(&alignments_path, &alignments).unwrap();
+
+        production_build(&root);
+        let built = dist_bytes(&root);
+        let page = String::from_utf8_lossy(&built["comparisons/cave/index.html"]).to_string();
+        assert!(page.contains("PUBLIC μετὰ ταῦτα") && page.contains("Rendering by PUBLIC Ada"));
+        assert!(built
+            .values()
+            .all(|bytes| !String::from_utf8_lossy(bytes).contains("stray reading")));
+
+        // An interpretation an approved comparison publishes must be valid:
+        // the build refuses, naming its id and the library, never its text.
+        let after = dist_bytes(&root);
+        library["interpretations"][0]["interpreters"] =
+            serde_json::json!([{"contributor": "removed"}]);
+        fs::write(&path, library.to_string()).unwrap();
+        let error = build(
+            &root,
+            &BuildOptions {
+                include_drafts: false,
+                out_override: None,
+                now: None,
+            },
+        )
+        .err()
+        .expect("a published interpretation that is invalid refuses the build");
+        assert!(error.contains("interpretation `mine`"), "{error}");
+        assert!(!error.contains("`stray`"), "{error}");
+        assert!(error.contains(crate::source_store::LIBRARY_FILE), "{error}");
+        assert!(error.contains("comparisons.publish"), "{error}");
+        assert!(!error.contains("PUBLIC rendering") && !error.contains(PRIVATE_MARKER));
+        assert_eq!(dist_bytes(&root), after, "nothing was written");
         fs::remove_dir_all(root).unwrap();
     }
 

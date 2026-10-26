@@ -117,6 +117,54 @@ pub fn load(
     against_library(root, library)
 }
 
+/// The alignments file as a build that publishes comparisons reads it
+/// (ADR 0128). The library is read as every build reads it, with its
+/// interpretations raw (ADR 0115); the alignments are validated against it
+/// and the notebook, an interpretation member needing only an entry with its
+/// id. Then exactly the interpretations that approved alignments name are
+/// validated in full and added to the snapshot's library, so a problem in
+/// one that nothing published uses never stops the build, and a problem in
+/// one that is published refuses it, naming that id.
+pub fn load_for_build(
+    root: &Path,
+    contributors: &BTreeMap<String, Contributor>,
+) -> Result<Snapshot, String> {
+    let library = source_store::load_for_build(root, contributors)
+        .map_err(|error| library_blocked(error).to_string())?
+        .library;
+    let mut snapshot = against_library(root, library).map_err(|error| error.to_string())?;
+    let named: std::collections::BTreeSet<String> = snapshot
+        .alignments
+        .alignments
+        .iter()
+        .filter(|alignment| alignment.is_approved())
+        .flat_map(|alignment| &alignment.members)
+        .filter_map(|member| member.interpretation.clone())
+        .collect();
+    snapshot
+        .library
+        .validate_interpretations_for_build(&named, contributors)
+        .map_err(|failures| {
+            failures
+                .iter()
+                .map(|(id, diagnostics)| {
+                    let problems: Vec<String> = diagnostics
+                        .iter()
+                        .map(|diagnostic| {
+                            format!("{}: {diagnostic}", source_store::LIBRARY_FILE)
+                        })
+                        .collect();
+                    format!(
+                        "interpretation `{id}`, which an approved comparison publishes, is invalid: {}",
+                        problems.join("; ")
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        })?;
+    Ok(snapshot)
+}
+
 fn against_library(root: &Path, library: SourceLibrary) -> Result<Snapshot, StoreError> {
     let notebook = notebook_store::read(root, library.clone())
         .map_err(notebook_blocked)?

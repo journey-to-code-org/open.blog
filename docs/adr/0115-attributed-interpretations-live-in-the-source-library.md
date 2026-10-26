@@ -70,9 +70,11 @@ evidence, audience levels, and AI provenance to scholarly interpretations.
   interpretations but does not edit them; their Admin endpoints and controls moved to B7.2,
   authoring interpretations in Admin Studio, [#89](https://github.com/journey-to-code-org/open.blog/issues/89).)
   (Amended by [ADR 0128](0128-publish-approved-comparisons-as-one-rights-gated-projection.md):
-  a build that publishes comparisons reads the library with its interpretations validated,
-  and publishes an interpretation's text only inside an approved comparison, through the
-  rights gate.)
+  a build that publishes comparisons still reads the library with its interpretations raw,
+  validates in full only the interpretations approved comparisons name, refusing the build
+  with the id of one that fails, and publishes an interpretation's text only inside an
+  approved comparison, through the rights gate. Any other interpretation stays unvalidated and
+  never stops a build.)
 
 ## Consequences
 

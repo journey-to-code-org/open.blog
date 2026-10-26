@@ -147,7 +147,9 @@ notebook passage ids, interpretation uncertainty notes, unknown fields and unapp
 are never published. Rights statements are the author's declarations, not legal judgements.
 
 A damaged alignments file, library or notebook refuses a full build and `check` while
-publication is on, naming the file; an Admin save is never stopped by it. A build without an
+publication is on, naming the file; an Admin save is never stopped by it. Of the library's
+interpretations, the build validates only those an approved alignment names, and an invalid one
+refuses it, naming its id; any other interpretation, even an invalid one, never stops a build. A build without an
 alignments file (CI, a static host) publishes empty comparisons and warns. While publication is
 on, `comparisons` is a reserved path and every Admin alignments change rebuilds the site and
 returns `build`. The alignments view also returns `publication` (`publish`, `url`,

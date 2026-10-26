@@ -847,7 +847,7 @@ fn check_set(
         for (position, member) in alignment.members.iter().enumerate() {
             let path = format!("members[{position}]");
             if let Some(id) = &member.interpretation {
-                if links.library.interpretation(id).is_none() {
+                if !links.library.has_interpretation(id) {
                     diagnostics.push(report(
                         Code::UnknownInterpretation,
                         &format!("{path}.interpretation"),

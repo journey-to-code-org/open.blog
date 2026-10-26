@@ -14,7 +14,7 @@
   [ADR 0125](0125-copying-from-a-comparison-takes-only-selected-places-with-their-rights.md)
 - Amends: [ADR 0116](0116-passage-alignments-record-correspondence-never-equivalence.md) (an
   alignment may now be `approved`) and [ADR 0115](0115-attributed-interpretations-live-in-the-source-library.md)
-  (a build that publishes comparisons reads interpretations)
+  (a build that publishes comparisons validates the interpretations it publishes)
 - Contract: [Passage alignments format](../specs/passage-alignments.md#publication)
 
 ## Context
@@ -90,11 +90,15 @@ published here.
   semantic check is needed. A post links to a comparison by its URL; embedding comparison blocks
   in post bodies is left to B7.3 (#90), which can render from this projection.
 - **Failures refuse before writing, and never Admin saves.** A published alignments file is read
-  through `alignment_store` exactly as Admin reads it, against the library with its
-  interpretations validated, because comparisons publish interpretations. If the file, the
-  library or the notebook cannot be read or validated, a full build and `check` stop before
-  generating anything, naming the file without repeating its text, and the previous output
-  stays as it was. The refusal lives in full generation only: loading content for an Admin save
+  through `alignment_store::load_for_build`: the library as every build reads it, with its
+  interpretations raw (ADR 0115), the notebook, and the alignments validated against both, an
+  interpretation member needing only an entry with its id. Then exactly the interpretations that
+  approved alignments name are validated in full (their fields, ids and contributors), because
+  those are the ones a comparison publishes; an interpretation nothing approved names, even one
+  whose interpreter's contributor was removed, never stops the build. If the file, the library,
+  the notebook or a published interpretation cannot be read or validated, a full build and
+  `check` stop before generating anything, naming the file and ids without repeating their text,
+  and the previous output stays as it was. The refusal lives in full generation only: loading content for an Admin save
   or preview never reads the file. `comparisons` is a reserved path only while comparisons are
   published.
 - **Only a build that can read the file publishes it.** The alignments file is private and
@@ -116,7 +120,8 @@ published here.
   default and the one most likely to be correct for modern editions and translations.
 - B7.1 (#88) can link interpretations to published comparisons by id, and B7.3 (#90) can render
   comparison sections from `PublicComparisons` without reading private research.
-- Turning publication on makes a build depend on the interpretations in the library being valid;
+- Turning publication on makes a build depend on the interpretations approved comparisons
+  publish being valid, and on no others; the refusal names the interpretation's id, and
   `openblog check` names the problem to fix.
 - The chrome is English, like the atlas pages; locators use the English citation strings.
 
