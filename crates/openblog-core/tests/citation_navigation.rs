@@ -509,26 +509,12 @@ fn turning_citations_on_never_moves_the_authors_heading_ids() {
     // Inbound links such as `#step-2` reach the same heading whether or not
     // the post publishes citations, however the post's own ids collide.
     let body = CITED.replace(
-        "## Notes
-",
-        "## Step
-
-## Step
-
-<span id=\"step-2\"></span>
-
-## Intro {#background}
-
-## Background
-
-See[^step].
-
-[^step]: A note.
-
-<p ID='notes'>x</p>
-
-## Notes
-",
+        "## Notes\n",
+        concat!(
+            "## Step\n\n## Step\n\n<span id=\"step-2\"></span>\n\n",
+            "## Intro {#background}\n\n## Background\n\nSee[^step].\n\n[^step]: A note.\n\n",
+            "<p ID='notes'>x</p>\n\n## Notes\n",
+        ),
     );
     let (site, with) = cited(&body);
     let (_, without) = cited(&body.replace(
