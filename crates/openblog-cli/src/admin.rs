@@ -13009,6 +13009,62 @@ mod tests {
     }
 
     #[test]
+    fn a_save_at_the_atlas_path_is_refused_while_the_site_publishes_its_atlas() {
+        let f = fixture("atlas-reserved-save");
+        let session = login_ok(&f);
+        let config_path = f.dir.join(site::CONFIG_FILE);
+        let mut config: Json = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+        config["postPath"] = json!("/{slug}/");
+        config["knowledgeAtlas"] = json!({"publish": true});
+        fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+        let save = |kind: &str, fields: Json| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "POST",
+                        "/admin/api/document",
+                        json!({ "kind": kind, "fields": fields, "body": "Maps." }),
+                    ),
+                    &session,
+                    true,
+                ),
+            )
+        };
+        let pages = f.dir.join("content/pages");
+        let count = |dir: &Path| fs::read_dir(dir).map(|d| d.count()).unwrap_or(0);
+        let (pages_before, posts_before) = (count(&pages), count(&f.dir.join("content/posts")));
+
+        let page = save("pages", json!({ "title": "My atlas", "slug": "atlas" }));
+        assert_eq!(page.status, 422, "{}", String::from_utf8_lossy(&page.body));
+        let problem = body_json(&page)["problems"][0]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(
+            problem.contains("`atlas`") && problem.contains("reserved"),
+            "{problem}"
+        );
+        let post = save(
+            "posts",
+            json!({ "title": "Atlas", "slug": "atlas", "date": "2020-02-02" }),
+        );
+        assert_eq!(post.status, 422, "{}", String::from_utf8_lossy(&post.body));
+        assert!(body_json(&post)["problems"][0]
+            .as_str()
+            .unwrap()
+            .contains("reserved"));
+        assert_eq!(count(&pages), pages_before, "nothing was written");
+        assert_eq!(count(&f.dir.join("content/posts")), posts_before);
+
+        // While the atlas is not published, `/atlas/` is an ordinary path.
+        config["knowledgeAtlas"] = json!({"publish": false});
+        fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+        let page = save("pages", json!({ "title": "My atlas", "slug": "atlas" }));
+        assert_eq!(page.status, 201, "{}", String::from_utf8_lossy(&page.body));
+    }
+
+    #[test]
     fn notebook_code_has_no_logging_path_for_private_text() {
         // Nothing that handles research text prints, logs or debug-dumps it, so
         // no log line can carry it. Sources are checked as text.

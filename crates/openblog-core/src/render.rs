@@ -411,9 +411,12 @@ pub fn generate_document(
 
 fn validate_output_paths(site: &Site) -> Result<(), String> {
     // `atlas` is reserved only while the site publishes its atlas, so an
-    // existing page or post at `/atlas/` keeps working until then.
+    // existing page or post at `/atlas/` keeps working until then. The switch,
+    // not a loaded projection, decides: Admin validates a save against a site
+    // that never reads the atlas, and must refuse what the next build would.
+    let publishes_atlas = site.config.knowledge_atlas.publish;
     let reserved = |segment: &str| {
-        RESERVED.contains(&segment) || (site.atlas.is_some() && segment == ATLAS_SEGMENT)
+        RESERVED.contains(&segment) || (publishes_atlas && segment == ATLAS_SEGMENT)
     };
     for page in &site.pages {
         if reserved(page.slug.as_str()) {

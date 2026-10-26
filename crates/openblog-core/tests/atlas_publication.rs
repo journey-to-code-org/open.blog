@@ -116,7 +116,10 @@ fn config(url: &str) -> SiteConfig {
     .unwrap()
 }
 
-fn site(config: SiteConfig, pages: Vec<SourceFile>, atlas: Option<PublicAtlas>) -> Site {
+/// A site that publishes its atlas exactly when it is given a projection, as
+/// a build does.
+fn site(mut config: SiteConfig, pages: Vec<SourceFile>, atlas: Option<PublicAtlas>) -> Site {
+    config.knowledge_atlas.publish = atlas.is_some();
     let mut site = Site::load(
         config,
         Sources {
