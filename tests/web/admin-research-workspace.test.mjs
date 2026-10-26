@@ -380,10 +380,14 @@ test("the research workspace is an optional module every preset keeps reachable"
   assert.ok(!visibleAdminModules({ preset: "custom", hiddenModules: ["research"] }).includes("research"));
   const review = adminToolGroups({ preset: "simple" }, ["research", "analytics"]).find((group) => group.goal === "review");
   assert.deepEqual(review.modules, ["research"], "Advanced tools offers it even in Simple");
-  // Preferences saved before the workspace existed gain it, so a custom layout still reaches it.
-  const earlier = normalizeAdminPreferences({ preset: "custom", moduleOrder: ["social", "release", "field", "optimize", "accessibility", "evidence", "assistant", "analytics", "contributors", "public-site"], hiddenModules: ["evidence"] });
+  // Preferences saved before the workspace existed gain it, shown or hidden as Evidence Studio
+  // was, since research used to show only with it.
+  const before = ["social", "release", "field", "optimize", "accessibility", "evidence", "assistant", "analytics", "contributors", "public-site"];
+  const earlier = normalizeAdminPreferences({ preset: "custom", moduleOrder: before, hiddenModules: ["social"] });
   assert.equal(earlier.moduleOrder.at(-1), "research");
   assert.ok(visibleAdminModules(earlier).includes("research"));
+  const hidEvidence = normalizeAdminPreferences({ preset: "custom", moduleOrder: before, hiddenModules: ["evidence"] });
+  assert.ok(!visibleAdminModules(hidEvidence).includes("research"));
 });
 
 // ---------------------------------------------------------------- shell, landmarks and labels

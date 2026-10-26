@@ -44,6 +44,9 @@ export function normalizeAdminPreferences(value) {
   const hiddenModules = Array.isArray(input.hiddenModules)
     ? input.hiddenModules.filter((module, index) => ADMIN_OPTIONAL_MODULES.includes(module) && input.hiddenModules.indexOf(module) === index)
     : [];
+  // Layouts saved before the research workspace showed research only with Evidence Studio, so a
+  // layout that hid Evidence Studio keeps the workspace hidden too (ADR 0132).
+  if (!suppliedOrder.includes("research") && hiddenModules.includes("evidence") && !hiddenModules.includes("research")) hiddenModules.push("research");
   return { schemaVersion: 1, preset, density, editorMode, moduleOrder, hiddenModules };
 }
 

@@ -60,7 +60,9 @@ to hang from.
 - **Placement follows the layout preset.** `research` joins the optional modules (the Rust and
   JavaScript preference lists), after `evidence`. Guided and Advanced show it, Simple does not,
   Custom lets the author choose, and preferences saved before it existed gain it at the end of
-  their order, as every added module does. The toolbelt gets a single **Research workspace** link
+  their order, as every added module does. Research used to show only with Evidence Studio, so
+  saved preferences that hid `evidence` and do not yet name `research` gain it hidden, in both
+  the Rust and JavaScript migrations, and a custom layout looks as it did. The toolbelt gets a single **Research workspace** link
   (marked `aria-current="true"` inside the workspace, since the panel link is the current page);
   the panels are listed only in the workspace's own navigation, which is always shown on research
   panels and shown beside a draft when the preset includes the workspace or a panel holds kept

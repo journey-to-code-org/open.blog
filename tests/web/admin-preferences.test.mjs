@@ -258,6 +258,20 @@ test("untrusted preference values normalize to safe, complete settings", () => {
   assert.deepEqual(normalized.hiddenModules, ["assistant"]);
 });
 
+test("layouts saved before the research workspace keep it hidden where they hid Evidence Studio", () => {
+  // Research showed only with Evidence Studio before the workspace existed (ADR 0132).
+  const before = ADMIN_OPTIONAL_MODULES.filter((module) => module !== "research");
+  const hidEvidence = normalizeAdminPreferences({ preset: "custom", moduleOrder: before, hiddenModules: ["evidence"] });
+  assert.deepEqual(hidEvidence.hiddenModules, ["evidence", "research"]);
+  assert.equal(visibleAdminModules(hidEvidence).includes("research"), false);
+  const showedEvidence = normalizeAdminPreferences({ preset: "custom", moduleOrder: before, hiddenModules: ["social"] });
+  assert.deepEqual(showedEvidence.hiddenModules, ["social"]);
+  assert.equal(visibleAdminModules(showedEvidence).includes("research"), true);
+  // A layout that already names the workspace keeps it as chosen.
+  const chosen = normalizeAdminPreferences({ preset: "custom", moduleOrder: ADMIN_OPTIONAL_MODULES, hiddenModules: ["evidence"] });
+  assert.deepEqual(chosen.hiddenModules, ["evidence"]);
+});
+
 test("every preset keeps every document view reachable and essentials first", () => {
   const presets = [
     { preset: "simple" },
