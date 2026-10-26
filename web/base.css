@@ -1741,6 +1741,88 @@ ob-comments {
   font-size: .9rem;
 }
 
+/* The conversation after an author's own section (ADR 0138): inside that section's turn, after
+   the author's words, so it never moves them. A reader's reflection and the author's response are
+   told apart by their headings and labels, which are text; the border style only repeats it. */
+ob-conversation {
+  display: block;
+}
+
+.ob-conversation {
+  min-inline-size: 0;
+  margin-block: var(--ob-space-6, 1.5rem) 0;
+  border-top: 1px solid var(--ob-color-border);
+  padding-top: var(--ob-space-4, 1rem);
+  overflow-wrap: anywhere;
+}
+
+.ob-conversation > h3 {
+  margin-block: 0 .5rem;
+  font-size: 1rem;
+}
+
+.ob-conversation-note {
+  margin-block: 0 var(--ob-space-4, 1rem);
+  color: var(--ob-color-subtle, inherit);
+  font-size: .9rem;
+}
+
+.ob-conversation-list {
+  display: grid;
+  gap: var(--ob-space-4, 1rem);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-conversation-list[hidden] {
+  display: none;
+}
+
+.ob-conversation-list > li {
+  display: grid;
+  gap: .75rem;
+  min-inline-size: 0;
+}
+
+.ob-perspective h4,
+.ob-author-response h4,
+.ob-author-response h5 {
+  margin-block: 0 .5rem;
+  font-size: 1rem;
+}
+
+.ob-author-response {
+  max-inline-size: 42rem;
+  min-inline-size: 0;
+  margin-inline-start: 1rem;
+  border-inline-start: 3px double var(--ob-color-border);
+  padding-inline-start: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.ob-perspective > .ob-author-response {
+  margin-block-start: .75rem;
+}
+
+.ob-perspective:target,
+.ob-author-response:target,
+.ob-conversation:target {
+  outline: 2px solid currentColor;
+  outline-offset: 4px;
+}
+
+.ob-conversation-toggle {
+  margin-block: 0 var(--ob-space-4, 1rem);
+}
+
+.ob-conversation-toggle:focus-visible,
+.ob-conversation a:focus-visible,
+.ob-third-perspectives-where a:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
 ob-passage-feedback {
   display: block;
 }
@@ -2421,6 +2503,20 @@ ob-back-to-top button:hover {
   .ob-print-recipe .ob-recipe-list > li.ob-done {
     color: inherit;
     text-decoration: none;
+  }
+  .ob-conversation,
+  .ob-perspective,
+  .ob-author-response {
+    break-inside: avoid;
+  }
+
+  .ob-conversation ob-abuse-report,
+  .ob-conversation-toggle {
+    display: none;
+  }
+
+  ob-conversation .ob-conversation-list[hidden] {
+    display: grid;
   }
 }
 /* Shared reflections: every layout (ADR 0031, ADR 0032). The markup is already in reading

@@ -3900,6 +3900,24 @@ a.oba-btn-primary {
   margin: 0.75rem 0;
 }
 
+.oba-answer-form {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  border-left: 3px solid var(--oba-success);
+  padding: 0.25rem 0.75rem;
+}
+
+.oba-answer-form h4 {
+  margin: 0.25rem 0;
+}
+
+.oba-answer-form textarea {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
 .oba-moderation-actions {
   display: grid;
   gap: 0.75rem;

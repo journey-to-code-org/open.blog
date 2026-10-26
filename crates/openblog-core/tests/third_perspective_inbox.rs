@@ -192,6 +192,26 @@ fn an_empty_decision_log_is_tolerated_on_a_third_perspective_and_a_decision_is_n
 }
 
 #[test]
+fn a_hosted_row_with_the_correction_decision_log_still_reads_as_a_third_perspective() {
+    // A hosted function that keeps correction decisions sends every feedback
+    // row's (empty) log under `decisions`. Only an evidence kind takes a
+    // decision, so a Third Perspective's key is dropped before it is read
+    // strictly: the row is neither refused nor read as a correction.
+    let site = site();
+    let copy = copy(&site, "Grace", true);
+    let log = json!({"version": 1, "decisions": []});
+    let sent = hosted(&copy, "pending", json!({"decisions": log}));
+    let item = InboxItem::from_value(&sent).expect("the stripped key is not an unknown field");
+    assert_eq!(item.kind, ParticipationKind::ThirdPerspective);
+    assert_eq!(item.perspective().unwrap().copy, copy);
+    let page = read_page(
+        &json!({"protocol": "protected", "thirdPerspectives": true, "items": [sent], "next": null}),
+    )
+    .unwrap();
+    assert_eq!((page.items.len(), page.invalid), (1, 0));
+}
+
+#[test]
 fn moderators_see_the_category_consent_and_credit_hint_and_never_another_role() {
     let site = site();
     let works = SharedWorks::new(&[], &site);

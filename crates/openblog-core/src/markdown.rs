@@ -1651,6 +1651,10 @@ pub fn render(markdown: &str, options: RenderOptions<'_>) -> Rendered {
     render_events(parsed_events, markdown.len(), options, None, findings)
 }
 
+/// The start of an attributed section's anchor, which no heading id may have
+/// (the same text as `attributed_perspective::ANCHOR_PREFIX`).
+const RESERVED_ANCHOR_PREFIX: &str = crate::attributed_perspective::ANCHOR_PREFIX;
+
 /// Give every heading its id: the `{#id}` the author wrote, or a slug of its
 /// text made unique among the post's slugs. Written ids are not consulted, so
 /// existing native anchors keep their targets; the portable projection makes
@@ -1713,6 +1717,11 @@ fn assign_heading_ids(
                 if supplements && id.starts_with(crate::reading_depth::ID_PREFIX) {
                     id = format!("section-{id}");
                 }
+                // `ob-by-` belongs to attributed sections (ADR 0126). A
+                // heading whose text begins "OB by" must not take it.
+                if id.starts_with(RESERVED_ANCHOR_PREFIX) {
+                    id = format!("heading-{id}");
+                }
                 let Event::Start(Tag::Heading { id: existing, .. }) = &mut events[start] else {
                     continue;
                 };
@@ -1726,7 +1735,13 @@ fn assign_heading_ids(
                     id = format!("{base}-{n}");
                     n += 1;
                 }
-                if generated {
+                // An id the author wrote in the reserved space is replaced by
+                // the heading's own slug: only a section's real author may
+                // own an `ob-by-` anchor.
+                let reserved = existing
+                    .as_deref()
+                    .is_some_and(|written| written.starts_with(RESERVED_ANCHOR_PREFIX));
+                if generated || reserved {
                     *existing = Some(CowStr::from(id));
                 }
             }

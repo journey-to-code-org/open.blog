@@ -240,3 +240,30 @@ To undo it, remove `OPENBLOG_THIRD_PERSPECTIVES_ENABLED` and redeploy, optionall
 [`supabase/third-perspective-rollback.sql`](../../supabase/third-perspective-rollback.sql) before
 any other rollback. It drops exactly the column and function above and leaves every row in its
 state.
+
+### Author responses (optional, no SQL)
+
+An author's answer to a Third Perspective about their own section (ADRs 0131 to 0135) is one more
+`openblog_feedback` row, of kind `author-response`: no new table, column or function, so there is
+nothing to run in Supabase and no rollback file. Set `OPENBLOG_AUTHOR_RESPONSES_ENABLED` to `true`
+(on top of the Third Perspectives settings above) and redeploy, and set
+`"author-response": "open"` in `participation.kinds` for the works that take answers.
+
+Only Admin's token reaches `admin/author-response`: `POST` stores one answer (always pending), `PATCH`
+lets the account that wrote it withdraw it. Admin checks, against the private shared-publication
+record this function never holds, that the signed-in account is the contributor bound to the
+section; the function reads the request strictly (`netlify/lib/author-response.mjs`, held to
+`tests/fixtures/author-responses.json` by the build), reads the parent row itself and checks it
+again (a Third Perspective of that work, shown now, about that contributor's own section, at the
+version Admin saw), allows one answer pending or shown per reflection, 20 an hour per account, and
+the same answer once an hour. The row keeps the parent's id, the contributor handle, the published
+name and the section's standing, and privately the participant and Admin account that wrote it; the
+inbox lists it (`kind=author-response`), a coordinator approves it only under a shown parent and never
+as the account that wrote it (and never while another answer to that reflection is shown), and B5's
+`/admin/feedback` never decides one. The function publishes and e-mails nothing: Admin writes an
+approved answer into `content/third-perspectives.json` (ADR 0137), which is how the post shows it.
+Abuse reports about an answer whose reflection is not shown answer `unavailable`, as for an answer
+that does not exist.
+
+To undo it, remove `OPENBLOG_AUTHOR_RESPONSES_ENABLED` and redeploy. Existing answers stay private
+in the inbox, where they can still be rejected or removed but not approved.

@@ -217,6 +217,106 @@ fn script_json(data: &serde_json::Value) -> String {
     json
 }
 
+/// The id of the page data element that lists a post's attributed sections
+/// for the Third Perspective form (ADR 0131).
+pub const ATTRIBUTED_DATA_ELEMENT_ID: &str = "ob-attributed-sections";
+
+/// A shared reflection's attributed sections as the Third Perspective form
+/// reads them: each author's section by its anchor, author's published name,
+/// place, first words and digest, all computed here by the build from the
+/// committed body and credits. Empty when the post attributes nothing.
+fn attributed_sections_element(
+    post: &Post,
+    sections: &crate::attributed_perspective::AttributedSections,
+) -> String {
+    if sections.sections().is_empty() {
+        return String::new();
+    }
+    let entries: Vec<serde_json::Value> = sections
+        .sections()
+        .iter()
+        .map(|section| {
+            serde_json::json!({
+                "anchor": section.anchor(),
+                "contributor": section.contribution,
+                "nth": section.nth,
+                "author": section.author,
+                "excerpt": section.excerpt,
+                "digest": section.digest,
+            })
+        })
+        .collect();
+    let data = serde_json::json!({ "version": 1, "work": post.url, "sections": entries });
+    format!(
+        "<script type=\"application/json\" id=\"{ATTRIBUTED_DATA_ELEMENT_ID}\">{}</script>\n",
+        script_json(&data)
+    )
+}
+
+/// Give each attributed section of a rendered reflection its `ob-by-` anchor
+/// and put the conversation about it at the end of its own turn. `None`
+/// unless the body's turns are exactly the attributed sections, in order.
+fn anchor_sections(
+    html: &str,
+    sections: &crate::attributed_perspective::AttributedSections,
+    conversations: &[(
+        String,
+        Vec<&crate::perspective_publication::PublicPerspective>,
+    )],
+    reports: Option<&str>,
+) -> Option<String> {
+    const OPEN: &str = "<section class=\"ob-turn ob-lane-";
+    let starts: Vec<usize> = html.match_indices(OPEN).map(|(at, _)| at).collect();
+    if starts.len() != sections.sections().len() {
+        return None;
+    }
+    let mut out = String::with_capacity(html.len() + 512);
+    let mut at = 0;
+    for (start, section) in starts.iter().zip(sections.sections()) {
+        let tag_end = start + html[*start..].find('>')?;
+        let close = start + matching_section_close(&html[*start..])?;
+        let anchor = section.anchor();
+        out.push_str(&html[at..tag_end]);
+        out.push_str(&format!(" id=\"{}\"", attr(&anchor)));
+        out.push_str(&html[tag_end..close]);
+        if let Some((_, items)) = conversations.iter().find(|(held, _)| *held == anchor) {
+            out.push_str(&crate::perspective_publication::render_conversation(
+                &anchor, items, reports,
+            ));
+        }
+        at = close;
+    }
+    out.push_str(&html[at..]);
+    Some(out)
+}
+
+/// The offset of the `</section>` that closes the `<section ...>` whose open
+/// tag starts `html`, counting nested sections (a knowledge check, a recipe
+/// part, citation notes) so the first close tag is not taken for the turn's.
+fn matching_section_close(html: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut at = 0;
+    while let Some(found) = html[at..].find("<") {
+        let tag = at + found;
+        let rest = &html[tag..];
+        if rest.starts_with("</section>") {
+            depth = depth.checked_sub(1)?;
+            if depth == 0 {
+                return Some(tag);
+            }
+        } else if rest.starts_with("<section")
+            && rest[8..]
+                .chars()
+                .next()
+                .is_some_and(|c| c == '>' || c.is_ascii_whitespace())
+        {
+            depth += 1;
+        }
+        at = tag + 1;
+    }
+    None
+}
+
 fn resolved_post_canonical(config: &SiteConfig, post: &Post) -> Option<String> {
     match (&post.research, &post.canonical) {
         (Some(_), Some(url)) => Some(config.absolute(url)),
@@ -948,12 +1048,62 @@ impl<'a> Renderer<'a> {
         } else {
             ""
         };
+        // Where the site opens author responses on this post, a shared
+        // reflection's author sections can be written about by author and
+        // place (ADR 0131). Everywhere else the region is as it was.
+        let attributed =
+            if participation::effective_mode(c, post, ParticipationKind::AuthorResponse)
+                == ParticipationMode::Hidden
+            {
+                crate::attributed_perspective::AttributedSections::default()
+            } else {
+                crate::attributed_perspective::AttributedSections::of_post(post)
+            };
+        // The example names the first real section, never a made-up author.
+        let attributed_words = match attributed.sections().first() {
+            None => String::new(),
+            Some(first) => format!(
+                " To write about one author’s section, name it by its author and its place among that author’s sections, such as “{}, section 1”.",
+                text(&first.author)
+            ),
+        };
+        let attributed_element = attributed_sections_element(post, &attributed);
         Some(format!(
-            "<section id=\"{THIRD_PERSPECTIVE_ANCHOR}\" class=\"ob-third-perspective\" aria-labelledby=\"{THIRD_PERSPECTIVE_ANCHOR}-title\">\n<h2 id=\"{THIRD_PERSPECTIVE_ANCHOR}-title\">Offer a Third Perspective</h2>\n<ob-third-perspective endpoint=\"{}\" page=\"{}\"{contact_attr}{receipts_attr}>\n<p>Share your own reading of this work, or of one section of it. If a moderator approves it, it is shown here as a reader’s reflection, never as one of the authors’, and only as you agree: published or not, with your name or without. There are no scores and no votes.</p>\n<p class=\"ob-third-perspective-static\">The form needs JavaScript. Without it, you can write your reflection to the author{contact_words}: say which section it is about, whether it may be published, whether your name may be shown and whether you may be asked to clarify it, and give this page’s passage revision, <code>{}</code>.</p>\n</ob-third-perspective>\n</section>\n",
+            "<section id=\"{THIRD_PERSPECTIVE_ANCHOR}\" class=\"ob-third-perspective\" aria-labelledby=\"{THIRD_PERSPECTIVE_ANCHOR}-title\">\n<h2 id=\"{THIRD_PERSPECTIVE_ANCHOR}-title\">Offer a Third Perspective</h2>\n<ob-third-perspective endpoint=\"{}\" page=\"{}\"{contact_attr}{receipts_attr}>\n<p>Share your own reading of this work, or of one section of it. If a moderator approves it, it is shown here as a reader’s reflection, never as one of the authors’, and only as you agree: published or not, with your name or without. There are no scores and no votes.</p>\n<p class=\"ob-third-perspective-static\">The form needs JavaScript. Without it, you can write your reflection to the author{contact_words}: say which section it is about, whether it may be published, whether your name may be shown and whether you may be asked to clarify it, and give this page’s passage revision, <code>{}</code>.{attributed_words}</p>\n</ob-third-perspective>\n{attributed_element}</section>\n",
             attr(endpoint),
             attr(&c.absolute(&post.url)),
             text(&document.revision),
         ))
+    }
+
+    /// The post's body HTML. For a shared reflection whose author responses
+    /// are not hidden, each author's section gets its `ob-by-` anchor and the
+    /// reflections about its current text, with the author's answer, follow
+    /// the author's words inside that section's own turn (ADR 0138). Anything
+    /// that does not line up (a body that is not a reflection, a section
+    /// count that differs from the attributed sections) is left exactly as it
+    /// is, so a page without answers is byte for byte what it was.
+    fn prose_with_conversations<'p>(&self, post: &'p Post) -> std::borrow::Cow<'p, str> {
+        use std::borrow::Cow;
+        let c = &self.site.config;
+        if participation::published_mode(c, post, ParticipationKind::AuthorResponse)
+            == ParticipationMode::Hidden
+        {
+            return Cow::Borrowed(&post.html);
+        }
+        let sections = crate::attributed_perspective::AttributedSections::of_post(post);
+        if sections.sections().is_empty() {
+            return Cow::Borrowed(&post.html);
+        }
+        let reports = (participation::effective_mode(c, post, ParticipationKind::AbuseReport)
+            == ParticipationMode::Open)
+            .then(|| c.engagement.endpoint.trim().trim_end_matches('/'));
+        let (in_section, _) =
+            crate::perspective_publication::split_by_section(post.third_perspectives());
+        match anchor_sections(&post.html, &sections, &in_section, reports) {
+            Some(html) => Cow::Owned(html),
+            None => Cow::Borrowed(&post.html),
+        }
     }
 
     fn site_header(&self, theme: &Theme, current: &str) -> String {
@@ -1507,7 +1657,7 @@ impl<'a> Renderer<'a> {
         body.push_str(&format!(
             "<ob-code{}><div class=\"ob-prose e-content\">{}</div></ob-code>\n",
             self.code_attr(theme, Some(post)),
-            post.html
+            self.prose_with_conversations(post)
         ));
         if reading_modes.is_some() {
             body.push_str("</ob-reading-modes>\n");

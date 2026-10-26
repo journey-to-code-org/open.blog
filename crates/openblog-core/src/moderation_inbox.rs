@@ -13,6 +13,13 @@
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::attributed_perspective::{
+    authorize_author, AttributedSections, AttributedTarget, Standing,
+};
+use crate::author_response::{
+    may_decide_answer, HostedAuthorResponse, ParentFacts, StoredStanding, PARENT_UNAVAILABLE,
+    RESPONDER_DENIED,
+};
 use crate::correction_decision::{
     decide as decide_correction, decision_in_force, passage_check_id, standing, CorrectionDecision,
     DecisionContent, DecisionError, DecisionFacts, DecisionLog, DecisionOutcome, DecisionRequest,
@@ -118,7 +125,11 @@ impl Protocol {
         use ModerationAction::*;
         match self {
             Protocol::Protected => true,
-            Protocol::Full => kind != ParticipationKind::AbuseReport,
+            // An author response needs the hosted function's own opt-in on top
+            // of protection (ADR 0132), so only the protected protocol has it.
+            Protocol::Full => {
+                kind != ParticipationKind::AbuseReport && kind != ParticipationKind::AuthorResponse
+            }
             Protocol::Legacy if kind == ParticipationKind::Comment => {
                 matches!(action, Approve | Reject | Remove | Reopen)
             }
@@ -166,6 +177,7 @@ impl Source {
             Source::Feedback => {
                 ParticipationKind::PASSAGE_FEEDBACK.contains(&kind)
                     || kind == ParticipationKind::ThirdPerspective
+                    || kind == ParticipationKind::AuthorResponse
             }
             Source::Report => kind == ParticipationKind::AbuseReport,
         }
@@ -181,6 +193,9 @@ pub enum Content {
     Feedback(Box<HostedFeedback>),
     /// A Third Perspective with its consent records (ADRs 0110, 0113).
     Perspective(Box<HostedPerspective>),
+    /// An author's answer to a Third Perspective about their own section,
+    /// with the responder it stores (ADRs 0130 to 0132).
+    AuthorResponse(Box<HostedAuthorResponse>),
     /// An abuse report: the reader's ground and what they wrote, if anything.
     /// It never names the reporter.
     Report {
@@ -346,6 +361,24 @@ fn comment_text_ok(value: &str, max: usize, multiline: bool) -> bool {
         && !value
             .chars()
             .any(|c| c.is_control() && !(multiline && matches!(c, '\n' | '\r' | '\t')))
+}
+
+/// The hosted service sends an item's decision log wherever its schema keeps one, empty for an
+/// item nobody decided. A Third Perspective or an author response takes no decisions, so an empty
+/// log is no more than absent; one holding a decision is still refused as an unknown field.
+fn drop_empty_decisions(wire: &mut Value) {
+    if let Some(object) = wire.as_object_mut() {
+        let empty = object.get("decisions").is_some_and(|log| {
+            log.is_null()
+                || log
+                    .get("decisions")
+                    .and_then(Value::as_array)
+                    .is_some_and(Vec::is_empty)
+        });
+        if empty {
+            object.remove("decisions");
+        }
+    }
 }
 
 impl InboxItem {
@@ -589,23 +622,16 @@ impl InboxItem {
         if let Some(object) = wire.as_object_mut() {
             object.remove("source");
         }
+        // A hosted function that keeps correction decisions sends every feedback
+        // row's (empty) log; only an evidence kind takes a decision, so a Third
+        // Perspective's and an answer's is not read.
         if wire["feedback"]["kind"] == ParticipationKind::ThirdPerspective.id() {
-            // The hosted service sends an item's decision log wherever its schema keeps one,
-            // empty for an item nobody decided. A Third Perspective takes no decisions, so an
-            // empty log is no more than absent; one holding a decision is still refused.
-            if let Some(object) = wire.as_object_mut() {
-                let empty = object.get("decisions").is_some_and(|log| {
-                    log.is_null()
-                        || log
-                            .get("decisions")
-                            .and_then(Value::as_array)
-                            .is_some_and(Vec::is_empty)
-                });
-                if empty {
-                    object.remove("decisions");
-                }
-            }
+            drop_empty_decisions(&mut wire);
             return Self::read_perspective(&wire);
+        }
+        if wire["feedback"]["kind"] == ParticipationKind::AuthorResponse.id() {
+            drop_empty_decisions(&mut wire);
+            return Self::read_author_response(&wire);
         }
         let hosted = HostedFeedback::from_value(&wire).map_err(|error| error.to_string())?;
         Ok(Self {
@@ -648,6 +674,64 @@ impl InboxItem {
             work: hosted.copy.provenance.work.clone(),
             content: Content::Perspective(Box::new(hosted)),
             target: None,
+        })
+    }
+
+    fn read_author_response(wire: &Value) -> Result<Self, String> {
+        let hosted = HostedAuthorResponse::from_value(wire).map_err(|error| error.to_string())?;
+        if !is_site_path(&hosted.work) {
+            return Err("a hosted author response needs a post path".into());
+        }
+        Ok(Self {
+            source: Source::Feedback,
+            id: hosted.id.clone(),
+            kind: ParticipationKind::AuthorResponse,
+            state: hosted.state,
+            version: hosted.version,
+            revision: hosted.item_revision,
+            approved_revision: hosted.approved_revision,
+            clarification_asked: None,
+            clarification_consent: false,
+            reason: hosted.reason,
+            moderated_at: hosted.moderated_at,
+            received_at: hosted.received_at,
+            work: hosted.work.clone(),
+            content: Content::AuthorResponse(Box::new(hosted)),
+            target: None,
+        })
+    }
+
+    /// The author response, for an item of that kind.
+    pub fn author_response(&self) -> Option<&HostedAuthorResponse> {
+        match &self.content {
+            Content::AuthorResponse(hosted) => Some(hosted),
+            _ => None,
+        }
+    }
+
+    /// What an answer needs of this item as its parent: the facts of a
+    /// Third Perspective's row, or `None` when it is anything else or its
+    /// text and consent were purged.
+    pub fn parent_facts(&self) -> Option<ParentFacts> {
+        let hosted = self.perspective()?;
+        let approved = hosted
+            .approved_consent
+            .and_then(|number| hosted.copy.consent_record(number))
+            .is_some_and(|record| record.publish);
+        Some(ParentFacts {
+            kind: ParticipationKind::ThirdPerspective,
+            work: self.work.clone(),
+            state: self.state,
+            revision: self.revision,
+            approved_revision: self.approved_revision,
+            clarification_asked: self.clarification_asked,
+            approved_consent_publishes: approved,
+            current_consent_publishes: hosted.copy.consent().publish,
+            retained: true,
+            target: crate::third_perspective::PerspectiveTarget::try_from(
+                hosted.copy.provenance.target.clone(),
+            )
+            .ok()?,
         })
     }
 
@@ -824,6 +908,21 @@ impl<'a> Inbox<'a> {
         if !offered || !self.protocol.supports(item.kind, action) {
             return Err(PolicyError::NotAllowed);
         }
+        // An author response is never asked to clarify (its kind has no
+        // clarification), is approved only where the hosted function records
+        // answers (the same opt-in as Third Perspectives), and is never
+        // approved by the account that wrote it (ADR 0128).
+        if let Some(hosted) = item.author_response() {
+            if action == ModerationAction::Approve && !self.third_perspectives {
+                return Err(PolicyError::NotAllowed);
+            }
+            let decider = self
+                .actor(item)
+                .admin_user()
+                .unwrap_or_default()
+                .to_string();
+            may_decide_answer(&hosted.responder.account, &decider, action)?;
+        }
         // A Third Perspective is approved only where the hosted service records
         // the consent the approval covers, and only as its own check allows,
         // at the text and consent it holds now.
@@ -859,6 +958,149 @@ impl<'a> Inbox<'a> {
                 seen_revision,
                 seen_consent,
                 at: self.now,
+            },
+        )
+    }
+
+    /// Whether an author response may be approved under `parent`, read again
+    /// from the hosted inbox just before the decision: the parent is a Third
+    /// Perspective of the same work, shown to readers now (its post still
+    /// shows the kind), and about an attributed section of the very
+    /// contributor who answered. Call it beside [`Inbox::decide`] for an
+    /// approval; it is `Err` with the code the hosted function also answers.
+    pub fn check_answer_approval(
+        &self,
+        item: &InboxItem,
+        parent: &InboxItem,
+    ) -> Result<(), &'static str> {
+        let hosted = item.author_response().ok_or(PARENT_UNAVAILABLE)?;
+        if hosted.parent != parent.id || !self.parent_shown(parent) {
+            return Err(PARENT_UNAVAILABLE);
+        }
+        parent
+            .parent_facts()
+            .ok_or(PARENT_UNAVAILABLE)?
+            .check_answer(&item.work, &hosted.responder.contributor)?;
+        // The responder is read against the private record again at approval:
+        // the account that wrote the answer must still be bound as that
+        // section's contributor, so membership revoked after the answer was
+        // written, or a row stored with a responder it never had (a forged
+        // row written with the token), is never approved (ADR 0128).
+        let record = self
+            .works
+            .record_for_work(&item.work)
+            .ok_or(RESPONDER_DENIED)?;
+        authorize_author(
+            record,
+            self.identities,
+            &hosted.responder.account,
+            &hosted.responder.participant,
+        )
+        .map_err(|_| RESPONDER_DENIED)?;
+        let bound = record
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.participant_id == hosted.responder.participant)
+            .is_some_and(|binding| {
+                binding.contributor_id == hosted.responder.contributor
+                    && binding.admin_user == hosted.responder.account
+            });
+        if bound {
+            Ok(())
+        } else {
+            Err(RESPONDER_DENIED)
+        }
+    }
+
+    /// Whether a Third Perspective is shown to readers now: its facts say so
+    /// and its kind is shown on its post (RD12's `is_public`).
+    fn parent_shown(&self, parent: &InboxItem) -> bool {
+        is_public(&parent.facts(), self.mode(parent))
+            && parent.parent_facts().is_some_and(|facts| facts.is_shown())
+    }
+
+    /// Whether the viewer may answer this Third Perspective as the author of
+    /// the section it is about, and as whom: only the contributor bound to
+    /// the section's public contributor id, on a work that publishes it,
+    /// where the perspective is shown and answers are open. Nothing about
+    /// another participant is ever returned.
+    pub fn answer_as(&self, item: &InboxItem) -> Option<Value> {
+        let Principal::AdminSession { admin_user } = self.principal else {
+            return None;
+        };
+        let hosted = item.perspective()?;
+        if !self.parent_shown(item) {
+            return None;
+        }
+        let post = post_for_work(self.site, &item.work)?;
+        if effective_mode(&self.site.config, post, ParticipationKind::AuthorResponse)
+            != ParticipationMode::Open
+        {
+            return None;
+        }
+        let target = crate::third_perspective::PerspectiveTarget::try_from(
+            hosted.copy.provenance.target.clone(),
+        )
+        .ok()?;
+        let attributed = AttributedTarget::from_perspective(&target).ok()??;
+        let record = self.works.record_for_work(&item.work)?;
+        let binding = record
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.contributor_id == attributed.contribution)?;
+        authorize_author(record, self.identities, admin_user, &binding.participant_id).ok()?;
+        let standing = AttributedSections::of_post(post).resolve(&attributed);
+        let author = match &standing {
+            Standing::Current { author, .. } => Some(author.clone()),
+            Standing::Stale { author, .. } => author.clone(),
+        }?;
+        Some(json!({
+            "contributor": attributed.contribution,
+            "author": author,
+            "standing": StoredStanding::of(&standing).to_value(),
+        }))
+    }
+
+    /// Whether the viewer is the account that wrote this answer. Membership
+    /// is not re-checked: an author whose binding was removed or demoted can
+    /// still take their own words back. Any other account is no. A
+    /// coordinator removes an answer instead (ADR 0128).
+    pub fn may_withdraw(&self, item: &InboxItem) -> bool {
+        let Principal::AdminSession { admin_user } = self.principal else {
+            return false;
+        };
+        let Some(hosted) = item.author_response() else {
+            return false;
+        };
+        // Taking one's own words down is never the risk (ADR 0128), so the
+        // account that wrote the answer may withdraw it even after its
+        // binding was removed or demoted; approving is what re-checks that.
+        hosted.responder.account == admin_user
+    }
+
+    /// An author taking their own answer back: the submitter's withdrawal
+    /// under RD12's state machine, for the account [`Inbox::may_withdraw`]
+    /// names, while the answer is pending or approved. The row, its responder
+    /// and its audit trail stay; it is never public again.
+    pub fn withdraw_answer(
+        &self,
+        item: &InboxItem,
+        expected_version: u64,
+    ) -> Result<Decision, PolicyError> {
+        if !self.may_withdraw(item) {
+            return Err(PolicyError::Denied);
+        }
+        self.policy.decide(
+            &item.facts(),
+            &Request {
+                actor: Actor::Submitter,
+                action: ModerationAction::Withdraw,
+                expected_version,
+                reason: None,
+                at: self.now,
+                reported_item: None,
             },
         )
     }
@@ -1146,11 +1388,26 @@ impl<'a> Inbox<'a> {
                     copy.provenance.target.selector,
                     crate::passage_target::PassageSelector::Work
                 );
+                // A section of one author's text is checked against that
+                // author's published sections, never B5's heading sections.
+                let attributed = crate::third_perspective::PerspectiveTarget::try_from(
+                    copy.provenance.target.clone(),
+                )
+                .ok()
+                .and_then(|target| AttributedTarget::from_perspective(&target).ok().flatten());
+                let attributed_standing = attributed.as_ref().and_then(|target| {
+                    post.map(|post| AttributedSections::of_post(post).resolve(target))
+                });
                 view["perspective"] = json!({
                     "about": if about_work { "work" } else { "section" },
                     "section": section,
                     "check": match &target {
                         _ if about_work => "current",
+                        _ if attributed.is_some() => match &attributed_standing {
+                            Some(Standing::Current { .. }) => "current",
+                            Some(Standing::Stale { .. }) => "stale",
+                            None => "unknown-work",
+                        },
                         Some(TargetStatus::Current { .. }) => "current",
                         Some(TargetStatus::Stale { .. }) => "stale",
                         None => "unknown-work",
@@ -1175,6 +1432,20 @@ impl<'a> Inbox<'a> {
                     view["perspective"]["nameMatchesCredit"] = json!(work
                         .as_ref()
                         .is_some_and(|work| copy.name_matches_credit(&work.credited)));
+                }
+                // How it would read on the canonical page once approved now.
+                if let (Some(target), Some(standing)) = (&attributed, &attributed_standing) {
+                    view["perspective"]["attributed"] = json!({
+                        "contributor": target.contribution,
+                        "standing": StoredStanding::of(standing).to_value(),
+                        "author": match standing {
+                            Standing::Current { author, .. } => Some(author.clone()),
+                            Standing::Stale { author, .. } => author.clone(),
+                        },
+                    });
+                }
+                if let Some(answer) = self.answer_as(item) {
+                    view["answerAs"] = answer;
                 }
                 // How it would read on the canonical page once approved now.
                 view["publicPreview"] = Value::Null;
@@ -1202,6 +1473,31 @@ impl<'a> Inbox<'a> {
                     }
                     _ => Value::Null,
                 };
+            }
+            Content::AuthorResponse(hosted) => {
+                view["body"] = json!(hosted.body);
+                view["details"] = json!({});
+                view["reader"] = json!({ "publishName": false });
+                let mut response = json!({
+                    "parent": hosted.parent,
+                    "contributor": hosted.responder.contributor,
+                    "author": hosted.responder.author,
+                    "standing": hosted.responder.standing.to_value(),
+                    "section": hosted.target.section_id(),
+                });
+                // Which account wrote it is private to moderation; the
+                // binding to a participant is never sent anywhere. The author
+                // is told only that it is theirs, and whether they may
+                // still take it back.
+                if private_identity {
+                    response["account"] = json!(hosted.responder.account);
+                }
+                response["mine"] = json!(matches!(
+                    self.principal,
+                    Principal::AdminSession { admin_user } if admin_user == hosted.responder.account
+                ));
+                response["withdrawable"] = json!(self.withdraw_answer(item, item.version).is_ok());
+                view["response"] = response;
             }
             Content::Feedback(hosted) => {
                 let feedback = &hosted.feedback;
@@ -1394,6 +1690,9 @@ pub fn guidance(policy: &ModerationPolicy, item: &InboxItem, action: ModerationA
     match action {
         ModerationAction::Approve if item.kind == ParticipationKind::Comment => {
             "Shows the comment on its post.".into()
+        }
+        ModerationAction::Approve if item.kind == ParticipationKind::AuthorResponse => {
+            "Approves exactly this answer and publishes it on the post, after that author’s section and under the reader’s reflection it answers, labelled as the author’s response. It does not mean you agree, and it can never be approved by the account that wrote it. If the reflection it answers is taken down, the answer is hidden with it.".into()
         }
         ModerationAction::Approve if item.kind == ParticipationKind::ThirdPerspective => {
             "Approves exactly this text under the consent the reader gives now, to be shown on the post as a reader’s reflection, never as yours. It does not mean you agree. If the reader later hides their name or withdraws it, the page follows their choice.".into()
