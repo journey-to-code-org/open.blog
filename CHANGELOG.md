@@ -5,13 +5,19 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-10-26
+
 - Approved Third Perspectives now appear on the work's canonical page, in a "Third Perspectives"
   section after the authors' text: each headed as a reader's reflection, never an author's, with
   the reader's name only while they agree to show it and never when it looks like a credited
   name. Approving one in the Moderation inbox writes its public part to
   `content/third-perspectives.json`, so static builds, CI and a site without its hosted service
   keep showing it; removing one, or a reader withdrawing it through their receipt, is taken off
-  from the inbox card. Readers checking a receipt see whether their reflection is waiting,
+  from its inbox card or from a banner on every tab of the inbox, which counts the published
+  reflections that must come off and says when the hosted copy cannot tell. Withdrawing deletes
+  the hosted copy only, and readers are told that copies already published may remain and that a
+  name they chose to show becomes part of the site's public record. Rolling the hosted opt-in
+  back first means emptying `content/third-perspectives.json`. Readers checking a receipt see whether their reflection is waiting,
   needs clarifying, is shown, was not published or was withdrawn, and nothing about anyone else.
   Portable copies, feeds and `llms-full.txt` link to the canonical page for Third Perspectives
   and never carry the reflections. The no-JavaScript text of the Third Perspective form now wraps
