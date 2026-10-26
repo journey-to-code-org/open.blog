@@ -5,6 +5,15 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Reader participation now has one policy. Comments keep `engagement.comments` and `comments:`
+  exactly as before; questions, suggested sources and corrections, other interpretations, Third
+  Perspectives, author responses and abuse reports are each off until `participation.kinds` in
+  `openblog.json` switches them on, and a post can choose its own mode with `participation:` front
+  matter. Everything submitted starts pending; a request for clarification never publishes the
+  text it asks about, removals and dismissed or upheld abuse reports always need a reason, and
+  `participation.retention` sets how long unpublished text and the private moderation record are
+  kept. Nothing is e-mailed to readers. Sites that switch nothing on build exactly as before.
+
 ## [0.31.0] - 2026-10-26
 
 - Contributors to a shared reflection can pin moments to its sources in Admin: a time or range in

@@ -257,6 +257,37 @@ static-host build from the repository finds no atlas and publishes `/atlas/` and
 empty; `openblog build` and `openblog check` warn when publishing is on but no atlas is stored.
 See [Deploying](deploy.md).
 
+## Reader participation
+
+Hosted comments keep their switches: `engagement.comments` and each post's `comments:`. Every
+other way to take part is a participation kind, off until you switch it on in `participation`
+(omitted while it has its defaults):
+
+```jsonc
+"participation": {
+  "kinds": { "question": "hidden", "third-perspective": "open", "abuse-report": "open" },
+  "retention": { "pendingDays": 90, "clarificationDays": 30, "closedDays": 30, "auditDays": 365 }
+}
+```
+
+- `kinds` takes `question`, `source-suggestion`, `correction-suggestion`,
+  `alternative-interpretation`, `third-perspective`, `author-response` and `abuse-report`. Each is
+  `off` (the default: front matter cannot turn it on), `hidden`, `locked` or `open` (switched on,
+  and the mode of posts that do not name it), or `follow-comments` (each post's mode is its
+  `comments:` setting). `abuse-report` is `off` or `open` for the whole site. A post chooses its
+  own mode with [`participation:`](content.md) front matter.
+- Everything submitted starts pending, and only what a moderator approves is shown. Nothing is
+  ever e-mailed to readers. Nothing is accepted without hosted engagement and an endpoint.
+- `retention` (days, 1 to 3650): unmoderated items expire after `pendingDays`, unanswered
+  clarification requests after `clarificationDays`, the text of rejected and removed items is
+  purged after `closedDays`, and the private moderation record after `auditDays`, which must be
+  at least `closedDays`.
+- Once a kind beyond comments is switched on, builds also write `openblog-participation.json`,
+  the public map of each post's open and locked kinds that the hosted function checks.
+
+The rules are recorded in ADRs [0100](adr/0100-one-registry-of-participation-kinds-enabled-per-site-and-post.md)
+to [0103](adr/0103-retention-audit-events-and-abuse-reports-fail-closed.md).
+
 ## Themes
 
 Themes are not configured here beyond `theme`; each theme has its own `theme.json`. See

@@ -58,6 +58,18 @@ function. Admin stores the public endpoint in `openblog.json` and a write-only m
 - The local built-in analytics store remains the default and remains available when hosted
   engagement is disabled.
 
+## Participation policy
+
+Comments are the first kind in the one participation and moderation policy
+(`openblog_core::participation` and `openblog_core::moderation`, ADRs 0100 to 0103). The comment
+manifest and `<ob-comments>` come from the policy's comment row, which keeps the rule above
+unchanged. Further kinds (passage feedback, Third Perspectives, author responses, abuse reports)
+are off until `participation.kinds` switches them on, then share this function, its quotas and its
+moderation token, read their modes from `openblog-participation.json`, and start pending. The
+function's adoption of the full state machine (clarification, removal, withdrawal, versions,
+reasons, retention and audit events) belongs to #225 and #226; the stored comment statuses stay
+`pending`, `approved` and `rejected` until an additive migration widens them.
+
 ## Testing decisions
 
 - Exercise the Netlify handler through HTTP-shaped events with a fake Supabase fetch seam.
