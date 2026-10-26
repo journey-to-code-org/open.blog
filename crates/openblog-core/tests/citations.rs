@@ -563,11 +563,23 @@ fn the_visual_editors_writing_conventions_scan_as_the_editor_means() {
     assert_eq!(scan.mentions[0].citation.key, "plato-republic");
     // The lines it protects really are read differently from a naive pattern.
     let scan = scan_citations(r"A \\[@plato-republic] b.");
-    assert_eq!(scan.mentions.len(), 1, "an escaped backslash leaves a citation");
+    assert_eq!(
+        scan.mentions.len(),
+        1,
+        "an escaped backslash leaves a citation"
+    );
     let scan = scan_citations("A [@plato-republic](see also) b.");
-    assert_eq!(scan.mentions.len(), 1, "an invalid link destination leaves a citation");
+    assert_eq!(
+        scan.mentions.len(),
+        1,
+        "an invalid link destination leaves a citation"
+    );
     let scan = scan_citations("foo_bar [@plato-republic, section 1_2] baz_");
-    assert_eq!(scan.mentions.len(), 1, "intraword underscores are not emphasis");
+    assert_eq!(
+        scan.mentions.len(),
+        1,
+        "intraword underscores are not emphasis"
+    );
     let scan = scan_citations("A [link with [@plato-republic] inside](https://example.com).");
     assert!(scan.mentions.is_empty(), "link text is not a citation");
 }
