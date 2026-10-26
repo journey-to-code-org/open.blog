@@ -29,6 +29,7 @@ use crate::collaboration::SharedPublication;
 use crate::draft::DraftSet;
 use crate::escape;
 use crate::markdown::{self, RenderOptions};
+use crate::media_moment::MomentSet;
 use crate::reflection::{compose, strip_part_markers, ComposedTurn, ReflectionStructure};
 use crate::shared_source::SharedAttribution;
 use crate::synthesis::{SynthesisKind, SynthesisSet};
@@ -181,6 +182,8 @@ fn approval_label(state: ApprovalState) -> &'static str {
 /// `active` are the participants who currently hold the draft grant; the requester must be one.
 /// With a `structure` the piece is arranged in its reading order and layout, as the published Post
 /// is (ADR 0030, 0031); without one the sections follow participant order.
+/// `moments` are the publication's media moments: those proposed for the piece join the approval
+/// binding and make their owners required approvers, exactly as at the publish gate (ADR 0073).
 /// `show_synthesis` is true only when the requester holds `EditSynthesis`; otherwise the items and
 /// the conversation section are left out (readiness still counts them).
 /// `options` are the site's production Markdown options. Pure: it never writes drafts or
@@ -191,6 +194,7 @@ pub fn build(
     structure: Option<&ReflectionStructure>,
     drafts: &DraftSet,
     synthesis: &SynthesisSet,
+    moments: &MomentSet,
     approvals: &ApprovalSet,
     requester: &str,
     active: &[&str],
@@ -225,81 +229,89 @@ pub fn build(
             })
         })
         .collect();
-    crate::assembly::with_subject(record, structure, drafts, synthesis, active, |subject| {
-        let mut sections = Vec::new();
-        let mut rendered = Vec::new();
-        for (author, stamp) in authors.iter().zip(&stamps) {
-            let entitled = stamp.as_ref().and_then(|stamp| {
-                let view = drafts.view(requester, &author.id, active).ok()?;
-                (view.stamp.number == stamp.number && view.stamp.digest == stamp.digest)
-                    .then_some(view)
-            });
-            let prose = entitled
-                .as_ref()
-                .map(|view| render_section(&strip_part_markers(&view.markdown), options));
-            sections.push(PreviewSection {
-                participant_id: author.id.clone(),
-                display_name: author.display_name.clone(),
-                shown: prose.is_some(),
-                revision: entitled.as_ref().map(|view| view.stamp.number),
-                approval: approvals.state(subject, &author.id),
-                required: approvals.is_required(subject, &author.id),
-                errors: prose.as_ref().map(|r| r.errors.clone()).unwrap_or_default(),
-            });
-            rendered.push(prose.map(|r| r.html));
-        }
+    crate::assembly::with_subject(
+        record,
+        structure,
+        drafts,
+        synthesis,
+        moments,
+        active,
+        |subject| {
+            let mut sections = Vec::new();
+            let mut rendered = Vec::new();
+            for (author, stamp) in authors.iter().zip(&stamps) {
+                let entitled = stamp.as_ref().and_then(|stamp| {
+                    let view = drafts.view(requester, &author.id, active).ok()?;
+                    (view.stamp.number == stamp.number && view.stamp.digest == stamp.digest)
+                        .then_some(view)
+                });
+                let prose = entitled
+                    .as_ref()
+                    .map(|view| render_section(&strip_part_markers(&view.markdown), options));
+                sections.push(PreviewSection {
+                    participant_id: author.id.clone(),
+                    display_name: author.display_name.clone(),
+                    shown: prose.is_some(),
+                    revision: entitled.as_ref().map(|view| view.stamp.number),
+                    approval: approvals.state(subject, &author.id),
+                    required: approvals.is_required(subject, &author.id),
+                    errors: prose.as_ref().map(|r| r.errors.clone()).unwrap_or_default(),
+                });
+                rendered.push(prose.map(|r| r.html));
+            }
 
-        // Complete means every section that exists is shown. An author who owns no section adds no
-        // content to be missed, so they can still approve the whole piece (ADR 0020).
-        let by_author: Vec<(&PreviewSection, bool)> = sections
-            .iter()
-            .zip(&stamps)
-            .map(|(section, stamp)| (section, stamp.is_some()))
-            .collect();
-        let arranged = structure.map(|structure| {
-            arrange(
-                record, structure, drafts, requester, active, &by_author, options,
-            )
-        });
-        let complete = !subject_sections.is_empty()
-            && arranged.as_ref().is_none_or(|arranged| arranged.is_ok())
-            && sections
+            // Complete means every section that exists is shown. An author who owns no section adds no
+            // content to be missed, so they can still approve the whole piece (ADR 0020).
+            let by_author: Vec<(&PreviewSection, bool)> = sections
                 .iter()
                 .zip(&stamps)
-                .all(|(section, stamp)| stamp.is_none() || section.shown);
-        let items = preview_items(record, synthesis, requester);
-        let ready = complete
-            && approvals.evaluate(subject) == Ok(Readiness::Ready)
-            && items.iter().all(|item| item.awaiting.is_empty());
-        // Synthesis is for its authors only (EditSynthesis). Readiness above still counts every
-        // item, but anyone who may not edit the synthesis sees neither its prose nor its names.
-        let items = if show_synthesis { items } else { Vec::new() };
-        let seen = if complete {
-            approvals.binding_for(subject, requester).ok()
-        } else {
-            None
-        };
-        let rule = rule_for(record, approvals, subject);
-        let document = document(
-            record,
-            &rule,
-            &sections,
-            &rendered,
-            arranged.as_ref(),
-            &conversation_html(record, &items, synthesis, options),
-            complete,
-            ready,
-        );
-        Ok(CombinedPreview {
-            sections,
-            rule,
-            complete,
-            ready,
-            seen,
-            items,
-            document,
-        })
-    })
+                .map(|(section, stamp)| (section, stamp.is_some()))
+                .collect();
+            let arranged = structure.map(|structure| {
+                arrange(
+                    record, structure, drafts, requester, active, &by_author, options,
+                )
+            });
+            let complete = !subject_sections.is_empty()
+                && arranged.as_ref().is_none_or(|arranged| arranged.is_ok())
+                && sections
+                    .iter()
+                    .zip(&stamps)
+                    .all(|(section, stamp)| stamp.is_none() || section.shown);
+            let items = preview_items(record, synthesis, requester);
+            let ready = complete
+                && approvals.evaluate(subject) == Ok(Readiness::Ready)
+                && items.iter().all(|item| item.awaiting.is_empty());
+            // Synthesis is for its authors only (EditSynthesis). Readiness above still counts every
+            // item, but anyone who may not edit the synthesis sees neither its prose nor its names.
+            let items = if show_synthesis { items } else { Vec::new() };
+            let seen = if complete {
+                approvals.binding_for(subject, requester).ok()
+            } else {
+                None
+            };
+            let rule = rule_for(record, approvals, subject);
+            let document = document(
+                record,
+                &rule,
+                &sections,
+                &rendered,
+                arranged.as_ref(),
+                &conversation_html(record, &items, synthesis, options),
+                complete,
+                ready,
+            );
+            Ok(CombinedPreview {
+                sections,
+                rule,
+                complete,
+                ready,
+                seen,
+                items,
+                document,
+            })
+        },
+    )
 }
 
 /// The conversation as the preview shows it. Approved items come first as the very Markdown the

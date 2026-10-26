@@ -112,38 +112,19 @@ pub fn post_path(record: &SharedPublication) -> String {
 }
 
 /// Run `ask` against the approval subject for the active authors as the content is now. This is
-/// the one place the subject is built from the record, arrangement, drafts and synthesis, so the
-/// approval binding a preview hands out, the one the gate checks and the one a route stores cannot
-/// drift apart. The metadata it binds is the public record fields, then the reflection
-/// `structure`'s prose-free binding frame when there is one (layout, turn order, round prompts and
-/// labels; ADR 0030), then the synthesis's prose-free binding frame (items, order, attribution).
-/// A change to any of them makes standing approvals stale exactly as a change of prose does; with
-/// no structure nothing is appended for it, so approvals given before one existed stay valid. The
-/// synthesis's attributed authors must each approve the piece (ADR 0024, 0025).
+/// the one place the subject is built from the record, arrangement, drafts, synthesis and media
+/// moments, so the approval binding a preview hands out, the one the gate checks and the one a
+/// route stores cannot drift apart. The metadata it binds is the public record fields, then the
+/// reflection `structure`'s prose-free binding frame when there is one (layout, turn order, round
+/// prompts and labels; ADR 0030), then the synthesis's prose-free binding frame (items, order,
+/// attribution), then the `moments`' prose-free binding frame (one digest per moment proposed for
+/// the piece, covering the source it shows; ADR 0073). A change to any of them makes standing
+/// approvals stale exactly as a change of prose does; with no structure, and with no moment
+/// proposed for the piece, nothing is appended for them, so approvals given before either existed
+/// stay valid. The synthesis's attributed authors, and every participant with a moment proposed
+/// for the piece, must each approve the piece whatever the policy (ADR 0024, 0025, 0073). Callers
+/// that have not loaded moments pass an empty [`MomentSet`].
 pub fn with_subject<R>(
-    record: &SharedPublication,
-    structure: Option<&ReflectionStructure>,
-    drafts: &DraftSet,
-    synthesis: &SynthesisSet,
-    active: &[&str],
-    ask: impl FnOnce(&ApprovalSubject<'_>) -> R,
-) -> R {
-    with_subject_and_moments(
-        record,
-        structure,
-        drafts,
-        synthesis,
-        &MomentSet::new(),
-        active,
-        ask,
-    )
-}
-
-/// [`with_subject`] with the publication's media moments: the binding frame of every moment
-/// proposed for the piece follows the synthesis frame, and each participant with such a moment
-/// is a required approver (ADR 0073). With no publication moments the subject is exactly the one
-/// [`with_subject`] builds, so standing approvals stay valid.
-pub fn with_subject_and_moments<R>(
     record: &SharedPublication,
     structure: Option<&ReflectionStructure>,
     drafts: &DraftSet,
@@ -345,12 +326,15 @@ pub fn conversation_markdown(record: &SharedPublication, synthesis: &SynthesisSe
 /// the sections follow its reading order and are wrapped in the arranged markup of [`compose`]
 /// (ADR 0031), and credits are one per participant at their first appearance (ADR 0030); without
 /// one the sections are the participants' drafts in participant order. Part marker lines never
-/// reach the Post either way. The approved conversation block follows the sections.
+/// reach the Post either way. The approved conversation block follows the sections. `moments`
+/// bind into the approvals the gate evaluates (ADR 0073); nothing here renders them yet (#177).
+#[allow(clippy::too_many_arguments)]
 pub fn assemble(
     record: &SharedPublication,
     structure: Option<&ReflectionStructure>,
     drafts: &DraftSet,
     synthesis: &SynthesisSet,
+    moments: &MomentSet,
     approvals: &ApprovalSet,
     active: &[&str],
     date: &str,
@@ -359,9 +343,15 @@ pub fn assemble(
     // the drafts first would refuse differently depending on whether a draft has a given part, an
     // oracle on unrevealed prose for a coordinator who may arrange but not read (ADR 0031). Only a
     // piece whose approvals are met can be refused as `ArrangementMismatch`, below.
-    match with_subject(record, structure, drafts, synthesis, active, |subject| {
-        approvals.evaluate(subject)
-    }) {
+    match with_subject(
+        record,
+        structure,
+        drafts,
+        synthesis,
+        moments,
+        active,
+        |subject| approvals.evaluate(subject),
+    ) {
         Ok(Readiness::Ready) => {}
         Ok(Readiness::Blocked { gaps, .. }) if !gaps.is_empty() => {
             return Err(AssemblyError::RuleUnmet {

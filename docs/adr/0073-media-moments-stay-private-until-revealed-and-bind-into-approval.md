@@ -61,17 +61,17 @@ early, or to publish words nobody approved.
   type, its locators, its quotation with speaker, rights and provenance, and its observation. The
   frame holds no prose, names or links.
 
-  `assembly::with_subject_and_moments` appends the frame after the synthesis frame. It also adds
+  `assembly::with_subject`, the one builder of the approval subject, takes the publication's
+  `MomentSet` after the synthesis and appends the frame after the synthesis frame. It also adds
   every owner of a publication moment to the subject's attributed authors, so each of them must
   approve the piece under every policy. As a result, each of these stales every standing approval:
   - any change to a publication moment;
   - proposing a moment for the piece, or withdrawing one;
   - a change to the source a moment shows.
 
-  A set with no publication moments binds exactly as before. `with_subject` delegates with an empty
-  set, so existing approvals and every current caller are unchanged.
-- **Reconcile.** `reconcile` drops the moments and seals of anyone who is no longer an author.
-  Restoring the author does not restore either.
+  A set with no publication moments binds exactly as before, so existing approvals are unchanged.
+  `assemble` and `preview::build` take the set too and pass it through; there is no second entry
+  point that leaves moments out, and a caller that has not loaded them passes an empty set.
 
 ## Consequences
 
@@ -82,7 +82,8 @@ early, or to publish words nobody approved.
   - route changes through `SharedPublication::authorize`, open to Contributors for themselves, as
     `EditSynthesis` is;
   - call `seal` from the reveal routes;
-  - switch the preview, the approval routes and the publish gate to `with_subject_and_moments`;
+  - load the stored set into the preview, the approval routes and the publish gate, which pass
+    an empty set until then;
   - refuse to publish while `unresolved` reports anything;
   - render approved moments through the ordinary post pipeline.
 - Suppose an owner commits revision N to an exchange that is then cancelled. The seal for N keeps

@@ -10,6 +10,7 @@ use openblog_core::collaboration::{
 };
 use openblog_core::config::SiteConfig;
 use openblog_core::draft::{DraftSet, RevealPolicy};
+use openblog_core::media_moment::MomentSet;
 use openblog_core::preview::{CombinedPreview, PreviewError, PREVIEW_CSP};
 use openblog_core::SourceFile;
 
@@ -29,6 +30,7 @@ fn build_with(
         None,
         set,
         &openblog_core::synthesis::SynthesisSet::new(),
+        &MomentSet::new(),
         approvals,
         requester,
         active,

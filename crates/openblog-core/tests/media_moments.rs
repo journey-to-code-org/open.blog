@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use openblog_core::approval::{
     ApprovalPolicy, ApprovalRequirement, ApprovalScope, ApprovalSet, ApprovalState, Readiness,
 };
-use openblog_core::assembly::{with_subject, with_subject_and_moments};
+use openblog_core::assembly::with_subject;
 use openblog_core::collaboration::{
     AuthorizationRole, IdentityBinding, NewParticipant, NewSharedPublication, NewSourceReference,
     Participant, SharedPublication, SourceKind,
@@ -869,10 +869,10 @@ fn approve(
     who: &str,
 ) {
     let synthesis = SynthesisSet::new();
-    let seen = with_subject_and_moments(record, None, drafts, &synthesis, moments, &ALL, |s| {
+    let seen = with_subject(record, None, drafts, &synthesis, moments, &ALL, |s| {
         approvals.binding_for(s, who).unwrap()
     });
-    with_subject_and_moments(record, None, drafts, &synthesis, moments, &ALL, |s| {
+    with_subject(record, None, drafts, &synthesis, moments, &ALL, |s| {
         approvals.approve(who, who, s, &seen, true, T)
     })
     .unwrap();
@@ -885,7 +885,7 @@ fn state(
     approvals: &ApprovalSet,
     who: &str,
 ) -> ApprovalState {
-    with_subject_and_moments(
+    with_subject(
         record,
         None,
         drafts,
@@ -902,21 +902,6 @@ fn publication_moments_join_the_approval_binding_and_private_ones_never_do() {
     let drafts = drafts(&[("ann", "Ann words"), ("bo", "Bo words")]);
     let mut moments = MomentSet::new();
     let mut approvals = ApprovalSet::new();
-
-    // With no moments the subject is exactly the one the existing builder makes.
-    let plain = with_subject(&record, None, &drafts, &SynthesisSet::new(), &ALL, |s| {
-        approvals.binding_for(s, "ann").unwrap()
-    });
-    let with_none = with_subject_and_moments(
-        &record,
-        None,
-        &drafts,
-        &SynthesisSet::new(),
-        &moments,
-        &ALL,
-        |s| approvals.binding_for(s, "ann").unwrap(),
-    );
-    assert_eq!(plain, with_none);
 
     approve(&record, &drafts, &moments, &mut approvals, "ann");
     let private = add(
@@ -994,7 +979,7 @@ fn whoever_proposes_a_moment_must_approve_the_piece_under_every_policy() {
     approve(&record, &drafts, &moments, &mut approvals, "ann");
     approve(&record, &drafts, &moments, &mut approvals, "bo");
     let ready = |moments: &MomentSet, approvals: &ApprovalSet| {
-        with_subject_and_moments(
+        with_subject(
             &record,
             None,
             &drafts,

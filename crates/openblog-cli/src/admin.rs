@@ -34,6 +34,7 @@ use openblog_core::invitation::{
     Identities, Invitation, InvitationError, InvitationField, NewInvitation,
 };
 use openblog_core::markdown::RenderOptions;
+use openblog_core::media_moment::MomentSet;
 use openblog_core::members::MemberError;
 use openblog_core::portability::{destination_policy, DestinationRepresentation};
 use openblog_core::research_bundle;
@@ -6408,6 +6409,7 @@ fn prepare_post(
             inputs.structure.structure.as_ref(),
             &inputs.drafts,
             &inputs.synthesis,
+            &MomentSet::new(),
             &inputs.approvals.set,
             &active,
             date,
@@ -6778,6 +6780,7 @@ fn change_approval(
             inputs.structure.structure.as_ref(),
             &inputs.drafts,
             &inputs.synthesis,
+            &MomentSet::new(),
             &active,
             |subject| {
                 next.approve(&own, &own, subject, seen, affirmed, clock::now().unix())
@@ -7200,6 +7203,7 @@ fn reconcile_approvals(
             structure.structure.as_ref(),
             &drafts,
             &synthesis.set,
+            &MomentSet::new(),
             &active,
             |subject| next.reconcile(subject),
         );
@@ -7422,6 +7426,7 @@ fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Sessio
         structure.structure.as_ref(),
         &set,
         &synthesis,
+        &MomentSet::new(),
         &approvals,
         &own,
         &active,
@@ -7614,6 +7619,7 @@ fn approval_policy_json(
         inputs.structure.structure.as_ref(),
         &inputs.drafts,
         &inputs.synthesis,
+        &MomentSet::new(),
         &active,
         |subject| {
             let required = set.required(subject);
@@ -7749,6 +7755,7 @@ fn set_approval_policy(state: &AppState, req: &Request, session: &auth::Session)
         inputs.structure.structure.as_ref(),
         &inputs.drafts,
         &inputs.synthesis,
+        &MomentSet::new(),
         &active,
         |subject| {
             next.change_policy(
