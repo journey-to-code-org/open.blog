@@ -1801,6 +1801,10 @@ ob-conversation {
   overflow-wrap: anywhere;
 }
 
+.ob-perspective > .ob-author-response {
+  margin-block-start: .75rem;
+}
+
 .ob-perspective:target,
 .ob-author-response:target,
 .ob-conversation:target {

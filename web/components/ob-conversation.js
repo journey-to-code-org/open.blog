@@ -2,8 +2,9 @@
 // section. The page is complete without this script: the reader's reflections and the author's
 // response are static, labelled HTML that follows the author's words, in order. With it, a long
 // conversation (more than COLLAPSE_AFTER reflections) starts folded behind one native button, so a
-// reader who only wants the article is not made to scroll past it. The button names what it shows,
-// reports its state with `aria-expanded` and controls the list. A link to anything inside the
+// reader who only wants the article is not made to scroll past it. The button keeps one stable name
+// (the conversation's heading and count), reports its state with `aria-expanded` alone and controls
+// the list. A link to anything inside the
 // conversation, such as an abuse-report page link or a shared address, opens it. Nothing is moved,
 // removed, scored or fetched, and no animation runs.
 
@@ -14,11 +15,13 @@ export function startsFolded(count) {
   return Number.isInteger(count) && count > COLLAPSE_AFTER;
 }
 
-/** The toggle's visible name for a state: it says what it will do, and how many. */
-export function toggleLabel(count, expanded) {
-  return expanded
-    ? `Hide the ${count} reader reflections on this section`
-    : `Show the ${count} reader reflections on this section`;
+/**
+ * The toggle's one name, the same open or folded: the conversation's own heading and how many it
+ * holds, so each toggle on a page is told apart. The state is `aria-expanded` alone, never a
+ * changing label that a screen reader would also announce as a state.
+ */
+export function toggleLabel(count, heading = "Reader reflections on this section") {
+  return `${heading} (${count})`;
 }
 
 class ObConversation extends HTMLElement {
@@ -31,6 +34,8 @@ class ObConversation extends HTMLElement {
     if (!startsFolded(count)) return;
     this.setAttribute("data-enhanced", "");
     if (!list.id) list.id = `${aside.id || "ob-conversation"}-list`;
+    const heading = aside.querySelector("h3")?.textContent?.trim();
+    const label = toggleLabel(count, heading || undefined);
     const button = document.createElement("button");
     button.type = "button";
     button.className = "ob-conversation-toggle";
@@ -38,7 +43,7 @@ class ObConversation extends HTMLElement {
     const set = (expanded) => {
       list.hidden = !expanded;
       button.setAttribute("aria-expanded", String(expanded));
-      button.textContent = toggleLabel(count, expanded);
+      button.textContent = label;
     };
     const targeted = () => {
       let id = "";

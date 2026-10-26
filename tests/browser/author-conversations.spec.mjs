@@ -164,14 +164,16 @@ test("without JavaScript the conversation follows its section, in order, and say
   });
   expect(order).toEqual({ before: true, inside: true });
   // Found by role and accessible name, as a screen reader finds it.
-  const aside = page.getByRole("complementary", { name: "Reader reflections on this section" }).first();
+  const aside = page.getByRole("complementary", { name: "Reader reflections on MINA’s section 1" }).first();
   await expect(aside).toBeVisible();
   const reader = aside.getByRole("article", { name: "Third Perspective from a reader" });
   const author = aside.getByRole("article", { name: "Author’s response from MINA" });
   await expect(reader).toContainText("I read the harbour differently.");
   await expect(author).toContainText("I meant the harbour, not the open sea.");
   await expect(author).toContainText("Written by the author of the section this answers");
-  await expect(reader).not.toContainText("Written by the author");
+  // The response is nested in the reflection it answers, for reply semantics, but the reflection's own words never say it was the author's.
+  expect(await author.evaluate((response) => response.parentElement.classList.contains("ob-perspective"))).toBe(true);
+  expect(await reader.evaluate((article) => [...article.children].filter((child) => child.tagName !== "ARTICLE").map((child) => child.textContent).join(" "))).not.toContain("Written by the author");
   // The headings descend h2 (turn), h3, h4, h5, and nothing is a heading level by colour.
   expect(await section.evaluate((turn) => [...turn.querySelectorAll("h2, h3, h4, h5")].slice(0, 4).map((h) => h.tagName))).toEqual(["H2", "H3", "H4", "H5"]);
   // The reader's article precedes the author's response in the document, so reading order is the conversation order.
@@ -196,7 +198,7 @@ test("with no stylesheet the same order and names remain", async ({ page }) => {
   await page.goto(`${origin}/shared-tides/`);
   await expect(page.getByRole("article", { name: "Author’s response from MINA" }).first()).toBeVisible();
   const text = await page.locator("#ob-by-mina-0").innerText();
-  expect(text.indexOf("The moon pulls the water")).toBeLessThan(text.indexOf("Reader reflections on this section"));
+  expect(text.indexOf("The moon pulls the water")).toBeLessThan(text.indexOf("Reader reflections on MINA’s section 1"));
   expect(text.indexOf("Third Perspective from a reader")).toBeLessThan(text.indexOf("Author’s response from MINA"));
 });
 
@@ -206,17 +208,17 @@ test("a long conversation is folded behind one native button only with script, a
   await page.goto(`${origin}/shared-tides/`);
   await page.waitForFunction(() => customElements.get("ob-conversation") !== undefined);
   const joe = conversation(page, "joe-0");
-  const button = joe.getByRole("button", { name: "Show the 4 reader reflections on this section" });
+  const button = joe.getByRole("button", { name: "Reader reflections on JOE’s section 1 (4)" });
   await expect(button).toHaveAttribute("aria-expanded", "false");
   await expect(joe.locator(".ob-conversation-list")).toBeHidden();
   // A short conversation is never folded, and the author's own words are never touched.
   await expect(conversation(page, "mina-0").getByRole("button")).toHaveCount(0);
   await expect(page.locator("#ob-by-joe-0").getByText("It is also the sun.", { exact: true })).toBeVisible();
-  // Keyboard: Tab reaches the button, Enter opens it and it says what it will do next.
+  // Keyboard: Tab reaches the button, Enter opens it; the name stays the same and only aria-expanded changes.
   await button.focus();
   await expect(button).toBeFocused();
   await page.keyboard.press("Enter");
-  const hide = joe.getByRole("button", { name: "Hide the 4 reader reflections on this section" });
+  const hide = joe.getByRole("button", { name: "Reader reflections on JOE’s section 1 (4)" });
   await expect(hide).toHaveAttribute("aria-expanded", "true");
   await expect(hide).toBeFocused();
   await expect(joe.getByRole("article", { name: "Third Perspective from a reader" })).toHaveCount(4);
@@ -323,16 +325,14 @@ test("where answers are hidden the page has no anchors, no conversation and no a
 
 test("feeds, llms files, search data and portable copies carry no conversation, only the canonical link", async ({ page }) => {
   const secrets = ["I meant the harbour, not the open sea", "I read the harbour differently", "Author’s response from MINA", "ob-conversation", ID(2), "Reflection number 3"];
-  const paths = ["/rss.xml", "/feed.json", "/atom.xml", "/llms.txt", "/llms-full.txt", "/sitemap.xml", "/search-index.json", "/shared-tides/index.md", "/shared-tides/portable.html", "/shared-tides/portable.md"];
-  let checked = 0;
+  // Every one of these is written by the build, so a missing one is a failure, never skipped.
+  const paths = ["/rss.xml", "/feed.json", "/llms.txt", "/llms-full.txt", "/sitemap.xml", "/search.json"];
   for (const path of paths) {
     const response = await page.request.get(`${origin}${path}`);
-    if (!response.ok()) continue;
-    checked += 1;
+    expect(response.ok(), `${path} exists`).toBe(true);
     const body = await response.text();
     for (const secret of secrets) expect(body, `${secret} in ${path}`).not.toContain(secret);
   }
-  expect(checked).toBeGreaterThan(2);
   const llms = await (await page.request.get(`${origin}/llms-full.txt`)).text();
   expect(llms).toContain("Third Perspectives");
 });

@@ -301,13 +301,23 @@ fn the_conversation_follows_its_section_and_labels_who_wrote_what() {
     assert!(words < aside, "the conversation never precedes the prose");
     assert!(section.contains("aria-labelledby=\"ob-conversation-ob-by-mina-0-title\""));
     assert!(section.contains(
-        "<h3 id=\"ob-conversation-ob-by-mina-0-title\">Reader reflections on this section</h3>"
+        "<h3 id=\"ob-conversation-ob-by-mina-0-title\">Reader reflections on MINA’s section 1</h3>"
     ));
+    // The landmark is named for its section, so two on a page never share a name.
+    assert!(!html.contains("Reader reflections on this section"));
     // The reader's words and the author's are told apart by their headings,
     // their classes and their order, never by colour or position alone.
     let reader = section.find("Third Perspective from a reader").unwrap();
     let author = section.find("Author’s response from MINA").unwrap();
     assert!(aside < reader && reader < author);
+    // The answer is nested in the reflection it answers, for reply semantics.
+    let reflection = section.find("<article class=\"ob-perspective\"").unwrap();
+    let reflection_end = section.rfind("</article>").unwrap();
+    let response = section
+        .find("<article class=\"ob-author-response\"")
+        .unwrap();
+    assert!(reflection < response && response < reflection_end);
+    assert_eq!(section.matches("</article>").count(), 2);
     assert!(section.contains("<article class=\"ob-perspective\""));
     assert!(section.contains("<article class=\"ob-author-response\""));
     assert!(section.contains("Written by the author of the section this answers"));
@@ -545,7 +555,7 @@ fn feeds_portable_copies_and_llms_files_carry_only_the_canonical_link() {
             "Author’s response",
             "ob-author-response",
             "ob-conversation",
-            "Reader reflections on this section",
+            "Reader reflections on",
             "mina-admin",
             "p-mina",
             &id(2),
@@ -657,4 +667,23 @@ fn a_different_answer_is_refused_while_the_reflection_shows_one() {
     assert!(file.unpublish_answer(&id(2)));
     file.set_answer(&id(1), other(3, "A second answer."))
         .unwrap();
+}
+
+#[test]
+fn the_pointers_follow_the_order_reflections_arrived_not_the_anchors_alphabet() {
+    // MINA's section is written about first (n = 1), JOE's after (n = 2).
+    let site = load(
+        BOTH_OPEN,
+        &TURNS,
+        Some(vec![
+            item(1, 0, "About the moon.", None),
+            item(2, 1, "About the sun.", None),
+        ]),
+        1,
+    );
+    let files = build(&site);
+    let html = page(&files);
+    let joe = html.find("#ob-conversation-ob-by-joe-0").unwrap();
+    let mina = html.find("#ob-conversation-ob-by-mina-0").unwrap();
+    assert!(mina < joe, "first appearance, not alphabetical order");
 }

@@ -825,21 +825,29 @@ fn paragraphs(value: &str) -> String {
 pub const MAX_IN_SECTION: usize = 5;
 
 /// The reflections shown after their own attributed section, by section
-/// anchor in reading order, and the rest, which the list below shows. Each
+/// anchor in the order each section first has a reflection (the items' own
+/// order, oldest first), and the rest, which the list below shows. Each
 /// reflection is shown exactly once.
+#[allow(clippy::type_complexity)]
 pub fn split_by_section(
     items: &[PublicPerspective],
 ) -> (
-    std::collections::BTreeMap<String, Vec<&PublicPerspective>>,
+    Vec<(String, Vec<&PublicPerspective>)>,
     Vec<&PublicPerspective>,
 ) {
-    let mut in_section: std::collections::BTreeMap<String, Vec<&PublicPerspective>> =
-        std::collections::BTreeMap::new();
+    let mut in_section: Vec<(String, Vec<&PublicPerspective>)> = Vec::new();
     let mut rest = Vec::new();
     for item in items {
         match item.attributed_anchor() {
             Some(anchor) => {
-                let held = in_section.entry(anchor.to_string()).or_default();
+                let at = match in_section.iter().position(|(held, _)| held == anchor) {
+                    Some(at) => at,
+                    None => {
+                        in_section.push((anchor.to_string(), Vec::new()));
+                        in_section.len() - 1
+                    }
+                };
+                let held = &mut in_section[at].1;
                 if held.len() < MAX_IN_SECTION {
                     held.push(item);
                 } else {
@@ -928,12 +936,11 @@ fn render_item(
             attr(&item.id)
         ));
     }
-    html.push_str("</article>");
     if let Some(answer) = &item.answer {
         let answer_id = format!("ob-answer-{}", attr(&answer.id));
         let next = level + 1;
         html.push_str(&format!(
-            "\n<article class=\"ob-author-response\" id=\"{answer_id}\" aria-labelledby=\"{answer_id}-title\">\n<h{next} id=\"{answer_id}-title\">Author’s response from {}</h{next}>\n<p class=\"ob-perspective-meta\">Written by the author of the section this answers · approved <time datetime=\"{2}\">{2}</time></p>\n{}\n",
+            "<article class=\"ob-author-response\" id=\"{answer_id}\" aria-labelledby=\"{answer_id}-title\">\n<h{next} id=\"{answer_id}-title\">Author’s response from {}</h{next}>\n<p class=\"ob-perspective-meta\">Written by the author of the section this answers · approved <time datetime=\"{2}\">{2}</time></p>\n{}\n",
             text(&answer.author),
             paragraphs(&answer.body),
             attr(&answer.approved)
@@ -945,9 +952,31 @@ fn render_item(
                 attr(&answer.id)
             ));
         }
-        html.push_str("</article>");
+        html.push_str("</article>\n");
     }
+    html.push_str("</article>");
     html
+}
+
+/// What the conversation's landmark names, so each one on a page has its own
+/// accessible name: "MINA’s section 2" (the author's name and the place among
+/// that author's sections, counted from one), escaped.
+fn conversation_name(anchor_id: &str, items: &[&PublicPerspective]) -> String {
+    let author = items.iter().find_map(|item| {
+        item.section_title
+            .as_deref()
+            .and_then(|title| title.strip_prefix("a section by "))
+    });
+    let place = anchor_id
+        .rsplit('-')
+        .next()
+        .and_then(|nth| nth.parse::<usize>().ok())
+        .map(|nth| nth + 1);
+    match (author, place) {
+        (Some(author), Some(place)) => format!("{}’s section {place}", text(author)),
+        (Some(author), None) => format!("{}’s section", text(author)),
+        _ => "this section".to_string(),
+    }
 }
 
 /// The conversation after one attributed section: a labelled `<aside>` inside
@@ -964,8 +993,9 @@ pub fn render_conversation(
     }
     let id = format!("ob-conversation-{}", attr(anchor_id));
     let answers = items.iter().filter(|item| item.answer.is_some()).count();
+    let name = conversation_name(anchor_id, items);
     let mut html = format!(
-        "<ob-conversation>\n<aside class=\"ob-conversation\" id=\"{id}\" aria-labelledby=\"{id}-title\">\n<h3 id=\"{id}-title\">Reader reflections on this section</h3>\n<p class=\"ob-conversation-note\">{} reader {} on this section, each shown as a reader’s{}. Nothing here changes the author’s words above.</p>\n<ol class=\"ob-conversation-list\">\n",
+        "<ob-conversation>\n<aside class=\"ob-conversation\" id=\"{id}\" aria-labelledby=\"{id}-title\">\n<h3 id=\"{id}-title\">Reader reflections on {name}</h3>\n<p class=\"ob-conversation-note\">{} reader {} on this section, each shown as a reader’s{}. Nothing here changes the author’s words above.</p>\n<ol class=\"ob-conversation-list\">\n",
         items.len(),
         if items.len() == 1 {
             "reflection"

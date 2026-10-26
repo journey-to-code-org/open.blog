@@ -259,10 +259,10 @@ fn attributed_sections_element(
 fn anchor_sections(
     html: &str,
     sections: &crate::attributed_perspective::AttributedSections,
-    conversations: &std::collections::BTreeMap<
+    conversations: &[(
         String,
         Vec<&crate::perspective_publication::PublicPerspective>,
-    >,
+    )],
     reports: Option<&str>,
 ) -> Option<String> {
     const OPEN: &str = "<section class=\"ob-turn ob-lane-";
@@ -279,7 +279,7 @@ fn anchor_sections(
         out.push_str(&html[at..tag_end]);
         out.push_str(&format!(" id=\"{}\"", attr(&anchor)));
         out.push_str(&html[tag_end..close]);
-        if let Some(items) = conversations.get(&anchor) {
+        if let Some((_, items)) = conversations.iter().find(|(held, _)| *held == anchor) {
             out.push_str(&crate::perspective_publication::render_conversation(
                 &anchor, items, reports,
             ));
