@@ -24,8 +24,11 @@ pub const MAX_AUTHORIZATION_POLICY_BYTES: usize = 64 * 1024;
 pub const MAX_AUTHORIZATION_BINDINGS: usize = MAX_PARTICIPANTS;
 pub const MAX_ADMIN_USERNAME_BYTES: usize = 32;
 pub const SHARED_PUBLICATION_VERSION: u8 = 1;
-pub const MAX_SHARED_PUBLICATION_BYTES: usize =
-    MAX_CONTRACT_BYTES + MAX_AUTHORIZATION_POLICY_BYTES + 192 * 1024;
+/// The largest stored record that loads. It sits above the pretty-printed text of a record at
+/// every other bound at once (a full group with the longest names and keys, every source, every
+/// invitation and a full audit trail, about 600 KiB), so ordinary use can never write a record
+/// that no longer loads; the store also refuses to write anything larger (#188).
+pub const MAX_SHARED_PUBLICATION_BYTES: usize = 1024 * 1024;
 pub const MAX_SOURCES: usize = 20;
 pub const MAX_PUBLICATION_TITLE_BYTES: usize = 300;
 pub const MAX_GUIDING_QUESTION_BYTES: usize = 1_000;

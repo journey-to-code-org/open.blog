@@ -53,4 +53,10 @@ loses attribution, and approvals that no longer match are dropped.
   acting participant.
 - The cap of 100 participants is generous; a lower product limit can be set later without a
   migration.
+- The stored record limit (`MAX_SHARED_PUBLICATION_BYTES`, 1 MiB) sits above the pretty-printed
+  record at every other bound at once: a full group with the longest names and keys, every
+  source, every invitation and a full audit trail, about 600 KiB. The old limit (512 KiB) was
+  smaller than that, so ordinary use could write a record that then no longer loaded and the
+  reflection disappeared from Admin. The store now also refuses to write a record over the limit,
+  leaving the previous one in place (#188).
 - Organizations, billing, and email delivery stay out of scope.

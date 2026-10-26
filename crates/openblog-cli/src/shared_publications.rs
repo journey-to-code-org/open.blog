@@ -204,6 +204,10 @@ pub fn replace(
         return Err(ReplaceError::Conflict);
     }
     let text = record_text(next).map_err(ReplaceError::Storage)?;
+    // A record that would not load again is never written: the old one stays in place.
+    if text.len() > MAX_SHARED_PUBLICATION_BYTES {
+        return Err(ReplaceError::TooLarge);
+    }
     let temporary =
         temporary_path(&directory, &next.publication_id).map_err(ReplaceError::Storage)?;
     write_private_file(&temporary, text.as_bytes()).map_err(ReplaceError::Storage)?;

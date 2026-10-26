@@ -20,6 +20,9 @@ All notable changes to open.blog are recorded here. Releases follow
   publishing waits until the rule changes. The combined preview shows the rule. Changing the
   sharing rule now refuses to overwrite a change made elsewhere and, because it clears every
   standing offer, needs a confirmation too.
+- A shared reflection with a large group, long names and a long membership history no longer
+  risks being saved in a form that could not be opened again; a save that would be too large is
+  refused and the reflection stays as it was.
 
 ## [0.27.0] - 2026-10-25
 
