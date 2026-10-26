@@ -808,6 +808,7 @@ mod tests {
 
     const PRIVATE_MARKER: &str = "ob-private-source-7f3a";
     const NOTEBOOK_MARKER: &str = "ob-private-notebook-9d21";
+    const ATLAS_MARKER: &str = "ob-private-atlas-3c58";
 
     /// A project with one public post and a private source library whose
     /// every field carries a marker that must never be published.
@@ -830,6 +831,14 @@ mod tests {
             r#"{{"version":1,"passages":[{{"id":"p-leak","source":"{PRIVATE_MARKER}","excerpt":{{"text":"{NOTEBOOK_MARKER} quoted"}},"locators":[{{"kind":"page","value":"{NOTEBOOK_MARKER}"}}]}}],"notes":[{{"id":"n-leak","kind":"question","text":"{NOTEBOOK_MARKER} noted","passages":["p-leak"],"concepts":["{NOTEBOOK_MARKER}"]}}]}}"#
         );
         fs::write(root.join(crate::notebook_store::NOTEBOOK_FILE), notebook).unwrap();
+        let atlas = format!(
+            r#"{{"version":1,"entries":[{{"id":"{ATLAS_MARKER}","kind":"concept","label":"{ATLAS_MARKER} label","summary":"{ATLAS_MARKER} summary","visibility":"approved"}},{{"id":"w","kind":"work","label":"W","source":"{PRIVATE_MARKER}","visibility":"approved"}}],"relationships":[{{"id":"r","kind":"discusses","from":"w","to":"{ATLAS_MARKER}","assertedBy":{{"kind":"author"}},"evidence":[{{"source":"{PRIVATE_MARKER}","locators":[{{"kind":"section","value":"{ATLAS_MARKER}"}}]}}],"uncertainty":"{ATLAS_MARKER} doubt"}}]}}"#
+        );
+        // Positive control: the seeded file really is an atlas.
+        assert!(openblog_core::research_bundle::looks_like_private_research(
+            atlas.as_bytes()
+        ));
+        fs::write(root.join(crate::atlas_store::ATLAS_FILE), atlas).unwrap();
         root
     }
 
@@ -843,8 +852,10 @@ mod tests {
             assert!(
                 !String::from_utf8_lossy(&bytes).contains(PRIVATE_MARKER)
                     && !String::from_utf8_lossy(&bytes).contains(NOTEBOOK_MARKER)
+                    && !String::from_utf8_lossy(&bytes).contains(ATLAS_MARKER)
                     && !rel.contains("sources.json")
                     && !rel.contains("notebook.json")
+                    && !rel.contains("atlas.json")
                     && !rel.contains(".openblog/private"),
                 "{rel} exposes private source-library data"
             );
@@ -870,7 +881,7 @@ mod tests {
         assert_eq!(report.posts, 1);
         assert_no_private_output(&root);
         let search = fs::read_to_string(root.join("dist/search.json")).unwrap();
-        assert!(!search.contains(NOTEBOOK_MARKER));
+        assert!(!search.contains(NOTEBOOK_MARKER) && !search.contains(ATLAS_MARKER));
         assert!(
             search.contains("Hello"),
             "the public search index is still built"
@@ -919,6 +930,16 @@ mod tests {
             version(&root),
             before,
             "private notebook edits changed the asset version"
+        );
+        fs::write(
+            root.join(crate::atlas_store::ATLAS_FILE),
+            r#"{"version":1,"entries":[{"id":"c","kind":"concept","label":"changed"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            version(&root),
+            before,
+            "private atlas edits changed the asset version"
         );
         fs::remove_dir_all(root).unwrap();
 

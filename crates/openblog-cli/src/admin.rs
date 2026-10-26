@@ -11748,6 +11748,224 @@ mod tests {
         }
     }
 
+    // ---- Knowledge Atlas leak regressions (A5.2, ADR 0060) ----------------------
+    //
+    // Every atlas field holds its own sentinel, including approved items: there is
+    // no publication projection yet, so approval must not open any surface either.
+
+    const ATLAS_SENTINELS: [(&str, &str); 9] = [
+        ("entry id", "ob-atlas-entry-id-5309"),
+        ("label", "ob-atlas-label-5309"),
+        ("alias", "ob-atlas-alias-5309"),
+        ("summary", "ob-atlas-summary-5309"),
+        ("relationship id", "ob-atlas-relationship-id-5309"),
+        ("named party", "ob-atlas-party-5309"),
+        ("uncertainty", "ob-atlas-uncertainty-5309"),
+        ("locator", "ob-atlas-locator-5309"),
+        ("unknown field", "ob-atlas-extra-5309"),
+    ];
+
+    fn atlas_leaked(bytes: &[u8]) -> Vec<&'static str> {
+        let text = String::from_utf8_lossy(bytes);
+        ATLAS_SENTINELS
+            .iter()
+            .filter(|(_, sentinel)| text.contains(sentinel))
+            .map(|(name, _)| *name)
+            .collect()
+    }
+
+    fn assert_atlas_clean(surface: &str, bytes: &[u8]) {
+        let found = atlas_leaked(bytes);
+        assert!(
+            found.is_empty(),
+            "{surface} exposes the Knowledge Atlas ({})",
+            found.join(", ")
+        );
+        assert!(
+            !openblog_core::research_bundle::looks_like_private_research(bytes),
+            "{surface} carries a copy of private research"
+        );
+    }
+
+    fn seeded_atlas(f: &Fixture) -> Vec<u8> {
+        use openblog_core::knowledge_atlas::{Entry, Relationship};
+        let none = BTreeMap::new();
+        let empty = crate::atlas_store::load(&f.dir, &none).unwrap();
+        let person = Entry::from_json(json!({
+            "id": ATLAS_SENTINELS[0].1, "kind": "person", "label": ATLAS_SENTINELS[1].1,
+            "aliases": [ATLAS_SENTINELS[2].1], "summary": ATLAS_SENTINELS[3].1,
+            "visibility": "approved", "shelf": ATLAS_SENTINELS[8].1}))
+        .unwrap();
+        let work = Entry::from_json(json!({"id": "politeia", "kind": "work",
+            "label": "Politeia", "source": "plato", "visibility": "approved"}))
+        .unwrap();
+        let one = crate::atlas_store::create_entry(&f.dir, &empty.revision, person, &none).unwrap();
+        let two = crate::atlas_store::create_entry(&f.dir, &one.revision, work, &none).unwrap();
+        let relationship = Relationship::from_json(json!({
+            "id": ATLAS_SENTINELS[4].1, "kind": "authored",
+            "from": ATLAS_SENTINELS[0].1, "to": "politeia",
+            "assertedBy": {"kind": "named", "name": ATLAS_SENTINELS[5].1},
+            "uncertainty": ATLAS_SENTINELS[6].1, "visibility": "approved",
+            "evidence": [{"source": "slings",
+                "locators": [{"kind": "page", "value": ATLAS_SENTINELS[7].1}]}]}))
+        .unwrap();
+        crate::atlas_store::create_relationship(&f.dir, &two.revision, relationship, &none)
+            .unwrap();
+        let stored = fs::read(f.dir.join(crate::atlas_store::ATLAS_FILE)).unwrap();
+        assert_eq!(
+            atlas_leaked(&stored).len(),
+            ATLAS_SENTINELS.len(),
+            "every sentinel is stored, so a clean result below means something"
+        );
+        stored
+    }
+
+    #[test]
+    fn knowledge_atlas_sentinels_never_cross_a_publication_boundary() {
+        let f = fixture_with_sources("atlas-leak-corpus");
+        let session = login_ok(&f);
+        let stored = seeded_atlas(&f);
+
+        // The built site: pages, feeds, search index, llms files, assets.
+        f.state.rebuild().unwrap();
+        let dist = f.dir.join("dist");
+        let files = crate::fsutil::walk(&dist);
+        let names: Vec<String> = files
+            .iter()
+            .map(|file| crate::fsutil::relative(&dist, file))
+            .collect();
+        for expected in ["index.html", "search.json", "llms.txt", "llms-full.txt"] {
+            assert!(names.iter().any(|name| name == expected), "{expected}");
+        }
+        assert!(names.iter().any(|name| name.ends_with(".xml")), "a feed");
+        for file in &files {
+            let name = crate::fsutil::relative(&dist, file);
+            assert!(
+                !name.contains("atlas")
+                    && (name == crate::fsutil::MARKER || !name.contains(".openblog")),
+                "{name}"
+            );
+            assert_atlas_clean(&format!("dist/{name}"), &fs::read(file).unwrap());
+        }
+
+        // Portable exports of every published article.
+        let (site, _) = crate::site::load_site(&f.dir, false, None).unwrap();
+        assert!(!site.posts.is_empty());
+        for post in &site.posts {
+            let projection =
+                openblog_core::portability::PortableProjection::from_post(post, &site.config)
+                    .unwrap();
+            assert_atlas_clean(
+                &format!("portable markdown of {}", post.slug),
+                projection.portable_markdown().unwrap().as_bytes(),
+            );
+            let html = projection.portable_html().unwrap();
+            assert_atlas_clean(
+                &format!("portable html of {}", post.slug),
+                format!("{html:?}").as_bytes(),
+            );
+        }
+
+        // Source exports, the research export, and other Admin views.
+        for format in ["csl-json", "bibtex"] {
+            let response = handle(
+                &f.state,
+                &authed(
+                    req("GET", &format!("/admin/api/sources/export?format={format}")),
+                    &session,
+                    false,
+                ),
+            );
+            assert_eq!(response.status, 200);
+            assert_atlas_clean(&format!("{format} export"), &response.body);
+        }
+        let (status, exported) = notebook_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/export",
+            json!({"includePrivate": true}),
+        );
+        assert_eq!(status, 200);
+        assert!(atlas_leaked(exported.to_string().as_bytes()).is_empty());
+        for path in [
+            "meta",
+            "sources",
+            "preferences",
+            "contributors",
+            "session",
+            "research/notebook",
+        ] {
+            let response = handle(
+                &f.state,
+                &authed(req("GET", &format!("/admin/api/{path}")), &session, false),
+            );
+            assert!(atlas_leaked(&response.body).is_empty(), "admin {path}");
+        }
+        assert_atlas_clean(
+            "the source library file",
+            &fs::read(f.dir.join(crate::source_store::LIBRARY_FILE)).unwrap(),
+        );
+
+        // The public server does not serve the atlas under any spelling.
+        for path in [
+            "/.openblog/private/research/atlas.json",
+            "/.openblog/private/research/atlas.json/",
+            "/%2eopenblog/private/research/atlas.json",
+            "/../.openblog/private/research/atlas.json",
+            "/search.json?q=ob-atlas-label-5309",
+        ] {
+            let response = crate::serve::route(&f.state, &req("GET", path), &dist);
+            assert_atlas_clean(&format!("public route {path}"), &response.body);
+        }
+
+        // Publishing never commits it, even with the private folder listed.
+        let git = crate::git::Git::new(&f.dir);
+        git.init().unwrap();
+        git.run(&["config", "user.email", "t@example.com"]).unwrap();
+        git.run(&["config", "user.name", "T"]).unwrap();
+        git.run(&["config", "commit.gpgsign", "false"]).unwrap();
+        let mut config = site::load_config(&f.dir).unwrap();
+        config.publish.paths = vec!["content".into(), "static".into(), ".openblog".into()];
+        let outcome = crate::publish::publish(&f.dir, &config, Some("Atlas")).unwrap();
+        assert!(outcome
+            .committed
+            .iter()
+            .all(|path| !path.contains(".openblog/private") && !path.contains("atlas")));
+        for (name, sentinel) in ATLAS_SENTINELS {
+            let history = git
+                .run(&["log", "--all", "-p", "--format=%H", "-S", sentinel])
+                .unwrap();
+            assert!(
+                history.trim().is_empty(),
+                "{name} reached the commit history"
+            );
+        }
+
+        // A copy of the atlas in a public folder stops the build, Admin's
+        // rebuild and publishing, naming only its path.
+        fs::create_dir_all(f.dir.join("static")).unwrap();
+        fs::write(f.dir.join("static/graph.json"), &stored).unwrap();
+        let error = crate::publish::publish(&f.dir, &config, Some("Leak")).unwrap_err();
+        assert!(error.contains("static/graph.json"), "{error}");
+        assert!(atlas_leaked(error.as_bytes()).is_empty());
+        let Err(error) = f.state.rebuild() else {
+            panic!("Admin's rebuild refuses an atlas copy in static/")
+        };
+        assert!(error.contains("static/graph.json") && atlas_leaked(error.as_bytes()).is_empty());
+        let error = crate::site::build(
+            &f.dir,
+            &crate::site::BuildOptions {
+                include_drafts: false,
+                out_override: None,
+                now: None,
+            },
+        )
+        .err()
+        .unwrap();
+        assert!(error.contains("static/graph.json") && atlas_leaked(error.as_bytes()).is_empty());
+    }
+
     #[test]
     fn notebook_code_has_no_logging_path_for_private_text() {
         // Nothing that handles research text prints, logs or debug-dumps it, so
