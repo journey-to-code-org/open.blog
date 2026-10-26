@@ -448,8 +448,12 @@ fn a_stored_answer_that_breaks_any_rule_is_refused_on_its_own() {
     // A function that keeps correction decisions sends every feedback row's
     // empty log; an answer takes no decision, so it is not read.
     let mut with_log = good.clone();
-    with_log["decisions"] = json!({"id": ID_ANSWER, "entries": []});
+    with_log["decisions"] = json!({"version": 1, "item": ID_ANSWER, "decisions": []});
     assert!(InboxItem::from_value(&with_log).is_ok());
+    // A log that holds a decision is still refused: an answer takes none.
+    let mut held = good.clone();
+    held["decisions"] = json!({"version": 1, "item": ID_ANSWER, "decisions": [{"sequence": 1}]});
+    assert!(InboxItem::from_value(&held).is_err());
     let mut bare = good.clone();
     bare.as_object_mut().unwrap().remove("source");
     assert!(HostedAuthorResponse::from_value(&bare).is_ok());
