@@ -37,7 +37,9 @@ address that is the same every hour and day, kept for 48 hours. Hosted storage i
     unchecked box keeps old audit events; otherwise those at or before the audit cutoff are
     deleted. It reports what was expired, purged and skipped, and whether more is due.
   - The function refuses cutoffs that are not canonical UTC times at least a day before its own
-    clock, whatever it is sent, and touches comments only when told the site opted them in.
+    clock, and an audit cutoff later than the closed-item cutoff (ADR 0103's `auditDays` is at
+    least `closedDays`), whatever it is sent, and touches comments only when told the site opted
+    them in.
   - No scheduled job is added: #226 asks for retention jobs or manual cleanup, and an explicit,
     confirmed run is the conservative choice for an irreversible step. A schedule can call the
     same two routes later.
@@ -66,9 +68,13 @@ address that is the same every hour and day, kept for 48 hours. Hosted storage i
     `openblog_purge_report` and `openblog_erase_feedback`, none security definer, executable only
     by the service role.
   - The service role may delete from `openblog_comment_events`, `openblog_feedback_events` and
-    `openblog_abuse_report_events`, which only the retention run does.
-  - `supabase/protection-rollback.sql` drops exactly these and revokes the delete grants, leaving
-    every comment and note in its state; purged text stays gone, and a purged item stays closed.
+    `openblog_abuse_report_events`, which only the retention run does. A `BEFORE DELETE` row
+    trigger on each (`openblog_keep_recent_audit_events`, with its caller's rights like every
+    function here) refuses to delete any event recorded in the last day, so no request, mistaken
+    or forged, can erase today's record.
+  - `supabase/protection-rollback.sql` drops exactly these, the triggers and their function, and
+    revokes the delete grants, leaving every comment and note in its state; purged text stays
+    gone, and a purged item stays closed.
     Unsetting the variable first returns the function to the inbox's schema.
 - **Without it nothing changes.** Without the variable `/receipt`, `/reports` and
   `/admin/retention` answer `404 unavailable`, no receipt is issued, the inbox's protocol is

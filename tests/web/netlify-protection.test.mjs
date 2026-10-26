@@ -506,7 +506,8 @@ test("the retention dry run lists exactly what is due and how many audit events 
   const feedbackQuery = database.requests.find((request) => request.path.endsWith("/openblog_feedback"));
   assert.match(feedbackQuery.params.or, /and\(status\.eq\.withdrawn,purged_at\.is\.null\)/);
   // Cutoffs newer than a day, malformed or missing are refused, whatever Admin sends.
-  for (const bad of [{ ...cutoffs, closedUntil: "2026-10-27T00:00:00Z" }, { ...cutoffs, pendingUntil: "2026-07-29" }, { auditUntil: cutoffs.auditUntil }]) {
+  // So is an audit cutoff later than the closed-item cutoff: audit events outlive closed items (ADR 0103).
+  for (const bad of [{ ...cutoffs, closedUntil: "2026-10-27T00:00:00Z" }, { ...cutoffs, pendingUntil: "2026-07-29" }, { auditUntil: cutoffs.auditUntil }, { ...cutoffs, auditUntil: "2026-09-27T10:00:01Z" }]) {
     assert.equal((await handlerFor(protectedEnv, database)(event("admin/retention", "GET", { headers: ADMIN, query: bad }))).statusCode, 422);
   }
 });
@@ -596,7 +597,10 @@ test("the protection schema is additive, private and opt-in, and its rollback dr
     "drop table if exists public.openblog_abuse_report_events;",
     "drop table if exists public.openblog_abuse_reports;",
     "revoke delete on public.openblog_comment_events from service_role;",
+    "drop trigger if exists openblog_comment_events_keep_recent on public.openblog_comment_events;",
     "revoke delete on public.openblog_feedback_events from service_role;",
+    "drop trigger if exists openblog_feedback_events_keep_recent on public.openblog_feedback_events;",
+    "drop function if exists public.openblog_keep_recent_audit_events();",
     "alter table public.openblog_comments drop constraint if exists openblog_comments_purged_never_public;",
     "alter table public.openblog_comments drop column if exists purged_at;",
     "alter table if exists public.openblog_feedback drop constraint if exists openblog_feedback_purged_never_public;",
@@ -604,4 +608,24 @@ test("the protection schema is additive, private and opt-in, and its rollback dr
     "drop index if exists public.openblog_feedback_receipt;",
     "alter table if exists public.openblog_feedback drop column if exists receipt_hash;",
   ]);
+});
+
+test("the service role may delete audit events, but never one recorded in the last day", () => {
+  const added = statementsOf(protectionSql);
+  const tables = ["openblog_comment_events", "openblog_feedback_events", "openblog_abuse_report_events"];
+  // Every table the service role may delete from has the guard, and no other delete is granted.
+  const granted = [...added.matchAll(/grant ([a-z, ]+) on public\.(\w+) to service_role/g)].filter(([, rights]) => /\bdelete\b/.test(rights)).map(([, , table]) => table);
+  assert.deepEqual([...new Set(granted)].sort(), [...tables].sort());
+  for (const table of tables) {
+    const trigger = new RegExp(`create or replace trigger ${table}_keep_recent\\s+before delete on public\\.${table}\\s+for each row execute function public\\.openblog_keep_recent_audit_events\\(\\);`);
+    assert.match(added, trigger, table);
+  }
+  // The guard raises for anything newer than a day, and runs with its caller's rights.
+  const guard = added.match(/create or replace function public\.openblog_keep_recent_audit_events\(\)[\s\S]*?\$\$;/)[0];
+  assert.match(guard, /returns trigger\s+language plpgsql/);
+  assert.match(guard, /if old\.at > now\(\) - interval '1 day' then\s+raise exception/);
+  assert.match(guard, /return old;/);
+  assert.doesNotMatch(guard, /security\s+definer/);
+  // The feedback table's guard is added with its grant, only where that table exists.
+  assert.match(added, /if to_regclass\('public\.openblog_feedback_events'\) is not null then\s+grant delete on public\.openblog_feedback_events to service_role;\s+create or replace trigger openblog_feedback_events_keep_recent/);
 });

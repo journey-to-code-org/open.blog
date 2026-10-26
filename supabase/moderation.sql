@@ -33,7 +33,9 @@ alter table public.openblog_comments
 -- The comment moderation audit trail: who changed which comment, in which
 -- role, from which state to which, why (a reason code), when, and the
 -- version it produced. Never the comment's text or its author's name. Rows
--- are only ever inserted.
+-- are only ever inserted, except that with engagement protection
+-- (protection.sql, ADR 0131) the retention run may delete events older than
+-- the site's audit period, and never one recorded in the last day.
 create table if not exists public.openblog_comment_events (
   id bigint generated always as identity primary key,
   site_id text not null check (char_length(site_id) between 1 and 200),

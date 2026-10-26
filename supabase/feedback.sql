@@ -80,7 +80,10 @@ grant select, insert, update on public.openblog_feedback to service_role;
 
 -- The moderation audit trail (ADR 0083): who changed which item, from which
 -- state to which, why (a reason code), when, and the version it produced.
--- Never what anyone wrote. Rows are only ever inserted.
+-- Never what anyone wrote. Rows are only ever inserted, except that with
+-- engagement protection (protection.sql, ADR 0131) the retention run may
+-- delete events older than the site's audit period, and never one recorded
+-- in the last day.
 create table if not exists public.openblog_feedback_events (
   id bigint generated always as identity primary key,
   site_id text not null check (char_length(site_id) between 1 and 200),

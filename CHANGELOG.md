@@ -46,8 +46,9 @@ All notable changes to open.blog are recorded here. Releases follow
   anonymously; reports are never published or counted, and upholding one in the Moderation
   inbox removes the item in the same decision. The site Admin can delete a closed item's text
   and name for a reader who asks, and **Moderation inbox → Retention** shows what retention would
-  delete before you run it; nothing is deleted on a schedule, and comments only if you set
-  `participation.retention`. Rate limits now keep only an hourly digest of the client, never one
+  delete before you run it; nothing is deleted on a schedule, comments only if you set
+  `participation.retention`, and the database itself refuses to delete any moderation record
+  from the last day. Rate limits now keep only an hourly digest of the client, never one
   that lasts across hours, and a note or comment sent twice within the hour is taken once.
   `supabase/protection-rollback.sql` undoes the schema. Nothing is e-mailed to anyone.
 

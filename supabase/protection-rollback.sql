@@ -12,8 +12,8 @@
 -- This drops only what protection.sql added, and what feedback.sql added
 -- for protection: the report, purge and deletion functions, the two abuse
 -- report tables (their rows are deleted with them), the purge columns and
--- checks, the receipt column and its index, and the service role's right to
--- delete audit events. Every comment and feedback item keeps its state, and
+-- checks, the receipt column and its index, the service role's right to
+-- delete audit events and the triggers that keep the last day's events. Every comment and feedback item keeps its state, and
 -- no comment or note becomes public: a purged item is rejected, removed or
 -- withdrawn, and stays so with a placeholder for its text. Text that was
 -- purged is gone and cannot be restored. Readers' receipts stop working.
@@ -31,11 +31,14 @@ do $$
 begin
   if to_regclass('public.openblog_comment_events') is not null then
     revoke delete on public.openblog_comment_events from service_role;
+    drop trigger if exists openblog_comment_events_keep_recent on public.openblog_comment_events;
   end if;
   if to_regclass('public.openblog_feedback_events') is not null then
     revoke delete on public.openblog_feedback_events from service_role;
+    drop trigger if exists openblog_feedback_events_keep_recent on public.openblog_feedback_events;
   end if;
 end $$;
+drop function if exists public.openblog_keep_recent_audit_events();
 alter table public.openblog_comments drop constraint if exists openblog_comments_purged_never_public;
 alter table public.openblog_comments drop column if exists purged_at;
 alter table if exists public.openblog_feedback drop constraint if exists openblog_feedback_purged_never_public;

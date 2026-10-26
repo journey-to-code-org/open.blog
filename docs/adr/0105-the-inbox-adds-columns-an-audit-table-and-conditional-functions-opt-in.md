@@ -35,8 +35,12 @@ private public.
     full state to `moderation_state` and its ADR 0101 legacy value to `status` in the same
     statement: removed is stored as `rejected`, so nothing that is not public is ever stored as
     approved.
-  - The insert-only `openblog_comment_events` audit table (comment, action, states, reason, actor,
-    actor role, time, version; never text or a name), private like ADR 0080's tables.
+  - The `openblog_comment_events` audit table (comment, action, states, reason, actor, actor
+    role, time, version; never text or a name), private like ADR 0080's tables. Its rows are only
+    inserted here; engagement protection
+    ([ADR 0131](0131-retention-runs-from-a-dry-run-and-quotas-keep-only-hourly-digests.md)) later
+    lets the retention run delete events older than the site's audit period, and a trigger
+    refuses to delete any recorded in the last day.
   - `openblog_moderate_comment(...)` applies one decision only while the comment still has the
     state and version both Admin and the function saw,
     raises the version and inserts the event, in one statement, writing only a comment's four

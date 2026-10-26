@@ -11,7 +11,9 @@
 -- openblog_comments, creates the private abuse report table and its audit
 -- table, and creates the functions that purge, delete on request and
 -- uphold reports. It lets the service role delete audit events, which only
--- the retention job does, once they are older than the site's audit period.
+-- the retention job does, once they are older than the site's audit period,
+-- and adds a trigger to each audit table that refuses to delete any event
+-- recorded in the last day, whoever asks.
 -- It does not rename, drop or rewrite any existing table, column, function
 -- or row: every comment keeps its text and state, and public reads, which
 -- use `status`, see exactly what they saw before. Running it twice changes
@@ -97,12 +99,40 @@ revoke all on public.openblog_abuse_report_events from public, anon, authenticat
 grant select, insert, delete on public.openblog_abuse_report_events to service_role;
 
 -- The retention job deletes audit events older than the site's audit
--- period (ADR 0103); nothing else deletes them.
+-- period (ADR 0103); nothing else deletes them. The service role may
+-- delete rows, so a trigger on each audit table refuses to delete any event
+-- recorded in the last day, whatever a caller sends: no run, mistaken or
+-- not, can erase today's record. The function runs with its caller's
+-- rights (ADR 0131).
+create or replace function public.openblog_keep_recent_audit_events()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if old.at > now() - interval '1 day' then
+    raise exception 'audit events recorded in the last day cannot be deleted'
+      using errcode = 'check_violation';
+  end if;
+  return old;
+end;
+$$;
+revoke all on function public.openblog_keep_recent_audit_events() from public, anon, authenticated;
+
 grant delete on public.openblog_comment_events to service_role;
+create or replace trigger openblog_comment_events_keep_recent
+  before delete on public.openblog_comment_events
+  for each row execute function public.openblog_keep_recent_audit_events();
+create or replace trigger openblog_abuse_report_events_keep_recent
+  before delete on public.openblog_abuse_report_events
+  for each row execute function public.openblog_keep_recent_audit_events();
 do $$
 begin
   if to_regclass('public.openblog_feedback_events') is not null then
     grant delete on public.openblog_feedback_events to service_role;
+    create or replace trigger openblog_feedback_events_keep_recent
+      before delete on public.openblog_feedback_events
+      for each row execute function public.openblog_keep_recent_audit_events();
   end if;
 end $$;
 

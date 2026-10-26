@@ -148,7 +148,9 @@ the moderation inbox's schema above, then:
    check to `openblog_comments`, the private tables `openblog_abuse_reports` (no reporter
    identity) and `openblog_abuse_report_events`, the functions `openblog_moderate_report`,
    `openblog_uphold_report`, `openblog_purge_comment` and `openblog_purge_report`, and lets the
-   service role delete audit events, which only the retention run does.
+   service role delete audit events, which only the retention run does. A trigger on each audit
+   table (`openblog_keep_recent_audit_events`) refuses to delete any event recorded in the last
+   day.
 3. Set `OPENBLOG_PROTECTION_ENABLED` to `true` (with `OPENBLOG_MODERATION_ENABLED`) and redeploy.
    Set `"receipts": true` inside `engagement` in `openblog.json` so readers can use their receipts
    on the page, and `"abuse-report": "open"` in `participation.kinds` to take reports.

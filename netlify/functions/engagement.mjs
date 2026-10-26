@@ -272,18 +272,22 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
   };
   // A retention run's cutoffs as Admin sent them (ADR 0131): canonical UTC
   // times, each at least a day before this function's own clock, so no run
-  // can reach anything newer whatever it is sent; null when any is not.
+  // can reach anything newer whatever it is sent, and an audit cutoff no
+  // later than the closed-item cutoff, since audit events are kept at least
+  // as long as closed items (ADR 0103); null when any is not.
   const UTC_SECOND = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/;
   const retentionCutoffs = (input) => {
     const latest = now().getTime() - DAY_MS;
     const cutoffs = { comments: input?.comments === true || input?.comments === "true" };
+    const times = {};
     for (const key of ["pendingUntil", "clarificationUntil", "closedUntil", "auditUntil"]) {
       const value = input?.[key];
       const time = typeof value === "string" && UTC_SECOND.test(value) ? Date.parse(value) : Number.NaN;
       if (!Number.isFinite(time) || time > latest) return null;
       cutoffs[key] = value;
+      times[key] = time;
     }
-    return cutoffs;
+    return times.auditUntil > times.closedUntil ? null : cutoffs;
   };
   // One store's rows a run may owe a step, oldest first, at most a batch;
   // retentionStep then decides each exactly.
@@ -850,7 +854,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         if (!settings.protection) return json(404, { error: "Run supabase/protection.sql and set OPENBLOG_PROTECTION_ENABLED=true to run retention.", code: "unavailable" }, corsOrigin);
         const input = event.httpMethod === "GET" ? query : body;
         const cutoffs = retentionCutoffs(input);
-        if (!cutoffs) return json(422, { error: "Send the run's cutoffs, each at least a day in the past.", code: "invalid" }, corsOrigin);
+        if (!cutoffs) return json(422, { error: "Send the run's cutoffs, each at least a day in the past, with audit events kept at least as long as closed items.", code: "invalid" }, corsOrigin);
         const sources = [...(cutoffs.comments ? ["comment"] : []), ...(settings.feedback ? ["feedback"] : []), "report"];
         if (event.httpMethod === "GET") {
           const due = [];
