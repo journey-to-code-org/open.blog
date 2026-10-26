@@ -263,6 +263,21 @@ pub struct PublicSource {
     pub text: String,
 }
 
+/// Compact JSON of a projection value with `<`, `>` and `&` written as
+/// escapes, so authored text can never close a `<script>` element the data is
+/// later embedded in.
+pub(crate) fn escaped_json<T: Serialize>(value: &T) -> String {
+    let json = serde_json::to_string(value).expect("a projection is serializable");
+    let mut out = String::with_capacity(json.len());
+    for c in json.chars() {
+        match c {
+            '<' | '>' | '&' => out.push_str(&format!("\\u{:04x}", u32::from(c))),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 /// The canonical page of an entry. Entry ids are lowercase slugs, so they are
 /// safe path segments as they are.
 pub fn entry_url(id: &str) -> String {
@@ -484,15 +499,7 @@ impl PublicAtlas {
     /// `<`, `>` and `&` are written as escapes, so authored text can never
     /// close a `<script>` element the data is later embedded in.
     pub fn to_json(&self) -> String {
-        let json = serde_json::to_string(self).expect("the public atlas is serializable");
-        let mut out = String::with_capacity(json.len());
-        for c in json.chars() {
-            match c {
-                '<' | '>' | '&' => out.push_str(&format!("\\u{:04x}", u32::from(c))),
-                _ => out.push(c),
-            }
-        }
-        out
+        escaped_json(self)
     }
 
     /// How a party reads on a page: the site author's name, a source's title,

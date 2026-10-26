@@ -7221,6 +7221,7 @@ export const BOUNDARY_PROJECTIONS = Object.freeze({
   "claim-evidence": "Claims and evidence",
   atlas: "Knowledge Atlas",
   datings: "Datings",
+  "atlas-query": "Atlas query data",
   comparisons: "Comparisons",
   "context-links": "Links to research pages",
 });
@@ -7234,6 +7235,7 @@ export const BOUNDARY_KINDS = Object.freeze({
   relationship: "Relationship",
   dating: "Dating",
   comparison: "Comparison",
+  "atlas-query": "Atlas query file",
   "atlas-page": "Atlas page",
   "comparison-page": "Comparison page",
 });
@@ -7254,6 +7256,7 @@ export const BOUNDARY_REASONS = Object.freeze({
   length: "Wording longer than a brief excerpt",
   "stale-anchor": "The anchored words have changed",
   "page-not-published": "The linked page is not published",
+  "over-limit": "Over a size or count limit, so the file is left out",
 });
 
 const BOUNDARY_STORES = Object.freeze({

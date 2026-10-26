@@ -490,6 +490,15 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
             atlas_publication::ATLAS_JSON_FILE.into(),
             c.apply_base_path(&atlas.to_json()),
         )?;
+        // The query projection (ADR 0200), derived from the projection above.
+        // One over a bound is left out and the pages and atlas.json stay the
+        // complete fallback; the build and the boundary preview say so.
+        if let Ok(query) = crate::atlas_query::AtlasQuery::project(atlas) {
+            out.add(
+                crate::atlas_query::ATLAS_QUERY_JSON_FILE.into(),
+                c.apply_base_path(&query.to_json()),
+            )?;
+        }
     }
     // Passage comparisons, only when the site publishes them (ADR 0092): the
     // pages and the JSON artifact are both rendered from the one projection.

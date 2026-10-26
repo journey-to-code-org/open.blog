@@ -25,6 +25,7 @@
 //! - [`chronology`]: uncertain, attributed and cited datings of atlas entries and relationships
 //! - [`chronology_index`]: deterministic chronology indexes and structural prompts to check datings
 //! - [`atlas_publication`]: the one public projection of its approved items, for pages and `atlas.json`
+//! - [`atlas_query`]: the bounded query projection derived from the public atlas, for components and search
 //! - [`comparison_publication`]: the one public projection of approved passage alignments, rights-gated, for pages and `comparisons.json`
 //! - [`passage_target`]: stable passage targets in published text, resolved as current, re-anchored or stale
 //! - [`feedback_provenance`]: which revision a reader's feedback was about and when, with consent-gated attribution
@@ -46,6 +47,7 @@ pub mod arrangement;
 pub mod assembly;
 pub mod assistant_guide;
 pub mod atlas_publication;
+pub mod atlas_query;
 pub mod attributed_perspective;
 pub mod author_response;
 pub mod bibliography;

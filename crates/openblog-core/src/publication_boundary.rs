@@ -29,6 +29,7 @@ use serde_json::Value;
 
 use crate::alignment::AlignmentSet;
 use crate::atlas_publication::{aspect_noun, PublicAtlas};
+use crate::atlas_query::{AtlasQuery, ATLAS_QUERY_JSON_FILE};
 use crate::citations::{public_identifier, public_url_problem, PublicReference};
 use crate::claims::{ClaimSet, Relation};
 use crate::comparison_publication::{PublicComparisons, Withheld};
@@ -54,6 +55,8 @@ pub enum Projection {
     Atlas,
     /// Approved datings of published atlas items.
     Datings,
+    /// The bounded query projection derived from the published atlas.
+    AtlasQuery,
     /// Approved passage comparisons.
     Comparisons,
     /// Links a post makes to atlas and comparison pages.
@@ -67,7 +70,7 @@ impl Projection {
         match self {
             Self::Citations => "citations",
             Self::ClaimEvidence => "claimEvidence.publish",
-            Self::Atlas | Self::Datings => "knowledgeAtlas.publish",
+            Self::Atlas | Self::Datings | Self::AtlasQuery => "knowledgeAtlas.publish",
             Self::Comparisons => "comparisons.publish",
             Self::ContextLinks => "knowledgeAtlas.publish, comparisons.publish",
         }
@@ -85,6 +88,8 @@ pub enum ItemKind {
     Relationship,
     Dating,
     Comparison,
+    /// The atlas query file as a whole, when it is withheld.
+    AtlasQuery,
     /// A link in a post to an atlas entry's page.
     AtlasPage,
     /// A link in a post to a comparison's page.
@@ -125,6 +130,8 @@ pub enum Reason {
     StaleAnchor,
     /// The page a link names is not published.
     PageNotPublished,
+    /// Over a published size or count bound, so the file is left out whole.
+    OverLimit,
 }
 
 /// One field of a published item that is left out, and why.
@@ -452,6 +459,7 @@ impl BoundaryManifest {
             claim_evidence(inputs, inputs.posts.iter().collect(), &slugs, None),
             atlas(inputs),
             datings(inputs),
+            atlas_query(inputs),
             comparisons(inputs),
         ];
         Self {
@@ -528,12 +536,13 @@ impl BoundaryManifest {
                     item.kind != ItemKind::Source || report.projection == Projection::Citations
                 })
                 .count();
-            if count > 0 {
+            if count > 0 && report.projection != Projection::AtlasQuery {
                 let name = match report.projection {
                     Projection::Citations => "cited sources",
                     Projection::ClaimEvidence => "claims and evidence links",
                     Projection::Atlas => "atlas entries and relationships",
                     Projection::Datings => "datings",
+                    Projection::AtlasQuery => "atlas query entries",
                     Projection::Comparisons => "comparisons",
                     Projection::ContextLinks => "linked research pages",
                 };
@@ -1018,6 +1027,79 @@ fn datings(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
             id: owner.to_string(),
         });
         report.withheld.push(item);
+    }
+    report
+}
+
+/// The query projection of the published atlas (ADR 0200): one item for each
+/// entry and relationship it holds, each copying only the query allowlist.
+/// It is derived from the published atlas, so it can name nothing the Atlas
+/// projection does not publish.
+fn atlas_query(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
+    let mut report = report(Projection::AtlasQuery, inputs.switches.atlas);
+    if let Some(blocked) = inputs.atlas_blocked.filter(|_| report.enabled) {
+        report.blocked = Some(blocked.to_string());
+        return report;
+    }
+    let Some(public) = inputs.public_atlas.filter(|_| report.enabled) else {
+        return report;
+    };
+    let query = match AtlasQuery::project(public) {
+        Ok(query) => query,
+        Err(why) => {
+            report.withheld.push(withheld(
+                ItemKind::AtlasQuery,
+                "atlas-query",
+                Reason::OverLimit,
+                format!(
+                    "The atlas query file {ATLAS_QUERY_JSON_FILE} is not written: {why}. The atlas pages and atlas.json are unaffected."
+                ),
+            ));
+            return report;
+        }
+    };
+    for entry in &query.entries {
+        let mut fields: Vec<String> = ["kind", "label"].iter().map(|f| f.to_string()).collect();
+        present(&mut fields, "aliases", !entry.aliases.is_empty());
+        present(&mut fields, "preview", entry.preview.is_some());
+        fields.push("url".to_string());
+        present(&mut fields, "out", !entry.out.is_empty());
+        present(&mut fields, "in", !entry.incoming.is_empty());
+        report.published.push(PublishedItem {
+            kind: ItemKind::Entry,
+            id: entry.id.clone(),
+            label: Some(entry.label.clone()),
+            posts: Vec::new(),
+            url: Some(entry.url.clone()),
+            fields,
+            withheld_fields: Vec::new(),
+        });
+    }
+    for edge in &query.edges {
+        let mut fields: Vec<String> = [
+            "kind",
+            "from",
+            "to",
+            "assertedBy",
+            "confidence",
+            "standing",
+            "evidence",
+            "url",
+        ]
+        .iter()
+        .map(|f| f.to_string())
+        .collect();
+        present(&mut fields, "dissents", edge.dissents > 0);
+        present(&mut fields, "uncertainty", edge.uncertainty.is_some());
+        report.published.push(PublishedItem {
+            kind: ItemKind::Relationship,
+            id: edge.id.clone(),
+            label: Some(format!("{} {} {}", edge.from, edge.label, edge.to)),
+            posts: Vec::new(),
+            url: Some(edge.url.clone()),
+            fields,
+            withheld_fields: Vec::new(),
+        });
     }
     report
 }

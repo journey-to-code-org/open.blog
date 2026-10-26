@@ -371,3 +371,55 @@ published atlas that cannot be read or validated stops `build` and `check` befor
 written, naming the file only. `atlas` is a reserved page and post path while the atlas is
 published. The atlas pages join the sitemap; feeds, search, `llms.txt` and portable exports do
 not include them.
+
+### Query projection
+
+[ADR 0200](../adr/0200-the-atlas-query-projection-is-derived-from-the-public-atlas-alone-and-is-one-more-listed-artifact.md),
+[ADR 0201](../adr/0201-the-query-projection-is-bounded-and-refused-whole-never-truncated-silently.md)
+and [ADR 0202](../adr/0202-queries-are-exact-lookup-and-a-bounded-trail-that-infer-nothing.md).
+While the atlas is published the build also writes `/atlas-query.json`, derived by
+`openblog_core::atlas_query::AtlasQuery::project` from the public atlas above and nothing else, as
+bounded page data for components and search. It is not a page and is not in the sitemap.
+
+```json
+{
+  "format": "openblog-atlas-query",
+  "formatVersion": 1,
+  "limits": { "maxTextChars": 240, "maxListedEdges": 50, "maxTrailDepth": 3, "maxTrailSteps": 200 },
+  "entries": [
+    { "id": "plato", "kind": "person", "label": "Plato", "aliases": ["Aristocles"],
+      "preview": "An Athenian philosopher.", "previewClipped": true,
+      "url": "/atlas/plato/", "out": ["r-authored"] }
+  ],
+  "edges": [
+    { "id": "r-authored", "kind": "authored", "from": "plato", "to": "republic",
+      "label": "authored", "inverseLabel": "authored by",
+      "assertedBy": { "kind": "source", "source": "scholar-book" },
+      "confidence": "plausible", "standing": "contested", "dissents": 1,
+      "evidence": [{ "source": "republic-slings", "locators": [{ "kind": "page", "value": "514" }] }],
+      "uncertainty": "Authorship of some dialogues is disputed.",
+      "url": "/atlas/plato/#atlas-r-r-authored" }
+  ],
+  "sources": [{ "id": "scholar-book", "text": "A study" }],
+  "terms": [{ "term": "aristocles", "entries": ["plato"] }]
+}
+```
+
+- Entries, edges, sources and terms are sorted; the file is compact, deterministic, has root-relative
+  URLs that follow the base path and escapes `<`, `>` and `&`. It has no `version` key.
+- An entry lists the ids of the relationships that start (`out`) and end (`in`) there, at most 50
+  each, and counts the rest as `moreOut` and `moreIn`; `edges` holds every published relationship.
+  A relationship is read in its stored direction; `dissents` is a count and the dissents themselves,
+  datings and the full summary stay on the pages and in `atlas.json`.
+- `preview` is the first paragraph of the summary, cut to 240 characters with an ellipsis;
+  `previewClipped` and `uncertaintyClipped` say when what is shown is less than what is published.
+- `terms` maps a label or alias, lowercased with whitespace collapsed, to every entry that has it.
+  A shared term lists all of them; nothing resolves it.
+- A projection over 2,000 entries, 10,000 relationships or 4 MiB, or one that is not internally
+  consistent, gets no file; `atlas.json` and the pages are unaffected and the Admin preview says why.
+- The Rust API (`entry`, `edge`, `source`, `lookup`, `edges_of`, `trail`) is closed and read-only.
+  `trail` is a breadth-first walk to depth 3 and 200 steps over either direction, crossing each
+  relationship once so a cycle ends it, and says nothing beyond its steps.
+- The publication-boundary manifest lists the file as the `atlas-query` projection, with one item
+  per entry and relationship and the fields each copies, and the build refuses the file if it names
+  anything neither projection publishes.

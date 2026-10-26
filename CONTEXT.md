@@ -998,6 +998,27 @@ Both the atlas pages and `atlas.json` are rendered from it, and nothing public r
 atlas. Withdrawing approval removes an item from the next build.
 _Avoid_: Public atlas export, public graph; filtering the private atlas per surface
 
+**Atlas query projection**:
+The bounded, deterministic reading of the atlas projection that components and search use,
+`atlas-query.json`: entry previews, relationships in their stored direction with who asserts them,
+confidence, standing, uncertainty and sources, and a term lookup. It is derived from the atlas
+projection alone, so a query cannot reach anything that is not published, and it is refused whole
+over a size bound rather than cut. It is listed in the publication boundary like any projection
+(ADRs 0200, 0201).
+_Avoid_: Graph API, public search index, a second atlas; querying the private atlas
+
+**Atlas trail**:
+A bounded walk over published relationships from one entry, across either direction, each
+relationship crossed once so a cycle ends it. It lists the steps and nothing more: not a path of
+influence, a ranking or an inferred relationship (ADR 0202).
+_Avoid_: Influence chain, shortest path, recommendation
+
+**Preview clip**:
+The cut of an entry's first summary paragraph, or of a relationship's stated doubt, to the query
+projection's text limit, always flagged `previewClipped` or `uncertaintyClipped` so a reader is
+sent to the page for the whole (ADR 0201).
+_Avoid_: Summary, excerpt without a flag
+
 **Published dating**:
 A projected dating as the atlas projection publishes it: who dates what, on which cited evidence,
 how firmly and with what note, at the precision stated and read back in words with BCE written

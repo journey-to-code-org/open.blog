@@ -3,6 +3,16 @@
 All notable changes to open.blog are recorded here. Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+- A site that publishes its Knowledge Atlas now also publishes `atlas-query.json`, a small, bounded
+  reading of the published atlas for the context previews and relationship trails to come. It holds
+  only what `atlas.json` already publishes: approved entries with a short preview, and approved
+  relationships in the direction they were stated, with who asserts them, confidence, standing,
+  uncertainty and sources. Nothing private can be in it, an atlas too large for it is left out
+  without affecting the atlas pages or `atlas.json`, and Admin's "What will be public" lists it.
+  A site that does not publish its atlas builds exactly as before.
+
 ## [0.41.0] - 2026-10-26
 
 - A site can choose the reading mode its posts open in. Set `readingModes.default` in

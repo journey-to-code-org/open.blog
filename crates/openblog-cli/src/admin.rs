@@ -21466,7 +21466,10 @@ What I read:
     ];
 
     fn atlas_surface(name: &str) -> bool {
-        name == "atlas.json" || name == "sitemap.xml" || name.starts_with("atlas/")
+        name == "atlas.json"
+            || name == "atlas-query.json"
+            || name == "sitemap.xml"
+            || name.starts_with("atlas/")
     }
 
     #[test]
@@ -21502,6 +21505,10 @@ What I read:
 
         f.state.rebuild().unwrap();
         let dist = f.dir.join("dist");
+        assert!(
+            dist.join("atlas-query.json").exists(),
+            "the query projection is written beside atlas.json"
+        );
         let never = |text: &str| -> Vec<&'static str> {
             let mut found: Vec<&'static str> = [8, 11, 12, 13, 17]
                 .iter()
