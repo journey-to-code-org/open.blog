@@ -441,21 +441,41 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
   // such as a reported item or a repeated submission) and per site. The
   // stored digest mixes in the hour, so no row links one hour's requests to
   // another's, and the address itself is never stored (ADR 0131).
-  const consumeQuota = async (settings, event, bucket, subjectLimit, siteLimit, subject = null) => {
-    const address = String(event.headers?.["x-nf-client-connection-ip"] || "").trim();
+  const quotaWindow = (settings, bucket, subject) => {
     const hour = now().toISOString().slice(0, 13) + ":00:00Z";
-    const digest = createHash("sha256").update(`${settings.salt}\0${bucket}\0${hour}\0${subject ?? address}`).digest("hex");
+    return { bucket, hour, digest: createHash("sha256").update(`${settings.salt}\0${bucket}\0${hour}\0${subject}`).digest("hex") };
+  };
+  const consumeWindow = async (settings, { bucket, hour, digest }, subjectLimit, siteLimit) => {
     const allowed = await database(settings, "/rest/v1/rpc/openblog_consume_rate_limit", {
       method: "POST",
       body: JSON.stringify({ p_site_id: settings.siteId, p_bucket: bucket, p_window_start: hour, p_subject_hash: digest, p_subject_limit: subjectLimit, p_site_limit: siteLimit }),
     });
     return Boolean(allowed?.allowed ?? allowed);
   };
-  // A replay bound (ADR 0131): the same submission from the same client is
-  // taken once an hour. Only a digest of it is kept, for the hour.
-  const firstTimeThisHour = (settings, event, bucket, parts) => {
+  const consumeQuota = (settings, event, bucket, subjectLimit, siteLimit, subject = null) => {
     const address = String(event.headers?.["x-nf-client-connection-ip"] || "").trim();
-    return consumeQuota(settings, event, `${bucket}-repeat`, 1, 1_000_000, [address, ...parts].join("\0"));
+    return consumeWindow(settings, quotaWindow(settings, bucket, subject ?? address), subjectLimit, siteLimit);
+  };
+  // A replay bound (ADR 0131): the same submission from the same client is
+  // taken once an hour. Only a digest of it is kept, for the hour. It
+  // answers null when the submission was already taken this hour, or else
+  // the claim on it, which `storedOnce` releases when storing the submission
+  // fails, so a reader who retries is never told it was already sent.
+  const firstTimeThisHour = async (settings, event, bucket, parts) => {
+    const address = String(event.headers?.["x-nf-client-connection-ip"] || "").trim();
+    const window = quotaWindow(settings, `${bucket}-repeat`, [address, ...parts].join("\0"));
+    return await consumeWindow(settings, window, 1, 1_000_000) ? window : null;
+  };
+  const storedOnce = async (settings, claim, store) => {
+    try {
+      return await store();
+    } catch (error) {
+      if (claim) {
+        const params = new URLSearchParams({ site_id: `eq.${settings.siteId}`, bucket: `eq.${claim.bucket}`, window_start: `eq.${claim.hour}`, subject_hash: `eq.${claim.digest}` });
+        await database(settings, `/rest/v1/openblog_rate_limits?${params}`, { method: "DELETE", headers: { Prefer: "return=minimal" } }).catch(() => null);
+      }
+      throw error;
+    }
   };
 
   return async (event) => {
@@ -525,14 +545,15 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
           return json(403, { error: policy === "locked" ? "This discussion is read-only." : "Comments are not available for this post." }, corsOrigin);
         }
         if (!await consumeQuota(settings, event, "comments", 5, 500)) return json(429, { error: "Too many comments. Please try again later." }, corsOrigin);
-        if (settings.protection && !await firstTimeThisHour(settings, event, "comments", [path, authorName, commentBody])) {
+        const claim = settings.protection ? await firstTimeThisHour(settings, event, "comments", [path, authorName, commentBody]) : null;
+        if (settings.protection && !claim) {
           return json(409, { error: "This comment was already sent and is waiting for review.", code: "duplicate" }, corsOrigin);
         }
-        const rows = await database(settings, "/rest/v1/openblog_comments?select=id,status,created_at", {
+        const rows = await storedOnce(settings, claim, () => database(settings, "/rest/v1/openblog_comments?select=id,status,created_at", {
           method: "POST",
           headers: { Prefer: "return=representation" },
           body: JSON.stringify({ site_id: settings.siteId, path, author_name: authorName, body: commentBody, status: "pending" }),
-        });
+        }));
         return json(202, { id: rows[0]?.id, status: "pending" }, corsOrigin);
       }
       if (operation === "feedback" || operation === "admin/feedback") {
@@ -556,7 +577,8 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         if (!await consumeQuota(settings, event, "feedback", 5, 500)) {
           return json(429, { error: "Too much feedback from here. Please try again later.", code: "rateLimited" }, corsOrigin);
         }
-        if (settings.protection && !await firstTimeThisHour(settings, event, "feedback", [submission.work, submission.kind, JSON.stringify(submission.target), submission.body])) {
+        const claim = settings.protection ? await firstTimeThisHour(settings, event, "feedback", [submission.work, submission.kind, JSON.stringify(submission.target), submission.body]) : null;
+        if (settings.protection && !claim) {
           return json(409, { error: "This note was already sent and is waiting for review.", code: "duplicate" }, corsOrigin);
         }
         // The receiver stamps the time; the reader's clock is only seenAt.
@@ -565,7 +587,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         // A private receipt (ADR 0130): returned to the reader once, kept
         // only as its digest.
         const receipt = settings.protection && issuesReceipts(record.kind) ? randomBytes(32).toString("base64url") : null;
-        const rows = await database(settings, "/rest/v1/openblog_feedback?select=id,status,received_at", {
+        const rows = await storedOnce(settings, claim, () => database(settings, "/rest/v1/openblog_feedback?select=id,status,received_at", {
           method: "POST",
           headers: { Prefer: "return=representation" },
           body: JSON.stringify({
@@ -585,7 +607,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
             status: "pending",
             ...(receipt ? { receipt_hash: receiptDigest(receipt) } : {}),
           }),
-        });
+        }));
         return json(202, { id: rows[0]?.id, status: "pending", receivedAt: provenance.receivedAt, ...(receipt ? { receipt } : {}) }, corsOrigin);
       }
       if (operation === "receipt" || operation === "reports") {
@@ -680,14 +702,14 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         if (mode !== "open") return unavailable();
         if (!await consumeQuota(settings, event, "reports", 5, 500)) return json(429, { error: "Too many reports from here. Please try again later.", code: "rateLimited" }, corsOrigin);
         // One item can be reported only so often an hour, and the same report from the same place once.
-        if (!await consumeQuota(settings, event, "reports-item", 20, 500, `${source}:${id}`) || !await firstTimeThisHour(settings, event, "reports", [source, id])) {
-          return json(202, { status: "pending" }, corsOrigin);
-        }
-        await database(settings, "/rest/v1/openblog_abuse_reports?select=id", {
+        if (!await consumeQuota(settings, event, "reports-item", 20, 500, `${source}:${id}`)) return json(202, { status: "pending" }, corsOrigin);
+        const claim = await firstTimeThisHour(settings, event, "reports", [source, id]);
+        if (!claim) return json(202, { status: "pending" }, corsOrigin);
+        await storedOnce(settings, claim, () => database(settings, "/rest/v1/openblog_abuse_reports?select=id", {
           method: "POST",
           headers: { Prefer: "return=minimal" },
           body: JSON.stringify({ site_id: settings.siteId, target_source: source, target_id: id, work, ground, body: text || null, status: "pending", received_at: canonicalTime(now()) }),
-        });
+        }));
         return json(202, { status: "pending" }, corsOrigin);
       }
       if (operation === "admin/feedback" && event.httpMethod === "GET") {

@@ -389,6 +389,61 @@ test("report floods and repeats are bounded without telling the reporter", async
   }
 });
 
+test("a submission whose storing fails can be sent again, and only a stored one is a replay", async () => {
+  // A rate-limit table that counts as the database does, and forgets a row the function deletes.
+  const limiter = () => {
+    const counts = new Map();
+    const key = (bucket, hour, digest) => `${bucket}|${hour}|${digest}`;
+    return (request) => {
+      if (request.path.endsWith("/rpc/openblog_consume_rate_limit")) {
+        const { p_bucket, p_window_start, p_subject_hash, p_subject_limit } = request.body;
+        const id = key(p_bucket, p_window_start, p_subject_hash);
+        counts.set(id, (counts.get(id) ?? 0) + 1);
+        return { allowed: counts.get(id) <= p_subject_limit };
+      }
+      if (request.path.endsWith("/openblog_rate_limits") && request.method === "DELETE") {
+        assert.equal(request.params.site_id, "eq.lantern");
+        counts.delete(key(...["bucket", "window_start", "subject_hash"].map((name) => request.params[name].slice(3))));
+        return null;
+      }
+      return undefined;
+    };
+  };
+  const cases = [
+    ["comments", { headers: ORIGIN, body: { path: "/posts/tides/", authorName: "Grace", body: "Hello." } }, "/openblog_comments", 202],
+    ["feedback", { headers: ORIGIN, body: JSON.stringify(scholarly.accepted[0].submission) }, "/openblog_feedback", 202],
+    ["reports", { headers: ORIGIN, body: { source: "comment", id: ID(2), ground: "spam" } }, "/openblog_abuse_reports", 202],
+  ];
+  for (const [operation, request, table, accepted] of cases) {
+    const quota = limiter();
+    let failing = true;
+    let stored = 0;
+    const database = fakeDatabase((call) => {
+      const limited = quota(call);
+      if (limited !== undefined) return limited;
+      if (call.method === "POST" && call.path.endsWith(table)) {
+        if (failing) return new Error("down");
+        stored += 1;
+        return [{ id: ID(9), status: "pending" }];
+      }
+      return call.path.endsWith("/openblog_comments") ? [commentRow()] : [];
+    });
+    const handler = handlerFor(protectedEnv, database);
+    const first = await handler(event(operation, "POST", request));
+    assert.equal(first.statusCode, 502, operation);
+    assert.ok(database.requests.some((call) => call.method === "DELETE" && call.path.endsWith("/openblog_rate_limits") && call.params.bucket === `eq.${operation}-repeat`), operation);
+    failing = false;
+    const retry = await handler(event(operation, "POST", request));
+    assert.equal(retry.statusCode, accepted, `${operation}: ${retry.body}`);
+    assert.equal(stored, 1, operation);
+    // Once stored, the same submission again is the replay it always was.
+    const replay = await handler(event(operation, "POST", request));
+    assert.equal(stored, 1, operation);
+    if (operation === "reports") assert.equal(replay.statusCode, 202);
+    else assert.equal(JSON.parse(replay.body).code, "duplicate", operation);
+  }
+});
+
 // ---- The inbox: reports, upholding and deletion
 
 test("reports join the inbox with the item they name, never a reader's private name", async () => {

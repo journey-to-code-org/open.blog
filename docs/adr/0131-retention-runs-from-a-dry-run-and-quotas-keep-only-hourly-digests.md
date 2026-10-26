@@ -52,8 +52,9 @@ address that is the same every hour and day, kept for 48 hours. Hosted storage i
   changes every day and counts uniques within it. Receipts, reports, reports per item and replays
   reuse the same helper and table: a replay bound digests the client, the bucket and the
   submission for the hour and allows it once (comments and notes answer `409 duplicate`; reports
-  answer as if taken). Replay bounds apply with protection switched on, so a site that changes
-  nothing keeps today's behaviour.
+  answer as if taken). A submission that fails to be stored releases its bound, so a retry is
+  taken. Replay bounds apply with protection switched on, so a site that changes nothing keeps
+  today's behaviour.
 - **The schema is additive, opt in, and rolls back exactly.** `supabase/protection.sql` (after
   `openblog.sql` and `moderation.sql`), and `supabase/feedback.sql` run again, then
   `OPENBLOG_PROTECTION_ENABLED=true` with `OPENBLOG_MODERATION_ENABLED=true`:
