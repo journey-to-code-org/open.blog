@@ -84,7 +84,7 @@ pub fn load(
 }
 
 /// The stored library as a build reads it: its interpretations are kept raw
-/// and never validated, because no build outputs them (ADR 0115) and a
+/// and never validated, because no build outputs them (ADR 0087) and a
 /// problem in one, such as a removed interpreter, must not stop a build.
 /// Every change and Admin read uses [`load`], which validates them.
 pub fn load_for_build(
@@ -123,7 +123,7 @@ pub fn create(
             }]);
         }
         if library.interpretation(&record.id).is_some() {
-            // Sources and interpretations share one set of ids (ADR 0115).
+            // Sources and interpretations share one set of ids (ADR 0087).
             return Err(vec![interpretation_id_taken(&record.id)]);
         }
         library.upsert(record.clone(), contributors)
@@ -478,7 +478,7 @@ pub fn remove(
     })
 }
 
-// Interpretations (ADR 0115) share the library's file, revision, and lock.
+// Interpretations (ADR 0087) share the library's file, revision, and lock.
 // Admin management arrives with the comparison workspace (#54).
 
 /// The contributor registry as stored now. Interpretation writes call this

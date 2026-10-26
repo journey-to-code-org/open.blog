@@ -363,7 +363,7 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
             c.apply_base_path(&atlas.to_json()),
         )?;
     }
-    // Passage comparisons, only when the site publishes them (ADR 0128): the
+    // Passage comparisons, only when the site publishes them (ADR 0092): the
     // pages and the JSON artifact are both rendered from the one projection.
     if let Some(comparisons) = &site.comparisons {
         out.add(
@@ -2665,7 +2665,7 @@ fn comparison_version(
                     text(&facts.join(", "))
                 ));
                 // Each maker reads as an interpreter does: the name, then how
-                // firmly the author ties it to the version (ADR 0114).
+                // firmly the author ties it to the version (ADR 0086).
                 let mut roles: Vec<(String, Vec<String>)> = Vec::new();
                 for maker in &version.makers {
                     let role = capitalized(maker.role.as_deref().unwrap_or("creator"));

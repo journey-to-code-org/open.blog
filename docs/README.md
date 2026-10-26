@@ -104,15 +104,15 @@ and the [passage alignments format](specs/passage-alignments.md), which records 
 editions, translations, witnesses, and interpretations correspond, many to many and including
 passages a version lacks, keeps the original wording apart from the author's normalization, and
 never calls aligned places equivalent
-([ADR 0116](adr/0116-passage-alignments-record-correspondence-never-equivalence.md)), stored
+([ADR 0088](adr/0088-passage-alignments-record-correspondence-never-equivalence.md)), stored
 privately with a lock after the claims file and guards on the sources, interpretations, and
 passages it uses
-([ADR 0117](adr/0117-alignments-take-their-lock-after-claims-and-guard-what-they-use.md)),
+([ADR 0089](adr/0089-alignments-take-their-lock-after-claims-and-guard-what-they-use.md)),
 and read in Admin's comparison workspace, which shows each version's places side by side or in
 one column with every place identified and its wording exact
-([ADR 0124](adr/0124-the-comparison-workspace-reads-one-snapshot-and-identifies-every-place.md)),
+([ADR 0090](adr/0090-the-comparison-workspace-reads-one-snapshot-and-identifies-every-place.md)),
 and copies only the places the author selects, with their rights statements
-([ADR 0125](adr/0125-copying-from-a-comparison-takes-only-selected-places-with-their-rights.md)).
+([ADR 0091](adr/0091-copying-from-a-comparison-takes-only-selected-places-with-their-rights.md)).
 
 ## Command reference
 

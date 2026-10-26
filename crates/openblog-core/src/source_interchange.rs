@@ -94,7 +94,7 @@ const CUSTOM_KEYS: [&str; 14] = [
     "openblog-volumes",
     "openblog-rights",
 ];
-/// Version provenance fields (ADR 0112, 0113, 0114) that CSL has no variable
+/// Version provenance fields (ADR 0084, 0085, 0086) that CSL has no variable
 /// for. Each travels verbatim in its own `custom` key, so an export imports
 /// back unchanged. CSL's own `archive`, `archive_location`, and
 /// `number-of-volumes` stay preserved CSL description and are never read as
@@ -405,7 +405,7 @@ pub fn plan_csl_import(
                     }
                 }
             } else if library.interpretation(id).is_some() {
-                // Sources and interpretations share one set of ids (ADR 0115).
+                // Sources and interpretations share one set of ids (ADR 0087).
                 entry.diagnostics.push(problem(
                     SourceDiagnosticCode::DuplicateId,
                     Some(id),

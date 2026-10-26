@@ -1,5 +1,5 @@
 //! Attributed interpretations: who rendered or read one located place in one
-//! version of a source, and from which text (ADR 0115).
+//! version of a source, and from which text (ADR 0087).
 //!
 //! Interpretations live beside the records of the private source library and
 //! share its file, revision, and all-or-nothing validation. They are private
@@ -89,7 +89,7 @@ pub struct Interpreter {
     /// A descriptive name for someone who is not a site contributor.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    /// How firmly the interpretation is tied to this person (ADR 0114).
+    /// How firmly the interpretation is tied to this person (ADR 0086).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attribution: Option<AttributionCertainty>,
     #[serde(flatten)]
@@ -156,7 +156,7 @@ pub struct Interpretation {
     /// Nobody is named as having made it, such as an anonymous gloss.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub anonymous: bool,
-    /// The author's own statement of the rights in `text` (ADR 0113).
+    /// The author's own statement of the rights in `text` (ADR 0085).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rights: Option<RightsDeclaration>,
     /// The author's one-line note on what is uncertain about it.

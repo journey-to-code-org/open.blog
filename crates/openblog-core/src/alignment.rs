@@ -1,4 +1,4 @@
-//! Private passage alignments for comparing versions of a work (ADR 0116).
+//! Private passage alignments for comparing versions of a work (ADR 0088).
 //!
 //! An alignment is the author's record that places in two or more versions
 //! (editions, translations, witnesses) and interpretations correspond. Each
@@ -18,7 +18,7 @@
 //! normalization, kept apart from it.
 //!
 //! An alignment is private until the author approves it (`visibility:
-//! "approved"`), which is consent for the comparison projection (ADR 0128) to
+//! "approved"`), which is consent for the comparison projection (ADR 0092) to
 //! publish it while the site opts in. Approval publishes nothing by itself,
 //! and the projection, not this module, decides what of it is public.
 
@@ -187,7 +187,7 @@ pub struct Alignment {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub evidence: Vec<Evidence>,
     /// `Private` (the default), or `Approved`: the author's consent for the
-    /// comparison projection to publish this alignment (ADR 0128).
+    /// comparison projection to publish this alignment (ADR 0092).
     pub visibility: Visibility,
     /// The author chose to publish members' normalizations, labelled, beside
     /// original wording that is itself published. Written only when true.

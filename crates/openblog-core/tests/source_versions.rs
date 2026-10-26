@@ -1,6 +1,6 @@
 //! Editions, translations, witnesses, rights declarations, attribution
 //! uncertainty, and attributed interpretations in the source library
-//! (ADR 0112–0115).
+//! (ADR 0084–0087).
 
 use std::collections::BTreeMap;
 

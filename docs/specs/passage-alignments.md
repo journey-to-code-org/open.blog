@@ -3,8 +3,8 @@
 Private alignments of corresponding places across editions, translations, witnesses, and
 interpretations, owned by `openblog_core::alignment` and stored in
 `.openblog/private/research/alignments.json`. Decisions:
-[ADR 0116](../adr/0116-passage-alignments-record-correspondence-never-equivalence.md) and
-[ADR 0117](../adr/0117-alignments-take-their-lock-after-claims-and-guard-what-they-use.md). The
+[ADR 0088](../adr/0088-passage-alignments-record-correspondence-never-equivalence.md) and
+[ADR 0089](../adr/0089-alignments-take-their-lock-after-claims-and-guard-what-they-use.md). The
 file never reaches a public page, feed, export, or search index, and nothing in it can mark an
 alignment public.
 
@@ -52,7 +52,7 @@ false`. No text is trimmed or Unicode-normalized.
 | `uncertainty` | Optional, at most 2,000 characters. |
 | `recordedBy` | `{ "kind": "author" }` (default), `{ "kind": "source", "source": id }`, or `{ "kind": "named", "name": text }`. |
 | `evidence` | Up to 20 `{ "source", "locators"?, "passage"? }`, as in the Knowledge Atlas. |
-| `visibility` | `private` (the default) or `approved`: the author's consent to publish it as a comparison ([ADR 0128](../adr/0128-publish-approved-comparisons-as-one-rights-gated-projection.md)). |
+| `visibility` | `private` (the default) or `approved`: the author's consent to publish it as a comparison ([ADR 0092](../adr/0092-publish-approved-comparisons-as-one-rights-gated-projection.md)). |
 | `publishNormalized` | Optional `true`: publish members' normalizations, labelled, beside wording that is itself published. Written only when true. |
 
 ## Members
@@ -65,7 +65,7 @@ Each member is exactly one of:
   folios need a witness. Locators beside a passage record where the author found the place when
   aligning it.
 - **An interpretation.** `interpretation` names an interpretation in the source library
-  (ADR 0115). It carries no source, locators, passage, or `absent`, because the interpretation
+  (ADR 0087). It carries no source, locators, passage, or `absent`, because the interpretation
   names its own.
 - **An absence.** `source` with `absent: true` records that the version lacks the passage. It
   has no locators, passage, or normalization, and the same version may not also be present in
@@ -102,7 +102,7 @@ a valid alignments file invalid is refused.
 `GET /admin/api/research/alignments` returns `file`, `revision`, `stored`, `alignments`,
 `notices`, `notice` (the statement above), and `publication` (see [Publication](#publication)),
 and, read under the same snapshot for the
-comparison workspace ([ADR 0124](../adr/0124-the-comparison-workspace-reads-one-snapshot-and-identifies-every-place.md)):
+comparison workspace ([ADR 0090](../adr/0090-the-comparison-workspace-reads-one-snapshot-and-identifies-every-place.md)):
 `sources` (every library record, each version with `rightsStatus` `{ status, label, declared,
 note?, license? }` and every record with its `chain` of the records it realizes), `passages`
 (notebook passages with their exact excerpts), `interpretations` (each interpreter with a
@@ -125,13 +125,13 @@ exactly with its `lang` and a direction from its language tag (`dir="auto"` with
 normalizations appear only on request, labelled and under the original; absent members say so in
 words. Copy and download take only the places the author selects, with their rights statements,
 and ask for confirmation when a selected version's rights are unchecked or reserved
-([ADR 0125](../adr/0125-copying-from-a-comparison-takes-only-selected-places-with-their-rights.md)).
+([ADR 0091](../adr/0091-copying-from-a-comparison-takes-only-selected-places-with-their-rights.md)).
 Nothing is stored in the browser.
 
 ## Publication
 
 With `"comparisons": {"publish": true}` in `openblog.json`, a full build publishes every
-`approved` alignment as a comparison ([ADR 0128](../adr/0128-publish-approved-comparisons-as-one-rights-gated-projection.md)):
+`approved` alignment as a comparison ([ADR 0092](../adr/0092-publish-approved-comparisons-as-one-rights-gated-projection.md)):
 `/comparisons/`, a page per comparison at `/comparisons/<id>/`, and `/comparisons.json`
 (`{"format": "openblog-comparison-projection", "formatVersion": 1, "notice", "comparisons",
 "sources"}`). While the switch is off, no build reads the alignments file.

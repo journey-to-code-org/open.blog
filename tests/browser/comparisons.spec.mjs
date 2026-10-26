@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 
-// Published passage comparisons (ADR 0128), from the real build and the real Admin Studio: the
+// Published passage comparisons (ADR 0092), from the real build and the real Admin Studio: the
 // public page reads without JavaScript, identifies every version, quotes wording only where the
 // author's rights statement allows it, keeps right-to-left wording in its direction, reflows on a
 // phone and prints every version; approving and withdrawing in Admin publishes and removes it.

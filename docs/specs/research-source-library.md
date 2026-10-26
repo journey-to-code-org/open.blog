@@ -51,11 +51,11 @@ data and is written back as an absent field.
 | `identifiers` | every record | `{ "scheme", "value" }`. `doi`, `isbn`, `issn`, and `url` are checked offline; other schemes need a lowercase slug name. Values must not start or end with whitespace. |
 | `archived` | every record | Optional `true`. Hides the record from everyday lists and keeps it in place; records that point at it still resolve. `false` is written as an absent field. |
 | `location` | reference | `{ "scheme", "value", "volume"? }` with scheme `page`, `folio`, `line`, `section`, `chapter`, `canonical`, or `timestamp`. Pages cannot point at a work; folios need a witness; timestamps are seconds or `h:mm:ss`. A page or folio in a record with more than one volume needs `volume`, and a numeric volume must be within the declared count. |
-| `revises` | edition | Optional earlier edition of the same text (the same `of`) that this edition revises. Revisions may not loop. ([ADR 0112](../adr/0112-version-lineage-witness-identity-and-volumes.md)) |
+| `revises` | edition | Optional earlier edition of the same text (the same `of`) that this edition revises. Revisions may not loop. ([ADR 0084](../adr/0084-version-lineage-witness-identity-and-volumes.md)) |
 | `repository`, `shelfmark` | witness | Optional text identifying one held copy. No two witnesses share both. CSL `archive` and `archive_location` are never read as these. |
 | `volumes` | edition, witness | Optional whole number of volumes, 1 to 10,000. |
-| `rights` | edition, translation, witness | Optional `{ "status", "note"?, "license"? }`: the author's own declaration, never a legal determination. Status is `unknown`, `rightsReserved`, `permission`, `openLicense`, `publicDomain`, or `ownWork`; `license` only with `openLicense`. A version without one reads as `unknown`, and nothing inherits a status. ([ADR 0113](../adr/0113-rights-are-the-authors-declaration-per-version.md)) |
-| `anonymous` | all but reference | Optional `true`: the source names no maker. A creator in the record's maker role (author, editor, translator, or scribe for a work, edition, translation, or witness) whose attribution is stated or absent contradicts it (`conflicting-attribution`). ([ADR 0114](../adr/0114-attribution-uncertainty-is-explicit.md)) |
+| `rights` | edition, translation, witness | Optional `{ "status", "note"?, "license"? }`: the author's own declaration, never a legal determination. Status is `unknown`, `rightsReserved`, `permission`, `openLicense`, `publicDomain`, or `ownWork`; `license` only with `openLicense`. A version without one reads as `unknown`, and nothing inherits a status. ([ADR 0085](../adr/0085-rights-are-the-authors-declaration-per-version.md)) |
+| `anonymous` | all but reference | Optional `true`: the source names no maker. A creator in the record's maker role (author, editor, translator, or scribe for a work, edition, translation, or witness) whose attribution is stated or absent contradicts it (`conflicting-attribution`). ([ADR 0086](../adr/0086-attribution-uncertainty-is-explicit.md)) |
 
 `credit`, `credits`, `contributor`, and `contributors` are rejected as field names at any
 depth of a record, including inside creators, identifiers, locations, rights, and unknown
@@ -65,7 +65,7 @@ library. The one exception is an interpreter's `contributor` key below.
 ## Interpretations
 
 An optional top-level `interpretations` array holds attributed renderings and readings of
-places in the library's versions ([ADR 0115](../adr/0115-attributed-interpretations-live-in-the-source-library.md)).
+places in the library's versions ([ADR 0087](../adr/0087-attributed-interpretations-live-in-the-source-library.md)).
 They are private research: never sources, never cited, never exported as bibliography, and
 never read by a build: a build parses the library without validating them, so a problem in an
 interpretation never fails a build. An empty array is written as an absent field.

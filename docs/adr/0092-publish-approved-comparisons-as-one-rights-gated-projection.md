@@ -1,4 +1,4 @@
-# ADR 0128: Publish approved comparisons as one rights-gated projection, as pages and `comparisons.json`
+# ADR 0092: Publish approved comparisons as one rights-gated projection, as pages and `comparisons.json`
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -7,13 +7,13 @@
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
 - Builds on: [ADR 0044](0044-what-a-citation-makes-public.md),
   [ADR 0058](0058-publish-one-allowlisted-knowledge-atlas-projection.md),
-  [ADR 0113](0113-rights-are-the-authors-declaration-per-version.md),
-  [ADR 0115](0115-attributed-interpretations-live-in-the-source-library.md),
-  [ADR 0116](0116-passage-alignments-record-correspondence-never-equivalence.md),
-  [ADR 0124](0124-the-comparison-workspace-reads-one-snapshot-and-identifies-every-place.md),
-  [ADR 0125](0125-copying-from-a-comparison-takes-only-selected-places-with-their-rights.md)
-- Amends: [ADR 0116](0116-passage-alignments-record-correspondence-never-equivalence.md) (an
-  alignment may now be `approved`) and [ADR 0115](0115-attributed-interpretations-live-in-the-source-library.md)
+  [ADR 0085](0085-rights-are-the-authors-declaration-per-version.md),
+  [ADR 0087](0087-attributed-interpretations-live-in-the-source-library.md),
+  [ADR 0088](0088-passage-alignments-record-correspondence-never-equivalence.md),
+  [ADR 0090](0090-the-comparison-workspace-reads-one-snapshot-and-identifies-every-place.md),
+  [ADR 0091](0091-copying-from-a-comparison-takes-only-selected-places-with-their-rights.md)
+- Amends: [ADR 0088](0088-passage-alignments-record-correspondence-never-equivalence.md) (an
+  alignment may now be `approved`) and [ADR 0087](0087-attributed-interpretations-live-in-the-source-library.md)
   (a build that publishes comparisons validates the interpretations it publishes)
 - Contract: [Passage alignments format](../specs/passage-alignments.md#publication)
 
@@ -24,8 +24,8 @@ interpreters, and that rights warnings prevent accidental public reproduction. I
 for opt-in public comparisons with attributed versions and brief permitted excerpts, which
 require an explicit rights status and selection, never republish a whole stored source, keep
 interpretations separable from primary text, and exclude private notes. Alignments have been
-private only (ADR 0116), and rights statuses are the author's declarations, never a legal
-judgement (ADR 0113). The atlas (ADR 0058) and claim evidence (ADR 0075) already publish private
+private only (ADR 0088), and rights statuses are the author's declarations, never a legal
+judgement (ADR 0085). The atlas (ADR 0058) and claim evidence (ADR 0075) already publish private
 research through one allowlisted projection behind a site switch and per-item approval. B7.1
 (#88) and B7.3 (#90) will build interpretation comparisons and explanation levels on what is
 published here.
@@ -94,7 +94,7 @@ published here.
   in post bodies is left to B7.3 (#90), which can render from this projection.
 - **Failures refuse before writing, and never Admin saves.** A published alignments file is read
   through `alignment_store::load_for_build`: the library as every build reads it, with its
-  interpretations raw (ADR 0115), the notebook, and the alignments validated against both, an
+  interpretations raw (ADR 0087), the notebook, and the alignments validated against both, an
   interpretation member needing only an entry with its id. Then exactly the interpretations that
   approved alignments name are validated in full (their fields, ids and contributors), because
   those are the ones a comparison publishes; an interpretation nothing approved names, even one

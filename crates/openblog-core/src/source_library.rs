@@ -143,7 +143,7 @@ impl fmt::Display for ResearchSourceKind {
 }
 
 /// How firmly a name is tied to a source or an interpretation, as the author
-/// records it (ADR 0114). An absent value says nothing either way; none of
+/// records it (ADR 0086). An absent value says nothing either way; none of
 /// these is a finding, and open.blog never decides between them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -188,7 +188,7 @@ impl AttributionCertainty {
     }
 }
 
-/// The author's own statement of the rights in one version's text (ADR 0113).
+/// The author's own statement of the rights in one version's text (ADR 0085).
 /// It is never a legal determination, and `Unknown` is the honest default.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -268,7 +268,7 @@ pub struct SourceCreator {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
-    /// How firmly the source is tied to this name (ADR 0114).
+    /// How firmly the source is tied to this name (ADR 0086).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attribution: Option<AttributionCertainty>,
     /// The author's one-line note on the attribution, such as who disputes it.
@@ -329,7 +329,7 @@ pub struct SourceRecord {
     /// at it still resolve. `false` is written as an absent field.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub archived: bool,
-    /// The source names no maker for this record (ADR 0114). Names tradition
+    /// The source names no maker for this record (ADR 0086). Names tradition
     /// assigns may still be recorded as attributed, uncertain, or disputed
     /// creators. `false` is written as an absent field.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
@@ -347,7 +347,7 @@ pub struct SourceRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub volumes: Option<u64>,
     /// For an edition, translation, or witness, the author's own statement of
-    /// the rights in its text (ADR 0113).
+    /// the rights in its text (ADR 0085).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rights: Option<RightsDeclaration>,
     /// Fields this release does not understand, preserved verbatim.
@@ -411,7 +411,7 @@ pub struct SourceLibrary {
     pub version: u64,
     pub sources: Vec<SourceRecord>,
     /// Attributed renderings and readings of places in the library's versions
-    /// (ADR 0115). Private research, never a source, citation, or credit.
+    /// (ADR 0087). Private research, never a source, citation, or credit.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub interpretations: Vec<Interpretation>,
     #[serde(flatten)]
@@ -564,7 +564,7 @@ impl SourceLibrary {
     }
 
     /// Parse a library for a build, which reads only its sources. Builds never
-    /// output interpretations (ADR 0115), so a problem in one, such as an
+    /// output interpretations (ADR 0087), so a problem in one, such as an
     /// interpreter whose contributor was removed, must not fail every build
     /// that cites a source: they are not validated and are kept raw in
     /// [`Self::extra`], leaving [`Self::interpretations`] empty. Admin, the
@@ -682,7 +682,7 @@ impl SourceLibrary {
             return Err(diagnostics);
         }
         // Interpretations name contributors on purpose and check credit
-        // fields themselves (ADR 0115); everything else at this level may not.
+        // fields themselves (ADR 0087); everything else at this level may not.
         let raw_interpretations = root.remove("interpretations");
         for (key, value) in &root {
             for field in credit_paths(value, key.clone(), CREDIT_FIELDS.contains(&key.as_str())) {
@@ -948,7 +948,7 @@ impl SourceLibrary {
     /// Whether the library holds an interpretation with this identifier,
     /// validated or, in a library read by [`Self::parse_for_build`], still
     /// raw. A build checks that the alignments it reads point at entries
-    /// that exist without validating every interpretation (ADR 0115).
+    /// that exist without validating every interpretation (ADR 0087).
     pub fn has_interpretation(&self, id: &str) -> bool {
         self.interpretation(id).is_some()
             || self.raw_interpretations().is_some_and(|items| {
@@ -962,7 +962,7 @@ impl SourceLibrary {
         self.extra.get("interpretations").and_then(Value::as_array)
     }
 
-    /// For a build that publishes comparisons (ADR 0128): validate exactly
+    /// For a build that publishes comparisons (ADR 0092): validate exactly
     /// the raw interpretations with these identifiers, each with the same
     /// field, id and contributor checks as a full parse, and add them to
     /// [`Self::interpretations`]. Every other interpretation stays raw and

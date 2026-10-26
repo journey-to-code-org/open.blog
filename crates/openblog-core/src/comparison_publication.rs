@@ -1,5 +1,5 @@
 //! Published passage comparisons: the one projection of approved alignments
-//! that every public representation reads (ADR 0128).
+//! that every public representation reads (ADR 0092).
 //!
 //! [`PublicComparisons`] is built from an explicit allowlist. It copies only
 //! alignments the author approved, and from them only the fields named here:
@@ -13,7 +13,7 @@
 //! not choose to publish have no place in these types.
 //!
 //! Nothing here decides what is permitted: a rights status is the author's
-//! own statement (ADR 0113), and the gate only follows it. Nothing here says
+//! own statement (ADR 0085), and the gate only follows it. Nothing here says
 //! two places mean the same thing: every comparison carries the author's
 //! reading of how its places correspond and the alignment notice. Text is
 //! copied exactly as stored, never normalized, with its language tag and a
@@ -121,7 +121,7 @@ pub struct PublicVersion {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub interpretation: Option<PublicInterpretation>,
     /// For a source version, its makers as the author attributes them, with
-    /// how firmly each is tied to it (ADR 0114). The attribution note stays
+    /// how firmly each is tied to it (ADR 0086). The attribution note stays
     /// private. An interpretation's makers are its interpreters.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub makers: Vec<PublicMaker>,

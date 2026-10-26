@@ -1,4 +1,4 @@
-# ADR 0117: Alignments are a private store that locks after claims and guards what it uses
+# ADR 0089: Alignments are a private store that locks after claims and guards what it uses
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -8,12 +8,12 @@
 - Builds on: [ADR 0056](0056-one-lock-order-and-cross-store-research-guards.md),
   [ADR 0071](0071-private-claims-storage-checked-against-the-saved-draft.md),
   [ADR 0072](0072-claims-take-their-lock-after-the-atlas-and-guard-their-sources.md),
-  [ADR 0116](0116-passage-alignments-record-correspondence-never-equivalence.md)
+  [ADR 0088](0088-passage-alignments-record-correspondence-never-equivalence.md)
 - Contract: [Passage alignments format](../specs/passage-alignments.md)
 
 ## Context
 
-Alignments (ADR 0116) point into the source library (sources and interpretations) and the
+Alignments (ADR 0088) point into the source library (sources and interpretations) and the
 notebook (passages), and nothing points into them, like the claims file. They could live inside
 the notebook or the library, but either would tie a comparison's revision to every unrelated
 passage or source edit, and the notebook's export bundle is a passage-and-note format. A removal

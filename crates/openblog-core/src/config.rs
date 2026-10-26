@@ -86,7 +86,7 @@ pub struct SiteConfig {
     pub comparisons: ComparisonsConfig,
 }
 
-/// Whether builds publish approved passage comparisons (ADR 0128). Off by
+/// Whether builds publish approved passage comparisons (ADR 0092). Off by
 /// default: the build then never reads the private alignments file. On, it
 /// publishes `/comparisons/` pages and `/comparisons.json` holding only
 /// approved alignments, with each place's wording only where the author

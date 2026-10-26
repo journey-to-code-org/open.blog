@@ -25,7 +25,7 @@ import {
   versionMakerText,
 } from "../../web/admin/admin.js";
 
-// The comparison workspace (A6.3, ADR 0124 and ADR 0125): aligned places across versions side by
+// The comparison workspace (A6.3, ADR 0090 and ADR 0091): aligned places across versions side by
 // side or in one column, original wording exactly with its direction, labelled normalizations,
 // explicit absences, attribution on every place, copying only what is selected after the rights
 // statements are read, and alignment editing that keeps the draft through a conflict.

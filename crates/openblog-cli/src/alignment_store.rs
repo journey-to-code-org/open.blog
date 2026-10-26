@@ -1,4 +1,4 @@
-//! Private, file-backed storage for passage alignments (ADR 0116, ADR 0117).
+//! Private, file-backed storage for passage alignments (ADR 0088, ADR 0089).
 //!
 //! The alignments file lives at [`ALIGNMENTS_FILE`] beside the source
 //! library, the research notebook, the Knowledge Atlas and the claims file,
@@ -12,7 +12,7 @@
 //! or interrupted change leaves the stored file exactly as it was.
 //!
 //! Locks are always taken in one order: atlas, claims, alignments, notebook,
-//! library (ADR 0117). An alignments write takes alignments, notebook and
+//! library (ADR 0089). An alignments write takes alignments, notebook and
 //! library; it never takes the atlas or claims lock, and their writers never
 //! take this one, so no two writers can wait on each other. Notebook and
 //! library changes take a suffix of the order and only *read* the alignments
@@ -118,8 +118,8 @@ pub fn load(
 }
 
 /// The alignments file as a build that publishes comparisons reads it
-/// (ADR 0128). The library is read as every build reads it, with its
-/// interpretations raw (ADR 0115); the alignments are validated against it
+/// (ADR 0092). The library is read as every build reads it, with its
+/// interpretations raw (ADR 0087); the alignments are validated against it
 /// and the notebook, an interpretation member needing only an entry with its
 /// id. Then exactly the interpretations that approved alignments name are
 /// validated in full and added to the snapshot's library, so a problem in
@@ -177,7 +177,7 @@ pub enum PublishedUse<'a> {
 }
 
 /// Whether the published comparisons, as a build would read them now, use
-/// this record (ADR 0128). An alignments file, library or notebook that
+/// this record (ADR 0092). An alignments file, library or notebook that
 /// cannot be read or projected counts as a use, so the rebuild that follows
 /// reports the problem instead of leaving the public pages silently stale.
 pub fn publishes(

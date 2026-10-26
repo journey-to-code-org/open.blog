@@ -1,5 +1,5 @@
 //! Passage alignments across editions, translations, witnesses, and
-//! interpretations (ADR 0116): many-to-many and missing passages, original
+//! interpretations (ADR 0088): many-to-many and missing passages, original
 //! wording kept apart from normalization, no implied equivalence, and failures
 //! scoped to the alignment and field.
 
@@ -249,7 +249,7 @@ fn an_alignment_never_implies_semantic_equivalence_or_authority() {
     let problems = refused(|v| v["alignments"][0]["correspondence"] = json!("equivalent"));
     assert_eq!(problems[0].0, Code::InvalidField);
     assert_eq!(problems[0].2.as_deref(), Some("correspondence"));
-    // Approval is consent for the comparison projection (ADR 0128); nothing
+    // Approval is consent for the comparison projection (ADR 0092); nothing
     // else may mark an alignment public.
     let problems = refused(|v| v["alignments"][0]["visibility"] = json!("public"));
     assert_eq!(problems[0].0, Code::InvalidVisibility);

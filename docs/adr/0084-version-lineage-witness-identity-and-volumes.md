@@ -1,4 +1,4 @@
-# ADR 0112: Deepen library versions with lineage, witness identity, and volumes
+# ADR 0084: Deepen library versions with lineage, witness identity, and volumes
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -63,9 +63,9 @@ open.blog keeps the new fields verbatim as unknown fields.
   belong to, and are checked offline as structure; nothing claims a revision is better or that a
   shelfmark is current.
 - Story #22 promotes these previously unknown field names to defined fields: on a record
-  `revises`, `repository`, `shelfmark`, `volumes`, `anonymous`, and `rights` (ADR 0113, 0114);
-  on a location `volume`; on a creator `attribution` and `note` (ADR 0114); and at the library
-  level `interpretations` (ADR 0115). Libraries that relied on unknown fields with these names
+  `revises`, `repository`, `shelfmark`, `volumes`, `anonymous`, and `rights` (ADR 0085, 0086);
+  on a location `volume`; on a creator `attribution` and `note` (ADR 0086); and at the library
+  level `interpretations` (ADR 0087). Libraries that relied on unknown fields with these names
   and a different shape now get a field-scoped diagnostic instead of silent preservation. ADR
   0009 reserved this possibility; renaming the field resolves it.
 - **Downgrade hazards.** An older open.blog keeps every promoted field verbatim as an unknown

@@ -2453,7 +2453,7 @@ fn claims_store_error(
     }
 }
 
-// ---- Passage alignments (A6.2, ADR 0116 and ADR 0117) ----------------------
+// ---- Passage alignments (A6.2, ADR 0088 and ADR 0089) ----------------------
 //
 // Private research like the notebook and the claims file: these routes sit
 // behind the session, CSRF token and deny-by-default router, are `no-store`,
@@ -2484,7 +2484,7 @@ fn alignments_view(
     view
 }
 
-/// What each alignment would publish (ADR 0128), approved or not, so the
+/// What each alignment would publish (ADR 0092), approved or not, so the
 /// author sees before approving which places are quoted and which are only
 /// identified: per alignment, one status per member in member order
 /// (`shown`, `absent`, `unquoted`, or `withheld-rights` / `withheld-length`).
@@ -2533,7 +2533,7 @@ fn publication_preview(
 /// realization chain, every notebook passage with its exact wording, and
 /// every interpretation with its interpreters' names. Admin-only and
 /// `no-store` like the rest of the private research routes; labels state the
-/// author's declaration and never grant permission (ADR 0113).
+/// author's declaration and never grant permission (ADR 0085).
 fn comparison_context(
     snapshot: &alignment_store::Snapshot,
     contributors: &BTreeMap<String, openblog_core::contributor::Contributor>,
@@ -2694,7 +2694,7 @@ fn remove_alignment_item(state: &AppState, req: &Request) -> Response {
     }
 }
 
-/// While the site publishes comparisons (ADR 0128), a saved alignments change
+/// While the site publishes comparisons (ADR 0092), a saved alignments change
 /// is published at once, so approving or withdrawing a comparison reaches the
 /// public site without waiting for another save. The outcome travels as
 /// `build`; a site that does not publish comparisons is not rebuilt.
@@ -2712,7 +2712,7 @@ fn attach_comparisons_build(state: &AppState, view: &mut Json) {
     };
 }
 
-/// While the site publishes comparisons (ADR 0128), a saved or archived
+/// While the site publishes comparisons (ADR 0092), a saved or archived
 /// library source or notebook passage that an approved comparison uses is
 /// published at once, so a version whose rights become reserved or unknown,
 /// or a passage whose wording changes, never leaves a public page quoting
@@ -7244,7 +7244,7 @@ fn save_contributors(state: &AppState, req: &Request) -> Response {
         );
     }
     // Interpretations in the source library name interpreters by registry key
-    // (ADR 0115). The library lock is held until the registry is written.
+    // (ADR 0087). The library lock is held until the registry is written.
     let (_library_lock, interpreted) = match source_store::interpreters_in_use(
         &state.root,
         &current_config.contributors,

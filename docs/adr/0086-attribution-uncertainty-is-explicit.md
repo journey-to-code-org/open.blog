@@ -1,4 +1,4 @@
-# ADR 0114: Attribution uncertainty and anonymity are explicit
+# ADR 0086: Attribution uncertainty and anonymity are explicit
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -30,7 +30,7 @@ rank scholarly positions; the source library should not imply certainty it does 
   edition, translator of a translation, scribe of a witness) whose attribution is stated or
   unqualified contradicts it and is refused as `conflicting-attribution`. Other roles, such as
   the named editor of an anonymous work's edition, are no contradiction.
-- Interpreters of an interpretation (ADR 0115) use the same certainty values and the same
+- Interpreters of an interpretation (ADR 0087) use the same certainty values and the same
   anonymity rule.
 - These are the author's records. No value is a finding, no code chooses between attributions,
   and none of them is published by this decision; `public_reference` still lists only names and

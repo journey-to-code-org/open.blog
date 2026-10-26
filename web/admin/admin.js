@@ -2957,7 +2957,7 @@ export function alignmentMemberPayload(draft) {
 
 /**
  * What a public comparison page would show for each place, as the server
- * previews it (ADR 0128). The statuses follow the author's rights statement
+ * previews it (ADR 0092). The statuses follow the author's rights statement
  * and the excerpt limit; none of them is a judgement of what is permitted.
  */
 export function publicPlaceText(status, maxChars = 1000) {

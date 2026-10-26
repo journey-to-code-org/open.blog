@@ -457,7 +457,7 @@ pub struct Site {
     /// output at all.
     pub atlas: Option<crate::atlas_publication::PublicAtlas>,
     /// The public comparison projection, supplied by the caller only when the
-    /// site opts in to publishing comparisons (ADR 0128). `None` writes no
+    /// site opts in to publishing comparisons (ADR 0092). `None` writes no
     /// comparison output at all.
     pub comparisons: Option<crate::comparison_publication::PublicComparisons>,
     /// Why this site's claim evidence cannot be published (ADR 0075): the

@@ -1,4 +1,4 @@
-# ADR 0125: Copying from a comparison takes only selected places, with their rights
+# ADR 0091: Copying from a comparison takes only selected places, with their rights
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -6,14 +6,14 @@
 - Parent story: [#22](https://github.com/journey-to-code-org/open.blog/issues/22)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
 - Builds on: [ADR 0065](0065-precise-quotation-attribution-and-rights-guidance.md),
-  [ADR 0113](0113-rights-are-the-authors-declaration-per-version.md),
-  [ADR 0124](0124-the-comparison-workspace-reads-one-snapshot-and-identifies-every-place.md)
+  [ADR 0085](0085-rights-are-the-authors-declaration-per-version.md),
+  [ADR 0090](0090-the-comparison-workspace-reads-one-snapshot-and-identifies-every-place.md)
 
 ## Context
 
 Story #22 requires rights warnings that prevent accidental reproduction, and #54 requires copy
 and export to respect them and an explicit selection. Rights statuses are the author's own
-declarations (ADR 0113): open.blog cannot decide what a use permits, and must not turn a status
+declarations (ADR 0085): open.blog cannot decide what a use permits, and must not turn a status
 into "allowed". A copied passage that loses its version, translator, or locator is also an
 attribution failure, wherever it is pasted.
 

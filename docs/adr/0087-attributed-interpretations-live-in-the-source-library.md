@@ -1,4 +1,4 @@
-# ADR 0115: Attributed interpretations live beside the library's records
+# ADR 0087: Attributed interpretations live beside the library's records
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -35,7 +35,7 @@ evidence, audience levels, and AI provenance to scholarly interpretations.
   so a citation key can never name one), a `kind` of `rendering` (a translation of one located
   place into another language) or `reading` (what a place means), a `source`, notebook
   `locators` (up to eight), a `language`, the `text`, `interpreters`, and optionally
-  `anonymous`, `rights` (ADR 0113), and a one-line `uncertainty`. Unknown fields are kept at
+  `anonymous`, `rights` (ADR 0085), and a one-line `uncertainty`. Unknown fields are kept at
   every level.
 - **Provenance names an exact text.** `source` must be an edition, translation, or witness; a
   reading may also be of a work. A reference is refused (point at its version and give the place
@@ -45,7 +45,7 @@ evidence, audience levels, and AI provenance to scholarly interpretations.
   translation is visible as such.
 - **Attribution reuses contributor identity.** Each interpreter is exactly one of
   `{ "contributor": key }`, a key that must exist in the site's contributor registry, or
-  `{ "name": text }` for anyone else, with an optional attribution certainty (ADR 0114). An
+  `{ "name": text }` for anyone else, with an optional attribution certainty (ADR 0086). An
   interpretation with no interpreters must be marked `anonymous`. Naming a contributor here is
   attribution only: it creates no credit sidecar entry, and a contributor key is never a valid
   `source`. `interpreters[*].contributor` is the one place in the library file where the
@@ -69,7 +69,7 @@ evidence, audience levels, and AI provenance to scholarly interpretations.
   through the projection #55 will define. (Amended 2026-10-26: the comparison workspace reads
   interpretations but does not edit them; their Admin endpoints and controls moved to B7.2,
   authoring interpretations in Admin Studio, [#89](https://github.com/journey-to-code-org/open.blog/issues/89).)
-  (Amended by [ADR 0128](0128-publish-approved-comparisons-as-one-rights-gated-projection.md):
+  (Amended by [ADR 0092](0092-publish-approved-comparisons-as-one-rights-gated-projection.md):
   a build that publishes comparisons still reads the library with its interpretations raw,
   validates in full only the interpretations approved comparisons name, refusing the build
   with the id of one that fails, and publishes an interpretation's text only inside an
@@ -80,14 +80,14 @@ evidence, audience levels, and AI provenance to scholarly interpretations.
 
 - One file holds the versions and the interpretations made from them, so an interpretation can
   never point at a version a concurrent change removed.
-- `interpretations` was an unknown library-level field name before; ADR 0112 lists every field
+- `interpretations` was an unknown library-level field name before; ADR 0084 lists every field
   name story #22 promotes. An older open.blog keeps the array as an unknown field, but refuses a
   library whose interpretations name a contributor, because its credit guard sees the
   `contributor` key. That is a refusal, not data loss. An older release whose library it can
   read does not know interpretations use sources and contributors, so it lets the author remove
   a source an interpretation uses or a contributor one names; this release then reports the
   unresolved `interpretations[n].source` or interpreter until the interpretation is changed
-  (see the downgrade hazards in ADR 0112). Builds are unaffected because they never validate
+  (see the downgrade hazards in ADR 0084). Builds are unaffected because they never validate
   interpretations.
 - A contributor registry entry referenced by an interpretation must be edited, not removed,
   until the interpretation changes.

@@ -639,10 +639,10 @@ fn unstored_atlas_warning() -> String {
 }
 
 /// The public comparison projection, when the site opts in to publishing
-/// comparisons (ADR 0128). A site that does not never reads the private
+/// comparisons (ADR 0092). A site that does not never reads the private
 /// alignments file. The file is read and validated against the library and
 /// the notebook, and of the library's interpretations only those an approved
-/// alignment publishes are validated (ADR 0115); a problem refuses the build
+/// alignment publishes are validated (ADR 0087); a problem refuses the build
 /// before anything is written, naming the file and ids only. An Admin save,
 /// which only loads content, is never stopped by it.
 ///

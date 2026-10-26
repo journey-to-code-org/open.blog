@@ -1,4 +1,4 @@
-# ADR 0124: The comparison workspace reads one snapshot and identifies every place
+# ADR 0090: The comparison workspace reads one snapshot and identifies every place
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -6,16 +6,16 @@
 - Parent story: [#22](https://github.com/journey-to-code-org/open.blog/issues/22)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
 - Builds on: [ADR 0057](0057-accessible-atlas-authoring-and-a-text-first-explorer.md),
-  [ADR 0112](0112-version-lineage-witness-identity-and-volumes.md),
-  [ADR 0113](0113-rights-are-the-authors-declaration-per-version.md),
-  [ADR 0114](0114-attribution-uncertainty-is-explicit.md),
-  [ADR 0115](0115-attributed-interpretations-live-in-the-source-library.md),
-  [ADR 0116](0116-passage-alignments-record-correspondence-never-equivalence.md)
+  [ADR 0084](0084-version-lineage-witness-identity-and-volumes.md),
+  [ADR 0085](0085-rights-are-the-authors-declaration-per-version.md),
+  [ADR 0086](0086-attribution-uncertainty-is-explicit.md),
+  [ADR 0087](0087-attributed-interpretations-live-in-the-source-library.md),
+  [ADR 0088](0088-passage-alignments-record-correspondence-never-equivalence.md)
 - Contract: [Passage alignments format](../specs/passage-alignments.md)
 
 ## Context
 
-Alignments (ADR 0116) name places by identifier: a source, its locators, a notebook passage, an
+Alignments (ADR 0088) name places by identifier: a source, its locators, a notebook passage, an
 interpretation. Reading them as a comparison needs the versions behind those identifiers (kind,
 language, lineage, witness identity, volumes, rights, makers and their attribution certainty),
 the exact quoted wording, and the interpretations with who made them. A comparison that stitched

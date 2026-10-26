@@ -1,4 +1,4 @@
-# ADR 0116: Passage alignments record where places correspond, never that they are equivalent
+# ADR 0088: Passage alignments record where places correspond, never that they are equivalent
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -7,9 +7,9 @@
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
 - Builds on: [ADR 0034](0034-private-passages-and-research-notes.md),
   [ADR 0054](0054-attributed-evidence-based-relationships.md),
-  [ADR 0112](0112-version-lineage-witness-identity-and-volumes.md),
-  [ADR 0113](0113-rights-are-the-authors-declaration-per-version.md),
-  [ADR 0115](0115-attributed-interpretations-live-in-the-source-library.md)
+  [ADR 0084](0084-version-lineage-witness-identity-and-volumes.md),
+  [ADR 0085](0085-rights-are-the-authors-declaration-per-version.md),
+  [ADR 0087](0087-attributed-interpretations-live-in-the-source-library.md)
 - Contract: [Passage alignments format](../specs/passage-alignments.md)
 
 ## Context
@@ -19,8 +19,8 @@ which versions the writer compares. Versions do not line up one to one: a transl
 sentence in two or merges two, an editor reorders lines, a manuscript lacks a passage another
 witness has, and an interpretation renders only part of a place. A record that paired passages
 one to one, or that called aligned passages "equivalent", would assert what the author has not
-checked and what scholars often dispute. The version model (ADR 0112), notebook passages and
-locators (ADR 0034), and attributed interpretations (ADR 0115) already name exact texts and
+checked and what scholars often dispute. The version model (ADR 0084), notebook passages and
+locators (ADR 0034), and attributed interpretations (ADR 0087) already name exact texts and
 places; the atlas (ADR 0054) already attributes assertions and rests them on evidence.
 
 ## Decision
@@ -55,8 +55,8 @@ places; the atlas (ADR 0054) already attributes assertions and rests them on evi
   `confidence` (`tentative` by default), and an `uncertainty` note.
 - **Private only.** `visibility` is always `private` and any other value is refused. Publishing
   comparisons is #55's decision, through the publication projection, with rights statuses
-  (ADR 0113); nothing in this format can mark an alignment public. (Amended by
-  [ADR 0128](0128-publish-approved-comparisons-as-one-rights-gated-projection.md): `approved`
+  (ADR 0085); nothing in this format can mark an alignment public. (Amended by
+  [ADR 0092](0092-publish-approved-comparisons-as-one-rights-gated-projection.md): `approved`
   records the author's consent for the comparison projection, which publishes only while the
   site opts in; no other value is accepted.)
 - **Stale places are notices.** A member whose locators no longer match the passage it names

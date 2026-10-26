@@ -1,4 +1,4 @@
-//! The comparison projection (ADR 0128): approved alignments only, every
+//! The comparison projection (ADR 0092): approved alignments only, every
 //! version identified, wording only under a rights statement that permits
 //! display and within the excerpt limit, exactly as stored, interpretations
 //! attributed and kept apart, and nothing private on the way.

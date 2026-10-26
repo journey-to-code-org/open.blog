@@ -14,7 +14,7 @@
 //! or interrupted change leaves the stored file exactly as it was.
 //!
 //! Locks are always taken in one order: atlas, claims, alignments, notebook,
-//! library (ADR 0072, ADR 0117). A claims write takes claims, notebook and
+//! library (ADR 0072, ADR 0089). A claims write takes claims, notebook and
 //! library; it never holds the atlas or alignments lock, and neither of their
 //! writers takes the claims lock, so each writer takes its locks in that one
 //! order and no two can wait on each other. Notebook and library changes take a suffix of the order and only

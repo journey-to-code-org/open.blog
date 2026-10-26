@@ -1,4 +1,4 @@
-# ADR 0113: Rights are the author's declaration for each version, unknown until stated
+# ADR 0085: Rights are the author's declaration for each version, unknown until stated
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -32,7 +32,7 @@ quotation's rights as the participant's own statement and never a legal determin
 - **Unknown is explicit and the default.** `SourceRecord::rights_status` returns the declared
   status or `unknown` for any version that declares none, and nothing for a work or reference.
   A status is never inherited: a revised edition, an edition of a translation, or a translation
-  of a public-domain work each starts as unknown. Interpretations (ADR 0115) carry the same
+  of a public-domain work each starts as unknown. Interpretations (ADR 0087) carry the same
   declaration for their own text.
 - **Labels never grant permission.** Every label reads as what the author states ("The author
   states the text is in the public domain"), and no code path turns a status into "allowed".
