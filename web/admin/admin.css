@@ -2774,6 +2774,7 @@ a.oba-btn-primary {
 }
 
 .oba-arrangement { margin-top: 1rem; }
+.oba-approval-rule { margin-top: 1rem; }
 .oba-arrangement-turn { margin: 0.5rem 0; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
 .oba-arrangement-turn input[type="number"] { width: 5rem; }
 

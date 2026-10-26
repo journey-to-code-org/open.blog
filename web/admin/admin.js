@@ -1014,7 +1014,7 @@ function rememberPromptsDismissed(dismissed) {
 export const REVEAL_POLICIES = Object.freeze([
   { value: "independent", label: "Independent", help: "Nobody sees anyone else's draft." },
   { value: "voluntary", label: "Voluntary", help: "Any two or more writers who offer a revision share those revisions with each other." },
-  { value: "allReady", label: "Everyone ready", help: "Nothing is shared until every writer has offered a revision." },
+  { value: "allReady", label: "Everyone ready", help: "Nothing is shared until every writer has offered a revision. If a writer cannot or will not offer, a coordinator can switch to Voluntary or change that person's role." },
 ]);
 
 /** One comparison slot as words: whose it is, and what the reader may know about it. */
@@ -1044,6 +1044,71 @@ export function previewStateText(preview) {
   if (preview?.ready) return "Every required author has approved this exact piece.";
   if (preview?.complete) return "Not ready to publish: approvals are missing or out of date.";
   return "Incomplete: some sections are not shared with you at their current revision.";
+}
+
+/** Whose approval publication needs (ADR 0043). Every writer approves under every rule. */
+export const APPROVAL_REQUIREMENTS = Object.freeze([
+  { value: "allAuthors", label: "Every author", help: "Everyone taking part as an author approves, whether or not they wrote a section." },
+  { value: "contributingAuthors", label: "Everyone who wrote", help: "Only authors who wrote a section, or are named on a conversation item, approve." },
+  { value: "namedAuthors", label: "Writers and named people", help: "Everyone who wrote approves, and so do the people you choose below, even if they later leave." },
+  { value: "authorsWithRoles", label: "Writers and people with a role", help: "Everyone who wrote approves, and so does every author with a role you choose below." },
+]);
+
+/** The roles a role-based rule can list. Readers and editors cannot approve, so they are not offered. */
+export const APPROVAL_ROLE_CHOICES = Object.freeze([
+  { value: "siteOwner", label: "Site owner" },
+  { value: "coordinator", label: "Coordinator" },
+  { value: "contributor", label: "Contributor" },
+]);
+
+const ROLE_WORDS = { siteOwner: "a site owner", coordinator: "a coordinator", contributor: "a contributor", editor: "an editor", reader: "a reader" };
+
+/** The server's policy as form choices: one kind, the named people, the roles and the scope. */
+export function approvalPolicyChoice(policy) {
+  const requirement = policy?.requirement ?? "allAuthors";
+  const choice = { kind: "allAuthors", named: [], roles: [], scope: policy?.scope === "wholePiece" ? "wholePiece" : "ownSections" };
+  if (typeof requirement === "string") choice.kind = APPROVAL_REQUIREMENTS.some((item) => item.value === requirement) ? requirement : "allAuthors";
+  else if (Array.isArray(requirement?.namedAuthors)) Object.assign(choice, { kind: "namedAuthors", named: [...requirement.namedAuthors] });
+  else if (Array.isArray(requirement?.authorsWithRoles)) Object.assign(choice, { kind: "authorsWithRoles", roles: [...requirement.authorsWithRoles] });
+  return choice;
+}
+
+/** The policy the server expects for these choices, or a sentence saying what is missing. */
+export function approvalPolicyPayload(choice) {
+  const scope = choice?.scope === "wholePiece" ? "wholePiece" : "ownSections";
+  if (choice?.kind === "namedAuthors") {
+    const named = [...new Set(choice.named || [])];
+    if (!named.length) return { error: "Choose at least one person who must approve." };
+    return { policy: { requirement: { namedAuthors: named }, scope } };
+  }
+  if (choice?.kind === "authorsWithRoles") {
+    const roles = [...new Set(choice.roles || [])];
+    if (!roles.length) return { error: "Choose at least one role whose authors must approve." };
+    return { policy: { requirement: { authorsWithRoles: roles }, scope } };
+  }
+  const kind = choice?.kind === "contributingAuthors" ? "contributingAuthors" : "allAuthors";
+  return { policy: { requirement: kind, scope } };
+}
+
+/** The rule in words, with anything that keeps it from being met as things stand. */
+export function approvalRuleText(rule) {
+  const parts = [rule?.summary || "Every author must approve."];
+  const problems = [];
+  if (rule?.unmetNamed?.length) problems.push(`${rule.unmetNamed.join(", ")} can no longer approve`);
+  for (const role of rule?.unmetRoles || []) problems.push(`no author is ${ROLE_WORDS[role] || "in that role"}`);
+  if (problems.length) parts.push(`It cannot be met as things stand: ${problems.join("; ")}. A coordinator can change the rule, or restore that access or role.`);
+  return parts.join(" ");
+}
+
+/** A failed rule change as words, and what kind of failure it was. */
+export function approvalRuleFailure(error) {
+  const status = error?.status;
+  const text = error?.data?.error || error?.message || "";
+  if (!status) return { kind: "offline", message: "Could not reach the server. The rule did not change; try again when you are back." };
+  if (status === 409) return { kind: "conflict", message: text || "The approval rule changed elsewhere. Reload to see it; nothing was changed." };
+  if (status === 404 || status === 403) return { kind: "denied", message: "You cannot choose the approval rule for this reflection, or your access changed." };
+  if (status === 422) return { kind: "invalid", message: text || "That approval rule is not valid. Nothing was changed." };
+  return { kind: "other", message: text || "That did not work. Nothing was changed; try again." };
 }
 
 /** The line that starts a new part of a draft (ADR 0029). It is invisible in published output. */
@@ -4550,6 +4615,7 @@ export class ObAdmin extends AdminElement {
       try {
         const { preview } = await this.api.call("GET", `collaboration/preview?publicationId=${encodeURIComponent(id)}`);
         previewList.replaceChildren(
+          ...(preview.rule ? [h("li", {}, `Approval rule: ${approvalRuleText(preview.rule)}`)] : []),
           ...(preview.sections || []).map((section) => h("li", {}, previewSectionText(section))),
           ...(preview.items || []).map((item) => h("li", {}, previewItemText(item))),
         );
@@ -4757,6 +4823,134 @@ export class ObAdmin extends AdminElement {
       }
     };
 
+    // ---- approval rule (ADR 0043)
+    const ruleStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const ruleProblem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
+    const ruleBody = h("div", {});
+    const ruleBlock = h(
+      "div",
+      { class: "oba-approval-rule", hidden: true },
+      h("h4", { id: `${prefix}-rule-heading`, tabindex: "-1" }, "Approval rule"),
+      h("p", { class: "oba-small" }, "Decides whose approval publication needs. Everyone who wrote always approves their own words, and nobody can approve for someone else. Changing the rule clears every approval."),
+      ruleStatus,
+      ruleProblem,
+      ruleBody,
+    );
+    let ruleRequested = false;
+    const drawRule = (rule) => {
+      const choice = approvalPolicyChoice(rule.policy);
+      const facts = [
+        h("p", { class: "oba-small" }, h("strong", {}, "Current rule. "), approvalRuleText(rule)),
+        h("p", { class: "oba-small" }, `Must approve now: ${(rule.required || []).join(", ") || "no one yet"}. Still to approve: ${(rule.missing || []).join(", ") || "no one"}.`),
+      ];
+      if (rule.published) {
+        ruleBody.replaceChildren(...facts, h("p", { class: "oba-small" }, "This reflection is published, so its rule no longer changes."));
+        return;
+      }
+      const kinds = h(
+        "fieldset",
+        { class: "oba-fieldset" },
+        h("legend", {}, "Whose approval publication needs"),
+        APPROVAL_REQUIREMENTS.map((item) => {
+          const radio = h("input", { type: "radio", name: `${prefix}-rule-kind`, id: `${prefix}-rule-${item.value}`, value: item.value, checked: choice.kind === item.value, "aria-describedby": `${prefix}-rule-${item.value}-help` });
+          radio.addEventListener("change", () => {
+            choice.kind = item.value;
+          });
+          return h("div", { class: "oba-field oba-check" }, radio, " ", h("label", { for: `${prefix}-rule-${item.value}` }, item.label), h("span", { class: "oba-small", id: `${prefix}-rule-${item.value}-help` }, ` ${item.help}`));
+        }),
+      );
+      const toggle = (list, value, on) => (on ? [...new Set([...list, value])] : list.filter((entry) => entry !== value));
+      const people = h(
+        "fieldset",
+        { class: "oba-fieldset" },
+        h("legend", {}, "People who must approve (with “Writers and named people”)"),
+        (rule.approvers || []).length
+          ? rule.approvers.map((person) => {
+              const box = h("input", { type: "checkbox", id: `${prefix}-rule-person-${person.participantId}`, value: person.participantId, checked: choice.named.includes(person.participantId) });
+              box.addEventListener("change", () => {
+                choice.named = toggle(choice.named, person.participantId, box.checked);
+              });
+              return h("div", { class: "oba-field oba-check" }, box, " ", h("label", { for: `${prefix}-rule-person-${person.participantId}` }, person.displayName));
+            })
+          : h("p", { class: "oba-small" }, "Nobody can approve yet: only authors with the contributor role can."),
+      );
+      const roles = h(
+        "fieldset",
+        { class: "oba-fieldset" },
+        h("legend", {}, "Roles whose authors must approve (with “Writers and people with a role”)"),
+        APPROVAL_ROLE_CHOICES.map((role) => {
+          const box = h("input", { type: "checkbox", id: `${prefix}-rule-role-${role.value}`, value: role.value, checked: choice.roles.includes(role.value) });
+          box.addEventListener("change", () => {
+            choice.roles = toggle(choice.roles, role.value, box.checked);
+          });
+          return h("div", { class: "oba-field oba-check" }, box, " ", h("label", { for: `${prefix}-rule-role-${role.value}` }, role.label));
+        }),
+      );
+      const scopes = h(
+        "fieldset",
+        { class: "oba-fieldset" },
+        h("legend", {}, "What an approval covers"),
+        [
+          { value: "ownSections", label: "The approver's own sections", help: "Another author's edit leaves your approval standing." },
+          { value: "wholePiece", label: "The whole piece", help: "Any edit clears every approval." },
+        ].map((item) => {
+          const radio = h("input", { type: "radio", name: `${prefix}-rule-scope`, id: `${prefix}-rule-scope-${item.value}`, value: item.value, checked: choice.scope === item.value });
+          radio.addEventListener("change", () => {
+            choice.scope = item.value;
+          });
+          return h("div", { class: "oba-field oba-check" }, radio, " ", h("label", { for: `${prefix}-rule-scope-${item.value}` }, item.label), h("span", { class: "oba-small" }, ` ${item.help}`));
+        }),
+      );
+      const confirm = h("input", { type: "checkbox", id: `${prefix}-rule-confirm` });
+      const change = h("button", { class: "oba-btn oba-btn-primary", type: "button" }, "Change approval rule");
+      change.addEventListener("click", async () => {
+        ruleProblem.hidden = true;
+        const built = approvalPolicyPayload(choice);
+        if (built.error) {
+          ruleProblem.textContent = built.error;
+          ruleProblem.hidden = false;
+          ruleProblem.focus();
+          return;
+        }
+        change.disabled = true;
+        try {
+          const result = await this.api.call("PUT", "collaboration/approval-policy", { json: { publicationId: id, expectedRevision: rule.revision, policy: built.policy, confirmed: confirm.checked } });
+          ruleStatus.textContent = result?.changed
+            ? `The approval rule changed. ${result.cleared === 1 ? "1 approval was" : `${result?.cleared ?? 0} approvals were`} cleared; every required author reads the piece and approves again.`
+            : "That is already the rule. Nothing changed.";
+          await loadRule();
+          ruleBlock.querySelector(`#${prefix}-rule-heading`)?.focus();
+        } catch (error) {
+          const failure = approvalRuleFailure(error);
+          ruleProblem.textContent = failure.message;
+          ruleProblem.hidden = false;
+          ruleProblem.focus();
+          if (failure.kind === "conflict" || failure.kind === "denied") await loadRule();
+        } finally {
+          change.disabled = false;
+        }
+      });
+      ruleBody.replaceChildren(
+        ...facts,
+        kinds,
+        people,
+        roles,
+        scopes,
+        h("div", { class: "oba-field oba-check" }, confirm, " ", h("label", { for: `${prefix}-rule-confirm` }, "I understand that changing the rule clears every approval, and every required author approves again.")),
+        h("div", { class: "oba-toolbar" }, change),
+      );
+    };
+    const loadRule = async () => {
+      ruleRequested = true;
+      try {
+        drawRule(await this.api.call("GET", `collaboration/approval-policy?publicationId=${encodeURIComponent(id)}`));
+        ruleBlock.hidden = false;
+      } catch {
+        ruleBlock.hidden = true;
+        ruleRequested = false; // try again on the next refresh
+      }
+    };
+
     const renderSharing = (reveal) => {
       const policy = REVEAL_POLICIES.find((item) => item.value === reveal.policy) || REVEAL_POLICIES[0];
       const slots = h(
@@ -4822,8 +5016,10 @@ export class ObAdmin extends AdminElement {
           REVEAL_POLICIES.map((item) => h("option", { value: item.value, selected: item.value === reveal.policy }, `${item.label}: ${item.help}`)),
         );
         const change = h("button", { class: "oba-btn", type: "button" }, "Change sharing rule");
-        change.addEventListener("click", () => runSharing("PUT", "collaboration/reveal/policy", { publicationId: id, policy: select.value }, () => "The sharing rule changed. Every standing offer was cleared and nothing was shared."));
+        // The rule the coordinator read goes with the change, so a change made elsewhere is a conflict.
+        change.addEventListener("click", () => runSharing("PUT", "collaboration/reveal/policy", { publicationId: id, policy: select.value, expectedPolicy: reveal.policy }, () => "The sharing rule changed. Every standing offer was cleared and nothing was shared."));
         parts.push(h("div", { class: "oba-field" }, h("label", { for: `${prefix}-policy` }, "Sharing rule (coordinators)"), select), change);
+        parts.push(ruleBlock);
       }
       if (reveal.slots?.length) parts.push(slots);
       if (reveal.slots?.length) parts.push(previewSection);
@@ -4833,6 +5029,7 @@ export class ObAdmin extends AdminElement {
       sharing.hidden = false;
       if (focused?.isConnected) focused.focus();
       if (!arrangementRequested) loadArrangement();
+      if (reveal.canSetPolicy && !ruleRequested) loadRule();
     };
 
     const loadSharing = async () => {
