@@ -1307,6 +1307,18 @@ fn draft_research_problem(what: &str, file: &str, error: &impl std::fmt::Display
     })
 }
 
+/// A part of the draft-side research that is not read because a part it is
+/// read against (`part`) already failed. It names no file of its own, so
+/// nothing sends the author to repair a file that is fine.
+fn draft_research_blocked(items: &str, part: &str, what: &str) -> Json {
+    json!({
+        "error": format!(
+            "The {items} are not offered while {what} cannot be read. Nothing was changed."
+        ),
+        "unavailableBecause": part,
+    })
+}
+
 /// A rights declaration as the author states it, labelled by the core and
 /// never read as permission (ADR 0085).
 fn draft_research_rights(
@@ -1397,113 +1409,120 @@ fn draft_research(state: &AppState) -> Response {
         }
     };
 
-    let notebook = match notebook_store::load(&state.root, &contributors) {
-        Ok(snapshot) => {
-            let notebook = &snapshot.notebook;
-            let passages: Vec<Json> = notebook
-                .passages
-                .iter()
-                .filter(|passage| !passage.archived)
-                .map(|passage| {
-                    let notes = notebook
-                        .notes
-                        .iter()
-                        .filter(|note| note.passages.contains(&passage.id))
-                        .count();
-                    json!({
-                        "id": passage.id,
-                        "source": passage.source,
-                        "locators": passage
-                            .locators
+    // Each part is read against the parts before it (the notebook against the library, the
+    // atlas and the comparisons against both). When an earlier part already failed, that
+    // failure is the reason: the later file is not blamed or sent for repair.
+    let library_failed = library.get("error").is_some();
+    let notebook = if library_failed {
+        draft_research_blocked("passages and notes", "library", "the source library")
+    } else {
+        match notebook_store::load(&state.root, &contributors) {
+            Ok(snapshot) => {
+                let notebook = &snapshot.notebook;
+                let passages: Vec<Json> = notebook
+                    .passages
+                    .iter()
+                    .filter(|passage| !passage.archived)
+                    .map(|passage| {
+                        let notes = notebook
+                            .notes
                             .iter()
-                            .map(PublicLocator::from)
-                            .collect::<Vec<_>>(),
-                        "excerpt": {
-                            "text": passage.excerpt.text,
-                            "language": passage.excerpt.language,
-                        },
-                        "notes": notes,
-                    })
-                })
-                .collect();
-            let notes: Vec<Json> = notebook
-                .notes
-                .iter()
-                .filter(|note| !note.archived)
-                .map(|note| {
-                    json!({
-                        "id": note.id,
-                        "kind": note.kind,
-                        "status": note.question_state(),
-                        "text": note.text,
-                        "passages": note.passages,
-                    })
-                })
-                .collect();
-            json!({ "revision": snapshot.revision, "passages": passages, "notes": notes })
-        }
-        Err(error) => draft_research_problem(
-            "The research notebook",
-            notebook_store::NOTEBOOK_FILE,
-            &error,
-        ),
-    };
-
-    let atlas = match atlas_store::load(&state.root, &contributors) {
-        Ok(snapshot) => {
-            let atlas = &snapshot.atlas;
-            let entries: Vec<Json> = atlas
-                .entries
-                .iter()
-                .map(|entry| {
-                    let approved = entry.visibility == knowledge_atlas::Visibility::Approved;
-                    let published = atlas_published && approved;
-                    let datings: Vec<Json> = entry
-                        .dates
-                        .iter()
-                        .filter(|dating| published && atlas.is_dating_projected(&entry.id, dating))
-                        .map(|dating| {
-                            json!({
-                                "id": dating.id,
-                                "aspect": dating.aspect,
-                                "text": date_text(&dating.date),
-                            })
+                            .filter(|note| note.passages.contains(&passage.id))
+                            .count();
+                        json!({
+                            "id": passage.id,
+                            "source": passage.source,
+                            "locators": passage
+                                .locators
+                                .iter()
+                                .map(PublicLocator::from)
+                                .collect::<Vec<_>>(),
+                            "excerpt": {
+                                "text": passage.excerpt.text,
+                                "language": passage.excerpt.language,
+                            },
+                            "notes": notes,
                         })
-                        .collect();
-                    json!({
-                        "id": entry.id,
-                        "kind": entry.kind,
-                        "label": entry.label,
-                        "aliases": entry.aliases,
-                        "approved": approved,
-                        "url": published.then(|| entry_url(&entry.id)),
-                        "datings": datings,
                     })
-                })
-                .collect();
-            json!({ "publish": atlas_published, "url": ATLAS_URL, "entries": entries })
-        }
-        Err(error) => {
-            draft_research_problem("The Knowledge Atlas", atlas_store::ATLAS_FILE, &error)
+                    .collect();
+                let notes: Vec<Json> = notebook
+                    .notes
+                    .iter()
+                    .filter(|note| !note.archived)
+                    .map(|note| {
+                        json!({
+                            "id": note.id,
+                            "kind": note.kind,
+                            "status": note.question_state(),
+                            "text": note.text,
+                            "passages": note.passages,
+                        })
+                    })
+                    .collect();
+                json!({ "revision": snapshot.revision, "passages": passages, "notes": notes })
+            }
+            Err(error) => draft_research_problem(
+                "The research notebook",
+                notebook_store::NOTEBOOK_FILE,
+                &error,
+            ),
         }
     };
 
-    // Comparisons are read against the library and the notebook. When either part already
-    // failed, that failure is the reason; the alignments file is not blamed or sent for repair.
-    let blocked_by = if library.get("error").is_some() {
+    let blocked_by = if library_failed {
         Some(("library", "the source library"))
     } else if notebook.get("error").is_some() {
         Some(("notebook", "the research notebook"))
     } else {
         None
     };
+    let atlas = if let Some((part, what)) = blocked_by {
+        draft_research_blocked("atlas entries", part, what)
+    } else {
+        match atlas_store::load(&state.root, &contributors) {
+            Ok(snapshot) => {
+                let atlas = &snapshot.atlas;
+                let entries: Vec<Json> = atlas
+                    .entries
+                    .iter()
+                    .map(|entry| {
+                        let approved = entry.visibility == knowledge_atlas::Visibility::Approved;
+                        let published = atlas_published && approved;
+                        let datings: Vec<Json> = entry
+                            .dates
+                            .iter()
+                            .filter(|dating| {
+                                published && atlas.is_dating_projected(&entry.id, dating)
+                            })
+                            .map(|dating| {
+                                json!({
+                                    "id": dating.id,
+                                    "aspect": dating.aspect,
+                                    "text": date_text(&dating.date),
+                                })
+                            })
+                            .collect();
+                        json!({
+                            "id": entry.id,
+                            "kind": entry.kind,
+                            "label": entry.label,
+                            "aliases": entry.aliases,
+                            "approved": approved,
+                            "url": published.then(|| entry_url(&entry.id)),
+                            "datings": datings,
+                        })
+                    })
+                    .collect();
+                json!({ "publish": atlas_published, "url": ATLAS_URL, "entries": entries })
+            }
+            Err(error) => {
+                draft_research_problem("The Knowledge Atlas", atlas_store::ATLAS_FILE, &error)
+            }
+        }
+    };
+
     let comparisons = if let Some((part, what)) = blocked_by {
-        json!({
-            "error": format!(
-                "The comparisons are not offered while {what} cannot be read. Nothing was changed."
-            ),
-            "unavailableBecause": part,
-        })
+        draft_research_blocked("comparisons", part, what)
     } else {
         match alignment_store::load(&state.root, &contributors) {
             Ok(snapshot) => {
@@ -15236,6 +15255,55 @@ mod tests {
         );
         assert!(body["comparisons"].get("unavailableBecause").is_none());
         assert_eq!(body["notebook"]["passages"][0]["id"], "cave");
+    }
+
+    #[test]
+    fn draft_research_notebook_and_atlas_blame_the_part_that_failed_not_their_own_files() {
+        for (broken, part, what, blocked) in [
+            (
+                crate::source_store::LIBRARY_FILE,
+                "library",
+                "the source library",
+                &[
+                    ("notebook", "passages and notes"),
+                    ("atlas", "atlas entries"),
+                ][..],
+            ),
+            (
+                crate::notebook_store::NOTEBOOK_FILE,
+                "notebook",
+                "the research notebook",
+                &[("atlas", "atlas entries")][..],
+            ),
+        ] {
+            let f = draft_research_fixture(&format!("draft-research-own-{part}"));
+            let session = login_ok(&f);
+            fs::write(f.dir.join(broken), b"{ not json").unwrap();
+            let before = research_files(&f);
+            let response = handle(
+                &f.state,
+                &authed(req("GET", "/admin/api/research/draft"), &session, false),
+            );
+            assert_eq!(response.status, 200);
+            let body = body_json(&response);
+            assert_eq!(body[part]["file"], broken, "the failed part names its file");
+            for (later, items) in blocked {
+                let value = &body[*later];
+                assert_eq!(
+                    value["error"],
+                    format!("The {items} are not offered while {what} cannot be read. Nothing was changed."),
+                    "{later}"
+                );
+                assert_eq!(value["unavailableBecause"], part, "{later}");
+                assert!(value.get("file").is_none(), "{later}: {value}");
+                assert!(!value.to_string().contains(".json"), "{later}: {value}");
+            }
+            assert_eq!(
+                research_files(&f),
+                before,
+                "nothing is repaired or replaced"
+            );
+        }
     }
 
     /// A research post for the pre-publication review (#62): the draft-side

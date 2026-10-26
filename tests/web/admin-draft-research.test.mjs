@@ -669,6 +669,25 @@ test("comparisons blocked by an unreadable library or notebook never blame the a
   assert.match(root.querySelectorAll("[data-draft-research-problem]").find((node) => node.dataset.draftResearchProblem === "comparisons").textContent, /Repair \.openblog\/private\/research\/alignments\.json by hand\./);
 }));
 
+test("passages, notes and atlas entries blocked by an earlier part never blame their own files", withDom(async () => {
+  for (const [part, said, later] of [["library", "your sources", ["notebook", "atlas"]], ["notebook", "your passages and notes", ["atlas"]]]) {
+    const data = DATA();
+    data[part] = { error: "It could not be read, so it is not offered here. Nothing was changed.", file: `.openblog/private/research/${part}.json` };
+    // A server that still blamed the later files is not repeated: the earlier part is the cause.
+    data.atlas = { error: "The Knowledge Atlas could not be read. atlas.json: broken", file: ".openblog/private/research/atlas.json" };
+    if (part === "library") data.notebook = { error: "The passages and notes are not offered while the source library cannot be read. Nothing was changed.", unavailableBecause: "library" };
+    const { root } = await mountPanel(data);
+    const problem = (key) => root.querySelectorAll("[data-draft-research-problem]").find((node) => node.dataset.draftResearchProblem === key).textContent;
+    const labels = { notebook: "Passages and notes", atlas: "Atlas entries" };
+    for (const key of later) {
+      const notice = problem(key);
+      assert.equal(notice, `${labels[key]}: Not offered while ${said} cannot be read. Nothing was changed.`);
+      assert.doesNotMatch(notice, /\.json|Repair/);
+    }
+    assert.ok(problem(part).endsWith(`Repair .openblog/private/research/${part}.json by hand.`), problem(part));
+  }
+}));
+
 test("the panel builds DOM safely, has no motion, and reflows on narrow screens", () => {
   const start = admin.indexOf("export function createDraftResearchPanel");
   const end = admin.indexOf("/** Child indexes from `root` down to `node`", start);

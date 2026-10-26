@@ -1910,11 +1910,15 @@ export function createDraftResearchPanel({ api, insert, onClose, onClaim, onClai
   const renderProblems = () => {
     const parts = [["library", "Sources"], ["notebook", "Passages and notes"], ["atlas", "Atlas entries"], ["comparisons", "Comparisons"]];
     const failed = (key) => typeof data?.[key]?.error === "string";
-    // Comparisons are read against the sources and the notebook: when either failed, that part's
-    // own notice names the file to repair, and the comparisons blame nothing else.
-    const comparisonsBlocked = failed("library") || failed("notebook") || Boolean(data?.comparisons?.unavailableBecause);
+    // Each part is read against the parts before it: the notebook against the sources, the atlas
+    // and comparisons against both. When an earlier part failed, its own notice names the file to
+    // repair, and the later parts blame nothing else.
+    const readAgainst = { notebook: ["library"], atlas: ["library", "notebook"], comparisons: ["library", "notebook"] };
+    const blockedBy = (key) => data?.[key]?.unavailableBecause || (readAgainst[key] || []).find((part) => failed(part) && !data[part].unavailableBecause);
+    const partName = { library: "your sources", notebook: "your passages and notes" };
     const text = (key, label) => {
-      if (key === "comparisons" && comparisonsBlocked) return `${label}: Not offered while ${failed("library") ? "your sources" : "your passages and notes"} cannot be read. Nothing was changed.`;
+      const cause = blockedBy(key);
+      if (cause) return `${label}: Not offered while ${partName[cause] || "another part of your research"} cannot be read. Nothing was changed.`;
       return `${label}: ${data[key].error}${data[key].file ? ` Repair ${data[key].file} by hand.` : ""}`;
     };
     problems.replaceChildren(
