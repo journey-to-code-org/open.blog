@@ -456,6 +456,10 @@ pub struct Site {
     /// the site opts in to publishing it (ADR 0058). `None` writes no atlas
     /// output at all.
     pub atlas: Option<crate::atlas_publication::PublicAtlas>,
+    /// The public comparison projection, supplied by the caller only when the
+    /// site opts in to publishing comparisons (ADR 0092). `None` writes no
+    /// comparison output at all.
+    pub comparisons: Option<crate::comparison_publication::PublicComparisons>,
     /// Why this site's claim evidence cannot be published (ADR 0075): the
     /// claims file, or the library or notebook it is checked against, cannot
     /// be read or validated. A full build or `check` refuses while it is set,
@@ -790,6 +794,7 @@ impl Site {
             evidence,
             view_counts: BTreeMap::new(),
             atlas: None,
+            comparisons: None,
             claim_evidence_error,
             reader_feedback_error,
             now: options.now,
@@ -1194,7 +1199,8 @@ fn read_library(
             }
         }
     };
-    SourceLibrary::parse(&file.contents, &config.contributors)
+    // Builds never output interpretations, so their problems cannot fail one.
+    SourceLibrary::parse_for_build(&file.contents, &config.contributors)
         .map(Some)
         .map_err(|problems| {
             format!(
