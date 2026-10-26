@@ -4627,7 +4627,8 @@ const MAX_INBOX_REQUESTS: usize = 20;
 /// a shared publication, which may not, is given further pages until it has
 /// a page of items it may see, the list ends or `MAX_INBOX_REQUESTS` pages
 /// were read, so an empty page or a next link never betrays items hidden
-/// from it; and it is never told how many items failed validation, which it
+/// from it (at the cap with nothing it may see, the list ends for it); and
+/// it is never told how many items failed validation, which it
 /// might not have been allowed to see.
 fn collect_inbox_page(
     bound: bool,
@@ -4649,11 +4650,18 @@ fn collect_inbox_page(
             || items.len() >= moderation_inbox::PAGE_SIZE
             || requests >= MAX_INBOX_REQUESTS
         {
+            // A bound account that reached the cap seeing nothing is told
+            // the list ended: a next link would say hidden items exist.
+            let next = if bound && items.is_empty() {
+                None
+            } else {
+                cursor
+            };
             return Ok(CollectedPage {
                 protocol: page.protocol,
                 items,
                 invalid: if bound { 0 } else { invalid },
-                next: cursor,
+                next,
             });
         }
     }
@@ -17903,6 +17911,14 @@ mod tests {
         .unwrap();
         assert_eq!(calls, MAX_INBOX_REQUESTS);
         assert!(page.items.is_empty());
+        assert_eq!(
+            page.next, None,
+            "the cap with nothing visible ends the list: a next link would betray hidden items"
+        );
+        // Someone who sees everything still gets the hosted next link.
+        let page =
+            collect_inbox_page(false, None, |_| Ok(inbox_page(&[], 0, true)), seen_only).unwrap();
+        assert!(page.next.is_some());
 
         // A failing provider stops at once and says so.
         let failed =

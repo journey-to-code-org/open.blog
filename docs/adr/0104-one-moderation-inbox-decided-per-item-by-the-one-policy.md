@@ -39,8 +39,9 @@ through counts or previews, and clarification and removal distinct from approval
   in that order, so items are never skipped or repeated across pages however many arrive. Admin
   shows "Show more" and moves focus to the first new item. An account bound in a shared
   publication, which may not see every item, is given further hosted pages (at most 20 per
-  request) until it has a page of items it may see or the list ends, so an empty page or a "Show
-  more" never betrays items hidden from it, and it is not told how many items failed validation.
+  request) until it has a page of items it may see or the list ends, and reaching that bound
+  with nothing it may see ends its list, so an empty page or a "Show more" never betrays items
+  hidden from it, and it is not told how many items failed validation.
 - **Read again, strictly.** `openblog_core::moderation_inbox::InboxItem` reads each hosted item:
   a comment (UUID id, a state comments can be in, version, post path, plain name of at most 80
   characters, text of at most 4,000) or a passage feedback record (B5's `HostedFeedback`, now with
