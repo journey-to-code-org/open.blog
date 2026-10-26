@@ -1029,15 +1029,32 @@ impl std::fmt::Display for DecisionError {
 
 impl std::error::Error for DecisionError {}
 
+/// The earliest day an author's decision or revision note may carry. The
+/// author writes local days and the receipt day is UTC, so a same-day
+/// correction west of UTC is dated the day before the UTC receipt day: UTC
+/// offsets span at most one calendar day either side, so one day before is
+/// the widest gap. `None` when the receipt day is not a day (nothing to
+/// compare against).
+fn earliest_local_day(received: &str) -> Option<String> {
+    if !is_day(received) {
+        return None;
+    }
+    let received = crate::date::DateTime::parse(received)?;
+    Some(crate::date::DateTime::from_unix(received.unix() - 86_400).ymd())
+}
+
 /// Decide one item. Checks run in a fixed order, the grant first so an actor
 /// who may not decide learns nothing about the item: grant, kind, state,
 /// clarification, the decisions seen, the passage check, the content, then
 /// what the content must agree with (the post, the days, the item it was
-/// addressed by). `addressed` is the log of the item `addressedBy` names.
+/// addressed by). `addressed` is the log of the item `addressedBy` names and
+/// that item's current text revision, so only a decision still in force can
+/// address another item. Days are the author's local days: the earliest
+/// accepted is the day before the UTC receipt day (see [`earliest_local_day`]).
 pub fn decide(
     facts: &DecisionFacts<'_>,
     log: &DecisionLog,
-    addressed: Option<&DecisionLog>,
+    addressed: Option<(&DecisionLog, u32)>,
     request: &DecisionRequest<'_>,
 ) -> Result<CorrectionDecision, DecisionError> {
     use DecisionErrorCode as Code;
@@ -1104,7 +1121,11 @@ pub fn decide(
             "`decided` must be a day written YYYY-MM-DD",
         ));
     }
-    if is_day(facts.received) && request.decided < facts.received {
+    let earliest = earliest_local_day(facts.received);
+    if earliest
+        .as_deref()
+        .is_some_and(|earliest| request.decided < earliest)
+    {
         return Err(DecisionError::new(
             Code::InvalidDay,
             "a decision cannot be dated before the item was received",
@@ -1126,7 +1147,11 @@ pub fn decide(
                 "`revisionNote` is dated after the decision",
             ));
         }
-        if content.outcome.is_accepted() && day.as_str() < facts.received {
+        if content.outcome.is_accepted()
+            && earliest
+                .as_deref()
+                .is_some_and(|earliest| day.as_str() < earliest)
+        {
             return Err(DecisionError::new(
                 Code::RevisionNoteBeforeSubmission,
                 "the revision note predates the submission: record it as already-addressed",
@@ -1141,8 +1166,8 @@ pub fn decide(
             ));
         }
         let accepted = addressed
-            .filter(|other| other.item() == item)
-            .and_then(DecisionLog::current)
+            .filter(|(other, _)| other.item() == item)
+            .and_then(|(other, revision)| decision_in_force(other, revision))
             .is_some_and(|decision| decision.content.outcome.is_accepted());
         if !accepted {
             return Err(DecisionError::new(

@@ -64,11 +64,17 @@ slot into, with the same ids, while main must compile without it.
   item exactly as written, checked with the build's own rules (`revision_notes`); when the item's
   post is known the note must name that post, and the caller confirms the item is in its front
   matter with `RevisionLink::found_in` before recording. An accepted
-  outcome's note must be dated on or after the day the item was received (an older note means the
-  work already addressed it: use `already-addressed`) and no note may be dated after the decision.
+  outcome's note must be dated no earlier than the day before the item was received (an older note
+  means the work already addressed it: use `already-addressed`) and no note may be dated after the
+  decision. The author writes local days and the receipt day is the UTC day, and UTC offsets span at
+  most one calendar day either side, so one day before is the widest gap: a same-day correction
+  written west of UTC is never refused. The decision's own day follows the same rule, and both
+  comparisons are skipped when the stored receipt day is not a day (`is_day`).
   `claimEvidence` is `{claim, link}`, checked against the author's claims file
   (`ClaimEvidenceRef::check`); its claim must agree with a claim the note names. `addressedBy` is
-  another item's id whose decision in force is accepted; an item is never addressed by itself.
+  another item's id whose decision in force (for that item's current text revision, so an
+  acceptance a clarification has since replaced does not count) is accepted; an item is never
+  addressed by itself.
 - **The record** (`CorrectionDecision`, version 1, unknown fields refused):
   `{version, item, sequence, outcome, extent?, declineReason?, rationale?, revisionNote?,
   claimEvidence?, addressedBy?, itemRevision, passageRevision?, passageCheck, decided,
@@ -99,7 +105,7 @@ slot into, with the same ids, while main must compile without it.
   reason, rationale, revision note, claim evidence, addressed by), then agreement with the post,
   the days and the addressing item. Errors (`DecisionErrorCode`) name fields and never repeat
   anyone's text; any error changes nothing.
-- **Standing** is how readers and editors tell items apart, and depends only on the kind, the
+- **Item standing** is how readers and editors tell items apart, and depends only on the kind, the
   evidence block and the decision in force: `question` and `alternative-interpretation` (never
   decided), then for an evidence submission without a decision `proposed-source`,
   `challenged-citation` (the block names an evidence link or a citation) or `possible-error`
@@ -174,5 +180,5 @@ nothing:
 
 ## Domain language
 
-**Correction decision**, **Decision outcome**, **Decision log**, **Standing** and **Public
+**Correction decision**, **Decision outcome**, **Decision log**, **Item standing** and **Public
 decision** are defined in [`CONTEXT.md`](../../CONTEXT.md).

@@ -555,10 +555,17 @@ impl PublishedReferences {
         self.sources.contains(source)
     }
 
-    /// Whether each reference the reader named is published here. A
-    /// reference that is not published is shown as such and nothing more;
-    /// it never says whether something private has that id.
-    pub fn check(&self, offer: &EvidenceOffer) -> ReferenceReport {
+    /// Every source this post publishes, by source identifier.
+    pub fn sources(&self) -> impl Iterator<Item = &str> {
+        self.sources.iter().map(String::as_str)
+    }
+
+    /// Whether each reference the reader named is published. The claim,
+    /// evidence link and citation are this post's; the offered `source` is
+    /// one the site publishes anywhere (ADR 0138), so it is checked against
+    /// `site`. A reference that is not published is shown as such and
+    /// nothing more; it never says whether something private has that id.
+    pub fn check(&self, offer: &EvidenceOffer, site: &SitePublishedSources) -> ReferenceReport {
         let status = |published: bool| {
             if published {
                 ReferenceStatus::Published
@@ -580,12 +587,48 @@ impl PublishedReferences {
             source: offer
                 .source
                 .as_deref()
-                .map(|source| status(self.has_source(source))),
+                .map(|source| status(site.has_source(source))),
         }
     }
 }
 
-/// Whether a reference a reader named is part of the post's public output.
+/// The sources the whole site publishes: the published claim-evidence
+/// sources and the published bibliography sources of every post. A reader's
+/// offered `source` need not be one this post already cites (a suggested
+/// source is usually new to the post), only one the site publishes (ADR
+/// 0138). Built only from public output.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SitePublishedSources {
+    sources: BTreeSet<String>,
+}
+
+impl SitePublishedSources {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Every post's published sources, from each post's references.
+    pub fn from_posts<'a>(posts: impl IntoIterator<Item = &'a PublishedReferences>) -> Self {
+        let mut site = Self::new();
+        for post in posts {
+            site.sources.extend(post.sources().map(str::to_string));
+        }
+        site
+    }
+
+    /// Add a source the site publishes, by its source identifier.
+    pub fn with_source(mut self, source: &str) -> Self {
+        self.sources.insert(source.to_string());
+        self
+    }
+
+    /// Whether the site publishes this source anywhere.
+    pub fn has_source(&self, source: &str) -> bool {
+        self.sources.contains(source)
+    }
+}
+
+/// Whether a reference a reader named is part of the public output.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReferenceStatus {
     Published,
@@ -604,10 +647,12 @@ pub struct ReferenceReport {
 }
 
 impl ReferenceReport {
-    /// Whether some named reference is no longer (or was never) published:
-    /// a stale claim or citation target.
+    /// Whether some named reference is no longer (or was never) published on
+    /// the post: a stale claim or citation target. An offered `source` is not
+    /// the post's own target (it is a new suggestion the post may not cite
+    /// yet), so it never makes the item stale.
     pub fn any_unpublished(&self) -> bool {
-        [self.claim, self.evidence_link, self.citation, self.source]
+        [self.claim, self.evidence_link, self.citation]
             .contains(&Some(ReferenceStatus::NotPublished))
     }
 }

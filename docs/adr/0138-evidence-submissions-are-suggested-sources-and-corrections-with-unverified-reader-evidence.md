@@ -73,8 +73,12 @@ reader's guess at an id must never confirm that something private exists.
   post publishes, its claim evidence projection (ADR 0075) and the sources its citations publish,
   never from the private claims file or Source Library. Each id the reader named reads as
   `published` or `notPublished`, and "not published" never says whether it is mistyped, withdrawn
-  or private. A reference that is no longer published is a stale claim or citation target, shown
-  as such, exactly as a stale passage target is (ADR 0077); nothing is retargeted.
+  or private. The `claim`, `evidenceLink` and `citation` are checked against the post. The offered
+  `source` is checked against `SitePublishedSources`, the sources published anywhere on the site
+  (every post's claim-evidence and bibliography sources), because a suggested source is usually new
+  to the post it is offered on. A reference that is no longer published is a stale claim or
+  citation target, shown as such, exactly as a stale passage target is (ADR 0077); nothing is
+  retargeted. An unpublished `source` is shown as not published but never makes the item stale.
 - **Nothing is evaluated.** The software checks shape and publication, never whether evidence is
   good, whether a source says what the reader says, or how many readers agree. Identical
   submissions are separate items; nothing aggregates them.

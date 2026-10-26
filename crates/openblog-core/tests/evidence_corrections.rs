@@ -17,7 +17,7 @@ use openblog_core::correction_decision::{
 use openblog_core::date::DateTime;
 use openblog_core::evidence_submission::{
     is_evidence_kind, EvidenceErrorCode, EvidenceOffer, EvidenceRecord, EvidenceSubmission,
-    PublishedReferences, ReferenceStatus, EVIDENCE_KINDS,
+    PublishedReferences, ReferenceStatus, SitePublishedSources, EVIDENCE_KINDS,
 };
 use openblog_core::feedback_moderation::{ModerationState, PassageCheck};
 use openblog_core::feedback_provenance::FeedbackChannel;
@@ -195,9 +195,12 @@ fn decision_cases_record_or_refuse_as_the_fixtures_say() {
         let evidence = offer(&item["evidence"]);
         let mut log = log_of(id, case.get("log"));
         let addressed = case.get("addressed").map(|addressed| {
-            log_of(
-                addressed["item"].as_str().unwrap(),
-                Some(&addressed["decisions"]),
+            (
+                log_of(
+                    addressed["item"].as_str().unwrap(),
+                    Some(&addressed["decisions"]),
+                ),
+                addressed["revision"].as_u64().unwrap_or(1) as u32,
             )
         });
         let request_value = &case["request"];
@@ -219,7 +222,12 @@ fn decision_cases_record_or_refuse_as_the_fixtures_say() {
             );
         }
         let snapshot = log.clone();
-        let result = decide(&facts, &log, addressed.as_ref(), &request);
+        let result = decide(
+            &facts,
+            &log,
+            addressed.as_ref().map(|(log, revision)| (log, *revision)),
+            &request,
+        );
         match (&case["expect"].get("decision"), result) {
             (Some(expected), Ok(decision)) => {
                 assert_eq!(&decision.to_value(), *expected, "{name}");
@@ -558,13 +566,16 @@ fn reader_references_are_checked_only_against_what_is_published() {
         source: Some("private-diary".into()),
         ..EvidenceOffer::default()
     };
-    let report = published.check(&offer);
+    let site = SitePublishedSources::new().with_source("noaa-2020");
+    let report = published.check(&offer, &site);
     assert_eq!(report.claim, Some(ReferenceStatus::Published));
     assert_eq!(report.evidence_link, Some(ReferenceStatus::Published));
     assert_eq!(report.citation, Some(ReferenceStatus::Published));
     // A private or mistyped id reads only as not published here.
     assert_eq!(report.source, Some(ReferenceStatus::NotPublished));
-    assert!(report.any_unpublished());
+    // The offered source is not the post's own target, so it alone never
+    // makes the item stale.
+    assert!(!report.any_unpublished());
     // A link named under another claim is not that claim's published link:
     // a stale claim target.
     let moved = EvidenceOffer {
@@ -572,10 +583,41 @@ fn reader_references_are_checked_only_against_what_is_published() {
         evidence_link: Some("tide-height-noaa".into()),
         ..EvidenceOffer::default()
     };
-    let report = published.check(&moved);
+    let report = published.check(&moved, &site);
     assert_eq!(report.claim, Some(ReferenceStatus::NotPublished));
     assert_eq!(report.evidence_link, Some(ReferenceStatus::NotPublished));
     assert_eq!(report.citation, None);
+}
+
+#[test]
+fn an_offered_source_is_checked_against_the_sites_published_sources() {
+    // Another post publishes the source; this post does not cite it yet.
+    let this_post = PublishedReferences::new().with_claim("tide-height", []);
+    let other_post = PublishedReferences::new().with_source("noaa-2020");
+    let site = SitePublishedSources::from_posts([&this_post, &other_post]);
+    let offer = EvidenceOffer {
+        claim: Some("tide-height".into()),
+        citation: Some("noaa-2020".into()),
+        source: Some("noaa-2020".into()),
+        ..EvidenceOffer::default()
+    };
+    let report = this_post.check(&offer, &site);
+    assert_eq!(report.source, Some(ReferenceStatus::Published));
+    // A citation is still the post's own: this post does not make it.
+    assert_eq!(report.citation, Some(ReferenceStatus::NotPublished));
+    assert!(report.any_unpublished());
+    let new_source = EvidenceOffer {
+        claim: Some("tide-height".into()),
+        source: Some("noaa-2020".into()),
+        ..EvidenceOffer::default()
+    };
+    let report = this_post.check(&new_source, &site);
+    assert_eq!(report.source, Some(ReferenceStatus::Published));
+    assert!(!report.any_unpublished());
+    // A source no post publishes reads as not published, and is not stale.
+    let report = this_post.check(&new_source, &SitePublishedSources::new());
+    assert_eq!(report.source, Some(ReferenceStatus::NotPublished));
+    assert!(!report.any_unpublished());
 }
 
 fn claims() -> ClaimSet {
