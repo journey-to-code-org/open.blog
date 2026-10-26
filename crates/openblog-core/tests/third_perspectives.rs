@@ -6,7 +6,8 @@ use openblog_core::third_perspective::{
     ApprovalRequest, ConsentChange, ConsentChoices, ConsentOutcome, ErrorCode, FeatureSelection,
     Intake, LifecycleError, LocalReflection, ModerationFacts, ModerationState, PerspectiveTarget,
     PublishedWork, ReaderAttribution, ResponseCategory, Stage, SubmissionRequest, SubmittedCopy,
-    TargetStatus, KIND_ID, KIND_LABEL, MAX_BODY_CHARS, MAX_CONSENT_RECORDS, READER_ROLE,
+    TargetStatus, KIND_ID, KIND_LABEL, MAX_BODY_CHARS, MAX_CONSENT_RECORDS, MAX_DETAILS_BYTES,
+    MAX_JSON_BYTES, NARROWING_RESERVE, READER_ROLE,
 };
 use openblog_core::DateTime;
 use serde_json::{json, Value};
@@ -1063,10 +1064,9 @@ fn consent_history_is_append_only_numbered_and_bounded() {
         ErrorCode::InvalidConsentHistory
     );
     assert_eq!(
-        refused(&|r| r["consents"]
-            .as_array_mut()
-            .unwrap()
-            .push(second(json!({"attribution": {"publishName": true}})))),
+        refused(&|r| r["consents"].as_array_mut().unwrap().push(second(
+            json!({"attribution": {"name": "", "publishName": true}})
+        ))),
         ErrorCode::ConsentWithoutName
     );
     assert_eq!(
@@ -1087,29 +1087,112 @@ fn consent_history_is_append_only_numbered_and_bounded() {
         ErrorCode::UnsupportedVersion
     );
 
-    let mut copy = submitted(ReaderAttribution::anonymous());
+    // Widening stops early enough to leave a slot to narrow and one to revoke.
+    let mina = || ReaderAttribution::named("Mina Okafor", true);
+    let mut copy = submitted(mina());
     let pending = facts(ModerationState::Pending);
-    for step in 0..MAX_CONSENT_RECORDS - 2 {
+    let widening_slots = MAX_CONSENT_RECORDS - 1 - NARROWING_RESERVE;
+    for step in 0..widening_slots - 1 {
         copy.revise_consent(
             &pending,
             ConsentChange {
                 clarification: step % 2 == 1,
-                ..change(true, ReaderAttribution::anonymous())
+                ..change(true, mina())
             },
             received(),
         )
         .unwrap();
     }
+    assert_eq!(copy.consents.len(), widening_slots);
+    assert_eq!(
+        copy.revise_consent(
+            &pending,
+            ConsentChange {
+                clarification: copy.consent().clarification,
+                feature: true,
+                ..change(true, mina())
+            },
+            received()
+        ),
+        Err(LifecycleError::ConsentLimit),
+        "a change that adds something is refused once only narrowing and revocation are left"
+    );
     assert_eq!(
         copy.revise_consent(
             &pending,
             change(true, ReaderAttribution::named("M", false)),
             received()
         ),
-        Err(LifecycleError::ConsentLimit)
+        Err(LifecycleError::ConsentLimit),
+        "so is a rename"
     );
     assert!(SubmittedCopy::from_json(&copy.to_json()).is_ok());
-    assert_eq!(copy.consents.len(), MAX_CONSENT_RECORDS - 1);
+}
+
+#[test]
+fn narrowing_and_revoking_stay_possible_when_the_history_is_full() {
+    let mina = || ReaderAttribution::named("Mina Okafor", true);
+    let mut copy = submitted(mina());
+    let pending = facts(ModerationState::Pending);
+    let mut step = 0;
+    while copy
+        .revise_consent(
+            &pending,
+            ConsentChange {
+                clarification: step % 2 == 1,
+                ..change(true, mina())
+            },
+            received(),
+        )
+        .is_ok()
+    {
+        step += 1;
+    }
+    assert_eq!(
+        copy.consents.len(),
+        MAX_CONSENT_RECORDS - 1 - NARROWING_RESERVE
+    );
+    // Hiding the name and declining clarification still take effect at once.
+    let hide = ReaderAttribution::named("Mina Okafor", false);
+    assert_eq!(
+        copy.revise_consent(
+            &pending,
+            ConsentChange {
+                clarification: copy.consent().clarification,
+                ..change(true, hide.clone())
+            },
+            received()
+        ),
+        Ok(ConsentOutcome::Recorded)
+    );
+    assert!(!copy.consent().attribution.publish_name);
+    if copy.consent().clarification {
+        assert_eq!(
+            copy.revise_consent(
+                &pending,
+                ConsentChange {
+                    clarification: false,
+                    ..change(true, hide.clone())
+                },
+                received()
+            ),
+            Ok(ConsentOutcome::Recorded)
+        );
+    }
+    assert!(!copy.consent().clarification);
+    assert_eq!(
+        copy.revise_consent(
+            &pending,
+            ConsentChange {
+                clarification: false,
+                feature: true,
+                ..change(true, hide)
+            },
+            received()
+        ),
+        Err(LifecycleError::ConsentLimit),
+        "agreeing to more is not narrowing"
+    );
     assert_eq!(
         copy.revise_consent(
             &pending,
@@ -1119,10 +1202,23 @@ fn consent_history_is_append_only_numbered_and_bounded() {
         Ok(ConsentOutcome::Withdraw),
         "revocation is always possible, whatever else the change says"
     );
-    assert_eq!(copy.consents.len(), MAX_CONSENT_RECORDS);
+    assert!(copy.consents.len() < MAX_CONSENT_RECORDS);
     assert!(SubmittedCopy::from_json(&copy.to_json()).is_ok());
 
+    // A hand-made history with every slot used is read, but never one that
+    // leaves no slot for revocation.
     let mut full: Value = serde_json::from_str(&copy.to_json()).unwrap();
+    let consents = full["consents"].as_array_mut().unwrap();
+    let template = consents[0].clone();
+    consents.clear();
+    for number in 1..=MAX_CONSENT_RECORDS {
+        let mut record = template.clone();
+        record["number"] = json!(number);
+        record["clarification"] = json!(number % 2 == 0);
+        consents.push(record);
+    }
+    consents[MAX_CONSENT_RECORDS - 1]["publish"] = json!(false);
+    assert!(SubmittedCopy::from_json(&full.to_string()).is_ok());
     full["consents"][MAX_CONSENT_RECORDS - 1]["publish"] = json!(true);
     assert_eq!(
         SubmittedCopy::from_json(&full.to_string())
@@ -1130,6 +1226,108 @@ fn consent_history_is_append_only_numbered_and_bounded() {
             .code,
         ErrorCode::InvalidConsentHistory,
         "a history that leaves no slot for revocation is refused"
+    );
+}
+
+#[test]
+fn a_name_is_stored_once_and_the_worst_case_history_fits_every_bound() {
+    let emoji_name = |index: usize| {
+        format!(
+            "{}{}",
+            "\u{1F600}".repeat(79),
+            char::from(97 + (index % 26) as u8)
+        )
+    };
+    let mut local = local(ReaderAttribution::named(&emoji_name(0), false));
+    local.body = "\u{1F600}".repeat(MAX_BODY_CHARS);
+    let mut copy = local
+        .submission(consent(true, false))
+        .receive(received(), hosted())
+        .unwrap();
+    let pending = facts(ModerationState::Pending);
+
+    // A name is written in a record only when it changes.
+    copy.revise_consent(
+        &pending,
+        ConsentChange {
+            clarification: false,
+            ..change(true, ReaderAttribution::named(&emoji_name(0), false))
+        },
+        received(),
+    )
+    .unwrap();
+    let stored: Value = serde_json::from_str(&copy.to_json()).unwrap();
+    assert!(stored["consents"][0]["attribution"].get("name").is_none());
+    assert!(stored["consents"][1]["attribution"].get("name").is_none());
+    assert_eq!(SubmittedCopy::from_json(&copy.to_json()).unwrap(), copy);
+
+    // Every later record renames the reader, the worst case for size.
+    let mut index = 1;
+    loop {
+        let rename = ConsentChange {
+            clarification: index % 2 == 0,
+            ..change(
+                true,
+                ReaderAttribution::named(&emoji_name(index), index % 2 == 0),
+            )
+        };
+        match copy.revise_consent(&pending, rename, received()) {
+            Ok(_) => index += 1,
+            Err(error) => {
+                assert_eq!(error, LifecycleError::ConsentLimit);
+                break;
+            }
+        }
+        assert!(copy.to_json().len() <= MAX_JSON_BYTES);
+        assert!(copy.details_bytes() <= MAX_DETAILS_BYTES);
+    }
+    assert!(copy.consents.len() > 10, "{} records", copy.consents.len());
+    let stored = copy.to_json();
+    assert!(stored.len() <= MAX_JSON_BYTES);
+    assert!(copy.details_bytes() <= MAX_DETAILS_BYTES);
+    assert_eq!(SubmittedCopy::from_json(&stored).unwrap(), copy);
+
+    // The reserve still lets the reader narrow and then revoke, and every
+    // result loads again.
+    let narrowed = ConsentChange {
+        clarification: false,
+        ..change(true, copy.consent().attribution.clone())
+    };
+    let outcome = copy.revise_consent(&pending, narrowed, received());
+    assert!(matches!(
+        outcome,
+        Ok(ConsentOutcome::Recorded) | Err(LifecycleError::Unchanged)
+    ));
+    assert_eq!(SubmittedCopy::from_json(&copy.to_json()).unwrap(), copy);
+    assert_eq!(
+        copy.revise_consent(
+            &pending,
+            change(false, ReaderAttribution::anonymous()),
+            received()
+        ),
+        Ok(ConsentOutcome::Withdraw)
+    );
+    assert!(copy.to_json().len() <= MAX_JSON_BYTES);
+    assert!(copy.details_bytes() <= MAX_DETAILS_BYTES);
+    assert_eq!(SubmittedCopy::from_json(&copy.to_json()).unwrap(), copy);
+}
+
+#[test]
+fn a_cleared_name_is_stored_and_read_back_as_cleared() {
+    let mut copy = submitted(ReaderAttribution::named("Mina Okafor", false));
+    let pending = facts(ModerationState::Pending);
+    copy.revise_consent(
+        &pending,
+        change(true, ReaderAttribution::anonymous()),
+        received(),
+    )
+    .unwrap();
+    assert_eq!(copy.consent().attribution.name, None);
+    let stored = SubmittedCopy::from_json(&copy.to_json()).unwrap();
+    assert_eq!(stored, copy);
+    assert_eq!(
+        stored.consents[0].attribution.name.as_deref(),
+        Some("Mina Okafor")
     );
 }
 

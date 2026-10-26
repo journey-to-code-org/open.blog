@@ -844,8 +844,9 @@ _Avoid_: Top reflection, most liked, endorsed reflection
 **Submission consent**:
 One immutable, numbered record of what a reader agreed to: publication on the canonical page,
 the name and whether to show it, being asked to clarify, and which revision may be featured.
-Narrowing applies at once; showing a name, or another name, is accepted only before a moderator
-decides; revoking publication is a final withdrawal.
+Narrowing applies at once, even when the history is nearly full (room is kept for it and for
+revocation); showing a name, or another name, is accepted only before a moderator decides;
+revoking publication is a final withdrawal.
 _Avoid_: Terms acceptance, checkbox state, approval
 
 **Intake**:

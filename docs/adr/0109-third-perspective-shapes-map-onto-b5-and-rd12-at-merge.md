@@ -44,7 +44,10 @@ The conservative mapping for #221 is one `openblog_feedback` row per copy (B5's 
 `kind` and `status` columns check only the id's shape): `kind` = `third-perspective`; `work`,
 `revision`, `target`, `body`, `seen_at`, `received_at`, `channel`, `reader_name` and
 `publish_name` from the provenance as received; `details` = `{"category"?, "intake",
-"consents"}` (at most 50 consent records fit its 16 KiB bound); `status` from RD12. The approval's
+"consents"}` (the contract keeps `details` within that 16 KiB bound: `details_bytes`
+is checked when a consent change is recorded and when a record is read, and a worst case of 80
+four-byte-character names and a 4000-character body is a tested round trip; the 50-record count
+alone does not guarantee it, because names repeat); `status` from RD12. The approval's
 revision and consent number, and RD12's version and revision counters, need the additive columns
 RD12 and #226 introduce. Until then nothing is stored, and the static site is unchanged.
 

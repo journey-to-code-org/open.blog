@@ -53,9 +53,20 @@ pub const MAX_WORK_PATH_CHARS: usize = 500;
 pub const MAX_ANCHOR_CHARS: usize = 200;
 /// The longest moderator id an approval records.
 pub const MAX_MODERATOR_CHARS: usize = 64;
-/// The most consent records one copy keeps; the last one is kept for a
-/// revocation.
+/// The most consent records one copy keeps. The last slot is kept for a
+/// revocation and [`NARROWING_RESERVE`] more for narrowing, so a change that
+/// widens or only renames is refused before then.
 pub const MAX_CONSENT_RECORDS: usize = 50;
+/// Slots kept for narrowing (hiding the name, declining clarification,
+/// declining a feature): a reader can do each of those at most once more
+/// after every widening change is closed.
+pub const NARROWING_RESERVE: usize = 3;
+/// The most a copy's `details` (category, intake and consent records) may
+/// serialize to: B5's 16 KiB bound on feedback `details`.
+pub const MAX_DETAILS_BYTES: usize = 16 * 1024;
+/// Bytes kept free below both serialized bounds for the narrowing and
+/// revocation records, each well under 256 bytes.
+const CONSENT_RESERVE_BYTES: usize = (NARROWING_RESERVE + 1) * 256;
 /// The largest serialized submission or record accepted, before parsing.
 pub const MAX_JSON_BYTES: usize = 32 * 1024;
 
@@ -141,6 +152,8 @@ pub enum LifecycleError {
     /// The change is the consent already in effect.
     Unchanged,
     ConsentLimit,
+    /// A manual copy has no submitter who can answer a clarification.
+    ClarificationUnavailable,
     InvalidTime,
     InvalidName,
     ConsentWithoutName,
@@ -163,6 +176,7 @@ impl LifecycleError {
             LifecycleError::FeatureNotAvailable => "featureNotAvailable",
             LifecycleError::Unchanged => "unchanged",
             LifecycleError::ConsentLimit => "consentLimit",
+            LifecycleError::ClarificationUnavailable => "clarificationUnavailable",
             LifecycleError::InvalidTime => "invalidTime",
             LifecycleError::InvalidName => "invalidName",
             LifecycleError::ConsentWithoutName => "consentWithoutName",
@@ -195,6 +209,9 @@ impl std::fmt::Display for LifecycleError {
             }
             LifecycleError::Unchanged => "this is already the consent in effect",
             LifecycleError::ConsentLimit => "this reflection's consent cannot change again",
+            LifecycleError::ClarificationUnavailable => {
+                "a reflection entered by hand cannot be clarified; remove it or enter a new one"
+            }
             LifecycleError::InvalidTime => "the time is earlier than the last change",
             LifecycleError::InvalidName => "the name must be 1 to 80 characters of plain text",
             LifecycleError::ConsentWithoutName => "showing a name needs a name",
@@ -787,10 +804,22 @@ struct WireConsent {
     given_at: String,
     publish: bool,
     #[serde(default)]
-    attribution: ReaderAttribution,
+    attribution: WireAttribution,
     clarification: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     feature_revision: Option<u32>,
+}
+
+/// A consent record's attribution as stored. The name is written only when
+/// it differs from the record before (or, for record 1, the provenance's);
+/// an empty string clears it.
+#[derive(Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct WireAttribution {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    #[serde(default)]
+    publish_name: bool,
 }
 
 impl SubmissionConsent {
@@ -800,6 +829,16 @@ impl SubmissionConsent {
         self.attribution.publish_name
             && (!before.attribution.publish_name
                 || self.attribution.name != before.attribution.name)
+    }
+
+    /// Whether this record only takes something back from `before`: the
+    /// same name (shown or hidden, never newly shown), no new clarification
+    /// consent and no new feature consent.
+    fn narrows(&self, before: &SubmissionConsent) -> bool {
+        !self.widens_name(before)
+            && self.attribution.name == before.attribution.name
+            && (!self.clarification || before.clarification)
+            && (self.feature_revision.is_none() || self.feature_revision == before.feature_revision)
     }
 
     fn same_terms(&self, other: &SubmissionConsent) -> bool {
@@ -1341,6 +1380,11 @@ impl SubmittedCopy {
                 "`consents` holds 1 to 49 consent records, and a revocation after them",
             ));
         }
+        if !self.within_bounds(0) {
+            return Err(Self::history_error(
+                "the consent records are larger than a stored copy may hold",
+            ));
+        }
         let first = &self.consents[0];
         if first.given_at != self.provenance.received_at
             || !first.publish
@@ -1385,15 +1429,25 @@ impl SubmittedCopy {
         let wire: WireRecord =
             serde_json::from_value(value).map_err(|_| wire_error("Third Perspective record"))?;
         read_kind(&wire.kind)?;
+        let provenance = Provenance::from_value(&wire.provenance)?;
+        let mut name = provenance.attribution.name.clone();
         let consents = wire
             .consents
             .into_iter()
             .map(|record| {
+                name = match record.attribution.name {
+                    None => name.take(),
+                    Some(written) if written.is_empty() => None,
+                    Some(written) => Some(written),
+                };
                 Ok(SubmissionConsent {
                     number: record.number,
                     given_at: parse_time("consents.givenAt", &record.given_at)?,
                     publish: record.publish,
-                    attribution: record.attribution,
+                    attribution: ReaderAttribution {
+                        name: name.clone(),
+                        publish_name: record.attribution.publish_name,
+                    },
                     clarification: record.clarification,
                     feature_revision: record.feature_revision,
                 })
@@ -1408,7 +1462,7 @@ impl SubmittedCopy {
                 .as_deref()
                 .map(|revised| parse_time("revisedAt", revised))
                 .transpose()?,
-            provenance: Provenance::from_value(&wire.provenance)?,
+            provenance,
             intake: Intake::from_wire(wire.intake)?,
             consents,
         };
@@ -1428,20 +1482,56 @@ impl SubmittedCopy {
             revised_at: self.revised_at.map(DateTime::rfc3339),
             provenance: self.provenance.wire(),
             intake: self.intake.wire(),
-            consents: self
-                .consents
-                .iter()
-                .map(|record| WireConsent {
+            consents: self.wire_consents(),
+        })
+        .expect("a record always serializes")
+    }
+
+    fn wire_consents(&self) -> Vec<WireConsent> {
+        let mut previous = &self.provenance.attribution.name;
+        self.consents
+            .iter()
+            .map(|record| {
+                let name = &record.attribution.name;
+                let written = (name != previous).then(|| name.clone().unwrap_or_default());
+                previous = name;
+                WireConsent {
                     number: record.number,
                     given_at: record.given_at.rfc3339(),
                     publish: record.publish,
-                    attribution: record.attribution.clone(),
+                    attribution: WireAttribution {
+                        name: written,
+                        publish_name: record.attribution.publish_name,
+                    },
                     clarification: record.clarification,
                     feature_revision: record.feature_revision,
-                })
-                .collect(),
+                }
+            })
+            .collect()
+    }
+
+    /// The size of what RD12's storage keeps as the row's `details`: the
+    /// category, the intake and every consent record.
+    pub fn details_bytes(&self) -> usize {
+        #[derive(Serialize)]
+        struct Details {
+            #[serde(skip_serializing_if = "Option::is_none")]
+            category: Option<&'static str>,
+            intake: WireIntake,
+            consents: Vec<WireConsent>,
+        }
+        serde_json::to_string(&Details {
+            category: self.category.map(|category| category.id()),
+            intake: self.intake.wire(),
+            consents: self.wire_consents(),
         })
-        .expect("a record always serializes")
+        .expect("details always serialize")
+        .len()
+    }
+
+    fn within_bounds(&self, reserve: usize) -> bool {
+        self.details_bytes() + reserve <= MAX_DETAILS_BYTES
+            && self.to_json().len() + reserve <= MAX_JSON_BYTES
     }
 
     fn in_step(&self, facts: &ModerationFacts) -> Result<(), LifecycleError> {
@@ -1534,9 +1624,6 @@ impl SubmittedCopy {
                 _ => ConsentOutcome::Recorded,
             });
         }
-        if self.consents.len() >= MAX_CONSENT_RECORDS - 1 {
-            return Err(LifecycleError::ConsentLimit);
-        }
         let attribution = change.attribution.normalized();
         attribution.check().map_err(|code| match code {
             ErrorCode::ConsentWithoutName => LifecycleError::ConsentWithoutName,
@@ -1572,7 +1659,23 @@ impl SubmittedCopy {
         if record.widens_name(&current) && !undecided {
             return Err(LifecycleError::WideningAfterDecision);
         }
+        // Slots and bytes are kept for what a reader must always be able to
+        // do: revoke, and narrow. A change that only narrows may use the
+        // narrowing reserve; any other keeps clear of both.
+        let narrows = record.narrows(&current);
+        let (slots, bytes) = if narrows {
+            (MAX_CONSENT_RECORDS - 1, 256)
+        } else {
+            (
+                MAX_CONSENT_RECORDS - 1 - NARROWING_RESERVE,
+                CONSENT_RESERVE_BYTES,
+            )
+        };
         self.consents.push(record);
+        if self.consents.len() > slots || !self.within_bounds(bytes) {
+            self.consents.pop();
+            return Err(LifecycleError::ConsentLimit);
+        }
         Ok(ConsentOutcome::Recorded)
     }
 

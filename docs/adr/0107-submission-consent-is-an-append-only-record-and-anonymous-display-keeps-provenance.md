@@ -32,9 +32,18 @@ change consent, answer a clarification), and every decision has to say who made 
   - `givenAt`: when the record took effect.
 
   Record 1 is the consent received with the submission, at `receivedAt`, and its attribution is
-  the provenance's. Records are in time order. A history holds at most 49 records plus a final
-  revocation, so revoking is always possible; stored copies that break any rule are refused when
-  read, never repaired.
+  the provenance's. Records are in time order. A record stores the name only when it differs from
+  the record before (record 1 and the provenance share theirs; an empty string clears it), so a
+  long name is not repeated. A history holds at most 49 records plus a final revocation, and a
+  stored copy never serializes past 32 KiB, nor its `details` (category, intake and records) past
+  16 KiB (B5's bound); stored copies that break any rule are refused when read, never repaired.
+- **Reserved room.** Revoking must always be possible and narrowing must always take effect, so a
+  change that widens, renames or agrees to more (a new clarification or feature consent) is
+  refused with `consentLimit` once the history would pass 46 records (the last three slots
+  are kept for narrowing and the last for revocation) or come within 1 KiB of either size bound.
+  A change that only narrows may use the narrowing slots and needs only 256 bytes of room; a
+  revocation needs none. At most three narrowing steps are ever left (hide the name, decline
+  clarification, decline a feature), which is why three slots are kept.
 - **Changing consent** (`SubmittedCopy::revise_consent`), by the submitter as the server proves
   them (ADR 0108):
   - **Narrowing takes effect at once**, in any state whose text is kept: hiding the name,
