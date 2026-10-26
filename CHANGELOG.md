@@ -5,6 +5,11 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- `openblog build`, `serve` and `check` no longer print a `graceful-transformation` or
+  `canonical-only-interaction` warning for every quiz, runnable example, sandbox and comment box. Those
+  blocks always export as their documented static fallback; `openblog export` and syndication dry runs
+  still list them for the post being published.
+
 ## [0.29.0] - 2026-10-26
 
 - Defined the format for a private Knowledge Atlas of people, works, concepts, movements and events,
