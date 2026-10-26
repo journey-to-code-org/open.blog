@@ -134,7 +134,9 @@ reduced. The shared rules are in `web/components/reading-modes.js`, checked agai
   load. Motion is off for reduced motion, focus is never moved by a mode change, and the first
   article block in view keeps its place.
 - **Print** shows the mode on screen without the control or skip links, with every shown
-  supplement boxed and labelled.
+  supplement boxed and labelled. Paper says what it left out: one line, "Printed in Standard mode; 3
+  supplements not shown.", written by the component and seen only in print. It is absent when every
+  supplement is shown.
 
 ## Theme hooks
 
@@ -151,6 +153,7 @@ These names are stable: a theme may style them, and a test fails if one stops ex
 | `ob-reading-option` | one radio with its label and description |
 | `ob-reading-help` | an option's description |
 | `ob-reading-reset` | the "Use the author's default" button |
+| `ob-reading-print-note` | the line only paper shows, naming the supplements the printed mode leaves out |
 | `ob-supplement` | a supplement group; `data-ob-supplement`, `data-ob-kind`, `data-ob-level` |
 | `data-ob-always` | a supplement no mode hides |
 | `data-ob-revealed` | a supplement shown because the reader went into it |

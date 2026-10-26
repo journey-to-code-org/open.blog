@@ -122,6 +122,15 @@ export function describe(mode, shown, total) {
   return `Adds ${what}: ${shown} of ${plural(total, "supplement")} shown.`;
 }
 
+/**
+ * The one line paper carries when a mode left supplements out: what was
+ * printed and how many layers it does not show. Empty when nothing was left out,
+ * so a page that printed everything says nothing extra.
+ */
+export function printNote(mode, hidden) {
+  return hidden > 0 ? `Printed in ${LABELS[mode]} mode; ${plural(hidden, "supplement")} not shown.` : "";
+}
+
 /** What is announced to a screen reader after a mode change. */
 export function announcement(mode, shown, total) {
   return shown === 0

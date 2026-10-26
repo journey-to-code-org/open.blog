@@ -2552,8 +2552,11 @@ ob-reading-modes { display: block; }
 .ob-reading-help { grid-column: 2; margin-top: -0.25rem; font-size: 0.85em; color: var(--ob-color-muted, inherit); overflow-wrap: anywhere; }
 .ob-reading-reset { margin-top: 0.5rem; min-height: 2.75rem; max-width: 100%; }
 .ob-reading-reset[aria-disabled="true"] { opacity: 0.55; cursor: default; }
+/* Paper only: one line that says which layers the printed page leaves out. */
+.ob-reading-print-note { display: none; }
 @media print {
   .ob-reading-controls, .ob-supplement-skip { display: none; }
+  .ob-reading-print-note:not(:empty) { display: block; margin: 0 0 1rem; font-style: italic; color: #000; }
   /* Paper follows the mode on screen: the browser would otherwise print a findable hidden layer
      with its box taken away. */
   .ob-supplement[hidden] { display: none; }

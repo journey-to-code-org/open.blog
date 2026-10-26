@@ -34,6 +34,7 @@ import {
   countsByMode,
   describe,
   localStore,
+  printNote,
   readPreference,
   resolveMode,
   shouldShow,
@@ -72,6 +73,7 @@ class ObReadingModes extends HTMLElement {
   #radios = new Map();
   #helps = new Map();
   #status = null;
+  #printNote = null;
   #reset = null;
   #storage = null;
   #key = STORAGE_KEY;
@@ -133,6 +135,8 @@ class ObReadingModes extends HTMLElement {
         "beforematch",
         () => {
           node.setAttribute("data-ob-revealed", "");
+          // The browser takes `hidden` off just after this event.
+          setTimeout(() => this.#writePrintNote(), 0);
           this.#say(`Showed the ${this.#kind(node)} supplement that holds this match.`);
         },
         { signal },
@@ -163,7 +167,7 @@ class ObReadingModes extends HTMLElement {
 
   #build() {
     // A copy of a built element carries the old control: replace it.
-    this.querySelectorAll(":scope > .ob-reading-controls, :scope > [role=status]").forEach((node) => node.remove());
+    this.querySelectorAll(":scope > .ob-reading-controls, :scope > [role=status], :scope > .ob-reading-print-note").forEach((node) => node.remove());
     const id = ++instances;
     const counts = countsByMode(this.#items());
     const total = this.#supplements.length;
@@ -207,7 +211,9 @@ class ObReadingModes extends HTMLElement {
     this.#status = el("p", { class: "ob-visually-hidden", role: "status", "aria-live": "polite" });
     group.append(note, options, this.#reset);
     this.#addSkipLinks(id);
-    this.prepend(group, this.#status);
+    // Seen only on paper, where the control is not: says which layers the printed page leaves out.
+    this.#printNote = el("p", { class: "ob-reading-print-note" });
+    this.prepend(group, this.#status, this.#printNote);
   }
 
   /**
@@ -300,12 +306,20 @@ class ObReadingModes extends HTMLElement {
       const moved = place.node.getBoundingClientRect().top - place.top;
       if (Math.abs(moved) >= 1) scrollBy({ top: moved, behavior: "instant" });
     }
+    this.#writePrintNote();
     this.#reset.setAttribute("aria-disabled", String(readPreference(this.#storage, this.#key) === null));
     this.#status.textContent = "";
     if (announce) {
       // A fresh text node each time, so a repeated choice is announced again.
       this.#status.textContent = `${announcement(mode, shown, this.#supplements.length)}${note}`;
     }
+  }
+
+  /** What paper says about the layers left out, from what is hidden right now. */
+  #writePrintNote() {
+    if (!this.#printNote) return;
+    const hidden = this.#supplements.filter((node) => node.hasAttribute("hidden")).length;
+    this.#printNote.textContent = printNote(this.#mode, hidden);
   }
 
   /** The id a link or address names, or "". */
@@ -363,6 +377,7 @@ class ObReadingModes extends HTMLElement {
       }
     }
     if (!revealed) return null;
+    this.#writePrintNote();
     this.#say(`Showed the ${this.#kind(revealed)} supplement that holds this link.`);
     return target;
   }

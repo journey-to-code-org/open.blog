@@ -13,6 +13,7 @@ import {
   countsByMode,
   describe,
   isMode,
+  printNote,
   readPreference,
   resolveMode,
   shouldShow,
@@ -140,4 +141,10 @@ test("the saved choice is kept under the site's base path, so sibling project si
   assert.equal(readPreference(store, one), "guided", "clearing a sibling's key leaves this one");
   assert.equal(clearPreference(store, one), true);
   assert.equal(readPreference(store, one), null);
+});
+
+test("paper says what the printed mode left out, and nothing when it left out nothing", () => {
+  assert.equal(printNote("standard", 3), "Printed in Standard mode; 3 supplements not shown.");
+  assert.equal(printNote("guided", 1), "Printed in Guided mode; 1 supplement not shown.");
+  assert.equal(printNote("deep-dive", 0), "");
 });

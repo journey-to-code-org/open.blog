@@ -699,6 +699,33 @@ test("print shows the mode on screen, without the control or skip links, with ev
   await expect(page.getByText("Do not heat the mixture.")).toBeVisible();
 });
 
+test("print says which supplements the printed mode left out, and nothing when none were", async ({ page }) => {
+  await open(page);
+  const note = page.locator(".ob-reading-print-note");
+  // On screen the line is for paper only.
+  await radio(page, "Guided").check();
+  await expect(note).toBeHidden();
+  await page.emulateMedia({ media: "print" });
+  await expect(note).toBeVisible();
+  await expect(note).toHaveText("Printed in Guided mode; 2 supplements not shown.");
+  await page.emulateMedia({ media: "screen" });
+  await radio(page, "Standard").check();
+  await page.emulateMedia({ media: "print" });
+  await expect(note).toHaveText("Printed in Standard mode; 3 supplements not shown.");
+  await page.emulateMedia({ media: "screen" });
+  await radio(page, "Deep dive").check();
+  await page.emulateMedia({ media: "print" });
+  await expect(note).toBeHidden();
+  await expect(note).toHaveText("");
+  // A layer the reader went into prints, so the count follows what is shown.
+  await page.emulateMedia({ media: "screen" });
+  await radio(page, "Standard").check();
+  await page.evaluate(() => { location.hash = "#ob-supplement-2-h1"; });
+  await expect(supplement(page, 2)).toBeVisible();
+  await page.emulateMedia({ media: "print" });
+  await expect(note).toHaveText("Printed in Standard mode; 2 supplements not shown.");
+});
+
 test("back and forward keep the chosen mode, one control and any supplement the reader went into", async ({ page }) => {
   await open(page);
   await radio(page, "Guided").check();
