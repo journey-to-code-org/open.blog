@@ -8998,6 +8998,12 @@ fn preview(state: &AppState, req: &Request) -> Response {
                 "referenceCount": research.references.len(),
             })
         });
+    let citations = preview_site
+        .posts
+        .iter()
+        .find(|post| post.source == rel)
+        .and_then(|post| post.citations().map(|summary| (post, summary)))
+        .map(|(post, summary)| citation_preview(&post.slug, summary));
     let portable_preview = if kind == "posts" {
         let Some(post) = preview_site.posts.iter().find(|post| post.source == rel) else {
             return Response::error(422, "Preview post was not found in the site model");
@@ -9163,12 +9169,49 @@ fn preview(state: &AppState, req: &Request) -> Response {
             "theme": theme,
             "social": social,
             "research": research,
+            "citations": citations,
             "portablePreview": portable_preview,
             "warnings": preview_site.warnings,
             "accessibility": accessibility,
             "evidence": evidence
         }),
     )
+}
+
+/// What the previewed post's citations made public, with its portable
+/// bibliography exports (ADR 0056). Both exports are built from the
+/// references the preview published, so they match the notes exactly and
+/// hold only their public description; each lists what its format omits.
+fn citation_preview(slug: &str, summary: &openblog_core::bibliography::CitationSummary) -> Json {
+    let export = |export: source_interchange::Export, extension: &str, media_type: &str| {
+        json!({
+            "filename": format!("{slug}-references.{extension}"),
+            "mediaType": media_type,
+            "count": export.count,
+            "content": export.content,
+            "losses": export.losses,
+        })
+    };
+    json!({
+        "style": summary.style.key(),
+        "locale": summary.locale.key(),
+        "citations": summary.citations,
+        "notes": summary.notes,
+        "references": summary.references.len(),
+        "offline": true,
+        "exports": {
+            "csl-json": export(
+                source_interchange::export_cited_csl_json(&summary.references),
+                "json",
+                "application/vnd.citationstyles.csl+json",
+            ),
+            "bibtex": export(
+                source_interchange::export_cited_bibtex(&summary.references),
+                "bib",
+                "application/x-bibtex",
+            ),
+        },
+    })
 }
 
 fn preview_document(state: &AppState, token: &str) -> Response {
@@ -14469,6 +14512,78 @@ mod tests {
                 && !message.contains("not-yet"),
             "{message}"
         );
+    }
+
+    #[test]
+    fn preview_reports_citation_checks_and_offers_public_bibliography_exports() {
+        let f = fixture("citation-preview");
+        let library = f.dir.join(source_store::LIBRARY_FILE);
+        fs::create_dir_all(library.parent().unwrap()).unwrap();
+        fs::write(
+            &library,
+            r#"{"version":1,"sources":[
+              {"id":"bare","kind":"work","title":"Bare","csl":{"type":"article-journal"},"secret":"PRIVATE-PREVIEW"},
+              {"id":"other","kind":"work","title":"PRIVATE-PREVIEW uncited"}]}"#,
+        )
+        .unwrap();
+        let before = fs::read(&library).unwrap();
+        let session = login_ok(&f);
+        let preview = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/preview",
+                    json!({
+                        "kind": "posts",
+                        "path": "posts/cited.md",
+                        "fields": { "title": "Cited", "date": "2026-10-23", "citations": "notes" },
+                        "body": "A claim [@bare, canonical 4]."
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            preview.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&preview.body)
+        );
+        let body = body_json(&preview);
+        let citations = &body["citations"];
+        assert_eq!(citations["style"], "notes");
+        assert_eq!(citations["citations"], 1);
+        assert_eq!(citations["references"], 1);
+        assert_eq!(citations["offline"], true);
+        let csl = &citations["exports"]["csl-json"];
+        assert_eq!(csl["filename"], "cited-references.json");
+        assert!(csl["content"]
+            .as_str()
+            .unwrap()
+            .contains("\"id\": \"bare\""));
+        let bibtex = &citations["exports"]["bibtex"];
+        assert_eq!(bibtex["filename"], "cited-references.bib");
+        assert!(bibtex["content"]
+            .as_str()
+            .unwrap()
+            .starts_with("@article{bare,"));
+        assert!(!body.to_string().contains("PRIVATE-PREVIEW"));
+        let codes: Vec<&str> = body["evidence"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|finding| finding["code"].as_str().unwrap())
+            .collect();
+        assert!(
+            codes.contains(&"citation-reference-incomplete"),
+            "{codes:?}"
+        );
+        assert!(codes.contains(&"citation-location-review"), "{codes:?}");
+        // A preview writes nothing.
+        assert_eq!(fs::read(&library).unwrap(), before);
+        assert!(!f.dir.join("content/posts/cited.md").exists());
     }
 
     #[test]

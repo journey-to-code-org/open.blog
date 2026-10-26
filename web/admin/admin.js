@@ -2361,8 +2361,8 @@ export function evidenceReview(findings) {
   return accessibilityReview(findings);
 }
 
-export function evidenceStudioState(findings, research) {
-  if (!research) {
+export function evidenceStudioState(findings, research, citations = null) {
+  if (!research && !citations) {
     return {
       active: false,
       status: "Evidence checks are not active for this content profile.",
@@ -2375,6 +2375,28 @@ export function evidenceStudioState(findings, research) {
     status: `${review.total} evidence finding${review.total === 1 ? "" : "s"}`,
     review,
   };
+}
+
+/**
+ * The status line after downloading a post's cited references: what was
+ * exported and, per source, the details the format cannot carry. Exports hold
+ * only the public description the post's notes show.
+ */
+export function citationExportStatus(exported) {
+  if (!exported || typeof exported.content !== "string") return "Preview the post again before exporting its references.";
+  const notes = sourceExportLossNotes(exported.losses);
+  const count = Number(exported.count) || 0;
+  return `Exported ${count} cited reference${count === 1 ? "" : "s"} as ${exported.filename}; nothing was looked up online.${notes.length ? ` This format cannot carry: ${notes.join("; ")}.` : ""}`;
+}
+
+/** The citation rows of Evidence Studio's metadata list, as [term, description] pairs. */
+export function citationEvidenceRows(citations) {
+  if (!citations) return [];
+  const count = (value, word) => `${value} ${word}${value === 1 ? "" : "s"}`;
+  return [
+    ["Citations", `${count(Number(citations.citations) || 0, "citation")} of ${count(Number(citations.references) || 0, "reference")}, published as ${citations.style === "bibliography" ? "a bibliography" : "notes"}`],
+    ["Citation checks", "Offline, from your source library; nothing is looked up online"],
+  ];
 }
 
 export function applyPaneSelection(root, buttons, pane) {
@@ -7301,6 +7323,19 @@ export class Editor {
     ui.evidenceCounts = h("dl", { class: "oba-accessibility-counts", "aria-label": "Evidence finding counts" });
     ui.evidenceFindings = h("div", { class: "oba-accessibility-findings" });
     ui.evidenceMetadata = h("dl", { class: "oba-social-meta", "aria-label": "Resolved research metadata" });
+    ui.evidenceExportStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    ui.evidenceExportCsl = h("button", { class: "oba-btn", type: "button" }, "Download cited references (CSL JSON)");
+    ui.evidenceExportBibtex = h("button", { class: "oba-btn", type: "button" }, "Download cited references (BibTeX)");
+    ui.evidenceExportCsl.addEventListener("click", () => this.exportCitedReferences("csl-json"));
+    ui.evidenceExportBibtex.addEventListener("click", () => this.exportCitedReferences("bibtex"));
+    ui.evidenceExports = h(
+      "section",
+      { class: "oba-evidence-exports", "aria-label": "Portable bibliography", hidden: true },
+      h("h3", {}, "Portable bibliography"),
+      h("p", { class: "oba-small" }, "Only the public description of the references this post cites, exactly as its notes show them."),
+      h("div", { class: "oba-toolbar" }, ui.evidenceExportCsl, ui.evidenceExportBibtex),
+      ui.evidenceExportStatus,
+    );
     ui.status = h("div", { role: "status", "aria-live": "polite" });
     ui.documentStats = h("span", { class: "oba-small" });
     ui.saveState = h("span", { class: "oba-save-state", role: "status", "aria-live": "polite" }, this.isNew ? "Not saved yet" : "Saved");
@@ -7937,11 +7972,12 @@ export class Editor {
                 ),
                 ui.evidenceCounts,
                 ui.evidenceMetadata,
+                ui.evidenceExports,
                 h("h3", {}, "Author-controlled signals"),
                 h(
                   "ul",
                   { class: "oba-accessibility-manual" },
-                  ["Visible Abstract and References sections", "DOI and license syntax", "Resolvable reference links", "Defined Markdown footnotes"].map((item) => h("li", {}, item)),
+                  ["Visible Abstract and References sections", "DOI and license syntax", "Resolvable reference links", "Defined Markdown footnotes", "Citation syntax, keys and reference details", "Cited locations, which only a person can check"].map((item) => h("li", {}, item)),
                 ),
               ),
               ui.evidenceFindings,
@@ -9396,7 +9432,7 @@ export class Editor {
       this.updatePreviewWarnings(preview);
       this.updateSocialPreview(preview.social);
       this.updateAccessibility(preview.accessibility);
-      this.updateEvidence(preview.evidence, preview.research);
+      this.updateEvidence(preview.evidence, preview.research, preview.citations);
     } catch (error) {
       if (request !== this.previewRequest) return;
       this.previewResult = null;
@@ -9414,6 +9450,8 @@ export class Editor {
       this.ui.evidenceStatus.textContent = "Evidence checks unavailable";
       this.ui.evidenceCounts.replaceChildren();
       this.ui.evidenceMetadata.replaceChildren();
+      this.citationExports = null;
+      this.ui.evidenceExports.hidden = true;
       this.ui.evidenceFindings.replaceChildren(h("p", { class: "oba-notice" }, "Fix the document validation problems, then run the checks again."));
     }
   }
@@ -9616,12 +9654,15 @@ export class Editor {
     this.ui.accessibilityStatus.textContent = `${review.total} source finding${review.total === 1 ? "" : "s"}`;
   }
 
-  updateEvidence(findings, research) {
-    const state = evidenceStudioState(findings, research);
+  updateEvidence(findings, research, citations = null) {
+    const state = evidenceStudioState(findings, research, citations);
+    this.citationExports = citations?.references ? citations.exports : null;
+    this.ui.evidenceExports.hidden = !this.citationExports;
+    this.ui.evidenceExportStatus.textContent = "";
     if (!state.active) {
       this.ui.evidenceCounts.replaceChildren();
       this.ui.evidenceFindings.replaceChildren(
-        h("p", { class: "oba-notice" }, "Evidence checks run only for posts using the Research content profile."),
+        h("p", { class: "oba-notice" }, "Evidence checks run for posts using the Research content profile and for posts that publish citations."),
       );
       this.ui.evidenceMetadata.replaceChildren(
         h("div", {}, h("dt", {}, "Profile"), h("dd", {}, "Research metadata is available for Research posts.")),
@@ -9656,11 +9697,39 @@ export class Editor {
           )),
     );
     this.ui.evidenceMetadata.replaceChildren(
-      h("div", {}, h("dt", {}, "DOI"), h("dd", {}, research.doiUrl || research.doi || "Not supplied")),
-      h("div", {}, h("dt", {}, "License"), h("dd", {}, research.licenseUrl || "Not supplied")),
-      h("div", {}, h("dt", {}, "Linked references"), h("dd", {}, String(research.referenceCount || 0))),
+      ...(research
+        ? [
+            h("div", {}, h("dt", {}, "DOI"), h("dd", {}, research.doiUrl || research.doi || "Not supplied")),
+            h("div", {}, h("dt", {}, "License"), h("dd", {}, research.licenseUrl || "Not supplied")),
+            h("div", {}, h("dt", {}, "Linked references"), h("dd", {}, String(research.referenceCount || 0))),
+          ]
+        : []),
+      ...citationEvidenceRows(citations).map(([term, description]) => h("div", {}, h("dt", {}, term), h("dd", {}, description))),
     );
     this.ui.evidenceStatus.textContent = state.status;
+  }
+
+  /** Download the previewed post's cited references; the draft and the library are never changed. */
+  exportCitedReferences(format) {
+    const exported = this.citationExports?.[format];
+    if (!exported) {
+      this.ui.evidenceExportStatus.textContent = citationExportStatus(null);
+      return;
+    }
+    try {
+      const url = URL.createObjectURL(new Blob([exported.content], { type: `${exported.mediaType};charset=utf-8` }));
+      try {
+        const link = h("a", { href: url, download: exported.filename });
+        document.body.append(link);
+        link.click();
+        link.remove();
+      } finally {
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+      }
+      this.ui.evidenceExportStatus.textContent = citationExportStatus(exported);
+    } catch (error) {
+      this.ui.evidenceExportStatus.textContent = `The references could not be downloaded: ${error.message}`;
+    }
   }
 
   updateSocialPreview(social) {

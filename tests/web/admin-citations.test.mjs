@@ -7,12 +7,15 @@ import {
   citationAt,
   citationChip,
   citationDraftPayload,
+  citationEvidenceRows,
+  citationExportStatus,
   citationFailure,
   citationLocatorsFromPassage,
   citationSourceChoices,
   citationInsertionProblem,
   citationSpans,
   createCitationForm,
+  evidenceStudioState,
   formatCitationText,
   insertCitationText,
   parseCitationText,
@@ -848,4 +851,27 @@ test("the citation status stays rendered so screen readers announce it", () => {
   assert.doesNotMatch(rule, /display:\s*none/);
   assert.match(rule, /clip: rect\(0 0 0 0\)/);
   assert.match(admin, /ui\.citationStatus = h\("span", \{ class: "oba-small", role: "status", "aria-live": "polite" \}\)/);
+});
+
+test("Evidence Studio is active for posts that publish citations and offers their portable bibliography", () => {
+  const citations = { style: "notes", citations: 3, references: 1, offline: true };
+  assert.equal(evidenceStudioState([], null, null).active, false);
+  const state = evidenceStudioState([{ code: "citation-location-review", outcome: "needs-review", source: { path: "posts/a.md", line: 6 }, message: "m", repair: "r" }], null, citations);
+  assert.equal(state.active, true);
+  assert.equal(state.status, "1 evidence finding");
+  assert.deepEqual(citationEvidenceRows(citations), [
+    ["Citations", "3 citations of 1 reference, published as notes"],
+    ["Citation checks", "Offline, from your source library; nothing is looked up online"],
+  ]);
+  assert.deepEqual(citationEvidenceRows(null), []);
+  assert.equal(
+    citationExportStatus({ filename: "a-references.bib", count: 2, content: "@misc{a,}", losses: [{ sourceId: "e", field: "kind", reason: "x" }, { sourceId: "e", field: "creators[1]", reason: "y" }] }),
+    "Exported 2 cited references as a-references.bib; nothing was looked up online. This format cannot carry: e: kind, creators[1].",
+  );
+  assert.equal(citationExportStatus({ filename: "a.json", count: 1, content: "[]", losses: [] }), "Exported 1 cited reference as a.json; nothing was looked up online.");
+  assert.equal(citationExportStatus(null), "Preview the post again before exporting its references.");
+  // The download controls are real, labelled buttons in a named section.
+  assert.match(admin, /"Download cited references \(CSL JSON\)"/);
+  assert.match(admin, /"Download cited references \(BibTeX\)"/);
+  assert.match(admin, /"aria-label": "Portable bibliography"/);
 });
