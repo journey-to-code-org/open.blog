@@ -2034,7 +2034,7 @@ impl Atlas {
                 &entry.id,
                 "dates",
                 format!(
-                    "`{}` is published, but none of its {count} dating{} can be, so public pages show no years for it: only cited, approved datings are published, and years from version 1 `bounds` became private, unsourced datings",
+                    "`{}` is published, but none of its {count} dating{} can be, so public pages show no years for it: only cited, approved datings of published items, relative only to approved entries, are published, and years from version 1 `bounds` became private, unsourced datings; `openblog check` gives each dating's reason",
                     entry.id,
                     if count == 1 { "" } else { "s" }
                 ),
@@ -3539,6 +3539,12 @@ mod tests {
             (Some("entries"), Some("plato"))
         );
         assert!(!notices[0].message.contains("Plato") && !notices[0].message.contains("428"));
+        assert!(notices[0]
+            .message
+            .contains("relative only to approved entries"));
+        assert!(notices[0]
+            .message
+            .contains("`openblog check` gives each dating's reason"));
         let (entries, relationships) = atlas.projected();
         assert_eq!(
             entries.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(),

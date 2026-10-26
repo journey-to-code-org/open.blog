@@ -667,7 +667,7 @@ fn unpublished_datings_warning(
         ));
     }
     format!(
-        "{} approved Knowledge Atlas entr{} no years on /atlas/ or in atlas.json, because none of {} datings can be published: {}. Only cited, approved datings are published, and years from version 1 `bounds` became private, unsourced datings; cite and approve a dating to publish it. `openblog check` names each entry.",
+        "{} approved Knowledge Atlas entr{} no years on /atlas/ or in atlas.json, because none of {} datings can be published: {}. Only cited, approved datings of published items, relative only to approved entries, are published, and years from version 1 `bounds` became private, unsourced datings. `openblog check` gives each dating's reason.",
         undated.len(),
         if undated.len() == 1 {
             "y shows"
@@ -1730,7 +1730,12 @@ mod tests {
             "{warning}"
         );
         assert!(
-            warning.contains("Only cited, approved datings are published"),
+            warning.contains("`openblog check` gives each dating's reason"),
+            "{warning}"
+        );
+        assert!(!warning.contains("cite and approve a dating"), "{warning}");
+        assert!(
+            warning.contains("Only cited, approved datings of published items, relative only to approved entries, are published"),
             "{warning}"
         );
         // Ids and counts only: neither labels nor years, and never the
