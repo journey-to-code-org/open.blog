@@ -11,10 +11,12 @@
 //! rename while holding locks: a refused, failed, or interrupted change leaves
 //! the stored atlas exactly as it was.
 //!
-//! Locks are always taken in one order: atlas, then notebook, then library.
-//! Notebook changes (notebook, library) and library changes (library) take a
-//! suffix of it and only *read* the atlas, which they may safely do because an
-//! atlas write holds their locks for its whole critical section.
+//! Locks are always taken in one order: atlas, then claims, then notebook,
+//! then library (ADR 0056, ADR 0072). An atlas write takes atlas, notebook and
+//! library and never the claims lock. Notebook changes (notebook, library) and
+//! library changes (library) take a suffix of it and only *read* the atlas,
+//! which they may safely do because an atlas write holds their locks for its
+//! whole critical section.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -270,6 +272,7 @@ fn diagnostic(
     message: String,
 ) -> AtlasDiagnostic {
     AtlasDiagnostic {
+        subject: Default::default(),
         code,
         collection: Some(collection),
         index: None,
@@ -429,6 +432,7 @@ fn read(root: &Path, library: SourceLibrary, notebook: Notebook) -> Result<Snaps
     let revision = source_store::revision(&bytes);
     let text = String::from_utf8(bytes).map_err(|_| {
         StoreError::Invalid(vec![AtlasDiagnostic {
+            subject: Default::default(),
             code: AtlasDiagnosticCode::InvalidJson,
             collection: None,
             index: None,
@@ -456,6 +460,7 @@ fn read(root: &Path, library: SourceLibrary, notebook: Notebook) -> Result<Snaps
 
 fn too_large() -> AtlasDiagnostic {
     AtlasDiagnostic {
+        subject: Default::default(),
         code: AtlasDiagnosticCode::TooLarge,
         collection: None,
         index: None,

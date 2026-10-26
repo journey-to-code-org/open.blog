@@ -286,6 +286,79 @@ export function normalizeStatusFilter(value) {
   return ["published", "scheduled", "draft", "error"].includes(value) ? value : "all";
 }
 
+// Reader feedback moderation (ADR 0083). The states are the participation policy's (RD12). B5
+// writes four of them; clarification and withdrawn are listed read-only, so an item another tool
+// moved there is still seen, and one waiting for clarification can still be rejected.
+export const FEEDBACK_QUEUE_STATES = ["pending", "approved", "rejected", "removed", "clarification", "withdrawn"];
+const FEEDBACK_STATE_LABELS = { pending: "Pending", approved: "Approved", rejected: "Rejected", removed: "Removed", clarification: "Waiting for clarification", withdrawn: "Withdrawn" };
+const FEEDBACK_READ_ONLY_NOTES = {
+  clarification: "Admin does not ask readers to clarify; items here were moved by another tool. You can still reject one.",
+  withdrawn: "Readers took these notes back. They are never published and cannot be changed here.",
+};
+
+/** The queue's status line for one state. */
+export function feedbackQueueSummary(status, count) {
+  const items = `item${count === 1 ? "" : "s"}`;
+  if (status === "clarification") return count ? `${count} ${items} waiting for clarification.` : "No feedback is waiting for clarification.";
+  return count ? `${count} ${status} ${items}.` : `No ${status} feedback.`;
+}
+const FEEDBACK_CHECK_LABELS = { current: "Current", reanchored: "Re-anchored", stale: "Stale", "unknown-work": "Post not found" };
+
+/**
+ * The body of one moderation request: the state and version the moderator saw, a reason when the
+ * action takes one, and, to approve a passage that is not current, the passage check they read.
+ */
+export function feedbackModerationRequest(item, action, reason, acknowledged) {
+  const request = { id: item.id, action, from: item.status, version: item.version };
+  if (reason) request.reason = reason;
+  if (action === "approve" && item.passage?.acknowledge && acknowledged) request.acknowledge = item.passage.check;
+  return request;
+}
+
+/**
+ * What a card says when an item's state and the published file disagree, and the fix it offers: an
+ * approved note that is not on its post yet, or a removed or rejected one that still is (a removal
+ * whose file write failed, or a decision made outside Admin). `published` is null when unknown.
+ */
+export function feedbackPublicationMismatch(item) {
+  if (item.status === "approved" && item.published === false) return { notice: "Approved, but not on the site yet.", action: "publish", label: "Publish on the post" };
+  if (item.status === "removed" && item.published === true) return { notice: "Removed, but still on the post.", action: "unpublish", label: "Take it off the post" };
+  if (item.status === "rejected" && item.published === true) return { notice: "Rejected, but still on the post.", action: "unpublish", label: "Take it off the post" };
+  return null;
+}
+
+/** Who sent a note, for the moderator only, with the reader's choice about their name. */
+export function feedbackReaderLine(reader) {
+  if (!reader?.name) return "From an anonymous reader.";
+  return reader.publishName
+    ? `From ${reader.name}, who agreed to show this name if you publish the note.`
+    : `From ${reader.name}. The name stays private: the reader did not agree to show it.`;
+}
+
+/** How the published note would read its passage, in words. */
+export function feedbackPreviewText(preview) {
+  if (!preview) return "";
+  const passage = preview.quote ? `quoting “${preview.quote}”` : preview.stale ? "without a quotation, because the passage has changed" : "without a quotation";
+  return `On the post it is shown ${passage}, as from ${preview.name || "a reader"}, received ${preview.received}.`;
+}
+
+function feedbackPassage(passage) {
+  if (!passage) return null;
+  return h(
+    "div",
+    { class: "oba-feedback-passage", "data-check": passage.check },
+    h("h4", {}, "Passage check"),
+    h("p", {}, h("strong", {}, `${FEEDBACK_CHECK_LABELS[passage.check] || passage.check}. `), passage.explanation),
+    passage.quoted ? h("p", {}, "Words the reader quoted, as they saw them:") : null,
+    passage.quoted ? h("blockquote", { class: "oba-feedback-body" }, passage.quoted) : null,
+    h("p", { class: "oba-small" }, `Seen on passage revision ${passage.revisionSeen}${passage.revisionNow ? `; published now: ${passage.revisionNow}` : ""}.`),
+  );
+}
+
+function feedbackPreview(preview) {
+  return preview ? h("p", { class: "oba-small oba-feedback-preview" }, feedbackPreviewText(preview)) : null;
+}
+
 export const COMMENT_MODERATION_STATUSES = ["pending", "approved", "rejected"];
 
 export function commentModerationActions(status) {
@@ -2492,6 +2565,800 @@ export function createAtlasForm({ api, state, type = "entry", item = null, prefi
   };
 }
 
+// ---------------------------------------------------------------- claims and evidence links
+
+/** How a source bears on a claim, as the author reads it. Never defaulted: a citation alone asserts none. */
+export const CLAIM_RELATIONS = Object.freeze([
+  { value: "supports", label: "Supports", heading: "Supporting" },
+  { value: "contradicts", label: "Contradicts", heading: "Contradicting" },
+  { value: "contextualizes", label: "Contextualizes", heading: "Contextualizing" },
+]);
+/** What a person, never the software, has done to check a link. */
+export const CLAIM_REVIEW_STATES = Object.freeze([
+  { value: "unreviewed", label: "Not compared with the source yet" },
+  { value: "location-checked", label: "Location checked against the source" },
+  { value: "reviewed", label: "Read, and I stand behind this relation" },
+]);
+const MAX_CLAIM_STATEMENT_CHARS = 2000;
+const MAX_CLAIM_RATIONALE_CHARS = 4000;
+const CLAIM_UNSAFE_TEXT = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u;
+const claimEncoder = typeof TextEncoder === "function" ? new TextEncoder() : null;
+
+/** The UTF-8 length of a string, which is how claim anchors count. */
+export function utf8Length(text) {
+  const value = String(text ?? "");
+  if (claimEncoder) return claimEncoder.encode(value).length;
+  let bytes = 0;
+  for (const char of value) {
+    const code = char.codePointAt(0);
+    bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
+  }
+  return bytes;
+}
+
+/**
+ * The anchor for a selection in the Markdown body, in the server's terms: UTF-8 byte offsets into
+ * the saved draft's anchor text (CRLF folded to LF, leading newlines dropped as a save drops them),
+ * with surrounding spaces trimmed. Returns `{ anchor }` or `{ error }`; the server checks it again.
+ */
+export function claimSelectionAnchor(body, start, end) {
+  const raw = String(body ?? "");
+  let from = Math.max(0, Math.min(Number(start) || 0, raw.length));
+  let to = Math.max(from, Math.min(Number(end) || 0, raw.length));
+  while (from < to && /\s/.test(raw[from])) from += 1;
+  while (to > from && /\s/.test(raw[to - 1])) to -= 1;
+  if (from === to) return { error: "Select the words of the claim in the draft first." };
+  const lead = raw.match(/^[\r\n]*/)[0].length;
+  if (from < lead) return { error: "Select the words of the claim in the draft first." };
+  const fold = (text) => text.replace(/\r\n/g, "\n");
+  const text = fold(raw.slice(from, to));
+  if (CLAIM_UNSAFE_TEXT.test(text) || text.includes("\r")) return { error: "The selection contains control or direction-override characters; select plain words." };
+  if ([...text].length > MAX_CLAIM_STATEMENT_CHARS) return { error: `Select at most ${MAX_CLAIM_STATEMENT_CHARS} characters for one claim.` };
+  const offset = utf8Length(fold(raw.slice(lead, from)));
+  return { anchor: { start: offset, end: offset + utf8Length(text), text } };
+}
+
+/**
+ * The source span of each block the visual editor shows, in display order (blank runs skipped),
+ * as `{ type, start, end }` offsets into `body`. The visual editor renders one element per block,
+ * so the nth `[data-visual-block]` or protected card is the nth span here.
+ */
+export function visualBlockSpans(body) {
+  const spans = [];
+  let offset = 0;
+  for (const block of parseVisualMarkdown(String(body ?? ""))) {
+    const end = offset + block.source.length;
+    if (block.type !== "space") spans.push({ type: block.type, start: offset, end });
+    offset = end;
+  }
+  return spans;
+}
+
+/**
+ * The anchor for words selected in the visual editor, which shows formatted text rather than the
+ * Markdown. `block` names the visual block holding the whole selection (`{ index, type }`, its
+ * position among the draft's blocks, with `markdown` or `count` to check the editor lines up with
+ * the draft, and `text`, what the block shows); the words are looked for only in that block's Markdown,
+ * spaces matching any run of whitespace, and accepted only when they occur there exactly once, so
+ * formatting elsewhere in the draft can never move the anchor to other words.
+ */
+export function visualSelectionAnchor(body, selected, block) {
+  const words = String(selected ?? "").replace(/\s+/g, " ").trim();
+  if (!words) return { error: "Select the words of the claim in the draft first." };
+  const markdownMode = "Switch to Markdown and select the words there.";
+  const raw = String(body ?? "");
+  // The visual editor reads CRLF and lone CR as LF; only CRLF folds the same way on both sides.
+  if (raw.replace(/\r\n/g, "\n").includes("\r")) return { error: `The draft has line endings the visual editor cannot map back. ${markdownMode}` };
+  const text = raw.replace(/\r\n/g, "\n");
+  const index = Number.isInteger(block?.index) ? block.index : -1;
+  const spans = visualBlockSpans(text);
+  const span = spans[index];
+  if (!span || (block?.type && block.type !== span.type)) return { error: `Select words inside one paragraph, heading, list or quote. ${markdownMode}` };
+  const source = text.slice(span.start, span.end);
+  // The editor's blocks must line up with the draft's: either the draft was written from the editor
+  // (`markdown`, the block's own Markdown, is that span exactly), or the editor was drawn from the
+  // draft (`count`, one editor block per span). Anything else could name the wrong block.
+  const mismatch = (typeof block?.markdown === "string" && block.markdown !== source.replace(/\n+$/, "")) || (Number.isInteger(block?.count) && block.count !== spans.length);
+  if (mismatch) return { error: `The editor and the draft no longer line up block for block. ${markdownMode}` };
+  // The words must also read once in the block as shown, so formatting cannot hide another
+  // occurrence (a selected "*big* cave" next to a plain "big cave").
+  if (typeof block?.text === "string" && visualOccurrences(block.text.replace(/\s+/g, " "), words) > 1) return { error: `Those words occur more than once in that block. ${markdownMode}` };
+  const pattern = new RegExp(words.split(" ").map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s+"), "gu");
+  const found = [];
+  for (let match = pattern.exec(source); match && found.length < 2; match = pattern.exec(source)) {
+    found.push(match);
+    // Resume one character after this hit, so an overlapping occurrence is still found.
+    pattern.lastIndex = match.index + String.fromCodePoint(source.codePointAt(match.index)).length;
+  }
+  if (found.length === 0) return { error: `Those words are formatted differently in the Markdown. ${markdownMode}` };
+  if (found.length > 1) return { error: `Those words occur more than once in that block. ${markdownMode}` };
+  const start = span.start + found[0].index;
+  return claimSelectionAnchor(text, start, start + found[0][0].length);
+}
+
+/** How many times `words` occur in `text`, overlapping occurrences counted, stopping at two. */
+function visualOccurrences(text, words) {
+  let count = 0;
+  for (let at = text.indexOf(words); at >= 0 && count < 2; at = text.indexOf(words, at + 1)) count += 1;
+  return count;
+}
+
+/** The text a visual-editor block shows, a line break read as a space, as a selection reads it. */
+function visualBlockText(node) {
+  if (node.nodeType === Node.TEXT_NODE) return node.nodeValue || "";
+  if (node.nodeType !== Node.ELEMENT_NODE) return "";
+  if (node.tagName.toLowerCase() === "br") return " ";
+  return [...node.childNodes].map(visualBlockText).join("");
+}
+
+export function claimAnchorStatusText(status) {
+  switch (status?.status) {
+    case "verified":
+      return "In place: the words are still where you selected them in the saved draft. This compares text positions only, not whether the claim is true.";
+    case "moved":
+      return "Moved: the words now appear once, elsewhere in the saved draft. Re-anchor to keep evidence on them.";
+    case "stale":
+      return status.missingPost ? "Stale: no saved post has this claim's slug." : "Stale: the words are no longer in the saved draft. Select them again to re-anchor; evidence cannot be added until then.";
+    case "ambiguous":
+      return "Ambiguous: the words occur more than once in the saved draft. Select the ones you mean to re-anchor; evidence cannot be added until then.";
+    default:
+      return "No anchor: a statement about the post, not tied to particular words.";
+  }
+}
+
+/** Links of one claim grouped by relation, each in file order. Nothing is netted, ranked or hidden. */
+export function claimLinkColumns(links, claimId) {
+  const columns = { supports: [], contradicts: [], contextualizes: [] };
+  for (const link of Array.isArray(links) ? links : []) if (link.claim === claimId && columns[link.relation]) columns[link.relation].push(link);
+  return columns;
+}
+
+/**
+ * The evidence gaps and review prompts (ADR 0074) about one claim and its links, in the order the
+ * server reviewed them, which is the order `openblog check` prints. Only well-formed findings are kept.
+ */
+export function claimFindings(findings, claimId) {
+  return (Array.isArray(findings) ? findings : []).filter(
+    (finding) => finding && finding.object?.claim === claimId && typeof finding.code === "string" && typeof finding.message === "string" && typeof finding.repair === "string",
+  );
+}
+
+const CLAIM_FINDING_OUTCOMES = [
+  { outcome: "detected", label: "detected" },
+  { outcome: "potential", label: "potential" },
+  { outcome: "needs-review", label: "needing review" },
+];
+
+/** A post's findings as words: one total with each outcome counted apart, framed as gaps, never as a verdict. */
+export function claimFindingsSummary(findings) {
+  const list = Array.isArray(findings) ? findings : [];
+  if (!list.length) return "No evidence gaps or review prompts for this post's claims from the checks that ran.";
+  const parts = CLAIM_FINDING_OUTCOMES.map(({ outcome, label }) => `${list.filter((finding) => finding.outcome === outcome).length} ${label}`);
+  return `${plural(list.length, "evidence gap or review prompt", "evidence gaps and review prompts")} for this post's claims: ${parts.join(", ")}. They show what the record lacks or what only you can check, never whether a claim is true.`;
+}
+
+/** Counts per relation as words, deliberately three figures that are never combined. */
+export function claimCountsText(counts = {}) {
+  return `${plural(counts.supports || 0, "supporting link")}, ${plural(counts.contradicts || 0, "contradicting link")}, ${plural(counts.contextualizes || 0, "contextualizing link")}`;
+}
+
+export function claimDraft(record = null, prefill = {}) {
+  const value = record && typeof record === "object" ? record : {};
+  return {
+    original: record ? structuredClone(record) : null,
+    id: typeof value.id === "string" ? value.id : prefill.id || "",
+    post: typeof value.post === "string" ? value.post : prefill.post || "",
+    statement: typeof value.statement === "string" ? value.statement : prefill.statement || "",
+    anchor: value.anchor && typeof value.anchor === "object" ? structuredClone(value.anchor) : prefill.anchor || null,
+    uncertainty: typeof value.uncertainty === "string" ? value.uncertainty : "",
+    approved: value.visibility === "approved",
+  };
+}
+
+/** The full claim to send. Unknown fields of the stored record, and its attribution and origin, carry over. */
+export function claimPayload(draft) {
+  const record = { ...(draft.original || {}) };
+  for (const field of ["anchor", "uncertainty"]) delete record[field];
+  record.id = draft.id;
+  record.post = draft.post;
+  record.statement = String(draft.statement ?? "").trim();
+  if (draft.anchor) record.anchor = { ...(draft.original?.anchor || {}), ...draft.anchor };
+  const uncertainty = String(draft.uncertainty ?? "").trim();
+  if (uncertainty) record.uncertainty = uncertainty;
+  record.visibility = draft.approved ? "approved" : "private";
+  return record;
+}
+
+export function validateClaimDraft(draft) {
+  const statement = String(draft.statement ?? "").trim();
+  if (!statement) return { field: "statement", message: "Write the claim in your own words." };
+  if ([...statement].length > MAX_CLAIM_STATEMENT_CHARS) return { field: "statement", message: `A claim is at most ${MAX_CLAIM_STATEMENT_CHARS} characters.` };
+  if (CLAIM_UNSAFE_TEXT.test(statement.replace(/[\n\t]/g, " "))) return { field: "statement", message: "Remove control or direction-override characters from the claim." };
+  if (CLAIM_UNSAFE_TEXT.test(String(draft.uncertainty ?? "").replace(/[\n\t]/g, " "))) return { field: "uncertainty", message: "Remove control or direction-override characters." };
+  if (draft.approved && draft.original?.origin === "suggested") return { field: "approved", message: "A suggested claim cannot be approved; edit it as your own first." };
+  return null;
+}
+
+export function evidenceLinkDraft(record = null, prefill = {}) {
+  const value = record && typeof record === "object" ? record : {};
+  return {
+    original: record ? structuredClone(record) : null,
+    id: typeof value.id === "string" ? value.id : prefill.id || "",
+    claim: typeof value.claim === "string" ? value.claim : prefill.claim || "",
+    // Never defaulted: the author names how the source bears on the claim.
+    relation: CLAIM_RELATIONS.some((item) => item.value === value.relation) ? value.relation : "",
+    evidence: atlasEvidenceDraft(value.evidence || {}, record ? 0 : null),
+    rationale: typeof value.rationale === "string" ? value.rationale : "",
+    confidence: ATLAS_CONFIDENCE.some((item) => item.value === value.confidence) ? value.confidence : "tentative",
+    uncertainty: typeof value.uncertainty === "string" ? value.uncertainty : "",
+    reviewState: CLAIM_REVIEW_STATES.some((item) => item.value === value.reviewState) ? value.reviewState : "unreviewed",
+    approved: value.visibility === "approved",
+  };
+}
+
+export function evidenceLinkPayload(draft) {
+  const record = { ...(draft.original || {}) };
+  for (const field of ["rationale", "uncertainty"]) delete record[field];
+  record.id = draft.id;
+  record.claim = draft.claim;
+  record.relation = draft.relation;
+  record.evidence = atlasEvidencePayload(draft.evidence);
+  const rationale = String(draft.rationale ?? "").trim();
+  if (rationale) record.rationale = rationale;
+  record.confidence = draft.confidence;
+  const uncertainty = String(draft.uncertainty ?? "").trim();
+  if (uncertainty) record.uncertainty = uncertainty;
+  record.reviewState = draft.reviewState;
+  record.visibility = draft.approved ? "approved" : "private";
+  return record;
+}
+
+export function validateEvidenceLinkDraft(draft, { sources = [], passages = [] } = {}) {
+  if (!CLAIM_RELATIONS.some((item) => item.value === draft.relation)) return { field: "relation", message: "Choose whether the source supports, contradicts or contextualizes the claim. A citation alone asserts none of these." };
+  const source = draft.evidence.source;
+  if (!source) return { field: "source", message: "Choose the source this link rests on." };
+  if (!sources.some((item) => item.id === source)) return { field: "source", message: "That source is not in your library." };
+  if (draft.evidence.passage) {
+    const passage = passages.find((item) => item.id === draft.evidence.passage);
+    if (!passage) return { field: "passage", message: "That passage is not in your notebook." };
+    if (passage.source !== source) return { field: "passage", message: "A passage must be quoted from the source this link names." };
+    if (draft.approved) return { field: "passage", message: "An approved link cites the source and locators, never a private notebook passage. Remove the passage or keep the link private." };
+  }
+  if (parseLocatorLines(draft.evidence.locators).some((locator) => !locator.kind || !locator.value)) return { field: "locators", message: "Write each location as kind: value, such as page: 514." };
+  for (const [field, text, max] of [["rationale", draft.rationale, MAX_CLAIM_RATIONALE_CHARS], ["uncertainty", draft.uncertainty, 2000]]) {
+    if ([...String(text ?? "")].length > max) return { field, message: `At most ${max} characters.` };
+    if (CLAIM_UNSAFE_TEXT.test(String(text ?? "").replace(/[\n\t]/g, " "))) return { field, message: "Remove control or direction-override characters." };
+  }
+  if (draft.approved && draft.original?.origin === "suggested" && draft.reviewState !== "reviewed") return { field: "approved", message: "Review a suggested link yourself before approving it." };
+  return null;
+}
+
+/** A server diagnostic's field, mapped to the claims form control that edits it. */
+export function claimDiagnosticControl(field, type = "claim") {
+  const path = String(field || "");
+  if (type === "claim") return { statement: "statement", uncertainty: "uncertainty", visibility: "approved", post: "statement", anchor: "statement" }[path.split(".")[0]] || "";
+  if (path.startsWith("evidence.passage")) return "passage";
+  if (path.startsWith("evidence.locators")) return "locators";
+  if (path.startsWith("evidence")) return "source";
+  return { relation: "relation", rationale: "rationale", confidence: "confidence", uncertainty: "uncertainty", reviewState: "review", visibility: "approved", claim: "relation" }[path.split(".")[0]] || "";
+}
+
+export function claimsErrorMessage(error) {
+  const diagnostics = Array.isArray(error?.data?.diagnostics) ? error.data.diagnostics : [];
+  if (!diagnostics.length) return error?.data?.error || error?.message || "The claims could not be changed.";
+  return diagnostics.map((item) => `${item.field ? `${item.field}: ` : ""}${item.message}`).join(" ");
+}
+
+export function applyClaimsState(state, result) {
+  for (const key of ["revision", "file", "claims", "links", "sources", "passages", "notices", "findings", "anchors", "counts", "projected", "post"]) {
+    if (result && result[key] !== undefined) state[key] = result[key];
+  }
+  for (const key of ["claims", "links", "sources", "passages", "notices", "findings", "projected"]) if (!Array.isArray(state[key])) state[key] = [];
+  for (const key of ["anchors", "counts"]) if (!state[key] || typeof state[key] !== "object") state[key] = {};
+  return state;
+}
+
+/**
+ * Claims and evidence links for one saved post, inside Evidence Studio. `post()` gives the post's
+ * path and the revision the editor loaded; `selection()` gives `{ anchor }` or `{ error }` for the
+ * words selected in the draft. Every save names the claims revision; a conflict keeps the draft
+ * until the author uses the stored copy or keeps theirs. Supporting and contradicting links are
+ * listed side by side and never combined.
+ */
+export function createClaimsStudio({ api, post, selection, idPrefix = "oba-claims" }) {
+  const state = applyClaimsState({ post: "" }, {});
+  let form = null; // null, or { type: "claim" | "link", draft, editing, conflict }
+  let busy = false;
+  let lastRemoved = null; // { type, record } for undo
+  // Claims are stored apart from the post: typing in their forms is not an edit of the post, so it
+  // must not mark the post unsaved (which would refuse the next claim until a needless save).
+  const root = h("section", { class: "oba-claims", "aria-labelledby": `${idPrefix}-heading`, "data-claims": "true", onInput: (event) => event.stopPropagation() });
+  const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-claims-status": "true" });
+  const errorBox = h("p", { class: "oba-error", id: `${idPrefix}-error`, role: "alert", hidden: true, tabindex: "-1" });
+  const list = h("div", { class: "oba-claim-list", "data-claims-list": "true" });
+  const formRegion = h("div", { class: "oba-claim-form-region" });
+  const undoRegion = h("div", { class: "oba-claim-undo", "data-claims-undo": "true" });
+  const noticeRegion = h("div", { class: "oba-claim-notices", "data-claims-notices": "true" });
+  const findingsSummary = h("p", { class: "oba-small", "data-claims-findings-summary": "true", hidden: true });
+  const say = (text, kind = "oba-small") => {
+    status.className = kind;
+    status.textContent = text;
+  };
+  const control = (name) => root.querySelector(`#${idPrefix}-${name}`);
+  const used = () => [...state.claims, ...state.links].map((record) => record.id);
+  const claimById = (id) => state.claims.find((claim) => claim.id === id) || null;
+  const linkById = (id) => state.links.find((link) => link.id === id) || null;
+  const sourceById = (id) => state.sources.find((source) => source.id === id) || null;
+  const passageById = (id) => state.passages.find((passage) => passage.id === id) || null;
+  const postClaims = () => state.claims.filter((claim) => claim.post === state.post);
+
+  const fail = (message, name = "") => {
+    errorBox.hidden = false;
+    errorBox.textContent = message;
+    const target = name ? control(name) : null;
+    if (target) {
+      target.setAttribute("aria-invalid", "true");
+      target.setAttribute("aria-describedby", errorBox.id);
+      target.focus();
+    } else errorBox.focus();
+  };
+  const clearError = () => {
+    errorBox.hidden = true;
+    errorBox.textContent = "";
+    for (const target of root.querySelectorAll("[aria-invalid]")) {
+      target.removeAttribute("aria-invalid");
+      target.removeAttribute("aria-describedby");
+    }
+  };
+  const field = (name, labelText, input, hint) => {
+    input.id = `${idPrefix}-${name}`;
+    if (hint) input.setAttribute("aria-describedby", `${idPrefix}-${name}-hint`);
+    return h("div", { class: "oba-field", "data-claims-field": name }, h("label", { for: input.id }, labelText), input, hint ? h("p", { class: "oba-small", id: `${idPrefix}-${name}-hint` }, hint) : null);
+  };
+  const check = (name, labelText, checked, onToggle, hint) => {
+    const id = `${idPrefix}-${name}`;
+    return h(
+      "div",
+      { "data-claims-field": name },
+      h("div", { class: "oba-capture-check" }, h("input", { id, type: "checkbox", checked, "aria-describedby": hint ? `${id}-hint` : null, onChange: (event) => onToggle(event.target.checked) }), h("label", { for: id }, labelText)),
+      hint ? h("p", { class: "oba-small", id: `${id}-hint` }, hint) : null,
+    );
+  };
+
+  const refresh = async () => {
+    const current = post();
+    applyClaimsState(state, await api.call("GET", current?.path ? `research/claims?path=${encodeURIComponent(current.path)}` : "research/claims"));
+    if (!state.post && current?.slug) state.post = current.slug;
+  };
+
+  /** Ask the server to check a selection against the saved draft it was made in. */
+  const checkSelection = async () => {
+    const current = post();
+    if (!current?.path || !current.etag) return { error: "Save the post first: claims are checked against the saved draft." };
+    if (current.dirty) return { error: "Save the post first: claims are checked against the saved draft, not unsaved changes." };
+    const picked = selection();
+    if (picked.error) return picked;
+    try {
+      const checked = await api.call("POST", "research/claims/anchor", { json: { path: current.path, etag: current.etag, ...picked.anchor } });
+      if (checked.status !== "verified") return { error: `Not anchored. ${claimAnchorStatusText(checked)}` };
+      state.post = checked.post;
+      return { anchor: checked.anchor, post: checked.post };
+    } catch (error) {
+      if (error.status === 401) throw error;
+      return { error: error.data?.error || error.message || "The selection could not be checked." };
+    }
+  };
+
+  // ---- forms
+
+  const claimFields = (draft) => [
+    field("statement", "Claim, in your words", h("textarea", { rows: 3, value: draft.statement, onInput: (event) => { draft.statement = event.target.value; } }), draft.anchor ? null : "Not tied to particular words of the draft."),
+    draft.anchor ? h("p", { class: "oba-small", "data-claims-anchor-text": "true" }, "Anchored to the words: ", h("q", {}, draft.anchor.text)) : null,
+    field("uncertainty", "What is doubtful or unsettled about it (optional)", h("textarea", { rows: 2, value: draft.uncertainty, onInput: (event) => { draft.uncertainty = event.target.value; } })),
+    check("approved", "Approve this claim for publication with the post", draft.approved, (value) => { draft.approved = value; }, "Your consent to publish this claim's statement and uncertainty in the post's Claims and evidence section and claim-evidence.json, once the site turns on claimEvidence.publish. Its words in the post are quoted only while they are still where you anchored them. Withdrawing approval is always allowed and removes the claim and its evidence from the next build."),
+  ];
+
+  const sourceOptions = (current) => {
+    const live = captureSources(state.sources);
+    const kept = state.sources.filter((source) => source.archived && source.id === current);
+    return [h("option", { value: "", selected: !current }, "Choose a source"), ...[...live, ...kept].map((source) => h("option", { value: source.id, selected: current === source.id }, `${sourceLabel(source)}${source.archived ? " (archived)" : ""} (${source.kind})`))];
+  };
+
+  const linkFields = (draft) => {
+    const evidence = draft.evidence;
+    const passages = state.passages.filter((passage) => !passage.archived || passage.id === evidence.passage);
+    const sourceSelect = h("select", { onChange: (event) => { evidence.source = event.target.value; if (evidence.passage && passageById(evidence.passage)?.source !== evidence.source) evidence.passage = ""; render(); control("source")?.focus(); } }, sourceOptions(evidence.source));
+    const passageSelect = h(
+      "select",
+      {
+        onChange: (event) => {
+          evidence.passage = event.target.value;
+          const passage = passageById(evidence.passage);
+          if (passage) {
+            evidence.source = passage.source;
+            if (!evidence.locators.trim()) evidence.locators = formatLocatorLines(passage.locators);
+          }
+          render();
+          control("passage")?.focus();
+        },
+      },
+      h("option", { value: "", selected: !evidence.passage }, "None: cite the library source"),
+      passages.map((passage) => h("option", { value: passage.id, selected: evidence.passage === passage.id }, `${passage.preview || passage.id} (${sourceById(passage.source) ? sourceLabel(sourceById(passage.source)) : passage.source}${passage.locators?.length ? `, ${formatLocatorLines(passage.locators).replace(/\n/g, "; ")}` : ""})`)),
+    );
+    return [
+      h(
+        "fieldset",
+        { class: "oba-claims-relation", id: `${idPrefix}-relation`, tabindex: "-1" },
+        h("legend", {}, "How does this source bear on the claim?"),
+        CLAIM_RELATIONS.map(({ value, label }) => {
+          const id = `${idPrefix}-relation-${value}`;
+          return h("div", { class: "oba-capture-check" }, h("input", { id, type: "radio", name: `${idPrefix}-relation`, value, checked: draft.relation === value, onChange: () => { draft.relation = value; } }), h("label", { for: id }, label));
+        }),
+        h("p", { class: "oba-small" }, "Your reading of the source. Nothing here checks whether it is true."),
+      ),
+      field("passage", "Notebook passage (optional)", passageSelect, "A quoted passage stays private; it is pointed to, never copied."),
+      field("source", "Source", sourceSelect),
+      field("locators", "Where in the source (optional)", h("textarea", { rows: 2, value: evidence.locators, spellcheck: "false", onInput: (event) => { evidence.locators = event.target.value; } }), "One per line, such as page: 514."),
+      field("rationale", "Why you read it this way (optional)", h("textarea", { rows: 3, value: draft.rationale, onInput: (event) => { draft.rationale = event.target.value; } })),
+      field("confidence", "How firmly you hold this reading", h("select", { onChange: (event) => { draft.confidence = event.target.value; } }, ATLAS_CONFIDENCE.map((item) => h("option", { value: item.value, selected: draft.confidence === item.value }, item.label)))),
+      field("uncertainty", "What is uncertain about it (optional)", h("textarea", { rows: 2, value: draft.uncertainty, onInput: (event) => { draft.uncertainty = event.target.value; } })),
+      field("review", "What you have checked", h("select", { onChange: (event) => { draft.reviewState = event.target.value; } }, CLAIM_REVIEW_STATES.map((item) => h("option", { value: item.value, selected: draft.reviewState === item.value }, item.label)))),
+      check("approved", "Approve this link for publication with the post", draft.approved, (value) => { draft.approved = value; }, "Your consent to publish its source, locations, relation, rationale, confidence and uncertainty beside the claim, once the claim is approved and the site turns on claimEvidence.publish. Support is never published while a contradicting link on the claim stays private. Clearing it removes the link from the next build."),
+    ];
+  };
+
+  const conflictNotice = () => {
+    const { current, editing } = form.conflict;
+    if (!editing) return h("p", { class: "oba-notice", role: "alert", "data-claims-conflict": "true" }, "The claims changed after you opened them, so nothing was saved. Your draft is still here; save again to add it to the latest claims.");
+    return h(
+      "div",
+      { class: "oba-notice", role: "alert", "data-claims-conflict": "true" },
+      h("p", {}, current ? "This was changed elsewhere after you opened it, so nothing was saved. Your draft is still here. Choose which copy to continue with." : "This was removed elsewhere after you opened it, so nothing was saved."),
+      h(
+        "div",
+        { class: "oba-toolbar" },
+        h("button", { class: "oba-btn", type: "button", "data-claims-conflict-use": "stored", onClick: () => resolveConflict(true) }, current ? "Use the stored copy" : "Discard my draft"),
+        current ? h("button", { class: "oba-btn", type: "button", "data-claims-conflict-use": "draft", onClick: () => resolveConflict(false) }, "Keep my draft") : null,
+      ),
+    );
+  };
+
+  const resolveConflict = (useStored) => {
+    const { current } = form.conflict;
+    const type = form.type;
+    form.conflict = null;
+    clearError();
+    if (useStored) {
+      if (!current) {
+        form = null;
+        render();
+        return;
+      }
+      form.draft = type === "claim" ? claimDraft(current) : evidenceLinkDraft(current);
+      say("Showing the stored copy.");
+    } else {
+      // The draft now rests on the newer copy, so fields added elsewhere carry over.
+      form.draft.original = structuredClone(current);
+      if (type === "link") form.draft.evidence.original = structuredClone(current.evidence || {});
+      say("Your draft now rests on the latest copy. Review it, then save.");
+    }
+    render();
+    control(type === "claim" ? "statement" : "relation-supports")?.focus();
+  };
+
+  const openForm = (type, draft, editing) => {
+    form = { type, draft, editing, conflict: null };
+    clearError();
+    render();
+    control(type === "claim" ? "statement" : `relation-${draft.relation || "supports"}`)?.focus();
+  };
+
+  const submit = async (event) => {
+    event.preventDefault();
+    if (busy || !form) return;
+    if (form.conflict?.editing) return fail("Choose the stored copy or keep your draft before saving.");
+    clearError();
+    const { type, draft, editing } = form;
+    const problem = type === "claim" ? validateClaimDraft(draft) : validateEvidenceLinkDraft(draft, state);
+    if (problem) return fail(problem.message, problem.field === "relation" ? "relation-supports" : problem.field);
+    if (!editing) draft.id = draft.id || suggestAtlasId(type === "claim" ? draft.statement : `${draft.claim}-${draft.relation}`, used(), type);
+    busy = true;
+    say("Saving…");
+    const key = type === "claim" ? "claim" : "link";
+    try {
+      const result = await api.call(editing ? "PUT" : "POST", `research/claims/${type === "claim" ? "claims" : "links"}`, { json: { revision: state.revision, [key]: type === "claim" ? claimPayload(draft) : evidenceLinkPayload(draft) } });
+      applyClaimsState(state, result);
+      busy = false;
+      form = null;
+      render();
+      say(type === "claim" ? "Claim saved privately." : "Evidence link saved privately.");
+      const saved = type === "claim" ? draft.id : draft.claim;
+      root.querySelector(`#${idPrefix}-claim-${saved}`)?.focus();
+    } catch (error) {
+      busy = false;
+      if (error.status === 401) throw error;
+      if (error.status === 409 && error.data?.conflict) {
+        try {
+          await refresh();
+        } catch {
+          // The next save reports whatever is wrong.
+        }
+        form.conflict = { current: error.data.current ?? null, editing };
+        render();
+        say("Not saved: the claims changed elsewhere.", "oba-error");
+        (root.querySelector("[data-claims-conflict-use]") || root.querySelector("[data-claims-save]"))?.focus();
+        return;
+      }
+      say("Not saved. The stored claims and the draft are unchanged.", "oba-error");
+      render();
+      const first = error.data?.diagnostics?.[0];
+      const name = first ? claimDiagnosticControl(first.field, type) : "";
+      fail(claimsErrorMessage(error), name === "relation" ? "relation-supports" : name);
+    }
+  };
+
+  const renderForm = () => {
+    if (!form) {
+      formRegion.replaceChildren();
+      return;
+    }
+    const { type, draft, editing } = form;
+    const claim = type === "link" ? claimById(draft.claim) : null;
+    const heading = type === "claim" ? (editing ? "Edit claim" : "New claim") : editing ? "Edit evidence link" : "Link evidence";
+    formRegion.replaceChildren(
+      h(
+        "form",
+        { class: "oba-capture-form oba-claim-form", novalidate: true, "data-claims-form": type, "aria-labelledby": `${idPrefix}-form-heading`, onSubmit: submit },
+        h("h4", { id: `${idPrefix}-form-heading` }, heading),
+        claim ? h("p", { class: "oba-small" }, "For the claim: ", h("q", {}, claim.statement)) : null,
+        ...(type === "claim" ? claimFields(draft) : linkFields(draft)),
+        errorBox,
+        form.conflict ? conflictNotice() : null,
+        h(
+          "div",
+          { class: "oba-toolbar" },
+          h("button", { class: "oba-btn oba-btn-primary", type: "submit", "data-claims-save": "true", disabled: busy || Boolean(form.conflict?.editing) }, editing ? "Save changes" : type === "claim" ? "Save claim" : "Save link"),
+          h("button", { class: "oba-btn", type: "button", "data-claims-cancel": "true", onClick: () => { form = null; clearError(); render(); root.querySelector("[data-claims-new]")?.focus(); } }, "Cancel"),
+        ),
+      ),
+    );
+  };
+
+  // ---- actions
+
+  const newClaim = async () => {
+    clearError();
+    say("Checking the selected words against the saved draft…");
+    const checked = await checkSelection();
+    if (checked.error) {
+      say(checked.error, "oba-error");
+      return;
+    }
+    say("");
+    openForm("claim", claimDraft(null, { post: checked.post, statement: checked.anchor.text, anchor: checked.anchor }), false);
+  };
+
+  const saveClaimAnchor = async (claim, anchor, message) => {
+    busy = true;
+    try {
+      const result = await api.call("PUT", "research/claims/claims", { json: { revision: state.revision, claim: { ...claim, anchor: { ...(claim.anchor || {}), ...anchor } } } });
+      applyClaimsState(state, result);
+      busy = false;
+      render();
+      say(message);
+      root.querySelector(`#${idPrefix}-claim-${claim.id}`)?.focus();
+    } catch (error) {
+      busy = false;
+      if (error.status === 401) throw error;
+      if (error.status === 409) await refresh().catch(() => {});
+      render();
+      say(`Not re-anchored. ${error.status === 409 ? "The claims changed elsewhere; try again." : claimsErrorMessage(error)}`, "oba-error");
+    }
+  };
+
+  const reanchor = async (claim) => {
+    const anchorState = state.anchors[claim.id];
+    if (anchorState?.status === "moved" && Number.isInteger(anchorState.start)) {
+      const start = anchorState.start;
+      await saveClaimAnchor(claim, { start, end: start + utf8Length(claim.anchor.text), text: claim.anchor.text }, "Claim re-anchored to where its words now are.");
+      return;
+    }
+    say("Checking the selected words against the saved draft…");
+    const checked = await checkSelection();
+    if (checked.error) {
+      say(checked.error, "oba-error");
+      return;
+    }
+    if (checked.post !== claim.post) {
+      say("The selection is in another post; open this claim's post to re-anchor it.", "oba-error");
+      return;
+    }
+    await saveClaimAnchor(claim, checked.anchor, "Claim re-anchored to the selected words.");
+  };
+
+  const remove = async (type, record) => {
+    const label = type === "claim" ? "claim" : "evidence link";
+    if (globalThis.confirm?.(`Remove this ${label}? You can undo right after.`) === false) return;
+    busy = true;
+    try {
+      const result = await api.call("DELETE", `research/claims/${type === "claim" ? "claims" : "links"}`, { json: { revision: state.revision, id: record.id } });
+      applyClaimsState(state, result);
+      busy = false;
+      lastRemoved = { type, record: structuredClone(record) };
+      render();
+      say(`Removed the ${label}.`);
+      undoRegion.querySelector("button")?.focus();
+    } catch (error) {
+      busy = false;
+      if (error.status === 401) throw error;
+      if (error.status === 409) await refresh().catch(() => {});
+      render();
+      say(`Not removed. ${error.status === 409 ? "The claims changed elsewhere; review them and try again." : claimsErrorMessage(error)}`, "oba-error");
+    }
+  };
+
+  const undo = async () => {
+    if (!lastRemoved || busy) return;
+    const { type, record } = lastRemoved;
+    busy = true;
+    try {
+      const result = await api.call("POST", `research/claims/${type === "claim" ? "claims" : "links"}`, { json: { revision: state.revision, [type === "claim" ? "claim" : "link"]: record } });
+      applyClaimsState(state, result);
+      busy = false;
+      lastRemoved = null;
+      render();
+      say(type === "claim" ? "Claim restored." : "Evidence link restored.");
+      root.querySelector(`#${idPrefix}-claim-${type === "claim" ? record.id : record.claim}`)?.focus();
+    } catch (error) {
+      busy = false;
+      if (error.status === 401) throw error;
+      if (error.status === 409) await refresh().catch(() => {});
+      render();
+      say(`Not restored. ${error.status === 409 ? "The claims changed elsewhere; try again." : claimsErrorMessage(error)}`, "oba-error");
+    }
+  };
+
+  // ---- the list
+
+  const linkItem = (link) => {
+    const source = sourceById(link.evidence?.source);
+    const passage = link.evidence?.passage ? passageById(link.evidence.passage) : null;
+    const where = formatLocatorLines(link.evidence?.locators).replace(/\n/g, "; ");
+    const confidence = ATLAS_CONFIDENCE.find((item) => item.value === link.confidence)?.label || "Tentative";
+    const review = CLAIM_REVIEW_STATES.find((item) => item.value === link.reviewState)?.label || CLAIM_REVIEW_STATES[0].label;
+    const name = `${source ? sourceLabel(source) : link.evidence?.source}${where ? `, ${where}` : ""}`;
+    return h(
+      "li",
+      { class: "oba-claim-link", "data-claims-link": link.id, "data-relation": link.relation },
+      h("p", {}, h("strong", {}, name)),
+      passage ? h("p", { class: "oba-small" }, "Passage: ", h("q", {}, passage.preview || passage.id)) : null,
+      link.rationale ? h("p", {}, link.rationale) : null,
+      h("p", { class: "oba-small" }, `${confidence} confidence, as you hold it. ${review}.`),
+      link.uncertainty ? h("p", { class: "oba-small" }, `Uncertain: ${link.uncertainty}`) : null,
+      h("p", { class: "oba-small", "data-claims-visibility": link.visibility }, link.visibility === "approved" ? (state.projected.includes(link.id) ? "Approved; a future publication may include it." : "Approved, but held back until its claim and every contradicting link on it are approved.") : "Private."),
+      link.origin === "suggested" ? h("p", { class: "oba-small" }, "Suggested, not yet your own reading.") : null,
+      h(
+        "div",
+        { class: "oba-toolbar" },
+        h("button", { class: "oba-btn", type: "button", "aria-label": `Edit link: ${name}`, onClick: () => openForm("link", evidenceLinkDraft(link), true) }, "Edit"),
+        h("button", { class: "oba-btn", type: "button", "aria-label": `Remove link: ${name}`, "data-claims-remove-link": link.id, onClick: () => remove("link", link) }, "Remove"),
+      ),
+    );
+  };
+
+  const claimItem = (claim) => {
+    const anchorState = state.anchors[claim.id] || null;
+    const columns = claimLinkColumns(state.links, claim.id);
+    const column = (relation) => {
+      const { heading } = CLAIM_RELATIONS.find((item) => item.value === relation);
+      const links = columns[relation];
+      return h(
+        "section",
+        { class: "oba-claim-column", "data-claims-column": relation, "aria-label": `${heading} evidence` },
+        h("h5", {}, `${heading} (${links.length})`),
+        links.length ? h("ul", { class: "oba-claim-links" }, links.map(linkItem)) : h("p", { class: "oba-small" }, `No ${heading.toLowerCase()} evidence recorded.`),
+      );
+    };
+    const blocked = anchorState && ["stale", "ambiguous"].includes(anchorState.status);
+    const findings = claimFindings(state.findings, claim.id);
+    const prompts = findings.length
+      ? h(
+          "section",
+          { class: "oba-claim-findings", "data-claims-findings": claim.id, "aria-label": `Evidence gaps and prompts for the claim: ${claim.statement}` },
+          h("h5", {}, `Gaps and prompts (${findings.length})`),
+          h(
+            "ul",
+            {},
+            findings.map((finding) =>
+              h(
+                "li",
+                { class: `oba-claim-finding is-${finding.outcome}`, "data-claims-finding": finding.code },
+                h("p", {}, h("code", {}, finding.code), ` (${CLAIM_FINDING_OUTCOMES.find((item) => item.outcome === finding.outcome)?.label || finding.outcome}): `, finding.message),
+                h("p", { class: "oba-small" }, h("strong", {}, "Next: "), finding.repair),
+              ),
+            ),
+          ),
+        )
+      : null;
+    return h(
+      "article",
+      { class: "oba-claim", "data-claims-claim": claim.id, "aria-labelledby": `${idPrefix}-claim-${claim.id}` },
+      h("h4", { id: `${idPrefix}-claim-${claim.id}`, tabindex: "-1" }, claim.statement),
+      claim.anchor ? h("p", { class: "oba-small" }, "Words: ", h("q", {}, claim.anchor.text)) : null,
+      h("p", { class: "oba-small", "data-claims-anchor": anchorState?.status || "none" }, claimAnchorStatusText(anchorState)),
+      claim.uncertainty ? h("p", { class: "oba-small" }, `Uncertain: ${claim.uncertainty}`) : null,
+      h("p", { class: "oba-small", "data-claims-counts": claim.id }, claimCountsText(state.counts[claim.id])),
+      h("div", { class: "oba-claim-columns" }, column("supports"), column("contradicts")),
+      column("contextualizes"),
+      prompts,
+      h(
+        "div",
+        { class: "oba-toolbar" },
+        h("button", { class: "oba-btn", type: "button", disabled: Boolean(blocked), "aria-label": `Link evidence to the claim: ${claim.statement}`, "data-claims-add-link": claim.id, onClick: () => openForm("link", evidenceLinkDraft(null, { claim: claim.id }), false) }, "Link evidence"),
+        anchorState && anchorState.status !== "verified" && !anchorState.missingPost
+          ? h("button", { class: "oba-btn", type: "button", "data-claims-reanchor": claim.id, "aria-label": `${anchorState.status === "moved" ? "Re-anchor to its new position" : "Re-anchor to the selected words"}: ${claim.statement}`, onClick: () => reanchor(claim) }, anchorState.status === "moved" ? "Re-anchor to its new position" : "Re-anchor to the selected words")
+          : null,
+        h("button", { class: "oba-btn", type: "button", "aria-label": `Edit claim: ${claim.statement}`, onClick: () => openForm("claim", claimDraft(claim), true) }, "Edit"),
+        h("button", { class: "oba-btn", type: "button", "aria-label": `Remove claim: ${claim.statement}`, "data-claims-remove-claim": claim.id, onClick: () => remove("claim", claim) }, "Remove"),
+      ),
+      blocked ? h("p", { class: "oba-small" }, "Re-anchor the claim before adding evidence, so evidence never attaches to words you did not choose.") : null,
+    );
+  };
+
+  const render = () => {
+    renderForm();
+    const claims = postClaims();
+    // replaceChildren takes nodes only: an array or a null would be shown as text.
+    list.replaceChildren(
+      ...(claims.length
+        ? claims.map(claimItem)
+        : [h("p", { class: "oba-small", "data-claims-empty": "true" }, "No claims about this post yet. Select words in the draft, then make a claim from them.")]),
+    );
+    undoRegion.replaceChildren(
+      ...(lastRemoved ? [h("button", { class: "oba-btn", type: "button", "data-claims-undo-button": "true", onClick: undo }, lastRemoved.type === "claim" ? "Undo removing the claim" : "Undo removing the link")] : []),
+    );
+    const notices = state.notices.filter((notice) => {
+      const link = linkById(notice.id);
+      return link && claimById(link.claim)?.post === state.post;
+    });
+    noticeRegion.replaceChildren(...notices.map((notice) => h("p", { class: "oba-small", "data-claims-notice": notice.code }, `Link ${notice.id}: ${notice.message}`)));
+    const ids = new Set(claims.map((claim) => claim.id));
+    findingsSummary.hidden = claims.length === 0;
+    findingsSummary.textContent = claims.length ? claimFindingsSummary(state.findings.filter((finding) => ids.has(finding.object?.claim))) : "";
+  };
+  root.append(
+    h("h3", { id: `${idPrefix}-heading` }, "Claims and evidence"),
+    h("p", { class: "oba-small" }, "Private to you. A claim is your statement about this post; an evidence link records how one source bears on it. Nothing here scores evidence or decides what is true, and a citation alone links nothing."),
+    h("div", { class: "oba-toolbar" }, h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-claims-new": "true", onClick: () => newClaim() }, "Make a claim from the selected words")),
+    status,
+    undoRegion,
+    formRegion,
+    noticeRegion,
+    findingsSummary,
+    list,
+  );
+
+  return {
+    element: root,
+    state,
+    async load() {
+      try {
+        await refresh();
+        render();
+        say(state.file ? `Stored privately in ${state.file}.` : "");
+      } catch (error) {
+        if (error.status === 401) throw error;
+        list.replaceChildren(
+          h("p", { class: "oba-error", role: "alert" }, `The claims could not be read. ${claimsErrorMessage(error)}`),
+          ...(error.data?.file ? [h("p", { class: "oba-small" }, `Repair ${error.data.file} by hand, then open this view again. Nothing was changed.`)] : []),
+        );
+      }
+    },
+    isDirty: () => Boolean(form) && !busy,
+    newClaim,
+  };
+}
+
 export const SHARED_SOURCE_KINDS = Object.freeze([
   { value: "video", label: "Video", example: "e.g. How to Listen, a talk on YouTube" },
   { value: "article", label: "Article", example: "e.g. The Slow Read, an essay in a magazine" },
@@ -4407,6 +5274,33 @@ function visualChildrenMarkdown(node) {
   return out;
 }
 
+/**
+ * The Markdown one visual-editor block (a direct child of the rich editor) writes into the draft.
+ * An empty string means the block writes nothing, so the draft has no block for it.
+ */
+function visualBlockMarkdown(element) {
+  if (element.classList.contains("oba-protected-block")) return (element.dataset.markdown || "").replace(/\n+$/, "");
+  const tag = element.tagName.toLowerCase();
+  const inline = () => visualChildrenMarkdown(element).trim();
+  if (/^h[1-6]$/.test(tag)) return `${"#".repeat(Number(tag[1]))} ${inline()}`;
+  if (tag === "ul" || tag === "ol") {
+    const listStart = tag === "ol" ? Number(element.getAttribute("start") || 1) : 1;
+    return [...element.children]
+      .filter((item) => item.tagName.toLowerCase() === "li")
+      .map((item, index) => `${tag === "ol" ? `${listStart + index}.` : "-"} ${visualChildrenMarkdown(item).trim()}`)
+      .join("\n");
+  }
+  if (tag === "blockquote") return inline().split("\n").map((line) => `> ${line}`).join("\n");
+  if (tag === "pre") {
+    const text = element.textContent || "";
+    const longest = Math.max(0, ...(text.match(/`+/g) || []).map((run) => run.length));
+    const fence = "`".repeat(Math.max(3, longest + 1));
+    return `${fence}${element.dataset.language || ""}\n${text}\n${fence}`;
+  }
+  if (tag === "img") return visualInlineMarkdown(element);
+  return inline().replace(/^(#{1,6}|>|[-+*]|\d+[.)])\s/, "\\$&");
+}
+
 function visualInlineMarkdown(node) {
   if (node.nodeType === Node.TEXT_NODE) return markdownText(node.nodeValue);
   if (node.nodeType !== Node.ELEMENT_NODE) return "";
@@ -4674,6 +5568,7 @@ export class ObAdmin extends AdminElement {
     const visible = new Set(visibleAdminModules(this.preferences));
     if (["analytics", "contributors"].includes(this.activeRoute)) visible.add(this.activeRoute);
     if (["sources", "research", "atlas"].includes(this.activeRoute)) visible.add("evidence");
+    if (this.activeRoute === "feedback") visible.add("analytics");
     return visible;
   }
 
@@ -4813,6 +5708,8 @@ export class ObAdmin extends AdminElement {
     ];
     const activeInfo = active === "analytics"
       ? { title: "Analytics", detail: "Understand readership without tracking individual readers." }
+      : active === "feedback"
+        ? { title: "Reader feedback", detail: "Review what readers sent about passages, respond, and record what changed." }
       : active === "sources"
         ? { title: "Sources", detail: "Keep private research sources, editions, translations, and references in one library." }
       : active === "research"
@@ -4850,7 +5747,7 @@ export class ObAdmin extends AdminElement {
         "nav",
         { class: "oba-toolbelt", "aria-label": "Admin tools" },
         toolGroup("Content", ...contentTabs),
-        h("div", { class: "oba-progressive-tools", "data-admin-module": "analytics", hidden: !visibleModules.has("analytics") }, toolGroup("Observe", h("a", { class: "oba-tab", "aria-current": active === "analytics" ? "page" : null, href: "#/analytics" }, "Analytics"))),
+        h("div", { class: "oba-progressive-tools", "data-admin-module": "analytics", hidden: !visibleModules.has("analytics") }, toolGroup("Observe", h("a", { class: "oba-tab", "aria-current": active === "analytics" ? "page" : null, href: "#/analytics" }, "Analytics"), h("a", { class: "oba-tab", "aria-current": active === "feedback" ? "page" : null, href: "#/feedback" }, "Reader feedback"))),
         h("div", { class: "oba-progressive-tools", "data-admin-module": "evidence", hidden: !visibleModules.has("evidence") }, toolGroup("Research", h("a", { class: "oba-tab", "aria-current": active === "sources" ? "page" : null, href: "#/sources" }, "Sources"), h("a", { class: "oba-tab", "aria-current": active === "research" ? "page" : null, href: "#/research" }, "Notebook"), h("a", { class: "oba-tab", "aria-current": active === "atlas" ? "page" : null, href: "#/atlas" }, "Atlas"))),
         h("div", { class: "oba-progressive-tools", "data-admin-module-group": "contributors public-site", hidden: !visibleModules.has("contributors") && !visibleModules.has("public-site") }, toolGroup(
           "Site",
@@ -5032,6 +5929,7 @@ export class ObAdmin extends AdminElement {
       { label: "Pages", category: "Content", run: () => go("#/pages") },
       { label: "Series", category: "Content", run: () => go("#/series") },
       { label: "Analytics", category: "Observe", keywords: "views visitors", run: () => go("#/analytics") },
+      { label: "Reader feedback", category: "Observe", keywords: "moderation questions corrections responses revision notes", run: () => go("#/feedback") },
       { label: "Sources", category: "Research", keywords: "library bibliography citations editions translations witnesses references", run: () => go("#/sources") },
       { label: "Research notebook", category: "Research", keywords: "passages notes quotations excerpts observations questions capture", run: () => go("#/research") },
       { label: "Knowledge Atlas", category: "Research", keywords: "atlas people works concepts movements events relationships influence explore", run: () => go("#/atlas") },
@@ -5191,6 +6089,7 @@ export class ObAdmin extends AdminElement {
       if (head === "edit" && tail) await this.showEditor(decodeURIComponent(tail));
       else if (head === "new" && KINDS[tail]) await this.showEditor(null, tail);
       else if (head === "analytics") await this.showAnalytics(Number(tail) || 30);
+      else if (head === "feedback") await this.showFeedback(tail);
       else if (head === "contributors") await this.showContributors();
       else if (head === "sources") await this.showSources();
       else if (head === "research") await this.showResearch();
@@ -9281,6 +10180,254 @@ export class ObAdmin extends AdminElement {
     );
   }
 
+  // ---- reader feedback (ADR 0083)
+
+  /**
+   * Moderate passage feedback through this server, which alone holds the hosted token, and
+   * look after what the site publishes: responses and revision notes. A passage that moved or
+   * changed is said so before anyone can approve it.
+   */
+  async showFeedback(requested) {
+    const status = FEEDBACK_QUEUE_STATES.includes(requested) ? requested : "pending";
+    const queueStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite", tabindex: "-1" }, `Loading ${FEEDBACK_STATE_LABELS[status].toLowerCase()} feedback…`);
+    const readOnlyNote = FEEDBACK_READ_ONLY_NOTES[status] ? h("p", { class: "oba-small" }, FEEDBACK_READ_ONLY_NOTES[status]) : null;
+    const queue = h("ol", { class: "oba-feedback-list", "aria-labelledby": "oba-feedback-queue-title" });
+    const publishedStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite", tabindex: "-1" }, "Loading published feedback…");
+    const published = h("ol", { class: "oba-feedback-list", "aria-labelledby": "oba-feedback-published-title" });
+    const filters = h(
+      "nav",
+      { class: "oba-tabs", "aria-label": "Feedback by moderation state" },
+      FEEDBACK_QUEUE_STATES.map((state) => h("a", { class: "oba-tab", href: `#/feedback/${state}`, "aria-current": state === status ? "page" : null }, FEEDBACK_STATE_LABELS[state])),
+    );
+    let publishedEtag = "absent";
+    // A message for a published card that outlives the reload replacing it, such as a conflict.
+    const publishedNotices = new Map();
+    const announce = (line, message, kind) => {
+      line.className = kind ? `oba-${kind}` : "oba-small";
+      line.textContent = message;
+    };
+
+    const loadPublished = async () => {
+      try {
+        const result = await this.api.call("GET", "engagement/feedback/published");
+        publishedEtag = result.etag;
+        const items = Array.isArray(result.items) ? result.items : [];
+        published.replaceChildren(...items.map((item) => h("li", {}, publishedCard(item))));
+        announce(publishedStatus, items.length ? `${items.length} note${items.length === 1 ? "" : "s"} published on your posts.` : "No reader feedback is published on your posts yet.");
+      } catch (error) {
+        published.replaceChildren();
+        announce(publishedStatus, `Published feedback could not be loaded. ${error.message}`, "error");
+      }
+    };
+
+    const loadQueue = async () => {
+      try {
+        const result = await this.api.call("GET", `engagement/feedback?status=${status}`);
+        const items = Array.isArray(result.items) ? result.items : [];
+        queue.replaceChildren(...items.map((item) => h("li", {}, queueCard(item))));
+        const skipped = result.invalid ? ` ${result.invalid} item${result.invalid === 1 ? " was" : "s were"} not valid and ${result.invalid === 1 ? "is" : "are"} not shown.` : "";
+        announce(queueStatus, feedbackQueueSummary(status, items.length) + skipped);
+      } catch (error) {
+        queue.replaceChildren();
+        announce(queueStatus, `Feedback could not be loaded. ${error.message}`, error.status === 404 || error.status === 503 ? "notice" : "error");
+      }
+    };
+
+    const reloadAll = async (message, kind) => {
+      await Promise.all([loadQueue(), loadPublished()]);
+      if (message) {
+        announce(queueStatus, message, kind);
+        queueStatus.focus();
+      }
+    };
+
+    const queueCard = (item) => {
+      const key = item.id;
+      const titleId = `oba-feedback-${key}-title`;
+      const line = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+      const where = item.post ? `“${item.post.title}”` : item.work;
+      const card = h(
+        "article",
+        { class: "oba-context-card oba-feedback-item", "aria-labelledby": titleId, "data-feedback-id": key },
+        h("h3", { id: titleId }, `${item.kindLabel} on ${where}`),
+        h("p", { class: "oba-small" }, `Received ${formatWhen(item.receivedAt)} · ${item.statusLabel}${item.reasonLabel ? ` (${item.reasonLabel})` : ""}`),
+        feedbackPassage(item.passage),
+        h("h4", {}, "The reader’s note"),
+        h("p", { class: "oba-feedback-body" }, item.body),
+        item.details?.sourceUrl ? h("p", {}, "Suggested source: ", h("a", { href: item.details.sourceUrl, target: "_blank", rel: "noopener noreferrer nofollow" }, item.details.sourceUrl)) : null,
+        item.details?.suggestedText ? h("div", {}, h("p", {}, "Suggested wording:"), h("blockquote", { class: "oba-feedback-body" }, item.details.suggestedText)) : null,
+        h("p", { class: "oba-small" }, feedbackReaderLine(item.reader)),
+        feedbackPreview(item.publicPreview),
+      );
+      const actions = h("div", { class: "oba-toolbar" });
+      let acknowledge = null;
+      const busy = (on) => card.querySelectorAll("button, select, input").forEach((control) => { control.disabled = on; });
+      const act = async (action, reason) => {
+        busy(true);
+        announce(line, `${action === "approve" ? "Approving" : action === "reject" ? "Rejecting" : "Removing"}…`);
+        try {
+          const result = await this.api.call("PATCH", "engagement/feedback", { json: feedbackModerationRequest(item, action, reason, acknowledge?.checked) });
+          const done = action === "approve"
+            ? result.published ? `Approved and published on ${where}. Rebuild or publish to update the live site.` : `Approved. ${result.publishError || ""}`
+            : action === "reject" ? "Rejected. Nothing was published."
+            : result.published ? `Removed, but still on the post. ${result.publishError || ""} Take it off the post from the Removed list.`
+            : result.publishError ? `Removed. ${result.publishError}` : `Removed from ${where}.`;
+          await reloadAll(done, result.publishError ? "notice" : "ok");
+        } catch (error) {
+          busy(false);
+          announce(line, error.message, "error");
+          if (error.status === 409) await reloadAll(`${error.message} The list was reloaded.`, "error");
+        }
+      };
+      for (const option of item.actions || []) {
+        if (option.action === "approve") {
+          if (item.passage?.acknowledge) {
+            const checkId = `oba-feedback-${key}-acknowledge`;
+            acknowledge = h("input", { type: "checkbox", id: checkId });
+            card.append(h("p", { class: "oba-feedback-acknowledge" }, acknowledge, " ", h("label", { for: checkId }, "I have read the passage as it is published now, and still want to approve this note.")));
+          }
+          actions.append(h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: () => {
+            if (acknowledge && !acknowledge.checked) {
+              announce(line, "Confirm that you read the passage as it is now before approving.", "error");
+              acknowledge.focus();
+              return;
+            }
+            act("approve");
+          } }, "Approve"));
+        } else {
+          const selectId = `oba-feedback-${key}-${option.action}-reason`;
+          const select = h("select", { id: selectId }, h("option", { value: "" }, "Choose a reason"), option.reasons.map((reason) => h("option", { value: reason.id }, reason.label)));
+          actions.append(h("span", { class: "oba-feedback-reason" },
+            h("label", { for: selectId }, option.action === "reject" ? "Reason to reject" : "Reason to remove"), " ", select, " ",
+            h("button", { class: "oba-btn oba-btn-danger", type: "button", onClick: () => {
+              if (!select.value) {
+                announce(line, "Choose a reason first.", "error");
+                select.focus();
+                return;
+              }
+              act(option.action, select.value);
+            } }, option.label)));
+        }
+      }
+      const mismatch = feedbackPublicationMismatch(item);
+      if (mismatch) {
+        actions.append(h("button", { class: "oba-btn", type: "button", onClick: async () => {
+          busy(true);
+          try {
+            await this.api.call("POST", `engagement/feedback/${mismatch.action}`, { json: { id: item.id } });
+            await reloadAll(mismatch.action === "publish" ? `Published on ${where}.` : `Taken off ${where}. Rebuild or publish to update the live site.`, "ok");
+          } catch (error) {
+            busy(false);
+            announce(line, error.message, "error");
+          }
+        } }, mismatch.label));
+        card.append(h("p", { class: "oba-notice" }, mismatch.notice));
+      } else if (item.status === "approved" && item.published === true) {
+        card.append(h("p", { class: "oba-small" }, "Published on the post. ", h("a", { href: `#oba-published-${key}`, onClick: (event) => {
+          event.preventDefault();
+          document.getElementById(`oba-published-${key}-response`)?.focus();
+        } }, "Respond or record a revision note")));
+      }
+      card.append(actions, line);
+      return card;
+    };
+
+    const publishedCard = (item) => {
+      const key = item.id;
+      const titleId = `oba-published-${key}-title`;
+      const line = h("p", { class: "oba-small", role: "status", "aria-live": "polite", id: `oba-published-${key}-line`, tabindex: "-1" });
+      if (publishedNotices.has(key)) {
+        announce(line, publishedNotices.get(key), "error");
+        publishedNotices.delete(key);
+      }
+      const responseId = `oba-published-${key}-response`;
+      const response = h("textarea", { id: responseId, rows: "4", maxlength: "4000", "aria-describedby": `${responseId}-hint` });
+      response.value = item.response?.text || "";
+      const saveResponse = async (text) => {
+        announce(line, "Saving your response…");
+        try {
+          const result = await this.api.call("PUT", "engagement/feedback/response", { json: { id: item.id, etag: publishedEtag, response: text } });
+          publishedEtag = result.etag;
+          announce(line, text === null ? "Response removed. Rebuild or publish to update the live site." : "Response saved. Rebuild or publish to update the live site.", "ok");
+        } catch (error) {
+          announce(line, error.message, "error");
+          if (error.status === 409) {
+            publishedNotices.set(key, error.message);
+            await loadPublished();
+            document.getElementById(`oba-published-${key}-line`)?.focus();
+          }
+        }
+      };
+      const noteId = `oba-published-${key}-note`;
+      const dateId = `oba-published-${key}-date`;
+      const claimId = `oba-published-${key}-claim`;
+      const note = h("input", { type: "text", id: noteId, maxlength: "200", "aria-describedby": `${noteId}-hint` });
+      const date = h("input", { type: "date", id: dateId, value: new Date().toISOString().slice(0, 10) });
+      const claim = h("input", { type: "text", id: claimId, pattern: "[a-z0-9-]*", "aria-describedby": `${claimId}-hint` });
+      const public_ = item.public;
+      return h(
+        "article",
+        { class: "oba-context-card oba-feedback-item", id: `oba-published-${key}`, "aria-labelledby": titleId },
+        h("h3", { id: titleId }, `${item.kindLabel} on ${item.postTitle ? `“${item.postTitle}”` : item.post}`),
+        h("p", { class: "oba-small" }, `Received ${item.received} · approved ${item.approved} · ${item.name ? `shown as from ${item.name}` : "shown as from a reader"}`),
+        public_ ? feedbackPreview(public_.provenance) : h("p", { class: "oba-notice" }, "This post is not loaded, so the note is not shown anywhere until it is."),
+        h("p", { class: "oba-feedback-body" }, item.body),
+        h("div", { class: "oba-field" },
+          h("label", { for: responseId }, "Your public response"),
+          response,
+          h("p", { class: "oba-small", id: `${responseId}-hint` }, "Shown under the note on the post. Replying here sends nothing to the reader."),
+        ),
+        h("div", { class: "oba-toolbar" },
+          h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: () => {
+            if (!response.value.trim()) {
+              announce(line, "Write a response first, or use Remove response.", "error");
+              response.focus();
+              return;
+            }
+            saveResponse(response.value);
+          } }, "Save response"),
+          item.response ? h("button", { class: "oba-btn oba-btn-danger oba-btn-link", type: "button", onClick: () => {
+            response.value = "";
+            saveResponse(null);
+          } }, "Remove response") : null,
+        ),
+        h("details", { class: "oba-feedback-revision" },
+          h("summary", {}, "Record a revision note"),
+          h("p", { class: "oba-small", id: `${noteId}-hint` }, "If this note led you to change the post, say what changed. The note is public, listed with the post’s revision notes; don’t name or quote the reader. Recording it does not change the post: edit the post itself separately."),
+          h("div", { class: "oba-field" }, h("label", { for: dateId }, "Date of the change"), date),
+          h("div", { class: "oba-field" }, h("label", { for: claimId }, "Claim id (optional)"), claim, h("p", { class: "oba-small", id: `${claimId}-hint` }, "The id of a claim in Evidence Studio this change is about.")),
+          h("div", { class: "oba-field" }, h("label", { for: noteId }, "What changed"), note),
+          h("button", { class: "oba-btn", type: "button", onClick: async () => {
+            if (!note.value.trim()) {
+              announce(line, "Say what changed first.", "error");
+              note.focus();
+              return;
+            }
+            announce(line, "Adding the revision note…");
+            try {
+              await this.api.call("POST", "engagement/feedback/revision-note", { json: { post: item.post, date: date.value, claim: claim.value, note: note.value } });
+              note.value = "";
+              announce(line, "Revision note added to the post’s front matter. Rebuild or publish to update the live site.", "ok");
+            } catch (error) {
+              announce(line, error.data?.problems ? `${error.message} ${error.data.problems.join(" ")}` : error.message, "error");
+            }
+          } }, "Add revision note"),
+        ),
+        line,
+      );
+    };
+
+    this.mount(
+      this.shell(
+        "feedback",
+        h("p", {}, "Questions, suggested sources, suggested corrections and other interpretations readers sent about passages of your posts. Nothing is published until you approve it, approving never changes your post, and a suggested correction stays a suggestion until you decide to edit the post."),
+        h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-feedback-queue-title" }, h("h2", { id: "oba-feedback-queue-title" }, "Moderation queue"), filters, readOnlyNote, queueStatus, queue),
+        h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-feedback-published-title" }, h("h2", { id: "oba-feedback-published-title" }, "Published on your posts"), publishedStatus, published),
+      ),
+    );
+    await Promise.all([loadQueue(), loadPublished()]);
+  }
+
   // ---- editor
 
   async showEditor(path, newKind) {
@@ -9655,6 +10802,7 @@ export class Editor {
       h("div", { class: "oba-toolbar" }, ui.evidenceExportCsl, ui.evidenceExportBibtex),
       ui.evidenceExportStatus,
     );
+    ui.claimsRegion = h("div", { class: "oba-claims-region", "data-claims-region": "true" });
     ui.status = h("div", { role: "status", "aria-live": "polite" });
     ui.documentStats = h("span", { class: "oba-small" });
     ui.saveState = h("span", { class: "oba-save-state", role: "status", "aria-live": "polite" }, this.isNew ? "Not saved yet" : "Saved");
@@ -9890,6 +11038,7 @@ export class Editor {
             h("button", { type: "button", class: "oba-format-button", title: "Insert Abstract section", onClick: () => this.addResearchSection("abstract") }, "Abstract"),
             h("button", { type: "button", class: "oba-format-button", title: "Insert References section", onClick: () => this.addResearchSection("references") }, "References"),
             h("button", { type: "button", class: "oba-format-button", title: "Insert or edit a citation", "aria-label": "Cite a source", "data-citation-open": "true", onClick: () => this.openCitationDialog() }, "Cite"),
+            h("button", { type: "button", class: "oba-format-button", title: "Make a claim from the selected words, in Evidence Studio", "aria-label": "Make a claim from the selected words", "data-claim-from-selection": "true", onClick: () => void this.claimFromSelection() }, "Claim"),
           ]
         : null,
     );
@@ -10012,7 +11161,10 @@ export class Editor {
         void this.loadAssistantContext();
         this.renderAssistantReviewSummary();
       }
-      else if (["preview", "social", "accessibility", "evidence"].includes(pane)) this.renderPreview();
+      else if (["preview", "social", "accessibility", "evidence"].includes(pane)) {
+        this.renderPreview();
+        if (pane === "evidence") void this.loadClaims();
+      }
       else {
         clearTimeout(this.previewTimer);
         this.previewRequest += 1;
@@ -10301,6 +11453,7 @@ export class Editor {
               ),
               ui.evidenceFindings,
             ),
+            ui.claimsRegion,
           ),
         ),
         h("footer", { class: "oba-editor-status" }, ui.saveState, h("span", { class: "oba-spacer" }), ui.documentStats, ui.editorModeStatus),
@@ -10427,33 +11580,7 @@ export class Editor {
   }
 
   richEditorMarkdown() {
-    const blocks = [];
-    for (const element of this.ui.richBody.children) {
-      if (element.classList.contains("oba-protected-block")) {
-        blocks.push((element.dataset.markdown || "").replace(/\n+$/, ""));
-        continue;
-      }
-      const tag = element.tagName.toLowerCase();
-      const inline = () => visualChildrenMarkdown(element).trim();
-      if (/^h[1-6]$/.test(tag)) blocks.push(`${"#".repeat(Number(tag[1]))} ${inline()}`);
-      else if (tag === "ul" || tag === "ol") {
-        const listStart = tag === "ol" ? Number(element.getAttribute("start") || 1) : 1;
-        blocks.push(
-          [...element.children]
-            .filter((item) => item.tagName.toLowerCase() === "li")
-            .map((item, index) => `${tag === "ol" ? `${listStart + index}.` : "-"} ${visualChildrenMarkdown(item).trim()}`)
-            .join("\n"),
-        );
-      } else if (tag === "blockquote") {
-        blocks.push(inline().split("\n").map((line) => `> ${line}`).join("\n"));
-      } else if (tag === "pre") {
-        const text = element.textContent || "";
-        const longest = Math.max(0, ...(text.match(/`+/g) || []).map((run) => run.length));
-        const fence = "`".repeat(Math.max(3, longest + 1));
-        blocks.push(`${fence}${element.dataset.language || ""}\n${text}\n${fence}`);
-      } else if (tag === "img") blocks.push(visualInlineMarkdown(element));
-      else blocks.push(inline().replace(/^(#{1,6}|>|[-+*]|\d+[.)])\s/, "\\$&"));
-    }
+    const blocks = [...this.ui.richBody.children].map(visualBlockMarkdown);
     return blocks.filter((block) => block.length).join("\n\n") + (blocks.length ? "\n" : "");
   }
 
@@ -10490,6 +11617,64 @@ export class Editor {
     card.remove();
     this.visualChanged();
     this.ui.richBody.focus();
+  }
+
+  /** Claims and evidence links about this post, in Evidence Studio. Only a saved post can carry them. */
+  async loadClaims() {
+    const region = this.ui?.claimsRegion;
+    if (!region) return;
+    if (this.kind !== "posts") {
+      region.replaceChildren();
+      return;
+    }
+    if (this.isNew || !this.doc.path) {
+      this.claimsStudio = null;
+      region.replaceChildren(h("p", { class: "oba-small", "data-claims-unsaved": "true" }, "Save the post to record claims about it and link evidence to them."));
+      return;
+    }
+    if (!this.claimsStudio) {
+      this.claimsStudio = createClaimsStudio({
+        api: this.app.api,
+        post: () => ({ path: this.doc.path, etag: this.doc.etag, dirty: Boolean(this.app.dirty), slug: slugify(String(this.f.slug || "")) || this.slugFromPath() }),
+        selection: () => this.claimSelection(),
+      });
+      region.replaceChildren(this.claimsStudio.element);
+    }
+    try {
+      await this.claimsStudio.load();
+    } catch (error) {
+      if (error.status === 401) this.app.showLogin("Your session ended. Sign in again to see this post's claims.");
+    }
+  }
+
+  /** The words selected in the draft, as a claim anchor (`{ anchor }`) or the reason there is none (`{ error }`). */
+  claimSelection() {
+    if (this.editorMode === "visual") {
+      const range = this.visualSelection;
+      const blockOf = (node) => (node?.nodeType === 1 ? node : node?.parentElement)?.closest?.("[data-visual-block]") || null;
+      const block = blockOf(range?.startContainer);
+      const whole = block && block === blockOf(range?.endContainer) && block.parentElement === this.ui.richBody;
+      const children = [...this.ui.richBody.children];
+      let where = { index: -1, type: "" };
+      if (whole && this.visualDirty) {
+        // The draft was written from the editor, which leaves out blocks that write no Markdown
+        // (an empty paragraph), so only blocks that write some are counted.
+        const markdown = visualBlockMarkdown(block);
+        where = { index: children.filter((child) => visualBlockMarkdown(child).length).indexOf(block), type: block.dataset.visualBlock, markdown, text: visualBlockText(block) };
+      } else if (whole) {
+        where = { index: children.indexOf(block), type: block.dataset.visualBlock, count: children.length, text: visualBlockText(block) };
+      }
+      return visualSelectionAnchor(this.ui.body.value, range?.toString?.() || "", where);
+    }
+    return claimSelectionAnchor(this.ui.body.value, this.ui.body.selectionStart, this.ui.body.selectionEnd);
+  }
+
+  /** Open Evidence Studio and start a claim from the selected words, from the writing toolbar. */
+  async claimFromSelection() {
+    this.captureVisualSelection();
+    this.activatePane?.("evidence");
+    await this.loadClaims();
+    await this.claimsStudio?.newClaim();
   }
 
   captureVisualSelection() {
@@ -12928,6 +14113,13 @@ export class Editor {
         ui.saveState.classList.add("is-dirty");
       }
       ui.saveBtn.textContent = "Save";
+      // Redraw the visual editor from the saved draft, so its blocks match the draft's again (an
+      // empty paragraph writes nothing). Only when nothing changed during the save and the caret
+      // is not in the editor, so no typing or caret position is lost.
+      if (this.editorMode === "visual" && this.visualDirty && savedState.messageIsCurrent && !ui.richBody?.contains(document.activeElement)) {
+        this.renderRichEditor();
+        this.visualSelection = null;
+      }
       // Update the address without re-rendering the editor. Only arm the skip flag
       // when the hash really changes; otherwise no event fires and the flag would
       // swallow the next genuine navigation.

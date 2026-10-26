@@ -15,6 +15,102 @@ All notable changes to open.blog are recorded here. Releases follow
   kept; comments stay out of retention unless you set it yourself. Nothing is e-mailed to readers.
   Sites that switch nothing on build exactly as before.
 
+## [0.33.0] - 2026-10-26
+
+- Defined how reader questions, corrections and annotations will point at published text. A
+  passage target names a section by its heading id and either the whole section or a short
+  quotation with a little context on each side, and is checked against the post as it is now: it
+  finds the same words again, even after they moved to another section, or it is reported stale
+  with a reason (removed, reworded around it, ambiguous). It never silently points at different
+  words, and accents, emoji and other combined characters are never split. A target can also
+  point at a whole post, and sections that share a heading id are told apart. The same rules run in
+  the build and in a small browser module for the reader features to come, checked against the
+  same cases. Nothing uses targets yet, so no page changes.
+- Defined what is kept about where each piece of reader feedback came from: the post and the
+  revision of its text the reader saw, the passage, when they saw it (by their own clock, if
+  given) and when the site received it. A reader's name is shown publicly only if they agree,
+  nothing else about them is recorded, and a published note never re-quotes text the author has
+  since removed. Research notebooks now refuse reader-feedback fields (`attribution`,
+  `receivedAt`, `seenAt`) with a clear message, so feedback cannot be merged into private research
+  by accident.
+- Sites on Netlify and Supabase can opt in to typed passage feedback: a reader's question,
+  suggested source, suggested correction or other interpretation of a passage, sent to the existing
+  engagement function with the passage and the revision of the page they saw. It is off unless the
+  site turns it on in `openblog.json`, sets `OPENBLOG_FEEDBACK_ENABLED=true` and runs the new
+  `supabase/feedback.sql`, which only adds one private table (`supabase/feedback-rollback.sql`
+  removes it). Every submission is checked with the same rules as the build, held pending for
+  moderation with the time the site received it, and limited by the existing hourly quotas. A
+  reader's name stays private unless they agree to show it, nothing else about them is kept and no
+  e-mail is collected or sent. Sites that do not opt in are unchanged. Saving hosted engagement
+  settings in Admin now keeps settings the form does not show. Reader forms and moderation screens
+  come next.
+- Readers can now send that feedback from the post itself. On sites that opt in, each open post ends
+  with a "Questions and corrections" form: choose the whole post, a section, or words you selected
+  in the post (a button appears next to the selection), say whether it is a question, a suggested
+  source, a suggested correction or another interpretation, and write your note, with an optional
+  name you choose whether to show. The form works with the keyboard and screen readers, announces
+  problems and progress, fits narrow phones and changes nothing in the article. Without JavaScript
+  the page explains how to send a note; when the service is offline, off or failing, the form
+  gives you the note to copy and send to the author, at the address in the new optional
+  `engagement.feedbackContact`. Locked and hidden posts, sites that do not opt in, feeds and
+  portable copies are unchanged.
+- Reader feedback can now be moderated and answered. Admin has a "Reader feedback" view that lists
+  what readers sent, by state, through Admin's own server, so the hosted token never reaches the
+  browser. Each note shows whether its passage is still where the reader saw it, has moved, or has
+  changed or gone; a note about a passage that is not current can be approved only after you
+  confirm you read it as it is now. Approve publishes a note, reject and remove need a reason, and
+  two people can never act on the same note at once: every decision is checked against the
+  version you saw and recorded in a private audit table. Approved notes are written to
+  `content/reader-feedback.json`, versioned with your site, without the reader's name unless they
+  agreed, their own clock or anything about moderation, and shown on the post's page only, under
+  "Reader questions and responses", with the quotation only while the post still has those words.
+  You can add a public response to each note and record what changed in the post as a revision
+  note (`evidenceRevisions`), which a site that takes feedback now publishes; neither edits the
+  post, and nothing is sent to readers. Feeds and portable copies carry a link to the page instead
+  of the notes. A note that is approved but not on its post yet, or removed but still on it
+  (because the file could not be written, or the decision was made outside Admin), says so and can
+  be put on or taken off the post again. Run `supabase/feedback.sql` again to add moderation: it adds two columns, an audit
+  table and one moderation function, and changes nothing else.
+
+## [0.32.0] - 2026-10-26
+
+- Defined the format for private claims in draft posts and evidence links that record whether a
+  source supports, contradicts or contextualizes each claim, with rationale, uncertainty, review
+  state and provenance. A citation alone never asserts support, contradicting evidence cannot be
+  hidden while support is published, and nothing judges evidence or scores it. Nothing reads or
+  writes these files yet, so no site output changes.
+- Withdrawing consent on a claim or a contradicting evidence link is never refused: an approved
+  link on a private claim, and approved support beside a private contradiction, stay private and
+  are reported as notices instead of making the claims file invalid.
+- Evidence Studio in the post editor can now record claims: select words in a saved draft to make
+  a claim, then link supporting, contradicting or contextualizing evidence from your notebook
+  passages or source library with a rationale, confidence and uncertainty. Supporting and
+  contradicting evidence are listed side by side and never combined into one figure. Each claim
+  shows whether its words are still where you selected them (verified, moved, stale or
+  ambiguous) and can be re-anchored; a stale or ambiguous range is refused without changing the
+  draft or the claims. Claims are stored privately in `.openblog/private/research/claims.json`,
+  checked by `openblog check`, synced by the hosted workspace, and never reach your site, feeds,
+  search, `llms.txt` or exports. A source or passage an evidence link uses cannot be removed
+  until the link stops using it.
+- Claims now come with evidence gaps and review prompts: a claim with no evidence, contradicting
+  evidence without a note on how the post addresses it, only supporting evidence on a claim you
+  marked uncertain, a link resting on an archived source or passage, a link with no location or
+  no rationale, a location nobody has checked, a suggestion nobody has reviewed, and claim words
+  that moved or are gone. Each names what was checked and what to do next, and none says whether
+  a claim is true. `openblog check`, `openblog build` (as warnings, only when the private claims
+  file is present, and never in the site) and Evidence Studio show the same findings in the same
+  order. A claim's anchor that is still in place now reads "In place" rather than "Verified".
+- Sites can now publish the claims and evidence you approved: turn on `claimEvidence.publish` and
+  each post with approved claims gains a "Claims and evidence" section, readable without
+  JavaScript, listing every claim's supporting and contradicting evidence side by side with the
+  references, locations, your rationale, confidence and uncertainty, and marking a claim with
+  published contradiction as contested. The same text reaches portable copies, feeds and
+  `llms.txt`, and `/claim-evidence.json` holds the same data. Support is never published while a
+  contradicting link stays private, private notes and passages never are, and withdrawing approval
+  removes the item from the next build. Dated revision notes written in a post's front matter as
+  `evidenceRevisions` are published in the same section and stay published even when the private
+  claims file is gone. Sites that leave the setting off are unchanged.
+
 ## [0.31.0] - 2026-10-26
 
 - Contributors to a shared reflection can pin moments to its sources in Admin: a time or range in

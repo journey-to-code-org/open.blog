@@ -30,7 +30,7 @@ default, so you can edit values in place and delete the ones you do not need.
   "home": { "heading": "Latest posts", "intro": "", "showSeries": true },
   "share": { "enabled": true, "networks": ["x", "bluesky", "linkedin", "reddit", "hackernews", "email"] },
   "analytics": { "builtin": true, "showViews": true, "retentionDays": 400, "endpoint": "", "branch": "analytics", "bakeCounts": true },
-  "engagement": { "enabled": false, "comments": true, "analytics": true, "endpoint": "" },
+  "engagement": { "enabled": false, "comments": true, "analytics": true, "endpoint": "", "feedback": false, "feedbackContact": "" },
   "snippets": { "head": "", "postFooter": "", "bodyEnd": "" },
   "relatedPosts": 3,
   "cdn": { "url": "", "paths": ["/assets/", "/themes/", "/images/"], "version": "", "maxAge": 86400 },
@@ -44,7 +44,8 @@ default, so you can edit values in place and delete the ones you do not need.
   "paths": { "content": "content", "static": "static", "output": "dist", "themes": "themes", "web": "web" },
   "admin": { "usersFile": ".openblog/users.json", "sessionHours": 12, "secureCookies": false, "maxUploadMb": 10, "trustedProxies": [] },
   "publish": { "remote": "origin", "branch": "main", "auto": false, "includeDrafts": false, "paths": ["content", "static", "openblog.json", "themes", ".github"], "pullFirst": true },
-  "knowledgeAtlas": { "publish": false }
+  "knowledgeAtlas": { "publish": false },
+  "claimEvidence": { "publish": false }
 }
 ```
 
@@ -86,7 +87,19 @@ These are described in [Sharing, views, analytics, and embeds](features.md).
   [Publishing from home](publishing.md).
 - `engagement.enabled` adds hosted comments and analytics to static deployments;
   `engagement.endpoint` is the public function URL. Database and moderation secrets stay in server
-  environment variables or Admin's write-only private credential store.
+  environment variables or Admin's write-only private credential store. `engagement.feedback`
+  (off by default) lets the hosted function accept typed passage feedback: questions, suggested
+  sources and corrections, and other interpretations. It needs its own database table and server
+  switch; see the [function setup guide](../netlify/functions/README.md#passage-feedback-optional).
+  With it on, each open post gets a "Questions and corrections" form after its navigation (locked
+  and hidden posts get none). A reader picks the whole post, a section or words they selected,
+  the kind and their note; their name is optional and shown only if they agree. Without
+  JavaScript, or when the service cannot take the note, the reader gets instructions or a copy of
+  the note to send to the author. `engagement.feedbackContact` (optional) is where that copy can
+  go: a plain `mailto:` address or an `https:` contact page, linked from the form. Moderate what
+  readers send in Admin under **Reader feedback**; approved notes, with your responses, are kept in
+  `content/reader-feedback.json` and shown on the post's page only, and a site with feedback on
+  publishes the post's `evidenceRevisions` notes (ADR 0083).
 - `snippets` are raw HTML placed on every page (`head`, `bodyEnd`) or under every post
   (`postFooter`): third-party analytics, comments, newsletter forms.
 - `relatedPosts` is how many related posts to show under each post; `0` hides the section.
@@ -256,6 +269,24 @@ The atlas is private and Git-ignored, so only a build that can read it publishes
 static-host build from the repository finds no atlas and publishes `/atlas/` and `/atlas.json`
 empty; `openblog build` and `openblog check` warn when publishing is on but no atlas is stored.
 See [Deploying](deploy.md).
+
+## Claim evidence
+
+`claimEvidence.publish` (off by default) publishes the claims and evidence links you approved in
+Evidence Studio with the posts they are about: each such post gains a "Claims and evidence"
+section listing, for every approved claim, its supporting and contradicting evidence side by side
+with the references, locations, your rationale, confidence and uncertainty, and the site gains
+`/claim-evidence.json` with the same data. Support is never published while a contradicting link
+on the same claim is private, and nothing is netted or scored. Revision notes you write in a
+post's front matter as `evidenceRevisions` are published in the same section. While it is off, no
+build reads the private claims file and every post is unchanged, except that a site with
+`engagement.feedback` on still publishes revision notes (ADR 0083). Clearing an approval removes the
+item from the next build. See the [claims format](specs/claims-evidence.md#publication).
+
+The claims file is private and Git-ignored, so only a build that can read it publishes claim
+evidence: `openblog serve` and Admin, or a local `openblog build` whose `dist/` you then upload. A
+CI or static-host build publishes no claims (revision notes still appear), and `openblog build`
+and `openblog check` warn. See [Deploying](deploy.md).
 
 ## Reader participation
 

@@ -83,6 +83,27 @@ pub struct SiteConfig {
     /// written file while it has its defaults.
     #[serde(skip_serializing_if = "ParticipationConfig::is_default")]
     pub participation: ParticipationConfig,
+    /// Opt-in publication of approved claims and evidence links with the
+    /// posts they are about. Omitted from the written file while it is off.
+    #[serde(skip_serializing_if = "ClaimEvidenceConfig::is_off")]
+    pub claim_evidence: ClaimEvidenceConfig,
+}
+
+/// Whether builds publish approved claim evidence (ADR 0075). Off by default:
+/// the build then never reads the private claims file and every post is
+/// published as before. On, each post with approved claims or revision notes
+/// gains a "Claims and evidence" section, and the site gains
+/// `/claim-evidence.json`.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ClaimEvidenceConfig {
+    pub publish: bool,
+}
+
+impl ClaimEvidenceConfig {
+    fn is_off(&self) -> bool {
+        !self.publish
+    }
 }
 
 /// Whether builds publish the Knowledge Atlas projection (ADR 0058). Off by
@@ -365,6 +386,7 @@ impl Default for SiteConfig {
             syndication: SyndicationConfig::default(),
             knowledge_atlas: KnowledgeAtlasConfig::default(),
             participation: ParticipationConfig::default(),
+            claim_evidence: ClaimEvidenceConfig::default(),
         }
     }
 }
@@ -538,6 +560,15 @@ pub struct EngagementConfig {
     pub analytics: bool,
     /// Public function base URL. Secrets are never stored here.
     pub endpoint: String,
+    /// Accept typed passage feedback (questions, suggested sources and
+    /// corrections, other interpretations) through the hosted function
+    /// (ADR 0081). Off by default; the deployer must also run
+    /// `supabase/feedback.sql` and set `OPENBLOG_FEEDBACK_ENABLED`.
+    pub feedback: bool,
+    /// Where a reader can send a copied note when the hosted function cannot
+    /// take it (ADR 0082): a `mailto:` address or an `https:` contact page,
+    /// shown on pages that offer passage feedback. Empty shows none.
+    pub feedback_contact: String,
 }
 
 impl Default for EngagementConfig {
@@ -547,6 +578,8 @@ impl Default for EngagementConfig {
             comments: true,
             analytics: true,
             endpoint: String::new(),
+            feedback: false,
+            feedback_contact: String::new(),
         }
     }
 }
@@ -781,6 +814,7 @@ impl SiteConfig {
             ),
             web_libraries: Some(&self.web_sandbox.libraries),
             citation_notes: None,
+            claim_evidence_section: false,
         }
     }
 
@@ -832,6 +866,12 @@ impl SiteConfig {
                         .into(),
                 );
             }
+        }
+        self.engagement.feedback_contact = self.engagement.feedback_contact.trim().to_string();
+        if !self.engagement.feedback_contact.is_empty()
+            && !is_feedback_contact(&self.engagement.feedback_contact)
+        {
+            return Err("engagement.feedbackContact must be a mailto: address without a query, or an HTTPS URL without credentials".into());
         }
         self.participation.validate()?;
         while self.code_runner.endpoint.ends_with('/') {
@@ -964,6 +1004,36 @@ impl SiteConfig {
     }
 }
 
+/// A contact for copied feedback: `mailto:` and one plain address (no query,
+/// so a page can add only its own subject and body), or an `https:` page
+/// without credentials, at most 500 bytes.
+fn is_feedback_contact(value: &str) -> bool {
+    if value.len() > 500 || value.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        return false;
+    }
+    if let Some(address) = value.strip_prefix("mailto:") {
+        let Some((local, domain)) = address.split_once('@') else {
+            return false;
+        };
+        return !local.is_empty()
+            && local
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '-'))
+            && !domain.is_empty()
+            && domain
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-'))
+            && !domain.starts_with(['.', '-'])
+            && !domain.ends_with(['.', '-']);
+    }
+    url::Url::parse(value).is_ok_and(|url| {
+        url.scheme() == "https"
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.host_str().is_some_and(|host| !host.is_empty())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1018,6 +1088,45 @@ mod tests {
             r#"{"engagement":{"enabled":true,"endpoint":"https://blog.example/api"}}"#
         )
         .is_ok());
+    }
+
+    #[test]
+    fn a_feedback_contact_is_a_plain_mail_address_or_an_https_page() {
+        for contact in [
+            "mailto:ada@blog.example",
+            " mailto:ada.l+notes@mail.blog-example.org ",
+            "https://blog.example/contact/",
+        ] {
+            let source = serde_json::json!({ "engagement": { "feedbackContact": contact } });
+            let config = SiteConfig::from_json(&source.to_string()).unwrap();
+            assert_eq!(config.engagement.feedback_contact, contact.trim());
+        }
+        for contact in [
+            "mailto:ada@blog.example?bcc=everyone@example.com",
+            "mailto:ada@blog.example&body=x",
+            "mailto:<script>@x",
+            "mailto:@blog.example",
+            "mailto:ada@",
+            "http://blog.example/contact/",
+            "https://user:secret@blog.example/contact/",
+            "javascript:alert(1)",
+            "/contact/",
+            "https://blog.example/a b",
+        ] {
+            let source = serde_json::json!({ "engagement": { "feedbackContact": contact } });
+            assert!(
+                SiteConfig::from_json(&source.to_string()).is_err(),
+                "{contact}"
+            );
+        }
+        let long = format!("https://blog.example/{}", "a".repeat(500));
+        let source = serde_json::json!({ "engagement": { "feedbackContact": long } });
+        assert!(SiteConfig::from_json(&source.to_string()).is_err());
+        assert!(SiteConfig::from_json("{}")
+            .unwrap()
+            .engagement
+            .feedback_contact
+            .is_empty());
     }
 
     #[test]
