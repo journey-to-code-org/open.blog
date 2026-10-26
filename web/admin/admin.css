@@ -2645,6 +2645,11 @@ html[data-admin-density="compact"] .oba-pane {
 }
 
 /* Claims and evidence: supporting and contradicting side by side, never combined. */
+/* Inset from the pane border so text never touches it and focus rings are not clipped. */
+.oba-claims-region {
+  padding-inline: 0.75rem;
+}
+
 .oba-claims {
   margin-top: 1.5rem;
   padding-top: 1rem;

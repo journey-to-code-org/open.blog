@@ -617,4 +617,6 @@ test("claims styles put supporting and contradicting side by side, keep focus vi
   assert.match(css, /overflow-wrap: anywhere/);
   assert.match(css, /@media \(max-width: 40rem\)/);
   assert.doesNotMatch(css, /transition|animation/);
+  // The region is inset from the pane border so focus rings are never clipped.
+  assert.match(css, /\.oba-claims-region \{\s*padding-inline: [^;]+;/);
 });
