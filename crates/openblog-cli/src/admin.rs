@@ -2193,6 +2193,8 @@ fn claims_request(req: &Request) -> Result<(Json, String), Response> {
 }
 
 fn claims_saved(
+    state: &AppState,
+    build: &mut BuildStatus,
     snapshot: &claims_store::Snapshot,
     posts: &SavedPosts,
     key: &str,
@@ -2201,7 +2203,26 @@ fn claims_saved(
 ) -> Response {
     let mut view = claims_view(snapshot, posts);
     view[key] = item;
+    attach_claims_build(state, build, &mut view);
     Response::json(status, &view)
+}
+
+/// While the site publishes claim evidence (ADR 0091), a saved claims change
+/// is published at once, so granting or withdrawing approval reaches the
+/// public site without waiting for another save. The outcome travels as
+/// `build`; a site that does not publish claim evidence is not rebuilt. The
+/// caller already holds the content lock, which the build runs under.
+fn attach_claims_build(state: &AppState, build: &mut BuildStatus, view: &mut Json) {
+    let publishes = site::load_config(&state.root)
+        .map(|config| config.claim_evidence.publish)
+        .unwrap_or(false);
+    if !publishes {
+        return;
+    }
+    view["build"] = match state.rebuild_locked(build) {
+        Ok(report) => json!({ "ok": true, "files": report.files }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    };
 }
 
 /// Create (`POST`) or update (`PUT`) one claim from its full JSON form. The
@@ -2218,7 +2239,7 @@ fn save_claim(state: &AppState, req: &Request, create: bool) -> Response {
     };
     let id = claim.id.clone();
     let contributors = source_contributors(state);
-    let _content = lock(&state.build);
+    let mut content = lock(&state.build);
     let posts = match claim_drafts(state) {
         Ok(posts) => posts,
         Err(response) => return response,
@@ -2233,6 +2254,8 @@ fn save_claim(state: &AppState, req: &Request, create: bool) -> Response {
         Ok(snapshot) => {
             let item = json!(snapshot.claims.claim(&id));
             claims_saved(
+                state,
+                &mut content,
                 &snapshot,
                 &posts,
                 "claim",
@@ -2256,7 +2279,7 @@ fn save_claim_link(state: &AppState, req: &Request, create: bool) -> Response {
     };
     let id = link.id.clone();
     let contributors = source_contributors(state);
-    let _content = lock(&state.build);
+    let mut content = lock(&state.build);
     let posts = match claim_drafts(state) {
         Ok(posts) => posts,
         Err(response) => return response,
@@ -2271,6 +2294,8 @@ fn save_claim_link(state: &AppState, req: &Request, create: bool) -> Response {
         Ok(snapshot) => {
             let item = json!(snapshot.claims.link(&id));
             claims_saved(
+                state,
+                &mut content,
                 &snapshot,
                 &posts,
                 "link",
@@ -2297,7 +2322,7 @@ fn remove_claim_item(state: &AppState, req: &Request, claim: bool) -> Response {
         return Response::error(400, "Name the id of the claim or link to remove");
     };
     let contributors = source_contributors(state);
-    let _content = lock(&state.build);
+    let mut content = lock(&state.build);
     let posts = match claim_drafts(state) {
         Ok(posts) => posts,
         Err(response) => return response,
@@ -2308,7 +2333,11 @@ fn remove_claim_item(state: &AppState, req: &Request, claim: bool) -> Response {
         claims_store::remove_link(&state.root, &revision, id, &contributors)
     };
     match removed {
-        Ok(snapshot) => Response::json(200, &claims_view(&snapshot, &posts)),
+        Ok(snapshot) => {
+            let mut view = claims_view(&snapshot, &posts);
+            attach_claims_build(state, &mut content, &mut view);
+            Response::json(200, &view)
+        }
         Err(error) => claims_store_error(state, error, Some((claim, id))),
     }
 }
@@ -13143,6 +13172,51 @@ mod tests {
     fn anchor_json(text: &str) -> Json {
         let start = CLAIM_DRAFT.find(text).unwrap();
         json!({"start": start, "end": start + text.len(), "text": text})
+    }
+
+    #[test]
+    fn a_claims_change_rebuilds_a_site_that_publishes_claim_evidence() {
+        let f = fixture_with_sources("claims-publish-build");
+        let session = login_ok(&f);
+        let source = "---\ntitle: Cave\ndate: 2026-01-07\n---\nThe cave educates.\n";
+        fs::write(f.dir.join("content").join(CLAIM_POST), source).unwrap();
+        let claim = json!({"id": "c1", "post": "cave", "statement": "PUBLIC published claim",
+            "visibility": "approved"});
+        // A site that does not publish is not rebuilt by a claims change.
+        let empty = claims_list(&f, &session);
+        let (status, saved) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/claims/claims",
+            json!({"revision": empty["revision"], "claim": claim}),
+        );
+        assert_eq!(status, 201, "{saved}");
+        assert!(saved.get("build").is_none());
+        let config_path = f.dir.join(site::CONFIG_FILE);
+        let mut config: Json = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+        config["claimEvidence"] = json!({"publish": true});
+        fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+        // Withdrawing approval is live at once: the outcome travels as `build`.
+        let mut private = claim.clone();
+        private["visibility"] = json!("private");
+        let page = f.dir.join("dist/posts/cave/index.html");
+        f.state.rebuild().unwrap();
+        assert!(fs::read_to_string(&page)
+            .unwrap()
+            .contains("PUBLIC published claim"));
+        let (status, withdrawn) = source_call(
+            &f,
+            &session,
+            "PUT",
+            "/admin/api/research/claims/claims",
+            json!({"revision": saved["revision"], "claim": private}),
+        );
+        assert_eq!(status, 200, "{withdrawn}");
+        assert_eq!(withdrawn["build"]["ok"], true, "{withdrawn}");
+        assert!(!fs::read_to_string(&page)
+            .unwrap()
+            .contains("PUBLIC published claim"));
     }
 
     #[test]

@@ -319,6 +319,44 @@ pub fn build_findings(
     }
 }
 
+/// What a build that publishes claim evidence (ADR 0091) reads from the
+/// claims file: its projection, a warning when none is stored (a CI or
+/// static-host build), or a refusal that names the file and counts its
+/// problems without repeating anything from it.
+pub fn evidence_for_build(
+    root: &Path,
+    contributors: &BTreeMap<String, Contributor>,
+) -> openblog_core::claim_publication::ClaimEvidenceSource {
+    use openblog_core::claim_publication::{ClaimEvidence, ClaimEvidenceSource};
+    let unpublishable = |reason: String| {
+        ClaimEvidenceSource::Unreadable(format!(
+            "the claim evidence cannot be published ({reason}); run `openblog check` and repair it, or set `claimEvidence.publish` to false. Nothing was written."
+        ))
+    };
+    match load(root, contributors) {
+        Ok(snapshot) if !snapshot.stored => ClaimEvidenceSource::Unstored {
+            warning: unstored_evidence_warning(),
+        },
+        Ok(snapshot) => match ClaimEvidence::project(&snapshot.claims, &snapshot.library) {
+            Ok(projection) => ClaimEvidenceSource::Stored(projection),
+            Err(error) => unpublishable(format!("{CLAIMS_FILE}: {error}")),
+        },
+        Err(StoreError::Invalid(diagnostics)) => unpublishable(format!(
+            "{CLAIMS_FILE} has {} problem(s)",
+            diagnostics.len()
+        )),
+        Err(error) => unpublishable(error.to_string()),
+    }
+}
+
+/// What `build` and `check` say when the site publishes claim evidence but
+/// this build cannot read a claims file.
+fn unstored_evidence_warning() -> String {
+    format!(
+        "`claimEvidence.publish` is on, but no claims file is stored at {CLAIMS_FILE}, so no claim or evidence is published; revision notes written in posts still are. The claims file is private and Git-ignored: only a build that can read it publishes claim evidence (`openblog serve` and Admin, or a local `openblog build` you then upload). A CI or static-host build from the repository cannot."
+    )
+}
+
 type Edit<'a, T> = dyn Fn(&mut ClaimSet, Links<'_>) -> Result<T, Vec<AtlasDiagnostic>> + 'a;
 
 /// Add a claim whose identifier nothing in the file uses yet. An anchor must

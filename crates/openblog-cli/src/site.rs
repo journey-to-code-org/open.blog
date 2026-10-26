@@ -282,6 +282,13 @@ pub fn read_sources_excluding(
     // A deferred read: the load reads the library only when an opted-in post
     // cites something; see `Site::load`.
     sources.source_library = Some(crate::source_store::read_for_build(root));
+    // Claim evidence is read only while the site publishes it (ADR 0091).
+    if config.claim_evidence.publish {
+        sources.claim_evidence = Some(crate::claims_store::evidence_for_build(
+            root,
+            &config.contributors,
+        ));
+    }
     Ok(sources)
 }
 
@@ -1266,6 +1273,188 @@ mod tests {
             .expect("a warning names the claims file");
         assert!(!warning.contains(SECRET) && !warning.contains("ob-claims-secret-gone"));
         assert_eq!(dist_bytes(&root), output);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    // ---- Claim evidence publication (A4.4, ADR 0091) ---------------------------
+
+    const CLAIM_MARKER: &str = "ob-private-claim-6604";
+
+    /// A project that publishes claim evidence. Every value that may be
+    /// published says PUBLIC; every value that may not carries a marker.
+    fn project_publishing_claims(tag: &str) -> PathBuf {
+        let root = project_with_private_library(tag, r#"{"claimEvidence":{"publish":true}}"#);
+        let library = format!(
+            r#"{{"version":1,"sources":[{{"id":"republic","kind":"work","title":"PUBLIC Republic","notes":"{PRIVATE_MARKER} note"}},{{"id":"slings","kind":"edition","of":"republic","title":"PUBLIC Slings","identifiers":[{{"scheme":"shelf","value":"{PRIVATE_MARKER}"}}]}},{{"id":"critic","kind":"work","title":"PUBLIC Critic"}}]}}"#
+        );
+        fs::write(root.join(crate::source_store::LIBRARY_FILE), library).unwrap();
+        let notebook = format!(
+            r#"{{"version":1,"passages":[{{"id":"p-{NOTEBOOK_MARKER}","source":"slings","excerpt":{{"text":"{NOTEBOOK_MARKER} quoted"}}}}]}}"#
+        );
+        fs::write(root.join(crate::notebook_store::NOTEBOOK_FILE), notebook).unwrap();
+        fs::remove_file(root.join(crate::atlas_store::ATLAS_FILE)).unwrap();
+        fs::write(
+            root.join("content/posts/2026-01-07-cave.md"),
+            "---\ntitle: Cave\ndate: 2026-01-07\nevidenceRevisions:\n  - \"2026-01-08 c1: PUBLIC revision note.\"\n---\n\nThe cave educates.\n",
+        )
+        .unwrap();
+        let claims = format!(
+            r#"{{"version":1,"claims":[
+              {{"id":"c1","post":"cave","statement":"PUBLIC statement","uncertainty":"PUBLIC claim doubt","visibility":"approved","anchor":{{"start":0,"end":18,"text":"The cave educates."}},"recordedBy":{{"kind":"named","name":"{CLAIM_MARKER} recorder"}},"shelf":"{CLAIM_MARKER} claim extra"}},
+              {{"id":"c-private","post":"cave","statement":"{CLAIM_MARKER} private statement","visibility":"private"}}],
+             "links":[
+              {{"id":"l-support","claim":"c1","relation":"supports","evidence":{{"source":"slings","locators":[{{"kind":"page","value":"514","hint":"{CLAIM_MARKER} locator extra"}}]}},"rationale":"PUBLIC support rationale","uncertainty":"PUBLIC support doubt","confidence":"plausible","visibility":"approved","tag":"{CLAIM_MARKER} link extra"}},
+              {{"id":"l-contra","claim":"c1","relation":"contradicts","evidence":{{"source":"critic"}},"rationale":"PUBLIC contrary rationale","visibility":"approved"}},
+              {{"id":"l-private","claim":"c1","relation":"contextualizes","evidence":{{"source":"slings","passage":"p-{NOTEBOOK_MARKER}"}},"rationale":"{CLAIM_MARKER} private rationale","visibility":"private"}},
+              {{"id":"l-endpoint","claim":"c-private","relation":"supports","evidence":{{"source":"republic"}},"rationale":"{CLAIM_MARKER} private endpoint","visibility":"approved"}}],
+             "workspace":"{CLAIM_MARKER} top-level extra"}}"#
+        );
+        let path = root.join(crate::claims_store::CLAIMS_FILE);
+        fs::write(&path, claims).unwrap();
+        root
+    }
+
+    fn assert_no_claim_leaks(built: &std::collections::BTreeMap<String, Vec<u8>>) {
+        for (path, bytes) in built {
+            let text = String::from_utf8_lossy(bytes);
+            for marker in [
+                PRIVATE_MARKER,
+                NOTEBOOK_MARKER,
+                CLAIM_MARKER,
+                "c-private",
+                "l-private",
+                "l-endpoint",
+            ] {
+                assert!(!text.contains(marker), "dist/{path} exposes {marker}");
+            }
+            assert!(
+                !openblog_core::research_bundle::looks_like_private_research(bytes),
+                "dist/{path} carries a copy of private research"
+            );
+        }
+    }
+
+    #[test]
+    fn published_claim_evidence_reaches_every_output_and_nothing_private_does() {
+        let root = project_publishing_claims("claims-published");
+        production_build(&root);
+        let built = dist_bytes(&root);
+        assert_no_claim_leaks(&built);
+        let page = String::from_utf8_lossy(&built["posts/cave/index.html"]).to_string();
+        for public in [
+            "PUBLIC statement",
+            "PUBLIC claim doubt",
+            "PUBLIC Slings",
+            "PUBLIC support rationale",
+            "PUBLIC support doubt",
+            "PUBLIC Critic",
+            "PUBLIC contrary rationale",
+            "PUBLIC revision note.",
+            "<strong>Contested:</strong>",
+            "Supporting evidence (1)",
+            "Contradicting evidence (1)",
+        ] {
+            assert!(page.contains(public), "the post page lacks {public}");
+        }
+        for carrier in ["rss.xml", "feed.json", "claim-evidence.json"] {
+            let text = String::from_utf8_lossy(&built[carrier]);
+            assert!(text.contains("PUBLIC contrary rationale"), "{carrier}");
+        }
+        // The legacy post is byte for byte what a site that does not publish writes.
+        let hello = built["posts/hello/index.html"].clone();
+        fs::write(root.join(CONFIG_FILE), "{}").unwrap();
+        production_build(&root);
+        let off = dist_bytes(&root);
+        assert_eq!(off["posts/hello/index.html"], hello);
+        assert!(
+            !off.contains_key("claim-evidence.json"),
+            "the stale-file pass removes it"
+        );
+        assert!(off
+            .values()
+            .all(|bytes| !String::from_utf8_lossy(bytes).contains("PUBLIC statement")));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn withdrawal_unstored_and_damaged_claims_files_each_change_the_next_build_safely() {
+        let root = project_publishing_claims("claims-lifecycle");
+        let first = production_build(&root);
+        let before = dist_bytes(&root);
+        // Deterministic: the same inputs build the same bytes.
+        production_build(&root);
+        assert_eq!(dist_bytes(&root), before);
+        assert!(first
+            .warnings
+            .iter()
+            .all(|w| !w.contains("claimEvidence.publish")));
+
+        // Withdrawing the contradicting link withdraws the support beside it.
+        let path = root.join(crate::claims_store::CLAIMS_FILE);
+        let stored = fs::read_to_string(&path).unwrap();
+        let withdrawn = stored.replacen(
+            r#""rationale":"PUBLIC contrary rationale","visibility":"approved""#,
+            r#""rationale":"PUBLIC contrary rationale","visibility":"private""#,
+            1,
+        );
+        assert_ne!(withdrawn, stored);
+        fs::write(&path, &withdrawn).unwrap();
+        production_build(&root);
+        let after = dist_bytes(&root);
+        for gone in ["PUBLIC contrary rationale", "PUBLIC support rationale"] {
+            assert!(
+                after
+                    .values()
+                    .all(|b| !String::from_utf8_lossy(b).contains(gone)),
+                "{gone} is withdrawn"
+            );
+        }
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            withdrawn,
+            "the build never edits it"
+        );
+
+        // A damaged claims file refuses the build, names the file only, and
+        // leaves the published site as it was.
+        fs::write(
+            &path,
+            format!(r#"{{"version":1,"claims":[{{"id":"{CLAIM_MARKER}"#),
+        )
+        .unwrap();
+        let error = build(
+            &root,
+            &BuildOptions {
+                include_drafts: false,
+                out_override: None,
+                now: None,
+            },
+        )
+        .err()
+        .expect("a damaged claims file refuses the build");
+        assert!(error.contains(crate::claims_store::CLAIMS_FILE), "{error}");
+        assert!(error.contains("claimEvidence.publish"), "{error}");
+        assert!(!error.contains(CLAIM_MARKER), "{error}");
+        assert_eq!(dist_bytes(&root), after, "nothing was written");
+
+        // Without a claims file (a CI build) the build warns, publishes no
+        // evidence, and keeps the revision notes the post itself carries.
+        fs::remove_file(&path).unwrap();
+        let report = production_build(&root);
+        let warning = report
+            .warnings
+            .iter()
+            .find(|w| w.contains("claimEvidence.publish"))
+            .expect("a warning names the switch");
+        assert!(warning.contains(crate::claims_store::CLAIMS_FILE));
+        let built = dist_bytes(&root);
+        let page = String::from_utf8_lossy(&built["posts/cave/index.html"]).to_string();
+        assert!(!page.contains("PUBLIC statement"));
+        assert!(
+            page.contains("2026-01-08: PUBLIC revision note."),
+            "the note outlives the private file"
+        );
+        assert_no_claim_leaks(&built);
         fs::remove_dir_all(root).unwrap();
     }
 

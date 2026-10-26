@@ -2880,7 +2880,7 @@ export function createClaimsStudio({ api, post, selection, idPrefix = "oba-claim
     field("statement", "Claim, in your words", h("textarea", { rows: 3, value: draft.statement, onInput: (event) => { draft.statement = event.target.value; } }), draft.anchor ? null : "Not tied to particular words of the draft."),
     draft.anchor ? h("p", { class: "oba-small", "data-claims-anchor-text": "true" }, "Anchored to the words: ", h("q", {}, draft.anchor.text)) : null,
     field("uncertainty", "What is doubtful or unsettled about it (optional)", h("textarea", { rows: 2, value: draft.uncertainty, onInput: (event) => { draft.uncertainty = event.target.value; } })),
-    check("approved", "Approve this claim for a future publication", draft.approved, (value) => { draft.approved = value; }, "Approval is consent for this claim only. Nothing is published yet, and withdrawing approval is always allowed."),
+    check("approved", "Approve this claim for publication with the post", draft.approved, (value) => { draft.approved = value; }, "Your consent to publish this claim's statement and uncertainty in the post's Claims and evidence section and claim-evidence.json, once the site turns on claimEvidence.publish. Its words in the post are quoted only while they are still where you anchored them. Withdrawing approval is always allowed and removes the claim and its evidence from the next build."),
   ];
 
   const sourceOptions = (current) => {
@@ -2928,7 +2928,7 @@ export function createClaimsStudio({ api, post, selection, idPrefix = "oba-claim
       field("confidence", "How firmly you hold this reading", h("select", { onChange: (event) => { draft.confidence = event.target.value; } }, ATLAS_CONFIDENCE.map((item) => h("option", { value: item.value, selected: draft.confidence === item.value }, item.label)))),
       field("uncertainty", "What is uncertain about it (optional)", h("textarea", { rows: 2, value: draft.uncertainty, onInput: (event) => { draft.uncertainty = event.target.value; } })),
       field("review", "What you have checked", h("select", { onChange: (event) => { draft.reviewState = event.target.value; } }, CLAIM_REVIEW_STATES.map((item) => h("option", { value: item.value, selected: draft.reviewState === item.value }, item.label)))),
-      check("approved", "Approve this link for a future publication", draft.approved, (value) => { draft.approved = value; }, "Support is never published while a contradicting link on the claim stays private."),
+      check("approved", "Approve this link for publication with the post", draft.approved, (value) => { draft.approved = value; }, "Your consent to publish its source, locations, relation, rationale, confidence and uncertainty beside the claim, once the claim is approved and the site turns on claimEvidence.publish. Support is never published while a contradicting link on the claim stays private. Clearing it removes the link from the next build."),
     ];
   };
 
