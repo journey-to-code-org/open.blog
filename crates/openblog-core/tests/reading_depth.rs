@@ -1033,3 +1033,60 @@ fn a_renamed_id_is_renamed_by_its_value_and_links_to_it_follow() {
     assert!(html.contains("href=\"#section-ob-supplement-x\""), "{html}");
     assert!(html.contains("href=\"#other\""), "{html}");
 }
+
+#[test]
+fn every_documented_theme_hook_exists_in_the_page_or_the_stylesheet() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let read = |path: &str| {
+        std::fs::read_to_string(root.join(path))
+            .unwrap()
+            .replace("\r\n", "\n")
+    };
+    let spec = read("docs/specs/reading-modes.md");
+    let table = spec
+        .split("<!-- hooks:start -->")
+        .nth(1)
+        .and_then(|rest| rest.split("<!-- hooks:end -->").next())
+        .expect("the hooks table");
+    let hooks: Vec<&str> = table
+        .lines()
+        .filter_map(|line| line.strip_prefix("| `"))
+        .filter_map(|line| line.split('`').next())
+        .collect();
+    assert!(hooks.len() >= 15, "{hooks:?}");
+    let css = read("web/base.css");
+    let component = read("web/components/ob-reading-modes.js");
+    let rendered = render(ARTICLE, on()).html;
+    for hook in hooks {
+        let found = [&css, &component, &rendered]
+            .iter()
+            .any(|text| text.contains(hook));
+        assert!(
+            found,
+            "documented hook `{hook}` is in no page, script or stylesheet"
+        );
+    }
+}
+
+#[test]
+fn a_caveat_at_any_depth_makes_every_supplement_around_it_always_shown() {
+    let markdown = "> [!supplement kind=context level=deep-dive] Outer\n> Words.\n>\n\
+> > [!supplement kind=evidence level=deep-dive] Middle\n> > More.\n> >\n\
+> > > [!supplement kind=uncertainty level=deep-dive] Inner\n> > > - a list\n> > >\n\
+> > > > [!CAUTION]\n> > > > Do not skip this.\n\n\
+> [!supplement kind=context level=deep-dive] Sibling\n> Fine to hide.\n\n\
+> [!supplement kind=context level=deep-dive] Escaped\n> ```\n> [!WARNING]\n> ```\n";
+    let depth = scan(markdown);
+    let always: Vec<bool> = depth.supplements.iter().map(|s| s.always).collect();
+    assert_eq!(
+        always,
+        [true, true, true, false, false],
+        "{:?}",
+        depth.supplements
+    );
+    let html = render(markdown, on()).html;
+    assert_eq!(html.matches("data-ob-always").count(), 3, "{html}");
+    // The caveat itself is in the page whatever the mode, and the build hides nothing.
+    assert!(html.contains("Do not skip this."), "{html}");
+    assert!(!html.contains(" hidden"), "{html}");
+}

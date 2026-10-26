@@ -2479,10 +2479,11 @@ ob-reading-modes { display: block; }
   overflow-wrap: anywhere;
 }
 .ob-supplement[hidden]:not([hidden="until-found"]) { display: none; }
-/* Hidden but findable (ADR 0174): the browser skips the contents, and the box shrinks to nothing so
-   no empty frame is left. Find in page and a link into it reveal it. */
-.ob-supplement[hidden="until-found"] { margin: 0; padding: 0; border-width: 0; background: none; }
 .ob-supplement .ob-supplement { margin-block: 0.9em; }
+/* Hidden but findable (ADR 0174): the browser skips the contents, and the box shrinks to nothing so
+   no empty frame is left, a nested one too (so this follows the nested margin above). Find in page
+   and a link into it reveal it. */
+.ob-supplement[hidden="until-found"] { margin: 0; padding: 0; border-width: 0; background: none; }
 .ob-supplement > blockquote { margin: 0; padding: 0; border: 0; background: none; }
 .ob-supplement > blockquote > :first-child { margin-top: 0; }
 .ob-supplement > blockquote > :last-child { margin-bottom: 0; }
@@ -2490,6 +2491,15 @@ ob-reading-modes { display: block; }
 .ob-supplement-kind { color: var(--ob-supplement-edge); font-weight: 700; }
 .ob-supplement-level, .ob-supplement-always { color: var(--ob-color-muted, inherit); }
 .ob-supplement-title { font-weight: 600; }
+.ob-supplement-skip:not(:focus):not(:active) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.ob-supplement-skip { display: inline-block; margin: 0 0 0.5em; font-size: 0.9em; }
 .ob-supplement-end { margin: 0.6em 0 0; font-size: 0.8em; color: var(--ob-color-muted, inherit); }
 .ob-supplement-end strong { font-weight: 600; }
 .ob-supplement[data-ob-always] { --ob-supplement-edge: var(--ob-color-callout-warning, #bf8700); }
@@ -2501,13 +2511,19 @@ ob-reading-modes { display: block; }
 }
 @keyframes ob-supplement-in { from { opacity: 0; } to { opacity: 1; } }
 /* Before script has applied a mode, hide the layers the author's default mode hides, so the page does
-   not paint every layer and then jump. Only where script is on (without it nothing is hidden), and
-   never a warning. The hiding is the animation's first keyframe held through a six second delay, so if
-   the script never arrives the layers return by themselves. */
-@media (scripting: enabled) {
-  ob-reading-modes:not(:defined)[default="standard"] .ob-supplement:not([data-ob-always]),
-  ob-reading-modes:not(:defined)[default="guided"] .ob-supplement[data-ob-level="deep-dive"]:not([data-ob-always]) {
+   not paint every layer and then jump. Only on a screen where script is on (without it, and in print,
+   nothing is hidden), and never a warning. The hiding is the animation's first keyframe held through a
+   six second delay, so if the script never arrives the layers return by themselves. The component
+   marks itself `ob-reading-started` as its first act, which ends this at once; `animation: none` for
+   reduced motion removes it altogether, and `animation-play-state` keeps a paused-animation rule from
+   freezing the hidden state. What remains: with script that loads but is slower than six seconds the
+   layers appear and are then hidden, and a browser without `scripting` or `:defined` shows the page
+   as the build wrote it. */
+@media screen and (scripting: enabled) {
+  ob-reading-modes:not(:defined):not(.ob-reading-started)[default="standard"] .ob-supplement:not([data-ob-always], :has(.ob-callout-warning, .ob-callout-caution), .ob-callout-warning .ob-supplement, .ob-callout-caution .ob-supplement),
+  ob-reading-modes:not(:defined):not(.ob-reading-started)[default="guided"] .ob-supplement[data-ob-level="deep-dive"]:not([data-ob-always], :has(.ob-callout-warning, .ob-callout-caution), .ob-callout-warning .ob-supplement, .ob-callout-caution .ob-supplement) {
     animation: ob-supplement-wait 0.01s 6s backwards;
+    animation-play-state: running !important;
   }
 }
 @keyframes ob-supplement-wait { from { height: 0; margin: 0; padding: 0; border-width: 0; overflow: hidden; visibility: hidden; } }
@@ -2520,6 +2536,7 @@ ob-reading-modes { display: block; }
   border-radius: var(--ob-radius-sm, 4px);
 }
 .ob-reading-controls legend { padding: 0 0.35rem; font-weight: 700; }
+.ob-reading-note { margin: 0 0 0.5rem; font-size: 0.9em; color: var(--ob-color-muted, inherit); overflow-wrap: anywhere; }
 .ob-reading-options { display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; }
 .ob-reading-option {
   display: grid;
@@ -2536,8 +2553,20 @@ ob-reading-modes { display: block; }
 .ob-reading-reset { margin-top: 0.5rem; min-height: 2.75rem; max-width: 100%; }
 .ob-reading-reset[aria-disabled="true"] { opacity: 0.55; cursor: default; }
 @media print {
-  .ob-reading-controls { display: none; }
-  .ob-supplement { break-inside: avoid; }
+  .ob-reading-controls, .ob-supplement-skip { display: none; }
+  /* Paper follows the mode on screen: the browser would otherwise print a findable hidden layer
+     with its box taken away. */
+  .ob-supplement[hidden] { display: none; }
+  /* A shown supplement stays a boxed, labelled group on paper, in ink, not in a tint. */
+  .ob-supplement { break-inside: avoid; border: 1px solid #000; border-inline-start-width: 4px; background: none; }
+  .ob-supplement-kind, .ob-supplement-level, .ob-supplement-always, .ob-supplement-end { color: #000; }
+}
+/* Windows high contrast and the like: the box stays drawn in the system's own colours, and a layer
+   the reader navigated into keeps a visible outline. */
+@media (forced-colors: active) {
+  .ob-supplement { border: 1px solid CanvasText; border-inline-start: 4px solid CanvasText; background: none; }
+  .ob-supplement[data-ob-revealed] { outline-color: Highlight; }
+  .ob-supplement-skip:focus { outline: 2px solid Highlight; }
 }
 
 /* Knowledge Atlas datings and timeline (ADR 0099, ADR 0100): static lists that read in order

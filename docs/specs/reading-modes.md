@@ -75,7 +75,8 @@ The build writes every supplement visible; it never writes `hidden`. `data-ob-le
 effective level. Controls hide a supplement whose `data-ob-level` the chosen mode does not show and
 restore all of them without script. Ids are positional for one revision of the post and are not
 stored; `ob-supplement-` is reserved: a heading `{#id}`, footnote label or raw HTML `id` an opted-in post
-writes with that prefix is renamed with `section-` and reported (a post that has not opted in is
+writes with that prefix is renamed with `section-` (by its exact written value; a Markdown link to it
+ follows) and reported (a post that has not opted in is
 never touched), and a U+0000 in such a post is read as U+FFFD. A generated note cited only inside supplements has
 `data-ob-supplement="ob-supplement-1 ob-supplement-3"` naming them.
 
@@ -98,7 +99,8 @@ reduced. The shared rules are in `web/components/reading-modes.js`, checked agai
 
 - The static page is the whole content. Without script nothing is hidden, and portable copies keep
   every supplement.
-- With script on, the stylesheet hides, until the element is defined, the layers the author's
+- With script on (on screen), the stylesheet hides, until the element is defined or marks itself
+  `ob-reading-started`, the layers the author's
   `default` hides, so the page does not paint every layer and then jump. If the script never
   arrives they return after six seconds. Warnings are never hidden. Reduced motion skips this and
   shows the full page first.
@@ -112,6 +114,56 @@ reduced. The shared rules are in `web/components/reading-modes.js`, checked agai
 - A supplement with a missing or unknown level is always shown. Only a layer the reader just
   chose fades in, and not under reduced motion. The reset button is `aria-disabled`, so it keeps
   focus.
+
+## Accessibility and comprehension safeguards (ADR 0175)
+
+- **The article is identifiable in every mode.** A supplement is a boxed group named by its own
+  label ("Definition guided supplement Aporia") that ends with an "End of ... supplement." line, so
+  everything outside those boxes is the article. The control says so in a visible note linked to
+  the group by `aria-describedby`. The box is drawn with a border (not a tint alone), in system
+  colours under forced colours, and in black ink in print. Labels are real text, never only colour.
+- **A way past a supplement.** Each shown supplement has a "Skip this ... supplement" link, seen
+  only when it has focus, that moves focus to the supplement's end line. It follows the label, so
+  it is not part of the supplement's name, and a hidden supplement has no tab stops.
+- **No mode hides a caveat.** A supplement holding a `[!WARNING]` or `[!CAUTION]` callout, at any
+  depth, carries `data-ob-always` and every ancestor supplement does too. The control also checks
+  the rendered callouts itself, so a copy whose marker was lost or edited is still never hidden,
+  and the pre-paint hiding skips such a supplement. Only supplements are ever hidden: the
+  article's own caveats, hedges and uncertainty are never touched by a mode.
+- **Quiet by default.** One polite status region announces a chosen change; nothing is announced on
+  load. Motion is off for reduced motion, focus is never moved by a mode change, and the first
+  article block in view keeps its place.
+- **Print** shows the mode on screen without the control or skip links, with every shown
+  supplement boxed and labelled.
+
+## Theme hooks
+
+These names are stable: a theme may style them, and a test fails if one stops existing.
+
+<!-- hooks:start -->
+| Hook | What it is |
+| --- | --- |
+| `ob-reading-modes` | the element around the article prose; `default`, `data-ob-base` and `data-ready` attributes |
+| `ob-reading-started` | class the element sets as its first act |
+| `ob-reading-controls` | the "Reading mode" fieldset |
+| `ob-reading-note` | the sentence that says what is the article |
+| `ob-reading-options` | the row of options |
+| `ob-reading-option` | one radio with its label and description |
+| `ob-reading-help` | an option's description |
+| `ob-reading-reset` | the "Use the author's default" button |
+| `ob-supplement` | a supplement group; `data-ob-supplement`, `data-ob-kind`, `data-ob-level` |
+| `data-ob-always` | a supplement no mode hides |
+| `data-ob-revealed` | a supplement shown because the reader went into it |
+| `ob-just-shown` | a supplement that has just appeared from a chosen mode (fade-in) |
+| `ob-supplement-label` | the label line |
+| `ob-supplement-kind` | the kind in the label |
+| `ob-supplement-level` | the level in the label |
+| `ob-supplement-title` | the author's title in the label |
+| `ob-supplement-always` | the "shown in every mode" words |
+| `ob-supplement-skip` | the keyboard link past a supplement |
+| `ob-supplement-end` | the end line |
+| `--ob-supplement-edge` | custom property: the colour of the supplement's leading edge |
+<!-- hooks:end -->
 
 ## Portable copies
 

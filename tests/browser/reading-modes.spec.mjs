@@ -69,6 +69,15 @@ test.beforeAll(async () => {
     join(root, "content", "posts", "callout.md"),
     "---\ntitle: In a warning\ndate: 2026-10-20\nreadingModes: true\n---\nBefore.\n\n> [!WARNING]\n> Check the label first.\n>\n> > [!supplement kind=context level=deep-dive] Why it matters\n> > The label names the allergen.\n\nAfter.\n",
   );
+  writeFileSync(
+    join(root, "content", "posts", "uncertain.md"),
+    "---\ntitle: Uncertain\ndate: 2026-10-20\nreadingModes: true\n---\nScholars are unsure whether the text is early. That doubt belongs to the article.\n\n> [!supplement kind=uncertainty level=guided] What is not known\n> The dating rests on one witness.\n\n> [!CAUTION]\n> The reading is disputed.\n>\n> > [!supplement kind=uncertainty level=deep-dive] Why it is disputed\n> > The witnesses disagree.\n\nThe article ends.\n",
+  );
+  // A theme from before reading modes: its own stylesheet flattens block quotes and knows no supplement hook.
+  mkdirSync(join(root, "themes", "legacy"), { recursive: true });
+  writeFileSync(join(root, "themes", "legacy", "theme.json"), JSON.stringify({ label: "Legacy", extends: "base", stylesheets: ["legacy.css"] }));
+  writeFileSync(join(root, "themes", "legacy", "legacy.css"), "blockquote { border: 0; margin: 0; padding: 0; background: none; }\np { margin: 0 0 1em; }\n");
+  writeFileSync(join(root, "content", "posts", "legacy.md"), post("Legacy theme", "readingModes: true\ntheme: legacy\n"));
   writeFileSync(join(root, "content", "posts", "plain.md"), "---\ntitle: Plain\ndate: 2026-10-20\n---\nNo supplements here.\n\n> An ordinary quote.\n");
   const listener = createServer();
   listener.listen(0, "127.0.0.1");
@@ -562,4 +571,286 @@ test("labels stay on every shown supplement and a layer that cannot be read is n
   await radio(page, "Standard").check();
   await expect(supplement(page, 1)).toBeVisible();
   await expect(supplement(page, 2)).toBeHidden();
+});
+
+test("the control says what the article is, and each shown supplement has a skip link that is not part of its name", async ({ page }) => {
+  await open(page);
+  const note = page.locator(".ob-reading-note");
+  await expect(note).toContainText("The article is the same in every mode");
+  await expect(control(page)).toHaveAccessibleDescription(/everything outside those boxes is the article/);
+  await radio(page, "Deep dive").check();
+  // The group's name is its label alone.
+  await expect(page.getByRole("group", { name: "Definition guided supplement Aporia", exact: true })).toBeVisible();
+  const skip = page.getByRole("link", { name: "Skip this definition supplement" });
+  await expect(skip).toHaveCount(1);
+  // Seen only with focus.
+  expect(await skip.evaluate((node) => node.getBoundingClientRect().width)).toBeLessThanOrEqual(1);
+  await skip.focus();
+  expect(await skip.evaluate((node) => node.getBoundingClientRect().width)).toBeGreaterThan(20);
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#ob-supplement-1-end")).toBeFocused();
+  expect(new URL(page.url()).hash).toBe("");
+  // A supplement that is hidden has no skip link to tab to.
+  await radio(page, "Standard").check();
+  await expect(page.getByRole("link", { name: "Skip this definition supplement" })).toBeHidden();
+});
+
+test("no mode hides a caveat, even when the build's mark is missing, and the article's own doubt stays", async ({ page }) => {
+  await open(page, "uncertain");
+  await page.evaluate(() => document.querySelectorAll("[data-ob-always]").forEach((node) => node.removeAttribute("data-ob-always")));
+  for (const name of ["Standard", "Guided", "Deep dive", "Standard"]) {
+    await radio(page, name).check();
+    await expect(page.getByText("The reading is disputed.")).toBeVisible();
+    await expect(page.getByText("Why it is disputed")).toBeVisible();
+    await expect(page.getByText("The witnesses disagree.")).toBeVisible();
+    await expect(page.getByText("That doubt belongs to the article.")).toBeVisible();
+  }
+});
+
+test("uncertainty and the author's labels remain visible wherever a supplement is shown", async ({ page }) => {
+  await open(page, "uncertain");
+  await radio(page, "Guided").check();
+  const label = page.locator("#ob-supplement-1-label");
+  await expect(label).toBeVisible();
+  await expect(label.locator(".ob-supplement-kind")).toHaveText("Uncertainty");
+  await expect(label.locator(".ob-supplement-level")).toContainText("guided supplement");
+  await expect(label.locator(".ob-supplement-title")).toHaveText("What is not known");
+  await expect(page.getByText("The dating rests on one witness.")).toBeVisible();
+  // The one inside a caution is always shown and says so.
+  const held = page.locator("#ob-supplement-2-label");
+  await radio(page, "Standard").check();
+  await expect(page.getByText("The dating rests on one witness.")).toBeHidden();
+  await expect(held).toBeVisible();
+  await expect(held.locator(".ob-supplement-always")).toHaveText("shown in every mode");
+  await expect(page.getByText("Scholars are unsure whether the text is early.")).toBeVisible();
+});
+
+test("an open citation preview stays open and beside its marker when the mode changes, by the reader or by storage", async ({ page }) => {
+  await open(page);
+  await page.waitForFunction(() => customElements.get("ob-citation-previews") !== undefined);
+  const marker = page.locator('[id="cite-1-ref-1"]');
+  const preview = page.locator(".ob-citation-preview");
+  await marker.focus();
+  await expect(preview).toBeVisible();
+  const text = await preview.textContent();
+  const gap = async () =>
+    page.evaluate(() => {
+      const box = document.querySelector(".ob-citation-preview").getBoundingClientRect();
+      const mark = document.getElementById("cite-1-ref-1").getBoundingClientRect();
+      return Math.round(Math.abs(box.top - mark.bottom));
+    });
+  const before = await gap();
+  // The reader's choice, made without moving focus off the marker.
+  await page.evaluate(() => document.querySelector('input[value="guided"]').click());
+  await expect(radio(page, "Guided")).toBeChecked();
+  await expect(preview).toBeVisible();
+  expect(await preview.textContent()).toBe(text);
+  await expect(marker).toBeFocused();
+  expect(Math.abs((await gap()) - before)).toBeLessThanOrEqual(24);
+  // Another tab's choice arrives as a storage event; the supplement above the marker appears or goes.
+  await page.evaluate((key) => {
+    localStorage.setItem(key, "deep-dive");
+    window.dispatchEvent(new StorageEvent("storage", { key, newValue: "deep-dive" }));
+  }, STORAGE_KEY);
+  await expect(radio(page, "Deep dive")).toBeChecked();
+  await expect(preview).toBeVisible();
+  expect(await preview.textContent()).toBe(text);
+  await expect(marker).toBeFocused();
+  expect(Math.abs((await gap()) - before)).toBeLessThanOrEqual(24);
+  await page.evaluate((key) => {
+    localStorage.removeItem(key);
+    window.dispatchEvent(new StorageEvent("storage", { key }));
+  }, STORAGE_KEY);
+  await expect(radio(page, "Standard")).toBeChecked();
+  await expect(preview).toBeVisible();
+  expect(Math.abs((await gap()) - before)).toBeLessThanOrEqual(24);
+  await page.keyboard.press("Escape");
+  await expect(preview).toBeHidden();
+});
+
+test("print shows the mode on screen, without the control or skip links, with every shown supplement boxed and labelled", async ({ page }) => {
+  await open(page);
+  await radio(page, "Guided").check();
+  await page.emulateMedia({ media: "print" });
+  await expect(control(page)).toBeHidden();
+  const measured = await page.evaluate(() =>
+    [...document.querySelectorAll(".ob-supplement")].map((node) => {
+      const style = getComputedStyle(node);
+      return {
+        id: node.id,
+        shown: node.checkVisibility(),
+        border: parseFloat(style.borderTopWidth),
+        edge: parseFloat(style.borderInlineStartWidth),
+        colour: style.borderTopColor,
+        skip: getComputedStyle(node.querySelector(".ob-supplement-skip")).display,
+        label: node.querySelector(".ob-supplement-label")?.checkVisibility() ?? false,
+        end: node.querySelector(".ob-supplement-end")?.checkVisibility() ?? false,
+      };
+    }),
+  );
+  expect(measured.filter((item) => item.shown).map((item) => item.id)).toEqual(["ob-supplement-1", "ob-supplement-4"]);
+  for (const item of measured.filter((entry) => entry.shown)) {
+    expect(item.border, item.id).toBeGreaterThan(0);
+    expect(item.edge, item.id).toBeGreaterThanOrEqual(4);
+    expect(item.colour, item.id).toBe("rgb(0, 0, 0)");
+    expect(item.skip, item.id).toBe("none");
+    expect(item.label && item.end, item.id).toBe(true);
+  }
+  await expect(page.getByText("Do not heat the mixture.")).toBeVisible();
+});
+
+test("back and forward keep the chosen mode, one control and any supplement the reader went into", async ({ page }) => {
+  await open(page);
+  await radio(page, "Guided").check();
+  await page.getByRole("link", { name: "the manuscripts" }).click();
+  await expect(supplement(page, 2)).toBeVisible();
+  await page.goBack();
+  expect(new URL(page.url()).hash).toBe("");
+  await expect(radio(page, "Guided")).toBeChecked();
+  await expect(control(page)).toHaveCount(1);
+  await expect(supplement(page, 2)).toBeVisible();
+  await page.goForward();
+  expect(new URL(page.url()).hash).toBe("#ob-supplement-2-h1");
+  await expect(supplement(page, 2)).toBeVisible();
+  await expect(page.locator("#ob-supplement-2-h1")).toBeFocused();
+  // Away to another page and back: the saved choice opens the page, with no second control.
+  await radio(page, "Deep dive").check();
+  await page.goto(`${origin}/plain/`);
+  await page.goBack();
+  await expect(control(page)).toHaveCount(1);
+  await expect(radio(page, "Deep dive")).toBeChecked();
+  expect(await visibleSupplements(page)).toHaveLength(4);
+});
+
+test("a link to this page written in full reveals the supplement it points into", async ({ page }) => {
+  await open(page);
+  await page.evaluate(() => {
+    const link = document.createElement("a");
+    link.id = "absolute-link";
+    link.href = `${location.origin}${location.pathname}#ob-supplement-2-h1`;
+    link.textContent = "absolute address";
+    document.querySelector("article").prepend(link);
+  });
+  await expect(supplement(page, 2)).toBeHidden();
+  await page.locator("#absolute-link").click();
+  await expect(supplement(page, 2)).toBeVisible();
+  await expect(page.locator("#ob-supplement-2-h1")).toBeFocused();
+  // Another page's address with the same fragment is not this page's.
+  await radio(page, "Guided").check();
+  await expect(supplement(page, 2)).toBeHidden();
+  await page.evaluate(() => {
+    const link = document.getElementById("absolute-link");
+    link.href = `${location.origin}/plain/#ob-supplement-2-h1`;
+    link.addEventListener("click", (event) => event.preventDefault());
+  });
+  await page.locator("#absolute-link").click();
+  await expect(supplement(page, 2)).toBeHidden();
+});
+
+test("a theme from before reading modes still draws the boundary, labels and control", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await open(page, "legacy");
+  await expect(page.locator('link[rel="stylesheet"][href*="legacy.css"]')).toHaveCount(1);
+  await radio(page, "Deep dive").check();
+  for (const id of [1, 2, 3, 4]) {
+    const box = supplement(page, id);
+    await expect(box).toBeVisible();
+    expect(await box.evaluate((node) => parseFloat(getComputedStyle(node).borderInlineStartWidth)), String(id)).toBeGreaterThanOrEqual(4);
+    await expect(page.locator(`#ob-supplement-${id}-label`)).toBeVisible();
+    await expect(box.locator(":scope > .ob-supplement-end")).toBeVisible();
+  }
+  const overflow = await page.evaluate(() => document.querySelector("article").scrollWidth - document.querySelector("article").clientWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
+  await radio(page, "Standard").check();
+  expect(await visibleSupplements(page)).toEqual(["ob-supplement-4"]);
+});
+
+test("forced colours keep every box drawn", async ({ page }) => {
+  await page.emulateMedia({ forcedColors: "active" });
+  await open(page);
+  await radio(page, "Deep dive").check();
+  for (const id of [1, 2, 3, 4]) {
+    const widths = await supplement(page, id).evaluate((node) => {
+      const style = getComputedStyle(node);
+      return [parseFloat(style.borderTopWidth), parseFloat(style.borderInlineStartWidth)];
+    });
+    expect(widths[0], String(id)).toBeGreaterThan(0);
+    expect(widths[1], String(id)).toBeGreaterThanOrEqual(4);
+  }
+});
+
+test("with the stylesheet blocked the page still names the article, every supplement and its end", async ({ browser }) => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.route(/\.css(\?.*)?$/, (route) => route.abort());
+  await open(page);
+  await radio(page, "Deep dive").check();
+  for (const end of ["definition", "evidence", "further reading", "context"]) {
+    await expect(page.getByText(`End of ${end} supplement.`, { exact: true })).toBeVisible();
+  }
+  await expect(page.getByRole("group", { name: /Definition guided supplement Aporia/ })).toBeVisible();
+  await expect(control(page)).toContainText("everything outside those boxes is the article");
+  // Landmarks: one main region holds the article, the control and every supplement; none is a landmark.
+  await expect(page.getByRole("main")).toHaveCount(1);
+  await expect(page.getByRole("main").getByRole("group", { name: "Reading mode", exact: true })).toBeVisible();
+  await expect(page.getByRole("main").locator(".ob-supplement")).toHaveCount(4);
+  await expect(page.locator(".ob-supplement[role=region], .ob-supplement[role=complementary], aside.ob-supplement")).toHaveCount(0);
+  await context.close();
+});
+
+test("with reduced motion and the script blocked, nothing is pre-hidden", async ({ browser }) => {
+  const context = await browser.newContext({ reducedMotion: "reduce" });
+  const page = await context.newPage();
+  await page.route(/\/assets\/.*\.js/, (route) => route.abort());
+  await page.goto(`${origin}/modes/`);
+  expect(await page.evaluate(() => customElements.get("ob-reading-modes") === undefined)).toBe(true);
+  const state = await page.locator(".ob-supplement").evaluateAll((nodes) =>
+    nodes.map((node) => ({
+      id: node.id,
+      animation: getComputedStyle(node).animationName,
+      visible: getComputedStyle(node).visibility !== "hidden" && node.getBoundingClientRect().height > 0,
+    })),
+  );
+  expect(state.map((item) => item.id)).toEqual(["ob-supplement-1", "ob-supplement-2", "ob-supplement-3", "ob-supplement-4"]);
+  expect(state.every((item) => item.animation === "none" && item.visible)).toBe(true);
+  await context.close();
+});
+
+test("the component ends the pre-paint hiding as its first act, and the hiding is for screens only", async ({ browser }) => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(`${origin}/modes/`);
+  await expect(page.locator("ob-reading-modes")).toHaveClass(/ob-reading-started/);
+  const rule = await page.evaluate(() =>
+    [...document.styleSheets].flatMap((sheet) => [...sheet.cssRules]).filter((item) => item.cssText.includes("ob-supplement-wait")).map((item) => item.cssText),
+  );
+  // Only an `@media screen and (scripting: enabled)` rule starts it.
+  expect(rule.some((text) => /^@media screen and \(scripting: enabled\)/.test(text))).toBe(true);
+  await context.close();
+});
+
+test("at 320 CSS pixels and at 400% zoom the article region has no overflow with the note and skip links", async ({ browser }) => {
+  for (const viewport of [{ width: 320, height: 640 }, { width: 320, height: 256, scale: 4 }]) {
+    const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height }, deviceScaleFactor: viewport.scale ?? 1 });
+    const page = await context.newPage();
+    await open(page, "uncertain");
+    for (const name of ["Standard", "Guided", "Deep dive"]) {
+      await radio(page, name).check();
+      await page.locator(".ob-supplement-skip").first().focus();
+      const measured = await page.evaluate(() => {
+        const article = document.querySelector("article");
+        const box = article.getBoundingClientRect();
+        const wide = [...article.querySelectorAll("*")].filter((node) => node.checkVisibility() && node.getBoundingClientRect().right > box.right + 1);
+        return {
+          page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          article: article.scrollWidth - article.clientWidth,
+          overflowing: wide.map((node) => node.tagName + "." + node.className),
+        };
+      });
+      expect(measured.page, `${viewport.height} ${name}`).toBeLessThanOrEqual(0);
+      expect(measured.article, `${viewport.height} ${name}`).toBeLessThanOrEqual(0);
+      expect(measured.overflowing, `${viewport.height} ${name}`).toEqual([]);
+    }
+    await context.close();
+  }
 });

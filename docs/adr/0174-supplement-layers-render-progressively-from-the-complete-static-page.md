@@ -26,12 +26,14 @@ and that several enhancement paths could undo the reader's own navigation.
   complete. Portable copies, feeds, print without script and every no-JavaScript reader keep every
   supplement, labelled and in order (ADR 0171).
 - **Hidden before paint, without script and without inline code.** The stylesheet hides, only where
-  `@media (scripting: enabled)` holds and only while `<ob-reading-modes>` is not yet defined, the
+  `@media screen and (scripting: enabled)` holds and only while `<ob-reading-modes>` is not yet
+  defined (and has not marked itself `ob-reading-started`, the first thing it does), the
   layers the author's `default` hides (everything but warnings for standard, the deep-dive layers
   for guided). The element is defined, and the mode applied, in one task, so the layers the saved or
   default mode shows never flash. The hiding is the first keyframe of an animation held through a
   six second delay, not a declaration, so if the script never arrives (blocked, failed, offline) the
-  layers return on their own. A reader whose saved choice differs from the author's default sees the
+  layers return on their own (`animation-play-state: running !important` keeps a rule that pauses
+  animations from freezing the hidden state). A reader whose saved choice differs from the author's default sees the
   difference apply once; their place is kept (below). Readers who asked for reduced motion (the
   stylesheet turns animations off for them) get the safe order instead: the full page first, the
   mode applied when script runs, place kept.
@@ -65,7 +67,9 @@ and that several enhancement paths could undo the reader's own navigation.
   migrated; the reader chooses once more.
 - **Written ids cannot take a supplement's id.** For a post with supplements, a heading `{#id}`, a
   footnote label or a raw HTML `id` that begins `ob-supplement-` is renamed with a `section-`
-  prefix (an id written with character references is reported but cannot be renamed) and reported
+  prefix (the written `id` value itself is renamed, so `title=` or `data-x=` text that matches is never
+  the one changed, and a Markdown link to the renamed id follows it; a raw HTML `href` is left as
+  written) and reported
   as a warning; heading slugs follow the same rule. A post that has not opted in is never touched:
   its slugs and ids are exactly as before.
 - **U+0000 is read as U+FFFD** (CommonMark) before a post with supplements is parsed, so a NUL in

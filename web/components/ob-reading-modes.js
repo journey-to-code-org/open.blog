@@ -53,8 +53,13 @@ const el = (tag, props = {}, ...children) => {
 };
 
 const SUPPLEMENTS = ".ob-supplement[data-ob-supplement]";
+// What the renderer makes of a warning or caution callout. A supplement that holds one is never hidden,
+// whatever its markup says (the build writes `data-ob-always`; this is the reader's own second check).
+const CAVEATS = ".ob-callout-warning, .ob-callout-caution";
 // What the reader's place is kept against: blocks of the article, not the control.
 const ANCHORS = "p, li, h1, h2, h3, h4, h5, h6, pre, figure, table, blockquote, details";
+const NOTE =
+  "The article is the same in every mode. Each supplement is a labelled box that ends with an “End of … supplement” line; everything outside those boxes is the article.";
 const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 // Browsers that can find text in, and navigate into, hidden="until-found" content.
 const canFind = () => "onbeforematch" in document.documentElement;
@@ -73,6 +78,8 @@ class ObReadingModes extends HTMLElement {
   #mode = "standard";
 
   connectedCallback() {
+    // First, so the stylesheet's pre-paint hiding ends whatever happens next.
+    this.classList.add("ob-reading-started");
     if (!this.#built) {
       this.#supplements = [...this.querySelectorAll(SUPPLEMENTS)];
       // Nothing to choose between: add nothing.
@@ -133,10 +140,15 @@ class ObReadingModes extends HTMLElement {
     }
   }
 
+  /** Whether no mode may hide `node`: it is marked, holds a warning or caution, or sits inside one. */
+  #always(node) {
+    return node.hasAttribute("data-ob-always") || node.querySelector(CAVEATS) !== null || node.closest(CAVEATS) !== null;
+  }
+
   #items() {
     return this.#supplements.map((node) => ({
       level: node.getAttribute("data-ob-level"),
-      always: node.hasAttribute("data-ob-always"),
+      always: this.#always(node),
     }));
   }
 
@@ -156,6 +168,9 @@ class ObReadingModes extends HTMLElement {
     const counts = countsByMode(this.#items());
     const total = this.#supplements.length;
     const group = el("fieldset", { class: "ob-reading-controls" }, el("legend", {}, "Reading mode"));
+    // Says which words are the article's, so the choice below never has to be guessed at.
+    const note = el("p", { class: "ob-reading-note", id: `ob-reading-mode-${id}-note` }, NOTE);
+    group.setAttribute("aria-describedby", note.id);
     const options = el("div", { class: "ob-reading-options" });
     for (const mode of MODES) {
       const input = el("input", {
@@ -190,8 +205,32 @@ class ObReadingModes extends HTMLElement {
       );
     });
     this.#status = el("p", { class: "ob-visually-hidden", role: "status", "aria-live": "polite" });
-    group.append(options, this.#reset);
+    group.append(note, options, this.#reset);
+    this.#addSkipLinks(id);
     this.prepend(group, this.#status);
+  }
+
+  /**
+   * A way past each supplement for a keyboard or screen-reader reader: a link,
+   * seen only when it has focus, to the supplement's end line. It sits after the
+   * label, so it is never part of the supplement's name.
+   */
+  #addSkipLinks(id) {
+    this.querySelectorAll(".ob-supplement-skip").forEach((node) => node.remove());
+    this.#supplements.forEach((node, index) => {
+      const end = node.querySelector(":scope > .ob-supplement-end");
+      const label = node.querySelector(":scope > .ob-supplement-label");
+      if (!end || !label) return;
+      end.id ||= `${node.id || `ob-supplement-${id}-${index + 1}`}-end`;
+      const skip = el("a", { class: "ob-supplement-skip", href: `#${end.id}` }, `Skip this ${this.#kind(node)} supplement`);
+      skip.addEventListener("click", (event) => {
+        event.preventDefault();
+        end.tabIndex = -1;
+        end.scrollIntoView({ block: "nearest" });
+        end.focus({ preventScroll: true });
+      });
+      label.after(skip);
+    });
   }
 
   /** The first block of the article in view, which stays where it is when layers appear or go. */
@@ -225,13 +264,16 @@ class ObReadingModes extends HTMLElement {
     const plan = this.#supplements.map((node) => {
       let visible = true;
       try {
-        visible = shouldShow(mode, node.getAttribute("data-ob-level"), node.hasAttribute("data-ob-always"));
+        visible = shouldShow(mode, node.getAttribute("data-ob-level"), this.#always(node));
       } catch {
         // One supplement that cannot be read stays shown; the others go on.
       }
       // Never take away the supplement the reader is working in.
       const holdsFocus = !visible && active && active !== document.body && node.contains(active);
-      return { node, visible: visible || holdsFocus, holdsFocus, was: !node.hasAttribute("hidden") };
+      // A change the reader did not just make (another tab, the element put
+      // back) never hides a supplement they navigated into.
+      const kept = !visible && !announce && node.hasAttribute("data-ob-revealed");
+      return { node, visible: visible || holdsFocus || kept, holdsFocus: holdsFocus || kept, was: !node.hasAttribute("hidden") };
     });
     const changing = new Set(plan.filter((item) => item.visible !== item.was).map((item) => item.node));
     const place = changing.size && (scrollY > 0 || announce) ? this.#anchor(changing) : null;
@@ -278,9 +320,18 @@ class ObReadingModes extends HTMLElement {
   /** A click on an in-page link whose target is in a hidden supplement shows it first. */
   #followLink(event) {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    const link = event.target instanceof Element ? event.target.closest('a[href^="#"]') : null;
+    const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
     if (!link) return;
-    const id = this.#idOf((link.getAttribute("href") || "").slice(1));
+    // A link to this page written in full (https://site/post/#id) counts as
+    // much as `#id`: same origin, path and query, with a fragment.
+    let url;
+    try {
+      url = new URL(link.href, location.href);
+    } catch {
+      return;
+    }
+    if (url.origin !== location.origin || url.pathname !== location.pathname || url.search !== location.search) return;
+    const id = this.#idOf(url.hash.slice(1));
     const target = this.#reveal(id);
     // The browser follows the link and scrolls; the focus follows it there.
     if (target) setTimeout(() => this.#land(target, false), 0);

@@ -482,6 +482,10 @@ script every supplement is shown. A supplement that holds a warning or caution c
 every mode. The author may name the mode a post opens in; a reader's saved choice comes first.
 _Avoid_: Reading level, difficulty, personalised view
 
+**Article boundary**:
+What tells a reader which words are the article under every reading mode: each supplement is a bordered group with a visible label and an "End of ... supplement." line, and the reading-mode control says everything outside those boxes is the article. The article itself is never wrapped or relabelled.
+_Avoid_: Main text marker, article toggle
+
 **Reading depth**:
 The least reading mode that shows a supplement, `guided` or `deep-dive`, written as `level` or
 taken from the supplement's kind. A supplement inside another is shown no earlier than the one
