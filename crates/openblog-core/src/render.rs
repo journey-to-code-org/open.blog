@@ -220,6 +220,11 @@ fn url_to_file(url: &str) -> String {
 /// Render the whole site to files. `themes` supplies every registered theme;
 /// the ones the site uses must resolve, others are emitted when they do.
 pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, String> {
+    // Published claim evidence that cannot be read refuses the whole output
+    // rather than publishing posts without it (ADR 0091).
+    if let Some(error) = &site.claim_evidence_error {
+        return Err(error.clone());
+    }
     validate_output_paths(site)?;
     let resolved = resolve_themes(site, themes)?;
 
@@ -294,6 +299,16 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
         out.add(
             atlas_publication::ATLAS_JSON_FILE.into(),
             c.apply_base_path(&atlas.to_json()),
+        )?;
+    }
+    // Claim evidence as data, only while the site publishes it (ADR 0091):
+    // the same values each post's section was written from.
+    if c.claim_evidence.publish {
+        out.add(
+            crate::claim_publication::CLAIM_EVIDENCE_JSON_FILE.into(),
+            c.apply_base_path(
+                &crate::claim_publication::PublicClaimEvidence::of(&site.posts).to_json(),
+            ),
         )?;
     }
     // GitHub Pages skips Jekyll processing when this file exists.
@@ -2451,6 +2466,7 @@ mod tests {
                 series: vec![src("series/s.md", "---\nname: Series S\ntheme: loud\n---\nAbout S")],
                 pages: vec![src("pages/about.md", "---\ntitle: About\nnav: true\n---\nHi")],
                 source_library: None,
+                claim_evidence: None,
             },
             LoadOptions::default(),
         )
