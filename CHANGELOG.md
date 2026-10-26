@@ -33,6 +33,9 @@ All notable changes to open.blog are recorded here. Releases follow
   generated heading moves aside: the post's own headings keep the ids they have without citations,
   so links to them still work. A post whose own HTML reuses a citation id is still refused, and the
   message now names the id to rename.
+- On a site served under a base path (such as `https://example.org/blog/`), text that only reads
+  like a redirect address, such as a title or note containing `; url=/x`, is no longer rewritten
+  to `; url=/blog/x` on pages, in their structured data or in citation preview data.
 
 ## [0.27.0] - 2026-10-25
 

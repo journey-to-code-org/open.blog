@@ -901,7 +901,10 @@ impl SiteConfig {
     }
 
     /// Prefix root-relative URLs in generated HTML, CSS or JSON with the base
-    /// path. Protocol-relative (`//`) and absolute URLs are left alone.
+    /// path. Protocol-relative (`//`) and absolute URLs are left alone. Every
+    /// marker includes a quote, which text escapes, so a title or note that
+    /// merely reads like one (`Moved; url=/x`) is never changed; a redirect's
+    /// refresh address is matched with its `content="0; ` attribute.
     pub fn apply_base_path(&self, text: &str) -> String {
         let base = self.base_path();
         if base.is_empty() {
@@ -915,7 +918,7 @@ impl SiteConfig {
             "index=\"",
             "wasm=\"",
             "url(\"",
-            "; url=",
+            "content=\"0; url=",
             "\"url\":\"",
         ] {
             out = prefix_root_urls(&out, marker, &base);
@@ -954,6 +957,11 @@ mod tests {
         assert!(out.contains(r#"url=/blog/posts/y/""#));
         assert!(out.contains(r#"url("/blog/themes/t/f.woff2")"#));
         assert!(out.contains(r#"{"url":"/blog/posts/z/"}"#));
+        // Text that only reads like a refresh address, in a page or in JSON
+        // inside it, is left alone.
+        let text =
+            r#"<p>Moved; url=/x</p><script type="application/json">{"t":"a; url=/y"}</script>"#;
+        assert_eq!(c.apply_base_path(text), text);
         let root = SiteConfig::from_json(r#"{"url":"https://t.dev"}"#).unwrap();
         assert_eq!(root.base_path(), "");
         assert_eq!(root.apply_base_path(html), html);
