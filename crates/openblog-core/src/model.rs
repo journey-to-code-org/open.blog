@@ -1469,7 +1469,10 @@ fn load_post_in(
         }
         _ => None,
     };
-    let rendered = markdown::render(
+    // `readingModes: true`, or `{default: guided}` (ADR 0172).
+    let reading_setting =
+        crate::reading_depth::setting(fm.get("readingModes").or_else(|| fm.get("reading_modes")));
+    let mut rendered = markdown::render(
         published
             .as_ref()
             .map_or(base, |(published, _)| &published.markdown),
@@ -1484,16 +1487,27 @@ fn load_post_in(
             claim_evidence_section: with_evidence.is_some(),
             // Reading modes are opt-in (ADR 0170): without the key every
             // block quote renders exactly as before.
-            supplements: fm
-                .get_bool("readingModes")
-                .or_else(|| fm.get_bool("reading_modes"))
-                == Some(true),
+            supplements: reading_setting.enabled,
             ..options
         },
     );
     if !rendered.errors.is_empty() {
         return Err(rendered.errors.join("; "));
     }
+    if let Some(depth) = rendered.reading_depth.as_mut() {
+        depth.default_mode = reading_setting.default_mode;
+        // Each unread marker, and each adjustment, is the author's to see in
+        // the build, `check` and Admin warnings (ADR 0172).
+        for finding in &depth.findings {
+            let marker = finding.marker.trim();
+            profile.warnings.push(if marker.is_empty() {
+                format!("reading modes: {}", finding.message)
+            } else {
+                format!("reading modes: `{marker}`: {}", finding.message)
+            });
+        }
+    }
+    profile.warnings.extend(reading_setting.warning.clone());
     let recipe = if is_recipe {
         let mut r = Recipe::from_front_matter(
             fm,

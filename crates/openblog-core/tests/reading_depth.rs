@@ -251,16 +251,28 @@ fn the_canonical_argument_is_the_same_whatever_the_supplements() {
 }
 
 #[test]
-fn headings_inside_supplements_do_not_join_the_outline() {
+fn headings_inside_supplements_are_real_headings_outside_the_outline() {
     let rendered = render(
-        "## Real\n\n> [!supplement kind=context]\n> ## Inside\n> text\n",
+        "## Plato\n\n> [!supplement kind=context]\n> ## Plato\n> text\n\n## Plato\n",
         on(),
     );
-    assert_eq!(rendered.headings.len(), 1);
-    assert_eq!(rendered.headings[0].text, "Real");
-    assert!(rendered
-        .html
-        .contains("<p class=\"ob-supplement-heading\"><strong>Inside</strong></p>"));
+    // Not in the outline, and the post's own slugs are what they would be
+    // without the supplement: the second "Plato" is `plato-2`, not `plato-3`.
+    let ids: Vec<_> = rendered.headings.iter().map(|h| h.id.as_str()).collect();
+    assert_eq!(ids, ["plato", "plato-2"]);
+    // Inside it stays a real heading with an anchor of its own.
+    assert!(
+        rendered
+            .html
+            .contains("<h2 id=\"ob-supplement-1-h1\">Plato</h2>"),
+        "{}",
+        rendered.html
+    );
+    assert!(!rendered.html.contains("ob-supplement-heading"));
+    // A heading the author gave an id keeps it.
+    let written = render("> [!supplement kind=context]\n> ### Deep {#mine}\n", on());
+    assert!(written.html.contains("<h3 id=\"mine\">Deep</h3>"));
+    assert!(written.headings.is_empty());
 }
 
 #[test]
@@ -368,4 +380,342 @@ fn citations_inside_supplements_keep_the_posts_one_reference_list() {
     let summary = post.citations().unwrap();
     assert_eq!(summary.references.len(), 2);
     assert!(post.html.contains("Politeia") && post.html.contains("Slings"));
+}
+
+#[test]
+fn a_heading_slug_never_takes_the_supplements_reserved_names() {
+    let rendered = render(
+        "## Ob supplement 1\n\n> [!supplement kind=context]\n> x\n",
+        on(),
+    );
+    assert_eq!(rendered.headings[0].id, "section-ob-supplement-1");
+    assert_eq!(rendered.html.matches("id=\"ob-supplement-1\"").count(), 1);
+}
+
+const PLATO_LIBRARY: &str = r#"{"version": 1, "sources": [
+    {"id": "plato", "kind": "work", "title": "Politeia", "creators": [{"name": "Plato", "role": "author"}]},
+    {"id": "slings", "kind": "work", "title": "Slings"}]}"#;
+
+fn cited(body: &str) -> openblog_core::Post {
+    let library = SourceLibrary::parse(PLATO_LIBRARY, &BTreeMap::new()).unwrap();
+    let config = config();
+    model::load_post_cited(
+        &post_source("readingModes: true\ncitations: notes\n", body),
+        &config,
+        config.render_options(),
+        Some(&library),
+    )
+    .unwrap()
+}
+
+#[test]
+fn a_citation_marker_trimmed_inside_a_supplement_does_not_break_the_posts_own_text() {
+    // The panic: the marker's gap is trimmed from the text, so byte ranges
+    // recorded before the trim no longer fell on character boundaries.
+    for quoted in [
+        "> As he wrote, \u{201c}justice [@plato]\u{201d} matters.",
+        "> As he wrote, \"justice [@plato]\" matters.",
+        "> As he wrote, justice [@plato], matters.",
+        "> As he wrote, caf\u{e9} \u{2014} justice [@plato]. Matters.",
+    ] {
+        let post = cited(&format!(
+            "Before.\n\n> [!supplement kind=evidence]\n{quoted}\n\nAfter [@slings].\n"
+        ));
+        let bare = cited("Before.\n\nAfter [@slings].\n");
+        // The supplement is not the post's own words, whatever it holds.
+        assert_eq!(post.word_count, bare.word_count, "{quoted}");
+        assert_eq!(post.description, bare.description, "{quoted}");
+        assert!(post.description.starts_with("Before. After"), "{quoted}");
+        assert!(!post.description.contains("justice"), "{quoted}");
+        // Search still sees them, with the marker gap trimmed as everywhere.
+        assert!(post.text.contains("As he wrote"), "{quoted}");
+        assert!(
+            !post.text.contains(" ,") && !post.text.contains(" \u{201d}"),
+            "{quoted}: {}",
+            post.text
+        );
+    }
+}
+
+#[test]
+fn supplement_words_stay_aligned_when_a_citation_precedes_and_follows_one() {
+    let post = cited(
+        "Claim [@plato]. More.\n\n> [!supplement kind=context]\n> Inside [@slings], and \u{201c}more\u{201d} [@plato].\n\nEnd [@plato].\n",
+    );
+    assert_eq!(post.description, "Claim. More. End.");
+    assert_eq!(post.word_count, 3);
+}
+
+#[test]
+fn lists_inside_a_supplement_are_not_the_recipes_ingredients_or_steps() {
+    let markdown = "## Ingredients\n\n- 1 cup flour\n- 2 eggs\n\n\
+> [!supplement kind=context] Notes\n> - a list in a supplement\n> - another\n>\n> 1. numbered in a supplement\n\n\
+## Steps\n\n1. Mix.\n2. Bake.\n\n\
+> [!supplement kind=evidence]\n> 1. A history of baking.\n";
+    let rendered = render(
+        markdown,
+        RenderOptions {
+            recipe: true,
+            supplements: true,
+            ..RenderOptions::default()
+        },
+    );
+    assert_eq!(rendered.recipe_ingredients, ["1 cup flour", "2 eggs"]);
+    assert_eq!(rendered.recipe_steps, ["Mix.", "Bake."]);
+    // The supplements are still there, whole, and balanced with the sections.
+    assert!(rendered.html.contains("a list in a supplement"));
+    assert!(rendered.html.contains("A history of baking."));
+    assert_eq!(
+        rendered.html.matches("<section").count(),
+        rendered.html.matches("</section>").count()
+    );
+}
+
+#[test]
+fn a_supplement_has_a_visible_boundary_in_every_representation() {
+    let html = render(ARTICLE, on()).html;
+    // A quote inside the labelled group, then an end marker that needs no CSS.
+    assert!(
+        html.contains("</p>\n<blockquote>\n<p>A state of puzzlement.</p>\n</blockquote>\n<p class=\"ob-supplement-end\"><strong>End of definition supplement.</strong></p>\n</div>"),
+        "{html}"
+    );
+    assert!(html.contains("End of further reading supplement."));
+    assert!(html.contains("End of evidence supplement."));
+    let config = config();
+    let post = model::load_post(
+        &post_source("readingModes: true\n", ARTICLE),
+        &config,
+        config.render_options(),
+    )
+    .unwrap();
+    // The text view (search, plain text, JSON Feed `content_text`).
+    let start = post
+        .text
+        .find("Definition supplement (guided): Aporia.")
+        .unwrap();
+    let words = post.text.find("A state of puzzlement.").unwrap();
+    let end = post.text.find("End of definition supplement.").unwrap();
+    assert!(start < words && words < end, "{}", post.text);
+    let projection = PortableProjection::from_post(&post, &config).unwrap();
+    let text = projection.portable_text().unwrap();
+    assert!(text.contains("End of definition supplement."), "{text}");
+    let portable = projection.portable_html().unwrap().html;
+    assert!(portable.contains("<strong>End of definition supplement.</strong>"));
+    assert!(portable.contains("<blockquote>"));
+    // Titles are searchable but are not the post's prose.
+    assert!(post.text.contains("Aporia"));
+    assert!(!post.description.contains("Aporia"));
+}
+
+#[test]
+fn findings_are_surfaced_with_the_post_path_in_the_sites_warnings() {
+    let load = |body: &str| {
+        model::Site::load(
+            config(),
+            openblog_core::Sources {
+                posts: vec![post_source("readingModes: true\n", body)],
+                ..Default::default()
+            },
+            openblog_core::LoadOptions::default(),
+        )
+        .unwrap()
+    };
+    let site = load("> [!supplement kind=Bad_Kind]\n> x\n\n> [!supplement kind=context]\n> fine\n");
+    let warning = site
+        .warnings
+        .iter()
+        .find(|warning| warning.contains("reading modes"))
+        .unwrap_or_else(|| panic!("{:?}", site.warnings));
+    assert!(warning.starts_with("posts/p.md: "), "{warning}");
+    assert!(warning.contains("[!supplement kind=Bad_Kind]"), "{warning}");
+    assert!(warning.contains("shown as a block quote"), "{warning}");
+    // Nothing of the quote's body is in the warning.
+    assert!(!warning.contains("fine"));
+    // A site with nothing to report has no such warning.
+    let quiet = load("> [!supplement kind=context]\n> fine\n");
+    assert!(!quiet.warnings.iter().any(|w| w.contains("reading modes")));
+}
+
+#[test]
+fn an_over_long_title_or_kind_is_reported_with_its_own_message_and_stays_a_quote() {
+    let title = format!("> [!supplement kind=context] {}\n> body\n", "t".repeat(121));
+    let depth = scan(&title);
+    assert!(depth.supplements.is_empty());
+    assert_eq!(depth.findings.len(), 1);
+    assert!(depth.findings[0]
+        .message
+        .contains("title is longer than 120"));
+    assert!(render(&title, on()).html.starts_with("<blockquote>"));
+    // The full title is allowed at the limit.
+    let at_limit = scan(&format!(
+        "> [!supplement kind=context] {}\n> body\n",
+        "t".repeat(120)
+    ));
+    assert_eq!(at_limit.supplements[0].title.as_deref().unwrap().len(), 120);
+    let kind = scan(&format!(
+        "> [!supplement kind={}]\n> body\n",
+        "k".repeat(33)
+    ));
+    assert!(kind.findings[0].message.contains("kind is longer than 32"));
+    let bad = scan("> [!supplement kind=Bad_Kind]\n> body\n");
+    assert!(bad.findings[0].message.contains("lowercase word"));
+}
+
+#[test]
+fn only_a_written_level_that_a_parent_overrides_is_reported() {
+    let written = scan(
+        "> [!supplement kind=evidence level=deep-dive]\n> a\n>\n> > [!supplement kind=definition level=guided]\n> > b\n",
+    );
+    assert_eq!(written.findings.len(), 1);
+    let defaulted = scan(
+        "> [!supplement kind=evidence level=deep-dive]\n> a\n>\n> > [!supplement kind=definition]\n> > b\n",
+    );
+    assert!(defaulted.findings.is_empty(), "{:?}", defaulted.findings);
+    assert_eq!(defaulted.supplements[1].effective_depth, Depth::DeepDive);
+}
+
+#[test]
+fn an_escaped_marker_is_an_ordinary_quote() {
+    let slash = char::from(92u8);
+    for escaped in [
+        format!("> {slash}[!supplement kind=context] Title\n> body\n"),
+        format!("> {slash}[!SUPPLEMENT]\n> body\n"),
+    ] {
+        let depth = scan(&escaped);
+        assert!(
+            depth.supplements.is_empty() && depth.findings.is_empty(),
+            "{escaped}"
+        );
+        let html = render(&escaped, on()).html;
+        assert!(html.starts_with("<blockquote>"), "{html}");
+        assert!(
+            html.contains("[!"),
+            "the author's literal text stays: {html}"
+        );
+        assert!(!html.contains("ob-supplement"));
+    }
+    // Unescaped still reads.
+    assert_eq!(
+        scan("> [!supplement kind=context]\n> body\n")
+            .supplements
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn a_warning_inside_a_supplement_keeps_it_shown_in_every_mode_and_is_reported() {
+    let markdown = "> [!supplement kind=evidence level=deep-dive] Handling\n> Notes.\n>\n> > [!WARNING]\n> > Do not heat the mixture.\n\n\
+> [!supplement kind=context]\n> Fine.\n>\n> > [!CAUTION]\n> > Sharp.\n\n\
+> [!supplement kind=definition level=deep-dive]\n> > [!NOTE]\n> > An ordinary note.\n";
+    let depth = scan(markdown);
+    let [warned, cautioned, noted] = &depth.supplements[..] else {
+        panic!("{:?}", depth.supplements)
+    };
+    assert!(warned.always && cautioned.always && !noted.always);
+    assert_eq!(depth.findings.len(), 2, "{:?}", depth.findings);
+    assert!(depth.findings[0].message.contains("every reading mode"));
+    // Standard mode shows them anyway; it hides only the note-only one.
+    let shown = |mode| {
+        depth
+            .visible(mode)
+            .iter()
+            .map(|s| s.id.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        shown(ReadingMode::Standard),
+        ["ob-supplement-1", "ob-supplement-2"]
+    );
+    let html = render(markdown, on()).html;
+    assert_eq!(html.matches("data-ob-always").count(), 2);
+    assert!(html.contains("role=\"note\""));
+    assert!(html.contains("Do not heat the mixture."));
+    // A warning in a nested supplement keeps its parent shown too.
+    let nested = scan(
+        "> [!supplement kind=evidence]\n> a\n>\n> > [!supplement kind=context]\n> > b\n> >\n> > > [!WARNING]\n> > > careful\n",
+    );
+    assert!(nested.supplements.iter().all(|s| s.always));
+    // A warning outside any supplement is not this rule's business.
+    assert!(
+        scan("> [!WARNING]\n> hot\n\n> [!supplement kind=context]\n> x\n")
+            .supplements
+            .iter()
+            .all(|s| !s.always)
+    );
+}
+
+#[test]
+fn the_front_matter_key_is_read_tolerantly_and_a_map_never_switches_the_post_off() {
+    use openblog_core::reading_depth::setting;
+    assert!(!setting(None).enabled);
+    for yes in ["true", "True", "yes", "on", " true "] {
+        let read = setting(Some(yes));
+        assert!(
+            read.enabled && read.default_mode == ReadingMode::Standard && read.warning.is_none()
+        );
+    }
+    for no in ["false", "no", "off"] {
+        let read = setting(Some(no));
+        assert!(!read.enabled && read.warning.is_none(), "{no}");
+    }
+    for (value, mode) in [
+        ("{default: guided}", ReadingMode::Guided),
+        ("{ default: deep-dive }", ReadingMode::DeepDive),
+        ("{\"default\": \"standard\"}", ReadingMode::Standard),
+        ("{default: guided, other: 1}", ReadingMode::Guided),
+        ("{other: 1}", ReadingMode::Standard),
+        ("{}", ReadingMode::Standard),
+        ("guided", ReadingMode::Guided),
+    ] {
+        let read = setting(Some(value));
+        assert!(read.enabled, "{value}");
+        assert_eq!(read.default_mode, mode, "{value}");
+        assert!(read.warning.is_none(), "{value}");
+    }
+    let bad_default = setting(Some("{default: expert}"));
+    assert!(bad_default.enabled && bad_default.default_mode == ReadingMode::Standard);
+    assert!(bad_default.warning.unwrap().contains("expert"));
+    let typo = setting(Some("maybe"));
+    assert!(!typo.enabled && typo.warning.unwrap().contains("maybe"));
+    // End to end.
+    let config = config();
+    let post = model::load_post(
+        &post_source("readingModes: {default: guided}\n", ARTICLE),
+        &config,
+        config.render_options(),
+    )
+    .unwrap();
+    let depth = post.reading_depth().unwrap();
+    assert_eq!(depth.supplements.len(), 3);
+    assert_eq!(depth.default_mode, ReadingMode::Guided);
+}
+
+#[test]
+fn a_note_cited_only_inside_a_supplement_names_the_supplement() {
+    let post = cited(
+        "Argument [@plato].\n\n> [!supplement kind=evidence]\n> More in [@slings].\n\n> [!supplement kind=context]\n> Again [@slings] and [@plato].\n",
+    );
+    let html = &post.html;
+    // `slings` is cited only in supplements; `plato` is cited by the article.
+    assert!(
+        html.contains("data-ob-supplement=\"ob-supplement-1 ob-supplement-2\""),
+        "{html}"
+    );
+    assert_eq!(
+        html.matches("data-ob-supplement=\"ob-supplement-").count(),
+        1,
+        "{html}"
+    );
+}
+
+#[test]
+fn legacy_pages_without_supplements_do_not_change_when_a_post_opts_in() {
+    let body = "# T\n\n## One\n\ntext[^a]\n\n> quote\n\n[^a]: note\n";
+    let plain = render(body, RenderOptions::default());
+    let opted = render(body, on());
+    assert_eq!(plain.html, opted.html);
+    assert_eq!(plain.text, opted.text);
+    assert_eq!(plain.prose, opted.prose);
+    assert_eq!(plain.headings, opted.headings);
 }

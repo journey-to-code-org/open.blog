@@ -73,3 +73,16 @@ test("diagrams remain blocked until an owning story defines their scope", () => 
   assert.deepEqual(diagrams.implementation_issues, []);
   assert.ok(diagrams.required_tests.some((requiredTest) => /create an owning story/.test(requiredTest)));
 });
+
+test("an implemented capability names the fallback it ships and keeps its static fallback decision", () => {
+  const implemented = registry.contracts.filter((contract) => "implementation_status" in contract);
+  assert.deepEqual(implemented.map((contract) => contract.id), ["guided-reading-supplements"]);
+  for (const contract of implemented) {
+    assert.equal(contract.implementation_status, "implemented", `${contract.id}: unexpected state`);
+    assert.equal(contract.status, "defined", `${contract.id}: it was defined before it was built`);
+    assert.match(contract.implemented_fallback, /^[a-z][a-z-]+$/, `${contract.id}: shipped fallback is missing`);
+    assert.ok(contract.static_fallback.trim(), `${contract.id}: the static fallback decision stays`);
+  }
+  const matrix = readFileSync(new URL("../docs/portability/capability-matrix.md", import.meta.url), "utf8");
+  assert.ok(!/\| Guided explanations[^|]*\| Planned/.test(matrix), "the matrix still lists reading modes as planned");
+});

@@ -8,16 +8,20 @@
 //! or a post that has not opted in publishes none of it as a supplement.
 //!
 //! A reading mode only decides which supplements are shown. It never changes
-//! the canonical prose, the citations, or the order of either. The one
-//! transform here ([`transform`]) wraps each supplement in a labelled `div`,
-//! leaves every other event untouched, and reports the events that belong to
-//! supplements so the renderer can keep them out of the post's own prose.
+//! the canonical prose, the citations, or the order of either. Reading is in
+//! two steps: [`transform`] finds each supplement, drops its marker line and
+//! reports the events that belong to supplements so the renderer can keep them
+//! out of the post's own prose; [`wrap`] then puts the labelled group, the
+//! quote and an explicit end marker around each one, after the block
+//! transforms, so a recipe never reads a list inside a supplement as its own.
 //!
 //! Markers that cannot be read stay ordinary block quotes, so the author's
 //! words still appear, and each is reported as a [`Finding`] that names the
 //! marker and nothing else.
 
-use pulldown_cmark::{CowStr, Event, Parser, Tag, TagEnd};
+use std::collections::HashMap;
+
+use pulldown_cmark::{BlockQuoteKind, CowStr, Event, Parser, Tag, TagEnd};
 use serde::Serialize;
 
 use crate::escape;
@@ -40,9 +44,10 @@ pub const ID_PREFIX: &str = "ob-supplement-";
 
 /// How much supplementary context a reader chose. Local to the reader and
 /// presentational only.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ReadingMode {
+    #[default]
     Standard,
     Guided,
     DeepDive,
@@ -164,6 +169,10 @@ pub struct Supplement {
     /// The depth that decides visibility: a supplement is never shown while
     /// the supplement holding it is hidden, so it is at least its parent's.
     pub effective_depth: Depth,
+    /// Whether a warning or caution callout is written inside it (or inside
+    /// a supplement nested in it): it is then shown in every mode, never
+    /// hidden (ADR 0172).
+    pub always: bool,
     pub title: Option<String>,
     /// The id of the supplement it is written inside, if any.
     pub parent: Option<String>,
@@ -185,14 +194,18 @@ pub struct Finding {
 pub struct ReadingDepth {
     pub supplements: Vec<Supplement>,
     pub findings: Vec<Finding>,
+    /// The mode the author opened the post in; standard unless the front
+    /// matter says otherwise (ADR 0172). A reader's own choice overrides it.
+    pub default_mode: ReadingMode,
 }
 
 impl ReadingDepth {
-    /// The supplements `mode` shows, in document order.
+    /// The supplements `mode` shows, in document order. One that holds a
+    /// warning is shown in every mode.
     pub fn visible(&self, mode: ReadingMode) -> Vec<&Supplement> {
         self.supplements
             .iter()
-            .filter(|supplement| mode.shows(supplement.effective_depth))
+            .filter(|supplement| supplement.always || mode.shows(supplement.effective_depth))
             .collect()
     }
 
@@ -211,6 +224,7 @@ pub fn scan(markdown: &str) -> ReadingDepth {
                 marker: String::new(),
                 message: "The Markdown is too large to read supplements from.".to_string(),
             }],
+            default_mode: ReadingMode::default(),
         };
     }
     let events = Parser::new_ext(markdown, crate::markdown::parser_options(false)).collect();
@@ -231,24 +245,49 @@ struct Marker {
     title: Option<String>,
 }
 
-/// Wraps every readable supplement in its labelled `div` and leaves every
-/// other event as it was. Headings inside a supplement become bold
-/// paragraphs, so a mode never adds or removes an entry of the outline.
-/// With `wrap` false the marker lines are dropped and nothing is added, for
-/// the checks that read the post's own events.
-pub(crate) fn transform(events: Vec<Event<'_>>, wrap: bool) -> Transformed<'_> {
-    let mut out: Vec<Event> = Vec::with_capacity(events.len());
-    let mut inside: Vec<bool> = Vec::with_capacity(events.len());
+/// Where a supplement's block quote starts, and how its marker line ends.
+struct Start {
+    supplement: usize,
+    resume: usize,
+    whole: bool,
+}
+
+/// What reading the events of one post found, without changing them.
+pub(crate) struct Analysis {
+    depth: ReadingDepth,
+    /// By the index of the block quote's start event.
+    starts: HashMap<usize, Start>,
+    /// Per event: whether it is written inside a supplement.
+    inside: Vec<bool>,
+    /// Headings written inside a supplement, with the supplement's index.
+    headings: Vec<(usize, usize)>,
+}
+
+impl Analysis {
+    /// The supplement whose block quote starts at event `index`, and the
+    /// event where the rest of its first paragraph resumes.
+    pub(crate) fn start_at(&self, index: usize) -> Option<(&Supplement, usize)> {
+        let start = self.starts.get(&index)?;
+        Some((&self.depth.supplements[start.supplement], start.resume))
+    }
+}
+
+/// Reads every supplement. Nothing is wrapped or removed here: [`transform`]
+/// and [`name_headings`] act on what this finds.
+pub(crate) fn analyze(events: &[Event<'_>]) -> Analysis {
     let mut depth = ReadingDepth::default();
+    let mut starts = HashMap::new();
+    let mut inside = vec![false; events.len()];
+    let mut headings = Vec::new();
     // One entry per open block quote: the supplement it is, if it is one.
     let mut quotes: Vec<Option<usize>> = Vec::new();
     let mut index = 0;
     while index < events.len() {
         let nesting = quotes.iter().flatten().count();
+        inside[index] = nesting > 0;
         match &events[index] {
             Event::Start(Tag::BlockQuote(None)) => {
-                let candidate = candidate(&events, index);
-                let read = match candidate {
+                let read = match candidate(events, index) {
                     None => None,
                     Some(Err(finding)) => {
                         report(&mut depth, finding);
@@ -272,10 +311,8 @@ pub(crate) fn transform(events: Vec<Event<'_>>, wrap: bool) -> Transformed<'_> {
                         }
                     }
                 };
-                let Some((marker, resume, whole_paragraph)) = read else {
+                let Some((marker, resume, whole)) = read else {
                     quotes.push(None);
-                    out.push(events[index].clone());
-                    inside.push(nesting > 0);
                     index += 1;
                     continue;
                 };
@@ -286,18 +323,9 @@ pub(crate) fn transform(events: Vec<Event<'_>>, wrap: bool) -> Transformed<'_> {
                 let own = written.unwrap_or_else(|| kind.default_depth());
                 let parent_depth = parent.map(|p| depth.supplements[p].effective_depth);
                 let effective = parent_depth.map_or(own, |p| p.max(own));
-                let supplement = Supplement {
-                    id: format!("{ID_PREFIX}{ordinal}"),
-                    kind,
-                    kind_token: marker.kind_token.clone(),
-                    depth: own,
-                    depth_defaulted: written.is_none(),
-                    effective_depth: effective,
-                    title: marker.title.clone(),
-                    parent: parent.map(|p| depth.supplements[p].id.clone()),
-                    nesting: nesting + 1,
-                };
-                if effective != own {
+                // A level left to the default is not "written", so only an
+                // explicit level that a parent overrides is worth reporting.
+                if effective != own && written.is_some() {
                     report(
                         &mut depth,
                         Finding {
@@ -308,58 +336,219 @@ pub(crate) fn transform(events: Vec<Event<'_>>, wrap: bool) -> Transformed<'_> {
                         },
                     );
                 }
-                if wrap {
-                    out.push(Event::Html(CowStr::from(open_tag(&supplement))));
-                    inside.push(true);
-                }
-                depth.supplements.push(supplement);
-                quotes.push(Some(depth.supplements.len() - 1));
-                if whole_paragraph {
+                depth.supplements.push(Supplement {
+                    id: format!("{ID_PREFIX}{ordinal}"),
+                    kind,
+                    kind_token: marker.kind_token.clone(),
+                    depth: own,
+                    depth_defaulted: written.is_none(),
+                    effective_depth: effective,
+                    always: false,
+                    title: marker.title.clone(),
+                    parent: parent.map(|p| depth.supplements[p].id.clone()),
+                    nesting: nesting + 1,
+                });
+                let supplement = depth.supplements.len() - 1;
+                starts.insert(
+                    index,
+                    Start {
+                        supplement,
+                        resume,
+                        whole,
+                    },
+                );
+                inside[index] = true;
+                quotes.push(Some(supplement));
+                if whole {
                     // The marker was the whole paragraph: drop it entirely.
                     index = resume + 1;
                 } else {
                     // The paragraph goes on after the marker line.
-                    out.push(events[index + 1].clone());
-                    inside.push(true);
+                    inside[index + 1] = true;
                     index = resume;
                 }
                 continue;
             }
             Event::End(TagEnd::BlockQuote(_)) => {
-                if let Some(Some(_)) = quotes.pop() {
-                    out.push(Event::Html(CowStr::from("</div>\n")));
-                    inside.push(true);
-                } else {
-                    out.push(events[index].clone());
-                    inside.push(nesting > 0);
+                quotes.pop();
+            }
+            Event::Start(Tag::BlockQuote(Some(kind))) => {
+                // Safety text is never hidden: a warning or caution inside a
+                // supplement keeps that supplement, and the ones holding it,
+                // visible in every mode.
+                if matches!(kind, BlockQuoteKind::Warning | BlockQuoteKind::Caution) {
+                    for held in quotes.iter().flatten().copied().collect::<Vec<_>>() {
+                        if !depth.supplements[held].always {
+                            depth.supplements[held].always = true;
+                            let token = depth.supplements[held].kind_token.clone();
+                            report(
+                                &mut depth,
+                                Finding {
+                                    marker: format!("[!supplement kind={token}]"),
+                                    message: "Holds a warning or caution callout, so it is shown in every reading mode."
+                                        .to_string(),
+                                },
+                            );
+                        }
+                    }
+                }
+                quotes.push(None);
+            }
+            Event::Start(Tag::Heading { .. }) if nesting > 0 => {
+                if let Some(held) = quotes.iter().rev().flatten().next() {
+                    headings.push((index, *held));
                 }
             }
-            Event::Start(Tag::Heading { .. }) if wrap && nesting > 0 => {
-                out.push(Event::Html(CowStr::from(
-                    "<p class=\"ob-supplement-heading\"><strong>",
-                )));
-                inside.push(true);
-            }
-            Event::End(TagEnd::Heading(_)) if wrap && nesting > 0 => {
-                out.push(Event::Html(CowStr::from("</strong></p>\n")));
-                inside.push(true);
-            }
-            Event::Start(Tag::BlockQuote(Some(_))) => {
-                quotes.push(None);
-                out.push(events[index].clone());
-                inside.push(nesting > 0);
-            }
-            other => {
-                out.push(other.clone());
-                inside.push(nesting > 0);
-            }
+            _ => {}
         }
+        index += 1;
+    }
+    Analysis {
+        depth,
+        starts,
+        inside,
+        headings,
+    }
+}
+
+/// Gives each heading written inside a supplement (and with no `{#id}` of its
+/// own) an id the heading slugger cannot make, so it is a real heading with
+/// its own anchor, takes no slug from the post's own headings, and is not in
+/// the outline. Run before the post's heading ids are assigned.
+pub(crate) fn name_headings(events: &mut [Event<'_>]) {
+    let analysis = analyze(events);
+    let mut counts: HashMap<usize, usize> = HashMap::new();
+    for (index, supplement) in analysis.headings {
+        let Event::Start(Tag::Heading { id, .. }) = &mut events[index] else {
+            continue;
+        };
+        if id.is_none() {
+            let count = counts.entry(supplement).or_default();
+            *count += 1;
+            *id = Some(CowStr::from(format!(
+                "{ID_PREFIX}{}-h{count}",
+                supplement + 1
+            )));
+        }
+    }
+}
+
+/// The sentinel that marks a supplement's block quote until [`wrap`] reads
+/// it. It starts with a NUL, which Markdown cannot produce.
+fn sentinel(ordinal: usize) -> String {
+    format!("\u{0}{ID_PREFIX}{ordinal}")
+}
+
+/// The ordinal a sentinel event carries.
+pub(crate) fn sentinel_ordinal(html: &str) -> Option<usize> {
+    html.strip_prefix('\u{0}')?
+        .strip_prefix(ID_PREFIX)?
+        .parse()
+        .ok()
+}
+
+/// Finds every readable supplement, drops its marker line and, with `wrap`,
+/// tags its block quote with a sentinel for [`wrap`]. Every other event is as
+/// it was; headings inside a supplement stay headings.
+pub(crate) fn transform(events: Vec<Event<'_>>, wrap: bool) -> Transformed<'_> {
+    let analysis = analyze(&events);
+    let mut out: Vec<Event> = Vec::with_capacity(events.len());
+    let mut inside: Vec<bool> = Vec::with_capacity(events.len());
+    let mut index = 0;
+    while index < events.len() {
+        if let Some(start) = analysis.starts.get(&index) {
+            out.push(events[index].clone());
+            inside.push(true);
+            if wrap {
+                out.push(Event::Html(CowStr::from(sentinel(start.supplement + 1))));
+                inside.push(true);
+            }
+            if start.whole {
+                index = start.resume + 1;
+            } else {
+                out.push(events[index + 1].clone());
+                inside.push(true);
+                index = start.resume;
+            }
+            continue;
+        }
+        out.push(events[index].clone());
+        inside.push(analysis.inside[index]);
         index += 1;
     }
     Transformed {
         events: out,
         inside,
-        depth,
+        depth: analysis.depth,
+    }
+}
+
+/// Puts each tagged supplement's labelled group around its block quote, with
+/// an end marker after it. Run after the block transforms and the citation
+/// notes, which see the quote as a quote and so never read a list in it as
+/// the post's own.
+pub(crate) fn wrap<'a>(events: Vec<Event<'a>>, depth: &ReadingDepth) -> Vec<Event<'a>> {
+    let mut out = Vec::with_capacity(events.len() + 2 * depth.supplements.len());
+    let mut quotes: Vec<Option<usize>> = Vec::new();
+    let mut events = events.into_iter().peekable();
+    while let Some(event) = events.next() {
+        let opens = matches!(event, Event::Start(Tag::BlockQuote(None)));
+        let closes = matches!(event, Event::End(TagEnd::BlockQuote(None)));
+        if opens {
+            let tagged = match events.peek() {
+                Some(Event::Html(html)) => sentinel_ordinal(html)
+                    .filter(|ordinal| (1..=depth.supplements.len()).contains(ordinal)),
+                _ => None,
+            };
+            if let Some(ordinal) = tagged {
+                events.next();
+                out.push(Event::Html(CowStr::from(open_tag(
+                    &depth.supplements[ordinal - 1],
+                ))));
+                quotes.push(Some(ordinal - 1));
+            } else {
+                quotes.push(None);
+            }
+            out.push(event);
+        } else if closes {
+            let held = quotes.pop().flatten();
+            out.push(event);
+            if let Some(held) = held {
+                out.push(Event::Html(CowStr::from(close_tag(
+                    &depth.supplements[held],
+                ))));
+            }
+        } else {
+            out.push(event);
+        }
+    }
+    out
+}
+
+/// The words that open a supplement in plain text, and the line that closes
+/// it, so a text copy has the same visible boundary as the page.
+pub(crate) fn start_words(supplement: &Supplement) -> String {
+    let mut words = format!(
+        "{} supplement ({})",
+        label(&supplement.kind_token),
+        supplement.effective_depth.as_str()
+    );
+    if let Some(title) = &supplement.title {
+        words.push_str(": ");
+        words.push_str(title);
+    }
+    words.push('.');
+    words
+}
+
+pub(crate) fn end_words(supplement: &Supplement) -> String {
+    if supplement.kind_token == "supplement" {
+        "End of supplement.".to_string()
+    } else {
+        format!(
+            "End of {} supplement.",
+            supplement.kind_token.replace('-', " ")
+        )
     }
 }
 
@@ -390,6 +579,11 @@ fn candidate<'a>(
     at: usize,
 ) -> Option<Result<(Marker, usize, bool), Finding>> {
     if !matches!(events.get(at + 1), Some(Event::Start(Tag::Paragraph))) {
+        return None;
+    }
+    // An unescaped `[` is a text event of its own; an escaped `\[` is joined
+    // to the words after it, so only the first is a marker.
+    if !matches!(events.get(at + 2), Some(Event::Text(open)) if open.as_ref() == "[") {
         return None;
     }
     let mut line = String::new();
@@ -434,8 +628,12 @@ fn candidate<'a>(
         match key.to_ascii_lowercase().as_str() {
             "kind" => {
                 let value = value.to_ascii_lowercase();
+                if value.chars().count() > MAX_KIND_LENGTH {
+                    return bad(
+                        "The kind is longer than 32 characters; it is shown as a block quote.",
+                    );
+                }
                 let valid = !value.is_empty()
-                    && value.chars().count() <= MAX_KIND_LENGTH
                     && value.starts_with(|c: char| c.is_ascii_lowercase())
                     && value
                         .chars()
@@ -458,8 +656,10 @@ fn candidate<'a>(
         }
     }
     let title = line[close + 1..].trim();
-    let title =
-        (!title.is_empty()).then(|| title.chars().take(MAX_TITLE_LENGTH).collect::<String>());
+    if title.chars().count() > MAX_TITLE_LENGTH {
+        return bad("The title is longer than 120 characters; it is shown as a block quote.");
+    }
+    let title = (!title.is_empty()).then(|| title.to_string());
     let whole = matches!(events.get(end), Some(Event::End(TagEnd::Paragraph)));
     // Resume after the line terminator: the End(Paragraph) of a marker-only
     // paragraph, or the break that separates it from the rest.
@@ -487,20 +687,113 @@ fn label(token: &str) -> String {
 fn open_tag(supplement: &Supplement) -> String {
     let label_id = format!("{}-label", supplement.id);
     let mut html = format!(
-        "<div class=\"ob-supplement\" id=\"{id}\" role=\"group\" aria-labelledby=\"{label_id}\" data-ob-supplement data-ob-kind=\"{kind}\" data-ob-level=\"{level}\">\n\
+        "<div class=\"ob-supplement\" id=\"{id}\" role=\"group\" aria-labelledby=\"{label_id}\" data-ob-supplement data-ob-kind=\"{kind}\" data-ob-level=\"{level}\"{always}>
 <p class=\"ob-supplement-label\" id=\"{label_id}\"><strong class=\"ob-supplement-kind\">{name}</strong> <span class=\"ob-supplement-level\">{words}</span>",
         id = supplement.id,
         kind = supplement.kind_token,
         level = supplement.effective_depth.as_str(),
+        always = if supplement.always {
+            " data-ob-always"
+        } else {
+            ""
+        },
         name = escape::text(&label(&supplement.kind_token)),
         words = supplement.effective_depth.words(),
     );
+    if supplement.always {
+        html.push_str(" <span class=\"ob-supplement-always\">shown in every mode</span>");
+    }
     if let Some(title) = &supplement.title {
         html.push_str(&format!(
             " <span class=\"ob-supplement-title\">{}</span>",
             escape::text(title)
         ));
     }
-    html.push_str("</p>\n");
+    html.push_str(
+        "</p>
+",
+    );
     html
+}
+
+/// What follows the quote: a visible end marker, as a structural paragraph
+/// with its own emphasis so a feed reader or a page with no stylesheet still
+/// shows where the supplement stops, and the group's close.
+fn close_tag(supplement: &Supplement) -> String {
+    format!(
+        "<p class=\"ob-supplement-end\"><strong>{}</strong></p>
+</div>
+",
+        escape::text(&end_words(supplement))
+    )
+}
+
+/// What the front matter key says about reading modes (ADR 0172).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Setting {
+    pub enabled: bool,
+    pub default_mode: ReadingMode,
+    /// What to tell the author when the value was not understood.
+    pub warning: Option<String>,
+}
+
+/// Reads `readingModes` tolerantly. `true`, `yes` and `on` opt in;
+/// `false`, `no` and `off` opt out; a mode name, or a map such as
+/// `{default: guided}`, opts in and sets the author's default mode. A map
+/// never switches the post off, and a default that is not a mode is reported
+/// and read as standard. Anything else is off, with a warning, so a typo
+/// never publishes supplements the author did not mean to.
+pub fn setting(raw: Option<&str>) -> Setting {
+    let off = |warning: Option<String>| Setting {
+        enabled: false,
+        default_mode: ReadingMode::Standard,
+        warning,
+    };
+    let on = |default_mode, warning| Setting {
+        enabled: true,
+        default_mode,
+        warning,
+    };
+    let Some(raw) = raw else {
+        return off(None);
+    };
+    let value = raw.trim().to_ascii_lowercase();
+    match value.as_str() {
+        "true" | "yes" | "on" => return on(ReadingMode::Standard, None),
+        "false" | "no" | "off" => return off(None),
+        _ => {}
+    }
+    if let Some(mode) = ReadingMode::parse(&value) {
+        return on(mode, None);
+    }
+    if let Some(inner) = value
+        .strip_prefix('{')
+        .and_then(|rest| rest.strip_suffix('}'))
+    {
+        let mut default_mode = ReadingMode::Standard;
+        let mut warning = None;
+        for pair in inner.split(',') {
+            let Some((key, wanted)) = pair.split_once(':') else {
+                continue;
+            };
+            if key.trim().trim_matches(['"', char::from(39u8)]) != "default" {
+                continue;
+            }
+            let wanted = wanted.trim().trim_matches(['"', char::from(39u8)]);
+            match ReadingMode::parse(wanted) {
+                Some(mode) => default_mode = mode,
+                None => {
+                    warning = Some(format!(
+                        "readingModes default `{}` is not standard, guided or deep-dive; the post opens in standard",
+                        wanted.chars().take(40).collect::<String>()
+                    ));
+                }
+            }
+        }
+        return on(default_mode, warning);
+    }
+    off(Some(format!(
+        "readingModes `{}` is not true, false or {{default: standard|guided|deep-dive}}; reading modes are off",
+        raw.trim().chars().take(40).collect::<String>()
+    )))
 }

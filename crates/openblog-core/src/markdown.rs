@@ -1592,6 +1592,9 @@ pub(crate) fn parser_options(smart_punctuation: bool) -> Options {
 pub fn render(markdown: &str, options: RenderOptions<'_>) -> Rendered {
     let mut parsed_events =
         Parser::new_ext(markdown, parser_options(options.smart_punctuation)).collect::<Vec<_>>();
+    if options.supplements {
+        crate::reading_depth::name_headings(&mut parsed_events);
+    }
     assign_heading_ids(&mut parsed_events, options.citation_notes.as_ref());
     render_events(parsed_events, markdown.len(), options, None)
 }
@@ -1637,9 +1640,22 @@ fn assign_heading_ids(
                 let Some((start, title)) = heading.take() else {
                     continue;
                 };
+                // A heading written inside a supplement already has the id
+                // that names it (ADR 0172); it takes no slug from the post's.
+                if matches!(
+                    &events[start],
+                    Event::Start(Tag::Heading { id: Some(id), .. })
+                        if id.starts_with(crate::reading_depth::ID_PREFIX)
+                ) {
+                    continue;
+                }
                 let mut id = slugify(&title);
                 if id.is_empty() {
                     id = "section".to_string();
+                }
+                // `ob-supplement-` names the supplements' own ids only.
+                if id.starts_with(crate::reading_depth::ID_PREFIX) {
+                    id = format!("section-{id}");
                 }
                 let Event::Start(Tag::Heading { id: existing, .. }) = &mut events[start] else {
                     continue;
@@ -1830,6 +1846,9 @@ pub fn render_portable(
 ) -> Result<Rendered, String> {
     let mut parsed_events =
         Parser::new_ext(markdown, parser_options(options.smart_punctuation)).collect::<Vec<_>>();
+    if options.supplements {
+        crate::reading_depth::name_headings(&mut parsed_events);
+    }
     assign_heading_ids(&mut parsed_events, None);
     for event in &mut parsed_events {
         let destination = match event {
@@ -2099,7 +2118,16 @@ fn render_events<'a>(
     } else {
         (parsed_events, Vec::new(), None)
     };
-    let mut supplement_cuts: Vec<(usize, usize)> = Vec::new();
+    // The post's own words, built with every push `text` gets except the
+    // words of a supplement (ADR 0170). Only a post with supplements keeps it.
+    let mut own = options.supplements.then(String::new);
+    let mut own_end = None;
+    // Per open block quote: the supplement it is, for its end marker.
+    let mut quote_supplements: Vec<Option<usize>> = Vec::new();
+    // Footnote labels cited inside a supplement, and the supplements citing.
+    let mut cited_in: std::collections::HashMap<String, Vec<usize>> =
+        std::collections::HashMap::new();
+    let mut cited_outside: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut events: Vec<Event> = Vec::new();
     let mut headings = Vec::new();
     let mut text = String::new();
@@ -2123,12 +2151,59 @@ fn render_events<'a>(
     let mut prose_end = None;
     let mut after_marker = false;
 
+    // Spacing goes to both texts; a word goes to the post's own only outside
+    // a supplement.
+    macro_rules! space {
+        ($($piece:expr),+) => {{
+            $(text.push_str($piece);
+            if let Some(own) = own.as_mut() {
+                own.push_str($piece);
+            })+
+        }};
+    }
+
     for (index, event) in parsed_events.into_iter().enumerate() {
         if notes_start == Some(index) || claims_start == Some(index) {
             prose_end.get_or_insert(text.len());
+            if let Some(own) = &own {
+                own_end.get_or_insert(own.len());
+            }
         }
         let followed_marker = std::mem::take(&mut after_marker);
-        let text_before = text.len();
+        let inside = inside_supplement.get(index).copied().unwrap_or(false);
+        if let Event::FootnoteReference(name) = &event {
+            if inside {
+                let holder = quote_supplements.iter().rev().flatten().next().copied();
+                if let Some(holder) = holder {
+                    let held = cited_in.entry(name.to_string()).or_default();
+                    if !held.contains(&holder) {
+                        held.push(holder);
+                    }
+                }
+            } else {
+                cited_outside.insert(name.to_string());
+            }
+        }
+        match &event {
+            Event::Start(Tag::BlockQuote(_)) => quote_supplements.push(None),
+            Event::Html(html) if reading_depth.is_some() => {
+                // The tag [`reading_depth::transform`] left on a supplement's
+                // quote: its boundary words go in the page's text, so a text
+                // copy shows where it starts and stops.
+                let ordinal = crate::reading_depth::sentinel_ordinal(html);
+                if let (Some(ordinal), Some(depth)) = (ordinal, reading_depth.as_ref()) {
+                    if let (Some(slot), Some(supplement)) = (
+                        quote_supplements.last_mut(),
+                        depth.supplements.get(ordinal.wrapping_sub(1)),
+                    ) {
+                        *slot = Some(ordinal - 1);
+                        text.push_str(&crate::reading_depth::start_words(supplement));
+                        space!(" ");
+                    }
+                }
+            }
+            _ => {}
+        }
         match &event {
             Event::FootnoteReference(name)
                 if options
@@ -2154,7 +2229,9 @@ fn render_events<'a>(
                     first_image = Some(dest_url.to_string());
                 }
             }
-            Event::Start(Tag::Heading { level, .. }) => {
+            // A heading inside a supplement is a heading, but not an entry of
+            // the outline (ADR 0172).
+            Event::Start(Tag::Heading { level, .. }) if !inside => {
                 heading = Some((*level, events.len(), String::new()));
             }
             Event::Text(t) | Event::Code(t) => {
@@ -2166,24 +2243,43 @@ fn render_events<'a>(
                         && t.starts_with(|c: char| ",.;:!?)]}\u{2019}\u{201d}".contains(c))
                     {
                         text.truncate(text.trim_end_matches(' ').len());
+                        if let (Some(own), false) = (own.as_mut(), inside) {
+                            own.truncate(own.trim_end_matches(' ').len());
+                        }
                     }
                     text.push_str(t);
+                    if let (Some(own), false) = (own.as_mut(), inside) {
+                        own.push_str(t);
+                    }
                 }
             }
             Event::SoftBreak | Event::HardBreak => {
                 if let Some((_, _, buf)) = heading.as_mut() {
                     buf.push(' ');
                 }
-                text.push(' ');
+                space!(" ");
+            }
+            Event::End(TagEnd::BlockQuote(_)) => {
+                if let Some(Some(held)) = quote_supplements.pop() {
+                    if let Some(supplement) = reading_depth
+                        .as_ref()
+                        .and_then(|depth| depth.supplements.get(held))
+                    {
+                        space!(" ");
+                        text.push_str(&crate::reading_depth::end_words(supplement));
+                    }
+                }
+                space!(" ");
             }
             Event::End(TagEnd::Paragraph)
             | Event::End(TagEnd::Item)
-            | Event::End(TagEnd::TableCell)
-            | Event::End(TagEnd::BlockQuote(_)) => text.push(' '),
+            | Event::End(TagEnd::TableCell) => space!(" "),
             _ => {}
         }
 
-        if let Event::End(TagEnd::Heading(_)) = &event {
+        if let (Event::End(TagEnd::Heading(_)), true) = (&event, inside) {
+            space!(" ");
+        } else if let Event::End(TagEnd::Heading(_)) = &event {
             if let Some((level, start_index, title)) = heading.take() {
                 let id = match &events[start_index] {
                     Event::Start(Tag::Heading { id: Some(id), .. }) => id.to_string(),
@@ -2205,13 +2301,10 @@ fn render_events<'a>(
                     id,
                     text: title.trim().to_string(),
                 });
-                text.push(' ');
+                space!(" ");
             }
         }
 
-        if inside_supplement.get(index).copied().unwrap_or(false) && text.len() > text_before {
-            supplement_cuts.push((text_before, text.len()));
-        }
         events.push(event);
     }
 
@@ -2238,32 +2331,54 @@ fn render_events<'a>(
         (None, Some(labels)) => apply_citation_notes(events, labels),
         _ => events,
     };
+    // Last, so every transform above saw each supplement as the quote it is.
+    let events = match &reading_depth {
+        Some(depth) => crate::reading_depth::wrap(events, depth),
+        None => events,
+    };
     let mut html = String::with_capacity(source_length * 2);
     pulldown_cmark::html::push_html(&mut html, events.into_iter());
+    if portable.is_none() {
+        // A note cited only inside supplements says which, so the page can
+        // show a supplement a reader navigates into (ADR 0172).
+        let mut notes: Vec<_> = cited_in
+            .iter()
+            .filter(|(name, _)| !cited_outside.contains(*name))
+            .collect();
+        notes.sort();
+        for (name, holders) in notes {
+            let ids = holders
+                .iter()
+                .filter_map(|holder| reading_depth.as_ref()?.supplements.get(*holder))
+                .map(|supplement| supplement.id.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
+            let name = escape::attr(name);
+            for class in [
+                "footnote-definition ob-citation-note",
+                "footnote-definition",
+            ] {
+                let opening = format!("<div class=\"{class}\" id=\"{name}\"");
+                if html.contains(&opening) {
+                    html = html.replacen(
+                        &opening,
+                        &format!("{opening} data-ob-supplement=\"{ids}\""),
+                        1,
+                    );
+                    break;
+                }
+            }
+        }
+    }
     if options.lazy_images {
         html = html.replace("<img src=", "<img loading=\"lazy\" decoding=\"async\" src=");
     }
 
-    let prose_limit = prose_end.unwrap_or(text.len());
-    let prose = if supplement_cuts.is_empty() {
-        collapse_whitespace(&text[..prose_limit])
-    } else {
-        // Supplements are not the post's own words: they stay in the search
-        // text but not in the description, word count or reading time.
-        let mut own = String::new();
-        let mut from = 0;
-        for (start, end) in &supplement_cuts {
-            if *start >= prose_limit {
-                break;
-            }
-            own.push_str(&text[from..*start]);
-            own.push(' ');
-            from = (*end).min(prose_limit);
-        }
-        if from < prose_limit {
-            own.push_str(&text[from..prose_limit]);
-        }
-        collapse_whitespace(&own)
+    // Supplements are not the post's own words: they stay in the search text
+    // but not in the description, word count or reading time.
+    let prose = match &own {
+        Some(own) => collapse_whitespace(&own[..own_end.unwrap_or(own.len())]),
+        None => collapse_whitespace(&text[..prose_end.unwrap_or(text.len())]),
     };
     let text = collapse_whitespace(&text);
     let mut capabilities = blocks.capabilities;

@@ -18,6 +18,8 @@ const PORTABLE_FALLBACKS: &[&str] = &[
 
 /// Planned capabilities registered in `docs/portability/planned-capability-contracts.json`,
 /// with the label a portable copy shows until the owning story ships a fallback.
+/// A capability the registry marks `implemented` has its own fallback in
+/// [`PORTABLE_FALLBACKS`] and is not listed here.
 /// `None` marks private state that has no public representation at all.
 const PLANNED_CAPABILITIES: &[(&str, Option<&str>)] = &[
     (
@@ -30,7 +32,6 @@ const PLANNED_CAPABILITIES: &[(&str, Option<&str>)] = &[
         Some("Research context"),
     ),
     ("citation-source-previews", Some("Source previews")),
-    ("guided-reading-supplements", Some("Guided explanations")),
     ("knowledge-relationships", Some("Knowledge relationships")),
     ("curated-reading-paths", Some("Reading path")),
     (
@@ -276,10 +277,14 @@ mod tests {
             "../../../docs/portability/planned-capability-contracts.json"
         ))
         .unwrap();
+        let implemented = |contract: &serde_json::Value| {
+            contract["implementation_status"].as_str() == Some("implemented")
+        };
         let ids = registry["contracts"]
             .as_array()
             .unwrap()
             .iter()
+            .filter(|contract| !implemented(contract))
             .map(|contract| contract["id"].as_str().unwrap())
             .collect::<Vec<_>>();
         assert_eq!(
@@ -289,15 +294,25 @@ mod tests {
                 .collect::<Vec<_>>(),
             ids
         );
-        for id in ids {
-            // Defined and implemented by B2 (ADR 0170): it has its own
-            // fallback, tested in `reading_depth`.
-            if id == "guided-reading-supplements" {
-                let descriptor = CapabilityDescriptor::describe(id, None);
-                assert!(descriptor.has_portable_fallback());
-                assert!(descriptor.diagnostics.is_empty());
+        // An implemented capability names the fallback it ships, and the
+        // descriptor agrees; it has no canonical-only label to fall back to.
+        for contract in registry["contracts"].as_array().unwrap() {
+            if !implemented(contract) {
                 continue;
             }
+            let id = contract["id"].as_str().unwrap();
+            let descriptor = CapabilityDescriptor::describe(id, None);
+            assert!(PORTABLE_FALLBACKS.contains(&id), "{id}");
+            assert!(descriptor.has_portable_fallback(), "{id}");
+            assert!(descriptor.diagnostics.is_empty(), "{id}");
+            assert_eq!(
+                descriptor.fallback_renderer,
+                contract["implemented_fallback"].as_str(),
+                "{id}"
+            );
+            assert_eq!(descriptor.portability, PortabilityLevel::FullyPortable);
+        }
+        for id in ids {
             let descriptor = CapabilityDescriptor::describe(id, None);
             assert_eq!(descriptor.id, id);
             assert!(descriptor.diagnostics.is_empty(), "{id}");
