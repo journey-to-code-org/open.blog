@@ -6660,6 +6660,7 @@ fn retention_plan(
     state: &AppState,
     policy: &moderation::ModerationPolicy,
     as_of: DateTime,
+        moderation::RetentionStep::ScrubIdentity => "scrub-identity",
 ) -> Result<RetentionPlan, Response> {
     let cutoffs = policy.cutoffs(as_of);
     let wire = cutoffs.to_json();

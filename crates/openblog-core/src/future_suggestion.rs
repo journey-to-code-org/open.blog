@@ -1,5 +1,5 @@
 //! Future-question and source suggestions: what a reader sends the editors
-//! for possible future work (RD13, ADRs 0190 to 0195).
+//! for possible future work (RD13, ADRs 0190 to 0199).
 //!
 //! A suggestion is one participation kind (`future-suggestion`) in the one
 //! participation and moderation policy (#211), not another system. It is a
@@ -29,18 +29,22 @@
 //!   reports no number.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::net::IpAddr;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
+use crate::citations::{public_identifier, public_url_problem};
 use crate::date::DateTime;
 use crate::feedback_provenance::{is_work_path, parse_canonical_time, FeedbackChannel};
 pub use crate::feedback_provenance::{ReaderAttribution, MAX_READER_NAME_CHARS};
 use crate::knowledge_atlas::valid_id;
-use crate::moderation::{may_decide, may_view, Actor, ItemFacts, ModerationState, View};
+use crate::moderation::{
+    may_decide, may_view, Actor, ItemFacts, ModerationPolicy, ModerationState, RetentionStep, View,
+};
 use crate::participation::{ParticipationKind, ParticipationMode};
+use crate::research::normalize_doi_url;
 use crate::scholarly_feedback::{normalize_feedback_source_url, reader_text};
+use crate::slug::slugify;
 use crate::source_library::check_identifier;
 
 /// The participation kind, RD12's `future-suggestion`.
@@ -60,13 +64,22 @@ pub const MAX_CREATORS: usize = 8;
 pub const MAX_IDENTIFIERS: usize = 4;
 /// The longest identifier value.
 pub const MAX_IDENTIFIER_CHARS: usize = 128;
+/// The longest identifier that is a link, the longest a link may be.
+pub const MAX_IDENTIFIER_URL_CHARS: usize = 2_048;
 /// The longest year hint, written as the reader likes ("c. 1850", "44 BCE").
 pub const MAX_YEAR_CHARS: usize = 32;
 /// The longest contact address (RFC 5321's path limit).
 pub const MAX_CONTACT_BYTES: usize = 254;
-/// The longest series slug or conversion id.
-pub const MAX_ID_BYTES: usize = 64;
-/// The largest serialized submission or record accepted, before parsing.
+/// The longest series slug or conversion id, in characters.
+pub const MAX_ID_CHARS: usize = 64;
+/// The largest serialized submission accepted, before parsing. It leaves
+/// [`MAX_JSON_BYTES`] less this room for what the receiver adds to make the
+/// stored record (the page, the time, the channel and the revision), so a
+/// submission at its largest still reads back from storage.
+pub const MAX_SUBMISSION_BYTES: usize = 12 * 1024;
+/// The largest serialized record accepted, before parsing. A hosted row's
+/// `details` is held to the same 16 KiB by its own check, and a submission
+/// is smaller than that, so no accepted suggestion can be refused later.
 pub const MAX_JSON_BYTES: usize = 16 * 1024;
 /// The most conversion references one suggestion keeps.
 pub const MAX_CONVERSIONS: usize = 8;
@@ -214,7 +227,9 @@ impl About {
             (Some(Value::String(slug)), None) if valid_slug(slug) => {
                 Ok(About::Series(slug.clone()))
             }
-            (Some(_), None) => Err(invalid("`about.series` must be a lowercase slug")),
+            (Some(_), None) => Err(invalid(
+                "`about.series` must be a slug as this site writes them: lowercase letters and digits joined by single hyphens",
+            )),
             (None, Some(Value::String(path))) if is_work_path(path) => {
                 Ok(About::Article(path.clone()))
             }
@@ -228,8 +243,12 @@ impl About {
     }
 }
 
-fn valid_slug(value: &str) -> bool {
-    value.len() <= MAX_ID_BYTES && valid_id(value)
+/// A slug as the site itself writes them ([`slugify`]): letters and digits,
+/// non-ASCII ones included, lowercased and joined by single hyphens, at most
+/// [`MAX_ID_CHARS`] characters. A series or a draft is named by its slug, so
+/// a series titled in another script is still one a suggestion can name.
+pub fn valid_slug(value: &str) -> bool {
+    !value.is_empty() && value.chars().count() <= MAX_ID_CHARS && slugify(value) == value
 }
 
 /// A scheme-qualified identifier the reader gives for the suggested source.
@@ -301,17 +320,38 @@ impl SourceHints {
                 "`hints.identifiers` takes at most {MAX_IDENTIFIERS}"
             )));
         }
+        let shape = || {
+            invalid(
+                "each `hints.identifiers` entry needs one of the schemes doi, isbn, issn, url, pmid or pmcid and a value of that shape"
+                    .into(),
+            )
+        };
+        let mut identifiers = Vec::with_capacity(self.identifiers.len());
         for identifier in &self.identifiers {
-            if identifier.value.chars().count() > MAX_IDENTIFIER_CHARS
-                || identifier.scheme.len() > 16
-                || check_identifier(&identifier.scheme, &identifier.value).is_err()
-            {
-                return Err(invalid(
-                    "each `hints.identifiers` entry needs a known scheme and a value of that shape"
-                        .into(),
-                ));
-            }
+            let scheme = identifier.scheme.as_str();
+            let longest = if scheme == "url" {
+                MAX_IDENTIFIER_URL_CHARS
+            } else {
+                MAX_IDENTIFIER_CHARS
+            };
+            let value = reader_text(&identifier.value, longest).ok_or_else(shape)?;
+            let value = match scheme {
+                // A link is held to the one public-address rule and written
+                // as a link is everywhere else.
+                "url" => normalize_suggestion_url(&value).ok_or_else(shape)?,
+                "doi" | "isbn" | "issn" => {
+                    check_identifier(scheme, &value).map_err(|_| shape())?;
+                    value
+                }
+                "pmid" | "pmcid" if public_identifier(scheme, &value) => value,
+                _ => return Err(shape()),
+            };
+            identifiers.push(IdentifierHint {
+                scheme: scheme.to_string(),
+                value,
+            });
         }
+        self.identifiers = identifiers;
         Ok(self)
     }
 }
@@ -373,53 +413,13 @@ impl Contact {
 }
 
 /// A source link a reader gave: an absolute HTTP(S) address without
-/// credentials ([`normalize_feedback_source_url`]) that also does not name
-/// this machine or a private network, so an editor who opens it reaches the
-/// public web.
+/// credentials ([`normalize_feedback_source_url`]) that also passes the one
+/// rule for a public address ([`public_url_problem`], shared with the
+/// publication boundary): it names no private or local network and carries
+/// no key, token or signature, so an editor who opens it reaches the public
+/// web. Nothing in open.blog fetches it.
 pub fn normalize_suggestion_url(value: &str) -> Option<String> {
-    let normalized = normalize_feedback_source_url(value)?;
-    let url = url::Url::parse(&normalized).ok()?;
-    let private = match url.host()? {
-        url::Host::Domain(host) => {
-            let host = host.trim_end_matches('.').to_ascii_lowercase();
-            !host.contains('.')
-                || host.ends_with(".local")
-                || host.ends_with(".localhost")
-                || host.ends_with(".internal")
-                || host.ends_with(".lan")
-                || host.ends_with(".home.arpa")
-        }
-        url::Host::Ipv4(address) => !is_global(IpAddr::V4(address)),
-        url::Host::Ipv6(address) => !is_global(IpAddr::V6(address)),
-    };
-    (!private).then_some(normalized)
-}
-
-fn is_global(address: IpAddr) -> bool {
-    match address {
-        IpAddr::V4(v4) => {
-            let [a, b, ..] = v4.octets();
-            !(v4.is_unspecified()
-                || v4.is_loopback()
-                || v4.is_private()
-                || v4.is_link_local()
-                || v4.is_broadcast()
-                || v4.is_documentation()
-                || a == 0
-                || (a == 100 && (64..=127).contains(&b))
-                || a >= 224)
-        }
-        IpAddr::V6(v6) => {
-            let first = v6.segments()[0];
-            !(v6.is_unspecified()
-                || v6.is_loopback()
-                || v6.to_ipv4_mapped().is_some()
-                || (first & 0xfe00) == 0xfc00
-                || (first & 0xffc0) == 0xfe80
-                || (first & 0xff00) == 0xff00
-                || first == 0x2001 && v6.segments()[1] == 0x0db8)
-        }
-    }
+    normalize_feedback_source_url(value).filter(|url| public_url_problem(url).is_none())
 }
 
 // ---------------------------------------------------------------------------
@@ -453,10 +453,30 @@ struct WireContact {
     follow_up: bool,
 }
 
+/// What the reader's chosen name looks like in a debug print: a name they
+/// agreed to show may be printed, one they did not never is.
+struct RedactedAttribution<'a>(&'a ReaderAttribution);
+
+impl std::fmt::Debug for RedactedAttribution<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let attribution = self.0;
+        let mut shown = f.debug_struct("ReaderAttribution");
+        match (&attribution.name, attribution.publish_name) {
+            (Some(name), true) => shown.field("name", name),
+            (Some(_), false) => shown.field("name", &format_args!("<private>")),
+            (None, _) => shown.field("name", &Option::<String>::None),
+        };
+        shown
+            .field("publish_name", &attribution.publish_name)
+            .finish()
+    }
+}
+
 /// What a reader sends: the suggestion, never a receipt or a state. Every
 /// field has passed its rule; nothing is repaired but trimming and the
-/// collapsing of whitespace in the name.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// collapsing of whitespace in the name. Its debug print never shows a name
+/// the reader did not agree to show, or their contact.
+#[derive(Clone, PartialEq, Eq)]
 pub struct Submission {
     pub suggestion_type: SuggestionType,
     pub text: String,
@@ -465,6 +485,20 @@ pub struct Submission {
     pub about: Option<About>,
     pub attribution: ReaderAttribution,
     pub contact: Option<Contact>,
+}
+
+impl std::fmt::Debug for Submission {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Submission")
+            .field("suggestion_type", &self.suggestion_type)
+            .field("text", &self.text)
+            .field("url", &self.url)
+            .field("hints", &self.hints)
+            .field("about", &self.about)
+            .field("attribution", &RedactedAttribution(&self.attribution))
+            .field("contact", &self.contact)
+            .finish()
+    }
 }
 
 fn read_version(value: &Value, what: &str) -> Result<(), SuggestionError> {
@@ -482,7 +516,7 @@ impl Submission {
     /// Read a submission from JSON text, refusing a newer version, an unknown
     /// field or any broken rule.
     pub fn from_json(text: &str) -> Result<Self, SuggestionError> {
-        let value = parse_bounded(text, "suggestion")?;
+        let value = parse_bounded(text, "suggestion", MAX_SUBMISSION_BYTES)?;
         Self::from_value(&value)
     }
 
@@ -597,11 +631,11 @@ impl Submission {
     }
 }
 
-fn parse_bounded(text: &str, what: &str) -> Result<Value, SuggestionError> {
-    if text.len() > MAX_JSON_BYTES {
+fn parse_bounded(text: &str, what: &str, limit: usize) -> Result<Value, SuggestionError> {
+    if text.len() > limit {
         return Err(SuggestionError::new(
             ErrorCode::TooLarge,
-            format!("a {what} is larger than {MAX_JSON_BYTES} bytes"),
+            format!("a {what} is larger than {limit} bytes"),
         ));
     }
     serde_json::from_str(text).map_err(|_| malformed(&format!("a {what} is not valid JSON")))
@@ -770,7 +804,7 @@ impl Suggestion {
     /// Read a stored record from JSON text. Every rule of
     /// [`Submission::from_json`] applies; nothing is repaired.
     pub fn from_json(text: &str) -> Result<Self, SuggestionError> {
-        let mut value = parse_bounded(text, "suggestion record")?;
+        let mut value = parse_bounded(text, "suggestion record", MAX_JSON_BYTES)?;
         read_version(&value, "suggestion record")?;
         let object = value
             .as_object_mut()
@@ -802,11 +836,11 @@ impl Suggestion {
     }
 
     /// What one `openblog_feedback` row keeps in `details` (ADR 0192):
-    /// `{url?, hints?, about?, contact?}`. The text is the row's `body`, its
-    /// revision `item_revision`, the page `work`, the receipt time
-    /// `received_at` and the reader's name `reader_name` and `publish_name`.
-    /// The suggestion's type is `details.type`. Adding this to a row needs no
-    /// schema change.
+    /// `{type, url?, hints?, about?, contact?}`. The text is the row's `body`,
+    /// its revision `item_revision`, the page `work` (with no passage
+    /// `revision` or `target`: the one hosted schema change is the loosened
+    /// check that allows that), the receipt time `received_at` and the
+    /// reader's name `reader_name` and `publish_name`.
     pub fn stored_details(&self) -> Value {
         let mut object = Map::new();
         object.insert("type".into(), self.submission.suggestion_type.id().into());
@@ -814,7 +848,10 @@ impl Suggestion {
         Value::Object(object)
     }
 
-    /// Read a suggestion back from the parts of a stored row.
+    /// Read a suggestion back from the parts of a stored row. `details` is
+    /// read as exactly `{type, url?, hints?, about?, contact?}`: a field of
+    /// any other shape or name, the reader's text or name among them, is
+    /// refused, never read as part of the suggestion.
     pub fn from_stored(
         body: &str,
         revision: u32,
@@ -822,14 +859,29 @@ impl Suggestion {
         receipt: &Value,
         attribution: &ReaderAttribution,
     ) -> Result<Self, SuggestionError> {
-        let details = details.as_object().ok_or_else(|| {
-            SuggestionError::new(ErrorCode::InvalidDetails, "stored details are an object")
-        })?;
+        let invalid = || {
+            SuggestionError::new(
+                ErrorCode::InvalidDetails,
+                "stored details are `{type, url?, hints?, about?, contact?}` and nothing else",
+            )
+        };
+        let details: StoredDetails =
+            serde_json::from_value(details.clone()).map_err(|_| invalid())?;
         let mut record = Map::new();
         record.insert("version".into(), FUTURE_SUGGESTION_VERSION.into());
         record.insert("kind".into(), KIND.id().into());
+        record.insert("type".into(), details.suggestion_type.into());
         record.insert("text".into(), body.into());
-        record.extend(details.clone());
+        for (key, value) in [
+            ("url", details.url),
+            ("hints", details.hints),
+            ("about", details.about),
+            ("contact", details.contact),
+        ] {
+            if let Some(value) = value {
+                record.insert(key.into(), value);
+            }
+        }
         if *attribution != ReaderAttribution::default() {
             record.insert(
                 "attribution".into(),
@@ -841,7 +893,30 @@ impl Suggestion {
         Suggestion::from_json(&Value::Object(record).to_string())
     }
 
-    /// What an editor sees. The reader's contact and unpublished name are
+    /// Whether the record holds anything private to the site Admin and the
+    /// reader: a contact address, or a name the reader did not agree to show.
+    pub fn holds_identity(&self) -> bool {
+        let attribution = &self.submission.attribution;
+        self.submission.contact.is_some()
+            || (attribution.name.is_some() && !attribution.publish_name)
+    }
+
+    /// The suggestion with its private identity cleared: no contact, and a
+    /// name only if the reader agreed to show it. Everything else, the text,
+    /// the link, the hints and the page, is as it was.
+    pub fn scrubbed(&self) -> Self {
+        let mut next = self.clone();
+        next.submission.contact = None;
+        if !next.submission.attribution.publish_name {
+            next.submission.attribution = ReaderAttribution::default();
+        }
+        next
+    }
+
+    /// What an editor sees, or `None` when `actor` may not see the content of
+    /// this item at all (a viewer with no role on its work, or text that was
+    /// purged): the view is gated on [`may_view`], not on the caller having
+    /// remembered to ask. The reader's contact and unpublished name are
     /// included only for an actor who may see a reader's private identity;
     /// everyone else sees the suggestion and only a name the reader agreed
     /// to show.
@@ -850,10 +925,13 @@ impl Suggestion {
         actor: &Actor<'_>,
         item: &ItemFacts<'_>,
         mode: ParticipationMode,
-    ) -> EditorView {
+    ) -> Option<EditorView> {
+        if item.kind != KIND || !may_view(actor, item, mode, View::Content) {
+            return None;
+        }
         let identity = may_view(actor, item, mode, View::PrivateIdentity);
         let attribution = &self.submission.attribution;
-        EditorView {
+        Some(EditorView {
             suggestion_type: self.submission.suggestion_type,
             text: self.submission.text.clone(),
             url: self.submission.url.clone(),
@@ -869,12 +947,50 @@ impl Suggestion {
             contact: self.submission.contact.clone().filter(|_| identity),
             missing: self.missing_metadata(),
             notice: ACCEPTANCE_NOTICE,
-        }
+        })
     }
 }
 
-/// A suggestion as one editor may see it.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// The stored `details` of a suggestion row, read strictly (ADR 0192).
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredDetails {
+    #[serde(rename = "type")]
+    suggestion_type: String,
+    #[serde(default)]
+    url: Option<Value>,
+    #[serde(default)]
+    hints: Option<Value>,
+    #[serde(default)]
+    about: Option<Value>,
+    #[serde(default)]
+    contact: Option<Value>,
+}
+
+/// Whether a kept suggestion owes the clearing of its private identity now:
+/// it holds some, it is approved and kept, and either an author has linked it
+/// to future work or retention's period for it
+/// ([`RetentionStep::ScrubIdentity`]) has passed. The contact and unpublished
+/// name were kept so an editor could ask about the idea; once it is acted on
+/// or left for a period, they are not needed.
+pub fn identity_scrub_due(
+    policy: &ModerationPolicy,
+    item: &ItemFacts<'_>,
+    suggestion: &Suggestion,
+    conversions: &[Conversion],
+    now: DateTime,
+) -> bool {
+    item.kind == KIND
+        && item.content_retained
+        && item.state == ModerationState::Approved
+        && suggestion.holds_identity()
+        && (!conversions.is_empty()
+            || policy.retention_due(item, now) == Some(RetentionStep::ScrubIdentity))
+}
+
+/// A suggestion as one editor may see it. Its debug print never shows the
+/// reader's name or contact.
+#[derive(Clone, PartialEq, Eq)]
 pub struct EditorView {
     pub suggestion_type: SuggestionType,
     pub text: String,
@@ -890,34 +1006,106 @@ pub struct EditorView {
     pub notice: &'static str,
 }
 
+impl std::fmt::Debug for EditorView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EditorView")
+            .field("suggestion_type", &self.suggestion_type)
+            .field("text", &self.text)
+            .field("url", &self.url)
+            .field("hints", &self.hints)
+            .field("about", &self.about)
+            .field("work", &self.work)
+            .field("received", &self.received)
+            .field(
+                "name",
+                &self.name.as_ref().map(|_| format_args!("<private>")),
+            )
+            .field("contact", &self.contact)
+            .field("missing", &self.missing)
+            .finish()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Duplicates
 
-/// The key under which two suggestions name the same source, or `None` when
-/// the suggestion names no source. An identifier decides first (a DOI or an
-/// ISBN, written however the reader wrote it); otherwise the link, with the
-/// scheme, a leading `www.`, the fragment, a trailing slash and tracking
-/// parameters left out. It is only for an editor to see that a source came
-/// in more than once; it is never a count, a rank or a signal.
-pub fn source_key(submission: &Submission) -> Option<String> {
-    if let Some(identifier) = submission.hints.identifiers.first() {
+/// Every key under which this suggestion names a source: one for each
+/// identifier it gives and one for its link, so two suggestions are the same
+/// source when they share any. An identifier is read as it means, not as it
+/// was typed: a DOI by its name however it was written (bare, `doi:` or a
+/// resolver link), an ISBN-10 and the ISBN-13 it converts to as one, an ISSN
+/// without its hyphen; a link without its scheme, a leading `www.`, its
+/// fragment, a trailing slash and tracking parameters, with its other
+/// parameters in order, and a DOI resolver link as the DOI it names. Empty
+/// for a suggestion that names no source. Keys are for an editor to see that
+/// a source came in more than once; they are never a count, a rank or a
+/// signal.
+pub fn source_keys(submission: &Submission) -> Vec<String> {
+    let mut keys = BTreeSet::new();
+    for identifier in &submission.hints.identifiers {
         let value = identifier.value.trim();
-        let normalized = match identifier.scheme.as_str() {
-            "doi" => value
-                .trim_start_matches("https://doi.org/")
-                .trim_start_matches("http://doi.org/")
-                .to_ascii_lowercase(),
-            "isbn" | "issn" => value
-                .chars()
-                .filter(char::is_ascii_alphanumeric)
-                .collect::<String>()
-                .to_ascii_lowercase(),
-            _ => value.to_ascii_lowercase(),
+        let key = match identifier.scheme.as_str() {
+            "doi" => doi_key(value),
+            "isbn" => isbn_key(value),
+            "issn" | "pmid" | "pmcid" => Some(format!(
+                "{}:{}",
+                identifier.scheme,
+                value
+                    .chars()
+                    .filter(char::is_ascii_alphanumeric)
+                    .collect::<String>()
+                    .to_ascii_lowercase()
+            )),
+            "url" => url_key(value),
+            _ => None,
         };
-        return Some(format!("{}:{normalized}", identifier.scheme));
+        keys.extend(key);
     }
-    let url = url::Url::parse(submission.url.as_deref()?).ok()?;
+    keys.extend(submission.url.as_deref().and_then(url_key));
+    keys.into_iter().collect()
+}
+
+fn doi_key(value: &str) -> Option<String> {
+    let name = value.strip_prefix("doi:").unwrap_or(value).trim();
+    let url = normalize_doi_url(name)?;
+    Some(format!(
+        "doi:{}",
+        url.trim_start_matches("https://doi.org/").to_lowercase()
+    ))
+}
+
+/// An ISBN as its ISBN-13 digits, so the two forms of one book are one key.
+fn isbn_key(value: &str) -> Option<String> {
+    let digits: String = value
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .map(|c| c.to_ascii_uppercase())
+        .collect();
+    let thirteen = match digits.len() {
+        13 => digits,
+        10 => {
+            let body = format!("978{}", &digits[..9]);
+            let sum: u32 = body
+                .chars()
+                .enumerate()
+                .map(|(index, c)| c.to_digit(10).unwrap_or(0) * if index % 2 == 0 { 1 } else { 3 })
+                .sum();
+            format!("{body}{}", (10 - sum % 10) % 10)
+        }
+        _ => return None,
+    };
+    Some(format!("isbn:{thirteen}"))
+}
+
+fn url_key(value: &str) -> Option<String> {
+    let url = url::Url::parse(value).ok()?;
     let host = url.host_str()?.to_ascii_lowercase();
+    // A DOI resolver link names the DOI it resolves.
+    if matches!(host.as_str(), "doi.org" | "dx.doi.org") {
+        if let Some(key) = doi_key(value) {
+            return Some(key);
+        }
+    }
     let host = host.strip_prefix("www.").unwrap_or(&host);
     let mut query: Vec<(String, String)> = url
         .query_pairs()
@@ -935,17 +1123,53 @@ pub fn source_key(submission: &Submission) -> Option<String> {
     Some(key)
 }
 
-/// Groups of two or more suggestions that name the same source, as sorted
-/// lists of the ids given, the groups in order of their first id. An editor's
-/// aid for merging; it reports no number and is never shown to readers.
-pub fn duplicate_groups(items: &[(&str, &Suggestion)]) -> Vec<Vec<String>> {
-    let mut by_key: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    for (id, suggestion) in items {
-        if let Some(key) = source_key(&suggestion.submission) {
-            by_key.entry(key).or_default().insert((*id).to_string());
+/// Groups of two or more suggestions that name the same source (they share
+/// any [`source_keys`] key, directly or through a third), as sorted lists of
+/// ids, the groups in order of their first id. An editor's aid for handling
+/// them together; it reports no number and is never shown to readers. Only
+/// items `actor` may see ([`may_view`]) are considered, so a group never
+/// reveals that an item the actor cannot see exists.
+pub fn duplicate_groups(
+    actor: &Actor<'_>,
+    mode: ParticipationMode,
+    items: &[(&ItemFacts<'_>, &Suggestion)],
+) -> Vec<Vec<String>> {
+    let visible: Vec<(&str, Vec<String>)> = items
+        .iter()
+        .filter(|(facts, _)| facts.kind == KIND && may_view(actor, facts, mode, View::Content))
+        .map(|(facts, suggestion)| (facts.id, source_keys(&suggestion.submission)))
+        .filter(|(_, keys)| !keys.is_empty())
+        .collect();
+    fn find(parent: &mut [usize], mut index: usize) -> usize {
+        while parent[index] != index {
+            parent[index] = parent[parent[index]];
+            index = parent[index];
+        }
+        index
+    }
+    // Items that share a key are one group, and so are items joined through
+    // a third.
+    let mut parent: Vec<usize> = (0..visible.len()).collect();
+    let mut owner: BTreeMap<&str, usize> = BTreeMap::new();
+    for (index, (_, keys)) in visible.iter().enumerate() {
+        for key in keys {
+            match owner.get(key.as_str()) {
+                Some(&other) => {
+                    let (a, b) = (find(&mut parent, index), find(&mut parent, other));
+                    parent[a.max(b)] = a.min(b);
+                }
+                None => {
+                    owner.insert(key, index);
+                }
+            }
         }
     }
-    let mut groups: Vec<Vec<String>> = by_key
+    let mut groups: BTreeMap<usize, BTreeSet<String>> = BTreeMap::new();
+    for (index, (id, _)) in visible.iter().enumerate() {
+        let root = find(&mut parent, index);
+        groups.entry(root).or_default().insert((*id).to_string());
+    }
+    let mut groups: Vec<Vec<String>> = groups
         .into_values()
         .filter(|ids| ids.len() > 1)
         .map(|ids| ids.into_iter().collect())
@@ -969,6 +1193,9 @@ pub enum Standing {
     Interested,
     /// An author linked it to future work.
     Converted,
+    /// Closed by the editors after an author had linked it to future work.
+    /// It is not a decline: the idea was used, and the link stays.
+    ClosedConverted,
     /// Declined or closed by the editors, or expired.
     Declined,
     /// The reader withdrew it.
@@ -982,6 +1209,7 @@ impl Standing {
             ModerationState::Clarification => Standing::NeedsClarification,
             ModerationState::Approved if conversions.is_empty() => Standing::Interested,
             ModerationState::Approved => Standing::Converted,
+            ModerationState::Removed if !conversions.is_empty() => Standing::ClosedConverted,
             ModerationState::Rejected | ModerationState::Removed => Standing::Declined,
             ModerationState::Withdrawn => Standing::Withdrawn,
         }
@@ -993,6 +1221,7 @@ impl Standing {
             Standing::NeedsClarification => "needs-clarification",
             Standing::Interested => "interested",
             Standing::Converted => "converted",
+            Standing::ClosedConverted => "closed-converted",
             Standing::Declined => "declined",
             Standing::Withdrawn => "withdrawn",
         }
@@ -1005,9 +1234,20 @@ impl Standing {
             Standing::NeedsClarification => "Waiting for the reader to say more",
             Standing::Interested => "Editors are interested",
             Standing::Converted => "Linked to future work",
+            Standing::ClosedConverted => "Linked to future work, now closed",
             Standing::Declined => "Not taken forward",
             Standing::Withdrawn => "Withdrawn by the reader",
         }
+    }
+}
+
+/// Whether `id` can name what a conversion of `kind` points at: a draft or a
+/// series by its slug as the site writes slugs ([`valid_slug`]), a library
+/// source by its source id, which the Source Library keeps lowercase ASCII.
+fn valid_target(kind: ConversionKind, id: &str) -> bool {
+    match kind {
+        ConversionKind::Draft | ConversionKind::Series => valid_slug(id),
+        ConversionKind::LibrarySource => id.len() <= MAX_ID_CHARS && valid_id(id),
     }
 }
 
@@ -1079,8 +1319,10 @@ impl Conversion {
         let kind = ConversionKind::from_id(&wire.kind).ok_or_else(|| {
             invalid("a conversion's `kind` is not draft, series or library-source")
         })?;
-        if !valid_slug(&wire.id) {
-            return Err(invalid("a conversion's `id` must be a lowercase slug"));
+        if !valid_target(kind, &wire.id) {
+            return Err(invalid(
+                "a conversion's `id` must be the slug of what the author made",
+            ));
         }
         let at = parse_canonical_time(&wire.at)
             .ok_or_else(|| invalid("a conversion's `at` must be a UTC time"))?;
@@ -1112,7 +1354,8 @@ pub enum ConversionError {
     AlreadyLinked,
     /// The suggestion keeps [`MAX_CONVERSIONS`] links already.
     TooMany,
-    /// The target id is not a lowercase slug.
+    /// The target id is not a slug as this site writes them (a library
+    /// source's is a lowercase ASCII source id).
     InvalidTarget,
 }
 
@@ -1141,7 +1384,7 @@ impl std::fmt::Display for ConversionError {
             }
             ConversionError::AlreadyLinked => "the suggestion is already linked to that",
             ConversionError::TooMany => "the suggestion is linked to as much as it can be",
-            ConversionError::InvalidTarget => "the target must be a lowercase slug",
+            ConversionError::InvalidTarget => "the target must be the slug of what was made",
         })
     }
 }
@@ -1180,7 +1423,7 @@ pub fn convert(
     at: DateTime,
 ) -> Result<Conversion, ConversionError> {
     gate(actor, item)?;
-    if !valid_slug(target) {
+    if !valid_target(kind, target) {
         return Err(ConversionError::InvalidTarget);
     }
     if existing

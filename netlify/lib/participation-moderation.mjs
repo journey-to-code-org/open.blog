@@ -186,7 +186,11 @@ export function timeKey(value) {
  * The step one retention run owes an item, or null (ADR 0104): `item` is `{kind, state, since,
  * retained}`, `cutoffs` the run's `{pendingUntil, clarificationUntil, closedUntil, comments}`. An
  * item is due when its state began at or before its step's time. Comments are covered only when
- * the site set retention itself; an approved item is kept while it can be published.
+ * the site set retention itself; an approved item is kept while it can be published. An approved
+ * editorial item (a suggestion for future work) is kept too, but owes `scrub-identity`, the
+ * clearing of its private contact and unpublished name, once the closed-item period has passed
+ * since its approval (ADR 0193); `item.identityHeld === false` says it holds none, so it owes
+ * nothing (a fixture row, which says nothing of it, is due as the policy decides).
  */
 export function retentionStep(item, cutoffs) {
   const kind = Object.hasOwn(KIND_RULES, item?.kind) ? item.kind : null;
@@ -198,7 +202,10 @@ export function retentionStep(item, cutoffs) {
   if (item.state === "pending") return due(cutoffs.pendingUntil) ? "expire" : null;
   if (item.state === "clarification") return due(cutoffs.clarificationUntil) ? "expire" : null;
   if (item.state === "withdrawn") return retained ? "purge-content" : null;
-  if (item.state === "approved" && (KIND_RULES[kind].publishable || KIND_RULES[kind].editorial === true)) return null;
+  if (item.state === "approved" && KIND_RULES[kind].publishable) return null;
+  if (item.state === "approved" && KIND_RULES[kind].editorial === true) {
+    return retained && item.identityHeld !== false && due(cutoffs.closedUntil) ? "scrub-identity" : null;
+  }
   return retained && due(cutoffs.closedUntil) ? "purge-content" : null;
 }
 

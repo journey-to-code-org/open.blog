@@ -116,6 +116,7 @@ fn retention_cases() -> Vec<Value> {
                                 "step": step.map(|step| match step {
                                     RetentionStep::Expire => "expire",
                                     RetentionStep::PurgeContent => "purge-content",
+                                    RetentionStep::ScrubIdentity => "scrub-identity",
                                 }),
                             }));
                         }

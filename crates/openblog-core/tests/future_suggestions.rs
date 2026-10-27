@@ -6,10 +6,10 @@
 use openblog_core::date::DateTime;
 use openblog_core::feedback_provenance::FeedbackChannel;
 use openblog_core::future_suggestion::{
-    convert, duplicate_groups, library_candidate, normalize_suggestion_url, source_key, About,
-    Conversion, ConversionError, ConversionKind, ErrorCode, ReaderAttribution, Standing,
-    Submission, Suggestion, SuggestionType, ACCEPTANCE_NOTICE, KIND, MAX_CONVERSIONS,
-    MAX_TEXT_CHARS,
+    convert, duplicate_groups, identity_scrub_due, library_candidate, normalize_suggestion_url,
+    source_keys, About, Conversion, ConversionError, ConversionKind, ErrorCode, ReaderAttribution,
+    Standing, Submission, Suggestion, SuggestionType, ACCEPTANCE_NOTICE, KIND, MAX_CONVERSIONS,
+    MAX_SUBMISSION_BYTES, MAX_TEXT_CHARS,
 };
 use openblog_core::moderation::{
     is_public, may_view, Actor, ItemFacts, ModerationAction, ModerationPolicy, ModerationState,
@@ -448,20 +448,28 @@ fn contact_and_an_unshown_name_reach_only_the_site_admin_and_the_submitter() {
         "contact": { "address": "ada@example.org", "followUp": true }
     })));
     let item = facts(ModerationState::Approved);
-    for (actor, sees) in [
-        (ADMIN, true),
-        (Actor::Submitter, true),
-        (COORDINATOR, false),
-        (CONTRIBUTOR, false),
-        (Actor::Public, false),
-        (Actor::System, false),
+    // (actor, may see the content, may see the private identity)
+    for (actor, content, sees) in [
+        (ADMIN, true, true),
+        (Actor::Submitter, true, true),
+        (COORDINATOR, true, false),
+        (CONTRIBUTOR, true, false),
+        (Actor::Public, false, false),
+        (Actor::System, false, false),
     ] {
         let view = record.editor_view(&actor, &item, ParticipationMode::Open);
-        assert_eq!(view.contact.is_some(), sees, "{actor:?}");
-        assert_eq!(view.name.is_some(), sees, "{actor:?}");
-        assert_eq!(view.text, record.submission.text);
-        assert_eq!(view.notice, ACCEPTANCE_NOTICE);
-        assert!(!format!("{view:?}").contains("ada@example.org") || sees);
+        assert_eq!(view.is_some(), content, "{actor:?}");
+        if let Some(view) = view {
+            assert_eq!(view.contact.is_some(), sees, "{actor:?}");
+            assert_eq!(view.name.is_some(), sees, "{actor:?}");
+            assert_eq!(view.text, record.submission.text);
+            assert_eq!(view.notice, ACCEPTANCE_NOTICE);
+            let debug = format!("{view:?}");
+            assert!(
+                !debug.contains("ada@example.org") && !debug.contains("Ada"),
+                "{debug}"
+            );
+        }
         assert_eq!(
             may_view(
                 &actor,
@@ -476,8 +484,26 @@ fn contact_and_an_unshown_name_reach_only_the_site_admin_and_the_submitter() {
     let shown = receive(&submission(
         json!({ "attribution": { "name": "Ada", "publishName": true } }),
     ));
-    let view = shown.editor_view(&COORDINATOR, &item, ParticipationMode::Open);
+    let view = shown
+        .editor_view(&COORDINATOR, &item, ParticipationMode::Open)
+        .unwrap();
     assert_eq!(view.name.as_deref(), Some("Ada"));
+    // Text that was purged shows nothing to anyone, and an item of another
+    // kind is not a suggestion.
+    let purged = ItemFacts {
+        content_retained: false,
+        ..item
+    };
+    assert!(shown
+        .editor_view(&ADMIN, &purged, ParticipationMode::Open)
+        .is_none());
+    let other = ItemFacts {
+        kind: ParticipationKind::Question,
+        ..item
+    };
+    assert!(shown
+        .editor_view(&ADMIN, &other, ParticipationMode::Open)
+        .is_none());
 }
 
 // ---------------------------------------------------------------------------
@@ -570,19 +596,31 @@ fn the_same_source_sent_again_is_grouped_for_the_editor_and_never_counted() {
         json!({ "hints": { "identifiers": [{ "scheme": "isbn", "value": "9780306406157" }] } }),
     ));
     let none = receive(&submission(json!({})));
-    assert_eq!(source_key(&a.submission), source_key(&b.submission));
-    assert_ne!(source_key(&a.submission), source_key(&c.submission));
-    assert_eq!(source_key(&none.submission), None);
-    let groups = duplicate_groups(&[
-        ("z-isbn-2", &isbn_b),
-        ("m-url-1", &a),
-        ("n-url-2", &b),
-        ("c", &c),
-        ("k-doi-1", &doi_a),
-        ("a-isbn-1", &isbn_a),
-        ("l-doi-2", &doi_b),
-        ("none", &none),
-    ]);
+    assert_eq!(source_keys(&a.submission), source_keys(&b.submission));
+    assert_ne!(source_keys(&a.submission), source_keys(&c.submission));
+    assert!(source_keys(&none.submission).is_empty());
+    let ids = [
+        "z-isbn-2", "m-url-1", "n-url-2", "c", "k-doi-1", "a-isbn-1", "l-doi-2", "none",
+    ];
+    let item = |id: &'static str| ItemFacts {
+        id,
+        ..facts(ModerationState::Approved)
+    };
+    let [z, m, n, cc, k, aa, l, nn] = ids.map(item);
+    let groups = duplicate_groups(
+        &ADMIN,
+        ParticipationMode::Open,
+        &[
+            (&z, &isbn_b),
+            (&m, &a),
+            (&n, &b),
+            (&cc, &c),
+            (&k, &doi_a),
+            (&aa, &isbn_a),
+            (&l, &doi_b),
+            (&nn, &none),
+        ],
+    );
     assert_eq!(
         groups,
         vec![
@@ -591,12 +629,99 @@ fn the_same_source_sent_again_is_grouped_for_the_editor_and_never_counted() {
             vec!["m-url-1".to_string(), "n-url-2".to_string()],
         ]
     );
-    // An identifier outranks a link, so one source with both stays one source.
+    // A suggestion with both a link and an identifier is the same source as
+    // another that shares either one, and so are those two with each other.
     let both = receive(&submission(json!({
         "url": "https://example.org/other",
         "hints": { "identifiers": [{ "scheme": "doi", "value": "10.1234/abc" }] }
     })));
-    assert_eq!(source_key(&both.submission), source_key(&doi_a.submission));
+    let (b1, b2) = (item("both"), item("same-link"));
+    let same_link = receive(&submission_of(
+        SuggestionType::Text,
+        json!({ "url": "https://example.org/other/" }),
+    ));
+    let groups = duplicate_groups(
+        &ADMIN,
+        ParticipationMode::Open,
+        &[(&b1, &both), (&k, &doi_a), (&b2, &same_link), (&cc, &c)],
+    );
+    assert_eq!(
+        groups,
+        vec![vec![
+            "both".to_string(),
+            "c".to_string(),
+            "k-doi-1".to_string(),
+            "same-link".to_string()
+        ]],
+        "a shared DOI and a shared link join the group through the one that has both"
+    );
+}
+
+#[test]
+fn a_source_is_the_same_source_however_it_was_written() {
+    let key = |submission: Value| source_keys(&receive(&submission).submission);
+    let id = |scheme: &str, value: &str| {
+        key(submission(
+            json!({ "hints": { "identifiers": [{ "scheme": scheme, "value": value }] } }),
+        ))
+    };
+    // A DOI by its name: bare, `doi:`, or a resolver link on either host.
+    let doi = id("doi", "10.1234/ABC");
+    assert_eq!(doi, id("doi", "doi:10.1234/abc"));
+    assert_eq!(doi, id("doi", "https://doi.org/10.1234/abc"));
+    assert_eq!(doi, id("doi", "http://dx.doi.org/10.1234/abc"));
+    assert_eq!(
+        doi,
+        key(submission(json!({ "url": "https://doi.org/10.1234/abc" })))
+    );
+    // An ISBN-10 and the ISBN-13 it converts to are one book.
+    let ten = id("isbn", "0-306-40615-2");
+    assert_eq!(ten, id("isbn", "9780306406157"));
+    assert_eq!(ten, id("isbn", "978-0-306-40615-7"));
+    assert_ne!(ten, id("isbn", "9780306406164"));
+    // An ISSN without its hyphen; a link as an identifier like a link.
+    assert_eq!(id("issn", "0378-5955"), id("issn", "03785955"));
+    assert_eq!(
+        id("url", "https://www.example.org/paper/?utm_source=x"),
+        key(submission(json!({ "url": "http://example.org/paper" })))
+    );
+    // Different sources stay different.
+    assert_ne!(doi, id("doi", "10.1234/abd"));
+}
+
+#[test]
+fn duplicates_are_grouped_only_among_items_the_viewer_may_see() {
+    let one = receive(&submission(json!({ "url": "https://example.org/a" })));
+    let two = receive(&submission(json!({ "url": "https://example.org/a/" })));
+    let (x, y) = (
+        ItemFacts {
+            id: "x",
+            ..facts(ModerationState::Approved)
+        },
+        ItemFacts {
+            id: "y",
+            work: Some("/posts/elsewhere/"),
+            ..facts(ModerationState::Approved)
+        },
+    );
+    let items = [(&x, &one), (&y, &two)];
+    let all = duplicate_groups(&ADMIN, ParticipationMode::Open, &items);
+    assert_eq!(all, vec![vec!["x".to_string(), "y".to_string()]]);
+    // A coordinator of /posts/tides/ does not see the other post's item, so
+    // neither is its existence revealed by a group.
+    assert!(duplicate_groups(&COORDINATOR, ParticipationMode::Open, &items).is_empty());
+    assert!(duplicate_groups(&Actor::Public, ParticipationMode::Open, &items).is_empty());
+    // Another kind's item is not a suggestion and is never grouped.
+    let question = ItemFacts {
+        kind: ParticipationKind::Question,
+        ..y
+    };
+    assert!(duplicate_groups(
+        &ADMIN,
+        ParticipationMode::Open,
+        &[(&x, &one), (&question, &two)]
+    )
+    .is_empty());
 }
 
 // ---------------------------------------------------------------------------
@@ -662,11 +787,14 @@ fn acceptance_admits_to_the_queue_and_publishes_nothing_and_is_kept() {
     assert_eq!(accepted.item.to, ModerationState::Approved);
     let approved = facts(ModerationState::Approved);
     assert!(!is_public(&approved, ParticipationMode::Open));
-    // An accepted idea is not purged on the closed-item clock.
+    // An accepted idea is not purged on the closed-item clock: it owes the
+    // clearing of its private contact and name once the period has passed,
+    // and nothing before that.
     let policy = ModerationPolicy::default();
-    assert_eq!(
+    assert_eq!(policy.retention_due(&approved, received()), None);
+    assert_ne!(
         policy.retention_due(&approved, time("2030-01-01T00:00:00Z")),
-        None
+        Some(RetentionStep::PurgeContent)
     );
     // An editor can close it again, with a decline reason, and then the
     // ordinary closed-item retention applies.
@@ -953,4 +1081,486 @@ fn nothing_in_the_record_reaches_the_source_library_or_any_public_output() {
         );
     }
     assert!(source.contains("use crate::source_library::check_identifier;"));
+}
+
+// ---------------------------------------------------------------------------
+// Review fixes (#213): the one URL rule, identifier hints, bounds, stored
+// details, redaction, retention of private identity, standing and slugs
+
+#[test]
+fn a_link_is_held_to_the_one_public_address_rule() {
+    for url in [
+        "http://[::127.0.0.1]/",
+        "http://[2002:7f00:1::]/",
+        "http://[64:ff9b::7f00:1]/",
+        "http://[fec0::1]/",
+        "http://[::ffff:127.0.0.1]/",
+        "http://localhost.localdomain/x",
+        "http://printer.home/x",
+        "http://app.test/x",
+        "http://wiki.corp/x",
+        "http://198.18.0.1/x",
+        "http://198.19.255.254/x",
+        "http://2130706433/x",
+        "http://0x7f.1/x",
+        "http://017700000001/x",
+        "https://example.org/x?access_token=abc",
+        "https://example.org/x?X-Amz-Signature=abc",
+        "https://example.org/x#api_key=abc",
+    ] {
+        assert_eq!(normalize_suggestion_url(url), None, "{url}");
+        assert_eq!(
+            code(&submission(json!({ "url": url }))),
+            ErrorCode::InvalidUrl,
+            "{url}"
+        );
+    }
+    // A public link that only looks private stays allowed.
+    for url in [
+        "https://example.org/x?author=ada&keyword=tides",
+        "https://example.org/x#Authorship",
+        "https://doi.org/10.1234/abc",
+    ] {
+        assert!(normalize_suggestion_url(url).is_some(), "{url}");
+    }
+    // And the module keeps no private-address rule of its own.
+    let source = include_str!("../src/future_suggestion.rs");
+    for fragment in ["is_private()", "is_loopback()", "is_link_local()", "IpAddr"] {
+        assert!(
+            !source.contains(fragment),
+            "the URL rule belongs to citations::public_url_problem, found {fragment}"
+        );
+    }
+}
+
+#[test]
+fn an_identifier_hint_meets_the_text_link_and_scheme_rules() {
+    let hint = |scheme: &str, value: &str| {
+        code(&submission(
+            json!({ "hints": { "identifiers": [{ "scheme": scheme, "value": value }] } }),
+        ))
+    };
+    // Plain text: control and text-direction characters are refused.
+    for value in [
+        "10.1234/a\u{202e}b",
+        "10.1234/a\nb",
+        "10.1234/a\u{0}b",
+        "",
+        "   ",
+    ] {
+        assert_eq!(hint("doi", value), ErrorCode::InvalidHint, "{value:?}");
+    }
+    // A link goes through the public-address rule, not just the shape check.
+    for value in [
+        "http://127.0.0.1/x",
+        "https://localhost/x",
+        "https://example.org/x?token=1",
+        "javascript:alert(1)",
+        "https://user:pw@example.org/",
+    ] {
+        assert_eq!(hint("url", value), ErrorCode::InvalidHint, "{value}");
+    }
+    // The schemes are a closed set, and the message says so.
+    for scheme in ["oclc", "", "DOI", "mailto", "javascript"] {
+        assert_eq!(
+            hint(scheme, "10.1234/abc"),
+            ErrorCode::InvalidHint,
+            "{scheme}"
+        );
+    }
+    let message = parse(&submission(
+        json!({ "hints": { "identifiers": [{ "scheme": "oclc", "value": "1" }] } }),
+    ))
+    .unwrap_err()
+    .message;
+    assert!(
+        message.contains("doi, isbn, issn, url, pmid or pmcid"),
+        "{message}"
+    );
+    assert_eq!(hint("pmid", "12ab"), ErrorCode::InvalidHint);
+    assert_eq!(hint("pmcid", "123"), ErrorCode::InvalidHint);
+    // What is accepted is stored trimmed and a link is stored normalized.
+    let ok = parse(&submission(json!({ "hints": { "identifiers": [
+        { "scheme": "url", "value": "https://Example.ORG/a/../b" },
+        { "scheme": "doi", "value": "10.1234/abc" },
+        { "scheme": "pmid", "value": "123456" },
+        { "scheme": "pmcid", "value": "PMC123" },
+    ] } })))
+    .unwrap();
+    assert_eq!(ok.hints.identifiers[0].value, "https://example.org/b");
+    assert_eq!(ok.hints.identifiers.len(), 4);
+}
+
+/// Fill every field to its limit with the widest characters the rules take.
+fn widest(character: &str) -> Value {
+    let words = |count: usize| character.repeat(count);
+    submission(json!({
+        "type": "text",
+        "text": words(MAX_TEXT_CHARS),
+        "url": format!("https://example.org/{}", "a".repeat(2_000)),
+        "hints": {
+            "title": words(300),
+            "creators": vec![words(200); 8],
+            "year": words(32),
+            "publisher": words(300),
+            "identifiers": [
+                { "scheme": "doi", "value": format!("10.1234/{}", words(100)) },
+                { "scheme": "isbn", "value": "9780306406157" },
+                { "scheme": "issn", "value": "0378-5955" },
+                { "scheme": "pmid", "value": "123456" }
+            ]
+        },
+        "about": { "article": format!("/posts/{}/", words(480)) },
+        "attribution": { "name": words(80), "publishName": false },
+        "contact": { "address": "ada@example.org", "followUp": true }
+    }))
+}
+
+#[test]
+fn a_largest_submission_round_trips_through_storage_or_is_refused_up_front() {
+    // Whatever a submission is made of, one that is accepted must read back
+    // from the stored record; one that cannot is refused when it is sent,
+    // never accepted and then unreadable.
+    for character in ["a", "é", "水", "\u{1F4DA}"] {
+        let wide = widest(character);
+        let text = wide.to_string();
+        match Submission::from_json(&text) {
+            Ok(submission) => {
+                assert!(text.len() <= MAX_SUBMISSION_BYTES);
+                let record =
+                    Suggestion::receive(submission, WORK, received(), FeedbackChannel::Hosted)
+                        .unwrap();
+                let stored = record.to_json();
+                assert!(stored.len() <= 16 * 1024, "{character}: {}", stored.len());
+                assert_eq!(Suggestion::from_json(&stored).unwrap(), record);
+                let receipt: Value = serde_json::from_str(&stored).unwrap();
+                let details = record.stored_details();
+                assert!(details.to_string().len() <= 16 * 1024);
+                let back = Suggestion::from_stored(
+                    &record.submission.text,
+                    record.revision,
+                    &details,
+                    &receipt["receipt"],
+                    &record.submission.attribution,
+                )
+                .unwrap();
+                assert_eq!(back, record);
+            }
+            Err(error) => assert_eq!(error.code, ErrorCode::TooLarge, "{character}"),
+        }
+    }
+    // The plain ASCII largest is accepted and round-trips, so the bound does
+    // not turn away an ordinary full form.
+    assert!(Submission::from_json(&widest("a").to_string()).is_ok());
+    // A record is stored with a longest page path and still reads back.
+    let long_work = format!("/posts/{}/", "w".repeat(480));
+    let record = Suggestion::receive(
+        parse(&widest("a")).unwrap(),
+        &long_work,
+        received(),
+        FeedbackChannel::Hosted,
+    )
+    .unwrap();
+    assert_eq!(Suggestion::from_json(&record.to_json()).unwrap(), record);
+    // One byte over the submission bound is refused as too large.
+    let over = format!("{}{}", widest("a"), " ".repeat(MAX_SUBMISSION_BYTES));
+    assert_eq!(
+        Submission::from_json(&over).unwrap_err().code,
+        ErrorCode::TooLarge
+    );
+}
+
+#[test]
+fn stored_details_hold_exactly_what_the_row_keeps() {
+    let record = receive(&submission(json!({
+        "url": "https://example.org/a",
+        "attribution": { "name": "Ada", "publishName": false },
+    })));
+    let details = record.stored_details();
+    let receipt = serde_json::from_str::<Value>(&record.to_json()).unwrap()["receipt"].clone();
+    let read = |details: &Value| {
+        Suggestion::from_stored(
+            "Her letters would help.",
+            1,
+            details,
+            &receipt,
+            &ReaderAttribution::default(),
+        )
+    };
+    assert!(read(&details).is_ok());
+    // A stored row cannot smuggle in the text or the name the columns hold,
+    // or a second copy of anything else.
+    for (key, value) in [
+        ("text", json!("injected words")),
+        (
+            "attribution",
+            json!({ "name": "Mallory", "publishName": true }),
+        ),
+        ("kind", json!("question")),
+        ("version", json!(1)),
+        ("receipt", json!({})),
+        ("revision", json!(9)),
+        ("name", json!("Mallory")),
+    ] {
+        let mut bad = details.clone();
+        bad[key] = value;
+        assert_eq!(
+            read(&bad).unwrap_err().code,
+            ErrorCode::InvalidDetails,
+            "{key}"
+        );
+    }
+    // The type is required and `details` is an object.
+    let mut no_type = details.clone();
+    no_type.as_object_mut().unwrap().remove("type");
+    assert_eq!(read(&no_type).unwrap_err().code, ErrorCode::InvalidDetails);
+    assert_eq!(
+        read(&json!([])).unwrap_err().code,
+        ErrorCode::InvalidDetails
+    );
+    // A wrongly typed field is refused whole.
+    let mut bad = details.clone();
+    bad["url"] = json!(5);
+    assert!(read(&bad).is_err());
+}
+
+#[test]
+fn a_debug_print_never_shows_a_name_the_reader_did_not_agree_to_show() {
+    let private = receive(&submission(json!({
+        "attribution": { "name": "Privateperson", "publishName": false },
+        "contact": { "address": "p@example.org", "followUp": true }
+    })));
+    for debug in [
+        format!("{:?}", private.submission),
+        format!("{private:?}"),
+        format!("{:#?}", private),
+    ] {
+        assert!(!debug.contains("Privateperson"), "{debug}");
+        assert!(!debug.contains("p@example.org"), "{debug}");
+        assert!(debug.contains("<private>"), "{debug}");
+    }
+    let item = facts(ModerationState::Approved);
+    let view = private
+        .editor_view(&ADMIN, &item, ParticipationMode::Open)
+        .unwrap();
+    assert_eq!(view.name.as_deref(), Some("Privateperson"));
+    let debug = format!("{view:?}");
+    assert!(!debug.contains("Privateperson") && !debug.contains("p@example.org"));
+    // A name the reader agreed to show may be printed.
+    let shown = receive(&submission(
+        json!({ "attribution": { "name": "Publicperson", "publishName": true } }),
+    ));
+    assert!(format!("{shown:?}").contains("Publicperson"));
+}
+
+#[test]
+fn private_identity_is_cleared_after_the_period_and_when_converted() {
+    let policy = ModerationPolicy::default();
+    let held = receive(&submission(json!({
+        "attribution": { "name": "Ada", "publishName": false },
+        "contact": { "address": "ada@example.org", "followUp": true }
+    })));
+    let shown_name = receive(&submission(
+        json!({ "attribution": { "name": "Ada", "publishName": true } }),
+    ));
+    let bare = receive(&submission(json!({})));
+    assert!(held.holds_identity());
+    assert!(!shown_name.holds_identity() && !bare.holds_identity());
+    // After the closed-item period an approved suggestion is kept, but owes
+    // the clearing of its identity and nothing else.
+    let approved = ItemFacts {
+        state_since: time("2026-10-26T10:00:00Z"),
+        ..facts(ModerationState::Approved)
+    };
+    let edge = time("2026-11-25T10:00:00Z");
+    assert_eq!(
+        policy.retention_due(&approved, time("2026-11-25T09:59:59Z")),
+        None
+    );
+    assert_eq!(
+        policy.retention_due(&approved, edge),
+        Some(RetentionStep::ScrubIdentity)
+    );
+    assert_eq!(
+        policy.retention_due(&approved, time("2030-01-01T00:00:00Z")),
+        Some(RetentionStep::ScrubIdentity),
+        "an accepted idea is never purged on this clock"
+    );
+    assert!(identity_scrub_due(&policy, &approved, &held, &[], edge));
+    assert!(!identity_scrub_due(
+        &policy,
+        &approved,
+        &held,
+        &[],
+        time("2026-11-25T09:59:59Z")
+    ));
+    // Nothing is due for a suggestion that holds nothing private.
+    assert!(!identity_scrub_due(
+        &policy,
+        &approved,
+        &shown_name,
+        &[],
+        edge
+    ));
+    assert!(!identity_scrub_due(&policy, &approved, &bare, &[], edge));
+    // Converting it clears the identity at once, before the period.
+    let link = Conversion {
+        kind: ConversionKind::Draft,
+        id: "tide-tables".into(),
+        at: time("2026-10-27T10:00:00Z"),
+        by: "owner".into(),
+    };
+    let soon = time("2026-10-28T10:00:00Z");
+    assert!(identity_scrub_due(
+        &policy,
+        &approved,
+        &held,
+        std::slice::from_ref(&link),
+        soon
+    ));
+    // But never for an item that is not approved, or whose text is gone.
+    for state in [ModerationState::Pending, ModerationState::Rejected] {
+        let item = facts(state);
+        assert!(!identity_scrub_due(
+            &policy,
+            &item,
+            &held,
+            std::slice::from_ref(&link),
+            soon
+        ));
+    }
+    let purged = ItemFacts {
+        content_retained: false,
+        ..approved
+    };
+    assert!(!identity_scrub_due(&policy, &purged, &held, &[link], soon));
+    // Scrubbing keeps the text, the link, the hints and a shown name only.
+    let kept = receive(&submission(json!({
+        "url": "https://example.org/a",
+        "attribution": { "name": "Ada", "publishName": true },
+        "contact": { "address": "ada@example.org", "followUp": true }
+    })));
+    let scrubbed = kept.scrubbed();
+    assert_eq!(scrubbed.submission.text, kept.submission.text);
+    assert_eq!(scrubbed.submission.url, kept.submission.url);
+    assert!(scrubbed.submission.contact.is_none());
+    assert_eq!(scrubbed.credit(), Some("Ada"));
+    let cleared = held.scrubbed();
+    assert_eq!(cleared.submission.attribution, ReaderAttribution::default());
+    assert!(!cleared.holds_identity());
+    // An audit event records it and holds nothing of the reader.
+    let event = policy.scrub_event(&approved, edge).unwrap();
+    assert_eq!(event.action.id(), "scrub-identity");
+    assert_eq!(event.version, approved.version + 1);
+    assert!(!format!("{:?}", event.to_json()).contains("ada"));
+    // Other kinds keep their existing steps: an approved comment, an upheld
+    // abuse report and a published reflection are unchanged by this.
+    for kind in ParticipationKind::ALL {
+        let item = ItemFacts { kind, ..approved };
+        let step = ModerationPolicy::new(Default::default())
+            .retention_due(&item, time("2030-01-01T00:00:00Z"));
+        match kind {
+            ParticipationKind::AbuseReport => assert_eq!(step, Some(RetentionStep::PurgeContent)),
+            ParticipationKind::FutureSuggestion => {
+                assert_eq!(step, Some(RetentionStep::ScrubIdentity))
+            }
+            _ => assert_eq!(step, None, "{kind}"),
+        }
+    }
+}
+
+#[test]
+fn closing_a_converted_suggestion_does_not_read_as_declined() {
+    let link = Conversion {
+        kind: ConversionKind::Series,
+        id: "tides".into(),
+        at: time("2026-10-27T10:00:00Z"),
+        by: "owner".into(),
+    };
+    let links = std::slice::from_ref(&link);
+    assert_eq!(
+        Standing::of(ModerationState::Removed, links),
+        Standing::ClosedConverted
+    );
+    assert_eq!(Standing::ClosedConverted.id(), "closed-converted");
+    let label = Standing::ClosedConverted.label().to_lowercase();
+    assert!(
+        label.contains("linked") && !label.contains("declined") && !label.contains("not taken")
+    );
+    // Without a link, or when rejected, a closed one is still not taken forward.
+    assert_eq!(
+        Standing::of(ModerationState::Removed, &[]),
+        Standing::Declined
+    );
+    assert_eq!(
+        Standing::of(ModerationState::Rejected, links),
+        Standing::Declined
+    );
+    assert_eq!(
+        Standing::of(ModerationState::Approved, links),
+        Standing::Converted
+    );
+}
+
+#[test]
+fn series_and_conversion_ids_accept_the_sites_own_slugs() {
+    // The site's slugs keep non-ASCII letters.
+    for slug in ["marées", "水のいろ", "tides-2026", "a"] {
+        assert_eq!(openblog_core::slug::slugify(slug), slug);
+        let parsed = parse(&submission(json!({ "about": { "series": slug } }))).unwrap();
+        assert_eq!(parsed.about, Some(About::Series(slug.into())));
+    }
+    for slug in [
+        "Tides", "tides--x", "-tides", "tides-", "a b", "a/b", "", "tides!",
+    ] {
+        assert_eq!(
+            code(&submission(json!({ "about": { "series": slug } }))),
+            ErrorCode::InvalidAbout,
+            "{slug:?}"
+        );
+    }
+    assert_eq!(
+        code(&submission(
+            json!({ "about": { "series": "a".repeat(65) } })
+        )),
+        ErrorCode::InvalidAbout
+    );
+    // A draft or series conversion takes the same slugs; a library source its
+    // own lowercase ASCII source id.
+    let approved = facts(ModerationState::Approved);
+    let at = time("2026-10-27T10:00:00Z");
+    for id in ["marées", "水のいろ"] {
+        let made = convert(&ADMIN, &approved, &[], ConversionKind::Draft, id, at).unwrap();
+        assert_eq!(made.id, id);
+        assert_eq!(Conversion::from_value(&made.to_value()).unwrap(), made);
+        assert!(convert(&ADMIN, &approved, &[], ConversionKind::Series, id, at).is_ok());
+        assert_eq!(
+            convert(
+                &ADMIN,
+                &approved,
+                &[],
+                ConversionKind::LibrarySource,
+                id,
+                at
+            )
+            .unwrap_err(),
+            ConversionError::InvalidTarget
+        );
+    }
+    assert!(convert(
+        &ADMIN,
+        &approved,
+        &[],
+        ConversionKind::LibrarySource,
+        "plato-republic",
+        at
+    )
+    .is_ok());
+    for id in ["Tides", "a b", "", "tides--x"] {
+        assert_eq!(
+            convert(&ADMIN, &approved, &[], ConversionKind::Draft, id, at).unwrap_err(),
+            ConversionError::InvalidTarget,
+            "{id:?}"
+        );
+    }
 }

@@ -1016,14 +1016,18 @@ fn an_upheld_reports_text_is_purged_on_schedule_and_its_audit_stays() {
         assert!(policy.audit_due(event.at, day(375)));
     }
 
-    // Approved items of every publishable kind are kept while published.
+    // Approved items of every publishable kind are kept while published; an
+    // accepted suggestion is kept too, owing only the clearing of its private
+    // identity, never a purge.
     for kind in ParticipationKind::ALL {
         let approved = item(kind, ModerationState::Approved);
         let due = policy.retention_due(&approved, day(10_000));
-        if kind == ParticipationKind::AbuseReport {
-            assert_eq!(due, Some(RetentionStep::PurgeContent));
-        } else {
-            assert_eq!(due, None, "{kind}");
+        match kind {
+            ParticipationKind::AbuseReport => assert_eq!(due, Some(RetentionStep::PurgeContent)),
+            ParticipationKind::FutureSuggestion => {
+                assert_eq!(due, Some(RetentionStep::ScrubIdentity))
+            }
+            _ => assert_eq!(due, None, "{kind}"),
         }
     }
 }
