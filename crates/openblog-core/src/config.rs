@@ -5,6 +5,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::contributor::{self, Contributor};
+use crate::participation::ParticipationConfig;
+use crate::reading_depth::ReadingMode;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
@@ -71,6 +73,139 @@ pub struct SiteConfig {
     /// Optional server-side cross-posting destinations. Credentials are read from
     /// environment variables and are never serialized here.
     pub syndication: SyndicationConfig,
+    /// Opt-in publication of the approved part of the private Knowledge Atlas.
+    /// Omitted from the written file while it is off, so existing projects
+    /// keep their configuration unchanged.
+    #[serde(skip_serializing_if = "KnowledgeAtlasConfig::is_off")]
+    pub knowledge_atlas: KnowledgeAtlasConfig,
+    /// Which participation kinds beyond comments the site accepts, and how
+    /// long moderation keeps what it does not publish (ADRs 0101 and 0104).
+    /// Every kind is off by default, and the object is omitted from the
+    /// written file while it has its defaults.
+    #[serde(skip_serializing_if = "ParticipationConfig::is_default")]
+    pub participation: ParticipationConfig,
+    /// Opt-in publication of approved claims and evidence links with the
+    /// posts they are about. Omitted from the written file while it is off.
+    #[serde(skip_serializing_if = "ClaimEvidenceConfig::is_off")]
+    pub claim_evidence: ClaimEvidenceConfig,
+    /// Opt-in publication of approved passage comparisons. Omitted from the
+    /// written file while it is off.
+    #[serde(skip_serializing_if = "ComparisonsConfig::is_off")]
+    pub comparisons: ComparisonsConfig,
+    /// Opt-in publication of the author's curated selection of research
+    /// context for readers (ADR 0185). Omitted from the written file while
+    /// it is off.
+    #[serde(skip_serializing_if = "CuratedContextConfig::is_off")]
+    pub curated_context: CuratedContextConfig,
+    /// The reading mode a post with supplements opens in when the post does
+    /// not say (ADR 0142). Omitted from the written file while it is standard.
+    #[serde(
+        deserialize_with = "ReadingModesConfig::tolerant",
+        skip_serializing_if = "ReadingModesConfig::is_default"
+    )]
+    pub reading_modes: ReadingModesConfig,
+}
+
+/// The site-wide default reading mode (ADR 0142). It only decides where a
+/// post that opted in with `readingModes` opens; it never opts a post in. A
+/// post's own `readingModes.default` wins, then this, then standard. Read
+/// tolerantly: `"readingModes": {"default": "guided"}` or the bare mode
+/// name; anything unreadable leaves the default at standard instead of
+/// failing the whole configuration.
+#[derive(Clone, Debug, Default, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadingModesConfig {
+    pub default: ReadingMode,
+}
+
+impl ReadingModesConfig {
+    fn is_default(&self) -> bool {
+        self.default == ReadingMode::Standard
+    }
+
+    fn tolerant<'de, D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let name = match &value {
+            serde_json::Value::String(name) => Some(name.as_str()),
+            serde_json::Value::Object(map) => map.get("default").and_then(|v| v.as_str()),
+            _ => None,
+        };
+        Ok(Self {
+            default: name
+                .and_then(|name| ReadingMode::parse(&name.trim().to_ascii_lowercase()))
+                .unwrap_or_default(),
+        })
+    }
+}
+
+/// Whether builds publish approved passage comparisons (ADR 0092). Off by
+/// default: the build then never reads the private alignments file. On, it
+/// publishes `/comparisons/` pages and `/comparisons.json` holding only
+/// approved alignments, with each place's wording only where the author
+/// states the version's text may be displayed.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ComparisonsConfig {
+    pub publish: bool,
+}
+
+impl ComparisonsConfig {
+    fn is_off(&self) -> bool {
+        !self.publish
+    }
+}
+
+/// Whether builds publish the author's curated research context (ADR 0185).
+/// Off by default: nothing is curated and every output is exactly what it
+/// was. On, the Admin preview and the build's boundary manifest list what the
+/// private selections publish and why the rest is withheld. A selection only ever picks what the atlas, comparison
+/// and citation projections already publish.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CuratedContextConfig {
+    pub publish: bool,
+}
+
+impl CuratedContextConfig {
+    fn is_off(&self) -> bool {
+        !self.publish
+    }
+}
+
+/// Whether builds publish approved claim evidence (ADR 0075). Off by default:
+/// the build then never reads the private claims file and every post is
+/// published as before. On, each post with approved claims or revision notes
+/// gains a "Claims and evidence" section, and the site gains
+/// `/claim-evidence.json`.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ClaimEvidenceConfig {
+    pub publish: bool,
+}
+
+impl ClaimEvidenceConfig {
+    fn is_off(&self) -> bool {
+        !self.publish
+    }
+}
+
+/// Whether builds publish the Knowledge Atlas projection (ADR 0058). Off by
+/// default: the build then never reads the private atlas. On, it publishes
+/// `/atlas/` pages and `/atlas.json` holding only approved entries and the
+/// relationships whose entries are all approved.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct KnowledgeAtlasConfig {
+    pub publish: bool,
+}
+
+impl KnowledgeAtlasConfig {
+    fn is_off(&self) -> bool {
+        !self.publish
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
@@ -335,6 +470,12 @@ impl Default for SiteConfig {
             admin: AdminConfig::default(),
             publish: PublishConfig::default(),
             syndication: SyndicationConfig::default(),
+            knowledge_atlas: KnowledgeAtlasConfig::default(),
+            participation: ParticipationConfig::default(),
+            claim_evidence: ClaimEvidenceConfig::default(),
+            comparisons: ComparisonsConfig::default(),
+            curated_context: CuratedContextConfig::default(),
+            reading_modes: ReadingModesConfig::default(),
         }
     }
 }
@@ -508,6 +649,30 @@ pub struct EngagementConfig {
     pub analytics: bool,
     /// Public function base URL. Secrets are never stored here.
     pub endpoint: String,
+    /// Accept typed passage feedback (questions, suggested sources and
+    /// corrections, other interpretations) through the hosted function
+    /// (ADR 0081). Off by default; the deployer must also run
+    /// `supabase/feedback.sql` and set `OPENBLOG_FEEDBACK_ENABLED`.
+    pub feedback: bool,
+    /// Where a reader can send a copied note when the hosted function cannot
+    /// take it (ADR 0082): a `mailto:` address or an `https:` contact page,
+    /// shown on pages that offer passage feedback. Empty shows none.
+    pub feedback_contact: String,
+    /// Offer readers of passage feedback a way to use their private receipt
+    /// on the page: check on a note, answer a clarification request, or
+    /// withdraw it and have it deleted (ADR 0107). Off by default, and left
+    /// out of the written file while off; the deployer must also run
+    /// `supabase/protection.sql` and set `OPENBLOG_PROTECTION_ENABLED`.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub receipts: bool,
+    /// Offer readers an optional evidence block on suggested sources and
+    /// corrections: the published claim, evidence link, citation or source
+    /// they mean, chosen from what the site publishes (ADR 0116). Off by
+    /// default, and left out of the written file while off; the deployer
+    /// must also run `supabase/feedback.sql` again and set
+    /// `OPENBLOG_CORRECTIONS_ENABLED`.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub evidence: bool,
 }
 
 impl Default for EngagementConfig {
@@ -517,6 +682,10 @@ impl Default for EngagementConfig {
             comments: true,
             analytics: true,
             endpoint: String::new(),
+            feedback: false,
+            feedback_contact: String::new(),
+            receipts: false,
+            evidence: false,
         }
     }
 }
@@ -750,6 +919,10 @@ impl SiteConfig {
                 },
             ),
             web_libraries: Some(&self.web_sandbox.libraries),
+            citation_notes: None,
+            claim_evidence_section: false,
+            supplements: false,
+            concept_links: false,
         }
     }
 
@@ -802,6 +975,16 @@ impl SiteConfig {
                 );
             }
         }
+        self.engagement.feedback_contact = self.engagement.feedback_contact.trim().to_string();
+        if !self.engagement.feedback_contact.is_empty()
+            && !is_feedback_contact(&self.engagement.feedback_contact)
+        {
+            return Err("engagement.feedbackContact must be a mailto: address without a query, or an HTTPS URL without credentials".into());
+        }
+        self.participation.validate()?;
+        // B5's opt-in becomes the policy's settings before anything reads
+        // them (ADR 0101).
+        self.participation.fold_feedback(self.engagement.feedback);
         while self.code_runner.endpoint.ends_with('/') {
             self.code_runner.endpoint.pop();
         }
@@ -900,7 +1083,10 @@ impl SiteConfig {
     }
 
     /// Prefix root-relative URLs in generated HTML, CSS or JSON with the base
-    /// path. Protocol-relative (`//`) and absolute URLs are left alone.
+    /// path. Protocol-relative (`//`) and absolute URLs are left alone. Every
+    /// marker includes a quote, which text escapes, so a title or note that
+    /// merely reads like one (`Moved; url=/x`) is never changed; a redirect's
+    /// refresh address is matched with its `content="0; ` attribute.
     pub fn apply_base_path(&self, text: &str) -> String {
         let base = self.base_path();
         if base.is_empty() {
@@ -914,7 +1100,7 @@ impl SiteConfig {
             "index=\"",
             "wasm=\"",
             "url(\"",
-            "; url=",
+            "content=\"0; url=",
             "\"url\":\"",
         ] {
             out = prefix_root_urls(&out, marker, &base);
@@ -927,6 +1113,36 @@ impl SiteConfig {
             .replace("{year}", &year.to_string())
             .replace("{author}", &self.author.name)
     }
+}
+
+/// A contact for copied feedback: `mailto:` and one plain address (no query,
+/// so a page can add only its own subject and body), or an `https:` page
+/// without credentials, at most 500 bytes.
+fn is_feedback_contact(value: &str) -> bool {
+    if value.len() > 500 || value.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        return false;
+    }
+    if let Some(address) = value.strip_prefix("mailto:") {
+        let Some((local, domain)) = address.split_once('@') else {
+            return false;
+        };
+        return !local.is_empty()
+            && local
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '-'))
+            && !domain.is_empty()
+            && domain
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-'))
+            && !domain.starts_with(['.', '-'])
+            && !domain.ends_with(['.', '-']);
+    }
+    url::Url::parse(value).is_ok_and(|url| {
+        url.scheme() == "https"
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.host_str().is_some_and(|host| !host.is_empty())
+    })
 }
 
 #[cfg(test)]
@@ -953,6 +1169,11 @@ mod tests {
         assert!(out.contains(r#"url=/blog/posts/y/""#));
         assert!(out.contains(r#"url("/blog/themes/t/f.woff2")"#));
         assert!(out.contains(r#"{"url":"/blog/posts/z/"}"#));
+        // Text that only reads like a refresh address, in a page or in JSON
+        // inside it, is left alone.
+        let text =
+            r#"<p>Moved; url=/x</p><script type="application/json">{"t":"a; url=/y"}</script>"#;
+        assert_eq!(c.apply_base_path(text), text);
         let root = SiteConfig::from_json(r#"{"url":"https://t.dev"}"#).unwrap();
         assert_eq!(root.base_path(), "");
         assert_eq!(root.apply_base_path(html), html);
@@ -978,6 +1199,45 @@ mod tests {
             r#"{"engagement":{"enabled":true,"endpoint":"https://blog.example/api"}}"#
         )
         .is_ok());
+    }
+
+    #[test]
+    fn a_feedback_contact_is_a_plain_mail_address_or_an_https_page() {
+        for contact in [
+            "mailto:ada@blog.example",
+            " mailto:ada.l+notes@mail.blog-example.org ",
+            "https://blog.example/contact/",
+        ] {
+            let source = serde_json::json!({ "engagement": { "feedbackContact": contact } });
+            let config = SiteConfig::from_json(&source.to_string()).unwrap();
+            assert_eq!(config.engagement.feedback_contact, contact.trim());
+        }
+        for contact in [
+            "mailto:ada@blog.example?bcc=everyone@example.com",
+            "mailto:ada@blog.example&body=x",
+            "mailto:<script>@x",
+            "mailto:@blog.example",
+            "mailto:ada@",
+            "http://blog.example/contact/",
+            "https://user:secret@blog.example/contact/",
+            "javascript:alert(1)",
+            "/contact/",
+            "https://blog.example/a b",
+        ] {
+            let source = serde_json::json!({ "engagement": { "feedbackContact": contact } });
+            assert!(
+                SiteConfig::from_json(&source.to_string()).is_err(),
+                "{contact}"
+            );
+        }
+        let long = format!("https://blog.example/{}", "a".repeat(500));
+        let source = serde_json::json!({ "engagement": { "feedbackContact": long } });
+        assert!(SiteConfig::from_json(&source.to_string()).is_err());
+        assert!(SiteConfig::from_json("{}")
+            .unwrap()
+            .engagement
+            .feedback_contact
+            .is_empty());
     }
 
     #[test]

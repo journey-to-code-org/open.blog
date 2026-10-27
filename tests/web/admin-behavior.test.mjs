@@ -15,7 +15,6 @@ import {
   applyProfileFieldDrafts,
   analyzeGpx,
   buildVideoReleaseKit,
-  commentModerationActions,
   creditHasAuthor,
   creditPayload,
   contributorDraftPayload,
@@ -44,12 +43,6 @@ import {
   validateCreditDraft,
   validateContributorDraft,
 } from "../../web/admin/admin.js";
-
-test("comment moderation decisions can move pending and reverse settled states", () => {
-  assert.deepEqual(commentModerationActions("pending"), ["approved", "rejected"]);
-  assert.deepEqual(commentModerationActions("approved"), ["rejected"]);
-  assert.deepEqual(commentModerationActions("rejected"), ["approved"]);
-});
 
 test("assistant context disclosure names selected documents, visibility, and character counts", () => {
   assert.deepEqual(

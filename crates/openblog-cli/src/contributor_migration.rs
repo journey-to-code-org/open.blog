@@ -196,7 +196,7 @@ fn write_atomic(path: &Path, contents: &[u8]) -> Result<(), String> {
     }
     let temporary = temporary
         .ok_or_else(|| format!("cannot reserve a temporary file beside {}", path.display()))?;
-    fs::rename(&temporary, path).map_err(|error| {
+    crate::fsutil::replace_file(&temporary, path).map_err(|error| {
         let _ = fs::remove_file(&temporary);
         format!("cannot replace {}: {error}", path.display())
     })

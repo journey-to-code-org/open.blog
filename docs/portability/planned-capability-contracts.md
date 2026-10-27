@@ -16,7 +16,7 @@ behavior, while the contract task owns the portability gate.
 | Historical timelines | [#23](https://github.com/journey-to-code-org/open.blog/issues/23) | [#56](https://github.com/journey-to-code-org/open.blog/issues/56) | Defined |
 | Research workspace publication boundary | [#24](https://github.com/journey-to-code-org/open.blog/issues/24) | [#63](https://github.com/journey-to-code-org/open.blog/issues/63) | Defined |
 | Citation/source previews | [#25](https://github.com/journey-to-code-org/open.blog/issues/25) | [#64](https://github.com/journey-to-code-org/open.blog/issues/64) | Defined |
-| Guided reading | [#26](https://github.com/journey-to-code-org/open.blog/issues/26) | [#68](https://github.com/journey-to-code-org/open.blog/issues/68) | Defined |
+| Guided reading | [#26](https://github.com/journey-to-code-org/open.blog/issues/26) | [#68](https://github.com/journey-to-code-org/open.blog/issues/68) | Defined; implemented (`implementation_status` in the registry, ADRs 0140-0144) |
 | Knowledge relationships | [#27](https://github.com/journey-to-code-org/open.blog/issues/27) | [#72](https://github.com/journey-to-code-org/open.blog/issues/72) | Defined |
 | Curated reading paths | [#28](https://github.com/journey-to-code-org/open.blog/issues/28) | [#76](https://github.com/journey-to-code-org/open.blog/issues/76) | Defined |
 | Passage questions/corrections | [#29](https://github.com/journey-to-code-org/open.blog/issues/29) | [#80](https://github.com/journey-to-code-org/open.blog/issues/80) | Defined |
@@ -24,6 +24,7 @@ behavior, while the contract task owns the portability gate.
 | Scholarly interpretations | [#31](https://github.com/journey-to-code-org/open.blog/issues/31) | [#88](https://github.com/journey-to-code-org/open.blog/issues/88) | Defined |
 | Shared source-led reflections | [#144](https://github.com/journey-to-code-org/open.blog/issues/144) | [#158](https://github.com/journey-to-code-org/open.blog/issues/158) | Defined |
 | Protected reflection drafts | [#146](https://github.com/journey-to-code-org/open.blog/issues/146) | [#162](https://github.com/journey-to-code-org/open.blog/issues/162) | Defined |
+| Third Perspectives | [#201](https://github.com/journey-to-code-org/open.blog/issues/201) | [#222](https://github.com/journey-to-code-org/open.blog/issues/222) | Defined |
 | Diagrams | No owning story exists | [#110](https://github.com/journey-to-code-org/open.blog/issues/110) | Blocked; scope guard only |
 
 ## Required gate for every defined capability

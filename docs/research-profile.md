@@ -103,9 +103,11 @@ claim, or a work was peer reviewed. No empty finding list is presented as a qual
 
 Works, editions, translations, witnesses, and references you reuse across research posts
 can be kept in a private source library at `.openblog/private/research/sources.json`. It
-is never content: builds do not read it, and nothing in `.openblog/` is copied into the
-site, feeds, search index, or exports, even if a static or theme directory is configured
-to contain it. New projects ignore `.openblog/private/` in Git, so the library stays on
+is never content: nothing in `.openblog/` is copied into the site, feeds, search index, or
+exports, even if a static or theme directory is configured to contain it. A build reads the
+library only to resolve the citations of a post that opts in (see
+[Citations, notes and bibliographies](#citations-notes-and-bibliographies)), and publishes
+only the cited references' public description. New projects ignore `.openblog/private/` in Git, so the library stays on
 your machine unless you choose otherwise.
 
 `openblog check` validates a stored library and lists each problem with the source's
@@ -115,9 +117,10 @@ as it was, and a damaged or newer-version file is reported rather than replaced.
 [format and storage contract](specs/research-source-library.md) and
 [ADR 0010](adr/0010-private-source-library-storage.md).
 
-Admin Studio manages the library under **Sources** (`#/sources`, also in the command
-palette): create, edit, archive, restore, search, and filter each source type. A stale edit
-shows a conflict and keeps your draft without overwriting newer data; see
+Admin Studio manages the library under **Sources** in the research workspace
+(`#/research/sources`, also in the command palette): create, edit, archive, restore, search,
+and filter each source type. A stale edit shows a conflict and keeps your draft without
+overwriting newer data; see
 [ADR 0011](adr/0011-admin-source-library-management.md).
 
 Sources also imports CSL JSON (for example from Zotero) after a preview that lists what would
@@ -125,6 +128,52 @@ be created, updated, kept, and not imported, and exports CSL JSON or BibTeX. Imp
 removes anything or discards richer details and is safe to repeat; see
 [ADR 0012](adr/0012-source-library-interchange.md).
 
+## Citations, notes and bibliographies
+
+Any post (not only a research post) can cite library sources as `[@key]` or
+`[@key, page 514; canonical 514a]`, typed by hand or inserted with **Cite** in the Write view.
+Citations are opt-in: they stay plain text until the post's front matter asks for them.
+
+```markdown
+---
+title: The cave
+date: 2026-10-23
+citations: notes          # or: bibliography
+citationLocale: de        # optional: en, de, fr or es; defaults to the site language
+---
+
+The prisoners see only shadows [@republic-slings-2003, page 514 to 520].
+```
+
+- `notes` gives each distinct citation a numbered note under **Notes**; a repeated identical
+  citation reuses its note.
+- `bibliography` lists each cited source once under **References** and keeps the locators
+  next to the marker in the text, such as `¹ (pp. 514–520)`.
+
+Notes show the authors, title, editors and translators, container, place and publisher, date,
+a DOI or web link, and the locators, in the post's language. Every page, portable copy, feed
+and `llms.txt` shows the same notes with the same numbers; on the page each marker and note
+link to each other for keyboard and screen-reader users. Only the key, the locators and the
+source's public description are published, never notes, private identifiers or anything from
+the research notebook.
+
+On the page, a reader with JavaScript also gets a **citation preview**: focusing or hovering a
+marker, or tapping it once on a touch screen, shows the note's reference, the cited location and
+its DOI or web link right beside the marker, and Escape closes it. The marker is still the link to
+its note, nothing is fetched or stored, and without JavaScript the page reads exactly the same.
+A preview shows only what your library says. It does not check that a source exists or is
+described correctly, that a DOI or web address resolves, that the passage is at that location or
+supports your sentence, or that a source is authoritative or may be reused; see
+[what previews do not verify](specs/citations.md#what-previews-do-not-verify).
+
+A citation the build cannot resolve (an unknown key, a page cited on a whole work, a malformed
+bracket, or no library) stops that post with its file line and a fix; write `\[@` for literal
+text. See [ADR 0048](adr/0048-citations-publish-through-the-one-publication-projection.md) and
+[ADR 0049](adr/0049-built-in-citation-styles-locales-and-accessible-notes.md).
+
 For the product boundary and supporting standards research, see
 [Research and evidence publishing](research/research-evidence-publishing.md) and
 [ADR 0002](adr/0002-research-profile-and-evidence-capability.md).
+
+Every code the research checks can report, with what it means and how to fix it, is explained in
+[Research checks](research-checks.md).

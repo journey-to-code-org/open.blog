@@ -2,9 +2,12 @@
 //!
 //! The library lives at [`LIBRARY_FILE`], inside the Git-ignored private
 //! directory and outside content, static files, themes, and build output, so
-//! no build reads or copies it. Every change names the revision it was based
-//! on, is validated by `openblog_core::source_library`, and replaces the file
-//! by atomic rename while holding a lock: a refused, failed, or interrupted
+//! no build copies it. A build reads it only when a post that opts in to
+//! citations cites something, and publishes only those references' public
+//! description ([`read_for_build`], ADR 0048); a site whose posts cite
+//! nothing never reads it. Every change names the revision it was based on,
+//! is validated by `openblog_core::source_library`, and replaces the file by
+//! atomic rename while holding a lock: a refused, failed, or interrupted
 //! change leaves the stored library exactly as it was.
 
 use std::collections::BTreeMap;
@@ -15,10 +18,13 @@ use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
 use openblog_core::contributor::Contributor;
+use openblog_core::interpretation::Interpretation;
+use openblog_core::model::{LibraryReader, LibrarySource};
 use openblog_core::source_interchange::{plan_csl_import, ImportPlan};
 use openblog_core::source_library::{
     SourceDiagnostic, SourceDiagnosticCode, SourceLibrary, SourceRecord, MAX_LIBRARY_BYTES,
 };
+use openblog_core::SourceFile;
 use sha2::{Digest, Sha256};
 
 use crate::transaction::FileLock;
@@ -77,6 +83,21 @@ pub fn load(
     read(&library_path(root)?, contributors)
 }
 
+/// The stored library as a build reads it: its interpretations are kept raw
+/// and never validated, because no build outputs them (ADR 0087) and a
+/// problem in one, such as a removed interpreter, must not stop a build.
+/// Every change and Admin read uses [`load`], which validates them.
+pub fn load_for_build(
+    root: &Path,
+    contributors: &BTreeMap<String, Contributor>,
+) -> Result<Snapshot, StoreError> {
+    read_parsed(
+        &library_path(root)?,
+        contributors,
+        SourceLibrary::parse_for_build,
+    )
+}
+
 // Changes below are used by Admin source management (#34) and import (#35).
 
 /// Add a record whose identifier is not yet in the library.
@@ -101,6 +122,10 @@ pub fn create(
                 ),
             }]);
         }
+        if library.interpretation(&record.id).is_some() {
+            // Sources and interpretations share one set of ids (ADR 0087).
+            return Err(vec![interpretation_id_taken(&record.id)]);
+        }
         library.upsert(record.clone(), contributors)
     })
     .map(|(snapshot, ())| snapshot)
@@ -118,7 +143,13 @@ pub fn update(
         if library.get(&record.id).is_none() {
             return Err(vec![unknown_source(&record.id)]);
         }
-        library.upsert(record.clone(), contributors)
+        let before = library.clone();
+        library.upsert(record.clone(), contributors)?;
+        keep_notebook_valid(root, &before, library, vec![record.id.clone()])?;
+        keep_atlas_valid(root, &before, library, std::slice::from_ref(&record.id))?;
+        keep_claims_valid(root, &before, library, std::slice::from_ref(&record.id))?;
+        keep_alignments_valid(root, &before, library, std::slice::from_ref(&record.id))?;
+        keep_posts_citable(root, &before, library, std::slice::from_ref(&record.id))
     })
     .map(|(snapshot, ())| snapshot)
 }
@@ -153,10 +184,207 @@ pub fn import_csl(
     contributors: &BTreeMap<String, Contributor>,
 ) -> Result<(Snapshot, ImportPlan), StoreError> {
     change(root, expected_revision, contributors, |library| {
+        let before = library.clone();
         let plan = plan_csl_import(library, text, contributors)?;
         *library = plan.apply(library, contributors)?;
+        // Name the records the import re-pointed or re-typed: those are what can turn a locator ambiguous.
+        let moved: Vec<String> = library
+            .sources
+            .iter()
+            .filter(|after| {
+                before
+                    .get(&after.id)
+                    .is_some_and(|old| old.of != after.of || old.kind != after.kind)
+            })
+            .map(|record| record.id.clone())
+            .collect();
+        keep_notebook_valid(root, &before, library, moved.clone())?;
+        keep_atlas_valid(root, &before, library, &moved)?;
+        keep_claims_valid(root, &before, library, &moved)?;
+        keep_alignments_valid(root, &before, library, &moved)?;
+        keep_posts_citable(root, &before, library, &moved)?;
         Ok(plan)
     })
+}
+
+/// A library change must not leave a valid private notebook invalid, for
+/// example by re-pointing a reference so a stored page or folio locator turns
+/// ambiguous. The check runs under the library lock, as removal's does. A
+/// notebook that was already unreadable against the stored library does not
+/// block unrelated library edits; it is reported when it is next read.
+fn keep_notebook_valid(
+    root: &Path,
+    before: &SourceLibrary,
+    after: &SourceLibrary,
+    ids: Vec<String>,
+) -> Result<(), Vec<SourceDiagnostic>> {
+    if crate::notebook_store::check_against_library(root, before).is_err() {
+        return Ok(());
+    }
+    crate::notebook_store::check_against_library(root, after).map_err(|message| {
+        vec![SourceDiagnostic {
+            code: SourceDiagnosticCode::StillUsed,
+            index: None,
+            source_id: ids.first().cloned(),
+            field: None,
+            message: format!(
+                "the change would leave the research notebook invalid, so nothing was saved{} ({message}); adjust or remove the affected notes and passages first",
+                match ids.as_slice() {
+                    [] => String::new(),
+                    [one] => format!(" (source `{one}`)"),
+                    many => format!(
+                        " (sources {})",
+                        many.iter().map(|id| format!("`{id}`")).collect::<Vec<_>>().join(", ")
+                    ),
+                }
+            ),
+        }]
+    })
+}
+
+/// A library change must not leave a valid Knowledge Atlas invalid, for
+/// example by re-pointing a reference so an evidence locator turns ambiguous.
+/// It runs after the notebook check, under the library lock (which every atlas
+/// write also holds), and an atlas that was already unreadable does not block
+/// unrelated library edits.
+fn keep_atlas_valid(
+    root: &Path,
+    before: &SourceLibrary,
+    after: &SourceLibrary,
+    ids: &[String],
+) -> Result<(), Vec<SourceDiagnostic>> {
+    if crate::atlas_store::check_against_library(root, before).is_err() {
+        return Ok(());
+    }
+    crate::atlas_store::check_against_library(root, after).map_err(|message| {
+        vec![SourceDiagnostic {
+            code: SourceDiagnosticCode::StillUsed,
+            index: None,
+            source_id: ids.first().cloned(),
+            field: None,
+            message: format!(
+                "the change would leave the Knowledge Atlas invalid, so nothing was saved ({message}); adjust the affected entries and relationships first"
+            ),
+        }]
+    })
+}
+
+/// A library change must not leave a valid claims file invalid, for example by
+/// re-pointing a reference so an evidence locator turns ambiguous. Like the
+/// atlas check it runs under the library lock, which every claims write also
+/// holds, and a claims file that was already unreadable does not block
+/// unrelated library edits.
+fn keep_claims_valid(
+    root: &Path,
+    before: &SourceLibrary,
+    after: &SourceLibrary,
+    ids: &[String],
+) -> Result<(), Vec<SourceDiagnostic>> {
+    if crate::claims_store::check_against_library(root, before).is_err() {
+        return Ok(());
+    }
+    crate::claims_store::check_against_library(root, after).map_err(|message| {
+        vec![SourceDiagnostic {
+            code: SourceDiagnosticCode::StillUsed,
+            index: None,
+            source_id: ids.first().cloned(),
+            field: None,
+            message: format!(
+                "the change would leave the claims file invalid, so nothing was saved ({message}); adjust the affected evidence links first"
+            ),
+        }]
+    })
+}
+
+/// A library change must not leave a valid alignments file invalid, for
+/// example by re-pointing a reference so an evidence locator turns ambiguous.
+/// It runs under the library lock, which every alignments write also holds,
+/// and an alignments file that was already unreadable does not block
+/// unrelated library edits.
+fn keep_alignments_valid(
+    root: &Path,
+    before: &SourceLibrary,
+    after: &SourceLibrary,
+    ids: &[String],
+) -> Result<(), Vec<SourceDiagnostic>> {
+    if crate::alignment_store::check_against_library(root, before).is_err() {
+        return Ok(());
+    }
+    crate::alignment_store::check_against_library(root, after).map_err(|message| {
+        vec![SourceDiagnostic {
+            code: SourceDiagnosticCode::StillUsed,
+            index: None,
+            source_id: ids.first().cloned(),
+            field: None,
+            message: format!(
+                "the change would leave the alignments file invalid, so nothing was saved ({message}); adjust the affected alignments first"
+            ),
+        }]
+    })
+}
+
+/// A library change must not make a published post uncitable, for example
+/// by re-pointing a reference so a page locator turns ambiguous, or by
+/// removing a cited source: the next build, every scheduled rebuild and every
+/// preview would refuse that post. Each post that is not a draft and opts in
+/// to citations is resolved against the edited library, under the library
+/// lock. The refusal names each post's path and line, never its text. A post
+/// that already failed against the stored library does not block unrelated
+/// edits, and neither does content that cannot be read at all; the build
+/// reports both.
+fn keep_posts_citable(
+    root: &Path,
+    before: &SourceLibrary,
+    after: &SourceLibrary,
+    ids: &[String],
+) -> Result<(), Vec<SourceDiagnostic>> {
+    let Ok(config) = crate::site::load_config(root) else {
+        return Ok(());
+    };
+    let Ok(sources) = crate::site::read_sources(root, &config) else {
+        return Ok(());
+    };
+    let uncitable: Vec<String> = sources
+        .posts
+        .iter()
+        .filter_map(|file| {
+            let line = openblog_core::model::uncitable_line(&file.contents, after)?;
+            openblog_core::model::uncitable_line(&file.contents, before)
+                .is_none()
+                .then(|| format!("{} line {line}", file.path))
+        })
+        .collect();
+    if uncitable.is_empty() {
+        return Ok(());
+    }
+    Err(vec![SourceDiagnostic {
+        code: SourceDiagnosticCode::StillUsed,
+        index: None,
+        source_id: ids.first().cloned(),
+        field: None,
+        message: format!(
+            "the change would stop {} published post{} from resolving {} citations, so nothing was saved ({}); change the citation{} or keep the source as it is",
+            uncitable.len(),
+            if uncitable.len() == 1 { "" } else { "s" },
+            if uncitable.len() == 1 { "its" } else { "their" },
+            uncitable.join(", "),
+            if uncitable.len() == 1 { "" } else { "s" },
+        ),
+    }])
+}
+
+/// A new source whose id an interpretation already uses, scoped to the
+/// requested source rather than to the interpretation.
+fn interpretation_id_taken(id: &str) -> SourceDiagnostic {
+    SourceDiagnostic {
+        code: SourceDiagnosticCode::DuplicateId,
+        index: None,
+        source_id: Some(id.into()),
+        field: Some("id".into()),
+        message: format!(
+            "`{id}` is already used by an interpretation; sources and interpretations share one set of ids, so choose another id"
+        ),
+    }
 }
 
 fn unknown_source(id: &str) -> SourceDiagnostic {
@@ -178,8 +406,260 @@ pub fn remove(
     contributors: &BTreeMap<String, Contributor>,
 ) -> Result<(Snapshot, SourceRecord), StoreError> {
     change(root, expected_revision, contributors, |library| {
-        library.remove(id, contributors)
+        // Private research that still points at the record would be left
+        // dangling, so it blocks removal. The library lock is held, and every
+        // notebook change takes it too, so the check cannot race a save.
+        let using = crate::notebook_store::entries_using_source(root, library, id)
+            .map_err(|message| vec![still_used(id, message)])?;
+        if !using.is_empty() {
+            return Err(vec![still_used(
+                id,
+                format!(
+                    "{} in the research notebook still use this source ({}); remove or move them first",
+                    using.len(),
+                    using.join(", ")
+                ),
+            )]);
+        }
+        // The Knowledge Atlas cites sources as evidence, attribution, and the
+        // work an entry stands for; its writes hold this lock too.
+        let using = crate::atlas_store::uses_of_source(root, library, id)
+            .map_err(|message| vec![still_used(id, message)])?;
+        if !using.is_empty() {
+            return Err(vec![still_used(
+                id,
+                format!(
+                    "{} in the Knowledge Atlas still use this source ({}); remove them or change their evidence first",
+                    using.len(),
+                    using.join(", ")
+                ),
+            )]);
+        }
+        // Evidence links in the claims file rest on sources too; claims
+        // writes hold this lock as well.
+        let using = crate::claims_store::uses_of_source(root, library, id)
+            .map_err(|message| vec![still_used(id, message)])?;
+        if !using.is_empty() {
+            return Err(vec![still_used(
+                id,
+                format!(
+                    "{} evidence link{} in the claims file still rest{} on this source ({}); remove {} or change {} evidence first",
+                    using.len(),
+                    if using.len() == 1 { "" } else { "s" },
+                    if using.len() == 1 { "s" } else { "" },
+                    using.join(", "),
+                    if using.len() == 1 { "it" } else { "them" },
+                    if using.len() == 1 { "its" } else { "their" },
+                ),
+            )]);
+        }
+        // Passage alignments name sources as members, evidence, and
+        // attribution; alignments writes hold this lock as well.
+        let using = crate::alignment_store::uses_of_source(root, library, id)
+            .map_err(|message| vec![still_used(id, message)])?;
+        if !using.is_empty() {
+            return Err(vec![still_used(
+                id,
+                format!(
+                    "{} alignment{} in the alignments file still use{} this source ({}); remove {} or change {} members first",
+                    using.len(),
+                    if using.len() == 1 { "" } else { "s" },
+                    if using.len() == 1 { "s" } else { "" },
+                    using.join(", "),
+                    if using.len() == 1 { "it" } else { "them" },
+                    if using.len() == 1 { "its" } else { "their" },
+                ),
+            )]);
+        }
+        let before = library.clone();
+        let removed = library.remove(id, contributors)?;
+        keep_posts_citable(root, &before, library, &[id.to_string()])?;
+        Ok(removed)
     })
+}
+
+// Interpretations (ADR 0087) share the library's file, revision, and lock.
+// Admin management arrives with the comparison workspace (#54).
+
+/// The contributor registry as stored now. Interpretation writes call this
+/// inside `change`, under the library lock, because removing a contributor
+/// checks interpretations under that same lock and holds it until the
+/// registry is written: a registry the caller read before the lock could
+/// still list a contributor removed in between. A project with no config
+/// file has no stored registry that could change, so the caller's is used.
+fn registry_under_lock(
+    root: &Path,
+    given: &BTreeMap<String, Contributor>,
+) -> Result<BTreeMap<String, Contributor>, Vec<SourceDiagnostic>> {
+    if !root.join(crate::site::CONFIG_FILE).exists() {
+        return Ok(given.clone());
+    }
+    crate::site::load_config(root)
+        .map(|config| config.contributors)
+        .map_err(|_| {
+            vec![SourceDiagnostic {
+                code: SourceDiagnosticCode::UnresolvedRelationship,
+                index: None,
+                source_id: None,
+                field: Some("interpretations".into()),
+                message: format!(
+                    "the contributor registry in {} cannot be read, so interpreters cannot be checked; repair it and try again",
+                    crate::site::CONFIG_FILE
+                ),
+            }]
+        })
+}
+
+/// Add an interpretation whose identifier is not yet in use.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn create_interpretation(
+    root: &Path,
+    expected_revision: &str,
+    interpretation: Interpretation,
+    contributors: &BTreeMap<String, Contributor>,
+) -> Result<Snapshot, StoreError> {
+    change(root, expected_revision, contributors, |library| {
+        if library.interpretation(&interpretation.id).is_some() {
+            return Err(vec![SourceDiagnostic {
+                code: SourceDiagnosticCode::DuplicateId,
+                index: None,
+                source_id: None,
+                field: Some("interpretations".into()),
+                message: format!(
+                    "`{}` is already used by an interpretation; edit it or choose another id",
+                    interpretation.id
+                ),
+            }]);
+        }
+        let registry = registry_under_lock(root, contributors)?;
+        library.upsert_interpretation(interpretation.clone(), &registry)
+    })
+    .map(|(snapshot, ())| snapshot)
+}
+
+/// Replace the interpretation with the same identifier.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn update_interpretation(
+    root: &Path,
+    expected_revision: &str,
+    interpretation: Interpretation,
+    contributors: &BTreeMap<String, Contributor>,
+) -> Result<Snapshot, StoreError> {
+    change(root, expected_revision, contributors, |library| {
+        if library.interpretation(&interpretation.id).is_none() {
+            return Err(vec![unknown_interpretation(&interpretation.id)]);
+        }
+        let registry = registry_under_lock(root, contributors)?;
+        library.upsert_interpretation(interpretation.clone(), &registry)
+    })
+    .map(|(snapshot, ())| snapshot)
+}
+
+/// Remove an interpretation no passage alignment uses. An alignments file
+/// that cannot be read blocks removal, since it cannot be shown to be unused.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn remove_interpretation(
+    root: &Path,
+    expected_revision: &str,
+    id: &str,
+    contributors: &BTreeMap<String, Contributor>,
+) -> Result<(Snapshot, Interpretation), StoreError> {
+    change(root, expected_revision, contributors, |library| {
+        if library.interpretation(id).is_some() {
+            let blocked = |message: String| {
+                vec![SourceDiagnostic {
+                    code: SourceDiagnosticCode::StillUsed,
+                    index: None,
+                    source_id: None,
+                    field: Some("interpretations".into()),
+                    message,
+                }]
+            };
+            let using = crate::alignment_store::uses_of_interpretation(root, library, id)
+                .map_err(blocked)?;
+            if !using.is_empty() {
+                return Err(blocked(format!(
+                    "interpretation `{id}` is aligned in {} alignment{} ({}); remove it from {} first",
+                    using.len(),
+                    if using.len() == 1 { "" } else { "s" },
+                    using.join(", "),
+                    if using.len() == 1 { "that alignment" } else { "those alignments" },
+                )));
+            }
+        }
+        library.remove_interpretation(id, contributors)
+    })
+}
+
+/// The library lock, held while a registry write is pending, and the
+/// `(contributor, interpretation id)` pairs still naming removed keys.
+pub(crate) type InterpretersInUse = (Option<FileLock>, Vec<(String, String)>);
+
+/// Which of the `removed` contributor keys an interpretation still names, as
+/// `(contributor, interpretation id)` pairs, read under the library lock. The
+/// returned lock is held by a caller that removes contributors from the
+/// registry until its write is done, so no interpretation can start naming
+/// one of them in between. A library that cannot be read blocks removals,
+/// because they cannot be shown to be unused.
+pub(crate) fn interpreters_in_use(
+    root: &Path,
+    contributors: &BTreeMap<String, Contributor>,
+    removed: &[String],
+) -> Result<InterpretersInUse, String> {
+    if removed.is_empty() {
+        return Ok((None, Vec::new()));
+    }
+    let path = library_path(root).map_err(|error| error.to_string())?;
+    let lock = match path.parent() {
+        Some(directory) if directory.is_dir() => {
+            Some(lock_library(root).map_err(|error| error.to_string())?)
+        }
+        _ => None,
+    };
+    let snapshot = read(&path, contributors).map_err(|error| {
+        format!("contributors cannot be removed while the source library cannot be read: {error}")
+    })?;
+    let mut using = Vec::new();
+    for interpretation in &snapshot.library.interpretations {
+        for interpreter in &interpretation.interpreters {
+            if let Some(key) = interpreter
+                .contributor
+                .as_ref()
+                .filter(|key| removed.contains(key))
+            {
+                using.push((key.clone(), interpretation.id.clone()));
+            }
+        }
+    }
+    Ok((lock, using))
+}
+
+fn unknown_interpretation(id: &str) -> SourceDiagnostic {
+    SourceDiagnostic {
+        code: SourceDiagnosticCode::UnknownSource,
+        index: None,
+        source_id: None,
+        field: Some("interpretations".into()),
+        message: format!("no interpretation has the id `{id}`"),
+    }
+}
+
+fn still_used(id: &str, message: String) -> SourceDiagnostic {
+    SourceDiagnostic {
+        code: SourceDiagnosticCode::StillUsed,
+        index: None,
+        source_id: Some(id.into()),
+        field: None,
+        message,
+    }
+}
+
+/// Take the library's write lock, so a private research change that depends
+/// on the library cannot interleave with a change to the library itself.
+pub(crate) fn lock_library(root: &Path) -> Result<FileLock, StoreError> {
+    let path = library_path(root)?;
+    FileLock::acquire(lock_path(&path), "source library write", LOCK_WAIT)
+        .map_err(StoreError::Storage)
 }
 
 /// Apply one edit while holding the library lock. The edit sees the library
@@ -195,7 +675,7 @@ fn change<T>(
     edit: impl Fn(&mut SourceLibrary) -> Result<T, Vec<SourceDiagnostic>>,
 ) -> Result<(Snapshot, T), StoreError> {
     change_using(root, expected_revision, contributors, edit, |from, to| {
-        fs::rename(from, to)
+        crate::fsutil::replace_file(from, to)
     })
 }
 
@@ -246,16 +726,41 @@ fn checked(current: Snapshot, expected_revision: &str) -> Result<SourceLibrary, 
 }
 
 fn read(path: &Path, contributors: &BTreeMap<String, Contributor>) -> Result<Snapshot, StoreError> {
+    read_parsed(path, contributors, SourceLibrary::parse)
+}
+
+type Parse =
+    fn(&str, &BTreeMap<String, Contributor>) -> Result<SourceLibrary, Vec<SourceDiagnostic>>;
+
+fn read_parsed(
+    path: &Path,
+    contributors: &BTreeMap<String, Contributor>,
+    parse: Parse,
+) -> Result<Snapshot, StoreError> {
+    let Some(bytes) = read_bytes(path)? else {
+        let library = SourceLibrary::default();
+        return Ok(Snapshot {
+            revision: revision(library.to_json().as_bytes()),
+            library,
+            stored: false,
+        });
+    };
+    let revision = revision(&bytes);
+    let text = String::from_utf8(bytes).map_err(|_| not_utf8())?;
+    let library = parse(&text, contributors).map_err(StoreError::Invalid)?;
+    Ok(Snapshot {
+        library,
+        revision,
+        stored: true,
+    })
+}
+
+/// The stored bytes, or `None` while no library is stored. A symlink, a
+/// non-file or an oversized file is refused before anything is read.
+fn read_bytes(path: &Path) -> Result<Option<Vec<u8>>, StoreError> {
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            let library = SourceLibrary::default();
-            return Ok(Snapshot {
-                revision: revision(library.to_json().as_bytes()),
-                library,
-                stored: false,
-            });
-        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => {
             return Err(StoreError::Storage(format!(
                 "cannot inspect {LIBRARY_FILE}: {error}"
@@ -285,19 +790,39 @@ fn read(path: &Path, contributors: &BTreeMap<String, Contributor>) -> Result<Sna
     if bytes.len() > MAX_LIBRARY_BYTES {
         return Err(StoreError::Invalid(vec![too_large()]));
     }
-    let revision = revision(&bytes);
-    let text = String::from_utf8(bytes).map_err(|_| {
-        StoreError::Invalid(vec![library_diagnostic(
-            SourceDiagnosticCode::InvalidJson,
-            "the library is not valid UTF-8".into(),
-        )])
-    })?;
-    let library = SourceLibrary::parse(&text, contributors).map_err(StoreError::Invalid)?;
-    Ok(Snapshot {
-        library,
-        revision,
-        stored: true,
-    })
+    Ok(Some(bytes))
+}
+
+fn not_utf8() -> StoreError {
+    StoreError::Invalid(vec![library_diagnostic(
+        SourceDiagnosticCode::InvalidJson,
+        "the library is not valid UTF-8".into(),
+    )])
+}
+
+/// The stored library for a site load, as a deferred read through the same
+/// safe path checks as every other read. Nothing is inspected or read until
+/// the load needs it: only when a post that opts in to citations cites
+/// something, and then once. The load publishes only the cited references'
+/// public description; a library that cannot be read safely is reported only
+/// to the posts that need it.
+pub fn read_for_build(root: &Path) -> LibrarySource {
+    let root = root.to_path_buf();
+    LibrarySource::Deferred(LibraryReader::new(move || {
+        let bytes = library_path(&root)
+            .and_then(|path| read_bytes(&path))
+            .map_err(|error| error.to_string())?;
+        bytes
+            .map(|bytes| {
+                String::from_utf8(bytes)
+                    .map(|contents| SourceFile {
+                        path: LIBRARY_FILE.into(),
+                        contents,
+                    })
+                    .map_err(|_| not_utf8().to_string())
+            })
+            .transpose()
+    }))
 }
 
 fn library_diagnostic(code: SourceDiagnosticCode, message: String) -> SourceDiagnostic {
@@ -317,7 +842,7 @@ fn too_large() -> SourceDiagnostic {
     )
 }
 
-fn revision(bytes: &[u8]) -> String {
+pub(crate) fn revision(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
@@ -329,7 +854,7 @@ fn library_path(root: &Path) -> Result<PathBuf, StoreError> {
 /// path must be relative and plain, and no existing component may be a
 /// symlink or junction, so the library can never be read from or written to
 /// another place such as `static/` or a directory outside the project.
-fn contained(root: &Path, relative: &Path) -> Result<PathBuf, StoreError> {
+pub(crate) fn contained(root: &Path, relative: &Path) -> Result<PathBuf, StoreError> {
     if relative.as_os_str().is_empty()
         || relative
             .components()
@@ -364,7 +889,7 @@ fn contained(root: &Path, relative: &Path) -> Result<PathBuf, StoreError> {
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
-fn create_private_directory(directory: &Path) -> Result<(), StoreError> {
+pub(crate) fn create_private_directory(directory: &Path) -> Result<(), StoreError> {
     fs::create_dir_all(directory).map_err(|error| {
         StoreError::Storage(format!(
             "cannot create the private research directory: {error}"
@@ -432,7 +957,7 @@ fn commit(
 /// are never read, and the caller holds the lock, so none belongs to a write
 /// still in progress.
 #[cfg_attr(not(test), allow(dead_code))]
-fn remove_interrupted_writes(path: &Path) {
+pub(crate) fn remove_interrupted_writes(path: &Path) {
     let (Some(directory), Some(name)) = (path.parent(), path.file_name()) else {
         return;
     };
@@ -478,18 +1003,9 @@ mod tests {
 
     fn record(id: &str, kind: ResearchSourceKind, of: Option<&str>) -> SourceRecord {
         SourceRecord {
-            id: id.into(),
-            kind,
             title: (kind != ResearchSourceKind::Reference).then(|| format!("Title of {id}")),
-            creators: Vec::new(),
-            language: None,
-            issued: None,
             of: of.map(Into::into),
-            based_on: None,
-            location: None,
-            identifiers: Vec::new(),
-            archived: false,
-            extra: BTreeMap::new(),
+            ..SourceRecord::new(id, kind)
         }
     }
 
@@ -837,6 +1353,184 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    fn interpretation(id: &str, source: &str, interpreter: serde_json::Value) -> Interpretation {
+        Interpretation::from_json(serde_json::json!({
+            "id": id,
+            "kind": "rendering",
+            "source": source,
+            "locators": [{"kind": "canonical", "value": "514a"}],
+            "language": "en",
+            "text": "A rendering of the place.",
+            "interpreters": [interpreter],
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn interpretations_share_the_library_revision_and_never_half_write() {
+        let root = temp_root("interpretations");
+        let registry = BTreeMap::from([(
+            "ada".to_string(),
+            openblog_core::contributor::Contributor {
+                name: "Ada".into(),
+                ..Default::default()
+            },
+        )]);
+        let empty = load(&root, &registry).unwrap();
+        let first = create(&root, &empty.revision, work("w"), &registry).unwrap();
+        let edition = create(
+            &root,
+            &first.revision,
+            record("e", ResearchSourceKind::Edition, Some("w")),
+            &registry,
+        )
+        .unwrap();
+        let mine = interpretation("e-514a", "e", serde_json::json!({"contributor": "ada"}));
+        let saved =
+            create_interpretation(&root, &edition.revision, mine.clone(), &registry).unwrap();
+        assert_ne!(saved.revision, edition.revision);
+        assert_eq!(load(&root, &registry).unwrap(), saved);
+        let stored = fs::read_to_string(library_file(&root)).unwrap();
+        assert!(stored.contains("\"interpretations\""), "{stored}");
+        let before = fs::read(library_file(&root)).unwrap();
+
+        // Stale revisions, duplicates, unknown ids, invalid entries, and a
+        // source still interpreted are all refused without writing.
+        assert_eq!(
+            update_interpretation(&root, &edition.revision, mine.clone(), &registry).unwrap_err(),
+            StoreError::Conflict
+        );
+        let duplicate =
+            create_interpretation(&root, &saved.revision, mine.clone(), &registry).unwrap_err();
+        assert_eq!(codes(&duplicate), [SourceDiagnosticCode::DuplicateId]);
+        let missing = update_interpretation(
+            &root,
+            &saved.revision,
+            interpretation("absent", "e", serde_json::json!({"name": "N"})),
+            &registry,
+        )
+        .unwrap_err();
+        assert_eq!(codes(&missing), [SourceDiagnosticCode::UnknownSource]);
+        let stranger = interpretation("e-514a", "e", serde_json::json!({"contributor": "grace"}));
+        let unresolved =
+            update_interpretation(&root, &saved.revision, stranger, &registry).unwrap_err();
+        assert_eq!(
+            codes(&unresolved),
+            [SourceDiagnosticCode::UnresolvedRelationship]
+        );
+        assert!(
+            unresolved
+                .to_string()
+                .contains("interpretations[0].interpreters[0].contributor"),
+            "{unresolved}"
+        );
+        let used = remove(&root, &saved.revision, "e", &registry).unwrap_err();
+        assert_eq!(codes(&used), [SourceDiagnosticCode::StillUsed]);
+        assert!(used.to_string().contains("e-514a"), "{used}");
+        assert_eq!(fs::read(library_file(&root)).unwrap(), before);
+
+        // Registry removals are guarded while an interpretation names them.
+        let (lock, using) = interpreters_in_use(&root, &registry, &["ada".into()]).unwrap();
+        assert!(lock.is_some(), "the library lock is held for the caller");
+        assert_eq!(using, [("ada".to_string(), "e-514a".to_string())]);
+        drop(lock);
+
+        let (after, removed) =
+            remove_interpretation(&root, &saved.revision, "e-514a", &registry).unwrap();
+        assert_eq!(removed, mine);
+        assert!(after.library.interpretations.is_empty());
+        assert!(
+            !fs::read_to_string(library_file(&root))
+                .unwrap()
+                .contains("interpretations"),
+            "an empty list is written as an absent field"
+        );
+        remove(&root, &after.revision, "e", &registry).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_new_source_cannot_take_an_interpretations_id() {
+        let root = temp_root("interpretation-id");
+        let empty = load(&root, &none()).unwrap();
+        let first = create(&root, &empty.revision, work("w"), &none()).unwrap();
+        let edition = create(
+            &root,
+            &first.revision,
+            record("e", ResearchSourceKind::Edition, Some("w")),
+            &none(),
+        )
+        .unwrap();
+        let saved = create_interpretation(
+            &root,
+            &edition.revision,
+            interpretation("e-514a", "e", serde_json::json!({"name": "N"})),
+            &none(),
+        )
+        .unwrap();
+        let before = fs::read(library_file(&root)).unwrap();
+        let refused = create(&root, &saved.revision, work("e-514a"), &none()).unwrap_err();
+        let StoreError::Invalid(diagnostics) = &refused else {
+            panic!("{refused:?}");
+        };
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].code, SourceDiagnosticCode::DuplicateId);
+        assert_eq!(diagnostics[0].source_id.as_deref(), Some("e-514a"));
+        assert_eq!(diagnostics[0].field.as_deref(), Some("id"));
+        assert!(diagnostics[0].message.contains("interpretation"));
+        assert_eq!(fs::read(library_file(&root)).unwrap(), before);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn interpretation_writes_check_the_registry_as_stored_under_the_lock() {
+        let root = temp_root("interpretation-registry");
+        let stale = BTreeMap::from([(
+            "ada".to_string(),
+            openblog_core::contributor::Contributor {
+                name: "Ada".into(),
+                ..Default::default()
+            },
+        )]);
+        let empty = load(&root, &stale).unwrap();
+        let first = create(&root, &empty.revision, work("w"), &stale).unwrap();
+        let edition = create(
+            &root,
+            &first.revision,
+            record("e", ResearchSourceKind::Edition, Some("w")),
+            &stale,
+        )
+        .unwrap();
+        // Ada was removed from the stored registry after the caller read it.
+        fs::write(
+            root.join(crate::site::CONFIG_FILE),
+            r#"{"contributors":{"grace":{"name":"Grace"}}}"#,
+        )
+        .unwrap();
+        let before = fs::read(library_file(&root)).unwrap();
+        let ada = interpretation("e-514a", "e", serde_json::json!({"contributor": "ada"}));
+        let refused =
+            create_interpretation(&root, &edition.revision, ada.clone(), &stale).unwrap_err();
+        assert_eq!(
+            codes(&refused),
+            [SourceDiagnosticCode::UnresolvedRelationship]
+        );
+        assert_eq!(fs::read(library_file(&root)).unwrap(), before);
+        // A contributor added since the caller read the registry is accepted.
+        let grace = interpretation("e-514a", "e", serde_json::json!({"contributor": "grace"}));
+        let saved = create_interpretation(&root, &edition.revision, grace, &stale).unwrap();
+        let refused = update_interpretation(&root, &saved.revision, ada, &stale).unwrap_err();
+        assert_eq!(
+            codes(&refused),
+            [SourceDiagnosticCode::UnresolvedRelationship]
+        );
+        // An unreadable registry refuses the write rather than guessing.
+        fs::write(root.join(crate::site::CONFIG_FILE), "{not json").unwrap();
+        let named = interpretation("e-514b", "e", serde_json::json!({"name": "N"}));
+        assert!(create_interpretation(&root, &saved.revision, named, &stale).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn failed_changes_are_scoped_to_the_source_and_field() {
         let root = temp_root("scoped");
@@ -1115,6 +1809,160 @@ mod tests {
         for n in 0..6 {
             assert!(library.get(&format!("w{n}")).is_some());
         }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn repointing_a_reference_cannot_make_stored_locators_ambiguous() {
+        let root = temp_root("notebook-guard");
+        let library = serde_json::json!({"version": 1, "sources": [
+            {"id": "plato", "kind": "work", "title": "Politeia"},
+            {"id": "slings", "kind": "edition", "of": "plato", "title": "Slings"},
+            {"id": "ref", "kind": "reference", "of": "slings"}]});
+        fs::create_dir_all(library_file(&root).parent().unwrap()).unwrap();
+        fs::write(library_file(&root), library.to_string()).unwrap();
+        let notebook = root.join(crate::notebook_store::NOTEBOOK_FILE);
+        let text = serde_json::json!({"version": 1, "notes": [], "passages": [
+            {"id": "p1", "source": "ref", "excerpt": {"text": "q"},
+             "locators": [{"kind": "page", "value": "514"}]}]})
+        .to_string();
+        fs::write(&notebook, &text).unwrap();
+        let before = load(&root, &none()).unwrap();
+        let library_bytes = fs::read(library_file(&root)).unwrap();
+
+        // Pointing the reference at the work makes page 514 ambiguous.
+        let mut moved = before.library.get("ref").unwrap().clone();
+        moved.of = Some("plato".into());
+        let refused = update(&root, &before.revision, moved, &none());
+        let Err(StoreError::Invalid(found)) = refused else {
+            panic!("the change must be refused")
+        };
+        assert_eq!(found[0].source_id.as_deref(), Some("ref"));
+        assert!(
+            found[0].message.contains("research notebook"),
+            "{}",
+            found[0].message
+        );
+        assert!(
+            found[0].message.contains("ambiguous-locator"),
+            "{}",
+            found[0].message
+        );
+        assert_eq!(fs::read(library_file(&root)).unwrap(), library_bytes);
+        assert_eq!(fs::read_to_string(&notebook).unwrap(), text);
+
+        // A change that keeps the notebook valid still goes through.
+        let mut renamed = before.library.get("slings").unwrap().clone();
+        renamed.title = Some("Slings 2003".into());
+        assert!(update(&root, &before.revision, renamed, &none()).is_ok());
+
+        // A notebook that was already unreadable does not freeze the library.
+        fs::write(&notebook, b"{").unwrap();
+        let now = load(&root, &none()).unwrap();
+        let mut again = now.library.get("slings").unwrap().clone();
+        again.title = Some("Slings 2004".into());
+        assert!(update(&root, &now.revision, again, &none()).is_ok());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_change_that_would_make_a_published_post_uncitable_is_refused() {
+        let root = temp_root("posts-guard");
+        let library = serde_json::json!({"version": 1, "sources": [
+            {"id": "plato", "kind": "work", "title": "Politeia"},
+            {"id": "slings", "kind": "edition", "of": "plato", "title": "Slings"},
+            {"id": "ref", "kind": "reference", "of": "slings"},
+            {"id": "spare", "kind": "work", "title": "Spare"}]});
+        store(&root, library.to_string().as_bytes());
+        fs::write(root.join("openblog.json"), r#"{"title":"T"}"#).unwrap();
+        fs::create_dir_all(root.join("content/posts")).unwrap();
+        let secret = "PRIVATE-POST-TEXT";
+        fs::write(
+            root.join("content/posts/cave.md"),
+            format!("---\ntitle: Cave\ndate: 2026-10-01\ncitations: notes\n---\n{secret}\n\nSee [@ref, page 514] and [@spare].\n"),
+        )
+        .unwrap();
+        // A draft and a post that does not opt in never block an edit.
+        fs::write(
+            root.join("content/posts/draft.md"),
+            "---\ntitle: Draft\ndraft: true\ncitations: notes\n---\nSee [@ref, page 514].\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("content/posts/plain.md"),
+            "---\ntitle: Plain\ndate: 2026-10-02\n---\nSee [@ref, page 514].\n",
+        )
+        .unwrap();
+        let before = load(&root, &none()).unwrap();
+        let bytes = fs::read(library_file(&root)).unwrap();
+        let refused_with = |error: StoreError| {
+            let StoreError::Invalid(found) = error else {
+                panic!("expected a refusal, got {error:?}")
+            };
+            assert_eq!(found[0].code, SourceDiagnosticCode::StillUsed);
+            assert!(
+                found[0].message.contains("posts/cave.md line 8")
+                    && !found[0].message.contains("draft.md")
+                    && !found[0].message.contains("plain.md")
+                    && !found[0].message.contains(secret),
+                "{}",
+                found[0].message
+            );
+            assert_eq!(fs::read(library_file(&root)).unwrap(), bytes);
+        };
+
+        // Re-pointing the reference at the work makes page 514 ambiguous.
+        let mut moved = before.library.get("ref").unwrap().clone();
+        moved.of = Some("plato".into());
+        refused_with(update(&root, &before.revision, moved, &none()).unwrap_err());
+        let items = serde_json::json!([{"id": "ref", "type": "book",
+            "custom": {"openblog-kind": "reference", "openblog-of": "plato"}}]);
+        refused_with(import_csl(&root, &before.revision, &items.to_string(), &none()).unwrap_err());
+        // Removing a cited source would leave the key unknown.
+        refused_with(remove(&root, &before.revision, "spare", &none()).unwrap_err());
+
+        // A change that keeps every citation resolvable still goes through.
+        let mut renamed = before.library.get("slings").unwrap().clone();
+        renamed.title = Some("Slings 2003".into());
+        let saved = update(&root, &before.revision, renamed, &none()).unwrap();
+
+        // A post that already failed does not freeze the library.
+        fs::write(
+            root.join("content/posts/cave.md"),
+            "---\ntitle: Cave\ndate: 2026-10-01\ncitations: notes\n---\nSee [@gone] and [@spare].\n",
+        )
+        .unwrap();
+        assert!(remove(&root, &saved.revision, "spare", &none()).is_ok());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn an_import_that_repoints_a_reference_is_refused_naming_the_record() {
+        let root = temp_root("notebook-guard-import");
+        let library = serde_json::json!({"version": 1, "sources": [
+            {"id": "plato", "kind": "work", "title": "Politeia"},
+            {"id": "slings", "kind": "edition", "of": "plato", "title": "Slings"},
+            {"id": "ref", "kind": "reference", "of": "slings"}]});
+        fs::create_dir_all(library_file(&root).parent().unwrap()).unwrap();
+        fs::write(library_file(&root), library.to_string()).unwrap();
+        let notebook = root.join(crate::notebook_store::NOTEBOOK_FILE);
+        let text = serde_json::json!({"version": 1, "notes": [], "passages": [
+            {"id": "p1", "source": "ref", "excerpt": {"text": "q"},
+             "locators": [{"kind": "page", "value": "514"}]}]})
+        .to_string();
+        fs::write(&notebook, &text).unwrap();
+        let before = load(&root, &none()).unwrap();
+        let bytes = fs::read(library_file(&root)).unwrap();
+        let items = serde_json::json!([{"id": "ref", "type": "book",
+            "custom": {"openblog-kind": "reference", "openblog-of": "plato"}}]);
+        let refused = import_csl(&root, &before.revision, &items.to_string(), &none());
+        let Err(StoreError::Invalid(found)) = refused else {
+            panic!("the import must be refused")
+        };
+        assert_eq!(found[0].source_id.as_deref(), Some("ref"));
+        assert!(found[0].message.contains("`ref`"), "{}", found[0].message);
+        assert_eq!(fs::read(library_file(&root)).unwrap(), bytes);
+        assert_eq!(fs::read_to_string(&notebook).unwrap(), text);
         fs::remove_dir_all(root).unwrap();
     }
 }

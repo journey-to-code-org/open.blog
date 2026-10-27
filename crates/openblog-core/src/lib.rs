@@ -12,40 +12,122 @@
 //! - [`feeds`]: RSS 2.0, JSON Feed, sitemap, and the latest-posts snapshot
 //! - [`search`]: a small ranked search over a JSON index
 //! - [`source_library`]: private research sources with stable, versioned identities
+//! - [`research_notes`]: private passages and research notes that point into the source library
+//! - [`research_bundle`]: versioned portable export and dry-run import of that notebook, and the structural check build guards use
+//! - [`research_search`]: deterministic search, filters and backlinks over that private notebook
 //! - [`source_interchange`]: dry-run CSL JSON import and deterministic CSL JSON / BibTeX export
+//! - [`citations`]: the opt-in `[@key, locator]` syntax, its resolver and CSL citation items
+//! - [`bibliography`]: opt-in publication of citations as numbered notes or a bibliography
+//! - [`citation_review`]: offline syntax, resolution, completeness and location checks of citations
+//! - [`research_completeness`]: the one finding contract and matrix every research check maps into, with acknowledgements that never resolve a finding
+//! - [`source_review`]: offline identifier, version, quotation-location and citation-consistency diagnostics over posts, the source library and the notebook
+//! - [`claims`]: private claims in draft posts and the author's evidence links to sources and passages
+//! - [`claim_publication`]: the one public projection of approved claims and evidence, with revision notes
+//! - [`knowledge_atlas`]: the private Knowledge Atlas of entries and attributed relationships
+//! - [`chronology`]: uncertain, attributed and cited datings of atlas entries and relationships
+//! - [`chronology_index`]: deterministic chronology indexes and structural prompts to check datings
+//! - [`atlas_publication`]: the one public projection of its approved items, for pages and `atlas.json`
+//! - [`concept_links`]: an author's explicit `atlas:` links, resolved at build time against the public atlas alone
+//! - [`atlas_query`]: the bounded query projection derived from the public atlas, for components and search
+//! - [`comparison_publication`]: the one public projection of approved passage alignments, rights-gated, for pages and `comparisons.json`
+//! - [`curated_selection`]: the author's explicit, revision-aware selection of already-publishable research context for readers
+//! - [`passage_target`]: stable passage targets in published text, resolved as current, re-anchored or stale
+//! - [`feedback_provenance`]: which revision a reader's feedback was about and when, with consent-gated attribution
+//! - [`scholarly_feedback`]: typed reader questions, suggested sources and corrections and other interpretations, as submitted and as received
+//! - [`evidence_submission`]: suggested sources and corrections with the published claim, citation and source a reader names, never verified
+//! - [`correction_decision`]: the author's correction decision on an evidence submission, the only thing that labels a correction
+//! - [`participation`]: the closed registry of participation kinds and their site and post modes
+//! - [`moderation`]: the one moderation state machine, roles, audit events and retention for them
+//! - [`moderation_inbox`]: the one moderation inbox over every hosted participation store
+//! - [`third_perspective`]: a reader's consented, moderated reflection on a published work, and its one public form
+//! - [`perspective_publication`]: approved Third Perspectives as the site publishes and its canonical pages show them
+//! - [`attributed_perspective`]: stable targets at one author's section of a shared reflection, and who may answer a Third Perspective about it
+//! - [`future_suggestion`]: a reader's question or source suggestion for future work, kept private to the editors, never entering the Source Library by itself
+//! - [`community_feature`]: a reader's separate, revision-bound consent to feature an approved reflection on its page, and the editorial selection that is never a vote or a consensus
+//! - [`author_response`]: an author's answer to a Third Perspective as the hosted store keeps it, the request that stores it and the checks that it still belongs under its parent
 
 pub mod accessibility;
+pub mod alignment;
 pub mod approval;
+pub mod arrangement;
 pub mod assembly;
 pub mod assistant_guide;
+pub mod atlas_publication;
+pub mod atlas_query;
+pub mod attributed_perspective;
+pub mod author_response;
+pub mod bibliography;
 pub mod capability;
+pub mod chronology;
+pub mod chronology_index;
+pub mod citation_review;
+pub mod citations;
+pub mod claim_publication;
+pub mod claim_review;
+pub mod claims;
 pub mod collaboration;
+pub mod community_feature;
+pub mod comparison_publication;
+pub mod concept_links;
 pub mod config;
+pub mod context_links;
 pub mod contributor;
+pub mod correction_decision;
+pub mod curated_context;
+pub mod curated_selection;
 pub mod date;
 pub mod draft;
 pub mod embed;
 pub mod escape;
+pub mod evidence_submission;
+pub mod feedback_moderation;
+pub mod feedback_provenance;
+pub mod feedback_publication;
 pub mod feeds;
 pub mod field_journal;
 pub mod frontmatter;
+pub mod future_suggestion;
+pub mod interpretation;
 pub mod invitation;
+pub mod knowledge_atlas;
 pub mod markdown;
+pub mod media_moment;
 pub mod members;
 pub mod model;
+pub mod moderation;
+pub mod moderation_inbox;
+pub mod participation;
+pub mod passage_target;
+pub mod perspective_publication;
 pub mod portability;
 pub mod preview;
 pub mod profile;
+pub mod publication_boundary;
+pub mod publication_review;
+pub mod published_moment;
 mod raw_html;
+pub mod reader_references;
+pub mod reading_depth;
 pub mod recipe;
+pub mod reflection;
 pub mod render;
 pub mod research;
+pub mod research_bundle;
+pub mod research_completeness;
+pub mod research_notes;
+pub mod research_search;
+pub mod scholarly_feedback;
 pub mod search;
+pub mod shared_series;
 pub mod shared_source;
+pub mod shingles;
 pub mod slug;
 pub mod source_interchange;
 pub mod source_library;
+pub mod source_review;
+pub mod synthesis;
 pub mod theme;
+pub mod third_perspective;
 pub mod video;
 
 pub use config::SiteConfig;

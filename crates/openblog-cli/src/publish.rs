@@ -122,6 +122,25 @@ pub fn publish(root: &Path, config: &SiteConfig, summary: Option<&str>) -> Resul
         );
     }
 
+    // A research export or a copy of the notebook saved into a publishable
+    // folder would be committed and pushed with the site: refuse by path.
+    let private_research: Vec<&String> = to_commit
+        .iter()
+        .filter(|path| crate::private_guard::is_private_research_file(&root.join(path)))
+        .collect();
+    if !private_research.is_empty() {
+        return Err(format!(
+            "refusing to publish: {} look{} like private research (a research export or a copy of the notebook). Move {} outside the publishable folders; nothing was committed.",
+            private_research
+                .iter()
+                .map(|path| format!("`{path}`"))
+                .collect::<Vec<_>>()
+                .join(", "),
+            if private_research.len() == 1 { "s" } else { "" },
+            if private_research.len() == 1 { "it" } else { "them" },
+        ));
+    }
+
     let mut outcome = Outcome {
         skipped_drafts: skipped,
         ..Default::default()
@@ -428,6 +447,71 @@ mod tests {
             .unwrap();
         let error = publish(&dir, &config, Some("Must refuse staged private context")).unwrap_err();
         assert!(error.contains("private assistant"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn publishing_never_commits_the_private_notebook_or_an_export_saved_into_a_publishable_folder()
+    {
+        let dir = std::env::temp_dir().join(format!(
+            "ob-publish-private-research-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        crate::scaffold::init(&dir, Some("P"), false).unwrap();
+        let git = Git::new(&dir);
+        git.init().unwrap();
+        git.run(&["config", "user.email", "t@example.com"]).unwrap();
+        git.run(&["config", "user.name", "T"]).unwrap();
+        git.run(&["config", "commit.gpgsign", "false"]).unwrap();
+        fs::write(
+            dir.join(".gitignore"),
+            "/dist
+",
+        )
+        .unwrap();
+        let notebook = r#"{"version":1,"notes":[{"id":"n","kind":"observation","text":"ob-sentinel-publish-1"}]}"#;
+        fs::create_dir_all(dir.join(".openblog/private/research")).unwrap();
+        fs::write(dir.join(crate::notebook_store::NOTEBOOK_FILE), notebook).unwrap();
+        let mut config = site::load_config(&dir).unwrap();
+        config.publish.paths = vec!["content".into(), "static".into(), ".openblog".into()];
+
+        // The private notebook is not published even when its folder is listed.
+        let out = publish(&dir, &config, Some("Private notebook")).unwrap();
+        assert!(!out
+            .committed
+            .iter()
+            .any(|path| path.contains("notebook.json")));
+        assert!(git
+            .run(&["ls-files"])
+            .unwrap()
+            .lines()
+            .all(|path| !path.contains("notebook.json")));
+
+        // An export (or any copy of the notebook) in a publishable folder stops the publish.
+        fs::create_dir_all(dir.join("static")).unwrap();
+        fs::write(dir.join("static/backup.json"), notebook).unwrap();
+        let before = git.run(&["rev-parse", "HEAD"]).unwrap();
+        let error = publish(&dir, &config, Some("Leak")).unwrap_err();
+        assert!(
+            error.contains("static/backup.json") && error.contains("private research"),
+            "{error}"
+        );
+        assert!(!error.contains("ob-sentinel-publish-1"), "{error}");
+        assert_eq!(
+            git.run(&["rev-parse", "HEAD"]).unwrap(),
+            before,
+            "nothing was committed"
+        );
+        assert!(git
+            .run(&["diff", "--cached", "--name-only"])
+            .unwrap()
+            .trim()
+            .is_empty());
+
+        // Removing it lets the publish go ahead.
+        fs::remove_file(dir.join("static/backup.json")).unwrap();
+        assert!(publish(&dir, &config, Some("Clean")).is_ok());
         let _ = fs::remove_dir_all(&dir);
     }
 }

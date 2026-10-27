@@ -23,6 +23,12 @@
 [functions]
   directory = "netlify/functions"
 
+# Bundle the engagement function into one file, so it can import the shared
+# feedback validator from web/components (ADR 0081). Other functions keep
+# Netlify's default bundler.
+[functions."engagement"]
+  node_bundler = "esbuild"
+
 # Keep authenticated Admin requests on Render, outside Netlify's proxy timeout.
 [[redirects]]
   from = "/admin"
@@ -54,6 +60,16 @@
 [[redirects]]
   from = "/api/admin/comments"
   to = "/.netlify/functions/engagement/admin/comments"
+  status = 200
+
+[[redirects]]
+  from = "/api/feedback"
+  to = "/.netlify/functions/engagement/feedback"
+  status = 200
+
+[[redirects]]
+  from = "/api/admin/feedback"
+  to = "/.netlify/functions/engagement/admin/feedback"
   status = 200
 
 [[redirects]]
