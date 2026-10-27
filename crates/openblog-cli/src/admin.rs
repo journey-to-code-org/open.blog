@@ -7551,11 +7551,20 @@ fn link_suggestion_with(
     let perspectives = published_perspectives_file(state);
     let (link, view, role) = sources.inbox(session, protocol, third_perspectives, |inbox| {
         (
-            inbox.link_to_future_work(item, kind, target),
+            // A request made against an older version of the item is stale
+            // whatever the link is, so it is answered before the link is
+            // judged: the author reloads and sees what changed.
+            (item.version == version).then(|| inbox.link_to_future_work(item, kind, target)),
             inbox_view(inbox, item, published.as_ref(), perspectives.as_ref()),
             inbox.actor(item).role(),
         )
     });
+    let Some(link) = link else {
+        return Response::json(
+            409,
+            &json!({ "error": INBOX_CHANGED, "code": "conflict", "item": view }),
+        );
+    };
     let link = match link {
         Ok(link) => link,
         Err(openblog_core::future_suggestion::ConversionError::Denied) => {
@@ -7574,12 +7583,6 @@ fn link_suggestion_with(
             )
         }
     };
-    if item.version != version {
-        return Response::json(
-            409,
-            &json!({ "error": INBOX_CHANGED, "code": "conflict", "item": view }),
-        );
-    }
     let request = json!({
         "source": "feedback",
         "id": id,
@@ -7628,6 +7631,21 @@ fn link_suggestion_with(
                 403,
                 &json!({ "error": "You cannot link this suggestion to future work.", "code": "denied" }),
             )
+        }
+        // A refusal the hosted rules gave (a suggestion that is not accepted,
+        // a full list, a link made twice) keeps its own code, so the author
+        // is told why instead of being sent to a missing page.
+        Ok((422, value)) => {
+            let code = value["code"]
+                .as_str()
+                .filter(|code| {
+                    (1..=32).contains(&code.len()) && code.bytes().all(|b| b.is_ascii_alphabetic())
+                })
+                .unwrap_or("invalid");
+            return Response::json(
+                422,
+                &json!({ "error": "This link is not allowed.", "code": code }),
+            );
         }
         Ok(_) => return Response::error(404, "No such suggestion"),
         Err(response) => return response,
@@ -24897,6 +24915,24 @@ What I read:
                 409,
                 "conflict",
             ),
+            (
+                "stale, and the link is no good either",
+                accepted.clone(),
+                3,
+                ConversionKind::Draft,
+                "Tide Tables",
+                409,
+                "conflict",
+            ),
+            (
+                "stale, and not accepted",
+                suggestion_item("pending", 2, link_details(&[], false)),
+                1,
+                ConversionKind::Draft,
+                "tide-tables",
+                409,
+                "conflict",
+            ),
         ] {
             let (response, calls) = link(&item, version, kind, target, linked_answer(&[]));
             assert_eq!(response.status, status, "{name}");
@@ -24954,6 +24990,24 @@ What I read:
             (403, Json::Null),
         );
         assert_eq!(response.status, 403);
+        // A refusal the hosted rules gave keeps its code, and one that is not a plain code becomes `invalid`.
+        for (given, expected) in [
+            (json!({ "code": "notAccepted" }), "notAccepted"),
+            (json!({ "code": "tooMany", "error": "x" }), "tooMany"),
+            (json!({ "code": "<script>" }), "invalid"),
+            (json!({ "code": 5 }), "invalid"),
+            (json!({}), "invalid"),
+        ] {
+            let (response, _) = link(
+                &accepted,
+                4,
+                ConversionKind::Draft,
+                "tide-tables",
+                (422, given.clone()),
+            );
+            assert_eq!(response.status, 422, "{given}");
+            assert_eq!(body_json(&response)["code"], expected, "{given}");
+        }
         let (response, _) = link(
             &accepted,
             4,
