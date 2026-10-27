@@ -442,3 +442,10 @@ test("library hints are plain lines marked unverified, with nothing the reader d
   assert.deepEqual(lines.slice(1), ["Link: https://example.org/watch", "Title: The survey", "Creators: A. Surveyor", "Year: 1850", "Publisher: Admiralty", "DOI: 10.1234/abc"]);
   assert.deepEqual(libraryCandidateLines({ type: "text", unverified: true }).length, 1);
 });
+});
+
+test("the role line's description sits directly above the function it describes", () => {
+  const source = readFileSync(new URL("../../web/admin/admin.js", import.meta.url), "utf8");
+  assert.match(source, /\/\*\* What the signed-in account can do with an item, from the role the server resolved\. \*\/\nexport function moderationRoleLine\(/);
+  assert.doesNotMatch(source, /resolved\. \*\/\nfunction conversionKindName/);
+});

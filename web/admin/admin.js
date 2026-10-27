@@ -580,7 +580,6 @@ export function suggestionLines(suggestion) {
   return lines;
 }
 
-/** What the signed-in account can do with an item, from the role the server resolved. */
 function conversionKindName(kind) {
   if (kind === "draft") return "the draft";
   if (kind === "series") return "the series";
@@ -613,6 +612,7 @@ export function libraryCandidateLines(candidate) {
   return lines;
 }
 
+/** What the signed-in account can do with an item, from the role the server resolved. */
 export function moderationRoleLine(role) {
   if (role === "coordinator") return "You moderate this as a coordinator of its shared publication. Only the site Admin sees a reader’s private name or reopens a decision.";
   if (role === "contributing-author") return "You can read this as a contributing author of the work. A coordinator or the site Admin decides.";
