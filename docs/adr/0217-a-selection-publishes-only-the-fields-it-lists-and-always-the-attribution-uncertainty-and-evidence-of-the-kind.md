@@ -39,8 +39,13 @@ produces an unattributed, overconfident or undisputed relationship.
   copied. A selection can never widen a rights gate.
 - **Author-written text.** An annotation or explanation is the one thing a selection adds: up to
   1,000 characters of text the author approves, with a required `by` attribution and an optional
-  `locator`. It is plain text kept verbatim; renderers escape it (#197). Control and
+  `locator`. A locator is published, and part of the revision, only when the selection lists it in
+  `fields`; an unlisted one stays in the private file. It is plain text kept verbatim; renderers
+  escape it (#197). Control and
   direction-override characters are refused. It is commentary, never a quotation: a source's own
   words are published only through a rights-gated comparison. A private research note is never
   copied: the author writes the text, so what is published is what they approved.
-- **Unknown fields** in a record are preserved in the file and never published.
+- **Unknown fields** in a record are preserved in the file and never published. A contributor
+  credit field (`credit`, `credits`, `contributor`, `contributors`), in a record or at the top of
+  the file, is refused with `contributor-credit` as every other store refuses it: credits stay in
+  `.credits.json` sidecars.

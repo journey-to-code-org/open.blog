@@ -22,7 +22,8 @@ distinguishes authored records from imported ones. Curation must neither hide th
 - **A missing detail is listed.** A selected field of a reference or an entry that the record
   lacks (a source with no creators or date) is left out of the published item, named in the
   item's `missing` list and in a `missing-detail` notice. Missing values are never replaced by a
-  placeholder, a guess or a value inherited from another version.
+  placeholder, a guess or a value inherited from another version. Both notices travel with the
+  published item, so what the author and the reader are told is the same (ADR 0227).
 - **Version distinctions survive.** An edition, translation or witness is a reference of its own;
   selecting a work never selects its versions, and a translation is never published as its
   original. A comparison keeps each version's makers and attribution certainty as its projection

@@ -21,13 +21,14 @@ and the file format must be safe to extend.
   and each withheld selection with a reason: `withdrawn`, `stale-selection`, `missing-target`,
   `selection-cycle`, `not-approved`, `private-dependency` or `projection-off`. A stale selection
   also prints a `boundary:` warning; none fails the build.
-- **Off changes nothing.** The `curated` report appears only when `curatedContext.publish` is on
-  or a selections file is stored; the file counts as research for the private-text guard but not
-  as a reason to read the research stores. The text of `selections.json` is guarded like every
-  private store, so author-written comments cannot reach a page or feed until a projection
-  allows them. A site without the file and the switch builds the same bytes and prints the same
-  messages, and its manifest is unchanged. A file that cannot be read is named as unavailable
-  and changes nothing else.
+- **Off changes nothing.** The `curated` report appears only while `curatedContext.publish` is on,
+  whatever the selections file holds, and the file is read, resolved and listed only then. While
+  it is on, the file counts as research the build reads (so the library is read for references)
+  and as private text for the guard, so author-written comments cannot reach a page or feed
+  until a projection allows them; while it is off it is neither read nor reason to read the
+  research stores. A site without the switch builds the same bytes and prints the same messages,
+  and its manifest and Admin preview are unchanged. A file that cannot be read is named as
+  unavailable while the switch is on and, then, refuses a full build or `check` (ADR 0224).
 - **File format and migration.** `selections.json` is `{ "version": 1, "selections": [...] }`; a
   different version is refused (`unsupported-version`) rather than guessed at, unknown fields
   are preserved, and records are written in id order. The public `PublicCuration` value

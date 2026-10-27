@@ -24,7 +24,10 @@ would let the two disagree about what is public.
   source-library projections already publish: an approved entry, a projected relationship, a
   projected dating, a published comparison, or a source's public description
   (`public_reference`). Selecting a private, unapproved or unprojected item is refused with
-  `target-not-published`, naming the id only. Approval stays where it was made (ADR 0058, 0092,
+  `target-not-published`, naming the id only. A source is selectable only when it is already
+  public: cited by a published post, or published by the atlas or a comparison (ADR 0225). A
+  library source nothing publishes is private even though it exists, and selecting it does not
+  change that. Approval stays where it was made (ADR 0058, 0092,
   0099); withdrawing it there withholds every selection of the item at the next resolve.
 - **Nothing is public because it exists.** An empty selections file, a missing file and a switch
   that is off all publish nothing. A selection of an item publishes only the fields the selection
@@ -34,8 +37,18 @@ would let the two disagree about what is public.
   folder, listed under what is never published). Selecting, withdrawing and unselecting never
   write the objects they select.
 - **Resolution reads the build's values.** `curated_selection::resolve` takes a `Basis` of the
-  `PublicAtlas`, `PublicComparisons` and `SourceLibrary` the build already holds. The private
-  atlas and alignments are read only to tell a deleted item from an unapproved one (`Existing`).
+  `PublicAtlas`, `PublicComparisons` and `SourceLibrary` the build already holds, the ids of the
+  public sources and the slugs of the published posts. The private atlas and alignments are read
+  only to tell a deleted item from an unapproved one (`Existing`). Existence is tracked per
+  store: a store that was not read says nothing about what it holds, so an item of it is
+  `private-dependency`, never `missing-target`.
+- **One lock order.** Every store takes its locks in one order, and the selections file extends
+  it: atlas, claims, alignments, notebook, library, selections. A selections write reads the
+  atlas, the alignments, the notebook and the library to resolve what it selects, so it takes
+  those locks first, in that order, then its own; it never takes the claims lock, and no other
+  writer takes the selections lock, so no two writers can wait on each other. An Admin curation
+  request holds the content lock before any of them (ADR 0228). A change to a store it reads only
+  ever makes a selection stale, which withholds it.
 
 ## Consequences
 

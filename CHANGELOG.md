@@ -6,17 +6,23 @@ All notable changes to open.blog are recorded here. Releases follow
 ## [Unreleased]
 
 - Curated research context: a new private file, `.openblog/private/research/selections.json`,
-  lets you select which approved sources, entries, relationships, datings and comparisons (and
-  your own attributed comments on a source or an entry) readers may be given, each with the
-  revision you saw and the public fields you list. Selecting never approves anything: only what
-  the atlas, comparison and citation projections already publish can be selected, a relationship
-  brings its endpoints and cited sources, its attribution, doubt and dissent always travel with
-  it, imported metadata is published with the origin you stated or as unrecorded, and a missing
-  detail is listed, never invented. A selection that is withdrawn, stale (what it selects changed),
-  missing, unapproved, cyclic or rights-restricted is withheld on its own with a reason naming ids
-  only. `curatedContext.publish` (off by default) adds a "Curated for readers" section to Admin's
-  What will be public; a site without it, or without the file, builds exactly as before. Pages and
-  the Admin curation surface follow in later releases.
+  holds which public research context readers may be given: references to sources, atlas entries,
+  relationships, datings and comparisons, and your own attributed comments on a source or an
+  entry. Each selection records the revision you saw and lists the public fields you chose;
+  attribution, doubt, dissent and evidence always travel with it. Selecting never approves
+  anything. Only what the atlas, comparisons and citations already publish can be selected, and a
+  source only when a published post cites it or the atlas or a comparison publishes it. A selection
+  may be for named published posts, in your order, or for the whole site. One that is withdrawn,
+  stale (what it selects changed), missing, unapproved, cyclic or for no published post is
+  withheld on its own, with a reason that names ids only. Imported metadata is published with the
+  origin you stated or as unrecorded, a missing detail is listed and never invented, and a
+  competing dating you did not select is a `boundary:` warning. In Admin, the Research panel beside
+  a post has a Selected for readers section to select, order, withdraw, select again and
+  unselect, with a preview of exactly what readers get, and the same report appears in What this
+  post makes public. `curatedContext.publish` (off by default) turns it on; while it is on, a
+  selections file that cannot be read refuses `build` and `check`, naming the file. While it is
+  off the file is not read and a site builds exactly as before. Pages that show curated context
+  follow in a later release.
 
 ## [0.42.0] - 2026-10-26
 

@@ -25,15 +25,23 @@ stale, missing or private must not silently drop or leak.
   with an `unsafe-url` or `private-identifier` notice. Each context item says which selections
   need it (`via`).
 - **Requirements between selections.** `requires` names selections that must be published with
-  this one. An unknown id is `private-dependency`; a withheld requirement withholds this
-  selection (`private-dependency`), to a fixed point; a cycle of requirements withholds every
-  selection on it (`selection-cycle`). Dependants are withheld, never deleted or changed.
+  this one, at most 32 of them. An unknown id is `private-dependency`; a withheld requirement
+  withholds this selection (`private-dependency`), however far back the chain goes; a cycle of
+  requirements withholds every selection on it (`selection-cycle`). Dependants are withheld,
+  never deleted or changed. The members of cycles are the strongly connected components of more
+  than one selection and any selection that requires itself, found in one iterative Tarjan pass,
+  and a withheld selection reaches those that require it through a worklist, so resolving is
+  linear in the size of the file, however hostile: 5,000 selections each requiring 32 others
+  resolve in well under a second.
 - **Failures are object-scoped, non-destructive and name ids only.** Each withheld selection has
   one reason and one sentence naming ids and fields, never text. Other selections resolve on
   their own. Parsing a file reports every record problem with its code, id and field; nothing is
   repaired in place.
-- **A competing dating** of the same owner and aspect that is published but not selected gives a
-  `competing-unselected` notice on the selected dating, so a reader is never shown one side of a
-  disagreement by accident.
+- **A competing dating** of the same owner (by owner type) and aspect that is published but not
+  selected gives a `competing-unselected` notice on the selected dating, so a reader is never
+  shown one side of a disagreement by accident. The notice travels with the item (ADR 0227).
+- **A dating names what it dates by its owner type.** A relationship-owned dating brings the
+  relationship (and its endpoints) and says "relationship", an entry-owned one the entry; the id
+  alone never decides.
 - **Deterministic.** Selections, items, context and notices are sorted by id (context by kind
   then id); the file is written in id order with a trailing newline and LF endings.
