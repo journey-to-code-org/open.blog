@@ -325,7 +325,8 @@ fn a_shared_reflection_carries_its_research_context_after_the_approved_arrangeme
     );
     clean("llms-full", &full);
     // Off, or offered nothing: byte for byte what it was.
-    for slug_other in ["not-this-post"] {
+    {
+        let slug_other = "not-this-post";
         let mut other = self::site(&made, NAMES);
         other.set_curation(Some(PublicCuration {
             format: CURATED_FORMAT,

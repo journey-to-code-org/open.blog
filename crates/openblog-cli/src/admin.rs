@@ -39559,7 +39559,12 @@ series: letters
         assert_eq!(
             reached
                 .iter()
-                .filter(|path| !path.starts_with("posts/cave") && !path.contains("curated-context"))
+                .filter(|path| {
+                    !path.starts_with("posts/cave")
+                        && !path.contains("curated-context")
+                        && !path.ends_with("of cave")
+                        && !["feed.json", "rss.xml", "llms-full.txt"].contains(&path.as_str())
+                })
                 .count(),
             0,
             "the approved comment reached {reached:?}"

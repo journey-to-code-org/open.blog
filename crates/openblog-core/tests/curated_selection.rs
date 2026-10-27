@@ -3171,7 +3171,7 @@ mod context {
                 &markdown.replace("#ob-curated-entry-plato", "#ob-curated-explanation-academy")
             ));
             // A projection holding a non-public detail fails by name, not by text.
-            assert_eq!(projection.portable_text().unwrap().is_empty(), false);
+            assert!(!projection.portable_text().unwrap().is_empty());
         }
 
         #[test]

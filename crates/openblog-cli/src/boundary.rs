@@ -2450,12 +2450,19 @@ date: 2026-01-07
         assert!(cave_page.contains("Plato taught at the Academy"));
         assert!(cave_page.contains("href=\"/curated-context.json\""));
         assert!(!cave_page.contains(WITHDRAWN_WORDS));
-        // The approved words reach the context file and the one page that offers them, and nowhere else.
+        // The approved words reach the context file, the one page that offers them, and the
+        // portable copies of it that carry the context (the feeds and llms-full.txt), nowhere else.
         let mut with_words = files_with(&first, APPROVED_WORDS);
         with_words.sort();
         assert_eq!(
             with_words,
-            ["curated-context.json", "posts/cave/index.html"]
+            [
+                "curated-context.json",
+                "feed.json",
+                "llms-full.txt",
+                "posts/cave/index.html",
+                "rss.xml"
+            ]
         );
         assert!(files_with(&first, WITHDRAWN_WORDS).is_empty());
         for gone in [PASSAGE, SHORT_NOTES[0], SHORT_NOTES[1]] {
