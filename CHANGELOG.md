@@ -20,6 +20,11 @@ All notable changes to open.blog are recorded here. Releases follow
 - Terminal fences (`bash`, `sh`, `console`, `powershell` and friends) are no longer numbered by default,
   and in a `console` session an output line that starts with `##` (for example `git status -sb`) is output,
   not a comment.
+- A series can declare `aliases:` in its front matter and the site can write a `_redirects` file with real
+  301s for moved posts, pages and series (`"redirectsFile": true`); alias pages still carry a meta refresh,
+  canonical and `noindex` for hosts without redirect rules.
+- `<ob-search>` accepts a `no-history` attribute that stops it from writing `?q=` to the page address,
+  for a search box that lives in a dialog or panel on another page.
 
 ## [0.47.0] - 2026-10-27
 
