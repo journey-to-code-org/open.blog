@@ -525,6 +525,11 @@ pub struct Site {
     /// site opts in to publishing comparisons (ADR 0092). `None` writes no
     /// comparison output at all.
     pub comparisons: Option<crate::comparison_publication::PublicComparisons>,
+    /// The public curated research context, supplied by the caller only when
+    /// the site publishes it (`curatedContext.publish`, ADR 0215) and its
+    /// selections can be read. `None` writes no curated output at all: no
+    /// file and no section on any page.
+    pub curation: Option<crate::curated_selection::PublicCuration>,
     /// Why this site's claim evidence cannot be published (ADR 0075): the
     /// claims file, or the library or notebook it is checked against, cannot
     /// be read or validated. A full build or `check` refuses while it is set,
@@ -930,6 +935,7 @@ impl Site {
             view_counts: BTreeMap::new(),
             atlas: None,
             comparisons: None,
+            curation: None,
             claim_evidence_error,
             reader_feedback_error,
             third_perspectives_error,

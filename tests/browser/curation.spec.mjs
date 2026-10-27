@@ -404,6 +404,8 @@ for (const [name, setup] of [
     await setup(page);
     await selectSourceReference(page);
     await selectEntry(page);
+    // The change arrives with the rebuilt site: wait for it before touching the list.
+    await expect(given(page)).toHaveCount(2);
     await row(page, (await given(page).first().getAttribute("data-curation-item"))).getByRole("button", { name: /^Withdraw/ }).click();
     await expect(curation(page).locator("[data-curation-preview] li").first()).toBeVisible();
     for (const details of await curation(page).locator("details.oba-curation-exact").all()) await details.locator("summary").click();

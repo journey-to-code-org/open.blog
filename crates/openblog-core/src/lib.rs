@@ -71,6 +71,7 @@ pub mod config;
 pub mod context_links;
 pub mod contributor;
 pub mod correction_decision;
+pub mod curated_context;
 pub mod curated_selection;
 pub mod date;
 pub mod draft;

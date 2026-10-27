@@ -34,6 +34,7 @@ use crate::citations::{public_identifier, public_url_problem, PublicReference};
 use crate::claims::{ClaimSet, Relation};
 use crate::comparison_publication::{PublicComparisons, Withheld};
 use crate::context_links::{find_context_links, ContextKind};
+use crate::curated_context::{CuratedContext, PostRef, CURATED_CONTEXT_JSON_FILE};
 use crate::curated_selection::{
     ContextKind as CurationContext, ItemNotice, NoticeCode, Resolution, SelectionSet, Why,
 };
@@ -66,6 +67,9 @@ pub enum Projection {
     ContextLinks,
     /// The author's curated selection of research context (ADR 0215).
     Curated,
+    /// The data file derived from the curated selections, for readers' tools
+    /// (ADR 0250).
+    CuratedContext,
 }
 
 impl Projection {
@@ -78,7 +82,7 @@ impl Projection {
             Self::Atlas | Self::Datings | Self::AtlasQuery => "knowledgeAtlas.publish",
             Self::Comparisons => "comparisons.publish",
             Self::ContextLinks => "knowledgeAtlas.publish, comparisons.publish",
-            Self::Curated => "curatedContext.publish",
+            Self::Curated | Self::CuratedContext => "curatedContext.publish",
         }
     }
 }
@@ -102,6 +106,9 @@ pub enum ItemKind {
     ComparisonPage,
     /// One curated selection.
     Selection,
+    /// The curated context file as a whole: listed when it is written, and
+    /// withheld whole when it is not.
+    CuratedContext,
 }
 
 /// Why an item, or one field of a published item, is withheld. Each is a
@@ -512,6 +519,7 @@ impl BoundaryManifest {
         // holds, so a site that does not curate is described exactly as before.
         if inputs.switches.curated {
             projections.push(curated(inputs, None));
+            projections.push(curated_context(inputs));
         }
         Self {
             version: BOUNDARY_FORMAT_VERSION,
@@ -620,6 +628,8 @@ impl BoundaryManifest {
                     Projection::Comparisons => "comparisons",
                     Projection::ContextLinks => "linked research pages",
                     Projection::Curated => "curated selections",
+                    // The data file repeats what the selections already count.
+                    Projection::CuratedContext => continue,
                 };
                 parts.push(format!("{count} {name}"));
             }
@@ -1403,6 +1413,56 @@ fn curated(inputs: &BoundaryInputs<'_>, post: Option<&str>) -> ProjectionReport 
         let mut item = withheld(ItemKind::Selection, &held.id, reason, held.message.clone());
         item.label = Some(held.target.clone());
         report.withheld.push(item);
+    }
+    report
+}
+
+/// The curated context file (ADR 0250): one item for the file as a whole,
+/// derived from the curated selections the manifest already lists and from
+/// nothing else, so it can name nothing the curated projection does not
+/// publish. A projection that is over a bound or does not agree with itself
+/// is withheld whole, and the pages' sections and the selections are
+/// unaffected.
+fn curated_context(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
+    let mut report = report(Projection::CuratedContext, inputs.switches.curated);
+    let Some(curation) = inputs.curation.filter(|_| report.enabled) else {
+        return report;
+    };
+    let posts: Vec<PostRef<'_>> = inputs
+        .posts
+        .iter()
+        .map(|post| PostRef {
+            slug: post.slug.as_str(),
+            url: post.url.as_str(),
+        })
+        .collect();
+    match CuratedContext::project(&curation.resolution.curation, &posts, inputs.base_path) {
+        // Nothing published, nothing written: no file, so nothing to list.
+        Ok(context) if context.items.is_empty() => {}
+        Ok(context) => report.published.push(PublishedItem {
+            kind: ItemKind::CuratedContext,
+            id: "curated-context".to_string(),
+            label: Some(CURATED_CONTEXT_JSON_FILE.to_string()),
+            posts: context.posts.iter().map(|post| post.post.clone()).collect(),
+            url: Some(format!("/{CURATED_CONTEXT_JSON_FILE}")),
+            fields: ["items", "context", "posts"]
+                .iter()
+                .map(|field| field.to_string())
+                .collect(),
+            withheld_fields: Vec::new(),
+            notices: Vec::new(),
+        }),
+        Err(refusal) => report.withheld.push(withheld(
+            ItemKind::CuratedContext,
+            "curated-context",
+            match refusal.kind {
+                RefusalKind::OverLimit => Reason::OverLimit,
+                RefusalKind::Inconsistent => Reason::Inconsistent,
+            },
+            format!(
+                "The curated context file {CURATED_CONTEXT_JSON_FILE} is not written: {refusal}. The research-context section of each post's page and your selections are unaffected."
+            ),
+        )),
     }
     report
 }

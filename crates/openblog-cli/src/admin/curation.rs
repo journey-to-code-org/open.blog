@@ -320,7 +320,7 @@ fn change(
     // written), then the stores in their order. They are dropped before the
     // view is computed, so the projections never run under them.
     let written = {
-        let _content = lock(&state.build);
+        let mut content = lock(&state.build);
         let _filesystem = match content_transaction(state) {
             Ok(guard) => guard,
             Err(response) => return response,
@@ -350,11 +350,26 @@ fn change(
             &*apply,
             Some(&locks),
         ) {
-            Ok(attempted) => (site, attempted),
+            Ok(attempted) => {
+                // The stores are released before the (long) build; the content
+                // lock is kept, as every other publishing save keeps it.
+                drop(locks);
+                // While the site publishes curated context, the served site
+                // follows the change at once, as it does for an atlas change
+                // (#197), so what an author previews is what the next build
+                // writes. The build's outcome travels as `build`.
+                let build = site.config.curated_context.publish.then(|| {
+                    match state.rebuild_locked(&mut content) {
+                        Ok(report) => json!({ "ok": true, "files": report.files }),
+                        Err(error) => json!({ "ok": false, "error": error }),
+                    }
+                });
+                (site, attempted, build)
+            }
             Err(failure) => return failure_response(state, failure),
         }
     };
-    let (mut site, attempted) = written;
+    let (mut site, attempted, build) = written;
     let mut view = view_json(
         state,
         &mut site,
@@ -364,6 +379,9 @@ fn change(
     );
     if let Some(id) = attempted.focus {
         view["changed"] = json!(id);
+    }
+    if let Some(build) = build {
+        view["build"] = build;
     }
     Response::json(status, &view)
 }

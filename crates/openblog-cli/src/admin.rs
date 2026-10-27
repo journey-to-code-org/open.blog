@@ -38215,7 +38215,9 @@ series: letters
             "{}",
             String::from_utf8_lossy(&selected.body)
         );
-        // Selected with the switch off, and with it on, the text reaches no public artifact.
+        // Selected with the switch off, the text reaches no public artifact. With it on, the
+        // author's approved comment reaches the context file and the one page it is for (#197),
+        // and no other public artifact.
         production(&f.dir);
         let artifacts = public_artifacts(&f.dir);
         for (path, text) in &artifacts {
@@ -38227,12 +38229,25 @@ series: letters
         value["curatedContext"] = json!({"publish": true});
         fs::write(&config, value.to_string()).unwrap();
         production(&f.dir);
-        for (path, text) in &public_artifacts(&f.dir) {
-            assert!(
-                !text.to_lowercase().contains(&leak(sentinel).to_lowercase()),
-                "the annotation reached {path}"
-            );
-        }
+        let reached: Vec<String> = public_artifacts(&f.dir)
+            .iter()
+            .filter(|(_, text)| text.to_lowercase().contains(&leak(sentinel).to_lowercase()))
+            .map(|(path, _)| path.clone())
+            .collect();
+        assert_eq!(
+            reached
+                .iter()
+                .filter(|path| !path.starts_with("posts/cave") && !path.contains("curated-context"))
+                .count(),
+            0,
+            "the approved comment reached {reached:?}"
+        );
+        assert!(
+            reached
+                .iter()
+                .any(|path| path.ends_with("curated-context.json")),
+            "{reached:?}"
+        );
     }
 
     // ---- review fixes for #196: a draft's own selections, per-post order -------
@@ -38502,5 +38517,109 @@ series: letters
         // The same refusal stops a shared reflection from being published
         // while the file is damaged (the publication rolls back and says why).
         assert!(f.state.rebuild().is_err());
+    }
+
+    // ---- the curated context file over the sentinel corpus (#197) -------------------
+
+    #[test]
+    fn the_curated_context_file_carries_only_what_was_approved_and_selected_over_the_sentinel_corpus(
+    ) {
+        let f = boundary_fixture("curated-context-corpus");
+        let session = login_ok(&f);
+        let mut revision = curation_get(&f, &session, Some("cave"))["revision"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let comment = public_text("selectedcomment");
+        for selection in [
+            json!({ "kind": "contextual-entry", "target": "plato-person", "optionalFields": ["summary"], "posts": ["cave"] }),
+            json!({ "kind": "relationship", "target": "plato-authored-politeia", "posts": ["cave"] }),
+            json!({ "kind": "timeline", "target": "born" }),
+            json!({ "kind": "comparison", "target": "cave-places", "posts": ["cave"] }),
+            json!({ "kind": "reference", "target": "slings", "optionalFields": ["identifiers"], "posts": ["cave"] }),
+            json!({ "kind": "source-annotation", "target": "slings", "text": comment, "by": "The author", "posts": ["cave"] }),
+        ] {
+            let body = select_in(&f, &session, &revision, "cave", selection);
+            revision = body["revision"].as_str().unwrap().to_string();
+            // The served site follows the change while the site publishes curated context.
+            assert_eq!(body["build"]["ok"], true, "{}", body["build"]);
+        }
+        let before = research_store_files(&f);
+        production(&f.dir);
+        let artifacts = public_artifacts(&f.dir);
+        let file = artifacts
+            .iter()
+            .find(|(path, _)| path == "curated-context.json")
+            .map(|(_, text)| text.clone())
+            .expect("the context file is written");
+        // No private sentinel reaches any public artifact, the new file and page included.
+        for label in LEAKS {
+            let needle = leak(label).to_lowercase();
+            for (path, text) in &artifacts {
+                assert!(
+                    !text.to_lowercase().contains(&needle),
+                    "the private {label} reached {path}"
+                );
+            }
+        }
+        for (path, text) in &artifacts {
+            assert!(!text.contains(URL_SENTINEL), "{path}");
+            assert!(!text.contains("files.internal"), "{path}");
+        }
+        // What was approved and selected is in the file and on the page, field by field.
+        for words in [
+            public_text("entrysummary"),
+            public_text("relationshipdoubt"),
+            public_text("datingnote"),
+            public_text("comparisonrationale"),
+            comment.clone(),
+        ] {
+            assert!(file.contains(&words), "{words} is not in the file");
+        }
+        let page = &artifacts
+            .iter()
+            .find(|(path, _)| path == "posts/cave/index.html")
+            .unwrap()
+            .1;
+        for words in [
+            public_text("entrysummary"),
+            public_text("relationshipdoubt"),
+            comment.clone(),
+        ] {
+            assert!(page.contains(&words), "{words} is not on the page");
+        }
+        // The comment is on the post it is for, and no other page carries it.
+        let carrying: Vec<&str> = artifacts
+            .iter()
+            .filter(|(_, text)| text.contains(&comment))
+            .map(|(path, _)| path.as_str())
+            .collect();
+        assert!(
+            carrying
+                .iter()
+                .all(|path| *path == "curated-context.json" || path.starts_with("posts/cave")),
+            "{carrying:?}"
+        );
+        assert_eq!(
+            before,
+            research_store_files(&f),
+            "nothing private is changed by a build"
+        );
+        // The boundary manifest lists the file beside the selections it is made from.
+        let manifest = body_json(&handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/research/boundary"), &session, false),
+        ));
+        assert_eq!(
+            published_ids(&manifest, "curated-context", "curated-context"),
+            ["curated-context"]
+        );
+        assert_eq!(published_ids(&manifest, "curated", "selection").len(), 6);
+        // The portable copies of the post never carry the page's research-context section.
+        for (path, text) in &artifacts {
+            if path.starts_with("portable") {
+                assert!(!text.contains("research-context"), "{path}");
+            }
+        }
     }
 }

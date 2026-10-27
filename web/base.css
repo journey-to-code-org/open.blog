@@ -2993,3 +2993,27 @@ ob-reading-modes { display: block; }
 @media (forced-colors: active) {
   .ob-trail-step { border-color: CanvasText; }
 }
+
+/* Curated research context on a post's page (#197, ADR 0250): a static ordered list of the items the
+   author chose, each a bordered group whose facts stack and wrap anywhere, so nothing overflows at
+   320 pixels or at 400% zoom. It reads in order without CSS or JavaScript. Print keeps every item
+   whole, in ink. */
+.ob-curated { margin: 2rem 0; min-width: 0; overflow-wrap: anywhere; }
+.ob-curated-note { margin: 0 0 1rem; font-size: 0.9em; color: var(--ob-color-muted, inherit); }
+.ob-curated-items, .ob-curated-context { list-style: none; padding-inline-start: 0; margin: 0 0 1rem; }
+.ob-curated-item { min-width: 0; margin: 0 0 0.75rem; padding: 0.5rem 0.75rem; border: 1px solid var(--ob-color-border); border-inline-start-width: 4px; border-radius: var(--ob-radius-sm, 4px); }
+.ob-curated-item:target { outline: 2px solid var(--ob-color-link, currentColor); outline-offset: 2px; }
+.ob-curated-heading { margin: 0 0 0.25rem; font-size: 1.05em; }
+.ob-curated-fields { margin: 0.25rem 0; }
+.ob-curated-fields dt { font-weight: 600; }
+.ob-curated-fields dd { margin-inline-start: 1rem; }
+.ob-curated-fields ul, .ob-curated-notices { margin: 0; padding-inline-start: 1.25rem; }
+.ob-curated-missing, .ob-curated-origin { margin: 0.25rem 0; font-size: 0.9em; }
+.ob-curated-via { font-size: 0.85em; color: var(--ob-color-muted, inherit); }
+@media print {
+  .ob-curated-item { break-inside: avoid; border-color: #000; }
+  .ob-curated-note, .ob-curated-via { color: #000; }
+}
+@media (forced-colors: active) {
+  .ob-curated-item { border-color: CanvasText; }
+}

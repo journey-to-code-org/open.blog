@@ -80,6 +80,22 @@ pub fn project_with(root: &Path, site: &mut Site, shared: &Shared) -> Blocked {
         Err(error) => blocked.comparisons = Some(error),
     }
     blocked.claims = site.claim_evidence_error.clone();
+    // The public curated context, resolved against exactly what this build
+    // publishes (the atlas and comparisons just attached, the posts, the
+    // sources they cite), so the pages and curated-context.json read the one
+    // public value the boundary manifest lists. Only while the site publishes
+    // curated context and its selections can be read; otherwise nothing is
+    // attached and every output is what it was.
+    site.curation = None;
+    if shared.curated {
+        let stores = Stores::read(root, shared);
+        if let Some(set) = &stores.selections {
+            let owned = CurationBasis::of(site, &stores);
+            let resolution =
+                openblog_core::curated_selection::resolve(set, &owned.basis(site, &stores));
+            site.curation = Some(resolution.curation);
+        }
+    }
     // The posts' concept links (ADR 0172) resolve against the atlas just
     // attached, and against nothing when it is not published or not readable.
     site.link_concepts();
@@ -668,6 +684,17 @@ fn guard(root: &Path, site: &Site, pages: &[&str]) -> PrivateText {
     guard.allow_output(
         &openblog_core::claim_publication::PublicClaimEvidence::of(&site.posts).to_json(),
     );
+    // The curated context as the build renders it, and nothing else of the
+    // selections file: the words of a selection the build publishes (its
+    // content, the author's attributed comment, the context it brings) are
+    // public where the pages and curated-context.json carry them. A withheld,
+    // stale, withdrawn or unselected one is not in this value, so its text
+    // (and any other private store's) is still found wherever it appears.
+    if let Some(curation) = &site.curation {
+        if let Ok(json) = serde_json::to_string(curation) {
+            guard.allow_output(&json);
+        }
+    }
     guard
 }
 
@@ -775,6 +802,12 @@ fn unlisted(manifest: &BoundaryManifest, site: &Site, files: &[OutputFile]) -> V
     let query_sources = manifest.published_ids(Projection::AtlasQuery, ItemKind::Source);
     let comparisons = manifest.published_ids(Projection::Comparisons, ItemKind::Comparison);
     let claims = manifest.published_ids(Projection::ClaimEvidence, ItemKind::Claim);
+    let selections = manifest.published_ids(Projection::Curated, ItemKind::Selection);
+    let curated_entries = manifest.published_ids(Projection::Curated, ItemKind::Entry);
+    let curated_edges = manifest.published_ids(Projection::Curated, ItemKind::Relationship);
+    let curated_sources = manifest.published_ids(Projection::Curated, ItemKind::Source);
+    let file_listed = manifest.published_ids(Projection::CuratedContext, ItemKind::CuratedContext);
+    let post_slugs: BTreeSet<&str> = site.posts.iter().map(|post| post.slug.as_str()).collect();
     let mut check = |file: &str, kind: &str, id: &str, known: &BTreeSet<&str>| {
         if !known.contains(id) {
             problems.push(format!(
@@ -850,6 +883,47 @@ fn unlisted(manifest: &BoundaryManifest, site: &Site, files: &[OutputFile]) -> V
             for id in ids_at(&value, "sources") {
                 check(&file.path, "atlas query source", &id, &query_sources);
             }
+        } else if file.path == openblog_core::curated_context::CURATED_CONTEXT_JSON_FILE {
+            // The curated context file may only name what the curated
+            // projection publishes (and what its own projection publishes
+            // beneath it), over the posts this build publishes.
+            check(&file.path, "curated file", "curated-context", &file_listed);
+            let value = json();
+            for id in ids_at(&value, "items") {
+                check(&file.path, "curated selection", &id, &selections);
+            }
+            for context in value["context"].as_array().into_iter().flatten() {
+                let Some(id) = context["id"].as_str() else {
+                    continue;
+                };
+                match context["kind"].as_str() {
+                    Some("entry") => {
+                        check(&file.path, "curated entry", id, &curated_entries);
+                        check(&file.path, "atlas entry", id, &atlas_entries);
+                    }
+                    Some("relationship") => {
+                        check(&file.path, "curated relationship", id, &curated_edges);
+                        check(&file.path, "relationship", id, &relationships);
+                    }
+                    Some("source") => check(&file.path, "curated source", id, &curated_sources),
+                    _ => check(
+                        &file.path,
+                        "context of a kind no projection publishes",
+                        id,
+                        &BTreeSet::new(),
+                    ),
+                }
+            }
+            for post in value["posts"].as_array().into_iter().flatten() {
+                if let Some(slug) = post["post"].as_str() {
+                    check(&file.path, "published post", slug, &post_slugs);
+                }
+                for item in post["items"].as_array().into_iter().flatten() {
+                    if let Some(id) = item["id"].as_str() {
+                        check(&file.path, "curated selection", id, &selections);
+                    }
+                }
+            }
         } else if file.path == openblog_core::comparison_publication::COMPARISONS_JSON_FILE {
             for id in ids_at(&json(), "comparisons") {
                 check(&file.path, "comparison", &id, &comparisons);
@@ -885,6 +959,7 @@ fn projection_data(path: &str) -> bool {
         openblog_core::atlas_query::ATLAS_QUERY_JSON_FILE,
         openblog_core::comparison_publication::COMPARISONS_JSON_FILE,
         openblog_core::claim_publication::CLAIM_EVIDENCE_JSON_FILE,
+        openblog_core::curated_context::CURATED_CONTEXT_JSON_FILE,
     ]
     .contains(&path)
 }
@@ -2182,6 +2257,292 @@ date: 2026-01-07
             "the build prints what it printed before"
         );
         assert!(guard(&root, &site, &[]).is_empty());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    // ---- the curated research-context projection (#197, ADR 0250) ---------------
+
+    const APPROVED_WORDS: &str =
+        "Plato taught at the Academy for forty years, and this is a comment by the author.";
+    const WITHDRAWN_WORDS: &str =
+        "A withdrawn comment that stays private to the author and must never be published.";
+
+    /// A curating site with two published posts and four selections: an entry
+    /// and a comment for `cave`, a whole-site dating, and a withdrawn comment.
+    fn context_site(tag: &str) -> PathBuf {
+        use openblog_core::curated_selection::{NewSelection, SelectionKind, SelectionSet};
+        let root = curating_site(tag);
+        write_post(&root, "cave", "", "The cave.");
+        write_post(&root, "other", "", "Another post.");
+        let results = select_for_build(
+            &root,
+            vec![
+                NewSelection {
+                    posts: Some(vec!["cave".into()]),
+                    ..pick(SelectionKind::ContextualEntry, "plato-person")
+                },
+                NewSelection {
+                    text: Some(APPROVED_WORDS.into()),
+                    by: Some("The author".into()),
+                    posts: Some(vec!["cave".into()]),
+                    ..pick(SelectionKind::SourceAnnotation, "plato")
+                },
+                pick(SelectionKind::Timeline, "born-a"),
+                NewSelection {
+                    text: Some(WITHDRAWN_WORDS.into()),
+                    by: Some("The author".into()),
+                    ..pick(SelectionKind::Explanation, "plato-person")
+                },
+            ],
+        );
+        let ids: Vec<String> = results.into_iter().map(|r| r.unwrap()).collect();
+        let file = root.join(Store::Selections.file());
+        let mut set = SelectionSet::parse(&fs::read_to_string(&file).unwrap()).unwrap();
+        assert!(set.withdraw(&ids[3], Some("not yet".into())));
+        fs::write(&file, set.to_json()).unwrap();
+        root
+    }
+
+    fn files_with(tree: &[(String, Vec<u8>)], words: &str) -> Vec<String> {
+        tree.iter()
+            .filter(|(_, bytes)| String::from_utf8_lossy(bytes).contains(words))
+            .map(|(path, _)| path.clone())
+            .collect()
+    }
+
+    fn file<'a>(tree: &'a [(String, Vec<u8>)], path: &str) -> Option<&'a Vec<u8>> {
+        tree.iter().find(|(p, _)| p == path).map(|(_, bytes)| bytes)
+    }
+
+    fn set_switch(root: &Path, on: bool) {
+        let mut config: Value =
+            serde_json::from_str(&fs::read_to_string(root.join("openblog.json")).unwrap()).unwrap();
+        config["curatedContext"] = serde_json::json!({ "publish": on });
+        fs::write(root.join("openblog.json"), config.to_string()).unwrap();
+    }
+
+    #[test]
+    fn a_build_writes_the_context_file_and_each_posts_section_from_the_public_value() {
+        let root = context_site("context-build");
+        let first = tempdir_build(&root, "first");
+        let second = tempdir_build(&root, "second");
+        assert_eq!(first, second, "the same site builds the same bytes");
+
+        let json =
+            String::from_utf8(file(&first, "curated-context.json").unwrap().clone()).unwrap();
+        let value: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["format"], "openblog-curated-context");
+        assert_eq!(value["formatVersion"], 1);
+        assert_eq!(value["items"].as_array().unwrap().len(), 3);
+        assert!(json.contains(APPROVED_WORDS));
+        assert!(!json.contains(WITHDRAWN_WORDS));
+        // Where each post offers it, in order, with the canonical anchors.
+        let posts = value["posts"].as_array().unwrap();
+        let cave = posts.iter().find(|p| p["post"] == "cave").unwrap();
+        assert_eq!(cave["items"].as_array().unwrap().len(), 3);
+        let other = posts.iter().find(|p| p["post"] == "other").unwrap();
+        assert_eq!(
+            other["items"].as_array().unwrap().len(),
+            1,
+            "only the whole-site dating"
+        );
+        for post in posts {
+            for item in post["items"].as_array().unwrap() {
+                let url = item["url"].as_str().unwrap();
+                let (page, fragment) = url.split_once('#').unwrap();
+                let html = String::from_utf8(
+                    file(
+                        &first,
+                        &format!("{}index.html", page.trim_start_matches('/')),
+                    )
+                    .unwrap()
+                    .clone(),
+                )
+                .unwrap();
+                assert!(html.contains(&format!("id=\"{fragment}\"")), "{url}");
+            }
+        }
+        // The page carries the section without JavaScript; a post that is offered nothing is unchanged.
+        let cave_page =
+            String::from_utf8_lossy(file(&first, "posts/cave/index.html").unwrap()).to_string();
+        assert!(cave_page.contains("id=\"research-context\""));
+        assert!(cave_page.contains("Plato taught at the Academy"));
+        assert!(cave_page.contains("href=\"/curated-context.json\""));
+        assert!(!cave_page.contains(WITHDRAWN_WORDS));
+        // The approved words reach the context file and the one page that offers them, and nowhere else.
+        let mut with_words = files_with(&first, APPROVED_WORDS);
+        with_words.sort();
+        assert_eq!(
+            with_words,
+            ["curated-context.json", "posts/cave/index.html"]
+        );
+        assert!(files_with(&first, WITHDRAWN_WORDS).is_empty());
+        for gone in [PASSAGE, SHORT_NOTES[0], SHORT_NOTES[1]] {
+            assert!(
+                files_with(&first, gone).is_empty(),
+                "{gone}: {:?}",
+                files_with(&first, gone)
+            );
+        }
+        // The manifest lists the file beside the selections.
+        let (mut site, _) = crate::site::load_site(&root, false, None).unwrap();
+        let shared = Shared::read(&root, &site.config);
+        let preview = site_preview(&root, &mut site, &shared);
+        assert_eq!(
+            preview
+                .published_ids(Projection::CuratedContext, ItemKind::CuratedContext)
+                .into_iter()
+                .collect::<Vec<_>>(),
+            ["curated-context"]
+        );
+        assert_eq!(
+            preview
+                .published_ids(Projection::Curated, ItemKind::Selection)
+                .len(),
+            3
+        );
+        // The atlas query file of B3 is the same with or without curation, and the atlas pages are untouched.
+        set_switch(&root, false);
+        let off = tempdir_build(&root, "off");
+        assert_eq!(
+            file(&first, "atlas-query.json"),
+            file(&off, "atlas-query.json")
+        );
+        assert_eq!(file(&first, "atlas.json"), file(&off, "atlas.json"));
+        for (path, bytes) in &off {
+            if path.starts_with("atlas/") {
+                assert_eq!(file(&first, path), Some(bytes), "{path}");
+            }
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn with_the_switch_off_or_nothing_selected_the_build_is_byte_for_byte_the_legacy_build() {
+        let root = context_site("context-legacy");
+        let on = tempdir_build(&root, "on");
+        assert!(file(&on, "curated-context.json").is_some());
+        // Off, with the selections file stored: never read, nothing written.
+        set_switch(&root, false);
+        let off = tempdir_build(&root, "off");
+        assert!(file(&off, "curated-context.json").is_none());
+        assert!(files_with(&off, "ob-curated")
+            .iter()
+            .all(|path| path.starts_with("assets/")));
+        assert!(files_with(&off, "research-context").is_empty());
+        // On, with only a withdrawn selection: nothing is published, so nothing changes.
+        let file = root.join(Store::Selections.file());
+        let mut held = openblog_core::curated_selection::SelectionSet::parse(
+            &fs::read_to_string(&file).unwrap(),
+        )
+        .unwrap();
+        let ids: Vec<String> = held.selections.iter().map(|s| s.id.clone()).collect();
+        for id in &ids {
+            held.withdraw(id, None);
+        }
+        let original = fs::read(&file).unwrap();
+        fs::write(&file, held.to_json()).unwrap();
+        set_switch(&root, true);
+        assert_eq!(tempdir_build(&root, "withdrawn"), off);
+        fs::write(&file, original).unwrap();
+        // On, with no selections file: the same bytes as off.
+        fs::remove_file(root.join(Store::Selections.file())).unwrap();
+        set_switch(&root, true);
+        assert_eq!(tempdir_build(&root, "none"), off);
+        // A site that never heard of the setting.
+        let mut config: Value =
+            serde_json::from_str(&fs::read_to_string(root.join("openblog.json")).unwrap()).unwrap();
+        config.as_object_mut().unwrap().remove("curatedContext");
+        fs::write(root.join("openblog.json"), config.to_string()).unwrap();
+        assert_eq!(tempdir_build(&root, "legacy"), off);
+        // A damaged file with the switch off changes nothing; with it on it refuses, as before.
+        fs::write(root.join(Store::Selections.file()), "{ nope").unwrap();
+        assert_eq!(tempdir_build(&root, "damaged-off"), off);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn the_text_guard_allows_the_published_curated_text_and_still_refuses_every_other_private_text()
+    {
+        let root = context_site("context-guard");
+        let built = tempdir_build(&root, "legit");
+        let legit =
+            String::from_utf8(file(&built, "curated-context.json").unwrap().clone()).unwrap();
+        let cave =
+            String::from_utf8(file(&built, "posts/cave/index.html").unwrap().clone()).unwrap();
+        // What the build writes passes its own guard: the approved words are public where the
+        // projection carries them.
+        let files = [
+            page("curated-context.json", &legit),
+            page("posts/cave/index.html", &cave),
+        ];
+        assert_eq!(checked(&root, &files), Ok(Vec::new()));
+        // The same file with a private note's words in it is refused, naming the file and where
+        // the text came from, and never the text.
+        let mut value: Value = serde_json::from_str(&legit).unwrap();
+        value["items"][0]["content"]["label"] = Value::String(PASSAGE.to_string());
+        let error =
+            checked(&root, &[page("curated-context.json", &value.to_string())]).unwrap_err();
+        for expected in [
+            "refusing to build",
+            "`curated-context.json`",
+            "the research notebook",
+        ] {
+            assert!(error.contains(expected), "{expected}: {error}");
+        }
+        assert!(!error.contains(PASSAGE));
+        // So are the words of a selection the build does not publish: the guard allows only what the
+        // public value carries, not the selections file.
+        let mut value: Value = serde_json::from_str(&legit).unwrap();
+        value["items"][0]["content"]["label"] = Value::String(WITHDRAWN_WORDS.to_string());
+        let error =
+            checked(&root, &[page("curated-context.json", &value.to_string())]).unwrap_err();
+        assert!(error.contains("selections.json"), "{error}");
+        assert!(!error.contains(WITHDRAWN_WORDS));
+        // The same words in a page only warn, as for every other private text.
+        let warnings = checked(
+            &root,
+            &[page(
+                "posts/cave/index.html",
+                &format!("<p>{WITHDRAWN_WORDS}</p>"),
+            )],
+        )
+        .unwrap();
+        assert!(
+            warnings.iter().any(|w| w.contains("selections.json")),
+            "{warnings:?}"
+        );
+        // The file may only name what the manifest publishes.
+        let mut value: Value = serde_json::from_str(&legit).unwrap();
+        value["items"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({ "id": "ghost-selection" }));
+        let error =
+            checked(&root, &[page("curated-context.json", &value.to_string())]).unwrap_err();
+        assert!(
+            error.contains("`curated-context.json` names the curated selection `ghost-selection`"),
+            "{error}"
+        );
+        let mut value: Value = serde_json::from_str(&legit).unwrap();
+        value["posts"][0]["post"] = Value::String("a-draft".into());
+        let error =
+            checked(&root, &[page("curated-context.json", &value.to_string())]).unwrap_err();
+        assert!(
+            error.contains("names the published post `a-draft`"),
+            "{error}"
+        );
+        let mut value: Value = serde_json::from_str(&legit).unwrap();
+        value["context"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({ "kind": "entry", "id": "secret", "via": [] }));
+        let error =
+            checked(&root, &[page("curated-context.json", &value.to_string())]).unwrap_err();
+        assert!(
+            error.contains("names the curated entry `secret`"),
+            "{error}"
+        );
         let _ = fs::remove_dir_all(root);
     }
 }

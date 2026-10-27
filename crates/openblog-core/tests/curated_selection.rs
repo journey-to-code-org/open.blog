@@ -1982,3 +1982,670 @@ fn a_public_item_names_only_published_posts_in_its_positions() {
         "a draft slug is not disclosed"
     );
 }
+
+// ---------------------------------------------------------------- the research-context projection (#197)
+
+mod context {
+    use super::*;
+    use openblog_core::curated_context::{
+        ContextRefusal, CuratedContext, PostRef, ANCHOR_PREFIX, CURATED_CONTEXT_JSON_FILE,
+        MAX_BYTES, MAX_LISTED_POSTS,
+    };
+    use openblog_core::curated_selection::{
+        ContextItem, CuratedItem, PublicCuration, CURATED_FORMAT, CURATED_FORMAT_VERSION,
+    };
+    use openblog_core::publication_boundary::BoundaryInputs;
+
+    pub const POSTS: [PostRef<'static>; 2] = [
+        PostRef {
+            slug: "cave",
+            url: "/posts/cave/",
+        },
+        PostRef {
+            slug: "other",
+            url: "/posts/other/",
+        },
+    ];
+
+    fn at(pairs: &[(&str, u32)]) -> BTreeMap<String, u32> {
+        pairs.iter().map(|(p, n)| (p.to_string(), *n)).collect()
+    }
+
+    /// Every kind the context file carries, over two posts, with a
+    /// withdrawn and a stale selection whose words are private.
+    fn selected(w: &World) -> SelectionSet {
+        let mut set = SelectionSet::default();
+        let place = |set: &mut SelectionSet, new: NewSelection, id: &str| {
+            set.select(
+                NewSelection {
+                    id: Some(id.to_string()),
+                    ..new
+                },
+                &w.basis(),
+            )
+            .expect("selected");
+        };
+        place(
+            &mut set,
+            NewSelection {
+                posts: Some(vec!["cave".into()]),
+                positions: at(&[("cave", 2)]),
+                ..pick(SelectionKind::Relationship, "r-authored")
+            },
+            "relationship-authored",
+        );
+        place(
+            &mut set,
+            NewSelection {
+                optional_fields: vec!["summary".into()],
+                posts: Some(vec!["cave".into(), "other".into()]),
+                positions: at(&[("cave", 1), ("other", 5)]),
+                ..pick(SelectionKind::ContextualEntry, "plato")
+            },
+            "entry-plato",
+        );
+        place(
+            &mut set,
+            pick(SelectionKind::Timeline, "plato-birth-a"),
+            "dating-birth-a",
+        );
+        place(
+            &mut set,
+            NewSelection {
+                optional_fields: vec!["issued".into()],
+                posts: Some(vec!["other".into()]),
+                provenance: Provenance::Imported {
+                    from: "a library catalogue".into(),
+                },
+                ..pick(SelectionKind::Reference, "undated")
+            },
+            "reference-undated",
+        );
+        place(
+            &mut set,
+            NewSelection {
+                text: Some("A comment of mine, to be shown as written.".into()),
+                by: Some("The author".into()),
+                locator: Some("514a".into()),
+                optional_fields: vec!["locator".into()],
+                posts: Some(vec!["cave".into()]),
+                ..pick(SelectionKind::SourceAnnotation, "burnet")
+            },
+            "annotation-burnet",
+        );
+        place(
+            &mut set,
+            NewSelection {
+                text: Some("The author explains the Academy.".into()),
+                by: Some("The author".into()),
+                ..pick(SelectionKind::Explanation, "academy")
+            },
+            "explanation-academy",
+        );
+        place(
+            &mut set,
+            pick(SelectionKind::Comparison, "cave"),
+            "comparison-cave",
+        );
+        // Private words that must never reach the file or a page: a withdrawn
+        // comment and a stale one.
+        place(
+            &mut set,
+            NewSelection {
+                text: Some(format!("{PRIVATE} withdrawn comment words")),
+                by: Some("The author".into()),
+                ..pick(SelectionKind::SourceAnnotation, "scholar")
+            },
+            "annotation-withdrawn",
+        );
+        set.withdraw("annotation-withdrawn", Some(format!("{PRIVATE} reason")));
+        place(
+            &mut set,
+            NewSelection {
+                text: Some(format!("{PRIVATE} stale comment words")),
+                by: Some("The author".into()),
+                ..pick(SelectionKind::SourceAnnotation, "grube")
+            },
+            "annotation-stale",
+        );
+        mutate(&mut set, "annotation-stale").revision = "0123456789abcdef".into();
+        set
+    }
+
+    fn project(
+        w: &World,
+        set: &SelectionSet,
+    ) -> (openblog_core::curated_selection::Resolution, CuratedContext) {
+        let resolution = resolve(set, &w.basis());
+        let context = CuratedContext::project(&resolution.curation, &POSTS, "/blog")
+            .expect("the context projects");
+        (resolution, context)
+    }
+
+    #[test]
+    fn the_file_is_the_one_public_value_with_each_posts_order_and_canonical_anchors() {
+        let w = world();
+        let set = selected(&w);
+        let (resolution, context) = project(&w, &set);
+        let json = context.to_json();
+        let value: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["format"], CURATED_FORMAT);
+        assert_eq!(value["formatVersion"], CURATED_FORMAT_VERSION);
+        assert_eq!(value["anchorPrefix"], ANCHOR_PREFIX);
+        // Every published selection, exactly as the selection projection publishes it.
+        assert_eq!(
+            value["items"],
+            serde_json::to_value(&resolution.curation.items).unwrap()
+        );
+        assert_eq!(
+            value["context"],
+            serde_json::to_value(&resolution.curation.context).unwrap()
+        );
+        // The withdrawn and the stale selection are in neither the file nor the order.
+        for gone in ["annotation-withdrawn", "annotation-stale"] {
+            assert!(!json.contains(gone), "{gone}");
+        }
+        assert!(!json.contains(PRIVATE) && !json.contains("p-burnet"));
+        // Each post's order is that post's own order, and only posts that offer something are listed.
+        let posts = value["posts"].as_array().unwrap();
+        assert_eq!(
+            posts
+                .iter()
+                .map(|p| p["post"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["cave", "other"]
+        );
+        let order = |post: &str| -> Vec<String> {
+            context
+                .for_post(post)
+                .unwrap()
+                .items
+                .iter()
+                .map(|item| item.id.clone())
+                .collect()
+        };
+        assert_eq!(
+            order("cave"),
+            [
+                "entry-plato",
+                "relationship-authored",
+                "annotation-burnet",
+                "comparison-cave",
+                "dating-birth-a",
+                "explanation-academy"
+            ]
+        );
+        // The whole-site items sit last for a post that has not placed them, and `other`
+        // places the entry fifth.
+        assert_eq!(
+            order("other"),
+            [
+                "entry-plato",
+                "comparison-cave",
+                "dating-birth-a",
+                "explanation-academy",
+                "reference-undated"
+            ]
+        );
+        // A canonical anchor is the post's address and the item's fragment, and the page has it.
+        for post in posts {
+            for item in post["items"].as_array().unwrap() {
+                let id = item["id"].as_str().unwrap();
+                assert_eq!(
+                    item["url"],
+                    format!("{}#{ANCHOR_PREFIX}{id}", post["url"].as_str().unwrap())
+                );
+                let slug = post["post"].as_str().unwrap();
+                let html = context.post_section_html(slug, None).unwrap();
+                assert!(
+                    html.contains(&format!("id=\"{ANCHOR_PREFIX}{id}\"")),
+                    "{id}"
+                );
+            }
+        }
+        // The selected revision is the published one.
+        for item in value["items"].as_array().unwrap() {
+            let stored = set.get(item["id"].as_str().unwrap()).unwrap();
+            assert_eq!(item["revision"], stored.revision.as_str());
+        }
+        // Deterministic whatever the order of the file.
+        let mut shuffled = set.clone();
+        shuffled.selections.reverse();
+        assert_eq!(project(&w, &shuffled).1.to_json(), json);
+        // Nothing here is a query: a post that offers nothing has no entry and no section.
+        assert!(context.for_post("nowhere").is_none());
+        assert!(context.post_section_html("nowhere", None).is_none());
+        // Escaped for embedding in a script element.
+        assert!(!json.contains('<') && !json.contains('>') && !json.contains('&'));
+        // The same file name the build writes and the manifest lists.
+        assert_eq!(CURATED_CONTEXT_JSON_FILE, "curated-context.json");
+    }
+
+    #[test]
+    fn the_page_section_keeps_attribution_uncertainty_evidence_and_origin_as_text() {
+        let w = world();
+        let set = selected(&w);
+        let (_, context) = project(&w, &set);
+        let cave = context
+            .post_section_html("cave", Some("/curated-context.json"))
+            .unwrap();
+        // Complete without JavaScript: semantic headings, lists and definitions only.
+        assert!(
+            !cave.contains("<script") && !cave.contains(" onclick") && !cave.contains("<table")
+        );
+        assert!(cave.contains(
+            "<h2 class=\"ob-curated-title\" id=\"research-context-title\">Research context</h2>"
+        ));
+        assert!(
+            cave.contains("<ol class=\"ob-curated-items\">")
+                && cave.contains("<dl class=\"ob-curated-fields\">")
+        );
+        assert!(cave.contains("href=\"/curated-context.json\""));
+        // A relationship: who asserts it, how firmly, what is doubtful, who disputes it, on what evidence.
+        for expected in [
+            "Relationship: Plato authored Republic",
+            "Who asserts it",
+            "the source <a class=\"ob-curated-source\" href=\"#curated_ref_source_scholar\"><cite>A study of the dialogues</cite></a>",
+            "How firmly",
+            "plausible",
+            "What is doubtful",
+            "The dating is unsettled.",
+            "Who disputes it",
+            "A later editor: Dates it later.",
+            "The evidence",
+            "page 514",
+            "Platonis Opera",
+        ] {
+            assert!(cave.contains(expected), "{expected}\n{cave}");
+        }
+        // The author's own comment is attributed and plain.
+        assert!(cave.contains("A comment of mine, to be shown as written."));
+        assert!(cave.contains("Who wrote it") && cave.contains("The author"));
+        assert!(cave.contains("Where in the source it applies") && cave.contains("514a"));
+        // The sources and entries these refer to are listed, with anchors the items link to.
+        assert!(cave.contains("id=\"curated_ref_source_burnet\""));
+        assert!(cave.contains("id=\"curated_ref_entry_republic\""));
+        assert!(!cave.contains(PRIVATE) && !cave.contains("p-burnet"));
+        // The reference of `other` says where its metadata came from and what is missing.
+        let other = context.post_section_html("other", None).unwrap();
+        assert!(other.contains("Where this metadata came from: imported from a library catalogue."));
+        assert!(
+            other.contains("Not recorded, so left out and never invented: Creators, Date issued.")
+        );
+        assert!(
+            !other.contains("href=\"/curated-context.json\""),
+            "no link when none is given"
+        );
+        // A competing dating that is not selected is said beside the dating.
+        assert!(cave.contains(
+            "competing datings of the same aspect are published but not selected: plato-birth-b"
+        ));
+        // Reading order is the document order: the title, then each item in turn, then what they refer to.
+        let at = |needle: &str| cave.find(needle).unwrap_or_else(|| panic!("{needle}"));
+        assert!(
+            at("research-context-title")
+                < at("id=\"curated-entry-plato\"").min(at("id=\"curated-relationship-authored\""))
+        );
+        assert!(at("id=\"curated-relationship-authored\"") < at("id=\"curated_refs\""));
+        // Each kind keeps its own name.
+        for noun in [
+            "Atlas entry: Plato",
+            "Dating: birth: 428 BCE",
+            "Comparison: The cave",
+            "The author&#39;s comment on a source: Platonis Opera",
+            "The author&#39;s explanation of an entry: The Academy &lt;b&gt;x&lt;/b&gt;",
+        ] {
+            assert!(cave.contains(noun), "{noun}");
+        }
+    }
+
+    #[test]
+    fn the_file_and_a_page_section_match_the_fixtures_the_node_tests_read() {
+        let w = world();
+        let set = selected(&w);
+        let (_, context) = project(&w, &set);
+        check_fixture(
+            "../curated-context/curated-context.json",
+            &format!(
+                "{}
+",
+                context.to_json()
+            ),
+        );
+        check_fixture(
+            "../curated-context/cave-section.html",
+            &context
+                .post_section_html("cave", Some("/curated-context.json"))
+                .unwrap(),
+        );
+    }
+
+    #[test]
+    fn hostile_text_is_escaped_in_the_page_and_the_data_and_only_safe_addresses_link() {
+        let w = world();
+        let hostile = "</script><script>alert(1)</script><img src=x onerror=alert(2)> & \"quoted\" 'single' javascript:alert(3)";
+        let mut set = SelectionSet::default();
+        select(
+            &mut set,
+            &w,
+            NewSelection {
+                text: Some(hostile.into()),
+                by: Some("<b>The</b> author".into()),
+                ..pick(SelectionKind::Explanation, "academy")
+            },
+        );
+        let (resolution, context) = project(&w, &set);
+        let html = context.post_section_html("cave", None).unwrap();
+        for raw in ["<script", "<img", "<b>", "onerror=alert(2)>"] {
+            assert!(!html.contains(raw), "{raw} was not escaped:\n{html}");
+        }
+        assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+        assert!(html.contains("&lt;b&gt;The&lt;/b&gt; author"));
+        let json = context.to_json();
+        assert!(!json.contains('<') && !json.contains('>') && !json.contains('&'));
+        // The words are data, kept verbatim for the renderers to escape.
+        let value: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["items"][0]["content"]["text"], json!(hostile));
+        // A link is only ever to this site or to an https address; anything else is text.
+        let mut curation = resolution.curation.clone();
+        for (url, linked) in [
+            ("javascript:alert(1)", false),
+            ("//evil.example/x", false),
+            ("data:text/html,<b>", false),
+            ("/atlas/plato/", true),
+            ("https://example.org/a", true),
+        ] {
+            curation.items[0].content.insert("url".into(), json!(url));
+            let page = CuratedContext::project(&curation, &POSTS, "")
+                .unwrap()
+                .post_section_html("cave", None)
+                .unwrap();
+            let has_link = page.contains(&format!("href=\"{}\"", url.replace('&', "&amp;")));
+            assert_eq!(has_link, linked, "{url}");
+        }
+    }
+
+    fn item(id: &str, posts: &[&str]) -> CuratedItem {
+        CuratedItem {
+            id: id.to_string(),
+            kind: SelectionKind::ContextualEntry,
+            target: id.to_string(),
+            revision: "0123456789abcdef".into(),
+            content: BTreeMap::from([
+                ("id".to_string(), json!(id)),
+                ("label".to_string(), json!(format!("Label of {id}"))),
+            ]),
+            provenance: Provenance::Unrecorded,
+            missing: Vec::new(),
+            requires: Vec::new(),
+            posts: posts.iter().map(|p| p.to_string()).collect(),
+            positions: BTreeMap::new(),
+            notices: Vec::new(),
+        }
+    }
+
+    fn curation_of(items: Vec<CuratedItem>, context: Vec<ContextItem>) -> PublicCuration {
+        PublicCuration {
+            format: CURATED_FORMAT,
+            format_version: CURATED_FORMAT_VERSION,
+            items,
+            context,
+        }
+    }
+
+    fn refusal(curation: &PublicCuration) -> ContextRefusal {
+        CuratedContext::project(curation, &POSTS, "").unwrap_err()
+    }
+
+    #[test]
+    fn a_projection_that_disagrees_with_itself_is_refused_whole_naming_ids_only() {
+        use openblog_core::atlas_query::RefusalKind;
+        // A missing endpoint: an item requires one that is not published.
+        let mut needs = item("needs", &[]);
+        needs.requires = vec!["missing".into()];
+        let refused = refusal(&curation_of(vec![needs], Vec::new()));
+        assert_eq!(refused.kind, RefusalKind::Inconsistent);
+        assert!(refused.message.contains("`needs`") && refused.message.contains("`missing`"));
+        // The same item twice.
+        let refused = refusal(&curation_of(
+            vec![item("twice", &[]), item("twice", &[])],
+            Vec::new(),
+        ));
+        assert_eq!(refused.kind, RefusalKind::Inconsistent);
+        // A post the build does not publish.
+        let refused = refusal(&curation_of(vec![item("far", &["draft-post"])], Vec::new()));
+        assert_eq!(refused.kind, RefusalKind::Inconsistent);
+        assert!(refused.message.contains("draft-post"));
+        // Context for an item that is not published.
+        let context = ContextItem {
+            kind: ContextKind::Entry,
+            id: "plato".into(),
+            label: Some("Plato".into()),
+            url: None,
+            source: None,
+            via: vec!["ghost".into()],
+        };
+        let refused = refusal(&curation_of(vec![item("real", &[])], vec![context]));
+        assert_eq!(refused.kind, RefusalKind::Inconsistent);
+        assert!(refused.message.contains("`ghost`"));
+    }
+
+    #[test]
+    fn a_projection_over_a_bound_is_refused_whole_and_names_the_limit() {
+        use openblog_core::atlas_query::RefusalKind;
+        // Over the size bound: a few very large items.
+        let items = (0..40)
+            .map(|n| {
+                let mut big = item(&format!("big-{n}"), &[]);
+                big.content
+                    .insert("summary".into(), json!("x".repeat(MAX_BYTES / 20)));
+                big
+            })
+            .collect();
+        let refused = refusal(&curation_of(items, Vec::new()));
+        assert_eq!(refused.kind, RefusalKind::OverLimit);
+        assert!(refused.message.contains(&MAX_BYTES.to_string()));
+        assert!(!refused.message.contains("xxxx"), "never an item's text");
+        // Over the post bound: one whole-site item offered by too many posts.
+        let slugs: Vec<String> = (0..=MAX_LISTED_POSTS).map(|n| format!("p{n}")).collect();
+        let urls: Vec<String> = slugs.iter().map(|s| format!("/posts/{s}/")).collect();
+        let many: Vec<PostRef<'_>> = slugs
+            .iter()
+            .zip(&urls)
+            .map(|(slug, url)| PostRef { slug, url })
+            .collect();
+        let refused = CuratedContext::project(
+            &curation_of(vec![item("everywhere", &[])], Vec::new()),
+            &many,
+            "",
+        )
+        .unwrap_err();
+        assert_eq!(refused.kind, RefusalKind::OverLimit);
+        assert!(refused.message.contains(&MAX_LISTED_POSTS.to_string()));
+        // The base path counts toward the size bound: just under it without one, over with one.
+        let one = |len: usize| {
+            let mut big = item("edge", &[]);
+            big.content.insert("summary".into(), json!("y".repeat(len)));
+            big.content.insert("url".into(), json!("/atlas/x/"));
+            curation_of(vec![big], Vec::new())
+        };
+        let probe = CuratedContext::project(&one(0), &POSTS, "")
+            .unwrap()
+            .to_json()
+            .len();
+        let fits = one(MAX_BYTES - probe);
+        assert!(CuratedContext::project(&fits, &POSTS, "").is_ok());
+        assert!(CuratedContext::project(&fits, &POSTS, "/a-long-base-path").is_err());
+    }
+
+    #[test]
+    fn a_large_graph_projects_the_same_bytes_every_time_inside_the_bounds() {
+        let items: Vec<CuratedItem> = (0..2_000)
+            .map(|n| {
+                let mut it = item(&format!("item-{n:05}"), &["cave"]);
+                it.positions = BTreeMap::from([("cave".to_string(), (n % 97) as u32)]);
+                it
+            })
+            .collect();
+        let curation = curation_of(items, Vec::new());
+        let started = std::time::Instant::now();
+        let first = CuratedContext::project(&curation, &POSTS, "/blog").unwrap();
+        let again = CuratedContext::project(&curation, &POSTS, "/blog").unwrap();
+        assert!(
+            started.elapsed().as_secs() < 20,
+            "linear enough to build in seconds"
+        );
+        assert_eq!(first.to_json(), again.to_json());
+        assert!(first.to_json().len() <= MAX_BYTES);
+        assert_eq!(first.for_post("cave").unwrap().items.len(), 2_000);
+        // The page section renders them all, in that order, once each.
+        let html = first.post_section_html("cave", None).unwrap();
+        assert_eq!(html.matches("class=\"ob-curated-item\"").count(), 2_000);
+    }
+
+    #[test]
+    fn cycles_and_withheld_requirements_never_reach_the_file() {
+        let w = world();
+        let mut set = SelectionSet::default();
+        let a = select(&mut set, &w, pick(SelectionKind::ContextualEntry, "plato"));
+        let b = select(
+            &mut set,
+            &w,
+            pick(SelectionKind::ContextualEntry, "republic"),
+        );
+        let ok = select(
+            &mut set,
+            &w,
+            pick(SelectionKind::ContextualEntry, "academy"),
+        );
+        mutate(&mut set, &a).requires = vec![b.clone()];
+        mutate(&mut set, &b).requires = vec![a.clone()];
+        set.reselect(&a, &w.basis()).unwrap();
+        set.reselect(&b, &w.basis()).unwrap();
+        let (resolution, context) = project(&w, &set);
+        assert_eq!(resolution.withheld.len(), 2);
+        let ids: Vec<&str> = context.items.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(ids, [ok.as_str()]);
+        assert!(!context.to_json().contains(&a) && !context.to_json().contains(&b));
+        // An item that requires a withheld one is withheld with it.
+        let mut set = SelectionSet::default();
+        let base = select(&mut set, &w, pick(SelectionKind::ContextualEntry, "plato"));
+        let dependent = select(
+            &mut set,
+            &w,
+            pick(SelectionKind::ContextualEntry, "academy"),
+        );
+        mutate(&mut set, &dependent).requires = vec![base.clone()];
+        set.reselect(&dependent, &w.basis()).unwrap();
+        set.withdraw(&base, None);
+        let (_, context) = project(&w, &set);
+        assert!(context.items.is_empty() && context.posts.is_empty());
+    }
+
+    #[test]
+    fn the_manifest_lists_the_file_only_while_the_site_curates_and_withholds_it_whole_when_refused()
+    {
+        let w = world();
+        // Whole-site selections only: this manifest is built over no posts.
+        let mut set = SelectionSet::default();
+        select(&mut set, &w, pick(SelectionKind::Timeline, "plato-birth-a"));
+        select(&mut set, &w, pick(SelectionKind::Comparison, "cave"));
+        let resolution = resolve(&set, &w.basis());
+        let curation = CurationInput {
+            set: &set,
+            resolution: &resolution,
+        };
+        let inputs = |on: bool, curation: Option<&CurationInput<'_>>| {
+            let mut inputs = BoundaryInputs {
+                switches: Switches {
+                    curated: on,
+                    ..Switches::default()
+                },
+                posts: &[],
+                public_atlas: Some(&w.public_atlas),
+                atlas_blocked: None,
+                public_comparisons: Some(&w.comparisons),
+                comparisons_blocked: None,
+                claims_blocked: None,
+                library: Some(&w.library),
+                notebook: None,
+                atlas: Some(&w.atlas),
+                claims: None,
+                alignments: None,
+                stale_comparisons: None,
+                acknowledgements: None,
+                curation: None,
+                unavailable: &[],
+                author: "",
+                base_path: "",
+            };
+            inputs.curation = curation;
+            BoundaryManifest::site(&inputs)
+        };
+        // Off, the manifest is exactly what it was.
+        let off = inputs(false, Some(&curation));
+        assert!(off
+            .projections
+            .iter()
+            .all(|p| p.projection != Projection::CuratedContext));
+        // On, the file is listed once, with the posts it lists.
+        let on = inputs(true, Some(&curation));
+        let report = on
+            .projections
+            .iter()
+            .find(|p| p.projection == Projection::CuratedContext)
+            .expect("the curated context projection");
+        assert!(report.enabled && report.withheld.is_empty());
+        assert_eq!(report.published.len(), 1);
+        assert_eq!(report.published[0].kind, ItemKind::CuratedContext);
+        assert_eq!(
+            report.published[0].url.as_deref(),
+            Some("/curated-context.json")
+        );
+        assert_eq!(
+            on.published_ids(Projection::CuratedContext, ItemKind::CuratedContext)
+                .into_iter()
+                .collect::<Vec<_>>(),
+            ["curated-context"]
+        );
+        // The build summary does not count it twice.
+        assert!(on.summary().is_none_or(|s| !s.contains("curated context")));
+        // A projection that cannot be written is withheld whole, naming the limit, never text.
+        let big = (0..40)
+            .map(|n| {
+                let mut it = item(&format!("big-{n}"), &[]);
+                it.content
+                    .insert("summary".into(), json!("z".repeat(MAX_BYTES / 20)));
+                it
+            })
+            .collect();
+        let refused = openblog_core::curated_selection::Resolution {
+            curation: curation_of(big, Vec::new()),
+            withheld: Vec::new(),
+            notices: Vec::new(),
+        };
+        let held = CurationInput {
+            set: &set,
+            resolution: &refused,
+        };
+        let manifest = inputs(true, Some(&held));
+        let report = manifest
+            .projections
+            .iter()
+            .find(|p| p.projection == Projection::CuratedContext)
+            .unwrap();
+        assert!(report.published.is_empty());
+        assert_eq!(report.withheld[0].reason, Reason::OverLimit);
+        assert!(report.withheld[0].message.contains(&MAX_BYTES.to_string()));
+        assert!(!report.withheld[0].message.contains("zzzz"));
+        assert!(manifest
+            .build_warnings()
+            .iter()
+            .any(|w| w.starts_with("boundary: ") && w.contains(CURATED_CONTEXT_JSON_FILE)));
+        // The selections themselves are unaffected by the file being refused.
+        assert!(manifest
+            .projections
+            .iter()
+            .any(|p| p.projection == Projection::Curated));
+    }
+}
