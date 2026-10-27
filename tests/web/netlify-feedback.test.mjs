@@ -469,7 +469,11 @@ test("the migration is additive, private, and matches what the function writes a
   for (const column of Object.keys(fixture.storedRow)) assert.ok(columns.has(column), `missing column ${column}`);
 
   const statements = migration.replace(/--[^\n]*/g, "").toLowerCase();
-  for (const forbidden of [/\balter\s+table\s+(?!public\.openblog_feedback(?:_events)?\b)/, /\bdrop\b/, /\brename\b/, /\bdelete\s+from\b/, /\btruncate\b/, /openblog_comments/, /create\s+or\s+replace\s+function\s+(?!public\.openblog_(?:moderate_feedback(?:_item)?|erase_feedback|record_feedback_decision|feedback_purge_evidence|moderate_third_perspective)\()/]) {
+  // The one change to something that exists is a check it loosens, for suggestions (ADR 0154).
+  const loosening = "alter table public.openblog_feedback drop constraint if exists openblog_feedback_passage_complete;";
+  assert.equal(statements.split(loosening).length, 2);
+  assert.doesNotMatch(statements.replace(loosening, ""), /\bdrop\b/);
+  for (const forbidden of [/\balter\s+table\s+(?!public\.openblog_feedback(?:_events)?\b)/, /\brename\b/, /\bdelete\s+from\b/, /\btruncate\b/, /openblog_comments/, /create\s+or\s+replace\s+function\s+(?!public\.openblog_(?:moderate_feedback(?:_item)?|erase_feedback|record_feedback_decision|feedback_purge_evidence|moderate_third_perspective)\()/]) {
     assert.doesNotMatch(statements, forbidden);
   }
   // The only updates are the moderation functions', of the feedback table

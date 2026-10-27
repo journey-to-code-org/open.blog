@@ -263,6 +263,21 @@ pub struct PublicSource {
     pub text: String,
 }
 
+/// Compact JSON of a projection value with `<`, `>` and `&` written as
+/// escapes, so authored text can never close a `<script>` element the data is
+/// later embedded in.
+pub(crate) fn escaped_json<T: Serialize>(value: &T) -> String {
+    let json = serde_json::to_string(value).expect("a projection is serializable");
+    let mut out = String::with_capacity(json.len());
+    for c in json.chars() {
+        match c {
+            '<' | '>' | '&' => out.push_str(&format!("\\u{:04x}", u32::from(c))),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 /// The canonical page of an entry. Entry ids are lowercase slugs, so they are
 /// safe path segments as they are.
 pub fn entry_url(id: &str) -> String {
@@ -484,15 +499,7 @@ impl PublicAtlas {
     /// `<`, `>` and `&` are written as escapes, so authored text can never
     /// close a `<script>` element the data is later embedded in.
     pub fn to_json(&self) -> String {
-        let json = serde_json::to_string(self).expect("the public atlas is serializable");
-        let mut out = String::with_capacity(json.len());
-        for c in json.chars() {
-            match c {
-                '<' | '>' | '&' => out.push_str(&format!("\\u{:04x}", u32::from(c))),
-                _ => out.push(c),
-            }
-        }
-        out
+        escaped_json(self)
     }
 
     /// How a party reads on a page: the site author's name, a source's title,
@@ -633,6 +640,21 @@ pub fn confidence_text(confidence: Confidence) -> &'static str {
         Confidence::Tentative => "Tentative",
         Confidence::Plausible => "Plausible",
         Confidence::Strong => "Strong",
+    }
+}
+
+/// Standing as a page words it: no recorded disagreement is never a claim of
+/// agreement.
+pub fn standing_text(standing: Standing, dissents: usize) -> String {
+    match standing {
+        Standing::Asserted => {
+            "Asserted. No disagreement is recorded here; that is not a claim that it is agreed."
+                .to_string()
+        }
+        Standing::Contested => format!(
+            "Contested: {dissents} recorded dissent{}.",
+            if dissents == 1 { "" } else { "s" }
+        ),
     }
 }
 

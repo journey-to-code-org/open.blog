@@ -23,10 +23,41 @@ const CLARIFY_REASONS = Object.freeze({
 });
 
 const PERSPECTIVE = "third-perspective";
+const SUGGESTION = "future-suggestion";
 
-/** What the reader sent, in words: a Third Perspective is their reflection, anything else a note. */
+/** What the reader sent, in words: a Third Perspective is their reflection, a suggestion for future work their suggestion, anything else a note. */
 export function receiptNoun(item) {
-  return item?.kind === PERSPECTIVE ? "reflection" : "note";
+  return item?.kind === PERSPECTIVE ? "reflection" : item?.kind === SUGGESTION ? "suggestion" : "note";
+}
+
+/**
+ * A suggestion for future work's state, in words (ADR 0156). It is never shown on the site, so
+ * nothing here says it is published, and accepting it only means the editors are interested: it
+ * is not agreement, a check or permission to use it.
+ */
+function suggestionStateText(item, purged) {
+  // Where it stands, as the service derived it (ADR 0163): a stage and one sentence that never ranks,
+  // counts, promises or says what it was linked to. Nothing is added to it here.
+  const note = typeof item.standing?.note === "string" && item.standing.note !== "" ? ` ${item.standing.note}` : "";
+  const linked = item.standing?.id === "converted" || item.standing?.id === "closed-converted";
+  switch (item.status) {
+    case "pending":
+      return "Waiting for the editors’ review. It is private to them: nothing about it is shown on the site.";
+    case "clarification": {
+      const why = CLARIFY_REASONS[item.clarification?.reason];
+      return `The editors asked you to clarify this suggestion${why ? ` because ${why}` : ""}. Your answer replaces it and goes back for review; what you first wrote is not used.`;
+    }
+    case "approved":
+      return `${linked ? "Linked to future work. " : ""}Accepted means the editors are interested in exploring this. It does not mean they agree with it, have checked it, or have permission to use it.${linked ? note : ""} It is private to them and is not shown on the site.`;
+    case "rejected":
+      return `The editors decided not to take it forward.${note}${purged}`;
+    case "removed":
+      return linked ? `The editors closed it, after linking it to future work.${note}${purged}` : `The editors closed it.${note}${purged}`;
+    case "withdrawn":
+      return `You withdrew it.${purged}`;
+    default:
+      return "Its state is not one this page knows.";
+  }
 }
 
 /**
@@ -63,6 +94,7 @@ export function receiptStateText(item) {
   if (!item || typeof item !== "object") return "";
   const purged = item.purged ? " Its text and your name were deleted; only a private record that it existed and what was decided remains." : "";
   if (item.kind === PERSPECTIVE) return perspectiveStateText(item, purged);
+  if (item.kind === SUGGESTION) return suggestionStateText(item, purged);
   switch (item.status) {
     case "pending":
       return "Waiting for the author’s review. Nothing is published unless they approve it.";
@@ -222,7 +254,10 @@ export function receiptManager({ endpoint, noun: managed = "note" }) {
     result.replaceChildren();
     if (!item) return;
     const noun = receiptNoun(item);
-    const where = item.kind === PERSPECTIVE ? "the work’s page" : "the post";
+    const where = item.kind === PERSPECTIVE ? "the work’s page" : item.kind === SUGGESTION ? "the editors’ list" : "the post";
+    // Only a published kind has anything to take off a page; a suggestion was never on one, and keeps
+    // a contact address a note does not.
+    const publicKind = item.kind !== SUGGESTION;
     const heading = make("h3", undefined, `Your ${noun}`);
     heading.id = `${prefix}-note-title`;
     heading.tabIndex = -1;
@@ -231,11 +266,38 @@ export function receiptManager({ endpoint, noun: managed = "note" }) {
     if (!item.purged && typeof item.body === "string") {
       result.append(make("p", "ob-receipt-label", "What you wrote:"), make("blockquote", "ob-receipt-body", item.body));
     }
+    if (item.kind === SUGGESTION && item.credit && !item.purged) {
+      // Whether the editors may credit them by the name they gave, for this text as it stands (ADR
+      // 0167). Agreement is for one version of the text: after a clarification they are asked again.
+      const credit = make("input");
+      credit.type = "checkbox";
+      credit.checked = item.credit.agreed === true;
+      const creditHint = make("p", "ob-receipt-hint", "This covers the suggestion as it is now. If you change its text, tick it again. Nothing is published or sent by ticking it: only an editor can choose to thank you.");
+      creditHint.id = `${prefix}-credit-hint`;
+      credit.setAttribute("aria-describedby", creditHint.id);
+      const creditRow = make("p", "ob-receipt-credit");
+      creditRow.append(credit, " ", labelled(credit, `${prefix}-credit`, "The editors may credit me by the name I gave for this suggestion"));
+      credit.addEventListener("change", async () => {
+        const wanted = credit.checked;
+        credit.disabled = true;
+        status.textContent = "Saving…";
+        const { status: code, data } = await call(endpoint, { receipt, action: "credit", consent: wanted, expectedVersion: item.version });
+        if (code === 200 && data.item) show(data.item, wanted ? "Saved: the editors may credit you by your name for this text." : "Saved: the editors may not credit you by name.");
+        else if (code === 409 && data.item) show(data.item, receiptProblem(code, data.code));
+        else {
+          credit.disabled = false;
+          credit.checked = !wanted;
+          credit.focus();
+          status.textContent = receiptProblem(code, data.code);
+        }
+      });
+      result.append(creditRow, creditHint);
+    }
     if (item.status === "clarification" && item.clarification && !item.purged) {
       const answer = make("textarea");
       answer.rows = 5;
       answer.value = item.body || "";
-      const answerHint = make("p", "ob-receipt-hint", `Your answer replaces the ${noun} and goes back to ${noun === "note" ? "the author" : "a moderator"} for review.`);
+      const answerHint = make("p", "ob-receipt-hint", `Your answer replaces the ${noun} and goes back to ${noun === "note" ? "the author" : noun === "suggestion" ? "the editors" : "a moderator"} for review.`);
       answerHint.id = `${prefix}-answer-hint`;
       answer.setAttribute("aria-describedby", answerHint.id);
       const send = make("button", undefined, `Send my clarified ${noun}`);
@@ -265,7 +327,7 @@ export function receiptManager({ endpoint, noun: managed = "note" }) {
       const withdraw = make("button", undefined, `Withdraw and delete my ${noun}`);
       withdraw.type = "button";
       const confirmRow = make("p", "ob-receipt-confirm");
-      confirmRow.append(confirm, " ", labelled(confirm, `${prefix}-confirm`, item.status === "approved" ? `I want this ${noun} taken off ${where} and the hosted copy of its text and my name deleted. I understand that copies already published (the site’s history, feeds and the repository’s history) may remain. This cannot be undone.` : `I want this ${noun}’s text and my name deleted. This cannot be undone.`));
+      confirmRow.append(confirm, " ", labelled(confirm, `${prefix}-confirm`, item.status === "approved" && publicKind ? `I want this ${noun} taken off ${where} and the hosted copy of its text and my name deleted. I understand that copies already published (the site’s history, feeds and the repository’s history) may remain. This cannot be undone.` : `I want this ${noun}’s ${publicKind ? "text and my name" : "text, my name and any contact address I gave"} deleted. This cannot be undone.`));
       withdraw.addEventListener("click", async () => {
         if (!confirm.checked) {
           status.textContent = `Confirm that you want the ${noun} deleted first.`;
@@ -276,7 +338,7 @@ export function receiptManager({ endpoint, noun: managed = "note" }) {
         status.textContent = "Withdrawing…";
         const { status: code, data } = await call(endpoint, { receipt, action: "withdraw", expectedVersion: item.version });
         withdraw.disabled = false;
-        if (code === 200 && data.item) show(data.item, item.status === "approved" ? `Your ${noun} was withdrawn and the hosted copy of its text and your name deleted. The author has been shown that it must come off ${where}. Copies already published (the site’s history, feeds and the repository’s history) may remain.` : `Your ${noun} was withdrawn and its text and your name deleted.`);
+        if (code === 200 && data.item) show(data.item, item.status === "approved" && publicKind ? `Your ${noun} was withdrawn and the hosted copy of its text and your name deleted. The author has been shown that it must come off ${where}. Copies already published (the site’s history, feeds and the repository’s history) may remain.` : `Your ${noun} was withdrawn and its ${publicKind ? "text and your name" : "text, your name and any contact address"} deleted.`);
         else if (code === 409 && data.item) show(data.item, receiptProblem(code, data.code));
         else {
           // Disabling the button while sending took focus from it: the reader is taken to why.

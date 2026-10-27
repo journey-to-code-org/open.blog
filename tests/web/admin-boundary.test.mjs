@@ -290,6 +290,26 @@ test("a refused build and one post's preview say so, at the heading level they a
   const empty = createBoundaryPreview({ manifest: { version: 1, scope: { kind: "site" }, projections: [], never: [] } });
   assert.equal(sections(empty).length, 0);
   assert.equal(boundaryCountsText({}), "0 published, 0 withheld.");
+  // The atlas query file repeats what the atlas lists, so its items are not a second count of
+  // published research (the server's `summary()` skips it the same way); its withheld file counts.
+  assert.equal(
+    boundaryCountsText({
+      projections: [
+        { projection: "atlas", published: [{ id: "a" }, { id: "b" }], withheld: [] },
+        { projection: "atlas-query", published: [{ id: "a" }, { id: "b" }, { id: "src" }], withheld: [] },
+      ],
+    }),
+    "2 published, 0 withheld.",
+  );
+  assert.equal(
+    boundaryCountsText({
+      projections: [
+        { projection: "atlas", published: [{ id: "a" }], withheld: [] },
+        { projection: "atlas-query", published: [], withheld: [{ kind: "atlas-query", id: "atlas-query" }] },
+      ],
+    }),
+    "1 published, 1 withheld.",
+  );
 }));
 
 test("a text match is a notice naming the output, the file, the record and the field, not a refusal", withDom(async () => {
@@ -319,7 +339,7 @@ test("every withheld item links to where it is changed, by its own address", () 
   assert.equal(boundaryItemHref({ kind: "claim", id: "c1", posts: ["elsewhere"] }, { postPaths }), null, "an unknown post has no link");
   assert.equal(boundaryItemHref({ kind: "claim", id: "c1" }), null);
   assert.equal(boundaryItemHref({ kind: "evidence-link", id: "l1", posts: ["cave"] }), null);
-  for (const reason of ["projection-off", "not-approved", "unsourced", "notebook-passage", "private-dependency", "contradiction-withheld", "post-not-published", "stale-approval", "unsafe-url", "private-identifier", "rights", "length", "stale-anchor", "page-not-published", "withdrawn", "stale-selection", "missing-target", "selection-cycle"]) {
+  for (const reason of ["projection-off", "not-approved", "unsourced", "notebook-passage", "private-dependency", "contradiction-withheld", "post-not-published", "stale-approval", "unsafe-url", "private-identifier", "rights", "length", "stale-anchor", "page-not-published", "withdrawn", "stale-selection", "missing-target", "selection-cycle", "over-limit", "inconsistent"]) {
     assert.ok(BOUNDARY_REASONS[reason], `${reason} has words`);
     assert.doesNotMatch(BOUNDARY_REASONS[reason], /score|verdict|false|true|wrong/i, "no reason judges the research");
   }

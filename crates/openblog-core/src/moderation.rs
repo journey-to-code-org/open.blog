@@ -738,6 +738,13 @@ pub enum AuditAction {
     Moderate(ModerationAction),
     /// Retention purged the text, details and reader name.
     PurgeContent,
+    /// Retention cleared a kept editorial item's private contact and
+    /// unpublished name and nothing else (ADR 0155).
+    ScrubIdentity,
+    /// An author linked an accepted suggestion for future work to something
+    /// they made from it (ADR 0162). The item's state is unchanged, so the
+    /// event's `from` and `to` are the same state; it holds no link target.
+    Convert,
     /// The author recorded a correction decision on an evidence submission
     /// (ADR 0117). It is not a moderation action: the item's state, version
     /// and approval are unchanged, so the event's `from` and `to` are the
@@ -751,6 +758,8 @@ impl AuditAction {
             AuditAction::Submit => "submit",
             AuditAction::Moderate(action) => action.id(),
             AuditAction::PurgeContent => "purge-content",
+            AuditAction::ScrubIdentity => "scrub-identity",
+            AuditAction::Convert => "convert",
             AuditAction::Decide => "decide",
         }
     }
@@ -876,7 +885,9 @@ pub struct RetentionPolicy {
     pub clarification_days: u32,
     /// After rejection or removal, or after approval of a kind that is never
     /// public (an upheld abuse report), the text, details and reader name are
-    /// purged. A withdrawn item's are purged at once.
+    /// purged. A withdrawn item's are purged at once. An accepted suggestion
+    /// for future work is kept, but its private contact and unpublished name
+    /// are cleared this long after approval.
     pub closed_days: u32,
     /// Audit events are kept this long, at least as long as `closed_days`,
     /// so the record of a removal outlives the text it removed.
@@ -982,6 +993,12 @@ pub enum RetentionStep {
     Expire,
     /// Delete the text, details and reader name; keep the state and audit.
     PurgeContent,
+    /// Clear only the private contact and the unpublished name of an
+    /// approved editorial item, which is otherwise kept (ADR 0155). The text,
+    /// the link, the hints, the state and the audit trail stay. The item is
+    /// due once `closed_days` have passed since it was approved; a caller
+    /// that knows the item holds no such detail owes it nothing.
+    ScrubIdentity,
 }
 
 /// What a viewer asks to see of a stored item.
@@ -1216,8 +1233,11 @@ impl ModerationPolicy {
     /// The step retention owes an item now, if any. Approved items are kept
     /// while they are published; an approved item of a kind that is never
     /// public (an upheld abuse report) is closed, so its text is purged after
-    /// `closed_days` like a rejected one, and its audit events stay. Comments
-    /// are never due unless the site set retention itself.
+    /// `closed_days` like a rejected one, and its audit events stay. An
+    /// approved editorial item (a suggestion for future work) is kept, but
+    /// owes [`RetentionStep::ScrubIdentity`] once `closed_days` have passed
+    /// since its approval. Comments are never due unless the site set
+    /// retention itself.
     pub fn retention_due(&self, item: &ItemFacts<'_>, now: DateTime) -> Option<RetentionStep> {
         if !self.retains(item.kind) {
             return None;
@@ -1227,6 +1247,9 @@ impl ModerationPolicy {
                 self.expiry_due(item, now).then_some(RetentionStep::Expire)
             }
             ModerationState::Approved if item.kind.rules().publishable => None,
+            ModerationState::Approved if item.kind.rules().editorial => (item.content_retained
+                && RetentionPolicy::ended(item.state_since, self.retention.closed_days, now))
+            .then_some(RetentionStep::ScrubIdentity),
             ModerationState::Rejected | ModerationState::Removed | ModerationState::Approved => {
                 (item.content_retained
                     && RetentionPolicy::ended(item.state_since, self.retention.closed_days, now))
@@ -1240,10 +1263,28 @@ impl ModerationPolicy {
 
     /// The audit event recording a purge. The state does not change.
     pub fn purge_event(&self, item: &ItemFacts<'_>, at: DateTime) -> Option<AuditEvent> {
-        (self.retention_due(item, at) == Some(RetentionStep::PurgeContent)).then(|| AuditEvent {
+        self.retention_event(item, at, RetentionStep::PurgeContent)
+    }
+
+    /// The audit event recording the clearing of a kept item's private
+    /// identity ([`RetentionStep::ScrubIdentity`]). The state does not change.
+    pub fn scrub_event(&self, item: &ItemFacts<'_>, at: DateTime) -> Option<AuditEvent> {
+        self.retention_event(item, at, RetentionStep::ScrubIdentity)
+    }
+
+    fn retention_event(
+        &self,
+        item: &ItemFacts<'_>,
+        at: DateTime,
+        step: RetentionStep,
+    ) -> Option<AuditEvent> {
+        (self.retention_due(item, at) == Some(step)).then(|| AuditEvent {
             item: item.id.to_string(),
             kind: item.kind,
-            action: AuditAction::PurgeContent,
+            action: match step {
+                RetentionStep::ScrubIdentity => AuditAction::ScrubIdentity,
+                _ => AuditAction::PurgeContent,
+            },
             from: Some(item.state),
             to: item.state,
             actor: ActorRole::System,
@@ -1329,7 +1370,11 @@ impl ModerationPolicy {
             (Actor::Submitter, _) => None,
             (_, ModerationState::Rejected | ModerationState::Removed)
             | (_, ModerationState::Withdrawn) => None,
-            (_, ModerationState::Approved) if !item.kind.rules().publishable => None,
+            (_, ModerationState::Approved)
+                if !item.kind.rules().publishable && !item.kind.rules().editorial =>
+            {
+                None
+            }
             _ => return Err(PolicyError::NotAllowed),
         };
         let (state, version) = withdrawal
@@ -1448,7 +1493,7 @@ fn applies(kind: ParticipationKind, action: ModerationAction) -> bool {
         ModerationAction::Approve => kind != ParticipationKind::AbuseReport,
         ModerationAction::UpholdReport => kind == ParticipationKind::AbuseReport,
         ModerationAction::RequestClarification | ModerationAction::Clarify => rules.clarification,
-        ModerationAction::Remove => rules.publishable,
+        ModerationAction::Remove => rules.publishable || rules.editorial,
         ModerationAction::Reject
         | ModerationAction::Reopen
         | ModerationAction::Withdraw

@@ -430,6 +430,7 @@ export const MODERATION_KINDS = [
   ["correction-suggestion", "Suggested corrections"],
   ["alternative-interpretation", "Other interpretations"],
   ["third-perspective", "Third Perspectives"],
+  ["future-suggestion", "Suggestions for future work"],
   ["author-response", "Author responses"],
   ["abuse-report", "Abuse reports"],
 ];
@@ -551,6 +552,66 @@ export function answerOffer(item) {
   };
 }
 
+/**
+ * What a suggestion for future work says about its source, as lines of plain text for the editors,
+ * and what is still to find out. Every line is the reader's statement, never checked: nothing is
+ * called verified, and the link is offered only as a link to open yourself.
+ */
+export function suggestionLines(suggestion) {
+  if (!suggestion) return [];
+  const lines = [{ text: `Kind: ${suggestion.typeLabel}.` }];
+  if (suggestion.url) lines.push({ label: "The reader’s link", link: suggestion.url });
+  const hints = suggestion.hints || {};
+  if (hints.title) lines.push({ text: `Title (the reader’s words): ${hints.title}` });
+  if (hints.creators?.length) lines.push({ text: `Creators (the reader’s words): ${hints.creators.join("; ")}` });
+  if (hints.year) lines.push({ text: `Year (the reader’s words): ${hints.year}` });
+  if (hints.publisher) lines.push({ text: `Publisher (the reader’s words): ${hints.publisher}` });
+  for (const identifier of hints.identifiers || []) lines.push({ text: `${identifier.scheme.toUpperCase()} (not checked): ${identifier.value}` });
+  if (suggestion.about?.series) lines.push({ text: `About the series: ${suggestion.about.series}` });
+  if (suggestion.about?.article) lines.push({ text: `About the article: ${suggestion.about.article}` });
+  if (suggestion.missing?.length) lines.push({ text: `Still to find: ${suggestion.missing.join(", ")}.` });
+  lines.push({ text: `Stands as: ${suggestion.standing.label}.` });
+  // How the editors dealt with it, once they have, and what an author linked it to: the author's own
+  // records, never opened or checked, never a count or a rank (ADRs 0162 and 0163).
+  if (suggestion.outcome) lines.push({ text: `Outcome: ${suggestion.outcome.label}.` });
+  for (const link of suggestion.conversions || []) {
+    lines.push({ text: `Linked to ${conversionKindName(link.kind)} ${link.id}, recorded ${String(link.at).slice(0, 10)} by ${link.by}. Nothing opened or checked it.` });
+  }
+  return lines;
+}
+
+function conversionKindName(kind) {
+  if (kind === "draft") return "the draft";
+  if (kind === "series") return "the series";
+  if (kind === "library-source") return "the Source Library record";
+  return "the work";
+}
+
+/**
+ * The body of recording a link between an accepted suggestion and work the author made, or the
+ * reason it is not ready: the kind (a draft or series by its slug, a library source by its id) and
+ * the target as typed, which the server checks again. `item` is the loaded inbox item.
+ */
+export function linkRequest(item, kind, target) {
+  const id = String(target ?? "").trim();
+  if (!["draft", "series", "library-source"].includes(kind)) return { ok: false, message: "Choose what you made from this suggestion." };
+  if (id === "") return { ok: false, message: "Name it: the slug of a draft or series, or the id of a source in your library." };
+  return { ok: true, body: { id: item.id, version: item.version, conversion: { kind, id } } };
+}
+
+/** The unverified hints an author may copy into a Source Library record of their own making, as plain lines. */
+export function libraryCandidateLines(candidate) {
+  if (!candidate) return [];
+  const lines = [`Kind: ${candidate.type}. Unverified: these are the reader’s own words about a source, and nothing checked them.`];
+  if (candidate.url) lines.push(`Link: ${candidate.url}`);
+  if (candidate.title) lines.push(`Title: ${candidate.title}`);
+  if (candidate.creators?.length) lines.push(`Creators: ${candidate.creators.join("; ")}`);
+  if (candidate.year) lines.push(`Year: ${candidate.year}`);
+  if (candidate.publisher) lines.push(`Publisher: ${candidate.publisher}`);
+  for (const identifier of candidate.identifiers || []) lines.push(`${String(identifier.scheme).toUpperCase()}: ${identifier.value}`);
+  return lines;
+}
+
 /** What the signed-in account can do with an item, from the role the server resolved. */
 export function moderationRoleLine(role) {
   if (role === "coordinator") return "You moderate this as a coordinator of its shared publication. Only the site Admin sees a reader’s private name or reopens a decision.";
@@ -568,6 +629,12 @@ export function moderationReaderLine(reader, source = "feedback", kind = "") {
   if (source === "comment") return reader?.name ? `From ${reader.name}, shown with the comment.` : "From an unnamed commenter.";
   if (reader?.private) return "The reader gave a name that only the site Admin can see.";
   if (!reader?.name) return "From an anonymous reader.";
+  if (kind === "future-suggestion") {
+    // Whether they agreed to be credited is for the text as it stands, and shows beside the link form (ADR 0167).
+    return reader.publishName
+      ? `From ${reader.name}, who agreed to be credited by this name for this text. That is shown with the link form.`
+      : `From ${reader.name}. The name stays private: the reader has not agreed to be credited by it for this text.`;
+  }
   const what = kind === "third-perspective" ? "reflection" : "note";
   return reader.publishName
     ? `From ${reader.name}, who agreed to show this name if you publish the ${what}.`
@@ -579,12 +646,15 @@ export function moderationOutcome(item, action, result) {
   const where = item.post ? `“${item.post.title}”` : item.work;
   if (action === "approve") {
     if (item.source === "comment") return `Approved. The comment is shown on ${where}.`;
+    if (item.suggestion) return "Accepted into the editors’ list. Nothing was published or e-mailed. Accepted means you are interested in exploring it, not that you agree with it, have checked it or may use it.";
     if (item.perspective) {
       const approved = `Approved this text under the reader’s consent record ${item.perspective.consent.number}, as a reader’s reflection on ${where}. Nothing was e-mailed.`;
       return result.published ? `${approved} It is published on the post; rebuild or publish to update the live site.` : `${approved} ${result.publishError || ""}`.trim();
     }
     return result.published ? `Approved and published on ${where}. Rebuild or publish to update the live site.` : `Approved. ${result.publishError || ""}`.trim();
   }
+  if (action === "reject" && item.suggestion) return "Not taken forward. Nothing was published or e-mailed.";
+  if (action === "remove" && item.suggestion) return "Closed. It was never shown on the site, and nothing was e-mailed.";
   if (action === "reject") return "Rejected. Nothing was published.";
   if (action === "request-clarification") return "Asked the reader to clarify. Nothing was published or e-mailed.";
   if (action === "reopen") return `Reopened. It is ${result.item?.status === "clarification" ? "waiting for clarification" : "pending"} again.`;
@@ -609,6 +679,8 @@ export function moderationOutcome(item, action, result) {
  * unknown.
  */
 export function feedbackPublicationMismatch(item) {
+  // A suggestion for future work is never published, so there is nothing for the post to disagree with.
+  if (item.kind === "future-suggestion") return null;
   if (item.kind === "third-perspective") return perspectivePublicationMismatch(item);
   if (item.kind === "author-response") return answerPublicationMismatch(item);
   if (item.status === "approved" && item.published === false) return { notice: "Approved, but not on the site yet.", action: "publish", label: "Publish on the post" };
@@ -674,7 +746,7 @@ export function perspectiveAuditNotices(audit) {
 /** The retention dry run's summary, in words: what would expire or be purged, by kind. */
 export function retentionSummaryLines(report) {
   const lines = (report?.summary || []).map((entry) => {
-    const what = entry.step === "expire" ? "expire without a decision" : "have their text, details and names deleted";
+    const what = entry.step === "expire" ? "expire without a decision" : entry.step === "scrub-identity" ? "have their private contact and unshown name cleared, and nothing else" : "have their text, details and names deleted";
     return `${entry.count} ${entry.kindLabel.toLowerCase()} ${entry.count === 1 ? "item" : "items"} would ${what}.`;
   });
   const audit = Object.values(report?.audit || {}).reduce((total, count) => total + (Number(count) || 0), 0);
@@ -7865,6 +7937,7 @@ export const BOUNDARY_PROJECTIONS = Object.freeze({
   "claim-evidence": "Claims and evidence",
   atlas: "Knowledge Atlas",
   datings: "Datings",
+  "atlas-query": "Atlas query data",
   comparisons: "Comparisons",
   "context-links": "Links to research pages",
   curated: "Curated for readers",
@@ -7879,6 +7952,7 @@ export const BOUNDARY_KINDS = Object.freeze({
   relationship: "Relationship",
   dating: "Dating",
   comparison: "Comparison",
+  "atlas-query": "Atlas query file",
   "atlas-page": "Atlas page",
   "comparison-page": "Comparison page",
   selection: "Curated selection",
@@ -7904,6 +7978,8 @@ export const BOUNDARY_REASONS = Object.freeze({
   "stale-selection": "Selected before it changed: select it again",
   "missing-target": "What it selects no longer exists",
   "selection-cycle": "Its required selections lead back to it",
+  "over-limit": "Over a size or count limit, so the file is left out",
+  inconsistent: "The published atlas does not agree with itself, so the file is left out",
 });
 
 const BOUNDARY_STORES = Object.freeze({
@@ -7945,7 +8021,9 @@ export function boundaryItemHref(item, { postPaths = null } = {}) {
 /** One line counting what the preview publishes and withholds. Never a score. */
 export function boundaryCountsText(manifest) {
   const reports = Array.isArray(manifest?.projections) ? manifest.projections : [];
-  const published = reports.reduce((sum, report) => sum + (report.published?.length || 0), 0);
+  // The query file repeats what the atlas already lists, so it adds nothing to the published count
+  // (the server's own summary skips it the same way); what it withholds is still counted.
+  const published = reports.reduce((sum, report) => sum + (report.projection === "atlas-query" ? 0 : report.published?.length || 0), 0);
   const withheld = reports.reduce((sum, report) => sum + (report.withheld?.length || 0), 0);
   return `${published} published, ${withheld} withheld.`;
 }
@@ -15321,6 +15399,18 @@ export class ObAdmin extends AdminElement {
           : null,
       );
     };
+    // A suggestion for future work (ADRs 0152 to 0157): the reader's own statements as plain text, what is
+    // still missing, what acceptance means, and, only for the site Admin, the contact the server sent.
+    const suggestionSection = (item) => h(
+      "div",
+      { class: "oba-feedback-passage oba-suggestion" },
+      h("h4", {}, "About this suggestion"),
+      ...suggestionLines(item.suggestion).map((line) => h("p", { class: line.link ? "oba-suggestion-link" : "" }, ...(line.link
+        ? [`${line.label}: `, h("a", { href: line.link, target: "_blank", rel: "noopener noreferrer nofollow" }, line.link), " (check it yourself: nothing fetched it for you)"]
+        : [line.text]))),
+      item.suggestion.contact ? h("p", { class: "oba-small oba-suggestion-contact" }, `Contact the reader agreed to: ${item.suggestion.contact}. Only you can see it, it is cleared automatically after a while, and this site never e-mails it.`) : null,
+      h("p", { class: "oba-small oba-suggestion-notice" }, item.suggestion.notice),
+    );
     const similarSection = (item) => {
       if (!item.similar?.length) return null;
       return h(
@@ -15482,12 +15572,13 @@ export class ObAdmin extends AdminElement {
         feedbackPassage(item.passage),
         item.purged ? h("p", { class: "oba-notice" }, "Its text, details and any name were deleted. Only the private record of decisions remains.") : null,
         item.report ? h("p", {}, h("strong", {}, "Ground: "), item.report.groundLabel) : null,
-        item.purged || (item.source === "report" && !item.body) ? null : h("h4", {}, item.source === "comment" ? "The comment" : item.source === "report" ? "What the reader wrote" : item.perspective ? "The reader’s reflection" : item.response ? "The author’s answer" : "The reader’s note"),
+        item.purged || (item.source === "report" && !item.body) ? null : h("h4", {}, item.source === "comment" ? "The comment" : item.source === "report" ? "What the reader wrote" : item.perspective ? "The reader’s reflection" : item.response ? "The author’s answer" : item.suggestion ? "The reader’s suggestion" : "The reader’s note"),
         item.purged || (item.source === "report" && !item.body) ? null : h("p", { class: "oba-feedback-body" }, item.body),
         item.source === "report" ? reportedItem(item.target) : null,
         item.details?.sourceUrl ? h("p", {}, "Suggested source: ", h("a", { href: item.details.sourceUrl, target: "_blank", rel: "noopener noreferrer nofollow" }, item.details.sourceUrl)) : null,
         item.details?.suggestedText ? h("div", {}, h("p", {}, "Suggested wording:"), h("blockquote", { class: "oba-feedback-body" }, item.details.suggestedText)) : null,
         item.perspective && !item.purged ? h("div", { class: "oba-feedback-passage" }, h("h4", {}, "About this reflection"), perspectiveLines(item).map((line) => h("p", {}, line))) : null,
+        item.suggestion && !item.purged ? suggestionSection(item) : null,
         item.response && !item.purged ? h("div", { class: "oba-feedback-passage" }, h("h4", {}, "About this answer"), answerLines(item).map((line) => h("p", {}, line))) : null,
         h("p", { class: "oba-small" }, moderationReaderLine(item.reader, item.source, item.kind)),
         feedbackPreview(item.publicPreview),
@@ -15647,6 +15738,77 @@ export class ObAdmin extends AdminElement {
             }
           } }, "Take my answer back")));
       }
+      if (item.suggestion?.export) {
+        // The author's own, explicit copy of an accepted suggestion into a private research note: labelled
+        // unverified reader text, no name, no contact, nothing fetched or published (ADR 0157).
+        const guidanceId = `oba-moderation-${key}-export-guidance`;
+        actions.append(h("div", { class: "oba-moderation-action", "data-export-suggestion": "" },
+          h("button", { class: "oba-btn", type: "button", "aria-describedby": guidanceId, onClick: async () => {
+            busy(true);
+            announce(line, "Copying into your research notebook…");
+            try {
+              const result = await this.api.call("POST", "engagement/suggestions/export", { json: { id: item.id, version: item.version } });
+              busy(false);
+              announce(line, `A private research note was made (${result.note.id}). Nothing was published, fetched or e-mailed, and the suggestion is unchanged.`, "ok");
+            } catch (error) {
+              busy(false);
+              announce(line, error.message, "error");
+              if (error.status === 409) await reloadAll(`${error.message} The list was reloaded.`, "error");
+            }
+          } }, item.suggestion.export.label),
+          h("p", { class: "oba-small oba-moderation-guidance", id: guidanceId }, item.suggestion.export.guidance)));
+      }
+      if (item.suggestion?.link) {
+        // The author's own record that an accepted suggestion became, or is becoming, future work they
+        // made. It creates, fetches and publishes nothing, and the reader is told only that it is linked
+        // (ADR 0162). Nothing is written to the Source Library: its hints below are copied by hand (ADR 0164).
+        const offer = item.suggestion.link;
+        const fieldId = (name) => `oba-moderation-${key}-link-${name}`;
+        const kind = h("select", { id: fieldId("kind"), "aria-describedby": fieldId("guidance") },
+          h("option", { value: "" }, "Choose what you made"),
+          offer.kinds.map((each) => h("option", { value: each.id }, each.label)));
+        const target = h("input", { type: "text", id: fieldId("target"), maxlength: "64", spellcheck: "false", autocomplete: "off", "aria-describedby": fieldId("guidance") });
+        const submit = h("button", { class: "oba-btn", type: "submit", "data-link-suggestion": "" }, "Record this link");
+        if (offer.full) submit.disabled = true;
+        const form = h("form", { class: "oba-moderation-action oba-suggestion-link-form", "data-link-form": "", onSubmit: async (event) => {
+          event.preventDefault();
+          const request = linkRequest(item, kind.value, target.value);
+          if (!request.ok) {
+            announce(line, request.message, "error");
+            (kind.value === "" ? kind : target).focus();
+            return;
+          }
+          busy(true);
+          announce(line, "Recording the link…");
+          try {
+            await this.api.call("POST", "engagement/suggestions/link", { json: request.body });
+            await reloadAll("The link was recorded. Nothing was created, published or sent; the reader’s contact and unpublished name are cleared the next time you run retention.", "ok");
+          } catch (error) {
+            busy(false);
+            announce(line, error.data?.code === "alreadyLinked" ? "It is already linked to that." : error.message, "error");
+            if (error.status === 409) await reloadAll(`${error.message} The list was reloaded.`, "error");
+            else target.focus();
+          }
+        } },
+        h("h4", {}, "Link to future work"),
+        h("div", { class: "oba-field" }, h("label", { for: fieldId("kind") }, "What you made"), kind),
+        h("div", { class: "oba-field" }, h("label", { for: fieldId("target") }, "Its slug or id"), target),
+        h("p", { class: "oba-small oba-moderation-guidance", id: fieldId("guidance") }, offer.full ? "It is linked as many times as it can be." : offer.guidance),
+        // The credit the reader agreed to for this text as it stands, shown only here: it is a fact for
+        // the author to act on, and nothing credits anyone unless they do (ADR 0167).
+        offer.credit ? h("p", { class: "oba-small oba-suggestion-credit", "data-suggestion-credit": "" }, offer.credit.line) : null,
+        submit);
+        actions.append(form);
+      }
+      if (item.suggestion?.libraryCandidate) {
+        // The reader's hints for a source, to copy by hand into a record the author makes (ADR 0164).
+        const candidate = item.suggestion.libraryCandidate;
+        const guidanceId = `oba-moderation-${key}-candidate-guidance`;
+        actions.append(h("details", { class: "oba-moderation-action oba-suggestion-candidate", "data-library-candidate": "" },
+          h("summary", { "aria-describedby": guidanceId }, candidate.label),
+          h("p", { class: "oba-small oba-moderation-guidance", id: guidanceId }, candidate.guidance),
+          h("ul", {}, libraryCandidateLines(candidate).map((text) => h("li", {}, text)))));
+      }
       const decision = decisionForm(item, key, line, busy);
       card.append(actions, ...(decision ? [decision] : []), line);
       return card;
@@ -15761,6 +15923,7 @@ export class ObAdmin extends AdminElement {
           try {
             const result = await this.api.call("POST", "engagement/retention", { json: { asOf: report.asOf, audit: auditBox.checked } });
             const parts = [`${result.expired} expired`, `${result.purged} purged`];
+            if (result.scrubbed) parts.push(`${result.scrubbed} had their private contact and name cleared`);
             if (result.auditDeleted) parts.push(`${result.auditDeleted} old records deleted`);
             if (result.skipped) parts.push(`${result.skipped} skipped because they changed or were not due`);
             retentionReport.replaceChildren();
@@ -15776,7 +15939,7 @@ export class ObAdmin extends AdminElement {
         retentionReport.replaceChildren(
           h("ul", {}, retentionSummaryLines(report).map((text) => h("li", {}, text))),
           report.items?.length ? h("details", {}, h("summary", {}, `The ${report.items.length} item${report.items.length === 1 ? "" : "s"} due`),
-            h("ul", {}, report.items.map((entry) => h("li", {}, `${entry.kindLabel}, ${entry.statusLabel.toLowerCase()} since ${formatWhen(entry.since)}, on ${entry.work}: ${entry.step === "expire" ? "expires" : "text deleted"}`)))) : null,
+            h("ul", {}, report.items.map((entry) => h("li", {}, `${entry.kindLabel}, ${entry.statusLabel.toLowerCase()} since ${formatWhen(entry.since)}, on ${entry.work}: ${entry.step === "expire" ? "expires" : entry.step === "scrub-identity" ? "contact and private name cleared" : "text deleted"}`)))) : null,
           due ? h("p", { class: "oba-feedback-acknowledge" }, confirmBox, " ", h("label", { for: "oba-retention-confirm" }, "I understand that purged text, details and names cannot be recovered.")) : null,
           due ? h("p", { class: "oba-feedback-acknowledge" }, auditBox, " ", h("label", { for: "oba-retention-audit" }, `Also delete private records of decisions older than ${report.periods.auditDays} days`)) : null,
           due ? run : null,

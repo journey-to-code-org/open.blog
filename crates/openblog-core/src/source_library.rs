@@ -2337,7 +2337,7 @@ pub(crate) fn valid_timestamp(value: &str) -> bool {
 
 /// Offline structural checks for known schemes; other schemes are kept as
 /// authored once their name is a lowercase slug.
-fn check_identifier(scheme: &str, value: &str) -> Result<(), String> {
+pub(crate) fn check_identifier(scheme: &str, value: &str) -> Result<(), String> {
     if value.trim() != value {
         return Err("must not start or end with whitespace".into());
     }

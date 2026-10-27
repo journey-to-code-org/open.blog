@@ -613,7 +613,7 @@ test("a retention run applies only what is still due as it was, and deletes old 
     ],
   } }));
   assert.equal(response.statusCode, 200, response.body);
-  assert.deepEqual(JSON.parse(response.body), { ok: true, expired: 1, purged: 1, skipped: 2, auditDeleted: { comment: 1, feedback: 1, report: 1 } });
+  assert.deepEqual(JSON.parse(response.body), { ok: true, expired: 1, purged: 1, scrubbed: 0, skipped: 2, auditDeleted: { comment: 1, feedback: 1, report: 1 } });
   const calls = writes(database);
   const expire = calls.find((request) => request.path.endsWith("/rpc/openblog_moderate_feedback_item")).body;
   assert.deepEqual({ action: expire.p_action, to: expire.p_to, reason: expire.p_reason, actor: expire.p_actor, role: expire.p_actor_role }, { action: "expire", to: "rejected", reason: "expired", actor: "@retention", role: "system" });

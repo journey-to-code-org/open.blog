@@ -24,6 +24,117 @@ All notable changes to open.blog are recorded here. Releases follow
   off the file is not read and a site builds exactly as before. Pages that show curated context
   follow in a later release.
 
+## [0.44.0] - 2026-10-26
+
+- A site that publishes its Knowledge Atlas now also publishes `atlas-query.json`, a small, bounded
+  reading of the published atlas for the context previews and relationship trails to come. It holds
+  only what `atlas.json` already publishes: approved entries with a short preview, and approved
+  relationships in the direction they were stated, with who asserts them, confidence, standing,
+  uncertainty and sources, with the pages' own wording (kind, who asserts a position, confidence,
+  standing and evidence) already written out so previews never reword it. Nothing private can be
+  in it, an atlas too large for it (or one that does not agree with itself) is left out with a
+  build warning and without affecting the atlas pages or `atlas.json`, and Admin's "What will be
+  public" lists it, its sources and the reason if it is left out.
+  A site that does not publish its atlas builds exactly as before.
+- A post can link a word to an approved Knowledge Atlas entry by writing
+  `[the allegory of the cave](atlas:allegory-of-the-cave)`. Only the words you link are linked, and
+  nothing is recognised automatically. The build turns each link into an ordinary link to the
+  entry's page that works without JavaScript. If the entry is unknown, not approved or withdrawn, or
+  the atlas is off, the words are published as plain text and the build, `check` and Admin name the
+  file and the id. Feeds and portable copies keep the words without the link, and Admin's "What
+  will be public" for the post lists each linked entry. Posts that do not use the syntax are
+  unchanged. A linked word is underlined with dots and read as "(atlas entry)" by a screen reader;
+  Admin's preview shows the links the build makes; an `atlas:` link inside an image description,
+  a page, a series description or the home introduction is shown as its words with a warning,
+  never as a raw address (nor in raw HTML: an `atlas:` `href`, `src`, `srcset`, `poster` and the like
+  is removed with a warning that names the document, not the address); and a stray unclosed link
+  tag no longer links the rest of the post.
+
+- A concept link in a post now previews its entry. On a page with a concept link, focusing or
+  hovering the link (or a first tap on a touch screen) shows a small card with the entry's type,
+  that it comes from your approved atlas, the first paragraph of its summary, a work's source, and up
+  to two relationships with who asserts them, how firmly and what is uncertain, plus a link to the
+  full entry. It reads only the published `atlas-query.json`, works from the keyboard (Tab goes into
+  it, Escape closes it and returns focus, nothing traps focus), keeps your place in the page, respects
+  reduced motion and fits a 320px screen. Without JavaScript, or if the file cannot be read, the link
+  is the ordinary link to the entry page. The card is looked up only when you first show interest in
+  a link (focus, hover or a press), never on load. On a touch screen, which has no hover, the file
+  is read as a link scrolls into view only when it is under 256 KB (the page says its size); a
+  larger one waits for your first tap, and no one who asked to save data is prefetched. The page names the file by its content so a changed
+  atlas is never read from a stale copy, a screen reader that focused the link early hears one
+  announcement when the card is ready, and a link inside a heading keeps the heading's name.
+- Every Markdown form of an `atlas:` link or image is now made safe in one place, so none can leak a
+  private entry id into a post, page, series description, home introduction, feed, search or
+  portable copy: reference, collapsed and shortcut links, autolinks (which have no label, so they
+  show nothing and the build tells you to write `[label](atlas:id)`), and images with an `atlas:`
+  address (always refused, their description is shown as text) all show only their words. A raw
+  `<ob-concept>` mark is removed from copies and the text projection, and one dropped because it is
+  unclosed now warns. A test builds every form to unpublished ids and scans every built file.
+- An entry page of a published Knowledge Atlas now ends with a relationship trail: the entry's
+  published relationships, and the relationships of the entries they reach, up to three steps away
+  and 50 relationships, as a plain ordered list that reads without JavaScript (the first step
+  out in full, further steps as their sentence and a link, within a 20 MB site-wide budget). Every step shows
+  the relationship in the direction it was stated, which way the trail followed it, who asserts it,
+  how firmly, its evidence and what is uncertain; a step that returns to an entry already on the
+  trail says so instead of going round again, and each entry it reaches links to its own page,
+  which continues the trail. Nothing is inferred: a trail is not a line of influence. With
+  JavaScript, controls filter by relationship type, direction, distance and "only contested or
+  uncertain" with a status line, the keyboard moves through without a trap, print shows the whole
+  trail, and it fits a 320px screen. A site that does not publish its atlas builds exactly as before.
+
+## [0.43.0] - 2026-10-26
+
+- Readers can suggest a question, text, video, audio or other source for the author's future work
+  (RD13). Set `"future-suggestion": "open"` in `participation.kinds` and a post gets a "Suggest
+  something for future work" form: the reader's own words, an optional public link and source
+  details, an optional article it is about, a name the editors may thank them by and an address they
+  agree to be contacted at. It goes to the editors' private queue, never to the page; accepting one
+  means only that the editors are interested, never agreement, checking or permission to use it, and
+  nothing counts, ranks or votes on suggestions. A site with no hosted service shows only its
+  `engagement.feedbackContact` (and nothing at all when it has none), and without script the region
+  says how to write instead. Pages of a site that leaves the kind off are unchanged.
+- Hosted: suggestions are taken through the existing `/feedback` route behind a new opt-in,
+  `OPENBLOG_SUGGESTIONS_ENABLED`, with a receipt, five an hour per client and a bound on repeats.
+  This needs one additive SQL change: run `supabase/feedback.sql` again. It loosens a check so a row
+  may have a page and no passage; every row already stored stays valid. To undo it run
+  `supabase/future-suggestions-rollback.sql`, which refuses (and changes nothing) while any
+  suggestion row exists, so export and delete them first.
+- Editors read suggestions in the Moderation inbox (kind "Suggestions for future work"), decide them
+  by the one policy, are shown possible duplicates without a count, and can copy an accepted one into
+  a private research note with an explicit button: labelled unverified reader text and where it came
+  from, with no name, contact or time, and nothing fetched or published. A suggestion's contact and
+  unshown name are cleared by the retention run after `closedDays`, and nothing else is.
+- Editors record what became of a suggestion (RD13, #228). In the Moderation inbox an accepted
+  suggestion has a "Link to future work" form: the slug of a draft or series, or the id of a source
+  in your library, which you made yourself. It records only that link (kept in the suggestion's own
+  details, with a private audit event; no SQL change), creates and publishes nothing, and is never
+  opened or checked. Each suggestion shows its outcome (held, converted, declined or closed) and its
+  links, and an accepted source can show its link and details, marked unverified, to copy into a
+  library record by hand. A reader who kept their receipt sees where it stands in plain words: the
+  editors are interested, an editor has recorded a link between it and work they are doing (a record,
+  not a promise to publish), or it was not taken forward (not a judgement of the idea); never a rank,
+  a count or what it was linked to. A linked suggestion's contact and unshown name are cleared by the
+  next retention run instead of waiting out `closedDays`.
+- Fixes to the suggestion records before release (#227 review): a suggestion whose links would
+  pass the hosted column's size once stored is refused when sent, the hosted check lets only a
+  suggestion have a page without a passage, the generic feedback route never decides a suggestion,
+  and an error in a source's details marks the first detail filled in.
+- Fixes to the suggestion records before release (#213 review): one public-address rule for a link
+  (the same as the publication boundary's), identifier hints held to the plain-text, link and scheme
+  rules, a largest submission that always reads back from storage, a strict stored shape, redacted
+  debug output, duplicates grouped by DOI, ISBN-10/13 and link however written and only among items
+  the viewer may see, a suggestion's editor view gated by who may see it, a closed linked suggestion
+  that no longer reads as declined, series and link targets in the site's own slugs, and a receipt
+  and a report that never treat a never-public kind as published.
+- A suggestion's reader credit is opt-in and tied to the text they agreed it for (RD13, #228).
+  Agreeing to be thanked by name covers the suggestion as it stands; if the reader later clarifies
+  it, or changes their mind, the agreement is not offered until they tick it again in their receipt
+  ("The editors may credit me by the name I gave for this suggestion"). Editors see it only beside the
+  link form ("The reader agreed to be credited as X for this text"), and nothing publishes it.
+  Hosted: the receipt route gains a `credit` action; no SQL change.
+- Fixed: a suggestion with wide text and long links could be accepted and stored but not read back
+  from the editors' inbox; the stored record is now read up to the sum of what its columns bound.
+
 ## [0.42.0] - 2026-10-26
 
 - The research checks now have author documentation, [Research checks](docs/research-checks.md),

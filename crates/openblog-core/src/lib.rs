@@ -27,6 +27,8 @@
 //! - [`chronology`]: uncertain, attributed and cited datings of atlas entries and relationships
 //! - [`chronology_index`]: deterministic chronology indexes and structural prompts to check datings
 //! - [`atlas_publication`]: the one public projection of its approved items, for pages and `atlas.json`
+//! - [`concept_links`]: an author's explicit `atlas:` links, resolved at build time against the public atlas alone
+//! - [`atlas_query`]: the bounded query projection derived from the public atlas, for components and search
 //! - [`comparison_publication`]: the one public projection of approved passage alignments, rights-gated, for pages and `comparisons.json`
 //! - [`curated_selection`]: the author's explicit, revision-aware selection of already-publishable research context for readers
 //! - [`passage_target`]: stable passage targets in published text, resolved as current, re-anchored or stale
@@ -40,6 +42,7 @@
 //! - [`third_perspective`]: a reader's consented, moderated reflection on a published work, and its one public form
 //! - [`perspective_publication`]: approved Third Perspectives as the site publishes and its canonical pages show them
 //! - [`attributed_perspective`]: stable targets at one author's section of a shared reflection, and who may answer a Third Perspective about it
+//! - [`future_suggestion`]: a reader's question or source suggestion for future work, kept private to the editors, never entering the Source Library by itself
 //! - [`author_response`]: an author's answer to a Third Perspective as the hosted store keeps it, the request that stores it and the checks that it still belongs under its parent
 
 pub mod accessibility;
@@ -49,6 +52,7 @@ pub mod arrangement;
 pub mod assembly;
 pub mod assistant_guide;
 pub mod atlas_publication;
+pub mod atlas_query;
 pub mod attributed_perspective;
 pub mod author_response;
 pub mod bibliography;
@@ -62,6 +66,7 @@ pub mod claim_review;
 pub mod claims;
 pub mod collaboration;
 pub mod comparison_publication;
+pub mod concept_links;
 pub mod config;
 pub mod context_links;
 pub mod contributor;
@@ -78,6 +83,7 @@ pub mod feedback_publication;
 pub mod feeds;
 pub mod field_journal;
 pub mod frontmatter;
+pub mod future_suggestion;
 pub mod interpretation;
 pub mod invitation;
 pub mod knowledge_atlas;

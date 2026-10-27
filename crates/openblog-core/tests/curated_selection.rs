@@ -782,6 +782,8 @@ fn the_boundary_manifest_gains_one_projection_only_when_curating() {
         acknowledgements: None,
         curation: None,
         unavailable: &[],
+        author: "",
+        base_path: "",
     };
     // Off, nothing selected: the manifest is what it always was.
     let legacy = BoundaryManifest::site(&inputs(false));
@@ -1008,6 +1010,8 @@ fn the_manifest_lists_the_caveats_and_a_competing_dating_is_a_boundary_warning()
         acknowledgements: None,
         curation: Some(&curation),
         unavailable: &[],
+        author: "",
+        base_path: "",
     };
     let manifest = BoundaryManifest::site(&inputs);
     let report = manifest

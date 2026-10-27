@@ -29,6 +29,12 @@ use crate::date::DateTime;
 use crate::evidence_submission::{evidence_review, is_evidence_kind};
 use crate::feedback_moderation::{feedback_review, post_for_work};
 use crate::feedback_moderation::{review_passage, PassageCheck};
+use crate::feedback_provenance::{FeedbackChannel, ReaderAttribution};
+use crate::future_suggestion::{
+    identity_scrub_due, library_candidate, research_draft, source_keys, Conversion,
+    ConversionError, ConversionKind, LibraryCandidate, ResearchDraft,
+    Standing as SuggestionStanding, Suggestion,
+};
 use crate::invitation::Identities;
 use crate::model::Site;
 use crate::moderation::{
@@ -127,8 +133,12 @@ impl Protocol {
             Protocol::Protected => true,
             // An author response needs the hosted function's own opt-in on top
             // of protection (ADR 0132), so only the protected protocol has it.
+            // A suggestion has a private receipt and an author response needs the
+            // function's own opt-in, so both need the protected protocol.
             Protocol::Full => {
-                kind != ParticipationKind::AbuseReport && kind != ParticipationKind::AuthorResponse
+                kind != ParticipationKind::AbuseReport
+                    && kind != ParticipationKind::AuthorResponse
+                    && kind != ParticipationKind::FutureSuggestion
             }
             Protocol::Legacy if kind == ParticipationKind::Comment => {
                 matches!(action, Approve | Reject | Remove | Reopen)
@@ -178,6 +188,7 @@ impl Source {
                 ParticipationKind::PASSAGE_FEEDBACK.contains(&kind)
                     || kind == ParticipationKind::ThirdPerspective
                     || kind == ParticipationKind::AuthorResponse
+                    || kind == ParticipationKind::FutureSuggestion
             }
             Source::Report => kind == ParticipationKind::AbuseReport,
         }
@@ -196,6 +207,9 @@ pub enum Content {
     /// An author's answer to a Third Perspective about their own section,
     /// with the responder it stores (ADRs 0130 to 0132).
     AuthorResponse(Box<HostedAuthorResponse>),
+    /// A reader's suggestion for future work, in the editors' private queue
+    /// (ADRs 0152 to 0157). It is never public.
+    Suggestion(Box<Suggestion>),
     /// An abuse report: the reader's ground and what they wrote, if anything.
     /// It never names the reporter.
     Report {
@@ -336,6 +350,53 @@ struct WirePurged {
     received_at: String,
     work: String,
     purged_at: String,
+}
+
+/// A suggestion row as the hosted function lists it: the feedback item shape,
+/// whose provenance has the page and no passage (ADR 0154).
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct WireSuggestion {
+    id: String,
+    status: String,
+    version: u64,
+    #[serde(default)]
+    moderated_at: Option<String>,
+    #[serde(default)]
+    reason: Option<String>,
+    feedback: WireSuggestionRecord,
+    #[serde(default)]
+    item_revision: Option<u64>,
+    #[serde(default)]
+    approved_revision: Option<u64>,
+    #[serde(default)]
+    clarification_asked: Option<u64>,
+    #[serde(default)]
+    clarification_consent: Option<bool>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WireSuggestionRecord {
+    version: u64,
+    kind: String,
+    body: String,
+    details: Value,
+    provenance: WireSuggestionProvenance,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct WireSuggestionProvenance {
+    version: u64,
+    work: String,
+    #[serde(default)]
+    revision: Option<Value>,
+    #[serde(default)]
+    target: Option<Value>,
+    received_at: String,
+    channel: FeedbackChannel,
+    attribution: ReaderAttribution,
 }
 
 /// Whether `value` is a published post path the hosted service accepts.
@@ -633,6 +694,10 @@ impl InboxItem {
             drop_empty_decisions(&mut wire);
             return Self::read_author_response(&wire);
         }
+        if wire["feedback"]["kind"] == ParticipationKind::FutureSuggestion.id() {
+            drop_empty_decisions(&mut wire);
+            return Self::read_suggestion(&wire);
+        }
         let hosted = HostedFeedback::from_value(&wire).map_err(|error| error.to_string())?;
         Ok(Self {
             source: Source::Feedback,
@@ -675,6 +740,99 @@ impl InboxItem {
             content: Content::Perspective(Box::new(hosted)),
             target: None,
         })
+    }
+
+    fn read_suggestion(value: &Value) -> Result<Self, String> {
+        let wire: WireSuggestion = serde_json::from_value(value.clone())
+            .map_err(|_| "a hosted suggestion has an unknown or mistyped field".to_string())?;
+        let invalid = |what: &str| format!("a hosted suggestion {what}");
+        if !is_uuid(&wire.id) {
+            return Err(invalid("needs a UUID `id`"));
+        }
+        let state = Self::read_state(Source::Feedback, &wire.status, wire.version)?;
+        let number = |value: Option<u64>, what: &str| {
+            value
+                .map(|value| {
+                    u32::try_from(value)
+                        .ok()
+                        .filter(|value| (1..=i32::MAX as u32).contains(value))
+                        .ok_or_else(|| invalid(what))
+                })
+                .transpose()
+        };
+        let revision = number(wire.item_revision, "needs a positive `itemRevision`")?.unwrap_or(1);
+        let approved_revision = number(
+            wire.approved_revision,
+            "needs a positive `approvedRevision`",
+        )?;
+        let clarification_asked = number(
+            wire.clarification_asked,
+            "needs a positive `clarificationAsked`",
+        )?;
+        if approved_revision.is_some_and(|approved| approved > revision)
+            || clarification_asked.is_some_and(|asked| asked > revision)
+        {
+            return Err(invalid("names a revision after its current one"));
+        }
+        let record = wire.feedback;
+        let provenance = record.provenance;
+        if record.version != crate::future_suggestion::FUTURE_SUGGESTION_VERSION
+            || record.kind != ParticipationKind::FutureSuggestion.id()
+            || provenance.version != 1
+            || provenance
+                .revision
+                .as_ref()
+                .is_some_and(|value| !value.is_null())
+            || provenance
+                .target
+                .as_ref()
+                .is_some_and(|value| !value.is_null())
+        {
+            return Err(invalid(
+                "is not a version 1 suggestion about a page and no passage",
+            ));
+        }
+        let receipt = json!({
+            "work": provenance.work,
+            "receivedAt": provenance.received_at,
+            "channel": provenance.channel,
+        });
+        let suggestion = Suggestion::from_stored(
+            &record.body,
+            revision,
+            &record.details,
+            &receipt,
+            &provenance.attribution,
+        )
+        .map_err(|error| error.to_string())?;
+        if !is_site_path(&suggestion.receipt.work) {
+            return Err(invalid("needs a post path"));
+        }
+        Ok(Self {
+            source: Source::Feedback,
+            id: wire.id,
+            kind: ParticipationKind::FutureSuggestion,
+            state,
+            version: wire.version,
+            revision,
+            approved_revision,
+            clarification_asked,
+            clarification_consent: wire.clarification_consent.unwrap_or(false),
+            reason: Self::read_reason(wire.reason)?,
+            moderated_at: Self::read_moderated_at(wire.moderated_at)?,
+            received_at: suggestion.receipt.received_at,
+            work: suggestion.receipt.work.clone(),
+            content: Content::Suggestion(Box::new(suggestion)),
+            target: None,
+        })
+    }
+
+    /// The suggestion, for an item of that kind whose text is kept.
+    pub fn suggestion(&self) -> Option<&Suggestion> {
+        match &self.content {
+            Content::Suggestion(suggestion) => Some(suggestion),
+            _ => None,
+        }
     }
 
     fn read_author_response(wire: &Value) -> Result<Self, String> {
@@ -758,6 +916,33 @@ impl InboxItem {
             clarification_consent: self.clarification_consent,
             content_retained: !matches!(self.content, Content::Purged),
             state_since: self.moderated_at.unwrap_or(self.received_at),
+        }
+    }
+
+    /// The step retention owes this item now, if any (ADR 0104). A kept
+    /// suggestion owes the clearing of its private identity only while it
+    /// holds some, so a run never lists an item it has nothing to change on.
+    pub fn retention_step(
+        &self,
+        policy: &ModerationPolicy,
+        now: DateTime,
+    ) -> Option<RetentionStep> {
+        // A kept suggestion an author has linked to future work owes the
+        // clearing at once, not only after the closed-item period (ADR 0155
+        // and ADR 0163): the core's `identity_scrub_due` is the one rule.
+        if let Content::Suggestion(suggestion) = &self.content {
+            let facts = self.facts();
+            if identity_scrub_due(policy, &facts, suggestion, &suggestion.conversions, now) {
+                return Some(RetentionStep::ScrubIdentity);
+            }
+            return policy
+                .retention_due(&facts, now)
+                .filter(|step| *step != RetentionStep::ScrubIdentity);
+        }
+        let step = policy.retention_due(&self.facts(), now)?;
+        match step {
+            RetentionStep::ScrubIdentity => None,
+            _ => Some(step),
         }
     }
 
@@ -1152,6 +1337,70 @@ impl<'a> Inbox<'a> {
             && may_decide(&self.actor(item), &facts)
     }
 
+    /// A suggestion as a draft of a private research note, for the author's
+    /// own explicit export: only the site Admin or a coordinator of its work,
+    /// and only an accepted suggestion (ADR 0157). Nothing is written here.
+    pub fn research_draft(&self, item: &InboxItem) -> Result<ResearchDraft, ConversionError> {
+        let suggestion = item.suggestion().ok_or(ConversionError::WrongKind)?;
+        research_draft(suggestion, &self.actor(item), &item.facts())
+    }
+
+    /// Record that the author linked an accepted suggestion to future work
+    /// they made (ADR 0157 and ADR 0162), for the viewer who may (the site
+    /// Admin, or a coordinator of its work): the link. Nothing is created,
+    /// fetched or sent; the caller stores the link where the hosted row keeps
+    /// it.
+    pub fn link_to_future_work(
+        &self,
+        item: &InboxItem,
+        kind: ConversionKind,
+        target: &str,
+    ) -> Result<Conversion, ConversionError> {
+        let suggestion = item.suggestion().ok_or(ConversionError::WrongKind)?;
+        crate::future_suggestion::convert(
+            &self.actor(item),
+            &item.facts(),
+            &suggestion.conversions,
+            kind,
+            target,
+            self.now,
+        )
+    }
+
+    /// The unverified hints of an accepted suggestion, for the author to copy
+    /// into a Source Library record they choose to make. Written nowhere.
+    pub fn library_candidate(&self, item: &InboxItem) -> Result<LibraryCandidate, ConversionError> {
+        let suggestion = item.suggestion().ok_or(ConversionError::WrongKind)?;
+        library_candidate(suggestion, &self.actor(item), &item.facts())
+    }
+
+    /// The offer to record a link to future work, for a viewer who may and an
+    /// item that can still take one; `None` otherwise.
+    fn link_offer(&self, item: &InboxItem, suggestion: &Suggestion) -> Option<Value> {
+        let probe = crate::future_suggestion::convert(
+            &self.actor(item),
+            &item.facts(),
+            &[],
+            ConversionKind::Draft,
+            "a",
+            self.now,
+        );
+        // Whether this viewer may link at all, whatever the target.
+        probe.ok()?;
+        Some(json!({
+            "kinds": ConversionKind::ALL.iter().map(|kind| json!({"id": kind.id(), "label": conversion_kind_label(*kind)})).collect::<Vec<_>>(),
+            "full": suggestion.conversions.len() >= crate::future_suggestion::MAX_CONVERSIONS,
+            // The name the reader agreed to be credited by for this text as
+            // it stands now, shown here and nowhere else, and never used by
+            // anything on its own (ADR 0167).
+            "credit": suggestion.credit().map(|name| json!({
+                "name": name,
+                "line": format!("The reader agreed to be credited as {name} for this text. Nothing credits them unless you do."),
+            })),
+            "guidance": "Records that you made, or are making, something from this suggestion: the slug of a draft or series, or the id of a source you added to your library. It creates, fetches and publishes nothing, and tells the reader only that it is linked to future work. The reader’s contact and unpublished name are cleared the next time you run retention.",
+        }))
+    }
+
     /// The post with the item's address now, its passage check and passage
     /// revision, for a feedback item: what a correction decision records
     /// about the passage the author read.
@@ -1214,7 +1463,7 @@ impl<'a> Inbox<'a> {
 
     /// The step retention owes the item now, if any (ADR 0104).
     pub fn retention_due(&self, item: &InboxItem) -> Option<RetentionStep> {
-        self.policy.retention_due(&item.facts(), self.now)
+        item.retention_step(&self.policy, self.now)
     }
 
     /// The item as this viewer may see it, or `None` when they may not see
@@ -1474,6 +1723,90 @@ impl<'a> Inbox<'a> {
                     _ => Value::Null,
                 };
             }
+            Content::Suggestion(suggestion) => {
+                // Gated on the one view rule again where the content is built,
+                // so no caller can show a suggestion to an actor who may not
+                // see it.
+                let scope = ItemFacts {
+                    content_retained: true,
+                    ..facts
+                };
+                let shown = suggestion.editor_view(&actor, &scope, mode)?;
+                let hints = &shown.hints;
+                view["body"] = json!(shown.text);
+                view["details"] = json!({});
+                let attribution = &suggestion.submission.attribution;
+                // Whether the reader agreed to be credited for this text as it
+                // stands, not whether they ever ticked the box (ADR 0167).
+                let mut reader = json!({ "publishName": suggestion.credit().is_some() });
+                match &shown.name {
+                    Some(name) => reader["name"] = json!(name),
+                    None if attribution.name.is_some() => reader["private"] = json!(true),
+                    None => {}
+                }
+                view["reader"] = reader;
+                let stands = SuggestionStanding::of(item.state, &suggestion.conversions);
+                let outcome = suggestion.outcome(item.state);
+                view["suggestion"] = json!({
+                    "type": shown.suggestion_type.id(),
+                    "typeLabel": shown.suggestion_type.label(),
+                    "url": shown.url,
+                    "hints": {
+                        "title": hints.title,
+                        "creators": hints.creators,
+                        "year": hints.year,
+                        "publisher": hints.publisher,
+                        "identifiers": hints.identifiers.iter().map(|identifier| json!({"scheme": identifier.scheme, "value": identifier.value})).collect::<Vec<_>>(),
+                    },
+                    "about": shown.about.as_ref().map(|about| match about {
+                        crate::future_suggestion::About::Series(slug) => json!({"series": slug}),
+                        crate::future_suggestion::About::Article(path) => json!({"article": path}),
+                    }),
+                    "missing": shown.missing,
+                    "notice": shown.notice,
+                    "standing": {"id": stands.id(), "label": stands.label()},
+                    // How the editors dealt with it, once they have; never a
+                    // count, a rank or a verdict on the idea (ADR 0163).
+                    "outcome": outcome.map(|outcome| json!({"id": outcome.id(), "label": outcome.label()})),
+                    // What an author linked it to: ids and dates only, never
+                    // anything of the reader. The target is the author's own
+                    // record and is never opened or checked.
+                    "conversions": suggestion.conversions.iter().map(|link| json!({
+                        "kind": link.kind.id(),
+                        "kindLabel": conversion_kind_label(link.kind),
+                        "id": link.id,
+                        "at": link.at.rfc3339(),
+                        "by": link.by,
+                    })).collect::<Vec<_>>(),
+                    "received": shown.received,
+                    // Only a viewer who may see a reader's private identity is
+                    // sent it; nobody else is told whether there is one.
+                    "contact": shown.contact.as_ref().map(|contact| contact.address()),
+                    // Offered only to those who may act on an accepted suggestion,
+                    // and only while it can still be linked.
+                    "link": self.link_offer(item, suggestion),
+                    // The hints an author may copy into a Source Library
+                    // record of their own making: unverified, never written
+                    // to the library by anything here (ADR 0164).
+                    "libraryCandidate": self.library_candidate(item).ok().map(|candidate| json!({
+                        "label": "Show hints for a Source Library record",
+                        "guidance": "Shows the link and details the reader gave, marked unverified, to copy into a source record you make yourself. Nothing is written to your library, fetched or published, and rights stay your own declaration.",
+                        "type": candidate.suggestion_type.id(),
+                        "url": candidate.url,
+                        "title": candidate.hints.title,
+                        "creators": candidate.hints.creators,
+                        "year": candidate.hints.year,
+                        "publisher": candidate.hints.publisher,
+                        "identifiers": candidate.hints.identifiers.iter().map(|identifier| json!({"scheme": identifier.scheme, "value": identifier.value})).collect::<Vec<_>>(),
+                        "unverified": candidate.unverified,
+                    })),
+                    // Offered only to those who may act on an accepted suggestion.
+                    "export": self.research_draft(item).ok().map(|_| json!({
+                        "label": "Copy into a private research note",
+                        "guidance": "Starts a note in your private research notebook from this suggestion, labelled as unverified reader text with where it came from. It copies no name, no contact and no time, fetches nothing, publishes nothing and changes nothing about the suggestion. You can edit or delete the note like any other.",
+                    })),
+                });
+            }
             Content::AuthorResponse(hosted) => {
                 view["body"] = json!(hosted.body);
                 view["details"] = json!({});
@@ -1615,6 +1948,12 @@ pub fn decisions_view(log: &DecisionLog, item_revision: u32) -> Value {
 /// suggestion are two items with two decisions (ADR 0117).
 pub fn similar_items(items: &[&InboxItem]) -> std::collections::BTreeMap<String, Vec<Value>> {
     let keys = |item: &InboxItem| -> Vec<String> {
+        if let Some(suggestion) = item.suggestion() {
+            return source_keys(&suggestion.submission)
+                .into_iter()
+                .map(|key| format!("source:{key}"))
+                .collect();
+        }
         let Some(hosted) = item.feedback() else {
             return Vec::new();
         };
@@ -1651,7 +1990,10 @@ pub fn similar_items(items: &[&InboxItem]) -> std::collections::BTreeMap<String,
         let mine = keys(item);
         let mut similar = Vec::new();
         for other in items {
-            if other.id == item.id || other.work != item.work {
+            // A source suggested from two pages is one source, so suggestions
+            // are compared across pages; everything else only within a post.
+            let suggestions = item.suggestion().is_some() && other.suggestion().is_some();
+            if other.id == item.id || (!suggestions && other.work != item.work) {
                 continue;
             }
             let theirs = keys(other);
@@ -1691,6 +2033,12 @@ pub fn guidance(policy: &ModerationPolicy, item: &InboxItem, action: ModerationA
         ModerationAction::Approve if item.kind == ParticipationKind::Comment => {
             "Shows the comment on its post.".into()
         }
+        ModerationAction::Approve if item.kind == ParticipationKind::FutureSuggestion => {
+            format!(
+                "Accepts it into the editors’ private list and publishes nothing. It means only that you are interested in exploring it, not that you agree with it, have checked it or may use it. Any contact address and name the reader did not agree to show are cleared {} days after this decision, or sooner when you link it to future work.",
+                policy.retention.closed_days
+            )
+        }
         ModerationAction::Approve if item.kind == ParticipationKind::AuthorResponse => {
             "Approves exactly this answer and publishes it on the post, after that author’s section and under the reader’s reflection it answers, labelled as the author’s response. It does not mean you agree, and it can never be approved by the account that wrote it. If the reflection it answers is taken down, the answer is hidden with it.".into()
         }
@@ -1704,6 +2052,9 @@ pub fn guidance(policy: &ModerationPolicy, item: &InboxItem, action: ModerationA
             format!("Dismisses the report; the reported item is not changed. {retention}")
         }
         ModerationAction::Reject => format!("Never shown. {retention}"),
+        ModerationAction::Remove if item.kind == ParticipationKind::FutureSuggestion => {
+            format!("Closes it with this reason. It was never shown. {retention}")
+        }
         ModerationAction::Remove => format!("Takes it off the post. {retention}"),
         ModerationAction::RequestClarification => {
             "Asks the reader, through their private receipt, to revise it; nothing is e-mailed. The text you asked about can never be approved, only the reader’s answer can.".into()
@@ -1722,5 +2073,14 @@ pub fn guidance(policy: &ModerationPolicy, item: &InboxItem, action: ModerationA
             format!("{target} The report itself is never published. {retention}")
         }
         _ => String::new(),
+    }
+}
+
+/// What an author calls what a link points at.
+pub fn conversion_kind_label(kind: ConversionKind) -> &'static str {
+    match kind {
+        ConversionKind::Draft => "A draft (its slug)",
+        ConversionKind::Series => "A series (its slug)",
+        ConversionKind::LibrarySource => "A Source Library record (its id)",
     }
 }

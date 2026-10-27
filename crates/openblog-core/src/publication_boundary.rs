@@ -29,6 +29,7 @@ use serde_json::Value;
 
 use crate::alignment::AlignmentSet;
 use crate::atlas_publication::{aspect_noun, PublicAtlas};
+use crate::atlas_query::{AtlasQuery, RefusalKind, ATLAS_QUERY_JSON_FILE};
 use crate::citations::{public_identifier, public_url_problem, PublicReference};
 use crate::claims::{ClaimSet, Relation};
 use crate::comparison_publication::{PublicComparisons, Withheld};
@@ -57,6 +58,8 @@ pub enum Projection {
     Atlas,
     /// Approved datings of published atlas items.
     Datings,
+    /// The bounded query projection derived from the published atlas.
+    AtlasQuery,
     /// Approved passage comparisons.
     Comparisons,
     /// Links a post makes to atlas and comparison pages.
@@ -72,7 +75,7 @@ impl Projection {
         match self {
             Self::Citations => "citations",
             Self::ClaimEvidence => "claimEvidence.publish",
-            Self::Atlas | Self::Datings => "knowledgeAtlas.publish",
+            Self::Atlas | Self::Datings | Self::AtlasQuery => "knowledgeAtlas.publish",
             Self::Comparisons => "comparisons.publish",
             Self::ContextLinks => "knowledgeAtlas.publish, comparisons.publish",
             Self::Curated => "curatedContext.publish",
@@ -91,6 +94,8 @@ pub enum ItemKind {
     Relationship,
     Dating,
     Comparison,
+    /// The atlas query file as a whole, when it is withheld.
+    AtlasQuery,
     /// A link in a post to an atlas entry's page.
     AtlasPage,
     /// A link in a post to a comparison's page.
@@ -141,6 +146,11 @@ pub enum Reason {
     MissingTarget,
     /// The selections it requires lead back to it.
     SelectionCycle,
+    /// Over a published size or count bound, so the file is left out whole.
+    OverLimit,
+    /// The published projection does not agree with itself, so a file derived
+    /// from it is left out whole rather than written with a gap.
+    Inconsistent,
 }
 
 /// One field of a published item that is left out, and why.
@@ -359,6 +369,12 @@ pub struct BoundaryInputs<'a> {
     /// The curated selections resolved against what the build publishes.
     pub curation: Option<&'a CurationInput<'a>>,
     pub unavailable: &'a [Unavailable],
+    /// The site author's public name, which words an author-asserted
+    /// position in the atlas query file as the atlas pages do.
+    pub author: &'a str,
+    /// The site's base path (`""` or `"/blog"`), put in front of every
+    /// root-relative address in a published data file.
+    pub base_path: &'a str,
 }
 
 /// The curated selections as the manifest reads them.
@@ -488,6 +504,7 @@ impl BoundaryManifest {
             claim_evidence(inputs, inputs.posts.iter().collect(), &slugs, None),
             atlas(inputs),
             datings(inputs),
+            atlas_query(inputs),
             comparisons(inputs),
         ];
         let mut projections = projections;
@@ -541,7 +558,13 @@ impl BoundaryManifest {
         let mut warnings = Vec::new();
         for report in &self.projections {
             for item in &report.withheld {
-                if matches!(item.reason, Reason::StaleApproval | Reason::StaleSelection) {
+                if matches!(
+                    item.reason,
+                    Reason::StaleApproval
+                        | Reason::StaleSelection
+                        | Reason::OverLimit
+                        | Reason::Inconsistent
+                ) {
                     warnings.push(format!("boundary: {}", item.message));
                 }
             }
@@ -592,6 +615,8 @@ impl BoundaryManifest {
                     Projection::ClaimEvidence => "claims and evidence links",
                     Projection::Atlas => "atlas entries and relationships",
                     Projection::Datings => "datings",
+                    // The query file repeats what the atlas already counts.
+                    Projection::AtlasQuery => continue,
                     Projection::Comparisons => "comparisons",
                     Projection::ContextLinks => "linked research pages",
                     Projection::Curated => "curated selections",
@@ -1086,6 +1111,106 @@ fn datings(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
     report
 }
 
+/// The query projection of the published atlas (ADR 0168): one item for each
+/// entry and relationship it holds, each copying only the query allowlist.
+/// It is derived from the published atlas, so it can name nothing the Atlas
+/// projection does not publish.
+fn atlas_query(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
+    let mut report = report(Projection::AtlasQuery, inputs.switches.atlas);
+    if let Some(blocked) = inputs.atlas_blocked.filter(|_| report.enabled) {
+        report.blocked = Some(blocked.to_string());
+        return report;
+    }
+    let Some(public) = inputs.public_atlas.filter(|_| report.enabled) else {
+        return report;
+    };
+    let query = match AtlasQuery::project(public, inputs.author, inputs.base_path) {
+        Ok(query) => query,
+        Err(refusal) => {
+            report.withheld.push(withheld(
+                ItemKind::AtlasQuery,
+                "atlas-query",
+                match refusal.kind {
+                    RefusalKind::OverLimit => Reason::OverLimit,
+                    RefusalKind::Inconsistent => Reason::Inconsistent,
+                },
+                format!(
+                    "The atlas query file {ATLAS_QUERY_JSON_FILE} is not written: {refusal}. The atlas pages and atlas.json are unaffected."
+                ),
+            ));
+            return report;
+        }
+    };
+    for entry in &query.entries {
+        let mut fields: Vec<String> = ["kind", "kindLabel", "label"]
+            .iter()
+            .map(|f| f.to_string())
+            .collect();
+        present(&mut fields, "aliases", !entry.aliases.is_empty());
+        present(&mut fields, "source", entry.source.is_some());
+        present(&mut fields, "preview", entry.preview.is_some());
+        fields.push("url".to_string());
+        present(&mut fields, "out", !entry.out.is_empty());
+        present(&mut fields, "in", !entry.incoming.is_empty());
+        report.published.push(PublishedItem {
+            kind: ItemKind::Entry,
+            id: entry.id.clone(),
+            label: Some(entry.label.clone()),
+            posts: Vec::new(),
+            url: Some(entry.url.clone()),
+            fields,
+            withheld_fields: Vec::new(),
+            notices: Vec::new(),
+        });
+    }
+    for edge in &query.edges {
+        let mut fields: Vec<String> = [
+            "kind",
+            "from",
+            "to",
+            "label",
+            "inverseLabel",
+            "assertedBy",
+            "assertedByText",
+            "confidence",
+            "confidenceText",
+            "standing",
+            "standingText",
+            "evidence",
+            "url",
+        ]
+        .iter()
+        .map(|f| f.to_string())
+        .collect();
+        present(&mut fields, "dissents", edge.dissents > 0);
+        present(&mut fields, "uncertainty", edge.uncertainty.is_some());
+        report.published.push(PublishedItem {
+            kind: ItemKind::Relationship,
+            id: edge.id.clone(),
+            label: Some(format!("{} {} {}", edge.from, edge.label, edge.to)),
+            posts: Vec::new(),
+            url: Some(edge.url.clone()),
+            fields,
+            withheld_fields: Vec::new(),
+            notices: Vec::new(),
+        });
+    }
+    // The public text of each source the file cites, as the atlas pages show it.
+    for source in &query.sources {
+        report.published.push(PublishedItem {
+            kind: ItemKind::Source,
+            id: source.id.clone(),
+            label: Some(source.text.clone()),
+            posts: Vec::new(),
+            url: None,
+            fields: vec!["text".to_string()],
+            withheld_fields: Vec::new(),
+            notices: Vec::new(),
+        });
+    }
+    report
+}
+
 fn comparisons(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
     let mut report = report(Projection::Comparisons, inputs.switches.comparisons);
     if let Some(blocked) = inputs.comparisons_blocked.filter(|_| report.enabled) {
@@ -1290,7 +1415,8 @@ fn context_links(inputs: &BoundaryInputs<'_>, post: &Post) -> ProjectionReport {
     let links = find_context_links(post.authored_markdown(), 1);
     let mut seen = BTreeSet::new();
     for link in links {
-        if !seen.insert((link.kind, link.id.clone())) {
+        // A form the build never shows as a link leads nowhere: not listed.
+        if !link.linked || !seen.insert((link.kind, link.id.clone())) {
             continue;
         }
         let (kind, page) = match link.kind {
@@ -1332,15 +1458,18 @@ fn context_links(inputs: &BoundaryInputs<'_>, post: &Post) -> ProjectionReport {
                     ContextKind::AtlasEntry => "atlas entry",
                     ContextKind::Comparison => "comparison",
                 };
-                let mut item = withheld(
-                    kind,
-                    &link.id,
-                    Reason::PageNotPublished,
+                let message = if link.href.starts_with(crate::concept_links::SCHEME) {
+                    format!(
+                        "The concept link {} names the {what} `{}`, whose page the next build does not publish; it is published as the plain text of its label, with no link.",
+                        link.href, link.id
+                    )
+                } else {
                     format!(
                         "The link to {} leads to the {what} `{}`, whose page the next build does not publish; the link is published as written and leads nowhere.",
                         link.href, link.id
-                    ),
-                );
+                    )
+                };
+                let mut item = withheld(kind, &link.id, Reason::PageNotPublished, message);
                 item.posts = vec![post.slug.clone()];
                 report.withheld.push(item);
             }

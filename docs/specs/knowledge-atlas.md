@@ -371,3 +371,201 @@ published atlas that cannot be read or validated stops `build` and `check` befor
 written, naming the file only. `atlas` is a reserved page and post path while the atlas is
 published. The atlas pages join the sitemap; feeds, search, `llms.txt` and portable exports do
 not include them.
+
+### Query projection
+
+[ADR 0168](../adr/0168-the-atlas-query-projection-is-derived-from-the-public-atlas-alone-and-is-one-more-listed-artifact.md),
+[ADR 0169](../adr/0169-the-query-projection-is-bounded-clips-text-visibly-and-is-refused-whole-over-a-bound.md),
+[ADR 0170](../adr/0170-queries-are-exact-lookup-and-a-bounded-trail-that-infer-nothing.md) and
+[ADR 0171](../adr/0171-the-query-file-carries-the-pages-wording-and-a-works-source-and-its-lookup-is-one-shared-algorithm.md).
+While the atlas is published the build also writes `/atlas-query.json`, derived by
+`openblog_core::atlas_query::AtlasQuery::project` from the public atlas above and nothing else, as
+bounded page data for components and search. It is not a page and is not in the sitemap.
+
+```json
+{
+  "format": "openblog-atlas-query",
+  "formatVersion": 1,
+  "limits": { "maxTextChars": 240, "maxListedEdges": 50, "maxTrailDepth": 3, "maxTrailSteps": 50 },
+  "entries": [
+    { "id": "plato", "kind": "person", "kindLabel": "Person", "label": "Plato",
+      "aliases": ["Aristocles"], "preview": "An Athenian philosopher.", "previewClipped": true,
+      "url": "/atlas/plato/", "out": ["r-authored"] },
+    { "id": "republic", "kind": "work", "kindLabel": "Work", "label": "Republic",
+      "source": "plato-republic", "url": "/atlas/republic/", "in": ["r-authored"] }
+  ],
+  "edges": [
+    { "id": "r-authored", "kind": "authored", "from": "plato", "to": "republic",
+      "label": "authored", "inverseLabel": "authored by",
+      "assertedBy": { "kind": "source", "source": "scholar-book" },
+      "assertedByText": "A study",
+      "confidence": "plausible", "confidenceText": "Plausible",
+      "standing": "contested", "standingText": "Contested: 1 recorded dissent.", "dissents": 1,
+      "evidence": [{ "source": "republic-slings", "locators": [{ "kind": "page", "value": "514" }],
+                     "text": "Platonis Rempublicam, p. 514" }],
+      "uncertainty": "Authorship of some dialogues is disputed.",
+      "url": "/atlas/plato/#atlas-r-r-authored" }
+  ],
+  "sources": [
+    { "id": "plato-republic", "text": "Politeia" },
+    { "id": "republic-slings", "text": "Platonis Rempublicam" },
+    { "id": "scholar-book", "text": "A study" }
+  ],
+  "terms": [
+    { "term": "aristocles", "entries": ["plato"] },
+    { "term": "plato", "entries": ["plato"] },
+    { "term": "republic", "entries": ["republic"] }
+  ]
+}
+```
+
+- Entries, edges, sources and terms are sorted; the file is compact, deterministic, has root-relative
+  URLs that follow the base path and escapes `<`, `>` and `&`. It has no `version` key.
+- `formatVersion` stays 1 while the format is unreleased, and adding an optional field to it is not
+  a version change (a reader ignores fields it does not know); removing or renaming a field, or
+  changing what one means, raises it (ADR 0171).
+- Display text is computed in Rust with the pages' own wording and is the only wording a component
+  shows: `kindLabel` on an entry; on a relationship `assertedByText` (the site author's public name
+  for an author-asserted position, a source's public title, or the named party), `confidenceText`
+  and `standingText`; on each evidence item `text`. A work's `source` is the id of the source it
+  stands for; `sources` holds the public text of every source an entry or relationship cites or is
+  attributed to.
+- An entry lists the ids of the relationships that start (`out`) and end (`in`) there, at most 50
+  each, and counts the rest as `moreOut` and `moreIn`; `edges` holds every published relationship.
+  A relationship is read in its stored direction; `dissents` is a count and the dissents themselves,
+  datings and the full summary stay on the pages and in `atlas.json`.
+- `preview` is the first paragraph of the summary, cut to 240 characters with an ellipsis;
+  `previewClipped` and `uncertaintyClipped` say when what is shown is less than what is published.
+- `terms` maps a label or alias, normalized as below, to every entry that has it. A shared term lists
+  all of them; nothing resolves it. A label or alias longer than 80 characters is not indexed.
+- **Lookup normalization** is exact and is the same in Rust (`atlas_query::normalize_term`) and
+  JavaScript (`web/components/atlas-terms.js`), tested against the shared fixtures in
+  `tests/fixtures/atlas-lookup.json`: split the text on Unicode `White_Space` code points (U+0009 to
+  U+000D, U+0020, U+0085, U+00A0, U+1680, U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F, U+3000),
+  drop the empty pieces, join with one U+0020, and apply the default Unicode lowercase conversion
+  (`str::to_lowercase`; `toLowerCase`), which writes a final sigma as `ς`. Nothing else: no
+  normalization form (a composed and a decomposed `Café` are different terms), no case folding (`ß`
+  stays `ß` and is not `ss`), no stripping of format characters (U+FEFF and U+200B are ordinary
+  characters, unlike in JavaScript's `\s`), no stemming, translation or fuzzy match.
+- A projection over 2,000 entries, 10,000 relationships or 4 MiB (counted with the site's base path
+  in front of every address, as written), or one that is not internally consistent, gets no file;
+  `atlas.json` and the pages are unaffected, the build prints a `boundary:` warning, and the Admin
+  preview says why, with the reason `over-limit` or `inconsistent`.
+- The Rust API (`entry`, `edge`, `source`, `lookup`, `edges_of`, `trail`) is closed and read-only.
+  `trail` is a breadth-first walk to depth 3 and 50 steps over either direction, crossing each
+  relationship once so a cycle ends it, and says nothing beyond its steps.
+- The publication-boundary manifest lists the file as the `atlas-query` projection, with one item
+  per entry and relationship and the fields each copies, and one item per source it holds. The
+  build refuses the file if it names an entry, relationship or source that the atlas projection or
+  the query projection does not publish, wherever it names it: in the items it lists, in `from`
+  and `to`, in `terms[].entries`, and in every source id (`sources[].id`, `evidence[].source`,
+  `assertedBy.source`, `entries[].source`).
+
+### Concept links in articles
+
+[ADR 0172](../adr/0172-an-article-links-a-term-to-an-atlas-entry-only-where-the-author-writes-an-atlas-link-and-only-if-the-entry-is-published.md).
+In a post, `[the allegory of the cave](atlas:allegory-of-the-cave)` links the words to the atlas entry
+with that id. It is an ordinary Markdown link, so the label reads as written in any editor or copy
+that does not know the syntax, and nothing is linked unless the author writes it: prose is never
+scanned and a repeated term is linked only where the author linked it.
+
+- The destination is `atlas:` and an entry id (lowercase letters, digits and single hyphens, at
+  most 64 bytes), written as an inline link or a full, collapsed or shortcut reference link. An
+  autolink (`<atlas:id>`) has no label and is not supported: it renders as nothing and the build
+  warns to write `[label](atlas:id)`. An image can never have an `atlas:` address (its description
+  is shown as plain text, with a warning); code is not a link. Only posts resolve the syntax:
+  anywhere else (a page, a series description, the home introduction) every `atlas:` link shows its
+  label and no address, title or id reaches the page. A post without it renders as it did.
+- The build resolves each link against the public atlas projection and nothing else. A published
+  entry becomes `<a class="ob-concept" href="/atlas/<id>/" data-atlas-entry="<id>"
+  data-atlas-kind="<kind>">label</a>` (the address follows the base path): a plain link that works
+  without JavaScript.
+- A malformed id, an id the published atlas has no entry for (unknown, not approved or withdrawn),
+  or any concept link while `knowledgeAtlas.publish` is off becomes the label as plain text, with a
+  warning in `build`, `check` and Admin of the form
+  ``posts/x.md: concept link `atlas:id` is shown as plain text: <reason>`` (with a count when
+  repeated). It names the file and the id the author wrote, never an entry's label or private text.
+  The page does not say the entry exists. Nothing stored changes.
+- Feeds, portable HTML and Markdown and other copies keep the label as plain words and carry no
+  link and no `atlas:` destination; the authored file keeps the syntax.
+- The per-post publication-boundary manifest lists each published linked entry once as an
+  `atlas-page` item under `context-links`, and each unpublished one as withheld with the reason
+  `page-not-published`.
+- `conceptEntryId` in `web/components/atlas-terms.js` and `concept_links::entry_id` apply the same
+  destination rule, tested against `tests/fixtures/concept-links.json`.
+- A resolved link also carries visually hidden words after the label (` (atlas entry)`), and the
+  theme underlines it with dots, so it reads and looks as a link to an entry
+  ([ADR 0173](../adr/0173-a-concept-link-is-only-a-link-where-it-can-be-one-and-every-other-place-shows-its-words.md)).
+  An `atlas:` link inside an image's description keeps its label as the alt text and warns. Inside
+  a heading the link is described by one hidden hint (`aria-describedby`) rather than carrying inline
+  hidden words. In a
+  page, a series description or the home introduction the label is shown as plain text and the load
+  warns (``<file>: atlas link `atlas:id` is shown as plain text: ...``); only posts resolve links.
+
+### Entry previews
+
+[ADR 0174](../adr/0174-contextual-entry-previews-read-the-public-query-file-and-enhance-an-ordinary-link.md).
+A post that has a resolved concept link, on a site whose build writes `atlas-query.json`, ends with
+`<ob-concept-previews src="/atlas-query.json?v=<hash>" data-bytes="<size>"></ob-concept-previews>` (the address follows
+the base path, and `<hash>` is 16 hex digits of the file's own BLAKE2s hash, so the address changes
+exactly when the file does) and loads `/assets/components/ob-concept-previews.js`. No other page does.
+
+- Without JavaScript nothing changes: the link goes to the entry's page.
+- The component reads `atlas-query.json` from the site's own origin, once, at the first
+  interest in a link (focus, hover or a press; on a touch screen a concept link scrolling into view,
+  unless the reader asked to save data or the file is 256 KiB or more: the element's `data-bytes`
+  says the file's size, and a missing or larger size waits for the first tap), never on load or when the page is idle, and validates it: `format` `openblog-atlas-query`, `formatVersion` 1, each entry, relationship and
+  source on its own. A file it cannot fetch or read, or an entry whose page is not the link's own
+  destination, leaves that link an ordinary link.
+- A preview shows only that file's public fields, as text: the entry's `kindLabel` (its type), the
+  line "From the author's approved Knowledge Atlas" (its provenance), the first paragraph of its
+  summary and whether the page has more, a work's `source`, and up to two relationships with
+  `assertedByText`, `confidenceText`, `standingText`, `uncertainty` and the evidence `text`, and how
+  many more the page lists; and one link, "Read the full entry".
+- Keyboard and touch behave as the citation previews do: focus opens it and describes the link with
+  it, Tab continues into its link, there is no focus trap, Escape closes it and returns focus,
+  hovering opens it, the first tap opens it and a second follows the link, the page never scrolls,
+  and the animation is off under `prefers-reduced-motion`.
+- `previewModel` and `readQuery` in `web/components/ob-concept-previews.js` are tested against
+  `tests/fixtures/concept-previews.json`, whose fields a Rust test checks the real projection
+  writes.
+
+### Relationship trails
+
+[ADR 0175](../adr/0175-a-relationship-trail-is-a-static-ordered-list-of-published-steps-with-direction-and-evidence-and-filters-only-by-script.md).
+Every entry page with at least one published relationship ends its relationship lists with a
+"Relationship trail" region (`#atlas-section-trail`): the bounded walk of ADR 0170 (breadth first,
+either direction, each relationship crossed once, at most three steps away and 50 steps) as an
+ordered list of distances ("One step from X", ...), each an ordered list of steps, readable without
+CSS or JavaScript. It is rendered from the query projection that writes `atlas-query.json`; when
+that projection is not written (over its bounds, or not consistent) the page has no trail and keeps
+its relationship lists. A site that does not publish its atlas has no trail.
+
+- A step is `<li id="atlas-trail-<relationship id>" class="ob-trail-step">` with `data-depth`,
+  `data-kind`, `data-direction` (`forward` or `backward`: which way the walk crossed it; `symmetric` for a kind that reads the same both ways), `data-kind-label`,
+  `data-standing` (`asserted` or `contested`), `data-uncertain` (`true` when an uncertainty is
+  stated) and `data-again` (`true` when it arrives at an entry already on the trail). Its sentence
+  is the relationship in the direction it was stated; a list of facts gives its type, its direction
+  (as stated, and as followed, or that the kind reads the same both ways), who asserts it, how
+  firmly (never how widely accepted), its standing, its evidence (reference and locator) and its
+  uncertainty (clipped visibly, with a link to read it in full; an unstated one says that is not a
+  claim of certainty). It links to the relationship in full. That list of facts is on the first step
+  out only; a step two or three away is its sentence, which way it was followed and the link, and
+  every step keeps its data attributes for the filters. When every entry page's trail together
+  would pass 20 MB, every trail is one step deep and the build prints a `warning:`. Under either
+  direction filter a `symmetric` step stays visible.
+- A step that arrives at an entry already on the trail says so and does not continue from it, so a
+  cycle is a sentence. Each reached entry links to its own page, which continues the trail from
+  there. When the walk was cut at 50 steps the page says so; when it stopped at three steps it says
+  to follow an entry's link to go further. A skip link leads to a focusable end line.
+- A trail is not a line of influence: nothing infers a relationship that was not published, joins
+  steps, ranks, scores or draws them. Private or withdrawn entries and relationships cannot appear.
+- `<ob-atlas-trail>` (`/assets/components/ob-atlas-trail.js`, loaded only by a page with a trail)
+  adds a labelled group of native controls above the list (relationship type, direction followed,
+  how far, only contested or uncertain) and a `role="status"` line naming every filter in force.
+  A filter shows or hides a whole step and never changes a shown step; hidden steps are not
+  reachable by Tab; a reset button keeps focus; print shows the whole trail without the controls.
+  It reads only the page's markup and fetches and stores nothing.
+- `filterSteps` and `statusText` in the component are tested against
+  `tests/fixtures/atlas-trail.json`, whose steps a Rust test checks against the real walk and
+  renderer.

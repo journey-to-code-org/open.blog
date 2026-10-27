@@ -922,6 +922,7 @@ impl SiteConfig {
             citation_notes: None,
             claim_evidence_section: false,
             supplements: false,
+            concept_links: false,
         }
     }
 
