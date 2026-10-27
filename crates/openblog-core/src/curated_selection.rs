@@ -562,6 +562,25 @@ impl SelectionSet {
     }
 }
 
+/// Whether a parsed JSON object has the shape of a selections file, judged by
+/// structure only (a version number and a non-empty `selections` array of
+/// objects that each carry `id`, `kind`, `target` and `revision`), so a copy
+/// saved into a public folder can be refused.
+pub fn looks_like_selections(root: &Map<String, Value>) -> bool {
+    if root.get("version").and_then(Value::as_u64).is_none() {
+        return false;
+    }
+    let Some(selections) = root.get("selections").and_then(Value::as_array) else {
+        return false;
+    };
+    let selection_like = |item: &Value| {
+        ["id", "kind", "target", "revision"]
+            .iter()
+            .all(|key| item.get(key).is_some_and(Value::is_string))
+    };
+    !selections.is_empty() && selections.iter().all(selection_like)
+}
+
 fn first_words(text: &str) -> String {
     // serde_json's message may quote input; keep only the part before it.
     text.split(" at line")

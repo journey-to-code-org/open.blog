@@ -348,7 +348,7 @@ impl ImportPlan {
 }
 
 /// Whether bytes look like private research: a bundle, or a notebook,
-/// Knowledge Atlas, claims, alignments or review-acknowledgements file copied
+/// Knowledge Atlas, claims, alignments, review-acknowledgements or curated-selections file copied
 /// out of private storage. Build and publish guards use this to refuse
 /// public input that would carry private research with it, wherever the file
 /// was saved and whatever it was renamed to. It reads the structure, not any
@@ -378,6 +378,7 @@ pub fn looks_like_private_research(bytes: &[u8]) -> bool {
         || crate::claims::looks_like_claims(&root)
         || crate::alignment::looks_like_alignments(&root)
         || crate::publication_review::looks_like_acknowledgements(&root)
+        || crate::curated_selection::looks_like_selections(&root)
 }
 
 fn notebook_shaped(root: &Map<String, Value>) -> bool {
