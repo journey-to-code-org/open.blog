@@ -1296,15 +1296,18 @@ fn context_links(inputs: &BoundaryInputs<'_>, post: &Post) -> ProjectionReport {
                     ContextKind::AtlasEntry => "atlas entry",
                     ContextKind::Comparison => "comparison",
                 };
-                let mut item = withheld(
-                    kind,
-                    &link.id,
-                    Reason::PageNotPublished,
+                let message = if link.href.starts_with(crate::concept_links::SCHEME) {
+                    format!(
+                        "The concept link {} names the {what} `{}`, whose page the next build does not publish; it is published as the plain text of its label, with no link.",
+                        link.href, link.id
+                    )
+                } else {
                     format!(
                         "The link to {} leads to the {what} `{}`, whose page the next build does not publish; the link is published as written and leads nowhere.",
                         link.href, link.id
-                    ),
-                );
+                    )
+                };
+                let mut item = withheld(kind, &link.id, Reason::PageNotPublished, message);
                 item.posts = vec![post.slug.clone()];
                 report.withheld.push(item);
             }

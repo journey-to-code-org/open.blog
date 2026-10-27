@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { lookupTerm, normalizeTerm } from "../../web/components/atlas-terms.js";
+import { conceptEntryId, entryHref, lookupTerm, normalizeTerm } from "../../web/components/atlas-terms.js";
 
 const fixtures = JSON.parse(readFileSync(new URL("../fixtures/atlas-lookup.json", import.meta.url), "utf8"));
 
@@ -44,4 +44,22 @@ test("the white space set is Unicode White_Space, written out", () => {
   assert.equal(/\s/u.test("\ufeff"), true);
   assert.equal(normalizeTerm("a\u0085b"), "a b");
   assert.equal(normalizeTerm("a\ufeffb"), "a\ufeffb");
+});
+
+// The concept link syntax (ADR 0204, #73): the same destination cases the Rust build resolves.
+const concepts = JSON.parse(readFileSync(new URL("../fixtures/concept-links.json", import.meta.url), "utf8"));
+
+test("conceptEntryId agrees with the shared concept link fixtures", () => {
+  assert.ok(concepts.destinations.length >= 10);
+  for (const { name, destination, id } of concepts.destinations) {
+    assert.equal(conceptEntryId(destination), id, name);
+  }
+  assert.equal(conceptEntryId(undefined), null);
+  assert.equal(entryHref("plato"), "/atlas/plato/");
+});
+
+test("a term looked up in prose and a concept id are different things", () => {
+  // Writing a label never links it: only an explicit atlas: destination does.
+  assert.equal(conceptEntryId("Plato"), null);
+  assert.equal(conceptEntryId(normalizeTerm("Plato")), null);
 });

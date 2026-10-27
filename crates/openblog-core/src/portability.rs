@@ -680,7 +680,7 @@ impl<'a> PortableProjection<'a> {
             shared: post.shared_attribution.as_ref(),
             capabilities: &post.capabilities,
             html: &post.html,
-            markdown: post.publication_markdown(),
+            markdown: post.portable_markdown(),
             text: &post.text,
             render_options: RenderOptions {
                 smart_punctuation: config.markdown.smart_punctuation,
@@ -696,6 +696,9 @@ impl<'a> PortableProjection<'a> {
                 // The section is ordinary content in a portable copy.
                 claim_evidence_section: false,
                 supplements: post.reading_depth.is_some(),
+                // A copy that leaves the site cannot resolve an entry: its
+                // Markdown already holds each concept link as its label.
+                concept_links: false,
             },
             runner_languages: (!config.code_runner.endpoint.is_empty())
                 .then(|| config.code_runner.languages.clone()),

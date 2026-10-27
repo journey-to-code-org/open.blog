@@ -272,7 +272,17 @@ pub struct Post {
     /// The approved Third Perspectives this post's canonical page shows, read
     /// through the one public projection (ADRs 0111 and 0115).
     pub(crate) third_perspectives: Vec<crate::perspective_publication::PublicPerspective>,
+    /// The body HTML. A concept link (ADR 0204) is the plain text of its
+    /// label here until [`Site::link_concepts`] resolves it against the
+    /// public atlas, so a post nobody resolved never carries a link that
+    /// leads nowhere.
     pub html: String,
+    /// The body HTML with each concept link still marked, for
+    /// [`Site::link_concepts`]; `None` for a post with no concept link.
+    pub(crate) concept_html: Option<String>,
+    /// The publication Markdown with each concept link written as its label,
+    /// for copies that leave the site; `None` for a post with no concept link.
+    pub(crate) portable_markdown: Option<String>,
     pub text: String,
     pub headings: Vec<Heading>,
     pub word_count: usize,
@@ -322,6 +332,15 @@ impl Post {
         self.published_markdown
             .as_deref()
             .unwrap_or(&self.authored_markdown)
+    }
+
+    /// The Markdown portable copies, feeds and exports are built from: the
+    /// publication Markdown, with each concept link (ADR 0204) written as its
+    /// label, since a copy cannot resolve an atlas entry.
+    pub fn portable_markdown(&self) -> &str {
+        self.portable_markdown
+            .as_deref()
+            .unwrap_or_else(|| self.publication_markdown())
     }
 
     /// The supplements this post publishes for its reading modes, or `None`
@@ -504,6 +523,31 @@ pub struct Site {
 }
 
 impl Site {
+    /// Resolve every post's concept links (ADR 0204) against the public atlas
+    /// the caller attached, as it is now: a published entry becomes a link to
+    /// its page, and anything else the label as plain text with a warning for
+    /// the author, scoped to the post and the id. Safe to call again after the
+    /// atlas changes; each call replaces the earlier concept warnings.
+    pub fn link_concepts(&mut self) {
+        self.warnings
+            .retain(|warning| !warning.contains(crate::concept_links::WARNING_MARK));
+        let mut found = Vec::new();
+        for post in &mut self.posts {
+            let Some(marked) = &post.concept_html else {
+                continue;
+            };
+            let linked = crate::concept_links::link_html(marked, self.atlas.as_ref());
+            post.html = linked.html;
+            found.extend(
+                linked
+                    .uses
+                    .iter()
+                    .filter_map(|used| used.warning(&post.source)),
+            );
+        }
+        self.warnings.extend(found);
+    }
+
     /// Build the site model. Hard errors (unparseable front matter, missing
     /// titles, duplicate slugs) fail the build; softer problems become warnings.
     pub fn load(
@@ -1502,6 +1546,7 @@ fn load_post_in(
                     locale: *locale,
                 }),
             claim_evidence_section: with_evidence.is_some(),
+            concept_links: true,
             // Reading modes are opt-in (ADR 0140): without the key every
             // block quote renders exactly as before.
             supplements: reading_setting.enabled,
@@ -1686,6 +1731,24 @@ fn load_post_in(
         capabilities.push(CapabilityDescriptor::describe("claim-evidence", None));
     }
 
+    // Concept links (ADR 0204): the page holds each as its label until the
+    // build resolves it against the public atlas.
+    let (html, concept_html) = if rendered.html.contains(crate::concept_links::MARK_PREFIX) {
+        (
+            crate::concept_links::link_html(&rendered.html, None).html,
+            Some(rendered.html.clone()),
+        )
+    } else {
+        (rendered.html.clone(), None)
+    };
+    let portable_markdown = concept_html.as_ref().and_then(|_| {
+        crate::concept_links::plain_markdown(
+            published
+                .as_ref()
+                .map_or(base, |(published, _)| &published.markdown),
+        )
+    });
+
     Ok(Post {
         url: config.post_url(&slug),
         title,
@@ -1720,7 +1783,9 @@ fn load_post_in(
         reader_feedback: Vec::new(),
         third_perspectives: Vec::new(),
         reading_depth: rendered.reading_depth.clone(),
-        html: rendered.html,
+        html,
+        concept_html,
+        portable_markdown,
         text: rendered.text,
         headings: rendered.headings,
         word_count: rendered.word_count,

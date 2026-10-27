@@ -91,6 +91,10 @@ pub struct RenderOptions<'a> {
     /// supplements are wrapped in labelled groups and kept out of the post's
     /// own prose. `false` renders every block quote as before.
     pub supplements: bool,
+    /// Set for a post (ADR 0204): a link to `atlas:<entry id>` is marked so
+    /// the build can resolve it against the public atlas. `false` renders
+    /// every such link as the ordinary link it is written as.
+    pub concept_links: bool,
 }
 
 impl Default for RenderOptions<'_> {
@@ -106,6 +110,7 @@ impl Default for RenderOptions<'_> {
             citation_notes: None,
             claim_evidence_section: false,
             supplements: false,
+            concept_links: false,
         }
     }
 }
@@ -1648,6 +1653,9 @@ pub fn render(markdown: &str, options: RenderOptions<'_>) -> Rendered {
         options.citation_notes.as_ref(),
         options.supplements,
     );
+    if options.concept_links {
+        crate::concept_links::mark_events(&mut parsed_events);
+    }
     render_events(parsed_events, markdown.len(), options, None, findings)
 }
 

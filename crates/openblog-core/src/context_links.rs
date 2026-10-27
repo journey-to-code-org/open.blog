@@ -57,10 +57,15 @@ pub struct ContextLinkFinding {
     pub repair: String,
 }
 
-/// The id a root-relative context address names, without any query or
+/// The id a root-relative context address, or an `atlas:<id>` concept link,
+/// names, without any query or
 /// fragment, or `None` for any other address. Only one plain path segment of
 /// lowercase letters, digits and hyphens is an id.
 pub fn parse_context_href(href: &str) -> Option<(ContextKind, String)> {
+    // The author's explicit concept link, `atlas:<id>` (ADR 0204).
+    if href.starts_with(crate::concept_links::SCHEME) {
+        return crate::concept_links::entry_id(href).map(|id| (ContextKind::AtlasEntry, id.into()));
+    }
     let path = href.split(['#', '?']).next().unwrap_or_default();
     let (kind, rest) = if let Some(rest) = path.strip_prefix(ATLAS_URL) {
         (ContextKind::AtlasEntry, rest)
@@ -139,13 +144,21 @@ pub fn review_context_links(
                     "Open the comparison to see what stops it, or remove the link.".to_string()
                 }
             };
+            let concept = link.href.starts_with(crate::concept_links::SCHEME);
             Some(ContextLinkFinding {
                 link: link.clone(),
                 gap,
-                message: format!(
-                    "The link to {} names a page the next build does not publish: {reason}.",
-                    link.href
-                ),
+                message: if concept {
+                    format!(
+                        "The concept link {} is shown as plain text, because the next build does not publish the entry: {reason}.",
+                        link.href
+                    )
+                } else {
+                    format!(
+                        "The link to {} names a page the next build does not publish: {reason}.",
+                        link.href
+                    )
+                },
                 repair,
             })
         })
@@ -177,6 +190,25 @@ mod tests {
         ] {
             assert_eq!(parse_context_href(other), None, "{other}");
         }
+    }
+
+    #[test]
+    fn an_author_written_concept_link_names_its_entry_too() {
+        assert_eq!(
+            parse_context_href("atlas:plato"),
+            Some((ContextKind::AtlasEntry, "plato".into()))
+        );
+        assert_eq!(parse_context_href("atlas:Plato"), None);
+        let links = find_context_links("A [word](atlas:plato) and `[x](atlas:code)`.", 3);
+        assert_eq!(links.len(), 1);
+        assert_eq!(
+            (links[0].id.as_str(), links[0].href.as_str(), links[0].line),
+            ("plato", "atlas:plato", 3)
+        );
+        let findings = review_context_links(&links, |_, _| Some(ContextGap::NotApproved));
+        assert!(findings[0]
+            .message
+            .starts_with("The concept link atlas:plato is shown as plain text"));
     }
 
     #[test]

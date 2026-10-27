@@ -1,0 +1,422 @@
+//! Concept links in an article (ADR 0204, #73): `[label](atlas:id)` is resolved
+//! at build time against the public atlas alone. A published entry becomes an
+//! ordinary link to its page; an unknown, private, withdrawn or malformed id,
+//! or any link while the atlas is off, becomes the label as plain text and a
+//! warning scoped to the post and the id. Prose is preserved, repeated terms
+//! need not all be linked, copies that leave the site keep the words, the
+//! boundary manifest lists what is linked, the atlas-off build is what it was,
+//! and output is deterministic.
+
+use std::collections::BTreeMap;
+
+use openblog_core::atlas_publication::PublicAtlas;
+use openblog_core::concept_links::{entry_id, plain_markdown};
+use openblog_core::knowledge_atlas::{valid_id, Atlas, Links};
+use openblog_core::markdown::{render, RenderOptions};
+use openblog_core::portability::PortableProjection;
+use openblog_core::publication_boundary::{
+    BoundaryInputs, BoundaryManifest, ItemKind, Projection, Reason, Switches,
+};
+use openblog_core::research_notes::Notebook;
+use openblog_core::source_library::SourceLibrary;
+use openblog_core::{generate, LoadOptions, Site, SiteConfig, SourceFile, Sources, ThemeSet};
+use serde_json::{json, Value};
+
+const PRIVATE: &str = "PRIVATE-CONCEPT-MARKER";
+
+fn public_atlas() -> PublicAtlas {
+    let library = SourceLibrary::parse(
+        &json!({"version": 1, "sources": [
+            {"id": "plato-republic", "kind": "work", "title": "Politeia"}]})
+        .to_string(),
+        &BTreeMap::new(),
+    )
+    .unwrap();
+    let notebook = Notebook::parse(
+        &json!({"version": 1, "passages": [], "notes": []}).to_string(),
+        &library,
+    )
+    .unwrap();
+    let entry = |id: &str, kind: &str, label: &str, visibility: &str| json!({"id": id, "kind": kind, "label": label, "visibility": visibility});
+    let atlas = Atlas::parse(
+        &json!({"version": 1, "entries": [
+            entry("plato", "person", "Plato", "approved"),
+            entry("allegory-of-the-cave", "concept", "Allegory of the cave", "approved"),
+            entry("secret", "concept", &format!("{PRIVATE} label"), "private"),
+            entry("withdrawn", "concept", "A withdrawn idea", "private")],
+            "relationships": []})
+        .to_string(),
+        Links {
+            library: &library,
+            notebook: &notebook,
+        },
+    )
+    .expect("a valid atlas");
+    PublicAtlas::project(&atlas, &library).expect("a projection")
+}
+
+fn config(url: &str, atlas_on: bool) -> SiteConfig {
+    let mut config = SiteConfig::from_json(&format!(
+        r#"{{"title": "Concepts", "url": "{url}", "author": {{"name": "Site Author"}}}}"#
+    ))
+    .unwrap();
+    config.knowledge_atlas.publish = atlas_on;
+    config
+}
+
+fn site_with(body: &str, atlas: Option<PublicAtlas>, url: &str) -> Site {
+    let mut site = Site::load(
+        config(url, atlas.is_some()),
+        Sources {
+            posts: vec![SourceFile {
+                path: "posts/cave.md".into(),
+                contents: format!("---\ntitle: The cave\ndate: 2026-10-20\n---\n{body}"),
+            }],
+            ..Default::default()
+        },
+        LoadOptions::default(),
+    )
+    .expect("site");
+    site.atlas = atlas;
+    site.link_concepts();
+    site
+}
+
+fn built(site: &Site) -> BTreeMap<String, String> {
+    generate(site, &ThemeSet::new())
+        .expect("a build")
+        .into_iter()
+        .map(|file| (file.path, file.contents))
+        .collect()
+}
+
+const BODY: &str =
+    "In the [allegory of the cave](atlas:allegory-of-the-cave), [Plato](atlas:plato) \
+imagines prisoners. Plato returns later, and the allegory of the cave again, unlinked.";
+
+fn concept_warnings(site: &Site) -> Vec<&String> {
+    site.warnings
+        .iter()
+        .filter(|w| w.contains(": concept link `"))
+        .collect()
+}
+
+#[test]
+fn a_published_entry_becomes_an_ordinary_link_and_the_prose_is_kept() {
+    let site = site_with(BODY, Some(public_atlas()), "https://example.com");
+    let html = &site.posts[0].html;
+    assert!(
+        html.contains(
+            "<a class=\"ob-concept\" href=\"/atlas/allegory-of-the-cave/\" data-atlas-entry=\"allegory-of-the-cave\" data-atlas-kind=\"concept\">allegory of the cave</a>"
+        ),
+        "{html}"
+    );
+    assert!(html.contains(
+        "<a class=\"ob-concept\" href=\"/atlas/plato/\" data-atlas-entry=\"plato\" data-atlas-kind=\"person\">Plato</a>"
+    ));
+    // The words are the author's, in order, with and without the links.
+    assert!(!html.contains("atlas:") && !html.contains("ob-concept data-id"));
+    assert_eq!(
+        site.posts[0].text,
+        "In the allegory of the cave, Plato imagines prisoners. Plato returns later, and the allegory of the cave again, unlinked."
+    );
+    assert!(concept_warnings(&site).is_empty(), "{:?}", site.warnings);
+    // Repeated terms are linked only where the author linked them.
+    assert_eq!(html.matches("<a class=\"ob-concept\"").count(), 2);
+    assert!(html.contains("Plato returns later, and the allegory of the cave again, unlinked."));
+    // And the page is the post with working, script-free links to real pages.
+    let out = built(&site);
+    let page = &out["posts/cave/index.html"];
+    assert!(page.contains("href=\"/atlas/plato/\""));
+    assert!(out.contains_key("atlas/plato/index.html"));
+    assert!(out.contains_key("atlas/allegory-of-the-cave/index.html"));
+}
+
+#[test]
+fn an_unknown_private_withdrawn_or_malformed_id_is_plain_text_and_a_scoped_warning() {
+    let body = "A [secret thing](atlas:secret), a [lost idea](atlas:withdrawn), a [missing one](atlas:nobody), \
+a [shouty](atlas:Plato), an [empty]( atlas:), a [slashed](atlas:a/b) and a [real one](atlas:plato).";
+    let site = site_with(body, Some(public_atlas()), "https://example.com");
+    let html = &site.posts[0].html;
+    for label in [
+        "secret thing",
+        "lost idea",
+        "missing one",
+        "shouty",
+        "slashed",
+    ] {
+        assert!(html.contains(label), "{label}");
+    }
+    assert_eq!(html.matches("<a class=\"ob-concept\"").count(), 1, "{html}");
+    for gone in ["atlas:", "atlas/secret", "atlas/withdrawn", "atlas/nobody"] {
+        assert!(!html.contains(gone), "{gone}: {html}");
+    }
+    let warnings = concept_warnings(&site);
+    for id in ["secret", "withdrawn", "nobody"] {
+        assert!(
+            warnings.iter().any(|w| w.starts_with(&format!(
+                "posts/cave.md: concept link `atlas:{id}` is shown as plain text: the published atlas has no entry with that id"
+            ))),
+            "{id}: {warnings:?}"
+        );
+    }
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("`atlas:Plato`") && w.contains("not `atlas:` and an entry id")),
+        "{warnings:?}"
+    );
+    // A warning never repeats an entry's label or any private text.
+    assert!(warnings.iter().all(|w| !w.contains(PRIVATE)));
+    assert_eq!(warnings.len(), 6, "{warnings:?}");
+    // Nothing in any output says a private or withdrawn entry exists.
+    let out = built(&site);
+    for (path, contents) in &out {
+        assert!(
+            !contents.contains(PRIVATE) && !contents.contains("atlas:secret"),
+            "{path}"
+        );
+        if path.starts_with("posts/") || path.ends_with(".xml") || path.ends_with(".json") {
+            assert!(!contents.contains("atlas/secret"), "{path}");
+            assert!(!contents.contains("atlas/withdrawn"), "{path}");
+        }
+    }
+}
+
+#[test]
+fn with_the_atlas_off_every_link_is_text_and_a_post_without_them_is_unchanged() {
+    let off = site_with(BODY, None, "https://example.com");
+    assert!(!off.posts[0].html.contains("<a "), "{}", off.posts[0].html);
+    assert!(off.posts[0].html.contains("allegory of the cave"));
+    let warnings = concept_warnings(&off);
+    assert_eq!(warnings.len(), 2, "{warnings:?}");
+    assert!(warnings[0].contains("`knowledgeAtlas.publish` is off"));
+    assert!(!built(&off).keys().any(|path| path.contains("atlas")));
+
+    // A post that never uses the syntax is byte for byte what it was: the
+    // same HTML with the option on or off, whatever the atlas, plain links
+    // included.
+    let plain = "A [site](https://example.com/atlas:x), a [page](/atlas/plato/) and `[code](atlas:plato)`.\n\n```\n[x](atlas:plato)\n```\n";
+    let on = RenderOptions {
+        concept_links: true,
+        ..RenderOptions::default()
+    };
+    assert_eq!(
+        render(plain, on).html,
+        render(plain, RenderOptions::default()).html
+    );
+    let with_atlas = site_with(plain, Some(public_atlas()), "https://example.com");
+    let without = site_with(plain, None, "https://example.com");
+    assert_eq!(with_atlas.posts[0].html, without.posts[0].html);
+    assert_eq!(
+        with_atlas.posts[0].html,
+        render(plain, RenderOptions::default()).html
+    );
+    assert!(concept_warnings(&with_atlas).is_empty());
+    assert!(with_atlas.posts[0].html.contains("[code](atlas:plato)"));
+    // Outside a post the syntax is only the link it is written as.
+    assert!(render(BODY, RenderOptions::default())
+        .html
+        .contains("href=\"atlas:plato\""));
+}
+
+#[test]
+fn a_hostile_label_or_a_forged_mark_cannot_make_a_link_or_markup() {
+    let body = "A [Tom & \"Jerry\" <3 &lt;b&gt;](atlas:plato). <ob-concept data-id=\"secret\">forged</ob-concept> <ob-concept data-id=\"plato\">forged but public</ob-concept> [a *nested* label](atlas:plato).";
+    let site = site_with(body, Some(public_atlas()), "https://example.com");
+    let html = &site.posts[0].html;
+    assert!(
+        html.contains("data-atlas-kind=\"person\">Tom &amp; \"Jerry\" &lt;3 &lt;b&gt;</a>"),
+        "{html}"
+    );
+    assert!(!html.contains("atlas/secret") && html.contains("forged"));
+    // A forged mark resolves only to what is public, as a real link would.
+    assert!(html.contains("data-atlas-kind=\"person\">forged but public</a>"));
+    assert!(html.contains("<em>nested</em> label</a>"));
+    assert!(!html.contains("ob-concept data-id") && !html.contains("</ob-concept>"));
+    // Nothing a label says reaches an attribute.
+    assert_eq!(html.matches("data-atlas-entry=").count(), 3);
+}
+
+#[test]
+fn headings_search_text_and_the_table_of_contents_keep_the_words() {
+    let body = "## About [Plato](atlas:plato)\n\nText.\n\n## [Plato](atlas:plato) again\n\nMore.\n";
+    let site = site_with(body, Some(public_atlas()), "https://example.com");
+    let post = &site.posts[0];
+    let headings: Vec<(&str, &str)> = post
+        .headings
+        .iter()
+        .map(|h| (h.id.as_str(), h.text.as_str()))
+        .collect();
+    assert_eq!(
+        headings,
+        [
+            ("about-plato", "About Plato"),
+            ("plato-again", "Plato again")
+        ]
+    );
+    assert!(post.text.contains("About Plato Text. Plato again More."));
+    assert!(post
+        .html
+        .contains("<h2 id=\"about-plato\">About <a class=\"ob-concept\""));
+}
+
+#[test]
+fn a_copy_that_leaves_the_site_keeps_the_words_and_never_the_syntax() {
+    let site = site_with(BODY, Some(public_atlas()), "https://example.com");
+    let post = &site.posts[0];
+    let expected = "In the allegory of the cave, Plato imagines prisoners. Plato returns later, and the allegory of the cave again, unlinked.";
+    let projection = PortableProjection::from_post(post, &site.config).unwrap();
+    let html = projection.portable_html().unwrap().html;
+    assert!(html.contains(expected), "{html}");
+    assert!(
+        !html.contains("atlas:") && !html.contains("atlas/"),
+        "{html}"
+    );
+    let markdown = projection
+        .representation(openblog_core::portability::RepresentationFormat::Markdown)
+        .to_string();
+    assert!(markdown.contains(expected), "{markdown}");
+    assert!(!markdown.contains("atlas:") && !markdown.contains("]("));
+    // The authored source is untouched: the author's syntax is still there.
+    assert!(post.authored_markdown().contains("(atlas:plato)"));
+    // The feeds are copies too.
+    let out = built(&site);
+    for path in ["feed.xml", "feed.json"] {
+        if let Some(feed) = out.get(path) {
+            assert!(!feed.contains("atlas:"), "{path}");
+        }
+    }
+    // A post with no concept link is copied exactly as before.
+    assert_eq!(plain_markdown("Nothing here."), None);
+    let plain = site_with(
+        "Nothing [here](https://example.com).",
+        None,
+        "https://example.com",
+    );
+    assert_eq!(
+        plain.posts[0].portable_markdown(),
+        plain.posts[0].publication_markdown()
+    );
+}
+
+fn manifest_of(site: &Site) -> BoundaryManifest {
+    let base_path = site.config.base_path();
+    BoundaryManifest::post(
+        &BoundaryInputs {
+            switches: Switches::of(&site.config),
+            posts: &site.posts,
+            public_atlas: site.atlas.as_ref(),
+            atlas_blocked: None,
+            public_comparisons: None,
+            comparisons_blocked: None,
+            claims_blocked: None,
+            library: None,
+            notebook: None,
+            atlas: None,
+            claims: None,
+            alignments: None,
+            stale_comparisons: None,
+            acknowledgements: None,
+            unavailable: &[],
+            author: &site.config.author.name,
+            base_path: &base_path,
+        },
+        &site.posts[0],
+    )
+}
+
+#[test]
+fn the_boundary_manifest_lists_what_a_post_links_and_what_it_could_not() {
+    let body = "[Plato](atlas:plato) [again](atlas:plato) [cave](atlas:allegory-of-the-cave) [x](atlas:secret) [y](atlas:Plato)";
+    let site = site_with(body, Some(public_atlas()), "https://example.com");
+    let manifest = manifest_of(&site);
+    let report = manifest
+        .projections
+        .iter()
+        .find(|report| report.projection == Projection::ContextLinks)
+        .unwrap();
+    assert!(report.enabled);
+    assert_eq!(
+        manifest.published_ids(Projection::ContextLinks, ItemKind::AtlasPage),
+        std::collections::BTreeSet::from(["allegory-of-the-cave", "plato"]),
+        "each linked entry once, however often it is linked"
+    );
+    let plato = report.published.iter().find(|i| i.id == "plato").unwrap();
+    assert_eq!(plato.url.as_deref(), Some("/atlas/plato/"));
+    assert_eq!(plato.posts, ["cave"]);
+    assert_eq!(report.withheld.len(), 1, "{:?}", report.withheld);
+    let withheld = &report.withheld[0];
+    assert_eq!(withheld.id, "secret");
+    assert_eq!(withheld.reason, Reason::PageNotPublished);
+    assert!(
+        withheld.message.contains("plain text of its label") && !withheld.message.contains(PRIVATE),
+        "{}",
+        withheld.message
+    );
+    // The same listing with the atlas off: nothing is published, the
+    // links are listed as withheld.
+    let off = site_with(body, None, "https://example.com");
+    let off_manifest = manifest_of(&off);
+    assert!(off_manifest
+        .published_ids(Projection::ContextLinks, ItemKind::AtlasPage)
+        .is_empty());
+}
+
+#[test]
+fn links_follow_the_base_path_and_output_is_deterministic() {
+    let site = site_with(BODY, Some(public_atlas()), "https://example.com/blog");
+    let out = built(&site);
+    assert!(out["posts/cave/index.html"].contains("href=\"/blog/atlas/plato/\""));
+    assert!(!out["posts/cave/index.html"].contains("href=\"/atlas/plato/\""));
+    let again = built(&site_with(
+        BODY,
+        Some(public_atlas()),
+        "https://example.com/blog",
+    ));
+    assert_eq!(out, again);
+    // Resolving again changes nothing and does not repeat a warning.
+    let mut twice = site_with(
+        "A [x](atlas:nobody).",
+        Some(public_atlas()),
+        "https://example.com",
+    );
+    let first = twice.warnings.clone();
+    twice.link_concepts();
+    twice.link_concepts();
+    assert_eq!(twice.warnings, first);
+    assert_eq!(concept_warnings(&twice).len(), 1);
+    // And it follows the atlas as it is now.
+    twice.atlas = None;
+    twice.link_concepts();
+    assert!(concept_warnings(&twice)[0].contains("is off"));
+}
+
+#[test]
+fn the_syntax_is_one_set_of_cases_for_rust_and_the_browser() {
+    let fixtures: Value =
+        serde_json::from_str(include_str!("../../../tests/fixtures/concept-links.json"))
+            .expect("fixtures");
+    let ids = fixtures["destinations"].as_array().unwrap();
+    assert!(ids.len() >= 10);
+    for case in ids {
+        let destination = case["destination"].as_str().unwrap();
+        assert_eq!(
+            entry_id(destination),
+            case["id"].as_str(),
+            "{}",
+            case["name"]
+        );
+        if let Some(id) = case["id"].as_str() {
+            assert!(valid_id(id));
+        }
+    }
+    for case in fixtures["plain"].as_array().unwrap() {
+        assert_eq!(
+            plain_markdown(case["markdown"].as_str().unwrap()).as_deref(),
+            case["plain"].as_str(),
+            "{}",
+            case["name"]
+        );
+    }
+}

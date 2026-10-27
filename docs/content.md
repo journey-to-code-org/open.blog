@@ -217,6 +217,21 @@ The kinds are `NOTE`, `TIP`, `IMPORTANT`, `WARNING`, and `CAUTION` (any case); e
 its own colour and is titled with its kind. Put the marker alone on the first line: any
 other text after it, or another kind, leaves an ordinary quote that shows the marker.
 
+#### Linking a word to the Knowledge Atlas
+
+When your site publishes its [Knowledge Atlas](configuration.md#knowledge-atlas), link a word to an
+approved entry by writing a Markdown link to `atlas:` and the entry's id:
+
+```markdown
+In the [allegory of the cave](atlas:allegory-of-the-cave), [Plato](atlas:plato) imagines prisoners.
+```
+
+Only the words you link are linked; the same word elsewhere stays plain text, and nothing is
+recognised automatically. The build turns each link into an ordinary link to the entry's page. If
+the entry is unknown, not approved, withdrawn, or the atlas is off, the words are published as plain
+text and the build, `check` and Admin tell you which link and why. Feeds and portable copies keep
+the words without the link. See the [format](specs/knowledge-atlas.md#concept-links-in-articles).
+
 ### Knowledge checks
 
 Put a short multiple-choice question in a `quiz` fence. Readers receive feedback as soon

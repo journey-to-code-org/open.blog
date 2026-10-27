@@ -15,6 +15,14 @@ All notable changes to open.blog are recorded here. Releases follow
   build warning and without affecting the atlas pages or `atlas.json`, and Admin's "What will be
   public" lists it, its sources and the reason if it is left out.
   A site that does not publish its atlas builds exactly as before.
+- A post can link a word to an approved Knowledge Atlas entry by writing
+  `[the allegory of the cave](atlas:allegory-of-the-cave)`. Only the words you link are linked, and
+  nothing is recognised automatically. The build turns each link into an ordinary link to the
+  entry's page that works without JavaScript. If the entry is unknown, not approved or withdrawn, or
+  the atlas is off, the words are published as plain text and the build, `check` and Admin name the
+  file and the id. Feeds and portable copies keep the words without the link, and Admin's "What
+  will be public" for the post lists each linked entry. Posts that do not use the syntax are
+  unchanged.
 
 ## [0.41.0] - 2026-10-26
 

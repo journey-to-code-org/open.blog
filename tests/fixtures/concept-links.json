@@ -1,0 +1,30 @@
+{
+  "about": "Shared concept link fixtures (ADR 0204). `destinations` is read by crates/openblog-core/tests/concept_links.rs and tests/web/atlas-terms.test.mjs: a destination names an entry only when it is `atlas:` and a lowercase slug of at most 64 bytes. `plain` is read by the Rust test only: the Markdown a copy that leaves the site is built from.",
+  "destinations": [
+    { "name": "a slug", "destination": "atlas:plato", "id": "plato" },
+    { "name": "digits and hyphens", "destination": "atlas:the-republic-2", "id": "the-republic-2" },
+    { "name": "64 bytes", "destination": "atlas:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    { "name": "65 bytes", "destination": "atlas:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "id": null },
+    { "name": "no id", "destination": "atlas:", "id": null },
+    { "name": "capitals", "destination": "atlas:Plato", "id": null },
+    { "name": "a path", "destination": "atlas:a/b", "id": null },
+    { "name": "a space", "destination": "atlas:a b", "id": null },
+    { "name": "a double hyphen", "destination": "atlas:a--b", "id": null },
+    { "name": "a trailing hyphen", "destination": "atlas:a-", "id": null },
+    { "name": "a leading hyphen", "destination": "atlas:-a", "id": null },
+    { "name": "a query", "destination": "atlas:a?x=1", "id": null },
+    { "name": "a fragment", "destination": "atlas:a#b", "id": null },
+    { "name": "the scheme in capitals", "destination": "ATLAS:plato", "id": null },
+    { "name": "a non-ASCII letter", "destination": "atlas:caf\u00e9", "id": null },
+    { "name": "an atlas page address", "destination": "/atlas/plato/", "id": null },
+    { "name": "a web address", "destination": "https://example.com/atlas:plato", "id": null }
+  ],
+  "plain": [
+    { "name": "an inline link", "markdown": "See [Plato](atlas:plato) now.", "plain": "See Plato now." },
+    { "name": "emphasis in the label", "markdown": "A [**bold** idea](atlas:idea).", "plain": "A **bold** idea." },
+    { "name": "a reference link and its definition", "markdown": "A [plain][r].\n\n[r]: atlas:ref\n", "plain": "A plain.\n\n\n" },
+    { "name": "an autolink", "markdown": "Go to <atlas:auto>.", "plain": "Go to atlas:auto." },
+    { "name": "code is not a link", "markdown": "`[x](atlas:code)`\n\n```\n[y](atlas:code)\n```\n", "plain": null },
+    { "name": "another link is left alone", "markdown": "[a](https://example.com) and [b](atlas:b)", "plain": "[a](https://example.com) and b" }
+  ]
+}

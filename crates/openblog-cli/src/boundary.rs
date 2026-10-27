@@ -80,6 +80,9 @@ pub fn project_with(root: &Path, site: &mut Site, shared: &Shared) -> Blocked {
         Err(error) => blocked.comparisons = Some(error),
     }
     blocked.claims = site.claim_evidence_error.clone();
+    // The posts' concept links (ADR 0204) resolve against the atlas just
+    // attached, and against nothing when it is not published or not readable.
+    site.link_concepts();
     blocked
 }
 
@@ -1214,6 +1217,63 @@ date: 2026-01-07
             assert!(error.contains(expected), "{expected}: {error}");
         }
         assert!(!error.to_lowercase().contains("allegory"), "{error}");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_build_links_published_concepts_and_warns_for_the_rest() {
+        let root = project_with_note("concepts", r#"{"knowledgeAtlas":{"publish":true}}"#);
+        write_post(
+            &root,
+            "cave",
+            "",
+            "A [philosopher](atlas:plato-person), a [hidden idea](atlas:secret) and a [typo](atlas:Nobody). Plato again, unlinked.",
+        );
+        let out = root.join("out-concepts");
+        let report = build_into(&root, &out).unwrap();
+        let page = fs::read_to_string(out.join("posts/cave/index.html")).unwrap();
+        assert!(
+            page.contains("<a class=\"ob-concept\" href=\"/atlas/plato-person/\""),
+            "{page}"
+        );
+        assert!(page.contains("hidden idea") && page.contains("typo"));
+        assert!(
+            !page.contains("atlas:") && !page.contains("atlas/secret"),
+            "{page}"
+        );
+        let concept: Vec<&String> = report
+            .warnings
+            .iter()
+            .filter(|warning| warning.contains(": concept link `"))
+            .collect();
+        assert_eq!(concept.len(), 2, "{concept:?}");
+        assert!(concept
+            .iter()
+            .any(|w| w.contains("posts/cave") && w.contains("`atlas:secret`")));
+        assert!(concept.iter().any(|w| w.contains("`atlas:Nobody`")));
+        assert!(concept
+            .iter()
+            .all(|w| !w.contains("`atlas:plato-person`") && !w.contains("Secret")));
+        // The post's manifest lists what it links and what it could not.
+        let (mut site, _) = crate::site::load_site(&root, false, None).unwrap();
+        let shared = Shared::read(&root, &site.config);
+        let blocked = project_with(&root, &mut site, &shared);
+        let stores = Stores::read(&root, &shared);
+        let post = site
+            .posts
+            .iter()
+            .find(|p| p.slug == "cave")
+            .unwrap()
+            .clone();
+        let manifest = manifest(&site, &stores, &blocked, Some(&post));
+        assert_eq!(
+            manifest.published_ids(Projection::ContextLinks, ItemKind::AtlasPage),
+            std::collections::BTreeSet::from(["plato-person"])
+        );
+        // Building again gives the same bytes.
+        let again = root.join("out-concepts-2");
+        build_into(&root, &again).unwrap();
+        assert_eq!(tree(&out), tree(&again));
         let _ = fs::remove_dir_all(root);
     }
 

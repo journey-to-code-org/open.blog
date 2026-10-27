@@ -460,3 +460,32 @@ bounded page data for components and search. It is not a page and is not in the 
   the query projection does not publish, wherever it names it: in the items it lists, in `from`
   and `to`, in `terms[].entries`, and in every source id (`sources[].id`, `evidence[].source`,
   `assertedBy.source`, `entries[].source`).
+
+### Concept links in articles
+
+[ADR 0204](../adr/0204-an-article-links-a-term-to-an-atlas-entry-only-where-the-author-writes-an-atlas-link-and-only-if-the-entry-is-published.md).
+In a post, `[the allegory of the cave](atlas:allegory-of-the-cave)` links the words to the atlas entry
+with that id. It is an ordinary Markdown link, so the label reads as written in any editor or copy
+that does not know the syntax, and nothing is linked unless the author writes it: prose is never
+scanned and a repeated term is linked only where the author linked it.
+
+- The destination is `atlas:` and an entry id (lowercase letters, digits and single hyphens, at
+  most 64 bytes). Inline, reference and autolink forms work; code is not a link. Only posts read the
+  syntax; elsewhere it is the link it is written as. A post without it renders as it did.
+- The build resolves each link against the public atlas projection and nothing else. A published
+  entry becomes `<a class="ob-concept" href="/atlas/<id>/" data-atlas-entry="<id>"
+  data-atlas-kind="<kind>">label</a>` (the address follows the base path): a plain link that works
+  without JavaScript.
+- A malformed id, an id the published atlas has no entry for (unknown, not approved or withdrawn),
+  or any concept link while `knowledgeAtlas.publish` is off becomes the label as plain text, with a
+  warning in `build`, `check` and Admin of the form
+  ``posts/x.md: concept link `atlas:id` is shown as plain text: <reason>`` (with a count when
+  repeated). It names the file and the id the author wrote, never an entry's label or private text.
+  The page does not say the entry exists. Nothing stored changes.
+- Feeds, portable HTML and Markdown and other copies keep the label as plain words and carry no
+  link and no `atlas:` destination; the authored file keeps the syntax.
+- The per-post publication-boundary manifest lists each published linked entry once as an
+  `atlas-page` item under `context-links`, and each unpublished one as withheld with the reason
+  `page-not-published`.
+- `conceptEntryId` in `web/components/atlas-terms.js` and `concept_links::entry_id` apply the same
+  destination rule, tested against `tests/fixtures/concept-links.json`.

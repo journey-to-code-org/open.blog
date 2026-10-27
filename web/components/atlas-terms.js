@@ -47,3 +47,22 @@ export function lookupTerm(query, text) {
   const index = indexOf(query);
   return (index.terms.get(normalizeTerm(text)) || []).map((id) => index.entries.get(id)).filter(Boolean);
 }
+
+const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/**
+ * The entry id a concept link's destination names (ADR 0204), or null: `atlas:` and a lowercase
+ * slug of at most 64 bytes, the same rule as `openblog_core::concept_links::entry_id`, checked
+ * against tests/fixtures/concept-links.json. The author writes `[label](atlas:the-id)`.
+ */
+export function conceptEntryId(destination) {
+  const text = String(destination ?? "");
+  if (!text.startsWith("atlas:")) return null;
+  const id = text.slice("atlas:".length);
+  return id.length <= 64 && ID.test(id) ? id : null;
+}
+
+/** The page a published entry has, as the atlas publishes it. */
+export function entryHref(id) {
+  return `/atlas/${id}/`;
+}

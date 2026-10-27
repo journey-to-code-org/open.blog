@@ -1007,6 +1007,15 @@ over a size bound rather than cut. It is listed in the publication boundary like
 (ADRs 0200, 0201).
 _Avoid_: Graph API, public search index, a second atlas; querying the private atlas
 
+**Concept link**:
+An author's explicit Markdown link to `atlas:<entry id>` in a post. The build resolves it against
+the public atlas projection alone: a published entry becomes an ordinary link to its page, and
+anything else (a malformed id, an unknown, unapproved or withdrawn entry, or an atlas that is not
+published) becomes the label as plain text with a diagnostic for the author. Prose is never scanned,
+so only the occurrences the author links are linked, and a copy that leaves the site keeps the words
+without the link (ADR 0204).
+_Avoid_: Automatic link, auto-link, entity recognition, wiki link
+
 **Atlas trail**:
 A bounded walk over published relationships from one entry, across either direction, each
 relationship crossed once so a cycle ends it. It lists the steps and nothing more: not a path of
