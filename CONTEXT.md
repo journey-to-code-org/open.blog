@@ -2237,3 +2237,9 @@ The digest binds it to the text, so editing the text makes the approval stale un
 (ADR 0303). In Admin only the Approve action records one: a save can keep an approval but never add or
 change it, and editing the text withdraws it (ADR 0305).
 _Avoid_: Sign-off flag, reviewed, verified
+
+**Level selector**:
+The optional control on a published comparison that narrows which explanation level section is shown.
+Every level is a section of the page whatever the control does, the quoted evidence sits outside them,
+and the control stores nothing (ADR 0306).
+_Avoid_: Reading level setting, personalisation, difficulty toggle

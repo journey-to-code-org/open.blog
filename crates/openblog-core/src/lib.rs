@@ -90,6 +90,7 @@ pub mod field_journal;
 pub mod frontmatter;
 pub mod future_suggestion;
 pub mod interpretation;
+pub mod interpretation_publication;
 pub mod invitation;
 pub mod knowledge_atlas;
 pub mod markdown;

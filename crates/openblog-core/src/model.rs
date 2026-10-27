@@ -543,6 +543,10 @@ pub struct Site {
     /// publishes them (`readingPaths.publish`, ADR 0212). `None` writes no
     /// path output at all.
     pub reading_paths: Option<crate::reading_path::PublicPaths>,
+    /// The public interpretation comparisons, supplied by the caller only when
+    /// the site publishes them (`interpretations.publish`, ADR 0306). `None`
+    /// writes no comparison page at all.
+    pub interpretations: Option<crate::interpretation_publication::PublicInterpretations>,
     /// The public curated research context, supplied by the caller only when
     /// the site publishes it (`curatedContext.publish`, ADR 0185) and its
     /// selections can be read. `None` writes no curated output at all: no
@@ -1011,6 +1015,7 @@ impl Site {
             atlas: None,
             comparisons: None,
             reading_paths: None,
+            interpretations: None,
             curation: None,
             curated_cache: std::sync::OnceLock::new(),
             claim_evidence_error,

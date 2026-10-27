@@ -167,6 +167,10 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
         include_str!("../../../web/components/ob-reading-path.js"),
     ),
     (
+        "components/ob-explanation-levels.js",
+        include_str!("../../../web/components/ob-explanation-levels.js"),
+    ),
+    (
         "components/ob-concept-previews.js",
         include_str!("../../../web/components/ob-concept-previews.js"),
     ),
@@ -587,7 +591,7 @@ pub fn with_asset_version(root: &Path, mut config: SiteConfig) -> SiteConfig {
     };
     // Private project state never feeds the public version, or a private edit
     // would change every public asset URL.
-    let private = fsutil::PrivateState::of(root);
+    let private = fsutil::PrivateState::of(root).withhold(&comparison_files(root, &config));
     for dir in [
         &config.paths.web,
         &config.paths.themes,
@@ -1074,7 +1078,7 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
 
     // Private project state (logins, analytics, research) is never copied,
     // even when a static or theme directory is configured to contain it.
-    let private = fsutil::PrivateState::of(root);
+    let private = fsutil::PrivateState::of(root).withhold(&comparison_files(root, config));
 
     // 1. Static files (images, favicon, CNAME, ...) at the site root.
     let static_dir = root.join(&config.paths.static_dir);
@@ -1150,6 +1154,15 @@ pub fn watched_paths(root: &Path, config: &SiteConfig) -> Vec<PathBuf> {
         root.join(&config.paths.themes),
         root.join(&config.paths.web),
     ]
+}
+
+/// Where the interpretation comparison files are stored. They hold drafts and
+/// unapproved AI text beside what is approved, so a configured static or theme
+/// folder that contains them (a `static` of `.`) must never copy them raw: a
+/// comparison reaches a page only through its projection (ADR 0306).
+fn comparison_files(root: &Path, config: &SiteConfig) -> PathBuf {
+    root.join(&config.paths.content)
+        .join(openblog_core::scholarly_comparison::COMPARISONS_DIR)
 }
 
 #[cfg(test)]
@@ -1421,6 +1434,97 @@ Body.
         root
     }
 
+    #[test]
+    fn interpretation_comparisons_publish_only_their_projection() {
+        const SECRET: &str = "secret-source-marker";
+        const DRAFT: &str = "DRAFT-COMPARISON-MARKER";
+        let config = r#"{"interpretations":{"publish":true},"claimEvidence":{"publish":true},"paths":{"static":"."}}"#;
+        let root = temp_root("interpretations");
+        fs::create_dir_all(root.join("content/posts")).unwrap();
+        fs::create_dir_all(root.join("content/comparisons")).unwrap();
+        fs::write(root.join(CONFIG_FILE), config).unwrap();
+        fs::write(
+            root.join("content/posts/2026-01-07-cave.md"),
+            "---\ntitle: Cave\ndate: 2026-01-07\n---\n\nThe cave educates.\n",
+        )
+        .unwrap();
+        let library = format!(
+            r#"{{"version":1,"sources":[{{"id":"plato","kind":"work","title":"Politeia","issued":"2003"}},{{"id":"{SECRET}","kind":"work","title":"{SECRET} title"}}]}}"#
+        );
+        let library_path = root.join(crate::source_store::LIBRARY_FILE);
+        fs::create_dir_all(library_path.parent().unwrap()).unwrap();
+        fs::write(&library_path, library).unwrap();
+        let claims = serde_json::json!({"version": 1,
+            "claims": [{"id": "c1", "post": "cave", "statement": "The cave educates.", "visibility": "approved"}],
+            "links": [
+                {"id": "l1", "claim": "c1", "relation": "supports", "visibility": "approved",
+                 "evidence": {"source": "plato"}},
+                {"id": "l2", "claim": "c1", "relation": "contextualizes",
+                 "evidence": {"source": SECRET}}]})
+        .to_string();
+        fs::write(root.join(crate::claims_store::CLAIMS_FILE), claims).unwrap();
+        let comparison = serde_json::json!({
+            "format": "openblog-interpretation-comparison", "version": 1,
+            "title": "What the cave stands for", "subject": "Readings of the cave.",
+            "status": "published",
+            "interpretations": [
+                {"id": "a", "attribution": {"kind": "named", "name": "A school"},
+                 "statement": "A city.", "evidence": [{"link": "l1"}, {"link": "l2"}, {"source": SECRET}]},
+                {"id": "b", "attribution": {"kind": "source", "source": "plato"}, "statement": "A mind."},
+                {"id": "c", "attribution": {"kind": "source", "source": SECRET}, "statement": "A third."}
+            ]
+        });
+        fs::write(
+            root.join("content/comparisons/cave.json"),
+            comparison.to_string(),
+        )
+        .unwrap();
+        let mut draft = comparison.clone();
+        draft["status"] = serde_json::json!("draft");
+        draft["title"] = serde_json::json!(format!("{DRAFT} title"));
+        fs::write(
+            root.join("content/comparisons/draft.json"),
+            draft.to_string(),
+        )
+        .unwrap();
+        // A damaged file never stops the others or the build.
+        fs::write(root.join("content/comparisons/broken.json"), "{ not json").unwrap();
+
+        production_build(&root);
+        let on = dist_bytes(&root);
+        let page = String::from_utf8(on["interpretations/cave/index.html"].clone()).unwrap();
+        assert!(
+            page.contains("The cave educates.") && page.contains("Politeia"),
+            "{page}"
+        );
+        assert!(page.contains("A school") && !page.contains("id=\"i-c\""));
+        assert!(!on.contains_key("interpretations/draft/index.html"));
+        assert!(!on.contains_key("interpretations/broken/index.html"));
+        // No output carries a private source or a draft, and the comparison
+        // files are not copied raw even though the static folder is the root.
+        for (path, bytes) in &on {
+            let text = String::from_utf8_lossy(bytes);
+            assert!(!text.contains(SECRET), "{path}");
+            assert!(!text.contains(DRAFT), "{path}");
+        }
+        // Positive control: the static folder really is the project root.
+        assert!(on.contains_key("content/posts/2026-01-07-cave.md"));
+        assert!(
+            on.keys()
+                .all(|path| !path.starts_with("content/comparisons/")),
+            "{:?}",
+            on.keys()
+                .filter(|p| p.contains("comparisons"))
+                .collect::<Vec<_>>()
+        );
+
+        // Off, nothing is written and the folder is never read.
+        fs::write(root.join(CONFIG_FILE), r#"{"paths":{"static":"."}}"#).unwrap();
+        production_build(&root);
+        let off = dist_bytes(&root);
+        assert!(off.keys().all(|path| !path.starts_with("interpretations/")));
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn reading_paths_are_built_only_while_published_and_never_show_a_draft_step() {
         let root = reading_path_project("reading-paths", "{}");

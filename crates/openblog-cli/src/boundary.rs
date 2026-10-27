@@ -81,6 +81,7 @@ pub fn project_with(root: &Path, site: &mut Site, shared: &Shared) -> Blocked {
     }
     blocked.claims = site.claim_evidence_error.clone();
     attach_reading_paths(root, site);
+    attach_interpretations(root, site);
     // The public curated context, resolved against exactly what this build
     // publishes (the atlas and comparisons just attached, the posts, the
     // sources they cite), so the pages and curated-context.json read the one
@@ -140,6 +141,69 @@ fn attach_reading_paths(root: &Path, site: &mut Site) {
         site.warnings.push(diagnostic.to_string());
     }
     site.reading_paths = Some(resolution.paths);
+}
+
+/// Attach the public interpretation comparisons (ADR 0306, #90), only while
+/// the site publishes them. Each stored comparison is projected by
+/// `PublicComparison::project` against the sources and evidence links this
+/// build publishes (approved links of approved claims, and only while
+/// `claimEvidence.publish` is on), so a page never names a private source,
+/// link or unapproved text. A file that does not parse and an item that is
+/// left out are warned about to the author by comparison and item id, never
+/// by value, and leave every other output as it was. Off means the folder is
+/// never read.
+fn attach_interpretations(root: &Path, site: &mut Site) {
+    site.interpretations = None;
+    if !site.config.interpretations.publish {
+        return;
+    }
+    let stored = match crate::comparison_store::list(root, &site.config.paths.content) {
+        Ok(stored) => stored,
+        Err(error) => {
+            site.warnings.push(format!(
+                "interpretation comparisons: none is published: {error}"
+            ));
+            return;
+        }
+    };
+    let mut comparisons = Vec::new();
+    for file in stored {
+        match file.parsed {
+            Ok(comparison) => comparisons.push(comparison),
+            Err(problems) => {
+                for problem in problems {
+                    site.warnings.push(problem.to_string());
+                }
+            }
+        }
+    }
+    let (refs, sources, links) =
+        match crate::claims_store::load_for_build(root, &site.config.contributors) {
+            Ok(snapshot) if site.config.claim_evidence.publish && snapshot.stored => {
+                openblog_core::interpretation_publication::PublicInterpretations::publishable(
+                    &snapshot.claims,
+                    &snapshot.library,
+                    true,
+                )
+            }
+            Ok(_) => Default::default(),
+            Err(error) => {
+                if site.config.claim_evidence.publish {
+                    site.warnings.push(format!(
+                        "interpretation comparisons: no evidence is shown: {error}"
+                    ));
+                }
+                Default::default()
+            }
+        };
+    let resolution = openblog_core::interpretation_publication::PublicInterpretations::resolve(
+        &comparisons,
+        &refs,
+        sources,
+        links,
+    );
+    site.warnings.extend(resolution.diagnostics);
+    site.interpretations = Some(resolution.public);
 }
 
 /// The source library and notebook, and the atlas and alignments read

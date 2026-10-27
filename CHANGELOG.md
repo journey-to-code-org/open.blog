@@ -5,6 +5,15 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Interpretation comparisons can now be published. Turn on `interpretations.publish` and each published
+  comparison becomes a page at `/interpretations/<slug>/`, with an index at `/interpretations/`. Every page
+  says who advances each reading and how firmly, shows the evidence each cites, lists the relations between
+  readings without ranking them, and offers the beginner, student and scholarly explanations as sections of
+  the same page that you can reach by link without JavaScript. With JavaScript a level selector narrows the
+  explanations; it never changes the evidence and print shows every level. Evidence appears only for approved
+  claim links the site already publishes (with `claimEvidence.publish` on). A reading attributed to a source
+  the site does not publish is left out, and the build tells you by id. The comparison files are never copied
+  raw into the site. See [ADR 0306](docs/adr/0306-a-comparison-page-is-static-html-from-the-projection-with-levels-as-sections-a-selector-only-enhances.md).
 - Admin Studio can author interpretation comparisons: **Content → Comparisons** lists, creates, edits and
   moves comparisons to the trash. Every reading needs an attribution (or an explicit unknown author), you can
   link evidence and see in words whether it is public, private or not found, and missing evidence never
@@ -12,15 +21,13 @@ All notable changes to open.blog are recorded here. Releases follow
   exact text**; only that action records an approval, a save can never add one, and editing the text
   withdraws it. Withdrawing an approval in a published comparison asks before returning it to draft. The
   preview is the public projection with a list, for you alone, of what readers will not see. Saves are
-  refused when the file changed elsewhere, and source mode keeps fields the release does not know. Nothing
-  publishes a comparison on the site yet. See [ADR 0305](docs/adr/0305-comparisons-are-edited-in-admin-with-an-approve-action-that-only-the-server-can-give.md).
+  refused when the file changed elsewhere, and source mode keeps fields the release does not know. Publishing is a separate switch (ADR 0306). See [ADR 0305](docs/adr/0305-comparisons-are-edited-in-admin-with-an-approve-action-that-only-the-server-can-give.md).
 - Interpretation comparisons now have a file format. `content/comparisons/<slug>.json` sets two or more
   attributed readings of one subject side by side (a named person, a library source, or an explicitly
   anonymous author), with neutral relations such as "differs from", an uncertainty note, evidence references,
   translations and optional beginner, student and scholarly explanations. Nothing marks a reading correct,
   and an explanation never replaces your prose. An AI-drafted reading or explanation is labelled and is
-  published only after you approve its exact text; editing it withdraws the approval. Nothing reads these
-  files on the site yet. See [ADR 0300](docs/adr/0300-a-comparison-is-its-own-public-content-type-and-one-versioned-file.md).
+  published only after you approve its exact text; editing it withdraws the approval. The site reads them only while `interpretations.publish` is on (ADR 0306). See [ADR 0300](docs/adr/0300-a-comparison-is-its-own-public-content-type-and-one-versioned-file.md).
 - Reading paths are now easier to find and to move. A post or atlas entry that is a step of a listed path
   shows "Part of a reading path" with a link to that step; listed paths appear in site search; and
   `paths.json` lists the listed paths for tools. Unlisted paths are in none of these, feeds never carry
