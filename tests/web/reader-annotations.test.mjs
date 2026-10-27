@@ -94,6 +94,9 @@ const invalid = [
   ["URL not canonical", { path: ["sources", 0, "url"], value: "HTTPS://EXAMPLE.ORG" }, "invalidUrl", K],
   ["source with both url and work", { path: ["sources", 0, "work"], value: { site: "https://example.com", path: "/a/" } }, "invalidSource", K],
   ["source with neither", { path: ["sources", 1, "work"], remove: true }, "invalidSource", "sources[1] (storage-post)"],
+  ["source from a bad site", { path: ["sources", 0, "from"], value: { site: "ftp://example.com", path: "/a/" } }, "invalidSite", K],
+  ["source from a work with traversal", { path: ["sources", 0, "from"], value: { site: "https://example.com", path: "/a/../b/" } }, "invalidPath", K],
+  ["work source with a from", { path: ["sources", 1, "from"], value: { site: "https://example.com", path: "/a/" } }, "invalidSource", "sources[1] (storage-post)"],
   ["untitled source", { path: ["sources", 0, "title"], value: "" }, "emptyText", K],
   ["newline in a title", { path: ["sources", 0, "title"], value: "a\nb" }, "forbiddenCharacter", K],
   ["trail step that names nothing", { path: ["trails", 0, "steps", 0, "ref"], value: "missing" }, "danglingRef", "trails[0] (tea-trail).steps[0]"],
@@ -257,4 +260,16 @@ test("an export never grows: it holds only what the document holds", () => {
   const { document: out } = exportDocument(document);
   const ids = (d) => [...d.annotations, ...d.sources, ...d.trails].map((r) => r.id);
   for (const id of ids(out)) assert.ok(ids(document).includes(id));
+});
+
+test("a linked source may say which work it was found in, and the field survives the canonical form", () => {
+  const document = patched({ path: ["sources", 0, "from"], value: { path: "/posts/tea/", site: "https://example.com" } });
+  const read = readDocument(document);
+  assert.ok(read.ok, JSON.stringify(read.problems));
+  const text = serializeDocument(read.document);
+  const source = text.slice(text.indexOf("\"sources\""));
+  assert.ok(source.indexOf("\"from\"") > source.indexOf("\"url\"") && source.indexOf("\"from\"") < source.indexOf("\"text\""), "from follows url in the canonical order");
+  assert.deepEqual(readDocumentJson(text).document.sources[0].from, { site: "https://example.com", path: "/posts/tea/" });
+  // The origin is not a note, so a default export keeps it.
+  assert.deepEqual(exportDocument(read.document).document.sources[0].from, { site: "https://example.com", path: "/posts/tea/" });
 });

@@ -1,4 +1,4 @@
-// The reader's own annotation document in the reader's own browser (ADRs 0450-0454).
+// The reader's own annotation document in the reader's own browser (ADRs 0450-0455).
 //
 // Pure functions over the validated document of reader-annotations.js, and a
 // storage seam that never throws. Reading a post never needs storage: when the
@@ -7,9 +7,15 @@
 // document that cannot be read is never overwritten, so a failure leaves the
 // browser's data exactly as it was.
 
-import { MAX_DOCUMENT_BYTES, createDocument, readDocument, readDocumentJson, serializeDocument } from "./reader-annotations.js";
+import { MAX_DOCUMENT_BYTES, MAX_TITLE_CHARS, createDocument, readDocument, readDocumentJson, serializeDocument } from "./reader-annotations.js";
 
 export const STORAGE_KEY = "openblog.reader-annotations";
+
+/**
+ * Fired on `window` by every component that changes the saved document, with `detail.from` the element
+ * that changed it, so the others read it again. (Another tab's change arrives as the browser's `storage` event.)
+ */
+export const CHANGED_EVENT = "openblog:reader-data-changed";
 
 /**
  * Read the saved document. Returns { status, document } where status is
@@ -108,6 +114,16 @@ export function setNoteText(document, id, text, now = timestamp()) {
   return checked(next);
 }
 
+/** Delete every annotation on one work and the trail steps that named them. */
+export function deleteWorkAnnotations(document, work) {
+  const gone = new Set(annotationsOf(document, work).map((record) => record.id));
+  if (gone.size === 0) return { ok: false, problem: { code: "missing", object: "document", message: "nothing is saved on that work" } };
+  const next = clone(document);
+  next.annotations = next.annotations.filter((record) => !gone.has(record.id));
+  for (const trail of next.trails) trail.steps = trail.steps.filter((step) => !gone.has(step.ref));
+  return checked(next);
+}
+
 /** Delete an annotation and the trail steps that named it. */
 export function deleteAnnotation(document, id) {
   const next = clone(document);
@@ -122,3 +138,188 @@ export function deleteAnnotation(document, id) {
 /** The annotations of one work, in the order the reader made them. */
 export const annotationsOf = (document, work) =>
   document.annotations.filter((record) => record.work.site === work.site && record.work.path === work.path);
+
+// ---------------------------------------------------------------------------
+// Saved sources and reading trails (ADR 0455). The same rules as above: a change is
+// built from a copy, checked by the contract, and only then kept.
+// ---------------------------------------------------------------------------
+
+const missing = (what) => ({ ok: false, problem: { code: "missing", object: "document", message: `that ${what} is no longer saved` } });
+const touched = (record, now) => {
+  record.updatedAt = now < record.createdAt ? record.createdAt : now;
+};
+
+// Control and text-direction characters, the ones the contract refuses in a title.
+const unfit = (character) => {
+  const point = character.codePointAt(0);
+  return point <= 0x1f || (point >= 0x7f && point <= 0x9f) || (point >= 0x202a && point <= 0x202e) || (point >= 0x2066 && point <= 0x2069);
+};
+
+/**
+ * Text made fit for a title: control and text-direction characters become spaces, runs of white space one
+ * space, and anything past the contract's length is cut with an ellipsis. A title is only ever a page's own
+ * words, so this changes how long and how plain they are, never what they say.
+ */
+export function fitTitle(text, max = MAX_TITLE_CHARS) {
+  const raw = String(text ?? "");
+  const well = typeof raw.toWellFormed === "function" ? raw.toWellFormed() : raw;
+  const plain = Array.from(well, (character) => (unfit(character) ? " " : character))
+    .join("")
+    .replace(/\s+/gu, " ")
+    .trim();
+  const list = Array.from(plain);
+  return list.length > max ? `${list.slice(0, max - 1).join("").trimEnd()}…` : plain;
+}
+
+const sameWork = (a, b) => a !== undefined && b !== undefined && a.site === b.site && a.path === b.path;
+
+/** The saved source for a link or a work, if there is one. */
+export const findSource = (document, { url, work }) =>
+  document.sources.find((source) => (url !== undefined && source.url === url) || (work !== undefined && sameWork(source.work, work))) ?? null;
+
+/**
+ * Save a source: a title and exactly one of `url` (an outside link) or `work` (a published post), with an optional
+ * `from`, the work the reader found a linked source in. A source already saved is not saved twice. Returns
+ * { ok: true, document, id } or { ok: false, problem } (code "alreadySaved" carries the existing id).
+ */
+export function saveSource(document, { title, url, work, from, text, now = timestamp(), random }) {
+  const existing = findSource(document, { url, work });
+  if (existing) return { ok: false, problem: { code: "alreadySaved", object: "document", message: "that source is already saved", id: existing.id } };
+  const id = newId(document, "src", random);
+  const record = { id, kind: "source", title };
+  if (url !== undefined) record.url = url;
+  if (work !== undefined) record.work = work;
+  if (from !== undefined) record.from = from;
+  if (text !== undefined) record.text = text;
+  record.createdAt = now;
+  record.updatedAt = now;
+  const next = clone(document);
+  next.sources.push(record);
+  const result = checked(next);
+  return result.ok ? { ...result, id } : result;
+}
+
+/** Delete a saved source and the trail steps that named it. */
+export function deleteSource(document, id) {
+  if (!document.sources.some((each) => each.id === id)) return missing("source");
+  const next = clone(document);
+  next.sources = next.sources.filter((each) => each.id !== id);
+  for (const trail of next.trails) trail.steps = trail.steps.filter((step) => step.ref !== id);
+  return checked(next);
+}
+
+/** Start a trail with no steps. Returns { ok: true, document, id } or { ok: false, problem }. */
+export function createTrail(document, { title, now = timestamp(), random }) {
+  const id = newId(document, "trail", random);
+  const next = clone(document);
+  next.trails.push({ id, kind: "trail", title, steps: [], createdAt: now, updatedAt: now });
+  const result = checked(next);
+  return result.ok ? { ...result, id } : result;
+}
+
+/** Delete a trail. The annotations and sources it named are kept. */
+export function deleteTrail(document, id) {
+  if (!document.trails.some((each) => each.id === id)) return missing("trail");
+  const next = clone(document);
+  next.trails = next.trails.filter((each) => each.id !== id);
+  return checked(next);
+}
+
+/** Add an annotation or saved source to the end of a trail. A record is in a trail once ("duplicateStep"). */
+export function addTrailStep(document, trailId, ref, now = timestamp()) {
+  const next = clone(document);
+  const trail = next.trails.find((each) => each.id === trailId);
+  if (!trail) return missing("trail");
+  trail.steps.push({ ref });
+  touched(trail, now);
+  return checked(next);
+}
+
+/** Take one step out of a trail, keeping the record it named. */
+export function removeTrailStep(document, trailId, ref, now = timestamp()) {
+  const next = clone(document);
+  const trail = next.trails.find((each) => each.id === trailId);
+  if (!trail || !trail.steps.some((step) => step.ref === ref)) return missing("trail step");
+  trail.steps = trail.steps.filter((step) => step.ref !== ref);
+  touched(trail, now);
+  return checked(next);
+}
+
+/** Move a step one place earlier (`by` below 0) or later. A step at an end stays where it is. */
+export function moveTrailStep(document, trailId, ref, by, now = timestamp()) {
+  const next = clone(document);
+  const trail = next.trails.find((each) => each.id === trailId);
+  const from = trail ? trail.steps.findIndex((step) => step.ref === ref) : -1;
+  if (from < 0) return missing("trail step");
+  const to = from + (by < 0 ? -1 : 1);
+  if (to < 0 || to >= trail.steps.length) return checked(next);
+  [trail.steps[from], trail.steps[to]] = [trail.steps[to], trail.steps[from]];
+  touched(trail, now);
+  return checked(next);
+}
+
+/** Any record of the document by id, or null. */
+export const recordById = (document, id) =>
+  [...document.annotations, ...document.sources, ...document.trails].find((record) => record.id === id) ?? null;
+
+const newestFirst = (a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : b.order - a.order);
+
+/** Trails most recently changed first; equal times put the one made later first. */
+export const recentTrails = (document) =>
+  document.trails
+    .map((trail, order) => ({ trail, order, at: trail.updatedAt }))
+    .sort(newestFirst)
+    .map(({ trail }) => trail);
+
+/**
+ * The works the reader has annotated, most recently annotated first:
+ * [{ work, highlights, notes, updatedAt }]. A work is its site and path (ADR 0451).
+ */
+export function annotatedWorks(document) {
+  const byWork = new Map();
+  document.annotations.forEach((record, order) => {
+    const key = `${record.work.site}${record.work.path}`;
+    const entry = byWork.get(key) ?? { work: record.work, highlights: 0, notes: 0, at: record.updatedAt, order };
+    if (record.kind === "note") entry.notes += 1;
+    else entry.highlights += 1;
+    if (record.updatedAt > entry.at) entry.at = record.updatedAt;
+    entry.order = order;
+    byWork.set(key, entry);
+  });
+  return Array.from(byWork.values())
+    .sort(newestFirst)
+    .map(({ work, highlights, notes, at }) => ({ work, highlights, notes, updatedAt: at }));
+}
+
+/**
+ * Apply `change` (a function from the freshest saved document to a result of the functions above) and keep it.
+ * Unlike the page's own annotations, the organizer keeps nothing in memory only: if the change cannot be
+ * saved, nothing changed anywhere. Returns { ok: true, document, ...rest } or
+ * { ok: false, reason: "blocked" | "unreadable" | "full" | "problem", problem? }.
+ * Unreadable saved data is never overwritten.
+ */
+export function commitStore(storage, change) {
+  const read = readStore(storage);
+  if (read.status === "blocked") return { ok: false, reason: "blocked" };
+  if (read.status === "unreadable") return { ok: false, reason: "unreadable" };
+  const result = change(read.document);
+  if (!result.ok) return { ok: false, reason: "problem", problem: result.problem };
+  const written = writeStore(storage, result.document);
+  return written.ok ? result : { ok: false, reason: written.reason };
+}
+
+/**
+ * Remove everything saved under the key: every annotation, source and trail, readable or not. Returns
+ * { ok: true } or { ok: false, reason: "blocked" }.
+ */
+export function clearStore(storage) {
+  try {
+    const area = storage();
+    if (!area) return { ok: false, reason: "blocked" };
+    area.removeItem(STORAGE_KEY);
+    // A store that quietly keeps its data has not been cleared.
+    return area.getItem(STORAGE_KEY) === null ? { ok: true } : { ok: false, reason: "blocked" };
+  } catch {
+    return { ok: false, reason: "blocked" };
+  }
+}

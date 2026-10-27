@@ -32,7 +32,7 @@ const DOCUMENT_FIELDS = new Set(["format", "version", "privacy", "annotations", 
 const PRIVACY_FIELDS = new Set(["scope", "notes"]);
 const ANNOTATION_FIELDS = new Set(["id", "kind", "work", "revision", "target", "text", "createdAt", "updatedAt"]);
 const WORK_FIELDS = new Set(["site", "path"]);
-const SOURCE_FIELDS = new Set(["id", "kind", "title", "url", "work", "text", "createdAt", "updatedAt"]);
+const SOURCE_FIELDS = new Set(["id", "kind", "title", "url", "work", "from", "text", "createdAt", "updatedAt"]);
 const TRAIL_FIELDS = new Set(["id", "kind", "title", "text", "steps", "createdAt", "updatedAt"]);
 const STEP_FIELDS = new Set(["ref"]);
 
@@ -231,6 +231,12 @@ function checkSource(value, index) {
   }
   const where = value.url !== undefined ? checkUrl(named, value.url) : checkWork(named, value.work);
   if (where) return where;
+  // Where the reader found a linked source: the work that cited it. A source that is itself a work needs none.
+  if (value.from !== undefined) {
+    if (value.url === undefined) return problem("invalidSource", named, "`from` belongs to a source with a `url`; a source that is a `work` has no other origin");
+    const fromProblem = checkWork(named, value.from);
+    if (fromProblem) return fromProblem;
+  }
   if (value.text !== undefined) {
     const textProblem = checkFreeText(named, "text", value.text, MAX_NOTE_CHARS, { required: false });
     if (textProblem) return textProblem;
@@ -411,8 +417,9 @@ export function serializeDocument(document) {
       work: work(a.work),
     })),
     sources: document.sources.map((s) => ({
-      ...ordered(s, ["id", "kind", "title", "url", "work", "text", "createdAt", "updatedAt"]),
+      ...ordered(s, ["id", "kind", "title", "url", "work", "from", "text", "createdAt", "updatedAt"]),
       ...(s.work === undefined ? {} : { work: work(s.work) }),
+      ...(s.from === undefined ? {} : { from: work(s.from) }),
     })),
     trails: document.trails.map((t) => ordered(t, ["id", "kind", "title", "text", "steps", "createdAt", "updatedAt"])),
   };
