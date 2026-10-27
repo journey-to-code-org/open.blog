@@ -458,6 +458,8 @@ pub struct Series {
     pub(crate) accessibility: Vec<AccessibilityFinding>,
     /// Semantic capabilities detected in the authored description.
     pub capabilities: Vec<CapabilityDescriptor>,
+    /// Old series addresses (`aliases:` in the series page) that redirect here.
+    pub aliases: Vec<String>,
 }
 
 /// One published part's place in a collaborative series, as feeds and portable copies state it
@@ -933,6 +935,7 @@ impl Site {
                         source: None,
                         accessibility: Vec::new(),
                         capabilities: Vec::new(),
+                        aliases: Vec::new(),
                     });
                     series.len() - 1
                 }
@@ -2138,6 +2141,7 @@ fn load_series(file: &SourceFile, options: RenderOptions<'_>) -> Result<Series, 
         source: Some(file.path.clone()),
         accessibility,
         capabilities: rendered.capabilities,
+        aliases: aliases(fm)?,
     })
 }
 

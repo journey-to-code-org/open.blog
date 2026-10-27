@@ -18,6 +18,7 @@ default, so you can edit values in place and delete the ones you do not need.
   "theme": "base",                               // default theme (a folder under themes/)
   "postPath": "/posts/{slug}/",                  // "/{slug}/" puts posts at the root
   "postsPerPage": 10,                            // 0 shows every post on the home page
+  "redirectsFile": false,                        // true also writes a _redirects file: a real 301 for every `aliases:` address (Netlify, Cloudflare Pages)
   "nav": [
     { "label": "Home", "href": "/" },
     { "label": "Series", "href": "/series/" },

@@ -5,6 +5,10 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- A series can declare `aliases:` in its front matter and the site can write a `_redirects` file with real
+  301s for moved posts, pages and series (`"redirectsFile": true`); alias pages still carry a meta refresh,
+  canonical and `noindex` for hosts without redirect rules.
+
 ## [0.47.0] - 2026-10-27
 
 - Netlify builds only what it deploys: pull request previews and branch deploys (such as `develop`)
