@@ -264,3 +264,124 @@ fn a_damaged_file_is_refused_naming_the_file_and_no_content() {
     let newer = load(Some("{\"version\":2,\"items\":[]}".into()));
     assert!(newer.continuations_error.is_some());
 }
+
+#[test]
+fn feeds_search_llms_and_portable_copies_carry_nothing_of_the_links() {
+    use openblog_core::portability::PortableProjection;
+    let mut item = edge("a", ORIGIN, "/posts/neaps/");
+    item["note"] = json!(NOTE);
+    let site = load(Some(file(vec![item])));
+    let files = build(&site);
+    assert!(page(&files, "tides").contains(NOTE));
+    // Only the two ends carry the region; every other generated file, the feeds, the search index
+    // and the llms files among them, is silent about it.
+    let mut checked = Vec::new();
+    for (path, contents) in &files {
+        if path == "posts/tides/index.html" || path == "posts/neaps/index.html" {
+            continue;
+        }
+        checked.push(path.as_str());
+        for private in [
+            NOTE,
+            ORIGIN,
+            CONTINUATIONS_ANCHOR,
+            "ob-continuation",
+            "Where this question went",
+            "Earlier questions this continues",
+        ] {
+            assert!(!contents.contains(private), "{private} in {path}");
+        }
+    }
+    for expected in [
+        "rss.xml",
+        "feed.json",
+        "search.json",
+        "llms.txt",
+        "llms-full.txt",
+        "api/blog.json",
+    ] {
+        assert!(
+            checked.contains(&expected),
+            "{expected} not generated: {checked:?}"
+        );
+    }
+    // The portable copies of both ends are the post itself.
+    for post in site
+        .posts
+        .iter()
+        .filter(|post| post.url == "/posts/tides/" || post.url == "/posts/neaps/")
+    {
+        let projection = PortableProjection::from_post(post, &site.config).unwrap();
+        let html = projection.portable_html().unwrap().html;
+        let markdown = projection.portable_markdown().unwrap();
+        for copy in [html.as_str(), markdown.as_str()] {
+            assert!(
+                !copy.contains(NOTE) && !copy.contains("ob-continuation"),
+                "{}",
+                post.url
+            );
+            assert!(!copy.contains("Where this question went"), "{}", post.url);
+            assert!(
+                !copy.contains("Earlier questions this continues"),
+                "{}",
+                post.url
+            );
+        }
+    }
+    // Links change no file but the two pages.
+    let without = build(&load(None));
+    for (path, contents) in &files {
+        if path != "posts/tides/index.html" && path != "posts/neaps/index.html" {
+            assert_eq!(contents, &without[path], "{path} changed");
+        }
+    }
+}
+
+#[test]
+fn reordering_a_series_keeps_the_link_and_its_label() {
+    let mut known = edge("a", ORIGIN, "/posts/neaps/");
+    known["series"] = json!("ocean");
+    let contents = file(vec![known]);
+    let reordered = |neaps: &str, springs: &str| {
+        let site = Site::load(
+            config(),
+            Sources {
+                posts: vec![
+                    post("tides", "date: 2026-01-01\n"),
+                    post("neaps", &format!("date: {neaps}\nseries: ocean\n")),
+                    post("springs", &format!("date: {springs}\nseries: ocean\n")),
+                ],
+                continuations: Some(SourceFile {
+                    path: format!("content/{CONTINUATIONS_FILE}"),
+                    contents: contents.clone(),
+                }),
+                ..Sources::default()
+            },
+            LoadOptions {
+                now: DateTime::parse("2026-10-27T12:00:00Z"),
+                ..LoadOptions::default()
+            },
+        )
+        .unwrap();
+        assert!(site
+            .warnings
+            .iter()
+            .all(|warning| !warning.contains("continuation")));
+        build(&site)
+    };
+    // In order, and with the two posts' dates swapped so the series reads the other way round.
+    for (neaps, springs) in [("2026-02-01", "2026-03-01"), ("2026-03-01", "2026-02-01")] {
+        let files = reordered(neaps, springs);
+        let earlier = page(&files, "tides");
+        assert!(earlier.contains("href=\"/posts/neaps/\""), "{neaps}");
+        assert!(earlier.contains("in the series ocean"), "{neaps}");
+        assert!(
+            page(&files, "neaps").contains("href=\"/posts/tides/\""),
+            "{neaps}"
+        );
+        assert!(
+            !page(&files, "springs").contains("ob-continuations"),
+            "{neaps}"
+        );
+    }
+}
