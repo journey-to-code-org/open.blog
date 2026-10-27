@@ -38,6 +38,8 @@ If you are new, read these in order; each one stands alone otherwise.
 16. [Showing your posts on another site](integrations.md): feeds and the latest-posts JSON.
 17. [Migrating from Hashnode](hashnode-migration.md): with or without a paid plan.
 18. [Migrating inherited authorship](contributor-migration.md): dry-run-first contributor credits.
+19. [Interpretation comparisons](interpretation-comparisons.md): attributing readings, recording uncertainty,
+   audience explanations, and your responsibility for AI-drafted text.
 
 Architecture decisions and their supporting primary-source research live under
 [`docs/adr`](adr/) and [`docs/research`](research/).

@@ -5,6 +5,12 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Interpretation comparisons now have regression coverage and a guide. The publication boundary lists the
+  comparisons a build publishes (Admin's **What will be public**, and the output check refuses a page for
+  one it does not), published comparisons are found by site search from their approved text only, and
+  `openblog check` warns, while `interpretations.publish` is off, when comparison files sit beside a page
+  or post that would collide with `/interpretations/`. Tests prove an unapproved, stale or revoked AI
+  draft and a private note reach no output. See the [interpretation comparisons guide](docs/interpretation-comparisons.md).
 - Interpretation comparisons can now be published. Turn on `interpretations.publish` and each published
   comparison becomes a page at `/interpretations/<slug>/`, with an index at `/interpretations/`. Every page
   says who advances each reading and how firmly, shows the evidence each cites, lists the relations between

@@ -864,6 +864,29 @@ pub fn reading_paths_address_conflict(site: &Site) -> Option<String> {
         })
 }
 
+/// A page or post whose address is under `/interpretations/`, which the
+/// comparison pages reserve once `interpretations.publish` is on (ADR 0306).
+/// `None` when nothing collides. The build refuses the same collision while the
+/// switch is on; `check` uses this to warn before it is.
+pub fn interpretations_address_conflict(site: &Site) -> Option<String> {
+    let segment = crate::interpretation_publication::INTERPRETATIONS_SEGMENT;
+    if let Some(page) = site.pages.iter().find(|page| page.slug == segment) {
+        return Some(format!(
+            "{}: the page slug `{segment}` would collide with `/interpretations/`; rename the page before switching on `interpretations.publish`",
+            page.source
+        ));
+    }
+    site.posts
+        .iter()
+        .find(|post| post.url.trim_start_matches('/').split('/').next() == Some(segment))
+        .map(|post| {
+            format!(
+                "{}: the post URL `{}` would collide with `/interpretations/`; adjust `postPath` or the slug before switching on `interpretations.publish`",
+                post.source, post.url
+            )
+        })
+}
+
 fn validate_output_paths(site: &Site) -> Result<(), String> {
     // `atlas` is reserved only while the site publishes its atlas, so an
     // existing page or post at `/atlas/` keeps working until then. The switch,

@@ -2231,7 +2231,7 @@ and is published only after a person's approval of its exact text; nothing here 
 (ADR 0303).
 _Avoid_: AI answer, generated explanation, automatic summary
 
-**Approval**:
+**Comparison approval**:
 A person's recorded statement (`by`, `at`, `digest`) that they read exactly this text and accept it.
 The digest binds it to the text, so editing the text makes the approval stale until it is given again
 (ADR 0303). In Admin only the Approve action records one: a save can keep an approval but never add or

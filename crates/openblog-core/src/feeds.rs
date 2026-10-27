@@ -515,11 +515,49 @@ pub fn search_index(site: &Site) -> String {
     if let Some(paths) = &site.reading_paths {
         entries.extend(paths.listed_only().paths.iter().map(path_index_entry));
     }
+    // Published interpretation comparisons are found by search the same way
+    // (ADR 0306), from the public projection only: approved text, never a
+    // draft or an unapproved AI draft. They are not feed items.
+    if let Some(public) = &site.interpretations {
+        entries.extend(
+            public
+                .comparisons
+                .iter()
+                .map(|published| interpretation_index_entry(&published.url, &published.comparison)),
+        );
+    }
     serde_json::to_string(&Index {
         version: INDEX_VERSION,
         entries,
     })
     .unwrap_or_default()
+}
+
+fn interpretation_index_entry(
+    url: &str,
+    comparison: &crate::scholarly_comparison::PublicComparison,
+) -> IndexEntry {
+    use crate::scholarly_comparison::PublicAttribution;
+    let mut text = String::new();
+    for interpretation in &comparison.interpretations {
+        match &interpretation.attribution {
+            PublicAttribution::Named { name, .. } => text.push_str(name),
+            PublicAttribution::Anonymous { description, .. } => text.push_str(description),
+            PublicAttribution::Source { .. } => {}
+        }
+        text.push(' ');
+        text.push_str(&interpretation.statement);
+        text.push(' ');
+    }
+    IndexEntry {
+        title: comparison.title.clone(),
+        url: url.to_string(),
+        date: String::new(),
+        tags: vec!["interpretations".to_string()],
+        series: None,
+        description: comparison.subject.clone(),
+        text: text.to_lowercase().chars().take(4000).collect(),
+    }
 }
 
 fn path_index_entry(path: &crate::reading_path::PublicPath) -> IndexEntry {

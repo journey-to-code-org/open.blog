@@ -1525,6 +1525,104 @@ Body.
         assert!(off.keys().all(|path| !path.starts_with("interpretations/")));
         fs::remove_dir_all(root).unwrap();
     }
+    /// Approval of the exact text, revocation, a private note and hostile
+    /// metadata through the whole build (#91): the page shows an approved AI
+    /// explanation labelled as an AI draft, and no output holds the text again
+    /// once the approval is removed or the text is edited after approval.
+    #[test]
+    fn an_ai_explanation_publishes_only_while_its_approval_matches_and_private_notes_never_do() {
+        use openblog_core::scholarly_comparison::{Explanation, Level};
+        const NOTE: &str = "PRIVATE-NOTE-MARKER";
+        const AI_TEXT: &str = "AI-EXPLANATION-MARKER for beginners.";
+        let root = temp_root("interpretation-approval");
+        fs::create_dir_all(root.join("content/posts")).unwrap();
+        fs::create_dir_all(root.join("content/comparisons")).unwrap();
+        fs::write(
+            root.join(CONFIG_FILE),
+            r#"{"interpretations":{"publish":true}}"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("content/posts/2026-01-07-cave.md"),
+            "---
+title: Cave
+date: 2026-01-07
+---
+
+The cave educates.
+",
+        )
+        .unwrap();
+        let digest = Explanation::new("e1", Level::Beginner, AI_TEXT).digest();
+        let write = |text: &str, approval: Option<&str>| {
+            let mut explanation = serde_json::json!({
+                "id": "e1", "level": "beginner", "text": text,
+                "origin": {"kind": "ai-draft", "tool": "A helper"}});
+            if let Some(by) = approval {
+                explanation["approval"] =
+                    serde_json::json!({"by": by, "at": "2026-10-27", "digest": digest});
+            }
+            let comparison = serde_json::json!({
+                "format": "openblog-interpretation-comparison", "version": 1,
+                "title": "The cave <script>alert(1)</script>", "subject": "Readings.",
+                "status": "published", "privateNote": NOTE,
+                "interpretations": [
+                    {"id": "a", "attribution": {"kind": "named", "name": "A school"},
+                     "statement": "A city.", "privateNote": NOTE},
+                    {"id": "b", "attribution": {"kind": "anonymous", "description": "A commentator"},
+                     "statement": "A mind."}],
+                "explanations": [explanation]});
+            fs::write(
+                root.join("content/comparisons/cave.json"),
+                comparison.to_string(),
+            )
+            .unwrap();
+        };
+        let build_text = || {
+            production_build(&root);
+            dist_bytes(&root)
+        };
+
+        // Approved: the text shows, labelled as an AI draft a person approved.
+        write(AI_TEXT, Some("Dana"));
+        let on = build_text();
+        let page = String::from_utf8(on["interpretations/cave/index.html"].clone()).unwrap();
+        assert!(page.contains("AI-EXPLANATION-MARKER"), "{page}");
+        assert!(page.contains("Dana") && !page.contains("<script>alert(1)"));
+        assert!(!page.to_lowercase().contains("verified"), "{page}");
+        // Search finds the comparison by its approved interpretation text.
+        let search = String::from_utf8(on["search.json"].clone()).unwrap();
+        assert!(search.contains("/interpretations/cave/") && search.contains("a city."));
+        assert!(!search.contains("ai-explanation-marker"));
+        for (path, bytes) in &on {
+            assert!(
+                !String::from_utf8_lossy(bytes).contains(NOTE),
+                "a private note reached {path}"
+            );
+        }
+
+        // Unapproved, or approval removed: the text is in no output, and the
+        // file, which would publish an unapproved draft, publishes nothing.
+        write(AI_TEXT, None);
+        // Edited after approval: the old approval no longer matches.
+        let edited = format!("{AI_TEXT} Edited later.");
+        for off in [build_text(), {
+            write(&edited, Some("Dana"));
+            build_text()
+        }] {
+            for (path, bytes) in &off {
+                assert!(
+                    !String::from_utf8_lossy(bytes).contains("AI-EXPLANATION-MARKER"),
+                    "an unapproved AI draft reached {path}"
+                );
+            }
+            // A published file holding such text fails validation as a
+            // whole, so the comparison has no page at all.
+            assert!(!off.contains_key("interpretations/cave/index.html"));
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn reading_paths_are_built_only_while_published_and_never_show_a_draft_step() {
         let root = reading_path_project("reading-paths", "{}");

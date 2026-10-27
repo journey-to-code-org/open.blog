@@ -8089,6 +8089,7 @@ export const BOUNDARY_PROJECTIONS = Object.freeze({
   curated: "Curated for readers",
   "curated-context": "Curated context data",
   "reading-paths": "Reading paths",
+  interpretations: "Interpretation comparisons",
 });
 
 /** How each kind of research item is named. */
@@ -8106,6 +8107,7 @@ export const BOUNDARY_KINDS = Object.freeze({
   selection: "Curated selection",
   "curated-context": "Curated context file",
   path: "Reading path",
+  interpretation: "Interpretation comparison",
 });
 
 /** Why an item or a field is withheld, in a few words. The server's message says exactly which. */
