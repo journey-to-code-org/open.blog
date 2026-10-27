@@ -25042,6 +25042,73 @@ What I read:
     }
 
     #[test]
+    fn the_link_view_shows_the_readers_credit_only_for_the_text_they_agreed_it_for() {
+        let f = fixture("suggestion-credit-view");
+        let sources = inbox_sources(&f.state).unwrap();
+        let author = mikey();
+        let protocol = moderation_inbox::Protocol::Protected;
+        // A suggestion at `revision` whose reader agreed to be credited as Ada
+        // (or did not) for `credit_revision`.
+        let credited = |status: &str, revision: u32, credit_revision: Option<u32>, agreed: bool| {
+            let mut details = link_details(&[], false);
+            if let Some(credit) = credit_revision {
+                details["creditRevision"] = json!(credit);
+            }
+            moderation_inbox::InboxItem::from_value(&json!({
+                "source": "feedback", "id": FEEDBACK_ITEM_ID, "status": status, "version": 4,
+                "moderatedAt": if status == "approved" { json!("2026-10-27T10:00:00Z") } else { Json::Null },
+                "reason": null,
+                "feedback": {
+                    "version": 1, "kind": "future-suggestion",
+                    "body": "Her letters would help.",
+                    "details": details,
+                    "provenance": {
+                        "version": 1, "work": "/hello-world/", "revision": null, "target": null,
+                        "receivedAt": "2026-10-26T10:00:00Z", "channel": "hosted",
+                        "attribution": {"name": "Ada", "publishName": agreed},
+                    },
+                },
+                "itemRevision": revision, "approvedRevision": if status == "approved" { json!(revision) } else { Json::Null },
+                "clarificationAsked": null, "clarificationConsent": true,
+            }))
+            .unwrap()
+        };
+        let view = |item: &moderation_inbox::InboxItem| {
+            sources
+                .inbox(&author, protocol, false, |inbox| inbox.view(item))
+                .unwrap()
+        };
+        // Agreed for revision 1 and still at revision 1: shown in the link view, as a fact for the author.
+        let current = view(&credited("approved", 1, Some(1), true));
+        let line = &current["suggestion"]["link"]["credit"]["line"];
+        assert!(line
+            .as_str()
+            .unwrap()
+            .starts_with("The reader agreed to be credited as Ada for this text."));
+        assert_eq!(current["reader"]["publishName"], true);
+        // A clarification raised the revision: the agreement stays behind and nothing is shown.
+        for stale in [
+            credited("approved", 2, Some(1), true),
+            // A changed consent: withdrawn, with no binding left.
+            credited("approved", 1, None, false),
+            // An agreement with no binding at all.
+            credited("approved", 1, None, true),
+        ] {
+            let shown = view(&stale);
+            assert_eq!(shown["suggestion"]["link"]["credit"], Json::Null);
+            assert_eq!(shown["reader"]["publishName"], false);
+            assert!(!shown["suggestion"].to_string().contains("credited as"));
+        }
+        // Nowhere else: not beside the text, the hints or the reader line, and not before it is accepted.
+        let pending = view(&credited("pending", 1, Some(1), true));
+        assert_eq!(pending["suggestion"]["link"], Json::Null);
+        let text = pending.to_string();
+        assert!(!text.contains("credited as"), "{text}");
+        let elsewhere = current["suggestion"]["hints"].to_string() + &current["body"].to_string();
+        assert!(!elsewhere.contains("credited as"));
+    }
+
+    #[test]
     fn a_linked_suggestion_owes_the_clearing_of_its_private_identity_at_once_in_the_hosted_run() {
         let policy = moderation::ModerationPolicy::default();
         // Linked yesterday: not due on the clock (closedDays has not passed), due because it is linked.

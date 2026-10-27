@@ -1157,6 +1157,13 @@ The name a reader optionally gives with feedback and their explicit agreement to
 that agreement the name is private to moderation; anonymous is the default.
 _Avoid_: Author, contributor, credit, account
 
+**Suggestion credit**:
+The name a suggestion's reader agreed to be credited by for the text as it stands (ADR 0215): bound to
+the text revision they agreed it for, so a clarification that changes the text or a changed consent
+leaves it unoffered until they agree again by their receipt. It is shown only in Admin's link view and
+nothing publishes it; withdrawal and retention remove it.
+_Avoid_: Public credit, Work credit, thanks
+
 **Public provenance**:
 The only public form of feedback provenance: the work, the revision seen, the day received,
 whether the passage is stale, its section, the quoted text only while it is still published, and

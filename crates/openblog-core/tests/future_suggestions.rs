@@ -1773,7 +1773,7 @@ fn the_largest_suggestion_and_eight_largest_links_fit_the_hosted_column() {
         })
         .collect();
     let links = Value::Array(widest.iter().map(Conversion::to_value).collect());
-    let room = postgres_text_bytes(&json!({ "conversions": links }));
+    let room = postgres_text_bytes(&json!({ "conversions": links, "creditRevision": i32::MAX }));
     assert!(
         MAX_STORED_DETAILS_BYTES + room < 16 * 1024,
         "{MAX_STORED_DETAILS_BYTES} + {room} must stay under the column's 16 KiB"
@@ -1821,4 +1821,137 @@ fn an_accepted_record_over_16_kib_reads_back_with_eight_links_and_a_clarificatio
     .unwrap();
     assert_eq!(back, record);
     assert_eq!(Suggestion::from_json(&record.to_json()).unwrap(), record);
+}
+
+// ---------------------------------------------------------------------------
+// Credit is opt-in and bound to the revision it was agreed for (ADR 0215)
+
+fn stored(
+    record: &Suggestion,
+) -> Result<Suggestion, openblog_core::future_suggestion::SuggestionError> {
+    let receipt: Value = serde_json::from_str(&record.to_json()).unwrap();
+    Suggestion::from_stored(
+        &record.submission.text,
+        record.revision,
+        &record.stored_details(),
+        &receipt["receipt"],
+        &record.submission.attribution,
+    )
+}
+
+#[test]
+fn credit_is_offered_only_for_the_text_the_reader_agreed_to_be_credited_for() {
+    let sent = receive(&submission(
+        json!({ "attribution": { "name": "Ada", "publishName": true } }),
+    ));
+    assert_eq!(sent.credit(), Some("Ada"));
+    assert_eq!(sent.credit_revision, Some(1));
+    assert_eq!(stored(&sent).unwrap(), sent);
+
+    // A clarification that changes the text needs fresh consent: the old
+    // agreement stays recorded, for the old text, and is not offered.
+    let clarified = sent.clarified("The tide tables of 1851 instead.").unwrap();
+    assert_eq!(clarified.revision, 2);
+    assert_eq!(clarified.credit(), None);
+    assert_eq!(clarified.credit_revision, Some(1));
+    assert_eq!(stored(&clarified).unwrap(), clarified);
+    // Fresh consent binds it to the new text, and a second clarification
+    // leaves it behind again.
+    let agreed = clarified.credited(true).unwrap();
+    assert_eq!(agreed.credit(), Some("Ada"));
+    assert_eq!(agreed.credit_revision, Some(2));
+    assert_eq!(stored(&agreed).unwrap(), agreed);
+    assert_eq!(agreed.clarified("Once more.").unwrap().credit(), None);
+
+    // A changed consent: withdrawn, it is gone and its binding with it; agreed
+    // again, it is fresh for the text as it stands.
+    let withdrawn = agreed.credited(false).unwrap();
+    assert_eq!(withdrawn.credit(), None);
+    assert_eq!(withdrawn.credit_revision, None);
+    assert!(!withdrawn.submission.attribution.publish_name);
+    assert_eq!(stored(&withdrawn).unwrap(), withdrawn);
+    assert_eq!(withdrawn.credited(true).unwrap().credit(), Some("Ada"));
+
+    // Never credited without having been agreed to, and never without a name.
+    let private = receive(&submission(json!({ "attribution": { "name": "Ada" } })));
+    assert_eq!(private.credit(), None);
+    assert_eq!(private.credit_revision, None);
+    let anonymous = receive(&submission(json!({})));
+    assert_eq!(
+        anonymous.credited(true).unwrap_err().code,
+        ErrorCode::ConsentWithoutName
+    );
+}
+
+#[test]
+fn a_stored_credit_binding_is_refused_unless_it_names_a_revision_the_reader_agreed_for() {
+    let sent = receive(&submission(
+        json!({ "attribution": { "name": "Ada", "publishName": true } }),
+    ));
+    let receipt: Value = serde_json::from_str(&sent.to_json()).unwrap();
+    let read = |details: Value, attribution: &ReaderAttribution| {
+        Suggestion::from_stored(
+            &sent.submission.text,
+            1,
+            &details,
+            &receipt["receipt"],
+            attribution,
+        )
+    };
+    let agreed = sent.submission.attribution.clone();
+    for credit in [json!(0), json!(2), json!("1"), json!(1.5)] {
+        let mut details = sent.stored_details();
+        details["creditRevision"] = credit.clone();
+        assert_eq!(
+            read(details, &agreed).unwrap_err().code,
+            ErrorCode::InvalidDetails,
+            "{credit}"
+        );
+    }
+    // Without agreement to be credited there is nothing to bind.
+    let mut details = sent.stored_details();
+    details["creditRevision"] = json!(1);
+    let private = ReaderAttribution {
+        name: Some("Ada".into()),
+        publish_name: false,
+    };
+    assert_eq!(
+        read(details, &private).unwrap_err().code,
+        ErrorCode::InvalidDetails
+    );
+    // An agreement with no binding (a row that never recorded one) offers no credit.
+    let mut unbound = sent.stored_details();
+    unbound.as_object_mut().unwrap().remove("creditRevision");
+    assert_eq!(read(unbound, &agreed).unwrap().credit(), None);
+}
+
+#[test]
+fn an_editor_who_may_not_see_identity_sees_a_name_only_while_its_credit_is_current() {
+    let item = facts(ModerationState::Approved);
+    let sent = receive(&submission(
+        json!({ "attribution": { "name": "Ada", "publishName": true } }),
+    ));
+    let name = |record: &Suggestion, actor: &Actor<'_>, item: &ItemFacts<'_>| {
+        record
+            .editor_view(actor, item, ParticipationMode::Open)
+            .and_then(|view| view.name)
+    };
+    assert_eq!(name(&sent, &COORDINATOR, &item).as_deref(), Some("Ada"));
+    let clarified = sent.clarified("Different words now.").unwrap();
+    assert_eq!(name(&clarified, &COORDINATOR, &item), None);
+    // The site Admin still sees the name the reader gave, as private identity.
+    assert_eq!(name(&clarified, &ADMIN, &item).as_deref(), Some("Ada"));
+    assert_eq!(
+        name(&clarified.credited(true).unwrap(), &COORDINATOR, &item).as_deref(),
+        Some("Ada")
+    );
+    // Retention and withdrawal remove the text and with it the view, so no
+    // credit survives either.
+    let purged = ItemFacts {
+        content_retained: false,
+        ..facts(ModerationState::Approved)
+    };
+    assert!(sent
+        .editor_view(&ADMIN, &purged, ParticipationMode::Open)
+        .is_none());
 }

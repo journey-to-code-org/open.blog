@@ -221,7 +221,7 @@ export class ObFutureSuggestion extends HTMLElement {
     const nameError = errorFor("name");
     name.setAttribute("aria-describedby", nameHint.id);
     const credit = input("checkbox");
-    const creditHint = hint("credit", "If the editors use your suggestion they may thank you by this name. They will not unless you check this.");
+    const creditHint = hint("credit", "If the editors use your suggestion they may thank you by this name. They will not unless you check this, and it covers the text as you wrote it: if you later change it, you are asked again.");
     credit.setAttribute("aria-describedby", creditHint.id);
     const creditError = errorFor("showName");
     const address = input("email", "email");

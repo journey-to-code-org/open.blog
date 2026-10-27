@@ -173,7 +173,7 @@ test("an editor reads a suggestion as the reader's own words and accepts it from
   // The contact the server sent, with what happens to it.
   await expect(card.getByText("Contact the reader agreed to: ada@example.org.", { exact: false })).toBeVisible();
   await expect(card).toContainText("this site never e-mails it");
-  await expect(card.getByText("The name stays private: the reader did not agree to be thanked by it.", { exact: false })).toBeVisible();
+  await expect(card.getByText("The name stays private: the reader has not agreed to be credited by it for this text.", { exact: false })).toBeVisible();
   await expect(card.getByText(NOTICE)).toBeVisible();
   // No count, rank or vote anywhere.
   const text = await card.innerText();
@@ -183,9 +183,9 @@ test("an editor reads a suggestion as the reader's own words and accepts it from
   await card.getByRole("link", { name: /Suggestion for future work received/ }).focus();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "Suggestion for future work on “Tides”", level: 3 }).nth(1)).toBeFocused();
-  // The second card shows the name the reader agreed to be thanked by and no contact.
+  // The second card shows the name the reader agreed to be credited by for this text, and no contact.
   const second = page.locator(`[data-moderation-id="${ID(2)}"]`);
-  await expect(second.getByText("From Grace, who agreed that you may thank them by this name", { exact: false })).toBeVisible();
+  await expect(second.getByText("From Grace, who agreed to be credited by this name for this text", { exact: false })).toBeVisible();
   await expect(second.getByText("Contact the reader agreed to")).toHaveCount(0);
   await expect(second.getByText("Still to find: a link or identifier, a title, a creator.")).toBeVisible();
 
@@ -470,3 +470,33 @@ for (const [name, viewport, zoom] of [["320px", { width: 320, height: 900 }, 1],
     await context.close();
   });
 }
+
+const CREDIT = { name: "Ada", line: "The reader agreed to be credited as Ada for this text. Nothing credits them unless you do." };
+
+test("the reader's credit shows only in the link view, for the text they agreed it for, and goes when their consent or text changes", async ({ page }) => {
+  // The reader agreed to be credited for this text; the author sees it beside the link form and nowhere else.
+  let card = acceptedCard(9, { link: { ...LINK_OFFER, credit: CREDIT } }, { reader: { name: "Ada", publishName: true } });
+  await page.route(`${origin}/admin/api/engagement/moderation?**`, (route) => json(route, 200, page_([card], { state: "approved" })));
+  await page.route(`${origin}/admin/api/engagement/suggestions/link`, async (route) => {
+    // Meanwhile the reader withdrew (or changed the text of) what they agreed to: the next list has no credit.
+    card = acceptedCard(9, { link: { ...LINK_OFFER, credit: null }, conversions: [{ kind: "draft", kindLabel: "A draft (its slug)", id: "tide-tables", at: "2026-10-28T10:00:00Z", by: "writer" }] }, { version: 5, reader: { name: "Ada", publishName: false } });
+    return json(route, 200, { ok: true, item: null, published: false });
+  });
+  await signIn(page);
+  await page.goto(`${origin}/admin/#/moderation/approved?kind=future-suggestion`);
+  const item = page.locator(`[data-moderation-id="${ID(9)}"]`);
+  const form = item.locator("[data-link-form]");
+  await expect(form.locator("[data-suggestion-credit]")).toHaveText(CREDIT.line);
+  await expect(item.locator("[data-suggestion-credit]")).toHaveCount(1);
+  // The reader line says only that it is shown with the link form, and offers nothing to publish it.
+  await expect(item.getByText("who agreed to be credited by this name for this text. That is shown with the link form.")).toBeVisible();
+  await expect(item.getByRole("button", { name: /credit|thank|publish/i })).toHaveCount(0);
+  // Nothing was sent by looking at it.
+  await form.getByLabel("What you made", { exact: true }).selectOption({ label: "A draft (its slug)" });
+  await form.getByLabel("Its slug or id", { exact: true }).fill("tide-tables");
+  await form.getByRole("button", { name: "Record this link" }).click();
+  await expect(queueStatus(page)).toContainText("The link was recorded.");
+  // With the agreement gone, the line is gone and the name stays private.
+  await expect(item.locator("[data-suggestion-credit]")).toHaveCount(0);
+  await expect(item.getByText("The name stays private: the reader has not agreed to be credited by it for this text.")).toBeVisible();
+});

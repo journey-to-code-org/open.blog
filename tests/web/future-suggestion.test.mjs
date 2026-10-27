@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   ACCEPTANCE_NOTICE, DECLINE_NOTICE, FUTURE_SUGGESTION_KIND, LINK_NOTICE, MAX_ACTOR_CHARS, MAX_CONVERSIONS, MAX_STORED_DETAILS_BYTES, MAX_SUBMISSION_BYTES, identityScrubDue, outcomeOf, planConversion, readConversions, readerStanding, standingOf, storedDetailsBytes, holdsIdentity, isPlainAddress, isSlug, normalizeSuggestionUrl, readClarification, readSuggestionSubmissionJson,
-  receiveSuggestion, scrubbedIdentity, slugify, suggestionCopyText, suggestionDetails,
+  planCredit, receiveSuggestion, scrubbedIdentity, slugify, suggestionCopyText, suggestionCredit, suggestionDetails,
 } from "../../web/components/future-suggestion.js";
 import { publicUrlProblem } from "../../web/components/public-url.js";
 
@@ -201,7 +201,7 @@ test("the worst a suggestion and its links can store fits the column with room t
   const links = Array.from({ length: MAX_CONVERSIONS }, (_, index) => ({ kind: "library-source", id: `${"x".repeat(60)}-${index}`.slice(0, 64), at: "2026-10-27T10:00:00Z", by: "\u{1F600}".repeat(MAX_ACTOR_CHARS) }));
   const largest = { type: "source", hints: { title: "x" }, conversions: links };
   // The submission side is held to MAX_STORED_DETAILS_BYTES; the links are the rest of the 16 KiB.
-  const linksOnly = storedDetailsBytes({ conversions: links });
+  const linksOnly = storedDetailsBytes({ conversions: links, creditRevision: 2147483647 });
   assert.ok(MAX_STORED_DETAILS_BYTES + linksOnly < 16 * 1024, `${MAX_STORED_DETAILS_BYTES} + ${linksOnly}`);
   assert.ok(storedDetailsBytes(largest) < 16 * 1024);
   const slugs = Array.from({ length: MAX_CONVERSIONS }, (_, index) => ({ kind: "draft", id: `${"\u{6F22}".repeat(60)}-${index}`.slice(0, 64), at: "2026-10-27T10:00:00Z", by: "\u{1F600}".repeat(MAX_ACTOR_CHARS) }));
@@ -237,4 +237,43 @@ test("a reader's receipt words an accepted, linked, closed or declined suggestio
   assert.equal(say("approved", null), "Accepted means the editors are interested in exploring this. It does not mean they agree with it, have checked it, or have permission to use it. It is private to them and is not shown on the site.");
   assert.equal(say("rejected", null), "The editors decided not to take it forward.");
   assert.equal(say("removed", null, { purged: true }).startsWith("The editors closed it."), true);
+});
+
+// ---- Credit is opt-in and bound to the revision it was agreed for (ADR 0215)
+
+test("a credit is offered only for the revision the reader agreed to be credited for", () => {
+  const sent = readSuggestionSubmissionJson(JSON.stringify({ version: 1, kind: "future-suggestion", type: "text", text: "Her letters.", attribution: { name: "Ada", publishName: true } }));
+  const { record, row } = receiveSuggestion(sent.submission, "/posts/tides/", "2026-10-26T10:00:00Z");
+  assert.equal(record.creditRevision, 1);
+  assert.equal(row.details.creditRevision, 1);
+  const current = { ...row, kind: FUTURE_SUGGESTION_KIND, item_revision: 1, purged_at: null };
+  assert.equal(suggestionCredit(current), "Ada");
+  // A clarification that changed the text raises the revision and leaves the agreement behind.
+  const clarified = { ...current, item_revision: 2 };
+  assert.equal(suggestionCredit(clarified), null);
+  // Fresh consent binds it to the new text; a second clarification leaves it behind again.
+  const again = planCredit(clarified, true);
+  assert.equal(again.ok, true);
+  assert.equal(again.publish_name, true);
+  assert.equal(again.details.creditRevision, 2);
+  assert.equal(suggestionCredit({ ...clarified, ...again }), "Ada");
+  assert.equal(suggestionCredit({ ...clarified, ...again, item_revision: 3 }), null);
+  // Withdrawn, it is gone with its binding, and the rest of the details stay.
+  const withdrawn = planCredit({ ...clarified, ...again }, false);
+  assert.deepEqual(withdrawn, { ok: true, publish_name: false, details: { type: "text" } });
+  assert.equal(suggestionCredit({ ...clarified, ...withdrawn }), null);
+  // Never without agreement, a name, a kept row or the right kind.
+  assert.equal(suggestionCredit({ ...current, publish_name: false }), null);
+  assert.equal(suggestionCredit({ ...current, reader_name: null }), null);
+  assert.equal(suggestionCredit({ ...current, purged_at: "2026-10-27T00:00:00Z" }), null);
+  assert.equal(suggestionCredit({ ...current, kind: "question" }), null);
+  assert.equal(suggestionCredit({ ...current, details: { type: "text" } }), null, "an agreement with no binding offers none");
+  assert.equal(planCredit({ ...current, reader_name: null }, true).code, "consentWithoutName");
+  assert.equal(planCredit(current, "yes").code, "invalid");
+  assert.equal(planCredit({ ...current, purged_at: "x" }, true).code, "notAllowed");
+  // A name given but not agreed to has nothing bound.
+  const quiet = readSuggestionSubmissionJson(JSON.stringify({ version: 1, kind: "future-suggestion", type: "text", text: "Her letters.", attribution: { name: "Ada" } }));
+  const quietRow = receiveSuggestion(quiet.submission, "/posts/tides/", "2026-10-26T10:00:00Z");
+  assert.equal("creditRevision" in quietRow.record, false);
+  assert.equal("creditRevision" in quietRow.row.details, false);
 });

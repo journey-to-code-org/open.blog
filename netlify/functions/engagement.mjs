@@ -2,7 +2,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { FEEDBACK_KINDS, canonicalTime, readFeedbackSubmissionJson, readSubmissionJson, receiveFeedback } from "../../web/components/passage-feedback.js";
 import { AUTHOR_RESPONSE_KIND, PARENT_UNAVAILABLE, checkAnswerParent, mayDecideResponse, parentFactsOfRow, readAuthorResponseRequest, receiveAuthorResponse } from "../lib/author-response.mjs";
 import { EVIDENCE_KINDS, decisionsOf, emptyLog, planDecision } from "../lib/correction-decisions.mjs";
-import { FUTURE_SUGGESTION_KIND, holdsIdentity, planConversion, readClarification, readConversions, readerStanding, readSuggestionSubmissionJson, receiveSuggestion, scrubbedIdentity } from "../../web/components/future-suggestion.js";
+import { FUTURE_SUGGESTION_KIND, holdsIdentity, planConversion, planCredit, readClarification, readConversions, readerStanding, readSuggestionSubmissionJson, receiveSuggestion, scrubbedIdentity, suggestionCredit } from "../../web/components/future-suggestion.js";
 import { isWorkPath } from "../../web/components/passage-feedback.js";
 import { MODERATION_STATES, auditActor, planModeration } from "../lib/feedback-moderation.mjs";
 import {
@@ -182,7 +182,7 @@ const receiptDetails = (row) => {
   // The links an author recorded name their account and their own drafts, series and sources: the
   // reader sees none of them, only the standing the receipt derives from them (ADR 0211).
   if (row.kind === FUTURE_SUGGESTION_KIND) {
-    const { conversions, ...own } = details;
+    const { conversions, creditRevision, ...own } = details;
     return own;
   }
   if (row.kind !== THIRD_PERSPECTIVE_KIND) return details;
@@ -227,6 +227,9 @@ const receiptViewOf = (row, hidden = false) => {
     // Where a suggestion stands, honestly and in the words of ACCEPTANCE_NOTICE: a stage and one
     // sentence, never a rank, a count, a promise or what it was linked to (ADR 0211).
     ...(row.kind === FUTURE_SUGGESTION_KIND && !purged ? { standing: readerStanding(row.status, readConversions(row.details) ?? []) } : {}),
+    // Whether a reader who gave a name has agreed to be credited by it for this text as it stands
+    // (ADR 0215); null when they gave none, so there is nothing to agree to.
+    ...(row.kind === FUTURE_SUGGESTION_KIND && !purged ? { credit: row.reader_name ? { agreed: suggestionCredit(row) !== null } : null } : {}),
   };
 };
 
@@ -881,6 +884,22 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
             body: JSON.stringify({ clarification_consent: body.consent }),
           }));
         }
+        if (action === "credit") {
+          // A reader's own change to whether the editors may credit them by the name they gave
+          // (ADR 0215): for this text as it stands, or withdrawn. It never publishes anything.
+          // Agreeing binds the agreement to the current revision, so a later clarification needs
+          // fresh agreement; the version is raised so an editor acting on the earlier view is
+          // refused instead of acting on a credit that has changed.
+          if (row.kind !== FUTURE_SUGGESTION_KIND || !facts.retained) return json(422, { error: "You can change this only on a suggestion that is still kept.", code: "notAllowed" }, corsOrigin);
+          const plan = planCredit(row, body.consent);
+          if (!plan.ok) return json(422, { error: plan.code === "consentWithoutName" ? "You gave no name to be credited by." : "Choose whether the editors may credit you.", code: plan.code }, corsOrigin);
+          const params = new URLSearchParams({ site_id: `eq.${settings.siteId}`, id: `eq.${row.id}`, receipt_hash: `eq.${receiptDigest(receipt)}`, version: `eq.${version}`, purged_at: "is.null", select: receiptColumns });
+          return answered(await database(settings, `/rest/v1/openblog_feedback?${params}`, {
+            method: "PATCH",
+            headers: { Prefer: "return=representation" },
+            body: JSON.stringify({ publish_name: plan.publish_name, details: plan.details, version: version + 1 }),
+          }));
+        }
         if (action === "clarify") {
           const plan = planTransition(facts, { action: "clarify", expectedVersion: version, role: "submitter" });
           if (!plan.ok) return json(plan.code === "stale" ? 409 : 422, { error: "Your note is not waiting for clarification.", code: plan.code, item: receiptView(row) }, corsOrigin);
@@ -926,7 +945,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
             }),
           }));
         }
-        return json(422, { error: "Choose to read, clarify, agree to be asked, or withdraw your note.", code: "invalid" }, corsOrigin);
+        return json(422, { error: "Choose to read, clarify, agree to be asked, change your credit, or withdraw your note.", code: "invalid" }, corsOrigin);
       }
       if (operation === "reports") {
         // An abuse report (ADR 0107): accepted only for an item that is

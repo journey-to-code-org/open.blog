@@ -17,8 +17,8 @@ to be emailed, listed or thanked in public.
 - **Display is anonymous by default.** A suggestion keeps the reader's name only if they gave one,
   and shows it publicly only if they also set `publishName`. A name needs no publication consent
   to be kept privately; `publishName` without a name is refused. `Suggestion::credit` returns only
-  a consented name, and nothing in the system uses it: crediting a reader is the author's own
-  later action.
+  a consented name (for the current text, ADR 0215), and nothing in the system uses it: crediting
+  a reader is the author's own later action.
 - **Contact is optional and consented.** `contact` is `{address, followUp}`: one plain ASCII
   e-mail address (no display name, comment, quoting, list or whitespace, at most 254 bytes) and
   `followUp: true`, the reader's agreement to be contacted about this suggestion. An address
@@ -31,7 +31,7 @@ to be emailed, listed or thanked in public.
   `Contact(<private>)`, and prints a name the reader did not agree to show as `<private>`, in
   `Submission`, `Suggestion` and the editor's view alike), and is purged with the text on
   withdrawal, deletion and retention.
-- **They are not kept as long as the idea.** (Amended by [ADR 0211](0211-editorial-outcomes-are-derived-the-receipt-says-the-honest-standing-and-a-link-clears-private-identity-in-the-next-retention-run.md): the identity is cleared at the next confirmed retention run after a link, not the moment of the link.) An accepted suggestion is kept, but its contact and
+- **They are not kept as long as the idea.** (Amended by [ADR 0211](0211-editorial-outcomes-are-derived-the-receipt-says-the-honest-standing-and-a-link-clears-private-identity-in-the-next-retention-run.md): the identity is cleared at the next confirmed retention run after a link, not the moment of the link. Amended by [ADR 0215](0215-a-readers-credit-is-opt-in-bound-to-the-text-it-was-agreed-for-and-shown-only-in-the-link-view.md): the agreement to show a name stands only for the text it was given for.) An accepted suggestion is kept, but its contact and
   unpublished name are cleared (and nothing else) once `closedDays` have passed since it was
   approved, or the moment an author links it to future work
   (`RetentionStep::ScrubIdentity`, `identity_scrub_due`). A name the reader agreed to show stays. The

@@ -383,7 +383,9 @@ export function receiveSuggestion(submission, work, receivedAt) {
   if (!isWorkPath(work)) throw new TypeError("work must be the site-relative path of a published page");
   if (!isCanonicalTime(receivedAt)) throw new TypeError("receivedAt must be a canonical UTC time");
   const attribution = submission.attribution;
-  const record = { ...submission, receipt: { work, receivedAt, channel: "hosted" }, revision: 1 };
+  // A reader who agrees to be credited by name does so for revision 1 of the text (ADR 0215).
+  const credited = attribution?.publishName === true && typeof attribution.name === "string";
+  const record = { ...submission, receipt: { work, receivedAt, channel: "hosted" }, revision: 1, ...(credited ? { creditRevision: 1 } : {}) };
   return {
     record,
     row: {
@@ -393,7 +395,7 @@ export function receiveSuggestion(submission, work, receivedAt) {
       revision: null,
       target: null,
       body: submission.text,
-      details: suggestionDetails(submission),
+      details: { ...suggestionDetails(submission), ...(credited ? { creditRevision: 1 } : {}) },
       seen_at: null,
       received_at: receivedAt,
       channel: "hosted",
@@ -405,6 +407,32 @@ export function receiveSuggestion(submission, work, receivedAt) {
 
 /** A reader's answer to a clarification request replaces the text and nothing else: the new text, or null. */
 export const readClarification = (value) => readerText(value, MAX_TEXT_CHARS);
+
+/**
+ * The name a reader agreed to be credited by for the text as it stands now, or null (ADR 0215): the
+ * agreement stands only for the revision it was given for (`details.creditRevision`), so a
+ * clarification that changed the text, or a withdrawn consent, offers none until they agree again.
+ * Nothing credits anyone on this alone; it is shown to an author in the link view and nowhere else.
+ */
+export function suggestionCredit(row) {
+  if (row?.kind !== FUTURE_SUGGESTION_KIND || row.purged_at) return null;
+  if (row.publish_name !== true || typeof row.reader_name !== "string" || row.reader_name === "") return null;
+  return row.details?.creditRevision === (row.item_revision ?? 1) ? row.reader_name : null;
+}
+
+/**
+ * A reader's own change to their consent to be credited by name, as the columns it changes: agreeing
+ * (it needs a name) binds the agreement to the text's current revision, withdrawing clears it and
+ * its binding. `{ ok: false, code }` when the row is not a kept suggestion or has no name to credit.
+ */
+export function planCredit(row, agree) {
+  if (row?.kind !== FUTURE_SUGGESTION_KIND || row.purged_at) return { ok: false, code: "notAllowed" };
+  if (typeof agree !== "boolean") return { ok: false, code: "invalid" };
+  const { creditRevision, ...details } = isObject(row.details) ? row.details : {};
+  if (!agree) return { ok: true, publish_name: false, details };
+  if (typeof row.reader_name !== "string" || row.reader_name === "") return { ok: false, code: "consentWithoutName" };
+  return { ok: true, publish_name: true, details: { ...details, creditRevision: row.item_revision ?? 1 } };
+}
 
 /** Whether a stored row holds anything private to the site Admin and the reader: a contact, or a name not agreed to be shown. */
 export const holdsIdentity = (row) => isObject(row?.details?.contact) || (typeof row?.reader_name === "string" && row.reader_name !== "" && row.publish_name !== true);

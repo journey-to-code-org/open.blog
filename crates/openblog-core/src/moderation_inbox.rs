@@ -1390,6 +1390,13 @@ impl<'a> Inbox<'a> {
         Some(json!({
             "kinds": ConversionKind::ALL.iter().map(|kind| json!({"id": kind.id(), "label": conversion_kind_label(*kind)})).collect::<Vec<_>>(),
             "full": suggestion.conversions.len() >= crate::future_suggestion::MAX_CONVERSIONS,
+            // The name the reader agreed to be credited by for this text as
+            // it stands now, shown here and nowhere else, and never used by
+            // anything on its own (ADR 0215).
+            "credit": suggestion.credit().map(|name| json!({
+                "name": name,
+                "line": format!("The reader agreed to be credited as {name} for this text. Nothing credits them unless you do."),
+            })),
             "guidance": "Records that you made, or are making, something from this suggestion: the slug of a draft or series, or the id of a source you added to your library. It creates, fetches and publishes nothing, and tells the reader only that it is linked to future work. The reader’s contact and unpublished name are cleared the next time you run retention.",
         }))
     }
@@ -1729,7 +1736,9 @@ impl<'a> Inbox<'a> {
                 view["body"] = json!(shown.text);
                 view["details"] = json!({});
                 let attribution = &suggestion.submission.attribution;
-                let mut reader = json!({ "publishName": attribution.publish_name });
+                // Whether the reader agreed to be credited for this text as it
+                // stands, not whether they ever ticked the box (ADR 0215).
+                let mut reader = json!({ "publishName": suggestion.credit().is_some() });
                 match &shown.name {
                     Some(name) => reader["name"] = json!(name),
                     None if attribution.name.is_some() => reader["private"] = json!(true),

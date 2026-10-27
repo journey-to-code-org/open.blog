@@ -382,7 +382,7 @@ test("a suggestion is worded as the reader's own unchecked statements, with the 
 });
 
 test("a suggestion's readers, outcomes and mismatches never speak of publication", () => {
-  assert.match(moderationReaderLine({ name: "Ada", publishName: true }, "feedback", "future-suggestion"), /may thank them by this name/);
+  assert.match(moderationReaderLine({ name: "Ada", publishName: true }, "feedback", "future-suggestion"), /agreed to be credited by this name for this text/);
   assert.match(moderationReaderLine({ name: "Ada", publishName: false }, "feedback", "future-suggestion"), /name stays private/);
   assert.match(moderationReaderLine({ private: true }, "feedback", "future-suggestion"), /only the site Admin can see/);
   const item = { source: "feedback", kind: "future-suggestion", suggestion: suggestionCard, status: "approved", published: false, post: { title: "Tides" }, work: "/posts/tides/" };
@@ -441,7 +441,6 @@ test("library hints are plain lines marked unverified, with nothing the reader d
   assert.match(lines[0], /Unverified/);
   assert.deepEqual(lines.slice(1), ["Link: https://example.org/watch", "Title: The survey", "Creators: A. Surveyor", "Year: 1850", "Publisher: Admiralty", "DOI: 10.1234/abc"]);
   assert.deepEqual(libraryCandidateLines({ type: "text", unverified: true }).length, 1);
-});
 });
 
 test("the role line's description sits directly above the function it describes", () => {

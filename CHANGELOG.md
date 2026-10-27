@@ -47,6 +47,14 @@ All notable changes to open.blog are recorded here. Releases follow
   the viewer may see, a suggestion's editor view gated by who may see it, a closed linked suggestion
   that no longer reads as declined, series and link targets in the site's own slugs, and a receipt
   and a report that never treat a never-public kind as published.
+- A suggestion's reader credit is opt-in and tied to the text they agreed it for (RD13, #228).
+  Agreeing to be thanked by name covers the suggestion as it stands; if the reader later clarifies
+  it, or changes their mind, the agreement is not offered until they tick it again in their receipt
+  ("The editors may credit me by the name I gave for this suggestion"). Editors see it only beside the
+  link form ("The reader agreed to be credited as X for this text"), and nothing publishes it.
+  Hosted: the receipt route gains a `credit` action; no SQL change.
+- Fixed: a suggestion with wide text and long links could be accepted and stored but not read back
+  from the editors' inbox; the stored record is now read up to the sum of what its columns bound.
 
 ## [0.41.0] - 2026-10-26
 

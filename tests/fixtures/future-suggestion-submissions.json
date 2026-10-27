@@ -260,6 +260,7 @@
             "address": "ada@example.org",
             "followUp": true
           },
+          "creditRevision": 1,
           "hints": {
             "creators": [
               "A. Surveyor",
@@ -310,6 +311,7 @@
               "address": "ada@example.org",
               "followUp": true
             },
+            "creditRevision": 1,
             "hints": {
               "creators": [
                 "A. Surveyor",

@@ -512,3 +512,60 @@ test("without JavaScript the region explains how to write instead, and a locked 
   expect(loaded.some((path) => path.includes("future-suggestion"))).toBe(false);
   await context.close();
 });
+
+// Credit is opt-in and bound to the text it was agreed for (ADR 0215): the reader changes it by their
+// receipt, and a change of text or of consent takes it away until they agree again.
+test("a reader sees whether the editors may credit them for this text, changes it from the keyboard, and is asked again after a clarification", async ({ page }) => {
+  let item = suggestionReceipt("approved", "interested", { credit: { agreed: true } });
+  const sent = [];
+  await page.route(/\/receipt(\?.*)?$/, async (route) => {
+    if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers: CORS });
+    const body = route.request().postDataJSON();
+    sent.push(body);
+    if (body.action === "credit") item = { ...item, version: item.version + 1, credit: { agreed: body.consent } };
+    return route.fulfill({ status: 200, headers: { ...CORS, "content-type": "application/json" }, body: JSON.stringify({ item }) });
+  });
+  await open(page);
+  const manage = page.locator(".ob-receipt-manage");
+  await manage.locator("summary").click();
+  await manage.getByLabel("Your receipt", { exact: true }).fill(RECEIPT);
+  await manage.getByRole("button", { name: "Look up my suggestion" }).click();
+  const credit = manage.getByLabel("The editors may credit me by the name I gave for this suggestion", { exact: true });
+  await expect(credit).toBeChecked();
+  await expect(credit).toHaveAccessibleDescription(/If you change its text, tick it again\. Nothing is published or sent/);
+  // Withdrawing the agreement from the keyboard saves it for the version the reader loaded.
+  await credit.focus();
+  await page.keyboard.press("Space");
+  await expect(manage.locator(".ob-receipt-status")).toHaveText("Saved: the editors may not credit you by name.");
+  expect(sent.at(-1)).toEqual({ receipt: RECEIPT, action: "credit", consent: false, expectedVersion: 4 });
+  await expect(credit).not.toBeChecked();
+  // Agreeing again is fresh consent for the text as it stands.
+  await credit.check();
+  await expect(manage.locator(".ob-receipt-status")).toHaveText("Saved: the editors may credit you by your name for this text.");
+  expect(sent.at(-1)).toEqual({ receipt: RECEIPT, action: "credit", consent: true, expectedVersion: 5 });
+  await expect(credit).toBeChecked();
+  // After a clarification changed the text, the service says the agreement no longer stands.
+  item = { ...item, version: 7, credit: { agreed: false } };
+  await manage.getByLabel("Your receipt", { exact: true }).fill(RECEIPT);
+  await manage.getByRole("button", { name: "Look up my suggestion" }).click();
+  await expect(credit).not.toBeChecked();
+  // A refusal puts the box back and says so.
+  await page.unroute(/\/receipt(\?.*)?$/);
+  await page.route(/\/receipt(\?.*)?$/, async (route) => {
+    if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers: CORS });
+    return route.fulfill({ status: 503, headers: { ...CORS, "content-type": "application/json" }, body: JSON.stringify({ error: "down" }) });
+  });
+  await credit.check();
+  await expect(manage.locator(".ob-receipt-status")).toContainText("Something went wrong");
+  await expect(credit).not.toBeChecked();
+  await expect(credit).toBeFocused();
+});
+
+test("a reader who gave no name, or whose suggestion was deleted, is offered no credit to agree to", async ({ page }) => {
+  const { manage } = await lookUp(page, suggestionReceipt("approved", "interested", { credit: null }));
+  await expect(manage.locator(".ob-receipt-state")).toBeVisible();
+  await expect(manage.getByLabel(/may credit me/)).toHaveCount(0);
+  const purged = await page.context().newPage();
+  const second = await lookUp(purged, suggestionReceipt("withdrawn", "received", { purged: true, body: undefined, details: undefined, credit: undefined }));
+  await expect(second.manage.getByLabel(/may credit me/)).toHaveCount(0);
+});

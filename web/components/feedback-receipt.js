@@ -266,6 +266,33 @@ export function receiptManager({ endpoint, noun: managed = "note" }) {
     if (!item.purged && typeof item.body === "string") {
       result.append(make("p", "ob-receipt-label", "What you wrote:"), make("blockquote", "ob-receipt-body", item.body));
     }
+    if (item.kind === SUGGESTION && item.credit && !item.purged) {
+      // Whether the editors may credit them by the name they gave, for this text as it stands (ADR
+      // 0215). Agreement is for one version of the text: after a clarification they are asked again.
+      const credit = make("input");
+      credit.type = "checkbox";
+      credit.checked = item.credit.agreed === true;
+      const creditHint = make("p", "ob-receipt-hint", "This covers the suggestion as it is now. If you change its text, tick it again. Nothing is published or sent by ticking it: only an editor can choose to thank you.");
+      creditHint.id = `${prefix}-credit-hint`;
+      credit.setAttribute("aria-describedby", creditHint.id);
+      const creditRow = make("p", "ob-receipt-credit");
+      creditRow.append(credit, " ", labelled(credit, `${prefix}-credit`, "The editors may credit me by the name I gave for this suggestion"));
+      credit.addEventListener("change", async () => {
+        const wanted = credit.checked;
+        credit.disabled = true;
+        status.textContent = "Saving…";
+        const { status: code, data } = await call(endpoint, { receipt, action: "credit", consent: wanted, expectedVersion: item.version });
+        if (code === 200 && data.item) show(data.item, wanted ? "Saved: the editors may credit you by your name for this text." : "Saved: the editors may not credit you by name.");
+        else if (code === 409 && data.item) show(data.item, receiptProblem(code, data.code));
+        else {
+          credit.disabled = false;
+          credit.checked = !wanted;
+          credit.focus();
+          status.textContent = receiptProblem(code, data.code);
+        }
+      });
+      result.append(creditRow, creditHint);
+    }
     if (item.status === "clarification" && item.clarification && !item.purged) {
       const answer = make("textarea");
       answer.rows = 5;

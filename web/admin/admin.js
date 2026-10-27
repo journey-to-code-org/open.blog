@@ -630,9 +630,10 @@ export function moderationReaderLine(reader, source = "feedback", kind = "") {
   if (reader?.private) return "The reader gave a name that only the site Admin can see.";
   if (!reader?.name) return "From an anonymous reader.";
   if (kind === "future-suggestion") {
+    // Whether they agreed to be credited is for the text as it stands, and shows beside the link form (ADR 0215).
     return reader.publishName
-      ? `From ${reader.name}, who agreed that you may thank them by this name if you use the suggestion.`
-      : `From ${reader.name}. The name stays private: the reader did not agree to be thanked by it.`;
+      ? `From ${reader.name}, who agreed to be credited by this name for this text. That is shown with the link form.`
+      : `From ${reader.name}. The name stays private: the reader has not agreed to be credited by it for this text.`;
   }
   const what = kind === "third-perspective" ? "reflection" : "note";
   return reader.publishName
@@ -15089,6 +15090,9 @@ export class ObAdmin extends AdminElement {
         h("div", { class: "oba-field" }, h("label", { for: fieldId("kind") }, "What you made"), kind),
         h("div", { class: "oba-field" }, h("label", { for: fieldId("target") }, "Its slug or id"), target),
         h("p", { class: "oba-small oba-moderation-guidance", id: fieldId("guidance") }, offer.full ? "It is linked as many times as it can be." : offer.guidance),
+        // The credit the reader agreed to for this text as it stands, shown only here: it is a fact for
+        // the author to act on, and nothing credits anyone unless they do (ADR 0215).
+        offer.credit ? h("p", { class: "oba-small oba-suggestion-credit", "data-suggestion-credit": "" }, offer.credit.line) : null,
         submit);
         actions.append(form);
       }

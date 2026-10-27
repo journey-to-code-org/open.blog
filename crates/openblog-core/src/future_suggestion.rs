@@ -772,6 +772,12 @@ pub struct Suggestion {
     /// Kept in the row's `details` beside the suggestion, holding nothing of
     /// the reader, and never part of what the reader sent.
     pub conversions: Vec<Conversion>,
+    /// The text revision the reader agreed to be credited by name for
+    /// (ADR 0215): set when they send it with `publishName`, or when they
+    /// agree again later, and left behind when a clarification raises the
+    /// revision, so consent never covers text they did not agree to. Kept in
+    /// the row's `details`.
+    pub credit_revision: Option<u32>,
 }
 
 impl Suggestion {
@@ -788,11 +794,15 @@ impl Suggestion {
             "receivedAt": received_at.rfc3339(),
             "channel": serde_json::to_value(channel).expect("channel serializes"),
         }))?;
+        let submission_credit = (submission.attribution.publish_name
+            && submission.attribution.name.is_some())
+        .then_some(1);
         Ok(Self {
             submission,
             receipt,
             revision: 1,
             conversions: Vec::new(),
+            credit_revision: submission_credit,
         })
     }
 
@@ -800,11 +810,40 @@ impl Suggestion {
         self.submission.suggestion_type
     }
 
-    /// The name the reader agreed to show, if any: the only name an author
-    /// may use when crediting the suggestion. Using it is the author's own
-    /// action; no output here does.
+    /// The name the reader agreed to be credited by for this text as it
+    /// stands now, if any (ADR 0215): consent given for the current revision,
+    /// and not withdrawn. A clarification that changed the text, or a changed
+    /// consent, needs the reader's fresh agreement before this is `Some`
+    /// again. It is only ever offered to an editor in the link view; using it
+    /// is the author's own action, and nothing here publishes it.
     pub fn credit(&self) -> Option<&str> {
-        self.submission.attribution.public_name()
+        self.submission
+            .attribution
+            .public_name()
+            .filter(|_| self.credit_revision == Some(self.revision))
+    }
+
+    /// The reader's own change to their consent to be credited by name: for
+    /// the text as it stands now, or withdrawn. Agreeing needs a name; it
+    /// binds the agreement to the current revision, so a later clarification
+    /// leaves it behind. Withdrawing clears both the agreement and its
+    /// binding.
+    pub fn credited(&self, agree: bool) -> Result<Self, SuggestionError> {
+        let mut next = self.clone();
+        if agree {
+            if next.submission.attribution.name.is_none() {
+                return Err(SuggestionError::new(
+                    ErrorCode::ConsentWithoutName,
+                    "`attribution.publishName` needs a name to publish",
+                ));
+            }
+            next.submission.attribution.publish_name = true;
+            next.credit_revision = Some(next.revision);
+        } else {
+            next.submission.attribution.publish_name = false;
+            next.credit_revision = None;
+        }
+        Ok(next)
     }
 
     /// What an editor still has to find out: the metadata the suggestion
@@ -860,17 +899,37 @@ impl Suggestion {
             None => Vec::new(),
             Some(value) => read_conversions(&value)?,
         };
+        let credit = object.remove("creditRevision");
         let revision = object
             .remove("revision")
             .and_then(|revision| revision.as_u64())
             .and_then(|revision| u32::try_from(revision).ok())
             .filter(|revision| (1..=i32::MAX as u32).contains(revision))
             .ok_or_else(|| malformed("a suggestion record needs a positive `revision`"))?;
+        let submission = Submission::from_value(&value)?;
+        let credit_revision = credit
+            .map(|credit| {
+                credit
+                    .as_u64()
+                    .and_then(|credit| u32::try_from(credit).ok())
+                    .filter(|credit| (1..=revision).contains(credit))
+                    .filter(|_| {
+                        submission.attribution.publish_name && submission.attribution.name.is_some()
+                    })
+                    .ok_or_else(|| {
+                        SuggestionError::new(
+                            ErrorCode::InvalidDetails,
+                            "`creditRevision` is a revision of a suggestion whose reader agreed to be credited",
+                        )
+                    })
+            })
+            .transpose()?;
         Ok(Self {
-            submission: Submission::from_value(&value)?,
+            submission,
             receipt: Receipt::from_value(&receipt)?,
             revision,
             conversions,
+            credit_revision,
         })
     }
 
@@ -884,11 +943,14 @@ impl Suggestion {
         if !self.conversions.is_empty() {
             object.insert("conversions".into(), conversions_value(&self.conversions));
         }
+        if let Some(credit) = self.credit_revision {
+            object.insert("creditRevision".into(), credit.into());
+        }
         value.to_string()
     }
 
     /// What one `openblog_feedback` row keeps in `details` (ADR 0192):
-    /// `{type, url?, hints?, about?, contact?, conversions?}`. The text is the row's `body`,
+    /// `{type, url?, hints?, about?, contact?, conversions?, creditRevision?}`. The text is the row's `body`,
     /// its revision `item_revision`, the page `work` (with no passage
     /// `revision` or `target`: the one hosted schema change is the loosened
     /// check that allows that), the receipt time `received_at` and the
@@ -900,11 +962,14 @@ impl Suggestion {
         if !self.conversions.is_empty() {
             object.insert("conversions".into(), conversions_value(&self.conversions));
         }
+        if let Some(credit) = self.credit_revision {
+            object.insert("creditRevision".into(), credit.into());
+        }
         Value::Object(object)
     }
 
     /// Read a suggestion back from the parts of a stored row. `details` is
-    /// read as exactly `{type, url?, hints?, about?, contact?, conversions?}`: a field of
+    /// read as exactly `{type, url?, hints?, about?, contact?, conversions?, creditRevision?}`: a field of
     /// any other shape or name, the reader's text or name among them, is
     /// refused, never read as part of the suggestion.
     pub fn from_stored(
@@ -917,7 +982,7 @@ impl Suggestion {
         let invalid = || {
             SuggestionError::new(
                 ErrorCode::InvalidDetails,
-                "stored details are `{type, url?, hints?, about?, contact?, conversions?}` and nothing else",
+                "stored details are `{type, url?, hints?, about?, contact?, conversions?, creditRevision?}` and nothing else",
             )
         };
         let details: StoredDetails =
@@ -947,6 +1012,9 @@ impl Suggestion {
         record.insert("revision".into(), revision.into());
         if let Some(conversions) = details.conversions {
             record.insert("conversions".into(), conversions);
+        }
+        if let Some(credit) = details.credit_revision {
+            record.insert("creditRevision".into(), credit);
         }
         Suggestion::from_json(&Value::Object(record).to_string())
     }
@@ -1000,7 +1068,7 @@ impl Suggestion {
             name: if identity {
                 attribution.name.clone()
             } else {
-                attribution.public_name().map(str::to_string)
+                self.credit().map(str::to_string)
             },
             contact: self.submission.contact.clone().filter(|_| identity),
             missing: self.missing_metadata(),
@@ -1025,6 +1093,8 @@ struct StoredDetails {
     contact: Option<Value>,
     #[serde(default)]
     conversions: Option<Value>,
+    #[serde(default, rename = "creditRevision")]
+    credit_revision: Option<Value>,
 }
 
 /// The stored list of what a suggestion was linked to: at most

@@ -654,3 +654,73 @@ test("no public route and no inbox of another kind ever shows a link", async () 
   assert.equal(unauthorized.statusCode, 401);
   assert.doesNotMatch(unauthorized.body, /tide-tables|mikey/);
 });
+
+// ---- Credit is opt-in and bound to the revision it was agreed for (ADR 0215)
+
+test("a reader's credit is for the text as it stands: changed consent and a clarification reset it, withdrawal and purge remove it", async () => {
+  const agreed = (extra = {}) => stored({ publish_name: true, details: { type: "text", url: "https://example.org/letters", creditRevision: 1 }, ...extra });
+  const read = async (row) => {
+    const database = fakeDatabase((entry) => (entry.method === "GET" && entry.path.endsWith("/openblog_feedback") ? [row] : []));
+    return JSON.parse((await receiptCall(database, { action: "read" })).body).item;
+  };
+  const first = await read(agreed());
+  assert.deepEqual(first.credit, { agreed: true });
+  assert.ok(!("creditRevision" in first.details), "the binding is not shown as a detail");
+  // A clarification raised the revision; the agreement stays behind with the old text.
+  assert.deepEqual((await read(agreed({ item_revision: 2 }))).credit, { agreed: false });
+  // A reader who gave no name has nothing to agree to.
+  assert.equal((await read(stored({ reader_name: null }))).credit, null);
+
+  // The clarification itself leaves the stored details, and so the binding to the old revision, as they were.
+  const asked = agreed({ status: "clarification", clarification_asked: 1, moderation_reason: "unclear", version: 2 });
+  const clarifying = fakeDatabase((entry) => {
+    if (entry.method === "GET") return [asked];
+    if (entry.path.endsWith("/rpc/openblog_moderate_feedback_item")) return [{ ...asked, status: "pending", item_revision: 2, version: 3 }];
+    return [];
+  });
+  assert.equal((await receiptCall(clarifying, { action: "clarify", expectedVersion: 2, body: "What I meant.", credit: true })).statusCode, 200);
+  const call = writes(clarifying).find((entry) => entry.path.endsWith("/rpc/openblog_moderate_feedback_item"));
+  assert.equal(call.body.p_details.creditRevision, 1, "a clarification never carries fresh consent with it");
+
+  // Agreeing again binds the agreement to the revision it is given for; the version guards it.
+  const stale = agreed({ item_revision: 2, version: 3 });
+  const agree = fakeDatabase((entry) => (entry.method === "GET" ? [stale] : entry.method === "PATCH" ? [{ ...stale, details: entry.body.details, publish_name: entry.body.publish_name, version: 4 }] : []));
+  const done = await receiptCall(agree, { action: "credit", consent: true, expectedVersion: 3 });
+  assert.equal(done.statusCode, 200, done.body);
+  const patch = writes(agree).find((entry) => entry.method === "PATCH");
+  assert.equal(patch.body.publish_name, true);
+  assert.equal(patch.body.details.creditRevision, 2);
+  assert.equal(patch.body.details.url, "https://example.org/letters");
+  assert.equal(patch.body.version, 4);
+  assert.equal(patch.params.version, "eq.3");
+  assert.equal(patch.params.purged_at, "is.null");
+  assert.deepEqual(JSON.parse(done.body).item.credit, { agreed: true });
+
+  // Withdrawn, the agreement and its binding are gone.
+  const current = agreed();
+  const withdraw = fakeDatabase((entry) => (entry.method === "GET" ? [current] : entry.method === "PATCH" ? [{ ...current, details: entry.body.details, publish_name: entry.body.publish_name, version: 2 }] : []));
+  const withdrawn = await receiptCall(withdraw, { action: "credit", consent: false, expectedVersion: 1 });
+  assert.equal(withdrawn.statusCode, 200);
+  const cleared = writes(withdraw).find((entry) => entry.method === "PATCH");
+  assert.equal(cleared.body.publish_name, false);
+  assert.ok(!("creditRevision" in cleared.body.details));
+  assert.deepEqual(JSON.parse(withdrawn.body).item.credit, { agreed: false });
+
+  // Refused: no name, a stale version, a non-boolean, a purged row, another kind of note.
+  const refusal = async (row, body) => {
+    const database = fakeDatabase((entry) => (entry.method === "GET" ? [row] : []));
+    const response = await receiptCall(database, { action: "credit", expectedVersion: row.version, ...body });
+    return { status: response.statusCode, code: JSON.parse(response.body).code, wrote: writes(database).length };
+  };
+  assert.deepEqual(await refusal(stored({ reader_name: null }), { consent: true }), { status: 422, code: "consentWithoutName", wrote: 0 });
+  assert.deepEqual(await refusal(stored(), { consent: "yes" }), { status: 422, code: "invalid", wrote: 0 });
+  assert.equal((await refusal(stored({ kind: "question", details: {} }), { consent: true })).status, 422);
+  assert.equal((await refusal(stored({ purged_at: "2026-10-27T00:00:00+00:00", details: {}, reader_name: null }), { consent: true })).status, 422);
+  const conflicting = fakeDatabase((entry) => (entry.method === "GET" ? [stored()] : []));
+  assert.equal((await receiptCall(conflicting, { action: "credit", consent: true, expectedVersion: 7 })).statusCode, 409);
+  assert.equal(writes(conflicting).length, 0);
+
+  // A purged or withdrawn suggestion shows no credit, and holds no name to show.
+  const purged = await read(stored({ status: "withdrawn", purged_at: "2026-10-27T00:00:00+00:00", details: {}, reader_name: null, publish_name: false }));
+  assert.ok(!("credit" in purged));
+});
