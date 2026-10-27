@@ -779,7 +779,7 @@ fn user_command_with(
 /// The checks `openblog check` has always printed, for a site that loaded.
 /// While `readingPaths.publish` is off, warn when path files exist beside a
 /// page or post that would collide with `/paths/` once it is switched on, so
-/// the author learns before the build refuses (ADR 0245). With it on the build
+/// the author learns before the build refuses (ADR 0212). With it on the build
 /// refuses the collision itself, so there is nothing more to say here.
 fn reading_paths_warning(root: &std::path::Path, site: &openblog_core::Site) -> Option<String> {
     if site.config.reading_paths.publish {

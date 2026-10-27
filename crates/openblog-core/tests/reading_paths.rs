@@ -1,4 +1,4 @@
-//! Reading-path contracts (ADR 0240 to 0245, #76): ordering, the branches
+//! Reading-path contracts (ADR 0207 to 0212, #76): ordering, the branches
 //! policy, cycles, deleted content, unknown fields, series coexistence,
 //! round trips and privacy.
 

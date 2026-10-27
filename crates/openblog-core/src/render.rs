@@ -602,7 +602,7 @@ pub fn generate_with_trail_budget(
             )?;
         }
     }
-    // Reading paths, only when the site publishes them (ADR 0245, #78): every
+    // Reading paths, only when the site publishes them (ADR 0212, #78): every
     // page is rendered from the one public paths value and is complete HTML.
     if let Some(paths) = &site.reading_paths {
         if paths.paths.iter().any(|path| path.listed) {
@@ -617,7 +617,7 @@ pub fn generate_with_trail_budget(
                 r.path_page(default_theme, paths, path),
             )?;
         }
-        // The data file lists only what discovery may list (ADR 0249); it is
+        // The data file lists only what discovery may list (ADR 0216); it is
         // written from the same value the pages are, and only if one is listed.
         let listed = paths.listed_only();
         if !listed.paths.is_empty() {
@@ -844,7 +844,7 @@ fn validate_output_paths(site: &Site) -> Result<(), String> {
     let publishes_atlas = site.config.knowledge_atlas.publish;
     let publishes_comparisons = site.config.comparisons.publish;
     // Like the atlas: reading paths reserve `/paths/` only behind their own
-    // switch (ADR 0245), so a site that has not opted in is unaffected.
+    // switch (ADR 0212), so a site that has not opted in is unaffected.
     let publishes_paths = site.config.reading_paths.publish;
     let reserved = |segment: &str| {
         RESERVED.contains(&segment)
@@ -3842,7 +3842,7 @@ impl<'a> Renderer<'a> {
     }
 
     /// "Part of a reading path": a link from a post or an atlas entry to each
-    /// listed path that has it as a step (ADR 0249). Empty unless the site
+    /// listed path that has it as a step (ADR 0216). Empty unless the site
     /// publishes paths and one lists this target. It is a link and a position
     /// only: it claims nothing about the item and moves nothing.
     fn in_paths_section(&self, kind: &str, target: &str) -> String {

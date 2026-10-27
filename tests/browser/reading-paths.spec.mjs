@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Reading-path curation in the real Admin Studio (B4.2, ADR 0246): create, edit, reorder without
+// Reading-path curation in the real Admin Studio (B4.2, ADR 0213): create, edit, reorder without
 // drag, delete; only published targets offered and unpublished steps identified; required
 // reasons and relationship labels; diagnostics and the public-projection preview; stale-save
 // protection; source mode; labelled, keyboard-operable controls; and no sideways scrolling on the

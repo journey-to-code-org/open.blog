@@ -1,12 +1,12 @@
-# ADR 0250: Reading paths travel as one deterministic export and an import that checks everything before writing anything
+# ADR 0217: Reading paths travel as one deterministic export and an import that checks everything before writing anything
 
 - Status: Accepted
 - Date: 2026-10-27
 - Decision issue: [#79](https://github.com/journey-to-code-org/open.blog/issues/79)
 - Parent story: [#28](https://github.com/journey-to-code-org/open.blog/issues/28)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0241](0241-a-path-is-one-versioned-plain-text-json-file-written-canonically-and-never-loses-a-field.md),
-  [ADR 0246](0246-reading-paths-are-curated-through-one-admin-route-family-with-revision-checked-atomic-canonical-writes.md)
+- Builds on: [ADR 0208](0208-a-path-is-one-versioned-plain-text-json-file-written-canonically-and-never-loses-a-field.md),
+  [ADR 0213](0213-reading-paths-are-curated-through-one-admin-route-family-with-revision-checked-atomic-canonical-writes.md)
 - Contract: [Reading paths](../specs/reading-paths.md#export-and-import)
 
 ## Context
@@ -17,7 +17,7 @@ copying a folder gives no check, no report and, if it goes wrong halfway, a half
 ## Decision
 
 - **One file.** `openblog paths export` writes `openblog-reading-paths-export` version 1: the paths
-  sorted by slug, each entry the slug and the path's canonical text (ADR 0241). Rationale, every
+  sorted by slug, each entry the slug and the path's canonical text (ADR 0208). Rationale, every
   transition's relationship and reason, and fields this release does not define travel exactly. The same paths
   give the same bytes, with `\n` line ends. Drafts are left out unless `--drafts`, so an export is never a
   surprise copy of unfinished work. It needs no build and no hosted service.

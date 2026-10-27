@@ -162,7 +162,7 @@ impl ComparisonsConfig {
     }
 }
 
-/// Whether the site publishes reading paths (ADR 0245). Off by default: the
+/// Whether the site publishes reading paths (ADR 0212). Off by default: the
 /// address `/paths/` is then not reserved, so an existing page or post there
 /// keeps working, and `content/paths` is only edited, never published. Turning
 /// it on reserves `/paths/`, and a page or post URL that collides is refused.

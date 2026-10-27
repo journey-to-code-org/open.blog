@@ -1,4 +1,4 @@
-//! Reading-path export and import (ADR 0250, #79): deterministic export that
+//! Reading-path export and import (ADR 0217, #79): deterministic export that
 //! keeps rationale and relationships, and an import that plans without
 //! writing and refuses as a whole.
 

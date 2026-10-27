@@ -4205,7 +4205,7 @@ a.oba-btn-primary {
   overflow-wrap: anywhere;
 }
 
-/* Reading paths (ADR 0246, #77). Regions wrap instead of overflowing, so they reflow at 320px
+/* Reading paths (ADR 0213, #77). Regions wrap instead of overflowing, so they reflow at 320px
    and at 400% zoom; state is always words, never colour alone. */
 .oba-paths-list,
 .oba-paths-steps,

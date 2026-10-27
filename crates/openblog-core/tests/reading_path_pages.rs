@@ -1,4 +1,4 @@
-//! Reading-path pages (ADR 0248, #78): a complete static ordered path, an
+//! Reading-path pages (ADR 0215, #78): a complete static ordered path, an
 //! honest transition for every step, previous and next links, escaping of
 //! hostile text, an index that follows `listed`, and no output at all when the
 //! site publishes no paths.

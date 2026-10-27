@@ -540,7 +540,7 @@ pub struct Site {
     /// comparison output at all.
     pub comparisons: Option<crate::comparison_publication::PublicComparisons>,
     /// The public reading paths, supplied by the caller only when the site
-    /// publishes them (`readingPaths.publish`, ADR 0245). `None` writes no
+    /// publishes them (`readingPaths.publish`, ADR 0212). `None` writes no
     /// path output at all.
     pub reading_paths: Option<crate::reading_path::PublicPaths>,
     /// The public curated research context, supplied by the caller only when

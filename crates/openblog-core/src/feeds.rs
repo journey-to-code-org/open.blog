@@ -509,7 +509,7 @@ pub fn search_index(site: &Site) -> String {
             },
         })
         .collect();
-    // Listed reading paths are found by search after the posts (ADR 0249):
+    // Listed reading paths are found by search after the posts (ADR 0216):
     // from the public value only, so an unlisted path, a draft or a step
     // that is not published never appears. They are not feed items.
     if let Some(paths) = &site.reading_paths {

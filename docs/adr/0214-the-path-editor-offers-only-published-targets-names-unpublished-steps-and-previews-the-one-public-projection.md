@@ -1,14 +1,14 @@
-# ADR 0247: The path editor offers only published targets, names unpublished steps, and previews the one public projection
+# ADR 0214: The path editor offers only published targets, names unpublished steps, and previews the one public projection
 
 - Status: Accepted
 - Date: 2026-10-27
 - Decision issue: [#77](https://github.com/journey-to-code-org/open.blog/issues/77)
 - Parent story: [#28](https://github.com/journey-to-code-org/open.blog/issues/28)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0243](0243-a-transition-is-the-authors-own-words-with-a-closed-relationship-that-never-defaults-to-influence.md),
-  [ADR 0244](0244-a-path-names-only-published-items-and-a-missing-step-is-left-out-and-reported-to-the-author-only.md),
-  [ADR 0245](0245-the-public-paths-value-is-an-allowlisted-deterministic-projection-and-nothing-reads-a-path-yet.md),
-  [ADR 0246](0246-reading-paths-are-curated-through-one-admin-route-family-with-revision-checked-atomic-canonical-writes.md)
+- Builds on: [ADR 0210](0210-a-transition-is-the-authors-own-words-with-a-closed-relationship-that-never-defaults-to-influence.md),
+  [ADR 0211](0211-a-path-names-only-published-items-and-a-missing-step-is-left-out-and-reported-to-the-author-only.md),
+  [ADR 0212](0212-the-public-paths-value-is-an-allowlisted-deterministic-projection-and-nothing-reads-a-path-yet.md),
+  [ADR 0213](0213-reading-paths-are-curated-through-one-admin-route-family-with-revision-checked-atomic-canonical-writes.md)
 - Contract: [Reading paths](../specs/reading-paths.md#admin)
 
 ## Context
@@ -20,7 +20,7 @@ invent a second reading of a path.
 ## Decision
 
 - **Only what production publishes can be picked.** The picker is fed by `PublishedTargets`
-  (ADR 0244): published posts (not drafts, not scheduled) and, when the site publishes its atlas,
+  (ADR 0211): published posts (not drafts, not scheduled) and, when the site publishes its atlas,
   public atlas entries. A target already in the path is not offered again.
 - **Unpublished steps are named, to the author only.** A path may already name a draft, a
   scheduled post, a missing post or a private entry (a hand edit, or a post unpublished later). The
@@ -28,12 +28,12 @@ invent a second reading of a path.
   public`) with "readers will not see this step", never by colour alone. The author may see their
   own draft's title in the editor; the public projection never carries it.
 - **One projection.** The preview is `PublicPaths::resolve` of the path as edited, as if
-  published, so it cannot disagree with what a page will show (ADR 0245). Paths have no page yet
+  published, so it cannot disagree with what a page will show (ADR 0212). Paths have no page yet
   (#78), so the preview renders that value as an ordered list; it is the production projection
   and not a second implementation. A path that would be withheld says so, with the author-only
   diagnostics, and says readers are never told a step was left out.
 - **Reasons and labels are required.** Every step after the first shows the relationship as a
-  required choice with no default (ADR 0243) and the reason as required text. The step says which
+  required choice with no default (ADR 0210) and the reason as required text. The step says which
   step it follows, which is the nearest required step when optional steps lie between.
   Saving with either missing is refused in the browser and by the server and writes nothing.
 - **Reorder is by buttons, never by drag alone.** Each step has Move up and Move down, named for

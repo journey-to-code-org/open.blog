@@ -103,7 +103,7 @@ pub fn project_with(root: &Path, site: &mut Site, shared: &Shared) -> Blocked {
     blocked
 }
 
-/// Attach the public reading paths (ADR 0245, #78), only while the site
+/// Attach the public reading paths (ADR 0212, #78), only while the site
 /// publishes them. They are resolved against exactly what this build
 /// publishes (the posts and the atlas just attached), so a path never names
 /// what production would not show. A file that does not parse, a step that is

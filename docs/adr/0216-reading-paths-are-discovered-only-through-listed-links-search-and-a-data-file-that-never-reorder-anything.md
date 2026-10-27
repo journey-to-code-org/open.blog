@@ -1,12 +1,12 @@
-# ADR 0249: Reading paths are discovered only through listed links, search and a data file that never reorder anything
+# ADR 0216: Reading paths are discovered only through listed links, search and a data file that never reorder anything
 
 - Status: Accepted
 - Date: 2026-10-27
 - Decision issue: [#79](https://github.com/journey-to-code-org/open.blog/issues/79)
 - Parent story: [#28](https://github.com/journey-to-code-org/open.blog/issues/28)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0245](0245-the-public-paths-value-is-an-allowlisted-deterministic-projection-and-nothing-reads-a-path-yet.md),
-  [ADR 0248](0248-a-published-path-is-a-static-ordered-page-with-optional-progress-kept-only-in-the-readers-browser.md)
+- Builds on: [ADR 0212](0212-the-public-paths-value-is-an-allowlisted-deterministic-projection-and-nothing-reads-a-path-yet.md),
+  [ADR 0215](0215-a-published-path-is-a-static-ordered-page-with-optional-progress-kept-only-in-the-readers-browser.md)
 - Contract: [Reading paths](../specs/reading-paths.md#discovery)
 
 ## Context
@@ -49,4 +49,4 @@ posts, a feed).
 - An author who wants a path reachable only by a shared link marks it `listed: false`.
 - Search shows a path with an empty date. The search page shows it among the posts, ranked by the same
   score.
-- What a path leaves out is still reported to the author at build time (ADR 0244), not in the manifest.
+- What a path leaves out is still reported to the author at build time (ADR 0211), not in the manifest.

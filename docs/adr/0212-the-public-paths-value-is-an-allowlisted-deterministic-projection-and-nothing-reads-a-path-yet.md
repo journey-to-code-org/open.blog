@@ -1,4 +1,4 @@
-# ADR 0245: The public paths value is an allowlisted, deterministic projection, and nothing reads a path yet
+# ADR 0212: The public paths value is an allowlisted, deterministic projection, and nothing reads a path yet
 
 - Status: Accepted
 - Date: 2026-10-27
@@ -6,8 +6,8 @@
 - Parent story: [#28](https://github.com/journey-to-code-org/open.blog/issues/28)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
 - Builds on: [ADR 0168](0168-the-atlas-query-projection-is-derived-from-the-public-atlas-alone-and-is-one-more-listed-artifact.md),
-  [ADR 0240](0240-a-reading-path-is-its-own-content-type-and-never-a-series.md),
-  [ADR 0244](0244-a-path-names-only-published-items-and-a-missing-step-is-left-out-and-reported-to-the-author-only.md)
+  [ADR 0207](0207-a-reading-path-is-its-own-content-type-and-never-a-series.md),
+  [ADR 0211](0211-a-path-names-only-published-items-and-a-missing-step-is-left-out-and-reported-to-the-author-only.md)
 - Contract: [Reading paths](../specs/reading-paths.md#public-projection)
 
 ## Context
@@ -25,7 +25,7 @@ nothing more.
 - **An allowlist.** A path carries `slug`, `url` (`/paths/<slug>/`), `title`, `summary`, `listed` and `steps`.
   A step carries `position`, `kind` (`post` or `atlas`), `kindLabel`, `target`, `title`, `url`,
   `rationale`, `prerequisites`, `difficulty`, `optional` and `transition` (`relationship`, `label`,
-  `why`, `follows`, `basis`). There is no author step id (ADR 0244). The title and address of a target are those of the published post or atlas entry,
+  `why`, `follows`, `basis`). There is no author step id (ADR 0211). The title and address of a target are those of the published post or atlas entry,
   never the author's copy. Nothing else is copied, and a field added to a post or the atlas reaches
   paths only when added here.
 - **Deterministic.** Paths are sorted by slug, steps keep the author's order, and nothing depends on

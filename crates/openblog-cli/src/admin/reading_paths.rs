@@ -1,4 +1,4 @@
-//! Admin routes for reading-path curation (ADR 0246, #77).
+//! Admin routes for reading-path curation (ADR 0213, #77).
 //!
 //! Every route sits behind the session, and every write behind the CSRF check
 //! (`api`), and an unknown name is a 404 (deny by default). A write takes the

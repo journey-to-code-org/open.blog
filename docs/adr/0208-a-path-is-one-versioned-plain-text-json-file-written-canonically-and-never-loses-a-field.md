@@ -1,11 +1,11 @@
-# ADR 0241: A path is one versioned plain-text JSON file, written canonically, and never loses a field
+# ADR 0208: A path is one versioned plain-text JSON file, written canonically, and never loses a field
 
 - Status: Accepted
 - Date: 2026-10-27
 - Decision issue: [#76](https://github.com/journey-to-code-org/open.blog/issues/76)
 - Parent story: [#28](https://github.com/journey-to-code-org/open.blog/issues/28)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0240](0240-a-reading-path-is-its-own-content-type-and-never-a-series.md)
+- Builds on: [ADR 0207](0207-a-reading-path-is-its-own-content-type-and-never-a-series.md)
 - Contract: [Reading paths](../specs/reading-paths.md#file)
 
 ## Context
@@ -21,7 +21,7 @@ public data beside Markdown: a small versioned JSON file.
 - **Where and what.** `content/paths/<slug>.json`, format `openblog-reading-path`, `version` 1. The
   slug is the file name (a lowercase ASCII slug of at most 64 characters), so it can never disagree with
   a field and a rename is a file rename. The file holds `title`, optional `summary`, `status`
-  (`draft` when absent, so leaving a field out publishes nothing), `listed` (ADR 0245) and `steps`.
+  (`draft` when absent, so leaving a field out publishes nothing), `listed` (ADR 0212) and `steps`.
 - **Versioned.** `format` and `version` are required. Another version is refused with its number,
   never read as version 1.
 - **Lossless: keep what is not defined, refuse what is defined wrongly.** This is the atlas and

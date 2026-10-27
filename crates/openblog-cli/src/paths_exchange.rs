@@ -1,4 +1,4 @@
-//! `openblog paths export` and `openblog paths import` (ADR 0250, #79).
+//! `openblog paths export` and `openblog paths import` (ADR 0217, #79).
 //!
 //! Both work on the author's path files and need no hosted service and no
 //! build. Export is a dry run (the file is printed) unless `--out` and

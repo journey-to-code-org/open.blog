@@ -1,18 +1,18 @@
-# ADR 0248: A published path is a static ordered page with optional progress kept only in the reader's browser
+# ADR 0215: A published path is a static ordered page with optional progress kept only in the reader's browser
 
 - Status: Accepted
 - Date: 2026-10-27
 - Decision issue: [#78](https://github.com/journey-to-code-org/open.blog/issues/78)
 - Parent story: [#28](https://github.com/journey-to-code-org/open.blog/issues/28)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0243](0243-a-transition-is-the-authors-own-words-with-a-closed-relationship-that-never-defaults-to-influence.md),
-  [ADR 0244](0244-a-path-names-only-published-items-and-a-missing-step-is-left-out-and-reported-to-the-author-only.md),
-  [ADR 0245](0245-the-public-paths-value-is-an-allowlisted-deterministic-projection-and-nothing-reads-a-path-yet.md)
+- Builds on: [ADR 0210](0210-a-transition-is-the-authors-own-words-with-a-closed-relationship-that-never-defaults-to-influence.md),
+  [ADR 0211](0211-a-path-names-only-published-items-and-a-missing-step-is-left-out-and-reported-to-the-author-only.md),
+  [ADR 0212](0212-the-public-paths-value-is-an-allowlisted-deterministic-projection-and-nothing-reads-a-path-yet.md)
 - Contract: [Reading paths](../specs/reading-paths.md#pages-and-progress)
 
 ## Context
 
-ADR 0245 defined the public paths value and left it unread. This is the first reader: pages a
+ADR 0212 defined the public paths value and left it unread. This is the first reader: pages a
 person follows, with an optional way to remember where they got to. Paths must read fully without
 JavaScript, a transition must never say more than the author wrote, and nothing about a reader may
 leave their browser.
@@ -34,7 +34,7 @@ leave their browser.
 - **The switch and discovery.** Pages exist only while `readingPaths.publish` is on; off, the folder
   is never read and the site builds byte for byte as before. `/paths/` lists only paths that are
   `listed`; an unlisted path has its page but is in neither the index nor the sitemap, and an index
-  is written only if some path is listed. Feeds, search and `paths.json` are decided in ADR 0249.
+  is written only if some path is listed. Feeds, search and `paths.json` are decided in ADR 0216.
 - **Progress is optional, local and resettable.** `<ob-reading-path>` adds a labelled checkbox per
   step, a status line, a link to the first required step not yet read and a reset button. Progress is
   a list of step targets (`post:slug`, `atlas:id`) in the browser's `localStorage`, one key per path
@@ -56,7 +56,7 @@ leave their browser.
 ## Consequences
 
 - Reading paths now render, so `/paths/` is reserved while the switch is on (already enforced by
-  ADR 0245's check); turning it off removes the pages on the next build.
+  ADR 0212's check); turning it off removes the pages on the next build.
 - Progress cannot sync across devices or be seen by the author. That is deliberate: it needs an
   account, which is out of scope.
 - The component ships with every site, like the other components; only a path page loads it.

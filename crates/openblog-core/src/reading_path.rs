@@ -1,4 +1,4 @@
-//! Author-curated reading paths (ADR 0240, #76).
+//! Author-curated reading paths (ADR 0207, #76).
 //!
 //! A reading path is an author's ordered list of published steps, each after
 //! the first carrying an author-written transition that says why it follows
@@ -49,7 +49,7 @@ pub const PUBLIC_PATHS_FORMAT_VERSION: u64 = 1;
 pub const PATHS_DIR: &str = "paths";
 /// Where a path's page will live on the site (`/paths/<slug>/`).
 pub const PATHS_URL: &str = "/paths/";
-/// The data file listing the published, listed paths (ADR 0249).
+/// The data file listing the published, listed paths (ADR 0216).
 pub const PATHS_JSON_FILE: &str = "paths.json";
 /// The first segment of that address. Reserved only while
 /// `readingPaths.publish` is on.
@@ -195,7 +195,7 @@ impl Relationship {
 }
 
 /// Fields the file holds that this release does not define, kept as written
-/// and written back (ADR 0241). Never read, never shown.
+/// and written back (ADR 0208). Never read, never shown.
 pub type Extra = BTreeMap<String, Value>;
 
 /// What a step points at. Only these two kinds exist: a path cannot contain
@@ -277,7 +277,7 @@ impl Transition {
 #[serde(rename_all = "camelCase")]
 pub struct Step {
     /// Stable within the path, so a reorder keeps a step's identity. For the
-    /// author only: the public value never carries it (ADR 0244).
+    /// author only: the public value never carries it (ADR 0211).
     pub id: String,
     pub target: Target,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -292,7 +292,7 @@ pub struct Step {
     pub optional: bool,
     /// Absent on the first step and required on every other one of a path
     /// that is published. It relates this step to the nearest earlier step
-    /// that is not optional (ADR 0243).
+    /// that is not optional (ADR 0210).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transition: Option<Transition>,
     #[serde(flatten)]
@@ -698,7 +698,7 @@ fn read_step(value: Value, errs: &mut Vec<String>) -> Option<Step> {
 
 /// The index of the step that step `index` follows: the nearest earlier step
 /// that is not optional. A reader who skips every optional step still reads
-/// each shown step after the step its transition describes (ADR 0243).
+/// each shown step after the step its transition describes (ADR 0210).
 pub fn followed_index(steps: &[Step], index: usize) -> Option<usize> {
     (0..index).rev().find(|&i| !steps[i].optional)
 }
@@ -1292,7 +1292,7 @@ impl PublicPaths {
         escaped_json(self)
     }
 
-    /// Only the paths discovery may list (ADR 0249). An unlisted path is
+    /// Only the paths discovery may list (ADR 0216). An unlisted path is
     /// published at its address and nowhere that advertises it: not the
     /// index, the sitemap, search, `paths.json` or a link from a post.
     pub fn listed_only(&self) -> PublicPaths {
@@ -1353,7 +1353,7 @@ fn find_target(step: &Step, targets: &PublishedTargets) -> Option<Found> {
 /// A step that is left out leaves no trace in the shown steps when it is
 /// optional and not the one a shown step follows, or when it is last. Any
 /// other case would leave a step whose transition describes a step the reader
-/// does not see, so the whole path is withheld (ADR 0244).
+/// does not see, so the whole path is withheld (ADR 0211).
 fn resolve_steps(
     path: &ReadingPath,
     targets: &PublishedTargets,

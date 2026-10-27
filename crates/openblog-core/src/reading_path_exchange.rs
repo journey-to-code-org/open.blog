@@ -1,4 +1,4 @@
-//! Portable export and import of reading paths (ADR 0250, #79).
+//! Portable export and import of reading paths (ADR 0217, #79).
 //!
 //! An export is one deterministic JSON file holding the author's path files
 //! (the canonical text of each, so the rationale and the relationship of every

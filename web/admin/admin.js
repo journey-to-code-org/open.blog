@@ -9482,13 +9482,13 @@ class Api {
   }
 }
 
-// Reading paths (ADR 0246, #77). A path is the public file `content/paths/<slug>.json`; these
+// Reading paths (ADR 0213, #77). A path is the public file `content/paths/<slug>.json`; these
 // helpers turn the file's JSON into an editor draft and back without losing a field the editor
 // does not show, move steps without losing written text, and word what the server reports. The
 // server owns every rule and the canonical form; nothing here decides whether a path is valid
 // or published, it only avoids sending what it already knows will be refused.
 
-/** The step a step follows: the nearest earlier step that is not optional (ADR 0243). */
+/** The step a step follows: the nearest earlier step that is not optional (ADR 0210). */
 export function pathFollowedIndex(steps, index) {
   for (let i = index - 1; i >= 0; i -= 1) if (!steps[i].optional) return i;
   return -1;
@@ -11074,7 +11074,7 @@ export class ObAdmin extends AdminElement {
     mountedView = this.viewVersion;
   }
 
-  // ---- reading paths (ADR 0246, #77)
+  // ---- reading paths (ADR 0213, #77)
 
   /** `#/paths` lists the paths, `#/paths/new` starts one and `#/paths/edit/<slug>` edits one. */
   async showReadingPaths(tail) {

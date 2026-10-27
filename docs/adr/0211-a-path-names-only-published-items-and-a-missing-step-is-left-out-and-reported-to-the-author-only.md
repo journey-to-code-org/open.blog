@@ -1,4 +1,4 @@
-# ADR 0244: A path names only published items, and a missing step is left out and reported to the author only
+# ADR 0211: A path names only published items, and a missing step is left out and reported to the author only
 
 - Status: Accepted
 - Date: 2026-10-27
@@ -30,10 +30,10 @@ what it is called or what it says, and a missing step must not break the rest of
   without a time cannot tell scheduled posts apart, so Admin loads with one.
 - **A missing step is left out only where that leaves no trace.** A step whose target is not in
   `PublishedTargets` is not in the public value, and positions are renumbered among the shown steps.
-  That is safe when the step is last, or optional and not the step a shown step follows (ADR 0243):
+  That is safe when the step is last, or optional and not the step a shown step follows (ADR 0210):
   the reader gets a shorter, complete path. It is not safe otherwise.
 - **A transition never describes a step the reader does not see, and never goes missing.** When a
-  shown step's followed step (ADR 0243) is left out, or its `influenced` claim does not hold, the
+  shown step's followed step (ADR 0210) is left out, or its `influenced` claim does not hold, the
   whole path is withheld with a diagnostic. The first draft of this ADR dropped that one
   transition, which let a reader see exactly where something was removed (a step with no "why"
   among steps that all have one). Withholding is conservative and reversible: republish the post

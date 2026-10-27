@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Reading-path pages (ADR 0248, #78), built and served by the real binary. Without JavaScript a path
+// Reading-path pages (ADR 0215, #78), built and served by the real binary. Without JavaScript a path
 // is a complete ordered list: every step links to its post, says in the author's words how it
 // relates to the step it follows, and has previous and next links. With it, optional progress is
 // kept in this browser only: native checkboxes, a status line, a link to where to continue and a

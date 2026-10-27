@@ -1,4 +1,4 @@
-# ADR 0243: A transition is the author's own words with a closed relationship that never defaults to influence
+# ADR 0210: A transition is the author's own words with a closed relationship that never defaults to influence
 
 - Status: Accepted
 - Date: 2026-10-27
@@ -55,12 +55,12 @@ overclaim is a sequence read as "this led to that".
   adding a field later.) Order, dates and a shared tag never suffice.
 - **When the claim does not hold the path is withheld, not softened.** A transition is never
   rewritten to another label, and never dropped alone, because a step with no transition would
-  show the reader where something was removed (ADR 0244). The author gets a diagnostic naming the
+  show the reader where something was removed (ADR 0211). The author gets a diagnostic naming the
   step and the reason.
 - **A basis belongs to `influenced` alone.** On any other label it is refused when the file is
   read, so no label carries a relationship id it does not state.
 - **A transition is only about adjacent steps.** A transition does not relate a step to a later one,
-  and when the step it follows is not shown the path is withheld (ADR 0244). No score,
+  and when the step it follows is not shown the path is withheld (ADR 0211). No score,
   strength, "path shows" or transitive reading exists.
 - **Not a claim of fact.** A path states what an author recommends reading and why. Surfaces say so
   in the author's voice; nothing here asserts truth, consensus or authority.

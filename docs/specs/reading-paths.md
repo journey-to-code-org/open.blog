@@ -3,15 +3,15 @@
 A reading path is an author-curated, ordered list of published posts and Knowledge Atlas entries.
 Each step after the first says, in the author's words, why it follows and how it relates to the step
 before. It is owned by `openblog_core::reading_path`. Decisions are in
-[ADR 0240](../adr/0240-a-reading-path-is-its-own-content-type-and-never-a-series.md) (its own type, not a series),
-[ADR 0241](../adr/0241-a-path-is-one-versioned-plain-text-json-file-written-canonically-and-never-loses-a-field.md) (the file),
-[ADR 0242](../adr/0242-a-path-is-one-line-of-steps-with-no-branches-no-repeats-and-no-path-inside-a-path.md) (steps),
-[ADR 0243](../adr/0243-a-transition-is-the-authors-own-words-with-a-closed-relationship-that-never-defaults-to-influence.md) (transitions),
-[ADR 0244](../adr/0244-a-path-names-only-published-items-and-a-missing-step-is-left-out-and-reported-to-the-author-only.md) (missing steps) and
-[ADR 0245](../adr/0245-the-public-paths-value-is-an-allowlisted-deterministic-projection-and-nothing-reads-a-path-yet.md) (the public value).
+[ADR 0207](../adr/0207-a-reading-path-is-its-own-content-type-and-never-a-series.md) (its own type, not a series),
+[ADR 0208](../adr/0208-a-path-is-one-versioned-plain-text-json-file-written-canonically-and-never-loses-a-field.md) (the file),
+[ADR 0209](../adr/0209-a-path-is-one-line-of-steps-with-no-branches-no-repeats-and-no-path-inside-a-path.md) (steps),
+[ADR 0210](../adr/0210-a-transition-is-the-authors-own-words-with-a-closed-relationship-that-never-defaults-to-influence.md) (transitions),
+[ADR 0211](../adr/0211-a-path-names-only-published-items-and-a-missing-step-is-left-out-and-reported-to-the-author-only.md) (missing steps) and
+[ADR 0212](../adr/0212-the-public-paths-value-is-an-allowlisted-deterministic-projection-and-nothing-reads-a-path-yet.md) (the public value).
 
 This task defines the contract and the core types. Admin editing (#77), pages and local progress
-(#78, [ADR 0248](../adr/0248-a-published-path-is-a-static-ordered-page-with-optional-progress-kept-only-in-the-readers-browser.md)) and discovery and export (#79, ADR 0249 and ADR 0250) build on it. A site that does not turn
+(#78, [ADR 0215](../adr/0215-a-published-path-is-a-static-ordered-page-with-optional-progress-kept-only-in-the-readers-browser.md)) and discovery and export (#79, ADR 0216 and ADR 0217) build on it. A site that does not turn
 `readingPaths.publish` on builds exactly as before.
 
 ## File
@@ -48,7 +48,7 @@ hyphens, at most 64 characters. A path never changes a post or a series.
 | `title` | Required, at most 120 characters. |
 | `summary` | Optional, at most 600 characters. |
 | `status` | `draft` (the default) or `published`. A draft is never published. |
-| `listed` | Optional, `true` by default (written only when `false`): whether discovery (ADR 0249) may list a published path. It never publishes or hides a path by itself. |
+| `listed` | Optional, `true` by default (written only when `false`): whether discovery (ADR 0216) may list a published path. It never publishes or hides a path by itself. |
 | `steps` | At most 100. A published path has at least two. |
 
 Every text field is plain text on one line. Control and direction characters and an `atlas:` link
@@ -145,8 +145,8 @@ exist beside such a page or post. Editing paths in Admin does not need the switc
 ## Admin
 
 Admin Studio edits paths under **Content → Reading paths** (`#/paths`), through the route family
-`reading-paths` ([ADR 0246](../adr/0246-reading-paths-are-curated-through-one-admin-route-family-with-revision-checked-atomic-canonical-writes.md),
-[ADR 0247](../adr/0247-the-path-editor-offers-only-published-targets-names-unpublished-steps-and-previews-the-one-public-projection.md)).
+`reading-paths` ([ADR 0213](../adr/0213-reading-paths-are-curated-through-one-admin-route-family-with-revision-checked-atomic-canonical-writes.md),
+[ADR 0214](../adr/0214-the-path-editor-offers-only-published-targets-names-unpublished-steps-and-previews-the-one-public-projection.md)).
 
 | Route | Does |
 | --- | --- |
@@ -199,7 +199,7 @@ the path and step and never a value. Path slugs that Windows reserves for device
 
 ## Discovery
 
-Decided in [ADR 0249](../adr/0249-reading-paths-are-discovered-only-through-listed-links-search-and-a-data-file-that-never-reorder-anything.md).
+Decided in [ADR 0216](../adr/0216-reading-paths-are-discovered-only-through-listed-links-search-and-a-data-file-that-never-reorder-anything.md).
 Only `listed` paths take part in any of these; an unlisted path has its page and nothing else.
 
 - A post or atlas entry that is a step of a listed path ends with a "Part of a reading path" section:
@@ -217,7 +217,7 @@ Only `listed` paths take part in any of these; an unlisted path has its page and
 
 ## Export and import
 
-Decided in [ADR 0250](../adr/0250-reading-paths-travel-as-one-deterministic-export-and-an-import-that-checks-everything-before-writing-anything.md).
+Decided in [ADR 0217](../adr/0217-reading-paths-travel-as-one-deterministic-export-and-an-import-that-checks-everything-before-writing-anything.md).
 
 `openblog paths export [--drafts] [--out <file> --write]` prints (or writes, never replacing a file) one
 `openblog-reading-paths-export` version 1 file: `{ "format", "version", "paths": [{ "slug", "path": <the

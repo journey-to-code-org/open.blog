@@ -3119,7 +3119,7 @@ ob-reading-modes { display: block; }
   .ob-trail-step { border-color: CanvasText; }
 }
 
-/* Reading path pages (#78, ADR 0248): a plain ordered list of steps, each a bordered group whose text
+/* Reading path pages (#78, ADR 0215): a plain ordered list of steps, each a bordered group whose text
    wraps anywhere so nothing overflows at 320 pixels or at 400% zoom. It reads in order without CSS or
    JavaScript. The optional progress controls are added by <ob-reading-path>; print leaves them out and
    keeps every step whole. */

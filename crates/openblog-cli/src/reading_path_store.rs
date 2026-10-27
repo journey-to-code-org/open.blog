@@ -1,14 +1,14 @@
-//! File-backed storage for reading paths (ADR 0246, #77).
+//! File-backed storage for reading paths (ADR 0213, #77).
 //!
 //! A path is the public, author-written file `<content>/paths/<slug>.json`
-//! (ADR 0241). Admin reads and writes it through this module and nothing
+//! (ADR 0208). Admin reads and writes it through this module and nothing
 //! else. Every change names the revision (SHA-256 of the stored bytes) it was
 //! based on, is checked by `openblog_core::reading_path` before anything is
 //! written, and replaces the file by atomic rename while the caller holds the
 //! content lock, so a refused, stale or interrupted change leaves the stored
 //! file exactly as it was. What is written is always the canonical form, so an
 //! Admin save and a hand edit of the same path agree byte for byte, and fields
-//! this release does not define are kept (ADR 0241).
+//! this release does not define are kept (ADR 0208).
 
 use std::fmt;
 use std::fs;
@@ -320,7 +320,7 @@ fn write_bytes(target: &Path, slug: &str, bytes: &[u8]) -> Result<(), StoreError
     Ok(())
 }
 
-/// Write several already-checked paths as one unit (an import, ADR 0250): if
+/// Write several already-checked paths as one unit (an import, ADR 0217): if
 /// any write fails, every path written so far is put back to the bytes it had
 /// (or removed if it was new), so a failed import leaves the folder as it
 /// was. The caller holds the content lock.

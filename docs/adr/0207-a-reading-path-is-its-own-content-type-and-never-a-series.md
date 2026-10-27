@@ -1,4 +1,4 @@
-# ADR 0240: A reading path is its own content type and never a series
+# ADR 0207: A reading path is its own content type and never a series
 
 - Status: Accepted
 - Date: 2026-10-27

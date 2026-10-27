@@ -1,5 +1,5 @@
 // <ob-reading-path> adds optional, local progress to a reading path page
-// (ADR 0248, #78). The page is complete without it: the whole path is an
+// (ADR 0215, #78). The page is complete without it: the whole path is an
 // ordered list, every step links to its post or atlas entry, says in the
 // author's words how it relates to the step it follows, and has previous and
 // next links to the steps around it.

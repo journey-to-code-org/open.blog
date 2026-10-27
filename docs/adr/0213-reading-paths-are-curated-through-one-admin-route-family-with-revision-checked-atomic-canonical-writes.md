@@ -1,17 +1,17 @@
-# ADR 0246: Reading paths are curated through one Admin route family with revision-checked, atomic, canonical writes
+# ADR 0213: Reading paths are curated through one Admin route family with revision-checked, atomic, canonical writes
 
 - Status: Accepted
 - Date: 2026-10-27
 - Decision issue: [#77](https://github.com/journey-to-code-org/open.blog/issues/77)
 - Parent story: [#28](https://github.com/journey-to-code-org/open.blog/issues/28)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0241](0241-a-path-is-one-versioned-plain-text-json-file-written-canonically-and-never-loses-a-field.md),
-  [ADR 0245](0245-the-public-paths-value-is-an-allowlisted-deterministic-projection-and-nothing-reads-a-path-yet.md)
+- Builds on: [ADR 0208](0208-a-path-is-one-versioned-plain-text-json-file-written-canonically-and-never-loses-a-field.md),
+  [ADR 0212](0212-the-public-paths-value-is-an-allowlisted-deterministic-projection-and-nothing-reads-a-path-yet.md)
 - Contract: [Reading paths](../specs/reading-paths.md#admin)
 
 ## Context
 
-A path is a public, author-written file (ADR 0241) under the content folder. Admin must list,
+A path is a public, author-written file (ADR 0208) under the content folder. Admin must list,
 create, edit, reorder and delete it, and a hand edit in source mode must agree with a form save.
 Two tabs, a text editor and a build can all touch the same file, and a failed save must never
 leave a half-written path. Unlike the private research stores, the file is content: it is written
@@ -34,7 +34,7 @@ under the content lock the documents already use, not under a private store's lo
   stored file as it was. A path that cannot be read is listed with its problems and never stops
   the others, and the folder and file are refused if they are a symlink.
 - **Lossless canonical round trip.** What is written is always `ReadingPath::to_canonical_json`
-  (ADR 0241). A form save and a source save of the same path write the same bytes, fields this
+  (ADR 0208). A form save and a source save of the same path write the same bytes, fields this
   release does not define travel through the form model untouched and are kept, and the response
   carries the canonical text so the editor shows exactly what is stored. Source mode shows the
   stored bytes when the file cannot be read, so it can be repaired there.
@@ -48,7 +48,7 @@ under the content lock the documents already use, not under a private store's lo
   that would become first has nothing to follow, so its transition would go: that is refused
   unless the request confirms it (`clearTransition`). A step that moves off the front needs a
   transition it never had, which the request supplies (`transitions`); nothing is invented for it.
-- **Nothing is rebuilt.** Nothing reads a path in a build yet (ADR 0245), so a save does not
+- **Nothing is rebuilt.** Nothing reads a path in a build yet (ADR 0212), so a save does not
   trigger one, and a site with or without paths builds byte for byte as before.
 - **Bounded and hostile-safe.** A body over 512 KiB, a wrong content type, invalid JSON, a repeated
   key or a bad slug is refused before any file is touched, and no message quotes a value.

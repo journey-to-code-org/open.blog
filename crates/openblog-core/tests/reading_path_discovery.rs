@@ -1,4 +1,4 @@
-//! Reading-path discovery (ADR 0249, #79): links from posts and atlas pages,
+//! Reading-path discovery (ADR 0216, #79): links from posts and atlas pages,
 //! search entries, `paths.json`, the feeds policy and the publication
 //! manifest. Discovery follows `listed`, reads the public value only and never
 //! changes the order of anything.

@@ -1,4 +1,4 @@
-// The logic of <ob-reading-path> (ADR 0248): what stored progress means and what the status line
+// The logic of <ob-reading-path> (ADR 0215): what stored progress means and what the status line
 // says. Storage, keyboard and layout behaviour is covered in a browser by
 // tests/browser/reading-path-pages.spec.mjs.
 import assert from "node:assert/strict";

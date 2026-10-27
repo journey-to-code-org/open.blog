@@ -1450,7 +1450,7 @@ Body.
             if path.starts_with("assets/") || path == "sitemap.xml" || path == "search.json" {
                 continue;
             }
-            // A post that is a step of a listed path gains one link section (ADR 0249).
+            // A post that is a step of a listed path gains one link section (ADR 0216).
             let page = String::from_utf8_lossy(&on[path]).into_owned();
             if path.starts_with("posts/") && page.contains("ob-in-paths") {
                 let start = page.find("<section class=\"ob-in-paths\"").unwrap();

@@ -1,4 +1,4 @@
-//! Admin reading-path routes (ADR 0246, #77): deny by default, CSRF, stale
+//! Admin reading-path routes (ADR 0213, #77): deny by default, CSRF, stale
 //! writes, the content lock, atomic canonical writes, source mode, published
 //! targets only, privacy and hostile input.
 

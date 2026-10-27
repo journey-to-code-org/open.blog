@@ -71,7 +71,7 @@ pub enum Projection {
     /// (ADR 0197).
     CuratedContext,
     /// The author's reading paths: their pages, `paths.json`, search entries
-    /// and the links to them from posts and atlas pages (ADR 0249).
+    /// and the links to them from posts and atlas pages (ADR 0216).
     ReadingPaths,
 }
 
@@ -1241,7 +1241,7 @@ fn atlas_query(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
 /// posts it names and whether discovery lists it. Only the public value is
 /// read, so a draft, a step that is not published and a path file's other text
 /// are never here. Nothing is withheld by name: what a path leaves out is
-/// reported to the author at build time (ADR 0244).
+/// reported to the author at build time (ADR 0211).
 fn reading_paths(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
     let mut report = report(Projection::ReadingPaths, inputs.switches.reading_paths);
     let Some(public) = inputs.public_paths.filter(|_| report.enabled) else {
