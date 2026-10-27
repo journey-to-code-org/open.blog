@@ -7983,6 +7983,7 @@ export const BOUNDARY_PROJECTIONS = Object.freeze({
   comparisons: "Comparisons",
   "context-links": "Links to research pages",
   curated: "Curated for readers",
+  "curated-context": "Curated context data",
 });
 
 /** How each kind of research item is named. */
@@ -7998,6 +7999,7 @@ export const BOUNDARY_KINDS = Object.freeze({
   "atlas-page": "Atlas page",
   "comparison-page": "Comparison page",
   selection: "Curated selection",
+  "curated-context": "Curated context file",
 });
 
 /** Why an item or a field is withheld, in a few words. The server's message says exactly which. */
@@ -8065,7 +8067,7 @@ export function boundaryCountsText(manifest) {
   const reports = Array.isArray(manifest?.projections) ? manifest.projections : [];
   // The query file repeats what the atlas already lists, so it adds nothing to the published count
   // (the server's own summary skips it the same way); what it withholds is still counted.
-  const published = reports.reduce((sum, report) => sum + (report.projection === "atlas-query" ? 0 : report.published?.length || 0), 0);
+  const published = reports.reduce((sum, report) => sum + (report.projection === "atlas-query" || report.projection === "curated-context" ? 0 : report.published?.length || 0), 0);
   const withheld = reports.reduce((sum, report) => sum + (report.withheld?.length || 0), 0);
   return `${published} published, ${withheld} withheld.`;
 }
