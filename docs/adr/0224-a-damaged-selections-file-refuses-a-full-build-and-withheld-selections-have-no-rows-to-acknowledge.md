@@ -28,7 +28,12 @@ findings refuse, which withhold and which an author may acknowledge.
   file, but only while `curatedContext.publish` is on. With the switch off the file is never
   read, so a damaged one changes nothing. An Admin save, a preview and the curation routes never
   fail because of it: the curation routes report it as a `422` naming the file and replace
-  nothing.
+  nothing, and a post save is still `200` with `build.ok` false and the file named.
+- **Publishing a shared reflection is the same full build.** Publishing one writes the piece into
+  content and then rebuilds, so while the site publishes curated context and the file cannot be
+  read the publication is refused and rolled back, naming the file, until the author repairs it
+  or turns `curatedContext.publish` off. This is deliberate (the author's curation is never
+  silently dropped from a published page) and is documented at the publication code.
 - **Withheld selections have no advisory rows.** A withdrawn, stale, missing, unapproved,
   cyclic or post-less selection is the author's own state, and the boundary manifest already
   lists it with its reason in Admin's What will be public, in the Selected for readers section

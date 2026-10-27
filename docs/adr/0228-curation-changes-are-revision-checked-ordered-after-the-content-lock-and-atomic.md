@@ -31,7 +31,10 @@ a write that cannot half-happen.
   library and selections locks in that order (ADR 0215), reads the stores and resolves
   against them under those locks, and writes. While nothing is stored the change is first tried
   without the locks, so a refused change creates no directory. A lock another writer holds is a
-  `500` that changes nothing, after the usual wait.
+  `500` that changes nothing, after the usual wait. The locks cover the change only: they are
+  dropped before the view is computed, so the projections never run while a store is locked. Every
+  id in an ordering is checked against the id syntax before any is looked up or named, so a
+  hostile id is never echoed.
 - **Atomic with rollback.** The file is written to a temporary file beside it, flushed, and
   renamed over it; a failed write removes the temporary file and leaves the stored file byte for
   byte. Orderings are all or nothing. No route writes the research a selection points at, and

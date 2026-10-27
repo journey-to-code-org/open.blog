@@ -1285,9 +1285,11 @@ _Avoid_: Treating a library source as public because it exists
 
 **Selection scope**:
 Whom a selection is offered to: named published posts (`posts`), or the whole site when it names
-none, with an optional `position` that orders it among a post's items. A record without them is for
-the whole site and unpositioned. Only a published post is ever named in a public value.
-_Avoid_: Naming a draft, ordering by id alone
+none, with optional `positions` (post slug to place) that order it among each post's items. A post's
+order is its own: ordering one post never moves an item in another, even a whole-site item both are
+offered. A record without them is for the whole site and unplaced. Only a published post is ever
+named in a public value; a draft previews as if it were published, labelled so, and the build does not.
+_Avoid_: Naming a draft, ordering by id alone, one number shared by every post
 
 **Selected for readers**:
 The section of the draft-side research panel where an author chooses, orders, withdraws and

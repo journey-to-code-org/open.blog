@@ -54,6 +54,8 @@ pub const MAX_SELECTIONS_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_REQUIRES: usize = 32;
 /// The most posts one selection may be scoped to.
 pub const MAX_POSTS: usize = 50;
+/// The most posts one selection may be ordered in.
+pub const MAX_POSITIONS: usize = 500;
 
 const CREDIT_FIELDS: &[&str] = &["credit", "credits", "contributor", "contributors"];
 const MAX_ID: usize = 64;
@@ -239,10 +241,14 @@ pub struct Selection {
     /// offered to every post, exactly as it was before posts were named.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub posts: Option<Vec<String>>,
-    /// Where the selection sits among the items of a post, lowest first.
-    /// Absent sorts after every positioned item; ties break by id.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub position: Option<u32>,
+    /// Where the selection sits among the items of each post, lowest first,
+    /// by post slug. A post's order is its own: ordering one post's items
+    /// never changes where an item sits for another post, even a whole-site
+    /// item both are offered. A post with no entry sorts the item after every
+    /// positioned one; ties break by id. Order is presentation, not content,
+    /// so it is not part of the revision a selection records.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub positions: BTreeMap<String, u32>,
     /// Fields this release does not understand, preserved verbatim and
     /// never published.
     #[serde(flatten)]
@@ -548,6 +554,25 @@ pub fn validate(selection: &Selection) -> Vec<Diagnostic> {
             ));
         }
     }
+    let scoped_outside = |post: &String| {
+        selection
+            .posts
+            .as_ref()
+            .is_some_and(|posts| !posts.contains(post))
+    };
+    if selection.positions.len() > MAX_POSITIONS
+        || selection
+            .positions
+            .keys()
+            .any(|post| !safe_post(post) || scoped_outside(post))
+    {
+        out.push(diag(
+            Code::BadPosts,
+            Some(id),
+            Some("positions"),
+            format!("Selection `{id}`: `positions` orders the selection among the items of posts it is offered to, by slug, at most {MAX_POSITIONS} of them."),
+        ));
+    }
     for key in selection
         .extra
         .keys()
@@ -822,8 +847,9 @@ pub struct CuratedItem {
     /// The published posts the item is scoped to; empty means the whole site.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub posts: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub position: Option<u32>,
+    /// Its place among the items of each published post that orders it.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub positions: BTreeMap<String, u32>,
     /// What a reader or an author should know of the item that is not in its
     /// fields: a competing dating that is not selected, a detail the source
     /// lacks, metadata whose origin is not recorded.
@@ -854,20 +880,28 @@ impl NoticeCode {
 
 impl PublicCuration {
     /// The items a post is offered, in the order readers get them: the
-    /// whole-site items and those scoped to this post, by position then id.
+    /// whole-site items and those scoped to this post, by this post's own
+    /// position then id (an item this post has not ordered goes last).
     pub fn for_post(&self, post: &str) -> Vec<&CuratedItem> {
         let mut items: Vec<&CuratedItem> = self
             .items
             .iter()
             .filter(|item| item.posts.is_empty() || item.posts.iter().any(|p| p == post))
             .collect();
-        items.sort_by(|a, b| item_order(a).cmp(&item_order(b)).then(a.id.cmp(&b.id)));
+        items.sort_by(|a, b| {
+            item_order(a, Some(post))
+                .cmp(&item_order(b, Some(post)))
+                .then(a.id.cmp(&b.id))
+        });
         items
     }
 }
 
-fn item_order(item: &CuratedItem) -> u32 {
-    item.position.unwrap_or(u32::MAX)
+/// An item's place for one post, or the unordered rest.
+fn item_order(item: &CuratedItem, post: Option<&str>) -> u32 {
+    post.and_then(|post| item.positions.get(post))
+        .copied()
+        .unwrap_or(u32::MAX)
 }
 
 /// What a context item is: the minimum a reader needs to understand an
@@ -904,8 +938,8 @@ pub struct ContextItem {
 pub struct PublicCuration {
     pub format: &'static str,
     pub format_version: u64,
-    /// Sorted by (first post, position, id): whole-site items first, then
-    /// each post's, each in the order its author set. [`Self::for_post`] gives
+    /// Sorted by (first post, that post's position, id): whole-site items
+    /// first, then each post's, each in the order its author set. [`Self::for_post`] gives
     /// one post's order.
     pub items: Vec<CuratedItem>,
     /// Sorted by kind then id; never holds a selected item twice.
@@ -1198,9 +1232,9 @@ fn evaluate(sel: &Selection, basis: &Basis<'_>) -> Result<Evaluated, Failure> {
     if let Some(posts) = &sel.posts {
         pairs.push(("posts".into(), sorted(posts)));
     }
-    if let Some(position) = sel.position {
-        pairs.push(("position".into(), position.to_string()));
-    }
+    // Order is presentation, not content: it is deliberately not part of the
+    // revision, so ordering one post never makes a selection stale and a
+    // stale selection can keep its place.
     // Dependencies, each checked against what is published.
     for id in &deps.entries {
         let found = entry(id).ok_or_else(|| {
@@ -1441,7 +1475,16 @@ pub fn resolve(set: &SelectionSet, basis: &Basis<'_>) -> Resolution {
             missing: done.missing.clone(),
             requires: sel.requires.clone(),
             posts: scoped.get(sel.id.as_str()).cloned().unwrap_or_default(),
-            position: sel.position,
+            positions: sel
+                .positions
+                .iter()
+                .filter(|(post, _)| {
+                    basis
+                        .posts
+                        .is_some_and(|published| published.contains(*post))
+                })
+                .map(|(post, at)| (post.clone(), *at))
+                .collect(),
             notices: Vec::new(),
         });
         for (code, field, message) in &done.notices {
@@ -1516,7 +1559,12 @@ pub fn resolve(set: &SelectionSet, basis: &Basis<'_>) -> Resolution {
         item.notices = carried.remove(item.id.as_str()).unwrap_or_default();
     }
     items.sort_by(|a: &CuratedItem, b| {
-        (a.posts.first(), item_order(a), &a.id).cmp(&(b.posts.first(), item_order(b), &b.id))
+        let first = |item: &CuratedItem| item.posts.first().cloned();
+        (first(a), item_order(a, first(a).as_deref()), &a.id).cmp(&(
+            first(b),
+            item_order(b, first(b).as_deref()),
+            &b.id,
+        ))
     });
     Resolution {
         curation: PublicCuration {
@@ -1788,7 +1836,8 @@ pub struct NewSelection {
     pub requires: Vec<String>,
     /// The posts it is for; absent means the whole site.
     pub posts: Option<Vec<String>>,
-    pub position: Option<u32>,
+    /// Its place among the items of each post, by slug.
+    pub positions: BTreeMap<String, u32>,
 }
 
 /// An id derived from the kind and target. The readable part is lossy (a
@@ -1858,7 +1907,7 @@ impl SelectionSet {
             provenance: new.provenance,
             requires: new.requires,
             posts: new.posts,
-            position: new.position,
+            positions: new.positions,
             extra: BTreeMap::new(),
         };
         let problems = validate(&selection);
@@ -1920,16 +1969,16 @@ impl SelectionSet {
         }
     }
 
-    /// Change the posts a selection is for and where it sits among them.
-    /// Refused while the selection is stale: ordering is not the author's
-    /// "checked, publish it as it now stands", so it never refreshes a
-    /// revision that no longer matches. Otherwise the revision is recomputed,
-    /// because the scope is part of what was selected.
+    /// Change the posts a selection is for. Refused while the selection is
+    /// stale: changing the scope is not the author's "checked, publish it as
+    /// it now stands", so it never refreshes a revision that no longer
+    /// matches. Otherwise the revision is recomputed, because the scope is
+    /// part of what was selected. A place it held for a post it is no longer
+    /// offered to is dropped.
     pub fn rescope(
         &mut self,
         id: &str,
         posts: Option<Vec<String>>,
-        position: Option<u32>,
         basis: &Basis<'_>,
     ) -> Result<(), Vec<Diagnostic>> {
         let selection = self
@@ -1962,7 +2011,9 @@ impl SelectionSet {
         }
         let mut changed = selection.clone();
         changed.posts = posts;
-        changed.position = position;
+        if let Some(kept) = &changed.posts {
+            changed.positions.retain(|post, _| kept.contains(post));
+        }
         let problems = validate(&changed);
         if !problems.is_empty() {
             return Err(problems);
@@ -1978,6 +2029,89 @@ impl SelectionSet {
             })?
             .revision;
         *selection = changed;
+        Ok(())
+    }
+
+    /// Put the listed selections in this order among the items of one post,
+    /// taking places 1..n for that post and no other. Another post's order is
+    /// never touched, even for a whole-site selection both are offered. A
+    /// selection this post has placed that is not listed (withheld, say) keeps
+    /// its relative place after the listed ones, so its place stays unique and
+    /// consistent. All or nothing: an unknown, stale or not-offered selection
+    /// refuses the whole ordering, and order is no part of a revision.
+    pub fn order_for_post(
+        &mut self,
+        post: &str,
+        ids: &[String],
+        basis: &Basis<'_>,
+    ) -> Result<(), Vec<Diagnostic>> {
+        let offered = |selection: &Selection| {
+            selection
+                .posts
+                .as_ref()
+                .is_none_or(|posts| posts.iter().any(|p| p == post))
+        };
+        for id in ids {
+            let selection = self.get(id).ok_or_else(|| {
+                vec![diag(
+                    Code::UnknownSelection,
+                    Some(id),
+                    None,
+                    format!("There is no selection `{id}`."),
+                )]
+            })?;
+            if !offered(selection) {
+                return Err(vec![diag(
+                    Code::BadPosts,
+                    Some(id),
+                    Some("posts"),
+                    format!("Selection `{id}` is not offered to this post, so it has no place among its items."),
+                )]);
+            }
+            let current = evaluate(selection, basis).map_err(|(_, message)| {
+                vec![diag(
+                    Code::TargetNotPublished,
+                    Some(id),
+                    Some("target"),
+                    message,
+                )]
+            })?;
+            if current.revision != selection.revision {
+                return Err(vec![diag(
+                    Code::StaleSelection,
+                    Some(id),
+                    Some("revision"),
+                    format!("Selection `{id}` is stale: check what it selects and select it again before changing where it appears."),
+                )]);
+            }
+        }
+        let listed: BTreeSet<&String> = ids.iter().collect();
+        let mut rest: Vec<(u32, String)> = self
+            .selections
+            .iter()
+            .filter(|s| offered(s) && !listed.contains(&s.id))
+            .filter_map(|s| s.positions.get(post).map(|at| (*at, s.id.clone())))
+            .collect();
+        rest.sort();
+        let mut next = self.clone();
+        let place = |at: usize| u32::try_from(at + 1).unwrap_or(u32::MAX);
+        for (index, id) in ids.iter().enumerate() {
+            if let Some(selection) = next.selections.iter_mut().find(|s| &s.id == id) {
+                selection.positions.insert(post.to_string(), place(index));
+            }
+        }
+        for (index, (_, id)) in rest.iter().enumerate() {
+            if let Some(selection) = next.selections.iter_mut().find(|s| &s.id == id) {
+                selection
+                    .positions
+                    .insert(post.to_string(), place(ids.len() + index));
+            }
+        }
+        let problems: Vec<Diagnostic> = next.selections.iter().flat_map(validate).collect();
+        if !problems.is_empty() {
+            return Err(problems);
+        }
+        *self = next;
         Ok(())
     }
 
@@ -2079,8 +2213,9 @@ pub struct SelectionView {
     /// The posts it is scoped to; absent means the whole site.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub posts: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub position: Option<u32>,
+    /// Its place among the items of each post that orders it.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub positions: BTreeMap<String, u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub withdrawn_reason: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -2162,6 +2297,13 @@ pub struct CurationView<'a> {
     pub publish: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub post: Option<String>,
+    /// The post is not published yet (a draft), so the preview is what its
+    /// readers get *when this post is published*: the post is added to the
+    /// published set for this preview alone, the way Admin's production
+    /// preview renders a draft as published. The build's rule is unchanged: it
+    /// publishes nothing scoped to a post that is not published.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub when_published: bool,
     pub selections: Vec<SelectionView>,
     /// What readers get, exactly.
     pub preview: PostCuration<'a>,
@@ -2257,6 +2399,7 @@ pub fn curation_view<'a>(
     post: Option<&str>,
     revision: &str,
     publish: bool,
+    when_published: bool,
 ) -> CurationView<'a> {
     let candidates = candidates_of(basis);
     let label_of = |sel: &Selection| -> Option<String> {
@@ -2317,7 +2460,7 @@ pub fn curation_view<'a>(
                 provenance: sel.provenance.clone(),
                 requires: sel.requires.clone(),
                 posts: sel.posts.clone(),
-                position: sel.position,
+                positions: sel.positions.clone(),
                 withdrawn_reason: sel.withdrawn_reason.clone(),
                 notices: items
                     .get(sel.id.as_str())
@@ -2350,6 +2493,7 @@ pub fn curation_view<'a>(
         file: SELECTIONS_FILE,
         publish,
         post: post.map(str::to_string),
+        when_published,
         selections,
         preview: resolution.curation.view_for(post),
         candidates,

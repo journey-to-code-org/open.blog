@@ -318,7 +318,8 @@ never approves private research, never copies a note, and lists exactly the fiel
 may be for the whole site or for named posts, in your order. A selection goes stale when what it
 selects, or anything it needs, changes, and stays withheld until you check it and select it again.
 While the switch is on, a selections file that cannot be read refuses `build` and `check`, naming the
-file; a selected dating whose competing datings are not selected is a `boundary:` warning. While the
+file, and so also blocks publishing a shared reflection (an ordinary post save still succeeds, reporting
+the failed build); a selected dating whose competing datings are not selected is a `boundary:` warning. While the
 switch is off the file is never read and nothing changes. You choose what readers get from **Selected
 for readers** in the Research panel beside a post. The file is private and Git-ignored with the other
 research files. See

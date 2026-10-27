@@ -24,9 +24,10 @@ needs the same honesty for everything it selects: the author chose one version o
   list of explicit name/value pairs, each length-prefixed so no two lists feed the hash the same
   bytes: the kind and target, the whole selected public item (not only the listed fields), the
   listed `fields`, the `provenance`, the author's `text`, `by` and a listed `locator`, the sorted
-  `requires`, the `posts` and the `position`, and every public dependency the item brings (ADR
-  0218), recorded when the author selects. Every choice the author made is in it, so changing one
-  is a change to what was selected; it is computed from the projections' public values, never
+  `requires`, the `posts`, and every public dependency the item brings (ADR 0218), recorded
+  when the author selects. Where the item sits among a post's items (`positions`, ADR 0226) is
+  presentation, not content, and is deliberately not in it. Every choice about what readers are
+  given is in it, so changing one is a change to what was selected; it is computed from the projections' public values, never
   from private notes. A fingerprint is only compared with one made by the same engine: an
   upgrade that changes how an item is projected may make selections stale, and the author
   selects them again. Nothing re-records a revision on its own.
@@ -38,10 +39,12 @@ needs the same honesty for everything it selects: the author chose one version o
 - **Missing and unapproved.** A target that no longer exists is `missing-target`; one that
   exists but is not published is `not-approved`; when that cannot be told apart,
   `private-dependency`.
-- **Reordering is not checking.** Changing the posts a selection is for or its position
-  recomputes its revision, since both are part of it, but only from a current one: the change is
-  refused with `stale-selection` while the selection is stale, so scoping or ordering never
-  re-blesses an item that changed.
+- **Reordering is not checking.** Changing the posts a selection is for recomputes its revision,
+  since the scope is part of it, but only from a current one: the change is refused with
+  `stale-selection` while the selection is stale, so scoping never re-blesses an item that
+  changed. Ordering never touches the revision (a place is not part of it), and an ordering
+  that lists a stale selection is refused for the same reason, so it is never ordered past its
+  check.
 - **Withdraw and unselect.** Withdrawing keeps the record with an optional reason and publishes
   nothing (`withdrawn`); `reselect` makes it live again against the current revision. Unselecting
   removes the record. Neither touches the selected research.

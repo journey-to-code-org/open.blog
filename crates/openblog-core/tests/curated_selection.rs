@@ -1048,6 +1048,9 @@ fn the_manifest_lists_the_caveats_and_a_competing_dating_is_a_boundary_warning()
 
 #[test]
 fn a_selection_is_for_the_site_or_for_named_published_posts_in_the_author_s_order() {
+    let at = |pairs: &[(&str, u32)]| -> BTreeMap<String, u32> {
+        pairs.iter().map(|(p, n)| (p.to_string(), *n)).collect()
+    };
     let w = world();
     let mut set = SelectionSet::default();
     let site_wide = select(
@@ -1060,7 +1063,7 @@ fn a_selection_is_for_the_site_or_for_named_published_posts_in_the_author_s_orde
         &w,
         NewSelection {
             posts: Some(vec!["cave".into()]),
-            position: Some(3),
+            positions: at(&[("cave", 3)]),
             ..pick(SelectionKind::ContextualEntry, "plato")
         },
     );
@@ -1069,7 +1072,7 @@ fn a_selection_is_for_the_site_or_for_named_published_posts_in_the_author_s_orde
         &w,
         NewSelection {
             posts: Some(vec!["cave".into(), "other".into()]),
-            position: Some(1),
+            positions: at(&[("cave", 1), ("other", 2)]),
             ..pick(SelectionKind::Reference, "scholar")
         },
     );
@@ -1086,7 +1089,7 @@ fn a_selection_is_for_the_site_or_for_named_published_posts_in_the_author_s_orde
         &w,
         NewSelection {
             posts: Some(vec!["other".into()]),
-            position: Some(1),
+            positions: at(&[("other", 1)]),
             ..pick(SelectionKind::Reference, "undated")
         },
     );
@@ -1127,9 +1130,10 @@ fn a_selection_is_for_the_site_or_for_named_published_posts_in_the_author_s_orde
             unplaced.as_str()
         ]
     );
+    // A shared item has a place per post: it is second for "other".
     assert_eq!(
         ids("other"),
-        vec![first.as_str(), elsewhere.as_str(), site_wide.as_str()]
+        vec![elsewhere.as_str(), first.as_str(), site_wide.as_str()]
     );
     assert_eq!(ids("none").len(), 1, "only the whole-site item");
     // Deterministic whatever the order of the file.
@@ -1142,7 +1146,7 @@ fn a_selection_is_for_the_site_or_for_named_published_posts_in_the_author_s_orde
 }
 
 #[test]
-fn a_record_without_posts_or_position_is_site_wide_and_written_unchanged() {
+fn a_record_without_posts_or_positions_is_site_wide_and_written_unchanged() {
     let w = world();
     let mut set = SelectionSet::default();
     select(&mut set, &w, pick(SelectionKind::ContextualEntry, "plato"));
@@ -1156,9 +1160,9 @@ fn a_record_without_posts_or_position_is_site_wide_and_written_unchanged() {
     assert_eq!(parsed.to_json(), text, "byte for byte");
     let resolution = resolve(&parsed, &w.basis());
     let item = &resolution.curation.items[0];
-    assert!(item.posts.is_empty() && item.position.is_none());
+    assert!(item.posts.is_empty() && item.positions.is_empty());
     let json = serde_json::to_value(item).unwrap();
-    assert!(json.get("posts").is_none() && json.get("position").is_none());
+    assert!(json.get("posts").is_none() && json.get("positions").is_none());
     assert_eq!(resolution.curation.for_post("any-post").len(), 1);
 }
 
@@ -1242,7 +1246,6 @@ fn the_revision_covers_every_choice_the_author_made() {
         ),
         ("requires", Box::new(|s| s.requires = vec!["other".into()])),
         ("posts", Box::new(|s| s.posts = Some(vec!["cave".into()]))),
-        ("position", Box::new(|s| s.position = Some(2))),
     ];
     for (name, edit) in edits {
         let mut changed = set.clone();
@@ -1606,12 +1609,14 @@ fn reordering_never_refreshes_a_stale_selection() {
     let w = world();
     let mut set = SelectionSet::default();
     let id = select(&mut set, &w, pick(SelectionKind::ContextualEntry, "plato"));
-    set.rescope(&id, Some(vec!["cave".into()]), Some(2), &w.basis())
+    set.rescope(&id, Some(vec!["cave".into()]), &w.basis())
+        .unwrap();
+    set.order_for_post("cave", std::slice::from_ref(&id), &w.basis())
         .unwrap();
     let kept = set.get(&id).unwrap().clone();
     assert_eq!(
-        (kept.posts.clone(), kept.position),
-        (Some(vec!["cave".into()]), Some(2))
+        (kept.posts.clone(), kept.positions.get("cave").copied()),
+        (Some(vec!["cave".into()]), Some(1))
     );
     assert!(
         resolve(&set, &w.basis()).withheld.is_empty(),
@@ -1623,7 +1628,7 @@ fn reordering_never_refreshes_a_stale_selection() {
     let changed = world_with(&library_value(), &atlas);
     let before = set.clone();
     let problems = set
-        .rescope(&id, Some(vec!["cave".into()]), Some(1), &changed.basis())
+        .order_for_post("cave", std::slice::from_ref(&id), &changed.basis())
         .unwrap_err();
     assert_eq!(problems[0].code, Code::StaleSelection);
     assert_eq!(set, before, "nothing changed");
@@ -1634,13 +1639,14 @@ fn reordering_never_refreshes_a_stale_selection() {
     );
     // Selecting it again is the author's act of checking.
     set.reselect(&id, &changed.basis()).unwrap();
-    set.rescope(&id, None, None, &changed.basis()).unwrap();
-    assert_eq!(set.get(&id).unwrap().position, None);
+    set.rescope(&id, None, &changed.basis()).unwrap();
+    assert_eq!(
+        set.get(&id).unwrap().positions.get("cave").copied(),
+        Some(1),
+        "a whole-site selection keeps the place it had in a post"
+    );
     assert!(
-        set.rescope("nope", None, None, &changed.basis())
-            .unwrap_err()[0]
-            .code
-            == Code::UnknownSelection
+        set.rescope("nope", None, &changed.basis()).unwrap_err()[0].code == Code::UnknownSelection
     );
 }
 
@@ -1721,7 +1727,7 @@ fn view_set(w: &World) -> SelectionSet {
         &mut set,
         NewSelection {
             posts: Some(vec!["cave".into()]),
-            position: Some(1),
+            positions: BTreeMap::from([("cave".to_string(), 1)]),
             ..pick(SelectionKind::Relationship, "r-authored")
         },
         "relationship-authored",
@@ -1731,7 +1737,7 @@ fn view_set(w: &World) -> SelectionSet {
         NewSelection {
             optional_fields: vec!["summary".into()],
             posts: Some(vec!["cave".into()]),
-            position: Some(2),
+            positions: BTreeMap::from([("cave".to_string(), 2)]),
             ..pick(SelectionKind::ContextualEntry, "plato")
         },
         "entry-plato",
@@ -1740,7 +1746,7 @@ fn view_set(w: &World) -> SelectionSet {
         &mut set,
         NewSelection {
             posts: Some(vec!["cave".into()]),
-            position: Some(3),
+            positions: BTreeMap::from([("cave".to_string(), 3)]),
             ..pick(SelectionKind::Timeline, "plato-birth-a")
         },
         "dating-birth-a",
@@ -1803,6 +1809,7 @@ fn the_authors_view_matches_the_shared_fixture_and_shows_only_public_items() {
         Some("cave"),
         &revision,
         true,
+        false,
     );
     let mut text = serde_json::to_string_pretty(&view).unwrap();
     text.push('\n');
@@ -1834,4 +1841,144 @@ fn the_authors_view_matches_the_shared_fixture_and_shows_only_public_items() {
     // The preview is the public value, not a second rendering of it.
     let public = serde_json::to_value(resolution.curation.view_for(Some("cave"))).unwrap();
     assert_eq!(serde_json::to_value(&view.preview).unwrap(), public);
+}
+
+#[test]
+fn ordering_one_post_never_reorders_another_even_for_a_shared_whole_site_item() {
+    let w = world();
+    let mut set = SelectionSet::default();
+    let shared = select(&mut set, &w, pick(SelectionKind::ContextualEntry, "plato"));
+    let a = select(
+        &mut set,
+        &w,
+        NewSelection {
+            posts: Some(vec!["cave".into()]),
+            ..pick(SelectionKind::ContextualEntry, "republic")
+        },
+    );
+    let b = select(
+        &mut set,
+        &w,
+        NewSelection {
+            posts: Some(vec!["other".into()]),
+            ..pick(SelectionKind::ContextualEntry, "academy")
+        },
+    );
+    let ids = |set: &SelectionSet, post: &str| -> Vec<String> {
+        resolve(set, &w.basis())
+            .curation
+            .for_post(post)
+            .iter()
+            .map(|i| i.id.clone())
+            .collect()
+    };
+    // The author puts the shared item first for "cave".
+    set.order_for_post("cave", &[shared.clone(), a.clone()], &w.basis())
+        .unwrap();
+    assert_eq!(ids(&set, "cave"), [shared.clone(), a.clone()]);
+    // Then puts it last for "other".
+    set.order_for_post("other", &[b.clone(), shared.clone()], &w.basis())
+        .unwrap();
+    assert_eq!(ids(&set, "other"), [b.clone(), shared.clone()]);
+    assert_eq!(
+        ids(&set, "cave"),
+        [shared.clone(), a.clone()],
+        "ordering `other` left `cave` as the author set it"
+    );
+    // Reversing `cave` does not move anything in `other`.
+    set.order_for_post("cave", &[a.clone(), shared.clone()], &w.basis())
+        .unwrap();
+    assert_eq!(ids(&set, "cave"), [a.clone(), shared.clone()]);
+    assert_eq!(ids(&set, "other"), [b.clone(), shared.clone()]);
+    let item = set.get(&shared).unwrap();
+    assert_eq!(item.positions.get("cave"), Some(&2));
+    assert_eq!(item.positions.get("other"), Some(&2));
+    // Order is not content: no selection became stale.
+    assert!(resolve(&set, &w.basis()).withheld.is_empty());
+}
+
+#[test]
+fn ordering_keeps_places_of_items_left_out_unique_and_refuses_what_is_not_offered() {
+    let w = world();
+    let mut set = SelectionSet::default();
+    let one = select(&mut set, &w, pick(SelectionKind::ContextualEntry, "plato"));
+    let two = select(
+        &mut set,
+        &w,
+        pick(SelectionKind::ContextualEntry, "republic"),
+    );
+    let three = select(
+        &mut set,
+        &w,
+        pick(SelectionKind::ContextualEntry, "academy"),
+    );
+    let elsewhere = select(
+        &mut set,
+        &w,
+        NewSelection {
+            posts: Some(vec!["other".into()]),
+            ..pick(SelectionKind::Reference, "scholar")
+        },
+    );
+    set.order_for_post(
+        "cave",
+        &[one.clone(), two.clone(), three.clone()],
+        &w.basis(),
+    )
+    .unwrap();
+    // `two` is withheld, so a later ordering lists the other two only.
+    set.withdraw(&two, None);
+    set.order_for_post("cave", &[three.clone(), one.clone()], &w.basis())
+        .unwrap();
+    let places: Vec<(&str, u32)> = [&three, &one, &two]
+        .iter()
+        .map(|id| (id.as_str(), set.get(id).unwrap().positions["cave"]))
+        .collect();
+    assert_eq!(
+        places.iter().map(|(_, n)| *n).collect::<Vec<_>>(),
+        [1, 2, 3],
+        "the withheld item keeps a unique place after the listed ones: {places:?}"
+    );
+    // A selection for another post has no place among this post's items.
+    let before = set.clone();
+    let problems = set
+        .order_for_post("cave", std::slice::from_ref(&elsewhere), &w.basis())
+        .unwrap_err();
+    assert_eq!(problems[0].code, Code::BadPosts);
+    assert_eq!(set, before, "all or nothing");
+    assert!(set
+        .order_for_post("cave", &["nope".to_string()], &w.basis())
+        .is_err());
+    // Narrowing a selection's scope drops the places it no longer needs.
+    set.rescope(&one, Some(vec!["other".into()]), &w.basis())
+        .unwrap();
+    assert!(set.get(&one).unwrap().positions.is_empty());
+    // A record that places a scoped selection in a post it is not for, or
+    // names a path, is refused when read.
+    for bad in [r#"{"cave":1,"other":2}"#, r#"{"../x":1}"#] {
+        let text = set.to_json().replace(
+            &format!("\"id\": \"{one}\""),
+            &format!("\"id\": \"{one}\", \"positions\": {bad}"),
+        );
+        let parsed = SelectionSet::parse(&text);
+        assert!(parsed.is_err(), "{bad}");
+    }
+}
+
+#[test]
+fn a_public_item_names_only_published_posts_in_its_positions() {
+    let w = world();
+    let mut set = SelectionSet::default();
+    let shared = select(&mut set, &w, pick(SelectionKind::ContextualEntry, "plato"));
+    mutate(&mut set, &shared)
+        .positions
+        .extend([("cave".to_string(), 1), ("secret-draft".to_string(), 2)]);
+    let resolution = resolve(&set, &w.basis());
+    let item = &resolution.curation.items[0];
+    assert_eq!(item.positions.keys().collect::<Vec<_>>(), ["cave"]);
+    let text = serde_json::to_string(&resolution.curation).unwrap();
+    assert!(
+        !text.contains("secret-draft"),
+        "a draft slug is not disclosed"
+    );
 }

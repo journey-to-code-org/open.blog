@@ -26,7 +26,9 @@
       "posts": [
         "cave"
       ],
-      "position": 1
+      "positions": {
+        "cave": 1
+      }
     },
     {
       "id": "entry-plato",
@@ -45,7 +47,9 @@
       "posts": [
         "cave"
       ],
-      "position": 2
+      "positions": {
+        "cave": 2
+      }
     },
     {
       "id": "dating-birth-a",
@@ -70,7 +74,9 @@
       "posts": [
         "cave"
       ],
-      "position": 3,
+      "positions": {
+        "cave": 3
+      },
       "notices": [
         {
           "code": "competing-unselected",
@@ -205,7 +211,7 @@
         "id": "relationship-authored",
         "kind": "relationship",
         "target": "r-authored",
-        "revision": "29845aa65d0f27aa",
+        "revision": "93a2ffaed3a8dc8b",
         "content": {
           "assertedBy": {
             "kind": "source",
@@ -252,13 +258,15 @@
         "posts": [
           "cave"
         ],
-        "position": 1
+        "positions": {
+          "cave": 1
+        }
       },
       {
         "id": "entry-plato",
         "kind": "contextual-entry",
         "target": "plato",
-        "revision": "b05da53b7f9c6d89",
+        "revision": "d2ee698f5d742919",
         "content": {
           "id": "plato",
           "kind": "person",
@@ -272,13 +280,15 @@
         "posts": [
           "cave"
         ],
-        "position": 2
+        "positions": {
+          "cave": 2
+        }
       },
       {
         "id": "dating-birth-a",
         "kind": "timeline",
         "target": "plato-birth-a",
-        "revision": "63b08ae131fa65b8",
+        "revision": "f68906b5f4631cbb",
         "content": {
           "aspect": "birth",
           "assertedBy": {
@@ -314,7 +324,9 @@
         "posts": [
           "cave"
         ],
-        "position": 3,
+        "positions": {
+          "cave": 3
+        },
         "notices": [
           {
             "code": "competing-unselected",

@@ -31,10 +31,19 @@ third panel nor a second preview.
   button named for the item it acts on; the order is an ordered list with a visible place
   ("Place 2 of 5"); status is announced politely, an error is an alert and takes focus; focus
   returns to the control that opened a form or confirmation and stays on a moved item's control;
-  Escape closes a confirmation. Published and withheld are told apart in words. Everything wraps,
+  Escape closes a confirmation or the new-selection form and goes no further, so the research
+  panel stays open. Published and withheld are told apart in words. Everything wraps,
   so it reflows at 320 pixels and at 400% zoom without sideways scrolling.
-- **No state is lost.** A refusal or a conflict keeps the form and the draft; nothing here edits
-  the draft or the research; it works in Markdown and Visual modes.
+- **No state is lost.** A refusal or a conflict keeps the form exactly as it was filled (the
+  fields, the comment, who it is by, where it applies, the origin and the scope; a conflict
+  reloads the list and the preview only) and the draft; nothing here edits the draft or the
+  research; it works in Markdown and Visual modes. A change of the post's address rereads the view
+  and refuses a change made against the old one, rather than touch another post's selections. An
+  open item in the panel is redrawn whenever the selections load or change, so its "already
+  selected" line is never stale.
+- **A draft says so.** When the post is not published yet, the section says its selections are
+  shown as they will be when it is published and the preview is headed "when this post is
+  published" (ADR 0226); ordering works there.
 - **The server states the rules.** The view lists each kind's always-included and optional
   fields, so the page restates none of ADR 0217, and the Rust tests pin the view as a fixture the
   node tests render.

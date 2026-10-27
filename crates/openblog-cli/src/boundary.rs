@@ -371,6 +371,13 @@ impl CurationBasis {
         }
     }
 
+    /// Add one post to the published set, for a preview that shows what its
+    /// readers get once it is published. Returns whether it was not already
+    /// published. The build never does this.
+    pub fn assume_published(&mut self, slug: &str) -> bool {
+        self.posts.insert(slug.to_string())
+    }
+
     /// The basis a selection is resolved or selected against: only what the
     /// build publishes (the projections attached to `site`, the source
     /// library's public descriptions) and the ids that tell a deleted item

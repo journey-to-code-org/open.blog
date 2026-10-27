@@ -14,7 +14,7 @@
 //! atomic rename or not at all. None of them writes the research a selection
 //! points at, and none approves anything: selecting a private item is refused.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use openblog_core::curated_selection::{
     curation_view, validate, Basis, Code, Diagnostic, NewSelection, Provenance, SelectionKind,
@@ -57,7 +57,7 @@ struct SelectRequest {
     #[serde(default)]
     posts: Option<Vec<String>>,
     #[serde(default)]
-    position: Option<u32>,
+    positions: BTreeMap<String, u32>,
 }
 
 impl From<SelectRequest> for NewSelection {
@@ -73,7 +73,7 @@ impl From<SelectRequest> for NewSelection {
             provenance: request.provenance,
             requires: request.requires,
             posts: request.posts,
-            position: request.position,
+            positions: request.positions,
         }
     }
 }
@@ -176,18 +176,26 @@ fn load_saved_site(
 /// build attaches, and hand the basis to `with`. The curated switch is forced
 /// on for the read so that the library is read for a site that has not yet
 /// turned curation on: the author prepares it before publishing it.
+///
+/// `preview_post` is the post being edited. When it is not published yet, it
+/// is added to the published set for this read alone (the way Admin's
+/// production preview renders a draft as published), so its own selections
+/// can be previewed and ordered; `with` is told whether that happened. The
+/// build never does this.
 fn with_basis<R>(
     state: &AppState,
     site: &mut openblog_core::Site,
-    with: impl FnOnce(&openblog_core::Site, &Basis<'_>) -> R,
+    preview_post: Option<&str>,
+    with: impl FnOnce(&openblog_core::Site, &Basis<'_>, bool) -> R,
 ) -> R {
     let mut config = site.config.clone();
     config.curated_context.publish = true;
     let shared = Shared::read(&state.root, &config);
     crate::boundary::project_with(&state.root, site, &shared);
     let stores = Stores::read(&state.root, &shared);
-    let owned = CurationBasis::of(site, &stores);
-    with(site, &owned.basis(site, &stores))
+    let mut owned = CurationBasis::of(site, &stores);
+    let assumed = preview_post.is_some_and(|slug| owned.assume_published(slug));
+    with(site, &owned.basis(site, &stores), assumed)
 }
 
 fn view_json(
@@ -198,7 +206,7 @@ fn view_json(
     post: Option<&str>,
 ) -> Json {
     let publish = site.config.curated_context.publish;
-    with_basis(state, site, |_, basis| {
+    with_basis(state, site, post, |_, basis, assumed| {
         let resolution = openblog_core::curated_selection::resolve(set, basis);
         serde_json::to_value(curation_view(
             set,
@@ -207,6 +215,7 @@ fn view_json(
             post,
             revision,
             publish,
+            assumed,
         ))
         .unwrap_or_else(|_| json!({}))
     })
@@ -244,6 +253,15 @@ pub(super) fn view(state: &AppState, req: &Request) -> Response {
     )
 }
 
+/// What an attempted change leaves: the set as written, its revision and the
+/// id the next view should focus. The view is computed from it after the
+/// locks are dropped, so no lock is held across the projections.
+struct Attempted {
+    set: SelectionSet,
+    revision: String,
+    focus: Option<String>,
+}
+
 /// One attempt at a change: read the set, check the revision, apply the
 /// change against what the build publishes, and either write it (under the
 /// locks) or only check it (without them).
@@ -254,19 +272,23 @@ fn attempt(
     post: Option<&str>,
     change: &Change<'_>,
     locks: Option<&Locks>,
-) -> Result<(Json, Option<String>), Failure> {
+) -> Result<Attempted, Failure> {
     let snapshot = selection_store::load(&state.root)?;
     if snapshot.revision != expected {
         return Err(Failure::Store(StoreError::Conflict));
     }
     let mut set = snapshot.selections.clone();
-    let focus =
-        with_basis(state, site, |_, basis| change(&mut set, basis)).map_err(Failure::Refused)?;
+    let focus = with_basis(state, site, post, |_, basis, _| change(&mut set, basis))
+        .map_err(Failure::Refused)?;
     let revision = match locks {
         Some(locks) => selection_store::commit(&state.root, locks, &set, expected)?.revision,
         None => expected.to_string(),
     };
-    Ok((view_json(state, site, &set, &revision, post), focus))
+    Ok(Attempted {
+        set,
+        revision,
+        focus,
+    })
 }
 
 /// Apply one change under the content lock first and then the store locks.
@@ -293,44 +315,57 @@ fn change(
         Ok(prepared) => prepared,
         Err(response) => return response,
     };
-    // The content lock first: the posts a selection is resolved against
-    // cannot change while it is written. Then the stores, in their order.
-    let _content = lock(&state.build);
-    let _filesystem = match content_transaction(state) {
-        Ok(guard) => guard,
-        Err(response) => return response,
-    };
-    let (mut site, _) = match load_saved_site(state) {
-        Ok(loaded) => loaded,
-        Err(response) => return response,
-    };
-    // While nothing is stored the change is first tried without the locks, so
-    // a refused change never creates the private directory.
-    if !selection_store::directory_exists(&state.root) {
-        if let Err(failure) = attempt(state, &mut site, &revision, post.as_deref(), &*apply, None) {
-            return failure_response(state, failure);
+    // The locks are held for the change only: the content lock first (the
+    // posts a selection is resolved against cannot change while it is
+    // written), then the stores in their order. They are dropped before the
+    // view is computed, so the projections never run under them.
+    let written = {
+        let _content = lock(&state.build);
+        let _filesystem = match content_transaction(state) {
+            Ok(guard) => guard,
+            Err(response) => return response,
+        };
+        let (mut site, _) = match load_saved_site(state) {
+            Ok(loaded) => loaded,
+            Err(response) => return response,
+        };
+        // While nothing is stored the change is first tried without the
+        // locks, so a refused change never creates the private directory.
+        if !selection_store::directory_exists(&state.root) {
+            if let Err(failure) =
+                attempt(state, &mut site, &revision, post.as_deref(), &*apply, None)
+            {
+                return failure_response(state, failure);
+            }
         }
-    }
-    let locks = match selection_store::lock(&state.root) {
-        Ok(locks) => locks,
-        Err(error) => return failure_response(state, error.into()),
+        let locks = match selection_store::lock(&state.root) {
+            Ok(locks) => locks,
+            Err(error) => return failure_response(state, error.into()),
+        };
+        match attempt(
+            state,
+            &mut site,
+            &revision,
+            post.as_deref(),
+            &*apply,
+            Some(&locks),
+        ) {
+            Ok(attempted) => (site, attempted),
+            Err(failure) => return failure_response(state, failure),
+        }
     };
-    match attempt(
+    let (mut site, attempted) = written;
+    let mut view = view_json(
         state,
         &mut site,
-        &revision,
+        &attempted.set,
+        &attempted.revision,
         post.as_deref(),
-        &*apply,
-        Some(&locks),
-    ) {
-        Ok((mut view, focus)) => {
-            if let Some(id) = focus {
-                view["changed"] = json!(id);
-            }
-            Response::json(status, &view)
-        }
-        Err(failure) => failure_response(state, failure),
+    );
+    if let Some(id) = attempted.focus {
+        view["changed"] = json!(id);
     }
+    Response::json(status, &view)
 }
 
 fn post_of(body: &Json) -> Result<Option<String>, Response> {
@@ -342,16 +377,20 @@ fn post_of(body: &Json) -> Result<Option<String>, Response> {
     }
 }
 
+/// A selection id as the store writes one. Checked before an id is named in
+/// any message or looked up, so a hostile one is never echoed.
+fn valid_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
 fn id_of(body: &Json) -> Result<String, Response> {
     body["id"]
         .as_str()
-        .filter(|id| {
-            !id.is_empty()
-                && id.len() <= 64
-                && id
-                    .bytes()
-                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-        })
+        .filter(|id| valid_id(id))
         .map(str::to_string)
         // Checked before it is named in any message, so a hostile id is never echoed.
         .ok_or_else(|| Response::error(400, "Name the id of the selection"))
@@ -427,8 +466,7 @@ pub(super) fn update(state: &AppState, req: &Request) -> Response {
                 Ok((
                     post,
                     boxed(move |set, basis| {
-                        let position = set.get(&id).ok_or_else(|| unknown(&id))?.position;
-                        set.rescope(&id, posts.clone(), position, basis)?;
+                        set.rescope(&id, posts.clone(), basis)?;
                         Ok(Some(id.clone()))
                     }),
                 ))
@@ -442,8 +480,8 @@ pub(super) fn update(state: &AppState, req: &Request) -> Response {
 }
 
 /// `PUT research/curation/order`: `{ post, order: [ids] }`. The listed
-/// selections take positions 1..n in that order. All or nothing: a stale or
-/// unknown selection refuses the whole ordering.
+/// selections take places 1..n among the items of that post, and of no other.
+/// All or nothing: a stale or unknown selection refuses the whole ordering.
 pub(super) fn order(state: &AppState, req: &Request) -> Response {
     change(state, req, 200, |body| {
         let post = post_of(body)?.ok_or_else(|| Response::error(400, "Name the post to order"))?;
@@ -456,30 +494,15 @@ pub(super) fn order(state: &AppState, req: &Request) -> Response {
                 "`order` names 1 to 500 different selections",
             ));
         }
+        // Every id is checked before any is named in a message.
+        if !ids.iter().all(|id| valid_id(id)) {
+            return Err(Response::error(422, "`order` is a list of selection ids"));
+        }
         let scope = post.clone();
         Ok((
             Some(post),
             boxed(move |set, basis| {
-                for (index, id) in ids.iter().enumerate() {
-                    let selection = set.get(id).ok_or_else(|| unknown(id))?;
-                    // A selection that is not offered to this post cannot be
-                    // ordered among its items.
-                    let applies = selection
-                        .posts
-                        .as_ref()
-                        .is_none_or(|posts| posts.contains(&scope));
-                    if !applies {
-                        return Err(vec![Diagnostic {
-                            code: Code::BadPosts,
-                            id: Some(id.clone()),
-                            field: Some("posts".into()),
-                            message: format!("Selection `{id}` is not offered to this post, so it has no place among its items."),
-                        }]);
-                    }
-                    let posts = selection.posts.clone();
-                    let position = u32::try_from(index + 1).unwrap_or(u32::MAX);
-                    set.rescope(id, posts, Some(position), basis)?;
-                }
+                set.order_for_post(&scope, &ids, basis)?;
                 Ok(ids.first().cloned())
             }),
         ))

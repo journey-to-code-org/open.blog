@@ -326,7 +326,7 @@ mod tests {
                 provenance: Default::default(),
                 requires: Vec::new(),
                 posts: None,
-                position: None,
+                positions: Default::default(),
                 extra: BTreeMap::new(),
             }],
             ..SelectionSet::default()
