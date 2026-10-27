@@ -528,3 +528,39 @@ exactly when the file does) and loads `/assets/components/ob-concept-previews.js
 - `previewModel` and `readQuery` in `web/components/ob-concept-previews.js` are tested against
   `tests/fixtures/concept-previews.json`, whose fields a Rust test checks the real projection
   writes.
+
+### Relationship trails
+
+[ADR 0207](../adr/0207-a-relationship-trail-is-a-static-ordered-list-of-published-steps-with-direction-and-evidence-and-filters-only-by-script.md).
+Every entry page with at least one published relationship ends its relationship lists with a
+"Relationship trail" region (`#atlas-section-trail`): the bounded walk of ADR 0202 (breadth first,
+either direction, each relationship crossed once, at most three steps away and 200 steps) as an
+ordered list of distances ("One step from X", ...), each an ordered list of steps, readable without
+CSS or JavaScript. It is rendered from the query projection that writes `atlas-query.json`; when
+that projection is not written (over its bounds, or not consistent) the page has no trail and keeps
+its relationship lists. A site that does not publish its atlas has no trail.
+
+- A step is `<li id="atlas-trail-<relationship id>" class="ob-trail-step">` with `data-depth`,
+  `data-kind`, `data-direction` (`forward` or `backward`: which way the walk crossed it),
+  `data-standing` (`asserted` or `contested`), `data-uncertain` (`true` when an uncertainty is
+  stated) and `data-again` (`true` when it arrives at an entry already on the trail). Its sentence
+  is the relationship in the direction it was stated; a list of facts gives its type, its direction
+  (as stated, and as followed, or that the kind reads the same both ways), who asserts it, how
+  firmly (never how widely accepted), its standing, its evidence (reference and locator) and its
+  uncertainty (clipped visibly, with a link to read it in full; an unstated one says that is not a
+  claim of certainty). It links to the relationship in full.
+- A step that arrives at an entry already on the trail says so and does not continue from it, so a
+  cycle is a sentence. Each reached entry links to its own page, which continues the trail from
+  there. When the walk was cut at 200 steps the page says so; when it stopped at three steps it says
+  to follow an entry's link to go further. A skip link leads to a focusable end line.
+- A trail is not a line of influence: nothing infers a relationship that was not published, joins
+  steps, ranks, scores or draws them. Private or withdrawn entries and relationships cannot appear.
+- `<ob-atlas-trail>` (`/assets/components/ob-atlas-trail.js`, loaded only by a page with a trail)
+  adds a labelled group of native controls above the list (relationship type, direction followed,
+  how far, only contested or uncertain) and a `role="status"` line naming every filter in force.
+  A filter shows or hides a whole step and never changes a shown step; hidden steps are not
+  reachable by Tab; a reset button keeps focus; print shows the whole trail without the controls.
+  It reads only the page's markup and fetches and stores nothing.
+- `filterSteps` and `statusText` in the component are tested against
+  `tests/fixtures/atlas-trail.json`, whose steps a Rust test checks against the real walk and
+  renderer.

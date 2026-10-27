@@ -6,7 +6,7 @@
 //! Appearance comes entirely from CSS custom properties (`--ob-*`) written by
 //! the theme, so the same markup can look like any theme.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use blake2::{Blake2s256, Digest};
 
@@ -91,12 +91,23 @@ struct Meta<'a> {
     /// the `<ob-atlas-timeline>` component; `false` on every other page,
     /// which is then written exactly as before.
     atlas_timeline: bool,
+    /// The page has a relationship trail (ADR 0207) whose filters
+    /// `<ob-atlas-trail>` adds.
+    atlas_trail: bool,
     theme: &'a Theme,
     published: Option<String>,
     modified: Option<String>,
     tags: Vec<String>,
     highwire: Vec<(&'static str, String)>,
     noindex: bool,
+}
+
+/// The query projection of the published atlas, projected once per build: its
+/// JSON as written (base path applied, within its bound) and the model the
+/// relationship trails (ADR 0207) are read from, so a page and the file agree.
+struct QueryProjection {
+    query: crate::atlas_query::AtlasQuery,
+    json: String,
 }
 
 struct Renderer<'a> {
@@ -109,7 +120,7 @@ struct Renderer<'a> {
     /// (`None` when the site publishes no atlas or the projection is refused
     /// or over its bound): the concept previews read that file and nothing
     /// else, and the file written is these bytes.
-    atlas_query: std::cell::OnceCell<Option<String>>,
+    atlas_query: std::cell::OnceCell<Option<QueryProjection>>,
 }
 
 struct Output {
@@ -930,6 +941,12 @@ impl<'a> Renderer<'a> {
             // The timeline's enhancement is loaded only by the page that has one.
             h.push_str("<script type=\"module\" src=\"/assets/components/ob-atlas-timeline.js\"></script>\n");
         }
+        if meta.atlas_trail {
+            // The trail's filters are loaded only by an entry page that has a trail.
+            h.push_str(
+                "<script type=\"module\" src=\"/assets/components/ob-atlas-trail.js\"></script>\n",
+            );
+        }
         // Owner-supplied raw HTML (third-party analytics, verification tags).
         if !c.snippets.head.trim().is_empty() {
             h.push_str(c.snippets.head.trim());
@@ -963,10 +980,10 @@ impl<'a> Renderer<'a> {
         c.apply_base_path(&c.cdn.apply(&h))
     }
 
-    /// The query projection as the build writes it: projected once, with the
-    /// base path applied, and `None` when the site publishes no atlas or the
-    /// projection is refused or over its bound.
-    fn atlas_query_json(&self) -> Option<&str> {
+    /// The query projection as the build writes it: projected once, and
+    /// `None` when the site publishes no atlas or the projection is refused
+    /// or over its bound.
+    fn atlas_query_projection(&self) -> Option<&QueryProjection> {
         self.atlas_query
             .get_or_init(|| {
                 let c = &self.site.config;
@@ -975,9 +992,16 @@ impl<'a> Renderer<'a> {
                     crate::atlas_query::AtlasQuery::project(atlas, &c.author.name, &c.base_path())
                         .ok()?;
                 let json = c.apply_base_path(&query.to_json());
-                (json.len() <= crate::atlas_query::MAX_BYTES).then_some(json)
+                (json.len() <= crate::atlas_query::MAX_BYTES)
+                    .then_some(QueryProjection { query, json })
             })
-            .as_deref()
+            .as_ref()
+    }
+
+    /// The query file as the build writes it, when it is written.
+    fn atlas_query_json(&self) -> Option<&str> {
+        self.atlas_query_projection()
+            .map(|projection| projection.json.as_str())
     }
 
     /// Where the post's concept links read their previews (ADR 0206), when
@@ -1515,6 +1539,7 @@ impl<'a> Renderer<'a> {
             passage_data: None,
             participation_scripts: Vec::new(),
             atlas_timeline: false,
+            atlas_trail: false,
             theme,
             published: None,
             modified: None,
@@ -1971,6 +1996,7 @@ impl<'a> Renderer<'a> {
                 })
             }),
             atlas_timeline: false,
+            atlas_trail: false,
             citation_previews: references.and(post.citations()).map(|summary| {
                 format!(
                     "<ob-citation-previews note-label=\"{}\"></ob-citation-previews>",
@@ -2974,11 +3000,15 @@ impl<'a> Renderer<'a> {
             }
             body.push_str("</section>\n");
         }
+        let trail = self.atlas_trail(entry);
+        if let Some(trail) = &trail {
+            body.push_str(trail);
+        }
         body.push_str(&format!(
             "<p class=\"ob-meta\">{}</p>\n</div>\n</article>\n</div>",
             text(ATLAS_NOTE)
         ));
-        self.simple(
+        let mut meta = self.meta_simple(
             theme,
             &entry.label,
             &format!(
@@ -2986,8 +3016,178 @@ impl<'a> Renderer<'a> {
                 atlas_publication::kind_label(entry.kind)
             ),
             &entry.url,
-            &body,
-        )
+        );
+        meta.atlas_trail = trail.is_some();
+        self.document(&meta, &body)
+    }
+
+    /// The relationship trail from an entry (ADR 0207): the bounded walk of
+    /// [`crate::atlas_query::AtlasQuery::trail`] over published relationships,
+    /// as an ordered list of steps grouped by how far they are from the entry.
+    /// It is complete without JavaScript; `<ob-atlas-trail>` only adds
+    /// filters. Each step is one published relationship in the direction it
+    /// was stated, with its type, who asserts it, how firmly, its standing,
+    /// its evidence and its stated uncertainty, and says which way the walk
+    /// crossed it. A step that arrives at an entry already on the trail says
+    /// so and is not followed again, so a cycle is a sentence and never a trap.
+    /// `None` when the entry has no published relationship or the query
+    /// projection is not written.
+    fn atlas_trail(&self, entry: &PublicEntry) -> Option<String> {
+        use crate::atlas_query::{Direction, MAX_TRAIL_DEPTH, MAX_TRAIL_STEPS};
+        let query = &self.atlas_query_projection()?.query;
+        let trail = query.trail(&entry.id, MAX_TRAIL_DEPTH);
+        if trail.steps.is_empty() {
+            return None;
+        }
+        let name = |id: &str| query.entry(id).map_or_else(|| text(id), |e| text(&e.label));
+        let link = |id: &str| match query.entry(id) {
+            Some(e) => format!("<a href=\"{}\">{}</a>", attr(&e.url), text(&e.label)),
+            None => text(id),
+        };
+        let mut reached: BTreeSet<&str> = BTreeSet::new();
+        reached.insert(entry.id.as_str());
+        let mut entries_on_trail: BTreeSet<&str> = reached.clone();
+        for step in &trail.steps {
+            entries_on_trail.insert(step.reached);
+        }
+        let mut out = format!(
+            "<ob-atlas-trail>\n<section class=\"ob-atlas-trail-section\" aria-labelledby=\"atlas-section-trail\">\n<h2 id=\"atlas-section-trail\">Relationship trail</h2>\n<p class=\"ob-meta\">{}</p>\n<p class=\"ob-meta\">This trail has {} across {} (including this one), up to {} relationships away. <a href=\"#atlas-trail-end\">Skip the trail</a>.</p>\n",
+            text(ATLAS_TRAIL_NOTE),
+            plural_text(trail.steps.len(), "relationship", "relationships"),
+            plural_text(entries_on_trail.len(), "entry", "entries"),
+            MAX_TRAIL_DEPTH
+        );
+        let mut open: Option<usize> = None;
+        for step in &trail.steps {
+            let edge = step.edge;
+            if open != Some(step.depth) {
+                if open.is_some() {
+                    out.push_str("</ol>\n</li>\n");
+                } else {
+                    out.push_str("<ol class=\"ob-trail-depths\">\n");
+                }
+                out.push_str(&format!(
+                    "<li class=\"ob-trail-depth\" data-depth=\"{d}\">
+<h3 id=\"atlas-trail-depth-{d}\">{} from {}</h3>
+<p class=\"ob-meta\">{}</p>
+<ol class=\"ob-trail-steps\">
+",
+                    steps_label(step.depth),
+                    name(&entry.id),
+                    if step.depth == 1 {
+                        "Relationships that touch this entry."
+                    } else {
+                        "Relationships that touch an entry reached in the step before."
+                    },
+                    d = step.depth
+                ));
+                open = Some(step.depth);
+            }
+            let again = reached.contains(step.reached);
+            reached.insert(step.reached);
+            let (from, to) = (name(&edge.from), name(&edge.to));
+            // The sentence is escaped once, as a whole, from the raw labels.
+            let raw = |id: &str| {
+                query
+                    .entry(id)
+                    .map_or_else(|| id.to_string(), |e| e.label.clone())
+            };
+            let (from_raw, to_raw) = (raw(&edge.from), raw(&edge.to));
+            let symmetric = edge.kind.is_symmetric();
+            let direction = match (step.direction, symmetric) {
+                (_, true) => format!(
+                    "Stated between {from_raw} and {to_raw}; this kind of relationship reads the same in both directions."
+                ),
+                (Direction::Forward, false) => format!(
+                    "Stated from {from_raw} to {to_raw}. This step follows it forward, in the direction it was stated, from {from_raw} to {to_raw}."
+                ),
+                (Direction::Backward, false) => format!(
+                    "Stated from {from_raw} to {to_raw}. This step follows it backward, against the direction it was stated, from {to_raw} to {from_raw}."
+                ),
+            };
+            let standing = match edge.standing {
+                Standing::Asserted => "asserted",
+                Standing::Contested => "contested",
+            };
+            let uncertainty_note = match &edge.uncertainty {
+                Some(note) => format!(
+                    "{}{} <a href=\"{}\">Read it in full</a>.",
+                    text(note),
+                    if edge.uncertainty_clipped {
+                        " \u{2026}"
+                    } else {
+                        ""
+                    },
+                    attr(&edge.url)
+                ),
+                None => "None stated. That is not a claim that it is certain.".to_string(),
+            };
+            let evidence: String = edge
+                .evidence
+                .iter()
+                .map(|item| format!("<li><cite>{}</cite></li>", text(&item.text)))
+                .collect();
+            out.push_str(&format!(
+                "<li id=\"atlas-trail-{id}\" class=\"ob-trail-step\" data-depth=\"{depth}\" data-kind=\"{kind}\" data-direction=\"{dir}\" data-standing=\"{standing}\" data-uncertain=\"{uncertain}\" data-again=\"{again}\">\n",
+                id = attr(&edge.id),
+                depth = step.depth,
+                kind = edge.kind.as_str(),
+                dir = match step.direction {
+                    Direction::Forward => "forward",
+                    Direction::Backward => "backward",
+                },
+                uncertain = edge.uncertainty.is_some(),
+            ));
+            out.push_str(&format!(
+                "<p class=\"ob-trail-statement\">{}{} {} {}.</p>\n<dl class=\"ob-trail-facts\">\n",
+                if edge.standing == Standing::Contested {
+                    "<strong>Contested:</strong> "
+                } else {
+                    ""
+                },
+                if edge.from == entry.id {
+                    format!("<strong>{from}</strong>")
+                } else {
+                    link(&edge.from)
+                },
+                text(edge.label),
+                if edge.to == entry.id {
+                    format!("<strong>{to}</strong>")
+                } else {
+                    link(&edge.to)
+                },
+            ));
+            out.push_str(&format!(
+                "<dt>Type</dt><dd>{}</dd>\n<dt>Direction</dt><dd>{}</dd>\n<dt>Asserted by</dt><dd>{}</dd>\n<dt>Confidence</dt><dd>{}: how firmly the asserting party holds it, not how widely it is accepted.</dd>\n<dt>Standing</dt><dd>{}</dd>\n<dt>Evidence</dt><dd><ul>{}</ul></dd>\n<dt>Uncertainty</dt><dd>{}</dd>\n</dl>\n",
+                text(edge.label),
+                text(&direction),
+                text(&edge.asserted_by_text),
+                edge.confidence_text,
+                text(&edge.standing_text),
+                evidence,
+                uncertainty_note,
+            ));
+            out.push_str(&format!(
+                "<p class=\"ob-meta\">This step reaches {}.{} <a href=\"{}\">The relationship in full</a>.</p>\n</li>\n",
+                link(step.reached),
+                if again {
+                    " That entry is already on this trail, so the trail does not continue from it again."
+                } else {
+                    ""
+                },
+                attr(&edge.url),
+            ));
+        }
+        out.push_str("</ol>\n</li>\n</ol>\n");
+        if trail.truncated {
+            out.push_str(&format!(
+                "<p class=\"ob-meta ob-trail-truncated\">The trail stops after {MAX_TRAIL_STEPS} relationships; more exist. Each entry's own page lists all of its relationships and continues the trail from there.</p>\n"
+            ));
+        } else {
+            out.push_str("<p class=\"ob-meta\">To go further, follow an entry's link: its own page continues the trail from there.</p>\n");
+        }
+        out.push_str("<p id=\"atlas-trail-end\" class=\"ob-meta\" tabindex=\"-1\">End of the relationship trail.</p>\n</section>\n</ob-atlas-trail>\n");
+        Some(out)
     }
 
     /// One relationship, always read in its stored direction, with who
@@ -3118,6 +3318,7 @@ impl<'a> Renderer<'a> {
             passage_data: None,
             participation_scripts: Vec::new(),
             atlas_timeline: false,
+            atlas_trail: false,
             theme,
             published: None,
             modified: None,
@@ -3255,8 +3456,20 @@ impl<'a> Renderer<'a> {
 const ATLAS_LEDE: &str = "People, works, concepts, movements and events, and the relationships between them that the author has chosen to publish. Each relationship is one party's assertion on cited evidence; contested ones name who disagrees.";
 /// What the atlas timeline says before it lists anything (ADR 0100).
 const ATLAS_TIMELINE_NOTE: &str = "Every published dating in time order, grouped by the century in which each dated aspect's earliest dating begins. Each dating is one party's claim on cited evidence, at the precision it states. Competing datings of the same thing stand side by side; none is preferred, and nothing here resolves them. The order is for reading only: it never means that one thing caused or influenced another.";
+/// What an entry page says above its relationship trail (ADR 0207).
+const ATLAS_TRAIL_NOTE: &str = "Each step below is one relationship that someone published, in the direction it was stated, with who asserts it, how firmly, and the evidence and doubt they gave. A trail follows published relationships outward from this entry, in either direction, one step at a time. It is not a line of influence: nothing here infers a relationship that was not published, joins steps into a new claim, or treats being near as being important.";
 /// What an entry page says above its datings.
 const ATLAS_DATES_NOTE: &str = "Each dating is one party's claim on cited evidence, at the precision it states. Competing datings stand side by side; none is preferred, and nothing here resolves them.";
+
+/// How far a trail step is from the entry, in words.
+fn steps_label(depth: usize) -> String {
+    match depth {
+        1 => "One step".to_string(),
+        2 => "Two steps".to_string(),
+        3 => "Three steps".to_string(),
+        n => format!("{n} steps"),
+    }
+}
 
 /// "2 competing datings, side by side", or that only one is published.
 fn competing_text(count: usize) -> String {

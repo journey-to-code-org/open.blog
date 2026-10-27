@@ -2818,3 +2818,29 @@ ob-reading-modes { display: block; }
   .ob-atlas-timeline section[hidden] { display: block !important; }
   .ob-atlas-dating { break-inside: avoid; }
 }
+
+/* Knowledge Atlas relationship trails (ADR 0207): a static ordered list of steps grouped by how
+   far they are from the entry, readable without CSS or JavaScript. Each step is a bordered item
+   whose facts stack on narrow screens and wrap anywhere, so a long label never overflows. Nothing
+   moves. Print shows the whole trail without its filters, even where a filter hid steps. */
+.ob-trail-depths, .ob-trail-steps { list-style: none; padding-inline-start: 0; margin: 0; }
+.ob-trail-depth { margin: 0 0 1.5rem; min-width: 0; }
+.ob-trail-step { min-width: 0; margin: 0 0 0.75rem; padding: 0.5rem 0.75rem; overflow-wrap: anywhere; border: 1px solid var(--ob-color-border); border-inline-start-width: 4px; border-radius: var(--ob-radius-sm, 4px); }
+.ob-trail-step[data-standing="contested"] { border-inline-start-style: double; }
+.ob-trail-step[data-again="true"] { border-style: dashed; }
+.ob-trail-statement { margin: 0 0 0.25rem; font-weight: 600; }
+.ob-trail-facts { margin: 0.25rem 0; }
+.ob-trail-facts dd { margin-inline-start: 1rem; }
+.ob-trail-facts ul { margin: 0; padding-inline-start: 1.25rem; }
+.ob-trail-tools { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; align-items: center; margin: 1rem 0; }
+.ob-trail-field { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin: 0; max-width: 100%; }
+.ob-trail-tools select { max-width: 100%; }
+.ob-trail-status { flex-basis: 100%; margin: 0; }
+@media print {
+  .ob-trail-tools { display: none !important; }
+  .ob-atlas-trail-section li[hidden] { display: list-item !important; }
+  .ob-trail-step { break-inside: avoid; }
+}
+@media (forced-colors: active) {
+  .ob-trail-step { border-color: CanvasText; }
+}

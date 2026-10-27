@@ -45,6 +45,16 @@ All notable changes to open.blog are recorded here. Releases follow
   address (always refused, their description is shown as text) all show only their words. A raw
   `<ob-concept>` mark is removed from copies and the text projection, and one dropped because it is
   unclosed now warns. A test builds every form to unpublished ids and scans every built file.
+- An entry page of a published Knowledge Atlas now ends with a relationship trail: the entry's
+  published relationships, and the relationships of the entries they reach, up to three steps away
+  and 200 relationships, as a plain ordered list that reads without JavaScript. Every step shows
+  the relationship in the direction it was stated, which way the trail followed it, who asserts it,
+  how firmly, its evidence and what is uncertain; a step that returns to an entry already on the
+  trail says so instead of going round again, and each entry it reaches links to its own page,
+  which continues the trail. Nothing is inferred: a trail is not a line of influence. With
+  JavaScript, controls filter by relationship type, direction, distance and "only contested or
+  uncertain" with a status line, the keyboard moves through without a trap, print shows the whole
+  trail, and it fits a 320px screen. A site that does not publish its atlas builds exactly as before.
 
 ## [0.42.0] - 2026-10-26
 

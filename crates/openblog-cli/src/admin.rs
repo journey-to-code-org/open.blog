@@ -19948,11 +19948,13 @@ What I read:
         assert!(names.iter().any(|name| name.ends_with(".xml")), "a feed");
         for file in &files {
             let name = crate::fsutil::relative(&dist, file);
-            // The timeline component ships with every site like any other
-            // component; it holds no atlas data and no page loads it unless
-            // the site publishes datings.
+            // The timeline and trail components ship with every site like any
+            // other component; they hold no atlas data and no page loads one
+            // unless the site publishes datings or an entry has a trail.
             assert!(
-                (!name.contains("atlas") || name == "assets/components/ob-atlas-timeline.js")
+                (!name.contains("atlas")
+                    || name == "assets/components/ob-atlas-timeline.js"
+                    || name == "assets/components/ob-atlas-trail.js")
                     && (name == crate::fsutil::MARKER || !name.contains(".openblog")),
                 "{name}"
             );

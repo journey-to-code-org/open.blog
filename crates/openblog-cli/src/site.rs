@@ -107,6 +107,10 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
         include_str!("../../../web/components/ob-atlas-timeline.js"),
     ),
     (
+        "components/ob-atlas-trail.js",
+        include_str!("../../../web/components/ob-atlas-trail.js"),
+    ),
+    (
         "components/ob-concept-previews.js",
         include_str!("../../../web/components/ob-concept-previews.js"),
     ),
@@ -1924,12 +1928,13 @@ mod tests {
         assert_eq!(dist_bytes(&root), without);
         // Only the timeline component, which ships with every site like any
         // other component, carries the word; no page loads it.
-        assert!(without.keys().all(
-            |path| !path.contains("atlas") || path == "assets/components/ob-atlas-timeline.js"
-        ));
-        assert!(without
-            .values()
-            .all(|bytes| !String::from_utf8_lossy(bytes).contains("ob-atlas-timeline.js")));
+        assert!(without.keys().all(|path| !path.contains("atlas")
+            || path == "assets/components/ob-atlas-timeline.js"
+            || path == "assets/components/ob-atlas-trail.js"));
+        assert!(without.values().all(|bytes| {
+            let text = String::from_utf8_lossy(bytes);
+            !text.contains("ob-atlas-timeline.js") && !text.contains("ob-atlas-trail.js")
+        }));
         fs::remove_dir_all(root).unwrap();
     }
 

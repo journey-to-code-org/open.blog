@@ -1029,8 +1029,12 @@ _Avoid_: Tooltip, hover card, entry summary popup, atlas widget
 **Atlas trail**:
 A bounded walk over published relationships from one entry, across either direction, each
 relationship crossed once so a cycle ends it. It lists the steps and nothing more: not a path of
-influence, a ranking or an inferred relationship (ADR 0202).
-_Avoid_: Influence chain, shortest path, recommendation
+influence, a ranking or an inferred relationship (ADR 0202). An entry page renders it as a static
+ordered list in which every step shows its relationship in the direction it was stated, which way
+the walk crossed it, who asserts it, how firmly, its evidence and its uncertainty, and a step that
+returns to an entry already on the trail says so instead of continuing; only script adds filters
+(ADR 0207).
+_Avoid_: Influence chain, shortest path, recommendation, graph view
 
 **Preview clip**:
 The cut of an entry's first summary paragraph, or of a relationship's stated doubt, to the query
