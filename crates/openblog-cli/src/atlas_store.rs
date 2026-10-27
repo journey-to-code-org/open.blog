@@ -11,10 +11,12 @@
 //! rename while holding locks: a refused, failed, or interrupted change leaves
 //! the stored atlas exactly as it was.
 //!
-//! Locks are always taken in one order: atlas, then notebook, then library.
-//! Notebook changes (notebook, library) and library changes (library) take a
-//! suffix of it and only *read* the atlas, which they may safely do because an
-//! atlas write holds their locks for its whole critical section.
+//! Locks are always taken in one order: atlas, then claims, then notebook,
+//! then library (ADR 0056, ADR 0072). An atlas write takes atlas, notebook and
+//! library and never the claims lock. Notebook changes (notebook, library) and
+//! library changes (library) take a suffix of it and only *read* the atlas,
+//! which they may safely do because an atlas write holds their locks for its
+//! whole critical section.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -113,6 +115,28 @@ pub fn load(
     against_library(root, library)
 }
 
+/// The atlas as a build reads it, against the library read for a build
+/// (`source_store::load_for_build`), so a problem in an interpretation never
+/// stops a site that publishes its atlas from building.
+pub fn load_for_build(
+    root: &Path,
+    contributors: &BTreeMap<String, Contributor>,
+) -> Result<Snapshot, StoreError> {
+    let library = source_store::load_for_build(root, contributors)
+        .map_err(library_blocked)?
+        .library;
+    against_library(root, library)
+}
+
+/// The atlas against a library and notebook already read for a build.
+pub fn from_parts(
+    root: &Path,
+    library: SourceLibrary,
+    notebook: Notebook,
+) -> Result<Snapshot, StoreError> {
+    read(root, library, notebook)
+}
+
 fn against_library(root: &Path, library: SourceLibrary) -> Result<Snapshot, StoreError> {
     let notebook = notebook_store::read(root, library.clone())
         .map_err(notebook_blocked)?
@@ -135,8 +159,9 @@ pub fn uses_of_source(
         })
 }
 
-/// Atlas relationships whose evidence points into a notebook passage, for the
-/// notebook's removal guard. An atlas that cannot be read blocks removal.
+/// Atlas entries and relationships whose evidence, their datings' included,
+/// points into a notebook passage, for the notebook's removal guard. An atlas
+/// that cannot be read blocks removal.
 pub fn uses_of_passage(
     root: &Path,
     library: &SourceLibrary,
@@ -270,12 +295,14 @@ fn diagnostic(
     message: String,
 ) -> AtlasDiagnostic {
     AtlasDiagnostic {
+        subject: Default::default(),
         code,
         collection: Some(collection),
         index: None,
         id: Some(id.into()),
         field: field.map(str::to_string),
         message,
+        facts: Vec::new(),
     }
 }
 
@@ -429,12 +456,14 @@ fn read(root: &Path, library: SourceLibrary, notebook: Notebook) -> Result<Snaps
     let revision = source_store::revision(&bytes);
     let text = String::from_utf8(bytes).map_err(|_| {
         StoreError::Invalid(vec![AtlasDiagnostic {
+            subject: Default::default(),
             code: AtlasDiagnosticCode::InvalidJson,
             collection: None,
             index: None,
             id: None,
             field: None,
             message: "the atlas is not valid UTF-8".into(),
+            facts: Vec::new(),
         }])
     })?;
     let atlas = Atlas::parse(
@@ -456,12 +485,14 @@ fn read(root: &Path, library: SourceLibrary, notebook: Notebook) -> Result<Snaps
 
 fn too_large() -> AtlasDiagnostic {
     AtlasDiagnostic {
+        subject: Default::default(),
         code: AtlasDiagnosticCode::TooLarge,
         collection: None,
         index: None,
         id: None,
         field: None,
         message: format!("the atlas is larger than {MAX_ATLAS_BYTES} bytes"),
+        facts: Vec::new(),
     }
 }
 
@@ -472,6 +503,14 @@ fn atlas_path(root: &Path) -> Result<PathBuf, StoreError> {
 
 fn lock_path(path: &Path) -> PathBuf {
     path.with_extension("json.lock")
+}
+
+/// Take the atlas's write lock, the first in the one order every store uses,
+/// so a store that reads the atlas can hold its writers out.
+pub(crate) fn lock_atlas(root: &Path) -> Result<FileLock, StoreError> {
+    let path = atlas_path(root)?;
+    FileLock::acquire(lock_path(&path), "Knowledge Atlas write", LOCK_WAIT)
+        .map_err(StoreError::Storage)
 }
 
 /// Write `bytes` to a new temporary file beside `path`, flush it, and rename
@@ -617,6 +656,36 @@ mod tests {
         // The first accepted change creates the private file.
         create_entry(&root, &snapshot.revision, entry("p", "person"), &none()).unwrap();
         assert!(file(&root).is_file());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_version_1_atlas_is_read_as_is_and_upgraded_only_by_the_next_change() {
+        let root = temp_root("upgrade");
+        with_library(&root);
+        let v1 = "{\"version\": 1, \"entries\": [{\"id\": \"plato-p\", \"kind\": \"person\", \"label\": \"Plato\", \"bounds\": {\"from\": -428, \"until\": -348, \"calendar\": \"julian\"}, \"visibility\": \"approved\"}]}\n";
+        fs::create_dir_all(file(&root).parent().unwrap()).unwrap();
+        fs::write(file(&root), v1).unwrap();
+        let read = load(&root, &none()).unwrap();
+        assert_eq!(read.revision, source_store::revision(v1.as_bytes()));
+        assert_eq!(
+            fs::read_to_string(file(&root)).unwrap(),
+            v1,
+            "reading never writes"
+        );
+        let dating = &read.atlas.entry("plato-p").unwrap().dates[0];
+        assert_eq!(dating.id, "plato-p-span");
+        assert!(dating.unsourced);
+        // A stale change is refused and the version 1 file is left as it was.
+        let stale = create_entry(&root, "stale", entry("x", "concept"), &none());
+        assert_eq!(stale.unwrap_err(), StoreError::Conflict);
+        assert_eq!(fs::read_to_string(file(&root)).unwrap(), v1);
+        let changed = create_entry(&root, &read.revision, entry("x", "concept"), &none()).unwrap();
+        let written = fs::read_to_string(file(&root)).unwrap();
+        assert!(written.starts_with("{\n  \"version\": 2,"));
+        assert!(written.contains("\"plato-p-span\"") && written.contains("\"julian\""));
+        assert!(!written.contains("\"bounds\""));
+        assert_eq!(load(&root, &none()).unwrap(), changed);
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -789,7 +858,7 @@ mod tests {
         let path = file(&root);
         for (bytes, expect_invalid) in [
             (b"{\"version\":1,\"entries\":[{\"id\":".to_vec(), true),
-            (b"{\"version\":2,\"entries\":[]}".to_vec(), true),
+            (b"{\"version\":3,\"entries\":[]}".to_vec(), true),
             (vec![b' '; MAX_ATLAS_BYTES + 1], true),
             (vec![0xff, 0xfe], true),
         ] {
@@ -802,7 +871,7 @@ mod tests {
             assert!(attempt.is_err());
             assert_eq!(fs::read(&path).unwrap(), bytes, "never replaced");
         }
-        fs::write(&path, b"{\"version\":2}").unwrap();
+        fs::write(&path, b"{\"version\":3}").unwrap();
         assert_eq!(
             codes(load(&root, &none()).unwrap_err()),
             vec![AtlasDiagnosticCode::UnsupportedVersion]

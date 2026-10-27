@@ -15,7 +15,9 @@ use crate::approval::{public_metadata, ApprovalSet, ApprovalSubject, Readiness, 
 use crate::collaboration::{valid_admin_username, AuthorizationRole, SharedPublication};
 use crate::draft::DraftSet;
 use crate::frontmatter::{self, Value};
-use crate::reflection::{compose, strip_part_markers, ComposedTurn, ReflectionStructure};
+use crate::media_moment::MomentSet;
+use crate::published_moment::{self, MomentsBlock};
+use crate::reflection::{compose_bound, strip_part_markers, ComposedTurn, ReflectionStructure};
 use crate::shared_series::{SERIES_KEY, SERIES_ORDER_KEY};
 use crate::shared_source::{
     SharedAttribution, QUESTION_KEY, SOURCE_KIND_KEY, SOURCE_TITLE_KEY, SOURCE_URL_KEY,
@@ -63,6 +65,16 @@ pub enum AssemblyError {
     /// unsafe link, a heading outside the item outline, or a reserved anchor). Distinct from
     /// [`Self::UnsafeMarkup`] so the refusal names the item rather than a section.
     UnsafeConversationItem(ItemRule, ItemRef),
+    /// A media moment proposed for the piece no longer resolves against the record: its source
+    /// is gone, or its locators no longer fit the source's kind (ADR 0062). Reported only once
+    /// the approvals are met, like [`Self::ArrangementMismatch`], and it names no moment, so it
+    /// tells nothing to someone who may not read the moments. Its owner edits or withdraws it.
+    UnresolvedMoment,
+    /// An approved moment's observation would change how another part of the piece renders (a
+    /// reference definition or an open fence that reaches past it), or the moments could not be
+    /// written so that every public form reads them back exactly (ADR 0066). Reported only once
+    /// the approvals are met and it names no moment; its owner edits the observation.
+    UnsafeMoment,
 }
 
 /// Which continuing-conversation item a refusal is about: its category and its place among the
@@ -111,19 +123,24 @@ pub fn post_path(record: &SharedPublication) -> String {
 }
 
 /// Run `ask` against the approval subject for the active authors as the content is now. This is
-/// the one place the subject is built from the record, arrangement, drafts and synthesis, so the
-/// approval binding a preview hands out, the one the gate checks and the one a route stores cannot
-/// drift apart. The metadata it binds is the public record fields, then the reflection
-/// `structure`'s prose-free binding frame when there is one (layout, turn order, round prompts and
-/// labels; ADR 0030), then the synthesis's prose-free binding frame (items, order, attribution).
-/// A change to any of them makes standing approvals stale exactly as a change of prose does; with
-/// no structure nothing is appended for it, so approvals given before one existed stay valid. The
-/// synthesis's attributed authors must each approve the piece (ADR 0024, 0025).
+/// the one place the subject is built from the record, arrangement, drafts, synthesis and media
+/// moments, so the approval binding a preview hands out, the one the gate checks and the one a
+/// route stores cannot drift apart. The metadata it binds is the public record fields, then the
+/// reflection `structure`'s prose-free binding frame when there is one (layout, turn order, round
+/// prompts and labels; ADR 0030), then the synthesis's prose-free binding frame (items, order,
+/// attribution), then the `moments`' prose-free binding frame (one digest per moment proposed for
+/// the piece, covering the source it shows; ADR 0063). A change to any of them makes standing
+/// approvals stale exactly as a change of prose does; with no structure, and with no moment
+/// proposed for the piece, nothing is appended for them, so approvals given before either existed
+/// stay valid. The synthesis's attributed authors, and every participant with a moment proposed
+/// for the piece, must each approve the piece whatever the policy (ADR 0024, 0025, 0063). Callers
+/// that have not loaded moments pass an empty [`MomentSet`].
 pub fn with_subject<R>(
     record: &SharedPublication,
     structure: Option<&ReflectionStructure>,
     drafts: &DraftSet,
     synthesis: &SynthesisSet,
+    moments: &MomentSet,
     active: &[&str],
     ask: impl FnOnce(&ApprovalSubject<'_>) -> R,
 ) -> R {
@@ -156,8 +173,14 @@ pub fn with_subject<R>(
         metadata.push(format!("reflection-frame:{}", structure.binding_frame()));
     }
     metadata.extend(synthesis.binding_frame());
+    metadata.extend(moments.binding_frame(&record.sources));
     let metadata: Vec<&str> = metadata.iter().map(String::as_str).collect();
-    let attributed = synthesis.attributed_authors();
+    let mut attributed = synthesis.attributed_authors();
+    for participant in moments.attributed_participants() {
+        if !attributed.contains(&participant) {
+            attributed.push(participant);
+        }
+    }
     // The roles each author holds, for role-based approval rules (ADR 0052).
     let roles: Vec<(&str, AuthorizationRole)> = authors
         .iter()
@@ -314,12 +337,19 @@ pub fn conversation_markdown(record: &SharedPublication, synthesis: &SynthesisSe
 /// the sections follow its reading order and are wrapped in the arranged markup of [`compose`]
 /// (ADR 0031), and credits are one per participant at their first appearance (ADR 0030); without
 /// one the sections are the participants' drafts in participant order. Part marker lines never
-/// reach the Post either way. The approved conversation block follows the sections.
+/// reach the Post either way. The approved conversation block follows the sections. `moments`
+/// bind into the approvals the gate evaluates (ADR 0063), and a moment proposed for the piece that
+/// no longer fits its source refuses it. Once the gate passes, every moment proposed for the
+/// piece has been approved by every required author, and the moments are appended last, after a
+/// section break, as their public projection ([`published_moment::block_markdown`], ADR 0066), so
+/// the authors' prose and its reading order are untouched. Private moments never enter.
+#[allow(clippy::too_many_arguments)]
 pub fn assemble(
     record: &SharedPublication,
     structure: Option<&ReflectionStructure>,
     drafts: &DraftSet,
     synthesis: &SynthesisSet,
+    moments: &MomentSet,
     approvals: &ApprovalSet,
     active: &[&str],
     date: &str,
@@ -328,9 +358,15 @@ pub fn assemble(
     // the drafts first would refuse differently depending on whether a draft has a given part, an
     // oracle on unrevealed prose for a coordinator who may arrange but not read (ADR 0031). Only a
     // piece whose approvals are met can be refused as `ArrangementMismatch`, below.
-    match with_subject(record, structure, drafts, synthesis, active, |subject| {
-        approvals.evaluate(subject)
-    }) {
+    match with_subject(
+        record,
+        structure,
+        drafts,
+        synthesis,
+        moments,
+        active,
+        |subject| approvals.evaluate(subject),
+    ) {
         Ok(Readiness::Ready) => {}
         Ok(Readiness::Blocked { gaps, .. }) if !gaps.is_empty() => {
             return Err(AssemblyError::RuleUnmet {
@@ -351,6 +387,9 @@ pub fn assemble(
         return Err(AssemblyError::Blocked {
             missing: display_names(record, awaited.iter().map(String::as_str)),
         });
+    }
+    if !moments.unresolved(&record.sources).is_empty() {
+        return Err(AssemblyError::UnresolvedMoment);
     }
     let title = record
         .title
@@ -387,6 +426,7 @@ pub fn assemble(
             .collect();
         let placements = ReflectionStructure::placements(structure.layout, &order);
         let mut turns = Vec::new();
+        let mut bound: Vec<Option<&str>> = Vec::new();
         let mut credited: Vec<&str> = Vec::new();
         for (entry, placement) in order.iter().zip(placements) {
             let text = entry.markdown.as_deref().unwrap_or_default().trim();
@@ -398,6 +438,14 @@ pub fn assemble(
                 credits.push(credit_for(entry.participant_id)?);
             }
             prose.push(text.to_string());
+            bound.push(
+                record
+                    .authorization
+                    .bindings
+                    .iter()
+                    .find(|binding| binding.participant_id == entry.participant_id)
+                    .map(|binding| binding.contributor_id.as_str()),
+            );
             turns.push(ComposedTurn {
                 round: entry.round,
                 round_prompt: structure.rounds[entry.round].round_prompt.as_deref(),
@@ -407,7 +455,7 @@ pub fn assemble(
                 body: text.to_string(),
             });
         }
-        arranged = Some(compose(structure.layout, &turns));
+        arranged = Some(compose_bound(structure.layout, &turns, &bound));
     } else {
         for participant in &record.collaboration.participants {
             if !active.contains(&participant.id.as_str()) {
@@ -435,6 +483,31 @@ pub fn assemble(
     if !conversation.is_empty() {
         body.push_str(SECTION_BREAK);
         body.push_str(&conversation_markdown(record, synthesis));
+    }
+    let public = published_moment::published(record, moments).ok_or(AssemblyError::Invalid)?;
+    if !public.is_empty() {
+        let observations: Vec<&str> = public
+            .iter()
+            .filter_map(|moment| moment.observation.as_deref())
+            .collect();
+        let conversation_texts: Vec<&str> =
+            conversation.iter().map(|(text, _)| text.as_str()).collect();
+        if !observations_isolated(&prose, &conversation_texts, &observations) {
+            return Err(AssemblyError::UnsafeMoment);
+        }
+        let before = body.len();
+        body.push_str(SECTION_BREAK);
+        body.push_str(&published_moment::block_markdown(&public));
+        // Every public form reads the moments back from the body; refuse rather than publish a
+        // block one of them would not recognise.
+        if MomentsBlock::parse(&body)
+            != Some(MomentsBlock {
+                before,
+                moments: public,
+            })
+        {
+            return Err(AssemblyError::UnsafeMoment);
+        }
     }
 
     let mut fields: BTreeMap<String, Value> = BTreeMap::new();
@@ -529,6 +602,75 @@ fn unsafe_markup(
 
 const TAIL_SENTINEL: &str = "tail";
 
+/// Parsing `parts` joined by `joiner` equals parsing each alone (with a rule between them when
+/// `rule`), so no part can reach into its neighbour.
+fn isolated_parts(
+    parts: &[&str],
+    joiner: &str,
+    rule: bool,
+    options: pulldown_cmark::Options,
+) -> bool {
+    use pulldown_cmark::{Event, Parser};
+    let joined = parts.join(joiner);
+    // Each part ends in the newline the join gives it, so a trailing indented code block parses
+    // the same alone as in place.
+    let terminated: Vec<String> = parts.iter().map(|part| format!("{part}\n")).collect();
+    let mut separate: Vec<Event<'_>> = Vec::new();
+    for (index, part) in terminated.iter().enumerate() {
+        if index > 0 && rule {
+            separate.push(Event::Rule);
+        }
+        separate.extend(Parser::new_ext(part, options));
+    }
+    Parser::new_ext(&joined, options).collect::<Vec<_>>() == separate
+}
+
+/// Whether each approved observation stays inside its moment: it parses the same in the Post as
+/// alone, with the sections and the conversation before it and the frame lines (stood for by
+/// sentinels) around it, and its links are ones the site build publishes. Observations already
+/// refuse raw HTML, headings, images and footnotes (ADR 0062); this catches what only shows in
+/// context, such as a reference definition another part would use or a fence left open.
+fn observations_isolated(
+    sections: &[String],
+    conversation: &[&str],
+    observations: &[&str],
+) -> bool {
+    use pulldown_cmark::{Event, Parser, Tag};
+    let conversation = conversation.join("\n\n");
+    for smart in [false, true] {
+        let options = crate::markdown::parser_options(smart);
+        let mut blocks: Vec<&str> = sections.iter().map(String::as_str).collect();
+        blocks.push(TAIL_SENTINEL);
+        if !conversation.is_empty() {
+            blocks.push(&conversation);
+        }
+        for observation in observations {
+            blocks.push(observation);
+            blocks.push(TAIL_SENTINEL);
+        }
+        if !isolated_parts(&blocks, SECTION_BREAK, true, options) {
+            return false;
+        }
+        for observation in observations {
+            let unsafe_link = Parser::new_ext(observation, options).any(|event| match event {
+                Event::Start(Tag::Link { dest_url, .. }) => {
+                    !crate::portability::link_is_publishable(&dest_url)
+                }
+                Event::Html(_) | Event::InlineHtml(_) | Event::Start(Tag::Image { .. }) => true,
+                _ => false,
+            });
+            if unsafe_link {
+                return false;
+            }
+        }
+    }
+    // A paragraph that is only a video link would render as a player in the Post (ADR 0066:
+    // no embed is ever written), so the page would not match the preview.
+    !observations
+        .iter()
+        .any(|observation| crate::markdown::has_standalone_embed(observation))
+}
+
 fn has_unsafe_markup(
     sections: &[String],
     conversation: &[(String, Option<ItemRef>)],
@@ -569,22 +711,7 @@ fn has_unsafe_markup(
             _ => false,
         })
     };
-    // Parsing `parts` joined by `joiner` must equal parsing each alone (with a rule between
-    // them when `rule`), so no part can reach into its neighbour.
-    let isolated = |parts: &[&str], joiner: &str, rule: bool, options| {
-        let joined = parts.join(joiner);
-        // Each part ends in the newline the join gives it, so a trailing indented code block
-        // parses the same alone as in place.
-        let terminated: Vec<String> = parts.iter().map(|part| format!("{part}\n")).collect();
-        let mut separate: Vec<Event<'_>> = Vec::new();
-        for (index, part) in terminated.iter().enumerate() {
-            if index > 0 && rule {
-                separate.push(Event::Rule);
-            }
-            separate.extend(Parser::new_ext(part, options));
-        }
-        Parser::new_ext(&joined, options).collect::<Vec<_>>() == separate
-    };
+    let isolated = isolated_parts;
     let texts: Vec<&str> = conversation.iter().map(|(text, _)| text.as_str()).collect();
     // The item a failure is about, given the first chunk count at which a check fails: the last
     // item at or before that chunk. Falls back to the first item.
@@ -711,5 +838,30 @@ impl Outcome {
 
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).expect("an outcome always serializes")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_observation_that_is_only_a_video_link_is_refused_at_the_gate() {
+        let sections = vec!["Ann words.".to_string()];
+        assert!(observations_isolated(
+            &sections,
+            &[],
+            &["The talk at https://www.youtube.com/watch?v=abcdefghijk moved me."]
+        ));
+        for observation in [
+            "https://www.youtube.com/watch?v=abcdefghijk",
+            "<https://www.youtube.com/watch?v=abcdefghijk>",
+            "Mine.\n\n[https://youtu.be/abcdefghijk](https://youtu.be/abcdefghijk)",
+        ] {
+            assert!(
+                !observations_isolated(&sections, &[], &["Fine.", observation]),
+                "{observation:?}"
+            );
+        }
     }
 }

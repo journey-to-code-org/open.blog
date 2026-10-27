@@ -98,6 +98,17 @@ pub fn rss(site: &Site) -> Result<String, String> {
                 mime_for(cover)
             ));
         }
+        // Where the post's research context is on the canonical page, whether or
+        // not the feed carries the post's words (ADR 0202). A related link, which
+        // readers that do not know it ignore.
+        if let Some(context) = projection.curated_context_summary() {
+            if let Some(url) = context["url"].as_str() {
+                out.push_str(&format!(
+                    "<atom:link rel=\"related\" type=\"text/html\" title=\"Research context\" href=\"{}\"/>\n",
+                    escape::xml(url)
+                ));
+            }
+        }
         if c.feeds.full_content {
             let portable_html = projection.portable_html()?.html;
             out.push_str(&format!(
@@ -189,6 +200,15 @@ pub fn json_feed(site: &Site) -> Result<String, String> {
                         "contributors": series.contributors,
                     }
                 });
+            }
+            // A post with a research context says where it is on the canonical page
+            // and which items it holds, by id, kind and anchor, even when the feed
+            // carries no full content (ADR 0202). The words are in `content_*`.
+            if let Some(context) = projection.curated_context_summary() {
+                if item.get("_openblog").is_none() {
+                    item["_openblog"] = serde_json::json!({ "about": JSON_FEED_EXTENSION_ABOUT });
+                }
+                item["_openblog"]["researchContext"] = context;
             }
             Ok(item)
         })
@@ -421,6 +441,16 @@ pub fn llms_full(site: &Site) -> Result<String, String> {
                 out.push_str(&format!("- Source ({}): {name}\n", source.kind.label()));
             }
         }
+        // Readers' Third Perspectives stay on the canonical page: only a link to them, never
+        // their words (ADR 0115, P6.2).
+        if post.capabilities.iter().any(|capability| {
+            capability.id == crate::perspective_publication::THIRD_PERSPECTIVES_CAPABILITY
+        }) {
+            out.push_str(&format!(
+                "- Third Perspectives: on the canonical page, <{}>\n",
+                projection.canonical_url()
+            ));
+        }
         // A shared reflection keeps each round prompt and each author's name and label with the
         // words they belong to; the page's search text is the words alone (ADR 0033).
         let body = match projection.reflection_text()? {
@@ -430,6 +460,11 @@ pub fn llms_full(site: &Site) -> Result<String, String> {
                 .to_string(),
         };
         out.push_str(&format!("\n{}\n", body.trim()));
+        // The research context the post is offered, in the same words as every
+        // other portable copy, with its links back to the canonical page (ADR 0202).
+        if let Some(context) = projection.curated_context_markdown() {
+            out.push_str(&format!("\n{}\n", context.trim()));
+        }
     }
     Ok(out)
 }

@@ -347,8 +347,9 @@ impl ImportPlan {
     }
 }
 
-/// Whether bytes look like private research: a bundle, or a notebook or
-/// Knowledge Atlas file copied out of private storage. Build and publish guards use this to refuse
+/// Whether bytes look like private research: a bundle, or a notebook,
+/// Knowledge Atlas, claims, alignments, review-acknowledgements or curated-selections file copied
+/// out of private storage. Build and publish guards use this to refuse
 /// public input that would carry private research with it, wherever the file
 /// was saved and whatever it was renamed to. It reads the structure, not any
 /// particular text, so a post that merely quotes the same words is never flagged.
@@ -372,7 +373,12 @@ pub fn looks_like_private_research(bytes: &[u8]) -> bool {
     if root.get("format").and_then(Value::as_str) == Some(BUNDLE_FORMAT) {
         return true;
     }
-    notebook_shaped(&root) || crate::knowledge_atlas::looks_like_atlas(&root)
+    notebook_shaped(&root)
+        || crate::knowledge_atlas::looks_like_atlas(&root)
+        || crate::claims::looks_like_claims(&root)
+        || crate::alignment::looks_like_alignments(&root)
+        || crate::publication_review::looks_like_acknowledgements(&root)
+        || crate::curated_selection::looks_like_selections(&root)
 }
 
 fn notebook_shaped(root: &Map<String, Value>) -> bool {
@@ -615,6 +621,38 @@ mod tests {
                 .to_string(),
         ] {
             assert!(!looks_like_private_research(harmless.as_bytes()), "{harmless}");
+        }
+    }
+
+    #[test]
+    fn a_copied_acknowledgements_file_is_private_research() {
+        let mut set = crate::publication_review::AcknowledgementSet::empty();
+        set.add(crate::publication_review::Acknowledgement {
+            validator: crate::publication_review::Validator::ResearchProfile,
+            code: "abstract-missing".into(),
+            object: crate::publication_review::ObjectKind::Post,
+            path: Some("posts/cave.md".into()),
+            id: None,
+            field: None,
+            fingerprint: "0123456789abcdef0123456789abcdef".into(),
+        })
+        .unwrap();
+        assert!(looks_like_private_research(set.to_json().as_bytes()));
+        assert!(looks_like_private_research(
+            crate::publication_review::AcknowledgementSet::empty()
+                .to_json()
+                .as_bytes()
+        ));
+        for harmless in [
+            r#"{"version":1,"acknowledgements":[{"name":"Thanks to my editor"}]}"#,
+            r#"{"version":1,"acknowledgements":"Thanks","title":"Colophon"}"#,
+            r#"{"title":"Colophon","acknowledgements":[]}"#,
+            r#"{"version":1,"acknowledgements":[],"title":"Colophon"}"#,
+        ] {
+            assert!(
+                !looks_like_private_research(harmless.as_bytes()),
+                "{harmless}"
+            );
         }
     }
 }

@@ -348,8 +348,7 @@ fn parse_post_page(url: &str, html: &str) -> Result<Option<ImportedPost>, String
     Ok(Some(ImportedPost {
         slug,
         title,
-        // Public pages expose no reliable subtitle; the GraphQL import carries it.
-        subtitle: None,
+        subtitle: extract_subtitle(html),
         date,
         updated,
         description,
@@ -790,6 +789,42 @@ fn link_slugs(html: &str, prefix: &str) -> Vec<String> {
 }
 
 /// The inner HTML of Hashnode's article container.
+/// The subheading Hashnode renders in a `text-subtitle` paragraph directly after the post's
+/// `<h1>`. It is anchored to the heading so a `.subtitle` in the article body (sample code, a
+/// stylesheet) is never mistaken for it.
+fn extract_subtitle(html: &str) -> Option<String> {
+    let h1 = html.find("<h1")?;
+    let after = &html[h1..];
+    let close = after.find("</h1>")? + "</h1>".len();
+    let next = after[close..].trim_start();
+    let paragraph = next.strip_prefix("<p")?;
+    let open_end = paragraph.find('>')?;
+    if !paragraph[..open_end]
+        .split(|c: char| c.is_whitespace() || c == '"' || c == '=')
+        .any(|word| word == "text-subtitle")
+    {
+        return None;
+    }
+    let inner = &paragraph[open_end + 1..];
+    let text = decode_entities(&strip_tags(&inner[..inner.find("</p>")?]));
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    (!text.is_empty()).then_some(text)
+}
+
+fn strip_tags(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut in_tag = false;
+    for c in html.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' if in_tag => in_tag = false,
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    out
+}
+
 fn extract_prose(html: &str) -> Option<String> {
     let start = html.find("class=\"prose prose-reading")?;
     let open_end = html[start..].find('>')? + start + 1;
@@ -1118,6 +1153,7 @@ mod tests {
 <meta property="og:image" content="https://cdn.example.com/c.png">
 <script type="application/ld+json">{"@type":"BlogPosting","headline":"Hello &amp; World","datePublished":"2026-10-21T04:15:10.033Z","dateModified":"2026-10-22T01:00:00.000Z","keywords":"rust lang, WebAssembly"}</script>
 </head><body>
+<h1 class="text-article-title">Hello &amp; World</h1><p class="text-subtitle text-pretty text-muted-foreground">Build <em>things</em> &amp; learn&#x27;s   more</p>
 <a href="/series/my-series">Part of series</a><a href="/tag/rust-lang">#rust</a>
 <div class="prose prose-reading x"><div><h2 id="a"><a class="heading-anchor" href="#a"><svg><line/></svg></a>Intro</h2>
 <p>Text with <code>code</code> and <img src="https://cdn.example.com/i.png?w=1&amp;h=2" alt="pic"></p>
@@ -1132,6 +1168,10 @@ mod tests {
         assert_eq!(post.slug, "hello");
         assert_eq!(post.title, "Hello &amp; World");
         assert_eq!(post.description, "Learn & build 'things'");
+        assert_eq!(
+            post.subtitle.as_deref(),
+            Some("Build things & learn's more")
+        );
         assert_eq!(post.tags, vec!["rust lang", "WebAssembly"]);
         assert_eq!(post.series.as_deref(), Some("my-series"));
         assert_eq!(post.cover.as_deref(), Some("https://cdn.example.com/c.png"));
@@ -1145,6 +1185,43 @@ mod tests {
             post.markdown
         );
         assert!(!post.markdown.contains("after"));
+    }
+
+    #[test]
+    fn subtitle_comes_only_from_the_paragraph_after_the_heading() {
+        let page = |after_h1: &str| {
+            format!(
+                "<h1>T</h1>{after_h1}<div class=\"prose prose-reading\"><p class=\"subtitle\">decoy</p></div>"
+            )
+        };
+        assert_eq!(
+            extract_subtitle(&page(
+                "
+  <p class=\"x text-subtitle y\">  Deck
+ line </p>"
+            ))
+            .as_deref(),
+            Some("Deck line")
+        );
+        assert_eq!(extract_subtitle(&page("")), None, "no subtitle paragraph");
+        assert_eq!(
+            extract_subtitle(&page("<p class=\"lead\">Not it</p>")),
+            None,
+            "a paragraph without the subtitle class"
+        );
+        assert_eq!(
+            extract_subtitle(&page("<p class=\"text-subtitle-x\">Near miss</p>")),
+            None,
+            "a class that only starts with the name"
+        );
+        assert_eq!(
+            extract_subtitle(&page("<p class=\"text-subtitle\">  </p>")),
+            None
+        );
+        assert_eq!(
+            extract_subtitle("<p class=\"text-subtitle\">No heading</p>"),
+            None
+        );
     }
 
     #[test]

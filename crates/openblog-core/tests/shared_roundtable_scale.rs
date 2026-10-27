@@ -18,6 +18,7 @@ use openblog_core::contributor::Contributor;
 use openblog_core::draft::{DraftError, DraftSet};
 use openblog_core::feeds;
 use openblog_core::invitation::{Identities, NewInvitation};
+use openblog_core::media_moment::MomentSet;
 use openblog_core::members::MAX_AUDIT_ENTRIES;
 use openblog_core::model::{LoadOptions, Site, SourceFile, Sources};
 use openblog_core::portability::PortableProjection;
@@ -277,6 +278,7 @@ impl Group {
             Some(&self.structure),
             &self.drafts,
             &self.synthesis,
+            &MomentSet::new(),
             &self.active(),
             |s| self.approvals.binding_for(s, who).unwrap(),
         )
@@ -290,6 +292,7 @@ impl Group {
             Some(&self.structure),
             &self.drafts,
             &self.synthesis,
+            &MomentSet::new(),
             &active,
             |s| self.approvals.approve(who, who, s, seen, true, T),
         )
@@ -319,6 +322,7 @@ impl Group {
             Some(&self.structure),
             &self.drafts,
             &self.synthesis,
+            &MomentSet::new(),
             &active,
             |s| self.approvals.reconcile(s),
         )
@@ -331,6 +335,7 @@ impl Group {
             Some(&self.structure),
             &self.drafts,
             &self.synthesis,
+            &MomentSet::new(),
             &self.approvals,
             &self.active(),
             DATE,
@@ -607,6 +612,7 @@ fn a_group_over_the_cap_is_refused_at_every_boundary_and_nothing_changes() {
         Some(&full.structure),
         &full.drafts,
         &full.synthesis,
+        &MomentSet::new(),
         &full.active(),
         |s| approvals.approve(&outsider, &outsider, s, "x", true, T),
     );
@@ -626,6 +632,7 @@ fn a_group_over_the_cap_is_refused_at_every_boundary_and_nothing_changes() {
         Some(&full.structure),
         &full.drafts,
         &full.synthesis,
+        &MomentSet::new(),
         &full.approvals,
         &active,
         DATE,

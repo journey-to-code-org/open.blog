@@ -26,6 +26,8 @@ import {
   suggestEntryId,
   validateNoteDraft,
   validatePassageDraft,
+  canonicalAdminHash,
+  researchHref,
 } from "../../web/admin/admin.js";
 
 const admin = readFileSync(new URL("../../web/admin/admin.js", import.meta.url), "utf8");
@@ -567,11 +569,11 @@ test("a damaged notebook is reported with its path and offers no way to overwrit
 // ---------------------------------------------------------------- wiring and accessibility
 
 test("the notebook is reachable from the research tools, the palette, the router, and the editor", () => {
-  assert.match(admin, /href: "#\/research"/);
-  assert.match(admin, /head === "research"\) await this\.showResearch\(\)/);
+  assert.equal(researchHref("notebook"), "#/research/notebook");
+  assert.equal(canonicalAdminHash("#/research"), "#/research/notebook", "the notebook's earlier address still opens it");
+  assert.match(admin, /panel === "notebook"\) await this\.showResearch\(\)/);
   assert.match(admin, /label: "Research notebook", category: "Research"/);
   assert.match(admin, /"data-research-capture": "true", onClick: \(\) => this\.openResearchCapture\(\)/);
-  assert.match(admin, /\["sources", "research", "atlas"\]\.includes\(this\.activeRoute\)/);
 });
 
 test("capture code never parses text as markup and the dialog hands focus back to the draft", () => {

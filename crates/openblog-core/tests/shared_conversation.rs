@@ -15,6 +15,7 @@ use openblog_core::config::{SiteConfig, SyndicationProvider};
 use openblog_core::contributor::Contributor;
 use openblog_core::draft::DraftSet;
 use openblog_core::feeds;
+use openblog_core::media_moment::MomentSet;
 use openblog_core::model::{LoadOptions, Site, SourceFile, Sources};
 use openblog_core::portability::PortableProjection;
 use openblog_core::preview::{build as preview, render_section};
@@ -168,6 +169,7 @@ impl Fixture {
                 None,
                 &self.drafts,
                 &self.synthesis,
+                &MomentSet::new(),
                 &ALL,
                 |s| self.approvals.binding_for(s, who).unwrap(),
             );
@@ -176,6 +178,7 @@ impl Fixture {
                 None,
                 &self.drafts,
                 &self.synthesis,
+                &MomentSet::new(),
                 &ALL,
                 |s| self.approvals.approve(who, who, s, &seen, true, T),
             )
@@ -189,6 +192,7 @@ impl Fixture {
             None,
             &self.drafts,
             &self.synthesis,
+            &MomentSet::new(),
             &self.approvals,
             &ALL,
             DATE,
@@ -497,6 +501,7 @@ fn the_preview_renders_the_same_markup_the_page_publishes() {
         None,
         &f.drafts,
         &f.synthesis,
+        &MomentSet::new(),
         &f.approvals,
         "ann",
         &ALL,
@@ -518,6 +523,7 @@ fn the_preview_renders_the_same_markup_the_page_publishes() {
         None,
         &f.drafts,
         &f.synthesis,
+        &MomentSet::new(),
         &f.approvals,
         "ann",
         &ALL,
@@ -536,6 +542,7 @@ fn the_preview_renders_the_same_markup_the_page_publishes() {
         None,
         &f.drafts,
         &f.synthesis,
+        &MomentSet::new(),
         &f.approvals,
         "ann",
         &ALL,
@@ -1264,6 +1271,7 @@ fn a_reflection_with_a_structure_and_approved_synthesis_publishes_and_exports_in
             Some(&s),
             &f.drafts,
             &f.synthesis,
+            &MomentSet::new(),
             &f.approvals,
             &ALL,
             DATE
@@ -1271,12 +1279,24 @@ fn a_reflection_with_a_structure_and_approved_synthesis_publishes_and_exports_in
         Err(AssemblyError::Blocked { .. })
     ));
     for who in ALL {
-        let seen = with_subject(&f.record, Some(&s), &f.drafts, &f.synthesis, &ALL, |x| {
-            f.approvals.binding_for(x, who).unwrap()
-        });
-        with_subject(&f.record, Some(&s), &f.drafts, &f.synthesis, &ALL, |x| {
-            f.approvals.approve(who, who, x, &seen, true, T)
-        })
+        let seen = with_subject(
+            &f.record,
+            Some(&s),
+            &f.drafts,
+            &f.synthesis,
+            &MomentSet::new(),
+            &ALL,
+            |x| f.approvals.binding_for(x, who).unwrap(),
+        );
+        with_subject(
+            &f.record,
+            Some(&s),
+            &f.drafts,
+            &f.synthesis,
+            &MomentSet::new(),
+            &ALL,
+            |x| f.approvals.approve(who, who, x, &seen, true, T),
+        )
         .unwrap();
     }
     let made = assemble(
@@ -1284,6 +1304,7 @@ fn a_reflection_with_a_structure_and_approved_synthesis_publishes_and_exports_in
         Some(&s),
         &f.drafts,
         &f.synthesis,
+        &MomentSet::new(),
         &f.approvals,
         &ALL,
         DATE,
@@ -1297,6 +1318,7 @@ fn a_reflection_with_a_structure_and_approved_synthesis_publishes_and_exports_in
                 other.as_ref(),
                 &f.drafts,
                 &f.synthesis,
+                &MomentSet::new(),
                 &f.approvals,
                 &ALL,
                 DATE

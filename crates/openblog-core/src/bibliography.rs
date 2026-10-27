@@ -132,9 +132,24 @@ impl CitationLocale {
         self.strings().back
     }
 
+    /// The words of a citation preview's link to the note (`notes`) or the
+    /// reference list entry (`bibliography`) a marker leads to (ADR 0061).
+    pub fn go_to_words(self, style: CitationStyle) -> &'static str {
+        match style {
+            CitationStyle::Notes => self.strings().go_to.0,
+            CitationStyle::Bibliography => self.strings().go_to.1,
+        }
+    }
+
     /// Public locators as readers see them in this locale: `p. 514–520, 514a`.
     pub fn locators_text(self, locators: &[PublicLocator]) -> String {
         locators_text(locators, self.strings())
+    }
+
+    /// A reference as escaped inline Markdown in this locale, as a note shows
+    /// it, without a final period.
+    pub(crate) fn reference_markdown(self, reference: &PublicReference) -> String {
+        reference_markdown(reference, self.strings())
     }
 }
 
@@ -146,6 +161,8 @@ struct LocaleStrings {
     references: &'static str,
     citation: &'static str,
     back: &'static str,
+    /// A preview's link to the note, then to the reference list entry.
+    go_to: (&'static str, &'static str),
     page: Label,
     folio: Label,
     line: Label,
@@ -161,6 +178,7 @@ const EN: LocaleStrings = LocaleStrings {
     references: "References",
     citation: "Citation",
     back: "Back to citation",
+    go_to: ("Go to note", "Go to reference"),
     page: ("p.", "pp."),
     folio: ("fol.", "fols."),
     line: ("l.", "ll."),
@@ -176,6 +194,7 @@ const DE: LocaleStrings = LocaleStrings {
     references: "Literatur",
     citation: "Beleg",
     back: "Zurück zum Beleg",
+    go_to: ("Zur Anmerkung", "Zum Literatureintrag"),
     page: ("S.", "S."),
     folio: ("Bl.", "Bl."),
     line: ("Z.", "Z."),
@@ -191,6 +210,7 @@ const FR: LocaleStrings = LocaleStrings {
     references: "Références",
     citation: "Citation",
     back: "Retour à la citation",
+    go_to: ("Aller à la note", "Aller à la référence"),
     page: ("p.", "p."),
     folio: ("fol.", "fol."),
     line: ("l.", "l."),
@@ -206,6 +226,7 @@ const ES: LocaleStrings = LocaleStrings {
     references: "Referencias",
     citation: "Cita",
     back: "Volver a la cita",
+    go_to: ("Ir a la nota", "Ir a la referencia"),
     page: ("p.", "pp."),
     folio: ("fol.", "fols."),
     line: ("lín.", "líns."),
@@ -252,6 +273,23 @@ pub struct CitationSummary {
     pub citations: usize,
     pub notes: usize,
     pub references: Vec<PublicReference>,
+    /// The prefix of every generated footnote label (`cite-`, or `cite2-`
+    /// and so on when the author's own footnotes use `cite-`).
+    pub prefix: String,
+    /// Each citation in the text, in order, with its note and reference.
+    pub placements: Vec<CitationPlacement>,
+}
+
+/// One citation as published: which note its marker points at, which
+/// reference it cites and where in it (ADR 0059). Numbers are one-based and
+/// follow order of first citation, as the notes do.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CitationPlacement {
+    /// Index into [`PublishedCitations::references`] plus one.
+    pub reference: usize,
+    /// The generated note (footnote number) the marker links to.
+    pub note: usize,
+    pub locators: Vec<PublicLocator>,
 }
 
 /// A post body with its citations published.
@@ -269,6 +307,8 @@ pub struct PublishedCitations {
     pub citations: usize,
     /// Each cited reference once, in order of first citation.
     pub references: Vec<PublicReference>,
+    /// Each citation in the text, in order.
+    pub placements: Vec<CitationPlacement>,
 }
 
 /// Publish the citations in a post's Markdown. `body_line` is the line of
@@ -285,6 +325,7 @@ pub fn publish_citations<'l>(
     body_line: usize,
     style: CitationStyle,
     locale: CitationLocale,
+    supplements: bool,
     library: impl FnOnce() -> Result<Option<&'l SourceLibrary>, String>,
 ) -> Result<Option<PublishedCitations>, String> {
     let file_line = |line: usize| line + body_line.max(1) - 1;
@@ -308,9 +349,10 @@ pub fn publish_citations<'l>(
     debug_assert_eq!(resolved.citations.len(), scan.mentions.len());
 
     let strings = locale.strings();
-    let prefix = label_prefix(markdown);
+    let prefix = label_prefix(markdown, supplements);
     // Notes in order of first use: (reference number, locators).
     let mut notes: Vec<(usize, &[PublicLocator])> = Vec::new();
+    let mut placements: Vec<CitationPlacement> = Vec::with_capacity(scan.mentions.len());
     let mut out = String::with_capacity(markdown.len() + 256);
     let mut cursor = 0;
     for (index, (mention, cited)) in scan.mentions.iter().zip(&resolved.citations).enumerate() {
@@ -327,6 +369,11 @@ pub fn publish_citations<'l>(
             }
             CitationStyle::Bibliography => cited.number,
         };
+        placements.push(CitationPlacement {
+            reference: cited.number,
+            note,
+            locators: cited.locators.clone(),
+        });
         out.push_str(&markdown[cursor..mention.span.start]);
         out.push_str(&format!("[^{prefix}{note}]"));
         let mut ends_in_bracket = true;
@@ -392,6 +439,7 @@ pub fn publish_citations<'l>(
         notes: count,
         citations: scan.mentions.len(),
         references: resolved.references,
+        placements,
     }))
 }
 
@@ -432,14 +480,18 @@ fn guidance(diagnostics: &[CitationDiagnostic], file_line: impl Fn(usize) -> usi
         .join("; ")
 }
 
-/// A footnote label prefix none of the author's footnotes uses with a
-/// number, so generated notes never collide with hand-written ones. The
-/// author's footnote labels are read with the renderer's parser, and the raw
-/// text is searched too: an undefined `[^cite-1]` is plain text to the parser,
-/// but a generated definition of that label would turn it into a marker.
-/// Both comparisons ignore case, as the parser matches labels.
-fn label_prefix(markdown: &str) -> String {
-    let labels: BTreeSet<String> =
+/// A footnote label prefix whose generated ids nothing of the author's uses,
+/// so generated notes and markers never collide with hand-written ones: no
+/// footnote label and no heading id (a written `{#id}` or a generated slug,
+/// such as `cite-1` for `## Cite 1`) is `<prefix><n>` or `<prefix><n>-ref-<k>`.
+/// The author's footnote labels and heading ids are read with the renderer's
+/// parser, and the raw text is searched too: an undefined `[^cite-1]` is plain
+/// text to the parser, but a generated definition of that label would turn it
+/// into a marker. Every comparison ignores case, as the parser matches labels.
+/// Raw HTML `id`s are not avoided: reusing a generated id there is refused
+/// when the page is checked, naming the id.
+fn label_prefix(markdown: &str, supplements: bool) -> String {
+    let mut taken: BTreeSet<String> =
         Parser::new_ext(markdown, crate::markdown::parser_options(false))
             .filter_map(|event| match event {
                 Event::FootnoteReference(label) | Event::Start(Tag::FootnoteDefinition(label)) => {
@@ -448,21 +500,33 @@ fn label_prefix(markdown: &str) -> String {
                 _ => None,
             })
             .collect();
+    taken.extend(
+        crate::markdown::heading_ids(markdown, supplements)
+            .iter()
+            .map(|id| id.to_lowercase()),
+    );
     let text = markdown.to_lowercase();
-    let numbered = |rest: &str| !rest.is_empty() && rest.bytes().all(|byte| byte.is_ascii_digit());
+    let digits = |rest: &str| !rest.is_empty() && rest.bytes().all(|byte| byte.is_ascii_digit());
+    // A generated note label (`<n>`) or marker id (`<n>-ref-<k>`) after the prefix.
+    let generated = |rest: &str| {
+        digits(rest)
+            || rest
+                .split_once("-ref-")
+                .is_some_and(|(note, occurrence)| digits(note) && digits(occurrence))
+    };
     let in_text = |prefix: &str| {
         let opening = format!("[^{prefix}");
         text.match_indices(&opening).any(|(at, _)| {
             let rest = &text[at + opening.len()..];
-            rest.find(']').is_some_and(|close| numbered(&rest[..close]))
+            rest.find(']').is_some_and(|close| digits(&rest[..close]))
         })
     };
     let mut prefix = String::from("cite-");
     let mut attempt = 2;
     while in_text(&prefix)
-        || labels
+        || taken
             .iter()
-            .any(|label| label.strip_prefix(&prefix).is_some_and(numbered))
+            .any(|id| id.strip_prefix(&prefix).is_some_and(generated))
     {
         prefix = format!("cite{attempt}-");
         attempt += 1;
@@ -622,33 +686,21 @@ fn reference_markdown(reference: &PublicReference, strings: &LocaleStrings) -> S
 fn identifier_markdown(scheme: &str, value: &str) -> Option<String> {
     match scheme {
         "doi" => {
-            let mut destination = String::from("https://doi.org/");
-            for byte in value.bytes() {
-                if byte.is_ascii_alphanumeric() || b"-._~/:;".contains(&byte) {
-                    destination.push(byte as char);
-                } else {
-                    destination.push_str(&format!("%{byte:02X}"));
-                }
-            }
-            Some(format!("[doi:{}]({destination})", markdown_text(value)))
+            let name = markdown_text(&crate::research::doi_name(value));
+            Some(match doi_link(value) {
+                Some(destination) => format!("[doi:{name}]({destination})"),
+                None => format!("doi:{name}"),
+            })
         }
         "url" => {
-            let url = url::Url::parse(value).ok()?;
-            if !matches!(url.scheme(), "http" | "https")
-                || !url.username().is_empty()
-                || url.password().is_some()
-                || url.host_str().is_none()
-            {
-                return None;
-            }
-            let address = url.as_str();
+            let address = safe_http_url(value)?;
             let destination = address
                 .replace('\\', "%5C")
                 .replace('(', "%28")
                 .replace(')', "%29")
                 .replace('<', "%3C")
                 .replace('>', "%3E");
-            Some(format!("[{}]({destination})", markdown_text(address)))
+            Some(format!("[{}]({destination})", markdown_text(&address)))
         }
         "isbn" => Some(format!("ISBN {}", markdown_text(value))),
         "issn" => Some(format!("ISSN {}", markdown_text(value))),
@@ -658,10 +710,31 @@ fn identifier_markdown(scheme: &str, value: &str) -> Option<String> {
     }
 }
 
+/// A DOI's resolver address, whichever accepted form it is stored in (a bare
+/// name, `doi:10.x/y`, or a `doi.org` or `dx.doi.org` address), or `None`
+/// when the value is not a DOI.
+pub(crate) fn doi_link(value: &str) -> Option<String> {
+    crate::research::normalize_doi_url(value)
+}
+
+/// A web address, normalized, only when it is a plain HTTP(S) address with a
+/// host and no credentials.
+pub(crate) fn safe_http_url(value: &str) -> Option<String> {
+    let url = url::Url::parse(value).ok()?;
+    if !matches!(url.scheme(), "http" | "https")
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.host_str().is_none()
+    {
+        return None;
+    }
+    Some(url.as_str().to_string())
+}
+
 /// Untrusted text as inline Markdown that renders exactly as written: inner
 /// whitespace collapsed, and every character Markdown could read as markup,
 /// HTML or an entity escaped.
-fn markdown_text(value: &str) -> String {
+pub(crate) fn markdown_text(value: &str) -> String {
     let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
     let mut escaped = String::with_capacity(normalized.len());
     for character in normalized.chars() {
@@ -678,7 +751,7 @@ fn markdown_text(value: &str) -> String {
 
 /// A note body that cannot start a block of its own (a heading, list, quote
 /// or rule) when it sits after `[^label]: `.
-fn block_safe(body: &str) -> String {
+pub(crate) fn block_safe(body: &str) -> String {
     let digits = body.bytes().take_while(u8::is_ascii_digit).count();
     if digits > 0 && matches!(body.as_bytes().get(digits), Some(b'.' | b')')) {
         return format!("{}\\{}", &body[..digits], &body[digits..]);
@@ -745,15 +818,26 @@ mod tests {
 
     #[test]
     fn generated_labels_avoid_the_authors_footnotes() {
-        assert_eq!(label_prefix("Text[^1].\n\n[^1]: n\n"), "cite-");
-        assert_eq!(label_prefix("Text[^cite-1].\n\n[^cite-1]: n\n"), "cite2-");
-        // An undefined label is plain text to the parser, but still taken.
-        assert_eq!(label_prefix("Literal [^cite-1] text.\n"), "cite2-");
-        assert_eq!(label_prefix("Literal [^CITE-1] text.\n"), "cite2-");
-        assert_eq!(label_prefix("[^cite-1] and [^Cite2-3] text.\n"), "cite3-");
+        assert_eq!(label_prefix("Text[^1].\n\n[^1]: n\n", false), "cite-");
         assert_eq!(
-            label_prefix("Not numbered [^cite-x] or [^cite-].\n"),
+            label_prefix("Text[^cite-1].\n\n[^cite-1]: n\n", false),
+            "cite2-"
+        );
+        // An undefined label is plain text to the parser, but still taken.
+        assert_eq!(label_prefix("Literal [^cite-1] text.\n", false), "cite2-");
+        assert_eq!(label_prefix("Literal [^CITE-1] text.\n", false), "cite2-");
+        assert_eq!(
+            label_prefix("[^cite-1] and [^Cite2-3] text.\n", false),
+            "cite3-"
+        );
+        assert_eq!(
+            label_prefix("Not numbered [^cite-x] or [^cite-].\n", false),
             "cite-"
+        );
+        // A label that would be a generated marker id is taken too.
+        assert_eq!(
+            label_prefix("A[^cite-1-ref-1].\n\n[^cite-1-ref-1]: n\n", false),
+            "cite2-"
         );
         let labels = CitationNoteLabels {
             prefix: "cite-",
@@ -764,5 +848,28 @@ mod tests {
         assert_eq!(labels.number("cite-01"), None);
         assert_eq!(labels.number("cite-x"), None);
         assert_eq!(labels.number("note"), None);
+    }
+
+    #[test]
+    fn generated_labels_avoid_the_authors_heading_ids() {
+        // A heading slug that is a generated note id or marker id.
+        assert_eq!(label_prefix("## Cite 1\n\nText.\n", false), "cite2-");
+        assert_eq!(label_prefix("## Cite 1 ref 2\n\nText.\n", false), "cite2-");
+        // A slug made unique with a number is one too.
+        assert_eq!(label_prefix("## Cite\n\n## Cite\n", false), "cite2-");
+        // A written `{#id}`, in any case, and then the next prefix as well.
+        assert_eq!(
+            label_prefix("## Intro {#Cite-3}\n\n## Cite2 4\n", false),
+            "cite3-"
+        );
+        // Slugs that only start like a generated id are not.
+        for free in [
+            "## Cite\n",
+            "## Cite 1a\n",
+            "## Cite 1 ref\n",
+            "## Cite 1 ref 2 more\n",
+        ] {
+            assert_eq!(label_prefix(free, false), "cite-", "{free}");
+        }
     }
 }

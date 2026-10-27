@@ -10,6 +10,7 @@ use openblog_core::collaboration::{
 use openblog_core::config::SiteConfig;
 use openblog_core::contributor::Contributor;
 use openblog_core::draft::DraftSet;
+use openblog_core::media_moment::MomentSet;
 use openblog_core::model::{LoadOptions, Site, SourceFile, Sources};
 use openblog_core::shared_series::{SeriesError, SeriesPlacement};
 use openblog_core::synthesis::SynthesisSet;
@@ -61,12 +62,24 @@ fn drafts() -> DraftSet {
 
 fn approve_all(record: &SharedPublication, set: &DraftSet, approvals: &mut ApprovalSet) {
     for who in ALL {
-        let seen = with_subject(record, None, set, &SynthesisSet::new(), &ALL, |s| {
-            approvals.binding_for(s, who).unwrap()
-        });
-        with_subject(record, None, set, &SynthesisSet::new(), &ALL, |s| {
-            approvals.approve(who, who, s, &seen, true, T)
-        })
+        let seen = with_subject(
+            record,
+            None,
+            set,
+            &SynthesisSet::new(),
+            &MomentSet::new(),
+            &ALL,
+            |s| approvals.binding_for(s, who).unwrap(),
+        );
+        with_subject(
+            record,
+            None,
+            set,
+            &SynthesisSet::new(),
+            &MomentSet::new(),
+            &ALL,
+            |s| approvals.approve(who, who, s, &seen, true, T),
+        )
         .unwrap();
     }
 }
@@ -77,6 +90,7 @@ fn publish(record: &SharedPublication, approvals: &ApprovalSet) -> Result<Assemb
         None,
         &drafts(),
         &SynthesisSet::new(),
+        &MomentSet::new(),
         approvals,
         &ALL,
         DATE,

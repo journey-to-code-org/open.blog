@@ -227,7 +227,7 @@ test("the default workspace is calm while every optional module remains known", 
 });
 
 test("guided, advanced, and custom presets disclose the intended modules", () => {
-  assert.deepEqual(visibleAdminModules({ preset: "guided" }), ["accessibility", "evidence", "assistant"]);
+  assert.deepEqual(visibleAdminModules({ preset: "guided" }), ["accessibility", "evidence", "research", "assistant"]);
   assert.deepEqual(visibleAdminModules({ preset: "advanced" }), ADMIN_OPTIONAL_MODULES);
   const custom = normalizeAdminPreferences({
     preset: "custom",
@@ -256,6 +256,20 @@ test("untrusted preference values normalize to safe, complete settings", () => {
   assert.equal(normalized.editorMode, "visual");
   assert.deepEqual(normalized.moduleOrder, ["assistant", ...ADMIN_OPTIONAL_MODULES.filter((module) => module !== "assistant")]);
   assert.deepEqual(normalized.hiddenModules, ["assistant"]);
+});
+
+test("layouts saved before the research workspace keep it hidden where they hid Evidence Studio", () => {
+  // Research showed only with Evidence Studio before the workspace existed (ADR 0120).
+  const before = ADMIN_OPTIONAL_MODULES.filter((module) => module !== "research");
+  const hidEvidence = normalizeAdminPreferences({ preset: "custom", moduleOrder: before, hiddenModules: ["evidence"] });
+  assert.deepEqual(hidEvidence.hiddenModules, ["evidence", "research"]);
+  assert.equal(visibleAdminModules(hidEvidence).includes("research"), false);
+  const showedEvidence = normalizeAdminPreferences({ preset: "custom", moduleOrder: before, hiddenModules: ["social"] });
+  assert.deepEqual(showedEvidence.hiddenModules, ["social"]);
+  assert.equal(visibleAdminModules(showedEvidence).includes("research"), true);
+  // A layout that already names the workspace keeps it as chosen.
+  const chosen = normalizeAdminPreferences({ preset: "custom", moduleOrder: ADMIN_OPTIONAL_MODULES, hiddenModules: ["evidence"] });
+  assert.deepEqual(chosen.hiddenModules, ["evidence"]);
 });
 
 test("every preset keeps every document view reachable and essentials first", () => {
@@ -382,15 +396,20 @@ const toolbeltLinks = (root) =>
 
 test("every preset applies its toolbelt modules and the open route always stays marked current", withDom(async () => {
   const content = ["Overview", "Posts", "Pages", "Series", "Shared reflections"];
+  const research = "Research workspace";
   const cases = [
     [{ preset: "simple" }, "overview", content],
-    [{ preset: "simple" }, "sources", [...content, "Sources", "Notebook", "Atlas"]],
-    [{ preset: "guided" }, "posts", [...content, "Sources", "Notebook", "Atlas"]],
-    [{ preset: "advanced" }, "overview", [...content, "Analytics", "Sources", "Notebook", "Atlas", "Contributors"]],
-    [{ preset: "custom", hiddenModules: ["contributors"] }, "overview", [...content, "Analytics", "Sources", "Notebook", "Atlas"]],
-    [{ preset: "simple" }, "analytics", [...content, "Analytics"]],
-    [{ preset: "guided" }, "contributors", [...content, "Sources", "Notebook", "Atlas", "Contributors"]],
-    [{ preset: "custom", hiddenModules: ["analytics"] }, "analytics", [...content, "Analytics", "Sources", "Notebook", "Atlas", "Contributors"]],
+    [{ preset: "simple" }, "sources", [...content, research]],
+    [{ preset: "guided" }, "posts", [...content, research]],
+    [{ preset: "advanced" }, "overview", [...content, "Analytics", "Moderation inbox", research, "Contributors"]],
+    [{ preset: "custom", hiddenModules: ["contributors"] }, "overview", [...content, "Analytics", "Moderation inbox", research]],
+    [{ preset: "custom", hiddenModules: ["research"] }, "overview", [...content, "Analytics", "Moderation inbox", "Contributors"]],
+    [{ preset: "custom", hiddenModules: ["research"] }, "atlas", [...content, "Analytics", "Moderation inbox", research, "Contributors"]],
+    [{ preset: "simple" }, "analytics", [...content, "Analytics", "Moderation inbox"]],
+    [{ preset: "simple" }, "moderation", [...content, "Analytics", "Moderation inbox"]],
+    [{ preset: "guided" }, "moderation", [...content, "Analytics", "Moderation inbox", research]],
+    [{ preset: "guided" }, "contributors", [...content, research, "Contributors"]],
+    [{ preset: "custom", hiddenModules: ["analytics"] }, "analytics", [...content, "Analytics", "Moderation inbox", research, "Contributors"]],
   ];
   for (const [preferences, active, expected] of cases) {
     const app = appWith(fakeApi({}));
@@ -398,9 +417,12 @@ test("every preset applies its toolbelt modules and the open route always stays 
     const root = renderShell(app, active);
     const label = `${preferences.preset} on ${active}`;
     assert.deepEqual(toolbeltLinks(root), expected, label);
-    const current = root.querySelector("nav").querySelectorAll("a").filter((link) => link.attributes["aria-current"] === "page");
+    // One page is current; on a research panel the toolbelt marks the workspace it belongs to.
+    const current = root.querySelectorAll("a").filter((link) => link.attributes["aria-current"] === "page");
     assert.equal(current.length, 1, `${label} marks one current item`);
     assert.equal(hiddenWithin(current[0], root), false, `${label} shows the current item`);
+    const section = root.querySelector("nav").querySelectorAll("a").filter((link) => link.attributes["aria-current"] === "true");
+    assert.deepEqual(section.map((link) => link.textContent), ["sources", "atlas"].includes(active) ? [research] : [], `${label} marks the research workspace only inside it`);
   }
 }));
 

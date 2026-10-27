@@ -2,11 +2,14 @@
 
 mod admin;
 mod admin_preferences;
+mod alignment_store;
 mod analytics;
 mod assistant;
 mod assistant_storage;
 mod atlas_store;
 mod auth;
+mod boundary;
+mod claims_store;
 mod clock;
 mod contributor_migration;
 mod fsutil;
@@ -17,8 +20,11 @@ mod notebook_store;
 mod portable_export;
 mod private_guard;
 mod publish;
+mod readiness;
+mod research_review;
 mod safe_http;
 mod scaffold;
+mod selection_store;
 mod serve;
 mod shared_publications;
 mod site;
@@ -380,46 +386,7 @@ fn run(raw: &[String]) -> Result<(), String> {
             Ok(())
         }
         "analytics" => analytics_command(&root, &args),
-        "check" => {
-            let (mut site, themes) = site::load_site(&root, true, None)?;
-            let files = site::generate_site(&root, &mut site, &themes)?;
-            println!(
-                "OK: {} posts, {} series, {} tags, {} pages; would write {} generated files.",
-                site.posts.len(),
-                site.series.len(),
-                site.tags.len(),
-                site.pages.len(),
-                files.len()
-            );
-            for w in &site.warnings {
-                eprintln!("warning: {w}");
-            }
-            for warning in portable_export::diagnostics(&site)? {
-                eprintln!("warning: portability: {warning}");
-            }
-            serve::print_accessibility_findings(&site.accessibility);
-            serve::print_evidence_findings(&site.evidence);
-            if let Some(summary) = citation_summary(&site) {
-                println!("{summary}");
-            }
-            if let Some(summary) = check_source_library(&root, &site.config.contributors)? {
-                println!("{summary}");
-            }
-            if let Some(summary) = check_research_notebook(&root, &site.config.contributors)? {
-                println!("{summary}");
-            }
-            if let Some((summary, notices)) = check_knowledge_atlas(
-                &root,
-                &site.config.contributors,
-                site.config.knowledge_atlas.publish,
-            )? {
-                for notice in notices {
-                    eprintln!("notice: {notice}");
-                }
-                println!("{summary}");
-            }
-            Ok(())
-        }
+        "check" => check_command(&root, args.switches.contains("json")),
         "themes" => {
             let config = site::load_config(&root)?;
             let themes = site::load_themes(&root, &config)?;
@@ -779,6 +746,160 @@ fn user_command_with(
     }
 }
 
+/// The checks `openblog check` has always printed, for a site that loaded.
+fn check_site(
+    root: &std::path::Path,
+    site: &mut openblog_core::Site,
+    themes: &openblog_core::ThemeSet,
+    reported: bool,
+    quiet: bool,
+) -> Result<(), String> {
+    // Standard output is the JSON document alone under `--json`.
+    macro_rules! say {
+        ($($arg:tt)*) => {
+            if !quiet {
+                println!($($arg)*);
+            }
+        };
+    }
+    // When the research report applies it lists every evidence and
+    // source-review finding itself, with the same codes, so they are not
+    // printed a second time; a site without research has none to print.
+    let own_lines = !reported;
+    let files = site::generate_site(root, site, themes)?;
+    say!(
+        "OK: {} posts, {} series, {} tags, {} pages; would write {} generated files.",
+        site.posts.len(),
+        site.series.len(),
+        site.tags.len(),
+        site.pages.len(),
+        files.len()
+    );
+    for w in &site.warnings {
+        eprintln!("warning: {w}");
+    }
+    for warning in portable_export::diagnostics(site)? {
+        eprintln!("warning: portability: {warning}");
+    }
+    serve::print_accessibility_findings(&site.accessibility);
+    if own_lines {
+        serve::print_evidence_findings(&site.evidence);
+    }
+    if let Some(summary) = citation_summary(site) {
+        say!("{summary}");
+    }
+    if let Some(summary) = check_source_library(root, &site.config.contributors)? {
+        say!("{summary}");
+    }
+    if let Some(summary) = check_research_notebook(root, &site.config.contributors)? {
+        say!("{summary}");
+    }
+    if let Some((summary, findings)) =
+        check_source_review(root, &site.config.contributors, &site.source_review)?
+    {
+        if own_lines {
+            serve::print_source_review_findings(&findings);
+        }
+        say!("{summary}");
+    }
+    if let Some((summary, notices)) = check_knowledge_atlas(
+        root,
+        &site.config.contributors,
+        site.config.knowledge_atlas.publish,
+    )? {
+        for notice in notices {
+            eprintln!("notice: {notice}");
+        }
+        say!("{summary}");
+    }
+    if let Some((summary, notices, findings)) =
+        check_claims(root, &site.config.contributors, &site.config.paths.content)?
+    {
+        for notice in notices {
+            eprintln!("notice: {notice}");
+        }
+        if own_lines {
+            serve::print_evidence_findings(&findings);
+        }
+        say!("{summary}");
+    }
+    if let Some((summary, notices)) = check_alignments(
+        root,
+        &site.config.contributors,
+        site.config.comparisons.publish,
+    )? {
+        for notice in notices {
+            eprintln!("notice: {notice}");
+        }
+        say!("{summary}");
+    }
+    Ok(())
+}
+
+/// `openblog check` and `openblog check --json`.
+///
+/// Without `--json`, the checks print as they always did, then the one
+/// research report on standard error (ADR 0150). With `--json`, standard
+/// output is one JSON document and nothing else, always: the report Admin
+/// receives plus an `error` field that is `null` when the checks passed and
+/// the message when they did not, or when the site could not be loaded (the
+/// report is then empty). The exit status is `check`'s either way: nonzero
+/// when the site fails its checks or a failure of a private file the build
+/// reads refuses the next build, zero otherwise. Reads only.
+fn check_command(root: &std::path::Path, json: bool) -> Result<(), String> {
+    let (mut site, themes) = match site::load_site(root, true, None) {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            if json {
+                print!("{}", check_envelope(None, Some(&error)));
+            }
+            return Err(error);
+        }
+    };
+    // The report is read before the checks run, so a site that has research
+    // lists each evidence finding once, in the report, with the same codes
+    // and order Admin shows, and a site that has none prints what it always
+    // did.
+    let readiness = readiness::report_of_all(root, &site);
+    let checked = check_site(root, &mut site, &themes, readiness.applies, json);
+    let refused = (readiness.blocking() > 0).then(|| {
+        format!(
+            "research readiness: {} finding(s) refuse the next build{}",
+            readiness.blocking(),
+            if json { "." } else { "; see above." }
+        )
+    });
+    if json {
+        let error = checked.as_ref().err().or(refused.as_ref());
+        print!("{}", check_envelope(Some(&readiness), error));
+    } else {
+        // After the checks above, whether or not they stopped early, so the
+        // findings behind a refusal are listed too.
+        eprint!("{}", readiness.text_after(checked.is_err()));
+    }
+    checked?;
+    refused.map_or(Ok(()), Err)
+}
+
+/// The JSON `check --json` prints: the report's own view, or an empty one
+/// when the site could not be loaded, and the error, if any. Deterministic,
+/// pretty-printed, with a trailing newline.
+fn check_envelope(readiness: Option<&readiness::Readiness>, error: Option<&String>) -> String {
+    let empty;
+    let readiness = match readiness {
+        Some(readiness) => readiness,
+        None => {
+            empty = readiness::Readiness::empty();
+            &empty
+        }
+    };
+    let mut view = readiness.view();
+    view["error"] = error.map_or(serde_json::Value::Null, |error| serde_json::json!(error));
+    let mut json = serde_json::to_string_pretty(&view).unwrap_or_default();
+    json.push('\n');
+    json
+}
+
 /// How many posts publish citations, and a plain statement that their checks
 /// ran offline (ADR 0050); `None` when no post publishes any.
 fn citation_summary(site: &openblog_core::Site) -> Option<String> {
@@ -816,8 +937,13 @@ fn check_source_library(
     let snapshot = source_store::load(root, contributors).map_err(|error| error.to_string())?;
     Ok(snapshot.stored.then(|| {
         let count = snapshot.library.sources.len();
+        let interpretations = match snapshot.library.interpretations.len() {
+            0 => String::new(),
+            1 => " and 1 private interpretation".into(),
+            n => format!(" and {n} private interpretations"),
+        };
         format!(
-            "OK: private source library {} has {count} source{}; builds publish only the public description of references that opted-in posts cite.",
+            "OK: private source library {} has {count} source{}{interpretations}; builds publish only the public description of references that opted-in posts cite.",
             source_store::LIBRARY_FILE,
             if count == 1 { "" } else { "s" }
         )
@@ -841,11 +967,57 @@ fn check_research_notebook(
     }))
 }
 
+/// Review the stored source library and notebook (ADR 0148), with the
+/// findings the site load made about the sources its posts cite, when a
+/// library is stored. Every finding is advisory; the summary counts each
+/// outcome apart and never combines them.
+fn check_source_review(
+    root: &std::path::Path,
+    contributors: &std::collections::BTreeMap<String, openblog_core::contributor::Contributor>,
+    posts: &[openblog_core::source_review::SourceReviewFinding],
+) -> Result<
+    Option<(
+        String,
+        Vec<openblog_core::source_review::SourceReviewFinding>,
+    )>,
+    String,
+> {
+    let sources = source_store::load(root, contributors).map_err(|error| error.to_string())?;
+    if !sources.stored {
+        return Ok(None);
+    }
+    let notebook = notebook_store::load(root, contributors)
+        .map_err(|error| error.to_string())?
+        .notebook;
+    let mut findings = posts.to_vec();
+    findings.extend(openblog_core::source_review::review_library(
+        &sources.library,
+        &notebook,
+    ));
+    let outcome = |wanted: openblog_core::research::EvidenceOutcome| {
+        findings.iter().filter(|f| f.outcome == wanted).count()
+    };
+    let summary = if findings.is_empty() {
+        "OK: source review found no identifier, version, quotation-location or citation-consistency prompts. It ran offline; nothing was looked up or changed.".to_string()
+    } else {
+        format!(
+            "OK: source review has {} identifier, version, quotation-location and citation-consistency prompt(s): {} detected, {} potential, {} needing review. It ran offline and changed nothing; prompts point at what the record leaves open or what only you can check against the source, never at whether a source or quotation is right.",
+            findings.len(),
+            outcome(openblog_core::research::EvidenceOutcome::Detected),
+            outcome(openblog_core::research::EvidenceOutcome::Potential),
+            outcome(openblog_core::research::EvidenceOutcome::NeedsReview)
+        )
+    };
+    Ok(Some((summary, findings)))
+}
+
 /// Validate the private Knowledge Atlas when one is stored, against the stored
 /// library and notebook. A missing atlas is not mentioned. The summary says
 /// whether builds publish its approved part (ADR 0058). Approved relationships
 /// the publication projection would leave out are non-blocking notices that
-/// name ids, never authored text.
+/// name ids, never authored text. So are the chronology index's structural
+/// prompts (ADR 0097): datings that cannot all hold as recorded, named by id
+/// with their stated values, never a ruling on which one is right.
 fn check_knowledge_atlas(
     root: &std::path::Path,
     contributors: &std::collections::BTreeMap<String, openblog_core::contributor::Contributor>,
@@ -855,11 +1027,18 @@ fn check_knowledge_atlas(
     if !snapshot.stored {
         return Ok(None);
     }
+    let chronology = openblog_core::chronology_index::ChronologyIndex::of(&snapshot.atlas);
     let notices = snapshot
         .atlas
         .notices()
         .iter()
         .map(|notice| format!("{}: {notice}", atlas_store::ATLAS_FILE))
+        .chain(
+            chronology
+                .prompts
+                .iter()
+                .map(|prompt| format!("{}: {prompt}", atlas_store::ATLAS_FILE)),
+        )
         .collect();
     let publication = if publish {
         let (entries, relationships) = snapshot.atlas.projected();
@@ -874,7 +1053,7 @@ fn check_knowledge_atlas(
     };
     Ok(Some((
         format!(
-            "OK: private Knowledge Atlas {} has {} entr{} and {} relationship(s); {publication}.",
+            "OK: private Knowledge Atlas {} has {} entr{} and {} relationship(s); {publication}.{}",
             atlas_store::ATLAS_FILE,
             snapshot.atlas.entries.len(),
             if snapshot.atlas.entries.len() == 1 {
@@ -882,7 +1061,147 @@ fn check_knowledge_atlas(
             } else {
                 "ies"
             },
-            snapshot.atlas.relationships.len()
+            snapshot.atlas.relationships.len(),
+            chronology_summary(&chronology)
+        ),
+        notices,
+    )))
+}
+
+/// What `check` adds about chronology, only when the atlas holds datings, so
+/// an atlas without them reads exactly as before.
+fn chronology_summary(index: &openblog_core::chronology_index::ChronologyIndex) -> String {
+    if index.datings.is_empty() {
+        return String::new();
+    }
+    let prompts = index.prompts.len() + index.unlisted;
+    let found = match prompts {
+        0 => "no chronology prompts".to_string(),
+        n => format!("{n} chronology prompt(s) to check"),
+    };
+    let unlisted = if index.unlisted > 0 {
+        format!(" (the first {} are listed)", index.prompts.len())
+    } else {
+        String::new()
+    };
+    format!(
+        " Chronology: {} dating(s) indexed, {found}{unlisted}. Prompts point at datings that cannot all hold as recorded, never at which one is right, and dates that are close never link anything."
+        ,
+        index.datings.len()
+    )
+}
+
+/// What `check` prints for the claims file: a summary, projection notices
+/// and the evidence findings (ADR 0074).
+type ClaimsCheck = (
+    String,
+    Vec<String>,
+    Vec<openblog_core::research::EvidenceFinding>,
+);
+
+/// Validate the private claims file when one is stored, against the stored
+/// library and notebook. A missing file is not mentioned. Approved links the
+/// projection leaves out are non-blocking notices that name ids and states,
+/// never authored text; anchors that moved or no longer match the saved draft
+/// are evidence findings (ADR 0074), with the other gaps and prompts. Counts
+/// are given per relation and never combined.
+fn check_claims(
+    root: &std::path::Path,
+    contributors: &std::collections::BTreeMap<String, openblog_core::contributor::Contributor>,
+    content_dir: &str,
+) -> Result<Option<ClaimsCheck>, String> {
+    let snapshot = claims_store::load(root, contributors).map_err(|error| error.to_string())?;
+    if !snapshot.stored {
+        return Ok(None);
+    }
+    let set = &snapshot.claims;
+    let notices: Vec<String> = set
+        .notices()
+        .iter()
+        .map(|notice| format!("{}: {notice}", claims_store::CLAIMS_FILE))
+        .collect();
+    // Anchors that moved or went stale are findings now, in the same list and
+    // order as the build and Evidence Studio show (ADR 0074).
+    let findings = claims_store::review(&snapshot, root, content_dir);
+    let mut totals = openblog_core::claims::RelationCounts::default();
+    for claim in &set.claims {
+        let counts = set.counts(&claim.id);
+        totals.supports += counts.supports;
+        totals.contradicts += counts.contradicts;
+        totals.contextualizes += counts.contextualizes;
+    }
+    let outcome = |wanted: openblog_core::research::EvidenceOutcome| {
+        findings.iter().filter(|f| f.outcome == wanted).count()
+    };
+    let prompts = if findings.is_empty() {
+        "No evidence gaps or review prompts.".to_string()
+    } else {
+        format!(
+            "{} evidence gap(s) and review prompt(s): {} detected, {} potential, {} needing review. They point at what the record lacks or what only you can check, never at whether a claim is true.",
+            findings.len(),
+            outcome(openblog_core::research::EvidenceOutcome::Detected),
+            outcome(openblog_core::research::EvidenceOutcome::Potential),
+            outcome(openblog_core::research::EvidenceOutcome::NeedsReview)
+        )
+    };
+    Ok(Some((
+        format!(
+            "OK: private claims file {} has {} claim(s) and {} evidence link(s): {} supporting, {} contradicting, {} contextualizing; builds never publish it. {prompts}",
+            claims_store::CLAIMS_FILE,
+            set.claims.len(),
+            set.links.len(),
+            totals.supports,
+            totals.contradicts,
+            totals.contextualizes
+        ),
+        notices,
+        findings,
+    )))
+}
+
+/// Validate the private alignments file when one is stored, against the
+/// stored library and notebook. A missing file is not mentioned. Members whose
+/// locators no longer match their passage, or that rest on archived records,
+/// are non-blocking notices naming ids only.
+fn check_alignments(
+    root: &std::path::Path,
+    contributors: &std::collections::BTreeMap<String, openblog_core::contributor::Contributor>,
+    publish: bool,
+) -> Result<Option<(String, Vec<String>)>, String> {
+    let snapshot = alignment_store::load(root, contributors).map_err(|error| error.to_string())?;
+    if !snapshot.stored {
+        return Ok(None);
+    }
+    let set = &snapshot.alignments;
+    let notices: Vec<String> = set
+        .notices(openblog_core::knowledge_atlas::Links {
+            library: &snapshot.library,
+            notebook: &snapshot.notebook,
+        })
+        .iter()
+        .map(|notice| format!("{}: {notice}", alignment_store::ALIGNMENTS_FILE))
+        .collect();
+    let members: usize = set.alignments.iter().map(|a| a.members.len()).sum();
+    let absent = set
+        .alignments
+        .iter()
+        .flat_map(|a| &a.members)
+        .filter(|m| m.absent)
+        .count();
+    let publication = if publish {
+        let approved = set.alignments.iter().filter(|a| a.is_approved()).count();
+        format!("builds publish its {approved} approved comparison(s), quoting wording only where you state a version's rights allow it")
+    } else {
+        "builds never read or publish it".to_string()
+    };
+    Ok(Some((
+        format!(
+            "OK: private alignments file {} has {} alignment(s) of {} place(s), {} of them recorded as absent; {publication}. {}",
+            alignment_store::ALIGNMENTS_FILE,
+            set.alignments.len(),
+            members,
+            absent,
+            openblog_core::alignment::ALIGNMENT_NOTICE
         ),
         notices,
     )))
@@ -955,6 +1274,153 @@ mod tests {
     }
 
     #[test]
+    fn check_reports_the_private_alignments_file_only_when_it_is_stored() {
+        let root = std::env::temp_dir().join(format!(
+            "openblog-check-alignments-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let contributors = std::collections::BTreeMap::new();
+        std::fs::create_dir_all(&root).unwrap();
+        assert_eq!(check_alignments(&root, &contributors, false), Ok(None));
+        let library = root.join(source_store::LIBRARY_FILE);
+        std::fs::create_dir_all(library.parent().unwrap()).unwrap();
+        std::fs::write(
+            &library,
+            r#"{"version":1,"sources":[{"id":"w","kind":"work","title":"W"},{"id":"e","kind":"edition","of":"w","title":"E","archived":true},{"id":"t","kind":"translation","of":"w","language":"en","title":"T"}]}"#,
+        )
+        .unwrap();
+        let path = root.join(alignment_store::ALIGNMENTS_FILE);
+        std::fs::write(
+            &path,
+            r#"{"version":1,"alignments":[{"id":"a1","label":"ob-secret-label","members":[{"source":"e","locators":[{"kind":"page","value":"1"}]},{"source":"t","absent":true}]}]}"#,
+        )
+        .unwrap();
+        let (summary, notices) = check_alignments(&root, &contributors, false)
+            .unwrap()
+            .unwrap();
+        assert!(
+            summary.contains("1 alignment(s) of 2 place(s), 1 of them recorded as absent"),
+            "{summary}"
+        );
+        assert!(summary.contains("does not say they mean the same"));
+        assert!(
+            summary.contains("builds never read or publish it"),
+            "{summary}"
+        );
+        let (published, _) = check_alignments(&root, &contributors, true)
+            .unwrap()
+            .unwrap();
+        assert!(
+            published.contains("builds publish its 0 approved comparison(s)"),
+            "{published}"
+        );
+        assert_eq!(notices.len(), 1);
+        assert!(notices[0].contains("archived-member") && notices[0].contains("a1"));
+        assert!(!summary.contains("ob-secret-label") && !notices[0].contains("ob-secret-label"));
+        std::fs::write(
+            &path,
+            r#"{"version":1,"alignments":[{"id":"a1","members":[{"source":"w"}]}]}"#,
+        )
+        .unwrap();
+        let error = check_alignments(&root, &contributors, false).unwrap_err();
+        assert!(
+            error.starts_with(alignment_store::ALIGNMENTS_FILE),
+            "{error}"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn check_reports_the_private_claims_file_only_when_it_is_stored() {
+        let root = std::env::temp_dir().join(format!(
+            "openblog-check-claims-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("content/posts")).unwrap();
+        let contributors = std::collections::BTreeMap::new();
+        assert_eq!(check_claims(&root, &contributors, "content"), Ok(None));
+        assert!(!root.join(".openblog").exists());
+        std::fs::write(
+            root.join("content/posts/2026-01-07-cave.md"),
+            "---\ntitle: Cave\n---\nThe cave educates.\n",
+        )
+        .unwrap();
+        let library = root.join(source_store::LIBRARY_FILE);
+        std::fs::create_dir_all(library.parent().unwrap()).unwrap();
+        std::fs::write(
+            &library,
+            r#"{"version":1,"sources":[{"id":"w","kind":"work","title":"W"}]}"#,
+        )
+        .unwrap();
+        let path = root.join(claims_store::CLAIMS_FILE);
+        std::fs::write(
+            &path,
+            r#"{"version":1,"claims":[{"id":"c1","post":"cave","statement":"ob-secret-statement","anchor":{"start":4,"end":8,"text":"cave"}},{"id":"c2","post":"cave","statement":"S","anchor":{"start":0,"end":4,"text":"gone"}}],"links":[{"id":"l1","claim":"c1","relation":"supports","evidence":{"source":"w"},"visibility":"approved"},{"id":"l2","claim":"c1","relation":"contradicts","evidence":{"source":"w"}}]}"#,
+        )
+        .unwrap();
+        let (summary, notices, findings) = check_claims(&root, &contributors, "content")
+            .unwrap()
+            .unwrap();
+        assert!(
+            summary.contains("2 claim(s) and 2 evidence link(s): 1 supporting, 1 contradicting, 0 contextualizing; builds never publish it."),
+            "{summary}"
+        );
+        assert!(
+            summary.contains("7 evidence gap(s) and review prompt(s): 1 detected, 5 potential, 1 needing review.")
+                && summary.contains("never at whether a claim is true"),
+            "{summary}"
+        );
+        assert_eq!(notices.len(), 1, "{notices:?}");
+        assert!(
+            notices[0].contains("links[0] `l1` claim") && notices[0].contains("(private-endpoint)"),
+            "{notices:?}"
+        );
+        // The anchor that went stale is a finding now, in review order and
+        // named by the post it is about.
+        let codes: Vec<String> = findings.iter().map(|f| f.code.to_string()).collect();
+        assert_eq!(
+            codes,
+            [
+                "claim-contradiction-undiscussed",
+                "claim-locator-missing",
+                "claim-rationale-missing",
+                "claim-locator-missing",
+                "claim-rationale-missing",
+                "claim-anchor-stale",
+                "claim-evidence-missing",
+            ]
+        );
+        assert!(findings
+            .iter()
+            .all(|f| f.source.path == "posts/2026-01-07-cave.md"));
+        assert!(notices
+            .iter()
+            .chain(findings.iter().map(|f| &f.message))
+            .all(|n| !n.contains("ob-secret-statement") && !n.contains("gone")));
+
+        std::fs::write(
+            &path,
+            r#"{"version":1,"links":[{"id":"l1","claim":"c9","relation":"supports","evidence":{"source":"w"}}]}"#,
+        )
+        .unwrap();
+        let error = check_claims(&root, &contributors, "content").unwrap_err();
+        assert!(
+            error.contains(".openblog/private/research/claims.json: links[0] `l1` claim")
+                && error.contains("(unknown-claim)"),
+            "{error}"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn check_reports_the_private_atlas_only_when_it_is_stored() {
         let root = std::env::temp_dir().join(format!(
             "openblog-check-atlas-{}-{}",
@@ -1015,6 +1481,65 @@ mod tests {
                 && error.contains("(unknown-source)"),
             "{error}"
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn check_reports_chronology_prompts_by_id_and_leaves_the_atlas_unchanged() {
+        let root = std::env::temp_dir().join(format!(
+            "openblog-check-chronology-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let library = root.join(source_store::LIBRARY_FILE);
+        std::fs::create_dir_all(library.parent().unwrap()).unwrap();
+        std::fs::write(
+            &library,
+            r#"{"version":1,"sources":[{"id":"w","kind":"work","title":"W"}]}"#,
+        )
+        .unwrap();
+        let contributors = std::collections::BTreeMap::new();
+        let path = root.join(atlas_store::ATLAS_FILE);
+        // Undated: the summary reads exactly as before.
+        std::fs::write(
+            &path,
+            r#"{"version":2,"entries":[{"id":"p","kind":"person","label":"P"}]}"#,
+        )
+        .unwrap();
+        let (summary, notices) = check_knowledge_atlas(&root, &contributors, false)
+            .unwrap()
+            .unwrap();
+        assert!(
+            summary.ends_with("1 entry and 0 relationship(s); builds never read or publish it."),
+            "{summary}"
+        );
+        assert!(notices.is_empty());
+
+        let atlas = r#"{"version":2,"entries":[{"id":"p","kind":"person","label":"ob-secret-label","dates":[
+          {"id":"p-born","aspect":"birth","date":{"at":{"year":-400}},"assertedBy":{"kind":"named","name":"ob-secret-party"},"unsourced":true,"note":"ob-secret-note"},
+          {"id":"p-died","aspect":"death","date":{"at":{"year":-410}},"assertedBy":{"kind":"source","source":"w"},"evidence":[{"source":"w"}]}]}]}"#;
+        std::fs::write(&path, atlas).unwrap();
+        let (summary, notices) = check_knowledge_atlas(&root, &contributors, false)
+            .unwrap()
+            .unwrap();
+        assert!(
+            summary.contains("Chronology: 2 dating(s) indexed, 1 chronology prompt(s) to check.")
+                && summary.contains("never at which one is right"),
+            "{summary}"
+        );
+        assert_eq!(notices.len(), 1, "{notices:?}");
+        assert!(
+            notices[0].starts_with(
+                ".openblog/private/research/atlas.json: entries[0] `p` dates[1]: death dating `p-died` (410 BCE) ends before birth dating `p-born` (400 BCE) can begin"
+            ) && notices[0].ends_with("(death-before-birth)")
+                && !notices[0].contains("ob-secret"),
+            "{notices:?}"
+        );
+        // Checking reads only: the file is byte for byte what was written.
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), atlas);
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -1090,6 +1615,65 @@ mod tests {
                 && error.contains("(unresolved-relationship)"),
             "{error}"
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn check_reviews_sources_only_when_a_library_is_stored_and_changes_nothing() {
+        let root = std::env::temp_dir().join(format!(
+            "openblog-check-source-review-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let contributors = std::collections::BTreeMap::new();
+        assert_eq!(check_source_review(&root, &contributors, &[]), Ok(None));
+        assert!(!root.join(".openblog").exists());
+
+        let library = root.join(source_store::LIBRARY_FILE);
+        std::fs::create_dir_all(library.parent().unwrap()).unwrap();
+        let text = r#"{"version":1,"sources":[{"id":"w","kind":"work","title":"W"}]}"#;
+        std::fs::write(&library, text).unwrap();
+        let (summary, findings) = check_source_review(&root, &contributors, &[])
+            .unwrap()
+            .unwrap();
+        assert!(findings.is_empty());
+        assert!(summary.contains("found no identifier"), "{summary}");
+
+        let text = r#"{"version":1,"sources":[{"id":"w","kind":"work","title":"W"},{"id":"t","kind":"translation","of":"w","title":"T","language":"en","identifiers":[{"scheme":"doi","value":"10.1000/a"}]},{"id":"u","kind":"work","title":"U","identifiers":[{"scheme":"doi","value":"10.1000/A"}]}]}"#;
+        std::fs::write(&library, text).unwrap();
+        std::fs::write(
+            root.join(notebook_store::NOTEBOOK_FILE),
+            r#"{"version":1,"passages":[{"id":"p","source":"t","excerpt":{"text":"Words"}}]}"#,
+        )
+        .unwrap();
+        let (summary, findings) = check_source_review(&root, &contributors, &[])
+            .unwrap()
+            .unwrap();
+        let codes: Vec<String> = findings.iter().map(|f| f.code.to_string()).collect();
+        assert_eq!(
+            codes,
+            [
+                "translator-missing",
+                "identifier-shared",
+                "passage-locator-missing"
+            ]
+        );
+        assert!(
+            summary.contains("3 identifier, version, quotation-location and citation-consistency prompt(s): 0 detected, 2 potential, 1 needing review"),
+            "{summary}"
+        );
+        let line = serve::source_review_line(&findings[1]);
+        assert!(
+            line.starts_with("source review needs-review: source `u` (identifiers): ")
+                && line.ends_with("[identifier-shared]"),
+            "{line}"
+        );
+        assert!(!line.contains("10.1000"), "{line}");
+        assert_eq!(std::fs::read_to_string(&library).unwrap(), text);
         std::fs::remove_dir_all(root).unwrap();
     }
 

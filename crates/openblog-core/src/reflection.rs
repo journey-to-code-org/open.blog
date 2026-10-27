@@ -521,6 +521,13 @@ fn markup_text(input: &str) -> String {
     out
 }
 
+/// Whether `key` is a contributor registry key as the registry writes them
+/// (the one rule a credit's contributor id follows, so a key a post can be
+/// credited under is a key a bound turn can state), safe in an attribute.
+pub(crate) fn is_contributor_key(key: &str) -> bool {
+    crate::collaboration::valid_contributor_id(key)
+}
+
 /// The arranged markup shared by the published Post and the preview (ADR 0031). The DOM order is
 /// exactly the order of `turns`, which is the reading order: a layout only adds classes, and
 /// the stylesheet places them, so a reader without CSS, a screen reader and the narrow-width
@@ -528,6 +535,26 @@ fn markup_text(input: &str) -> String {
 /// so attribution never depends on position. Names and round prompts are untrusted text and are
 /// escaped here; `body` is the caller's already-safe content.
 pub fn compose(layout: ReflectionLayout, turns: &[ComposedTurn<'_>]) -> String {
+    compose_bound(layout, turns, &[])
+}
+
+/// The one extra class a bound turn's section carries, `ob-turn-by-<key>`
+/// (ADR 0136): the contributor registry key the turn was written under, which
+/// is already public in the post's credits sidecar. Only a well-formed key is
+/// ever written, so an unbound turn is the safe reading of anything else.
+pub const CONTRIBUTOR_CLASS_PREFIX: &str = "ob-turn-by-";
+
+/// [`compose`] with each turn bound to its author's contributor registry key
+/// (`contributors[i]` is turn `i`'s; a shorter slice leaves the rest unbound).
+/// A bound body states who wrote each section itself, so reordering the
+/// credits sidecar later can never move a section to another author's id.
+/// With no keys the output is byte for byte what [`compose`] has always
+/// written.
+pub fn compose_bound(
+    layout: ReflectionLayout,
+    turns: &[ComposedTurn<'_>],
+    contributors: &[Option<&str>],
+) -> String {
     let lanes = turns.iter().map(|t| t.placement.lanes).max().unwrap_or(1);
     let mut out = format!(
         "<div class=\"ob-reflection ob-reflection-{} ob-lanes-{}\">\n\n",
@@ -535,7 +562,7 @@ pub fn compose(layout: ReflectionLayout, turns: &[ComposedTurn<'_>]) -> String {
         lanes.min(MAX_LAID_OUT_LANES + 1)
     );
     let mut open_round: Option<usize> = None;
-    for turn in turns {
+    for (index, turn) in turns.iter().enumerate() {
         if open_round != Some(turn.round) {
             if open_round.is_some() {
                 out.push_str("</div>\n\n");
@@ -553,8 +580,16 @@ pub fn compose(layout: ReflectionLayout, turns: &[ComposedTurn<'_>]) -> String {
         let label = turn.label.map_or_else(String::new, |label| {
             format!("<p class=\"ob-turn-label\">{}</p>\n", markup_text(label))
         });
+        let bound = contributors
+            .get(index)
+            .copied()
+            .flatten()
+            .filter(|key| is_contributor_key(key))
+            .map_or_else(String::new, |key| {
+                format!(" {CONTRIBUTOR_CLASS_PREFIX}{key}")
+            });
         out.push_str(&format!(
-            "<section class=\"ob-turn ob-lane-{}\">\n<h2 class=\"ob-turn-author\">{}</h2>\n{}\n{}\n\n</section>\n\n",
+            "<section class=\"ob-turn ob-lane-{}{bound}\">\n<h2 class=\"ob-turn-author\">{}</h2>\n{}\n{}\n\n</section>\n\n",
             turn.placement.lane,
             markup_text(turn.display_name),
             label,

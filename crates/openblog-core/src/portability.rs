@@ -199,6 +199,18 @@ pub struct PortableProjection<'a> {
     participation: Option<CommentsPolicy>,
     /// The post's place in a collaborative series, when it is a part of one (ADR 0041).
     series: Option<SeriesContext>,
+    /// The claim evidence the post publishes (ADR 0075), which every portable
+    /// artifact must carry whole.
+    claim_evidence: Option<&'a crate::claim_publication::PostEvidence>,
+    /// The published suggested sources and corrections with their outcome (ADR 0119): what a
+    /// portable copy carries of reader notes, beside the link to the canonical discussion.
+    outcomes: Vec<&'a crate::feedback_publication::PublicFeedback>,
+    /// The post's slug, which names it in the curated context.
+    slug: &'a str,
+    /// The public curated context this post is offered (ADR 0202), which every
+    /// portable artifact must carry whole. Only `for_site` attaches it, from
+    /// the site's public curated value and from nothing else.
+    curated: Option<std::sync::Arc<crate::curated_context::CuratedContext>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -613,7 +625,20 @@ impl<'a> PortableProjection<'a> {
     /// external copy of a part of a collaborative series names and links its series; any other
     /// post's projection is exactly `from_post`'s.
     pub fn for_site(site: &Site, post: &'a Post) -> Result<Self, String> {
-        Ok(Self::from_post(post, &site.config)?.with_series(site.series_context(post)))
+        Ok(Self::from_post(post, &site.config)?
+            .with_series(site.series_context(post))
+            .with_curated(site.curated_context_for(post)))
+    }
+
+    /// The same projection carrying `context`, the public curated context the
+    /// post is offered (ADR 0202). `None` removes it, and the copies are then
+    /// exactly what they were without it.
+    pub fn with_curated(
+        mut self,
+        context: Option<std::sync::Arc<crate::curated_context::CuratedContext>>,
+    ) -> Self {
+        self.curated = context;
+        self
     }
 
     /// The same projection stating `series` as the post's series context. `None` removes it.
@@ -674,7 +699,7 @@ impl<'a> PortableProjection<'a> {
             shared: post.shared_attribution.as_ref(),
             capabilities: &post.capabilities,
             html: &post.html,
-            markdown: post.publication_markdown(),
+            markdown: post.portable_markdown(),
             text: &post.text,
             render_options: RenderOptions {
                 smart_punctuation: config.markdown.smart_punctuation,
@@ -685,19 +710,35 @@ impl<'a> PortableProjection<'a> {
                 code_runner: None,
                 // Portable copies show sandboxes as static code, so no libraries load.
                 web_libraries: None,
+                playground_link: config.code.playground_link,
                 // Generated notes are ordinary footnotes here, linked to the canonical article.
                 citation_notes: None,
+                // The section is ordinary content in a portable copy.
+                claim_evidence_section: false,
+                supplements: post.reading_depth.is_some(),
+                // A copy that leaves the site cannot resolve an entry: its
+                // Markdown already holds each concept link as its label.
+                concept_links: false,
             },
             runner_languages: (!config.code_runner.endpoint.is_empty())
                 .then(|| config.code_runner.languages.clone()),
             video: post.video.as_ref(),
             recipe: post.recipe.as_ref(),
-            participation: (config.engagement.enabled
-                && config.engagement.comments
-                && post.comments != CommentsPolicy::Hidden
-                && !config.engagement.endpoint.trim().is_empty())
-            .then_some(post.comments),
+            participation: (crate::participation::effective_mode(
+                config,
+                post,
+                crate::participation::ParticipationKind::Comment,
+            ) != crate::participation::ParticipationMode::Hidden)
+                .then_some(post.comments),
             series: None,
+            claim_evidence: post.claim_evidence(),
+            outcomes: post
+                .reader_feedback()
+                .iter()
+                .filter(|item| item.outcome.is_some())
+                .collect(),
+            slug: &post.slug,
+            curated: None,
         })
     }
 
@@ -844,6 +885,10 @@ impl<'a> PortableProjection<'a> {
             }
         }
         html.push_str(&rendered.html);
+        if let Some(section) = self.curated_section(RepresentationFormat::Html) {
+            html.push_str(&section.text);
+        }
+        html.push_str(&self.outcomes_html());
         // A capability the canonical page offers without a portable fallback yet
         // (a planned or unknown structure) fails closed: its authored content
         // stays visible as ordinary Markdown, and a labeled link points to the
@@ -865,10 +910,11 @@ impl<'a> PortableProjection<'a> {
             }
             if !labels.contains(&label) {
                 labels.push(label);
+                let (href, verb) = self.capability_link(capability);
                 html.push_str(&format!(
-                    "<p class=\"ob-portable-note\"><strong>{}</strong>: see it on <a href=\"{}\">the original article</a>.</p>\n",
+                    "<p class=\"ob-portable-note\"><strong>{}</strong>: {verb} <a href=\"{}\">the original article</a>.</p>\n",
                     escape::text(label),
-                    escape::attr(&self.canonical_url)
+                    escape::attr(&href)
                 ));
             }
         }
@@ -910,6 +956,7 @@ impl<'a> PortableProjection<'a> {
         self.ensure_semantics(RepresentationFormat::Html, &html)?;
         let mut diagnostics =
             portability_diagnostics(self.source_path, self.markdown, &capabilities);
+        diagnostics.extend(self.curated_diagnostics());
         // A layout places the same turns differently; no portable form can. Say so, once, rather
         // than let the placement disappear silently (ADR 0033).
         if let Some(arrangement) = self.arrangement() {
@@ -939,13 +986,14 @@ impl<'a> PortableProjection<'a> {
             capabilities,
             diagnostics,
             images: rendered.portable_images,
-            // A parsed arrangement's frame is the layout's own markup, not authored raw HTML:
-            // the Markdown copy states it as sections, so only literal HTML in the turns counts.
-            has_raw_html: self
-                .arrangement()
-                .map_or(rendered.portable_has_raw_html, |arrangement| {
-                    escape_raw_html(&arrangement.to_markdown(markdown_text)).1 > 0
-                }),
+            // A parsed arrangement's or moments block's frame is open.blog's own markup, not
+            // authored raw HTML: the Markdown copy states it without HTML, so only literal HTML
+            // in the authors' own text counts.
+            has_raw_html: if self.arrangement().is_some() || self.moments().is_some() {
+                escape_raw_html(&self.portable_source()).1 > 0
+            } else {
+                rendered.portable_has_raw_html
+            },
         })
     }
 
@@ -953,12 +1001,7 @@ impl<'a> PortableProjection<'a> {
     /// public work metadata. No generated HTML is parsed to reconstruct content.
     pub fn portable_markdown(&self) -> Result<String, String> {
         let html = self.portable_html()?;
-        // A shared reflection's arrangement is stated as labeled sequential sections (ADR 0033);
-        // any other body is the authored Markdown itself.
-        let source = self.arrangement().map_or_else(
-            || self.markdown.to_string(),
-            |arrangement| arrangement.to_markdown(markdown_text),
-        );
+        let source = self.portable_source();
         let (body, raw_html_count) = escape_raw_html(&source);
         let body = portable_markdown_body(&body, self)
             .map_err(|error| format!("{}: {error}", self.source_path))?;
@@ -1124,6 +1167,15 @@ impl<'a> PortableProjection<'a> {
             }
         }
 
+        if let Some(section) = self.curated_section(RepresentationFormat::Markdown) {
+            if !output.ends_with("\n\n") {
+                output.push('\n');
+            }
+            output.push_str(&section.text);
+        }
+
+        output.push_str(&self.outcomes_markdown());
+
         if let (Some(source_url), Some(_)) = (self.source_url, &self.source_notice) {
             output.push_str(&format!(
                 "Originally published at <{}>.\n\n",
@@ -1156,10 +1208,20 @@ impl<'a> PortableProjection<'a> {
             let Some(label) = capability.portable_label() else {
                 continue;
             };
-            let note = format!(
-                "> **{label}:** this interaction is available on the [canonical article]({}).\n\n",
-                markdown_destination(&self.canonical_url)
-            );
+            let (href, verb) = self.capability_link(capability);
+            let note = if capability.id
+                == crate::perspective_publication::THIRD_PERSPECTIVES_CAPABILITY
+            {
+                format!(
+                    "> **{label}:** {verb} the [canonical article]({}).\n\n",
+                    markdown_destination(&href)
+                )
+            } else {
+                format!(
+                    "> **{label}:** this interaction is available on the [canonical article]({}).\n\n",
+                    markdown_destination(&href)
+                )
+            };
             if !output.contains(&note) {
                 output.push_str(&note);
             }
@@ -1340,6 +1402,45 @@ impl<'a> PortableProjection<'a> {
                 }
             }
         }
+        // Every published moment keeps where it is, who noted it, the quoted words with their
+        // attribution, and its link with a label that names the source (ADR 0066).
+        let moments = self.moments();
+        if let Some(block) = &moments {
+            for moment in &block.moments {
+                facts.push(SemanticFact::new(
+                    "media-moment",
+                    "moment location",
+                    &moment.location,
+                ));
+                facts.push(SemanticFact::new(
+                    "media-moment",
+                    "moment author",
+                    format!("Noted by {}", moment.noted_by),
+                ));
+                if let Some(quotation) = &moment.quotation {
+                    facts.push(SemanticFact::new(
+                        "media-moment",
+                        "quotation",
+                        &quotation.text,
+                    ));
+                    facts.push(SemanticFact::new(
+                        "media-moment",
+                        "quotation attribution",
+                        &quotation.attribution,
+                    ));
+                }
+                if let Some(link) = &moment.link {
+                    facts.push(
+                        SemanticFact::new(
+                            "media-moment",
+                            "source link",
+                            self.resolve_link(&link.href)?,
+                        )
+                        .with_link_label(link.label.clone()),
+                    );
+                }
+            }
+        }
         if let Some(source) = self.source_url {
             facts.push(SemanticFact::new(
                 "provenance",
@@ -1403,6 +1504,44 @@ impl<'a> PortableProjection<'a> {
                 self.participation_url(),
             ));
         }
+        // Every outcome keeps what it came to, the change it rests on, the evidence link and the
+        // canonical discussion it belongs to (ADR 0119).
+        for item in &self.outcomes {
+            let Some(outcome) = &item.outcome else {
+                continue;
+            };
+            facts.push(SemanticFact::new(
+                "reader-outcome",
+                "outcome",
+                outcome.heading(),
+            ));
+            facts.push(SemanticFact::new(
+                "reader-outcome",
+                "source link",
+                self.discussion_url(&item.id),
+            ));
+            if let Some(change) = &outcome.change {
+                facts.push(SemanticFact::new(
+                    "reader-outcome",
+                    "revision note",
+                    crate::feedback_publication::change_words(change),
+                ));
+            }
+            if let Some(evidence) = &outcome.evidence {
+                facts.push(SemanticFact::new(
+                    "reader-outcome",
+                    "source link",
+                    format!("{}#{}", self.canonical_url, evidence.fragment),
+                ));
+            }
+            if let Some(rationale) = &outcome.rationale {
+                facts.push(SemanticFact::new(
+                    "reader-outcome",
+                    "author rationale",
+                    rationale,
+                ));
+            }
+        }
         let mut fallback_labels = std::collections::HashSet::new();
         for capability in self
             .capabilities
@@ -1421,7 +1560,7 @@ impl<'a> PortableProjection<'a> {
                 facts.push(SemanticFact::new(
                     "canonical-only-interaction",
                     "canonical link",
-                    &self.canonical_url,
+                    self.capability_link(capability).0,
                 ));
             }
         }
@@ -1460,16 +1599,15 @@ impl<'a> PortableProjection<'a> {
                     *required += 1;
                     content.match_indices(&target).count() >= *required
                 } else if let Some(index) = links.iter().position(|link| {
-                    let target = Url::parse(&link.target)
-                        .map(|url| url.to_string())
-                        .unwrap_or_else(|_| link.target.clone());
+                    let target = canonical_target(&link.target);
+                    let (value, expected) = (canonical_target(&value), canonical_target(expected));
                     let label = if format == RepresentationFormat::Html {
                         fact.html_link_label.as_ref().unwrap_or(label)
                     } else {
                         label
                     };
                     link.kind == fact.link_kind
-                        && (target == value || target == *expected)
+                        && (target == value || target == expected)
                         && normalize(&link.label) == normalize(label)
                 }) {
                     links.remove(index);
@@ -1490,8 +1628,7 @@ impl<'a> PortableProjection<'a> {
                     if let Some(index) = metadata_links.iter().position(|link| {
                         link.kind == SemanticLinkKind::Anchor
                             && (link.target == *expected
-                                || Url::parse(&link.target)
-                                    .is_ok_and(|target| target.as_str() == value))
+                                || canonical_target(&link.target) == canonical_target(&value))
                     }) {
                         metadata_links.remove(index);
                         true
@@ -1521,6 +1658,40 @@ impl<'a> PortableProjection<'a> {
             };
             if !diagnostics.contains(&diagnostic) {
                 diagnostics.push(diagnostic);
+            }
+        }
+        // The moments must also come in their published order, each where-and-who pair together:
+        // an equivalent that reorders them says something other than what was approved.
+        if let Some(block) = &moments {
+            let mut from = 0;
+            let in_order = block.moments.iter().all(|moment| {
+                let needle =
+                    normalize(&format!("{} Noted by {}", moment.location, moment.noted_by));
+                match content[from..].find(&needle) {
+                    Some(at) => {
+                        from += at + needle.len();
+                        true
+                    }
+                    None => false,
+                }
+            });
+            if !in_order {
+                diagnostics.push(PortabilityDiagnostic {
+                    code: "moment-order".into(),
+                    severity: DiagnosticSeverity::Error,
+                    source_path: self.source_path.into(),
+                    capability_id: Some("media-moment".into()),
+                    message: format!(
+                        "The {representation} artifact does not keep the published moments, each with who noted it, in their approved order."
+                    ),
+                    recommended_action: "Repair the projection before publishing; the moments and their order are part of what each author approved.".into(),
+                    context: DiagnosticContext {
+                        representation: Some(representation.into()),
+                        destination: Some("portable-export".into()),
+                        affected_semantics: Some("moment order".into()),
+                        ..Default::default()
+                    },
+                });
             }
         }
         // The same prompts, names and labels must also come in the arrangement's reading order:
@@ -1582,6 +1753,27 @@ impl<'a> PortableProjection<'a> {
     }
 
     fn ensure_semantics(&self, format: RepresentationFormat, artifact: &str) -> Result<(), String> {
+        // Claim evidence fails closed: a copy that dropped or reordered any of
+        // it could show support without its contradiction (ADR 0075).
+        if let Some(evidence) = self.claim_evidence {
+            if !crate::claim_publication::carried_whole(artifact, evidence) {
+                return Err(format!(
+                    "{} [claim-evidence-lost] claim-evidence: the {format:?} copy does not carry every published claim with its supporting and contradicting evidence; refusing to publish a partial copy",
+                    self.source_path
+                ));
+            }
+        }
+        // The research context fails closed the same way (ADR 0202): a copy
+        // that dropped an item, its anchor or any of its words would show a
+        // view without the doubt that came with it.
+        if let Some(section) = self.curated_section(format) {
+            if let Some(missing) = section.first_missing(artifact) {
+                return Err(format!(
+                    "{} [curated-context-lost] curated-research-context: the {format:?} copy does not carry every selected research-context item with its words and its link to the canonical page (it lacks {missing}); refusing to publish a partial copy",
+                    self.source_path
+                ));
+            }
+        }
         let diagnostics = self.analyze_portable_artifact(format, artifact)?;
         if diagnostics.is_empty() {
             return Ok(());
@@ -1645,6 +1837,277 @@ impl<'a> PortableProjection<'a> {
         ))
     }
 
+    /// The post's research context as a portable copy writes it (ADR 0202),
+    /// when the post is offered one: from the public curated value alone, with
+    /// every link absolute and a link back to the canonical page's anchors.
+    fn curated_section(
+        &self,
+        format: RepresentationFormat,
+    ) -> Option<crate::curated_context::CopySection> {
+        let context = self.curated.as_ref()?;
+        let absolute = |href: &str| self.resolve_link(href);
+        let links = crate::curated_context::CopyLinks {
+            canonical: &self.canonical_url,
+            absolute: &absolute,
+        };
+        match format {
+            RepresentationFormat::Html => context.copy_html(self.slug, &links),
+            // Plain text is derived from the Markdown, so it is checked as it.
+            RepresentationFormat::Markdown | RepresentationFormat::Text => {
+                context.copy_markdown(self.slug, &links)
+            }
+        }
+    }
+
+    /// The post's research context as Markdown, for the outputs that print
+    /// their own header (`llms-full.txt`), or `None` when it has none.
+    pub fn curated_context_markdown(&self) -> Option<String> {
+        self.curated_section(RepresentationFormat::Markdown)
+            .map(|section| section.text)
+    }
+
+    /// What a feed says of the post's research context without carrying it:
+    /// the canonical anchor of the section and of each item. No item's words.
+    pub fn curated_context_summary(&self) -> Option<serde_json::Value> {
+        self.curated
+            .as_ref()?
+            .feed_summary(self.slug, &self.canonical_url)
+    }
+
+    /// The post's research context for a bibliography export (ADR 0205).
+    pub fn curated_bibliography(&self) -> Option<crate::curated_context::BibliographyContext> {
+        self.curated.as_ref()?.bibliography_for_post(self.slug)
+    }
+
+    /// Loss diagnostics for the research context in a portable copy (ADR
+    /// 0202): what a format cannot carry as the page does, said once.
+    fn curated_diagnostics(&self) -> Vec<PortabilityDiagnostic> {
+        let Some(section) = self.curated_section(RepresentationFormat::Html) else {
+            return Vec::new();
+        };
+        let diagnostic = |code: &str,
+                          severity: DiagnosticSeverity,
+                          message: String,
+                          action: &str,
+                          affected: &str| PortabilityDiagnostic {
+            code: code.into(),
+            severity,
+            source_path: self.source_path.into(),
+            capability_id: Some("curated-research-context".into()),
+            message,
+            recommended_action: action.into(),
+            context: DiagnosticContext {
+                representation: Some("portable-html".into()),
+                destination: Some("portable-export".into()),
+                portability_level: Some(PortabilityLevel::GracefullyTransformed),
+                affected_semantics: Some(affected.into()),
+                source_range: None,
+            },
+        };
+        let mut found = vec![diagnostic(
+            "curated-context-sequenced",
+            DiagnosticSeverity::Info,
+            format!(
+                "The research context ({} item(s)) is carried as labeled sequential sections; anchors, links between its items and the data file are on the canonical page.",
+                section.items
+            ),
+            "No action needed: every item keeps its attribution, uncertainty, evidence and origin as text, and links to its anchor on the canonical article.",
+            "In-page anchors, links among items, the data file, and the page's layout; the items' words, attribution, doubt, evidence and origin are unchanged.",
+        )];
+        if section.unlinked > 0 {
+            found.push(diagnostic(
+                "curated-context-address-text",
+                DiagnosticSeverity::Warning,
+                format!(
+                    "{} address(es) in the research context are not safe links, so the copy shows them as plain text.",
+                    section.unlinked
+                ),
+                "Give the source an https address if readers should be able to follow it; the address is never dropped.",
+                "Links to addresses that are not this site's pages or https addresses.",
+            ));
+        }
+        if section.held_back > 0 {
+            found.push(diagnostic(
+                "curated-context-held-back",
+                DiagnosticSeverity::Warning,
+                format!(
+                    "The research context has {} more item(s) than a copy shows; they are on the canonical page, which the copy links to.",
+                    section.held_back
+                ),
+                "Select fewer items for this post, or read the rest on the canonical article.",
+                "Items beyond the per-copy bound.",
+            ));
+        }
+        found
+    }
+
+    /// The canonical page's own place for one published note.
+    fn discussion_url(&self, id: &str) -> String {
+        format!("{}#ob-reader-note-{id}", self.canonical_url)
+    }
+
+    /// The published suggested sources and corrections with the author's decision, or that the
+    /// author has not decided, as an HTML section (ADR 0119). The reader's own words stay on
+    /// the canonical page, which every outcome links to; a name is shown only as the reader
+    /// agreed. Empty when no note has an outcome.
+    fn outcomes_html(&self) -> String {
+        if self.outcomes.is_empty() {
+            return String::new();
+        }
+        let mut html = format!(
+            "<section class=\"ob-reader-outcomes\" aria-label=\"Reader suggestions and the author’s decisions\">\n<h2>Reader suggestions and the author’s decisions</h2>\n<p>{} Read each note, with the reader’s own words, on <a href=\"{}\">the original article</a>.</p>\n",
+            escape::text(OUTCOMES_INTRO),
+            escape::attr(&format!(
+                "{}#{}",
+                self.canonical_url,
+                crate::feedback_publication::READER_FEEDBACK_ANCHOR
+            ))
+        );
+        for item in &self.outcomes {
+            let Some(outcome) = &item.outcome else {
+                continue;
+            };
+            html.push_str(&format!(
+                "<article class=\"ob-reader-outcome\">\n<h3>{} about {}</h3>\n<p class=\"ob-reader-note-meta\">{} · received <time datetime=\"{3}\">{3}</time></p>\n",
+                escape::text(item.kind.label()),
+                escape::text(&crate::feedback_publication::place_words(item)),
+                match &item.provenance.name {
+                    Some(name) => format!("From {}", escape::text(name)),
+                    None => "From a reader".to_string(),
+                },
+                escape::attr(&item.provenance.received),
+            ));
+            html.push_str(&crate::feedback_publication::outcome_html(
+                item,
+                outcome,
+                &self.canonical_url,
+            ));
+            html.push_str(&format!(
+                "<p class=\"ob-reader-note-discussion\"><a href=\"{}\">Discussion of this note on the original article</a></p>\n</article>\n",
+                escape::attr(&self.discussion_url(&item.id))
+            ));
+        }
+        html.push_str("</section>\n");
+        html
+    }
+
+    /// The same section as Markdown, every value escaped as inline text.
+    fn outcomes_markdown(&self) -> String {
+        if self.outcomes.is_empty() {
+            return String::new();
+        }
+        let mut output = format!(
+            "\n## Reader suggestions and the author’s decisions\n\n{} Read each note, with the reader’s own words, on the [original article]({}).\n\n",
+            markdown_text(OUTCOMES_INTRO),
+            markdown_destination(&format!(
+                "{}#{}",
+                self.canonical_url,
+                crate::feedback_publication::READER_FEEDBACK_ANCHOR
+            ))
+        );
+        for item in &self.outcomes {
+            let Some(outcome) = &item.outcome else {
+                continue;
+            };
+            let from = match &item.provenance.name {
+                Some(name) => format!("From {}", markdown_text(name)),
+                None => "From a reader".to_string(),
+            };
+            output.push_str(&format!(
+                "### {} about {}\n\n{from}, received {}. Affected revision: `{}`{}.\n\n**{}**{}\n\n{}\n\n",
+                markdown_text(item.kind.label()),
+                markdown_text(&crate::feedback_publication::place_words(item)),
+                item.provenance.received,
+                item.provenance.revision.replace('`', ""),
+                if item.provenance.stale {
+                    ". The passage has been revised since"
+                } else {
+                    ""
+                },
+                markdown_text(&outcome.heading()),
+                outcome
+                    .decided
+                    .as_ref()
+                    .map(|day| format!(" ({day})"))
+                    .unwrap_or_default(),
+                markdown_text(&outcome.summary()),
+            ));
+            if let Some(change) = &outcome.change {
+                let words = markdown_text(&crate::feedback_publication::change_words(change));
+                let words = match &change.fragment {
+                    Some(fragment) => format!(
+                        "[{words}]({})",
+                        markdown_destination(&format!("{}#{fragment}", self.canonical_url))
+                    ),
+                    None => words,
+                };
+                output.push_str(&format!("What changed: {words}\n\n"));
+            }
+            if let Some(evidence) = &outcome.evidence {
+                output.push_str(&format!(
+                    "Evidence the author recorded: [Claim {}]({}): {}.\n\n",
+                    evidence.claim,
+                    markdown_destination(&format!("{}#{}", self.canonical_url, evidence.fragment)),
+                    markdown_text(&evidence.label)
+                ));
+            } else if outcome.evidence_withdrawn {
+                output.push_str(
+                    "The evidence the author recorded is not published on this page.\n\n",
+                );
+            }
+            if let Some(rationale) = &outcome.rationale {
+                let mut paragraphs = rationale
+                    .replace("\r\n", "\n")
+                    .split("\n\n")
+                    .map(str::trim)
+                    .filter(|paragraph| !paragraph.is_empty())
+                    .map(markdown_text)
+                    .collect::<Vec<_>>()
+                    .into_iter();
+                if let Some(first) = paragraphs.next() {
+                    output.push_str(&format!("The author’s rationale: {first}\n\n"));
+                }
+                for paragraph in paragraphs {
+                    output.push_str(&format!(
+                        "{}\n\n",
+                        crate::bibliography::block_safe(&paragraph)
+                    ));
+                }
+            }
+            output.push_str(&format!(
+                "[Discussion of this note on the original article]({})\n\n",
+                markdown_destination(&self.discussion_url(&item.id))
+            ));
+        }
+        output
+    }
+
+    /// Where a capability's labelled note points on the canonical article, and
+    /// how it says so. Third Perspectives link to their own section: the
+    /// reflections when there are any ("see it on"), otherwise the form
+    /// ("take part on"); everything else links to the article itself.
+    fn capability_link(&self, capability: &CapabilityDescriptor) -> (String, &'static str) {
+        if capability.id != crate::perspective_publication::THIRD_PERSPECTIVES_CAPABILITY {
+            return (self.canonical_url.clone(), "see it on");
+        }
+        // Only the form has a renderer: nothing is approved yet.
+        let offered_only =
+            capability.native_renderer == Some(crate::render::THIRD_PERSPECTIVE_ANCHOR);
+        let anchor = if offered_only {
+            crate::render::THIRD_PERSPECTIVE_ANCHOR
+        } else {
+            crate::perspective_publication::THIRD_PERSPECTIVES_ANCHOR
+        };
+        (
+            format!("{}#{anchor}", self.canonical_url),
+            if offered_only {
+                "take part on"
+            } else {
+                "see it on"
+            },
+        )
+    }
+
     fn participation_url(&self) -> String {
         format!("{}#{}", self.canonical_url, crate::model::DISCUSSION_ANCHOR)
     }
@@ -1652,7 +2115,7 @@ impl<'a> PortableProjection<'a> {
     /// Produce plain feed text from the portable Markdown, including code and
     /// link destinations instead of inheriting the native search-text omissions.
     pub fn portable_text(&self) -> Result<String, String> {
-        let compact = markdown_to_text(&self.portable_markdown()?);
+        let compact = markdown_to_text(&self.portable_markdown()?, self.render_options.supplements);
         self.ensure_semantics(RepresentationFormat::Text, &compact)?;
         Ok(compact)
     }
@@ -1661,20 +2124,53 @@ impl<'a> PortableProjection<'a> {
     /// each turn under its author's name and label. `None` for any other post. It carries the same
     /// words, names, labels and order as the portable text, without the page's own metadata, for
     /// callers (llms-full.txt) that print their own header.
+    /// Published moments (ADR 0066) follow in the same words as the portable text.
     pub fn reflection_text(&self) -> Result<Option<String>, String> {
-        let Some(arrangement) = self.arrangement() else {
+        if self.arrangement().is_none() && self.moments().is_none() {
             return Ok(None);
-        };
-        let (body, _) = escape_raw_html(&arrangement.to_markdown(markdown_text));
+        }
+        let (body, _) = escape_raw_html(&self.portable_source());
         let markdown = portable_markdown_body(&body, self)
             .map_err(|error| format!("{}: {error}", self.source_path))?;
-        Ok(Some(markdown_to_text(&markdown)))
+        Ok(Some(markdown_to_text(&markdown, false)))
     }
 
-    /// The arrangement recorded in a shared reflection's authored Markdown, if it has one.
+    /// The arrangement recorded in a shared reflection's authored Markdown, if it has one. It is
+    /// read from the body before any published moments, which follow it after a section break.
     fn arrangement(&self) -> Option<crate::arrangement::Arrangement> {
         self.shared?;
-        crate::arrangement::Arrangement::parse(self.markdown)
+        let body = match self.moments() {
+            Some(block) => &self.markdown[..block.before],
+            None => self.markdown,
+        };
+        crate::arrangement::Arrangement::parse(body)
+    }
+
+    /// The approved media moments a shared reflection's body ends with, read back exactly as the
+    /// gate wrote them (ADR 0066). `None` for any other post or body.
+    fn moments(&self) -> Option<crate::published_moment::MomentsBlock> {
+        self.shared?;
+        crate::published_moment::MomentsBlock::parse(self.markdown)
+    }
+
+    /// The Markdown every portable form is derived from: a shared reflection's arrangement stated
+    /// as labeled sequential sections (ADR 0033) and its published moments stated without HTML
+    /// (ADR 0066); any other body is the authored Markdown itself.
+    fn portable_source(&self) -> String {
+        let moments = self.moments();
+        let body = match &moments {
+            Some(block) => &self.markdown[..block.before],
+            None => self.markdown,
+        };
+        let mut source = self.arrangement().map_or_else(
+            || body.to_string(),
+            |arrangement| arrangement.to_markdown(markdown_text),
+        );
+        if let Some(block) = moments {
+            source.push_str("\n\n---\n\n");
+            source.push_str(&block.portable_markdown());
+        }
+        source
     }
 
     /// Resolve an authored URL against the post or site base while rejecting
@@ -1748,6 +2244,21 @@ fn resolve_link_in(
     } else {
         resolved.to_string()
     })
+}
+
+/// A link target as the checks compare it: parsed and written again, with
+/// `[` and `]` read the same whether the HTML writer escaped them (`%5B`, as it
+/// does in the authority of an IPv6 address such as `http://[2001:db8::1]/`)
+/// or not.
+fn canonical_target(target: &str) -> String {
+    let plain = target
+        .replace("%5B", "[")
+        .replace("%5b", "[")
+        .replace("%5D", "]")
+        .replace("%5d", "]");
+    Url::parse(&plain)
+        .map(|url| url.to_string())
+        .unwrap_or(plain)
 }
 
 fn portability_diagnostics(
@@ -1891,11 +2402,43 @@ fn transformation_summary(capability: &str) -> &'static str {
 }
 
 /// Plain text of Markdown, keeping code and link destinations (shared by the portable text and the
-/// reflection text).
-fn markdown_to_text(markdown: &str) -> String {
+/// reflection text). With `supplements` (a post that opted in to reading modes, ADR 0140) each
+/// supplement's marker line becomes a line naming it and a line closes it, so the text shows where
+/// it starts and stops without a stylesheet.
+fn markdown_to_text(markdown: &str, supplements: bool) -> String {
     let mut output = String::new();
     let mut links: Vec<(usize, String)> = Vec::new();
-    for event in Parser::new_ext(markdown, crate::markdown::parser_options(false)) {
+    let events =
+        Parser::new_ext(markdown, crate::markdown::parser_options(false)).collect::<Vec<_>>();
+    let analysis = supplements.then(|| crate::reading_depth::analyze(&events));
+    // One entry per open block quote: the supplement it is, for its end line.
+    let mut quotes: Vec<Option<&crate::reading_depth::Supplement>> = Vec::new();
+    let mut index = 0;
+    while index < events.len() {
+        let event = events[index].clone();
+        index += 1;
+        if let Event::Start(Tag::BlockQuote(_)) = &event {
+            let start = analysis
+                .as_ref()
+                .and_then(|analysis| analysis.start_at(index - 1));
+            if let Some((supplement, resume)) = start {
+                output.push_str(&crate::reading_depth::start_words(supplement));
+                output.push('\n');
+                quotes.push(Some(supplement));
+                index = resume;
+            } else {
+                quotes.push(None);
+            }
+            continue;
+        }
+        if let Event::End(TagEnd::BlockQuote(_)) = &event {
+            if let Some(Some(supplement)) = quotes.pop() {
+                output.push('\n');
+                output.push_str(&crate::reading_depth::end_words(supplement));
+            }
+            output.push('\n');
+            continue;
+        }
         match event {
             Event::Text(text) | Event::Code(text) | Event::Html(text) | Event::InlineHtml(text) => {
                 output.push_str(&text)
@@ -1924,7 +2467,6 @@ fn markdown_to_text(markdown: &str) -> String {
                 | TagEnd::Heading(_)
                 | TagEnd::Item
                 | TagEnd::CodeBlock
-                | TagEnd::BlockQuote(_)
                 | TagEnd::TableCell
                 | TagEnd::TableHead,
             ) => output.push('\n'),
@@ -1962,10 +2504,13 @@ fn series_clause(lead: &str, names: &str) -> String {
     }
 }
 
+/// What a portable copy says before it lists the outcomes (ADR 0119).
+const OUTCOMES_INTRO: &str = "Suggested sources and corrections readers sent about this post that the author chose to publish, and what the author decided. An outcome is the author’s record of their own decision, not a finding that a claim is true; a suggestion without a decision is unresolved.";
+
 /// Markdown text for a public value (a title, a name, a fact): Markdown punctuation, `<` and `&`
 /// are escaped, so the value can never become a link, emphasis, an autolink, raw HTML or an
 /// entity when the export is read back.
-fn markdown_text(value: &str) -> String {
+pub(crate) fn markdown_text(value: &str) -> String {
     let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
     let mut escaped = String::new();
     for character in normalized.chars() {
@@ -1980,7 +2525,7 @@ fn markdown_text(value: &str) -> String {
     escaped
 }
 
-fn markdown_destination(value: &str) -> String {
+pub(crate) fn markdown_destination(value: &str) -> String {
     value
         .replace('\\', "\\\\")
         .replace('(', "\\(")
@@ -2259,7 +2804,11 @@ fn portable_fence_markdown(
         };
         output.push_str(&markdown_code_fence(normalized_language, source));
         if fence.runnable {
-            if language.eq_ignore_ascii_case("rust") && fence.playground_link != Some(false) {
+            if language.eq_ignore_ascii_case("rust")
+                && fence
+                    .playground_link
+                    .unwrap_or(projection.render_options.playground_link)
+            {
                 if let Some(url) = crate::markdown::rust_playground_url(&format!("{source}\n")) {
                     output.push_str(&format!("\n[Open in Rust Playground]({url}).\n"));
                 }
@@ -3255,6 +3804,32 @@ mod tests {
     }
 
     #[test]
+    fn an_ipv6_literal_link_projects_to_every_representation() {
+        let (config, site) = public_post(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\nSee [http://\\[2001:db8::1\\]/x](http://[2001:db8::1]/x) and <http://[2001:db8::2]/y> and [here](http://[2001:db8::3]/z).\n",
+        );
+        let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
+        let html = projection.portable_html().unwrap();
+        assert!(
+            html.html.contains("href=\"http://[2001:db8::1]/x\""),
+            "{}",
+            html.html
+        );
+        assert!(
+            html.html.contains("href=\"http://[2001:db8::2]/y\""),
+            "{}",
+            html.html
+        );
+        assert!(
+            html.html.contains("href=\"http://[2001:db8::3]/z\""),
+            "{}",
+            html.html
+        );
+        projection.portable_markdown().unwrap();
+        projection.portable_text().unwrap();
+    }
+
+    #[test]
     fn portable_markdown_transforms_custom_blocks_and_keeps_public_context() {
         let (config, site) = public_post(
             "---\ntitle: Work\ndate: 2026-10-01\nprofile: research\nsourceUrl: https://origin.example/work\ndoi: 10.1234/example\nlicense: https://creativecommons.org/licenses/by/4.0/\n---\n> [!TIP]\n> Keep the source.\n\n[Parent](../reference/), [section](#chapter).\n\n```quiz\nWhat is portable?\n- [ ] A second source\n- [x] A derived representation\n> It comes from the canonical work.\n```\n\n```rust runnable title=\"Try the example\"\nfn main() { let text = \"[literal](../not-a-link)\"; }\n```\n\n<script>alert(1)</script>\n",
@@ -3391,6 +3966,46 @@ mod tests {
         assert!(markdown.contains(projection.canonical_url()));
         assert!(!html.contains("<script>"));
         assert!(site.posts[0].html.contains("<ob-rust-playground"));
+    }
+
+    #[test]
+    fn portable_copies_follow_the_site_wide_playground_setting() {
+        let contents = "---
+title: Work
+date: 2026-10-01
+---
+```rust runnable
+fn main() {}
+```
+
+```rust runnable playgroundLink=true
+fn main() {}
+```
+";
+        let (mut config, site) = public_post(contents);
+        let linked = |config: &SiteConfig| {
+            let projection = PortableProjection::from_post(&site.posts[0], config).unwrap();
+            (
+                projection
+                    .portable_html()
+                    .unwrap()
+                    .html
+                    .matches("play.rust-lang.org")
+                    .count(),
+                projection
+                    .portable_markdown()
+                    .unwrap()
+                    .matches("play.rust-lang.org")
+                    .count(),
+            )
+        };
+        assert_eq!(linked(&config), (2, 2));
+        config.code.playground_link = false;
+        assert_eq!(
+            linked(&config),
+            (1, 1),
+            "only the fence that asks for the link keeps it"
+        );
     }
 
     #[test]
@@ -4127,6 +4742,10 @@ A[^a b].
         let native = post.html.clone();
         for contract in registry["contracts"].as_array().unwrap() {
             let id = contract["id"].as_str().unwrap();
+            // An implemented capability (B2, ADR 0141) has its own portable
+            // fallback instead of a canonical-only label: it must still keep
+            // the public prose, but owes no label or canonical-only notice.
+            let implemented = contract["implementation_status"].as_str() == Some("implemented");
             let registered = [CapabilityDescriptor::describe(id, None)];
             let mut projection = PortableProjection::from_post(post, &config).unwrap();
             projection.capabilities = &registered;
@@ -4143,7 +4762,12 @@ A[^a b].
                 ] {
                     assert!(artifact.contains(fact), "{id}: lost {fact}");
                 }
-                if let Some(label) = registered[0].portable_label() {
+                if implemented {
+                    assert!(
+                        registered[0].has_portable_fallback(),
+                        "{id}: an implemented capability needs its own fallback"
+                    );
+                } else if let Some(label) = registered[0].portable_label() {
                     assert!(
                         artifact.contains(label),
                         "{id}: missing canonical-only label"
@@ -4156,7 +4780,12 @@ A[^a b].
                     );
                 }
             }
-            if registered[0].portable_label().is_none() {
+            if implemented {
+                assert!(html
+                    .diagnostics
+                    .iter()
+                    .all(|diagnostic| diagnostic.code != "canonical-only-interaction"));
+            } else if registered[0].portable_label().is_none() {
                 assert!(html.capabilities.is_empty());
                 assert!(html.diagnostics.is_empty());
             } else {

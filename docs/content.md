@@ -45,6 +45,7 @@ a `#` heading, which is then used. Everything else is optional:
 | `coverAlt` | Alternative text for the cover. |
 | `draft` | `true` keeps the post out of every build and feed. |
 | `comments` | `open` (default), `locked` (read-only), or `hidden` when hosted comments are enabled. |
+| `participation` | This post's mode for reader participation beyond comments, as `kind: mode` entries: `participation: [question: open, third-perspective: locked]`, or one `- kind: mode` per line. Modes are `open`, `locked` and `hidden`, as for `comments`. A kind only takes effect once the site switches it on; see [Reader participation](configuration.md#reader-participation). |
 | `theme` | A theme name, to render this post differently from the rest. |
 | `canonical` | If the post was first published elsewhere, that address. Search engines then credit the original. |
 | `sourceUrl` | Shown as "Originally published at" under the post. The Hashnode importer fills this in. |
@@ -216,6 +217,21 @@ The kinds are `NOTE`, `TIP`, `IMPORTANT`, `WARNING`, and `CAUTION` (any case); e
 its own colour and is titled with its kind. Put the marker alone on the first line: any
 other text after it, or another kind, leaves an ordinary quote that shows the marker.
 
+#### Linking a word to the Knowledge Atlas
+
+When your site publishes its [Knowledge Atlas](configuration.md#knowledge-atlas), link a word to an
+approved entry by writing a Markdown link to `atlas:` and the entry's id:
+
+```markdown
+In the [allegory of the cave](atlas:allegory-of-the-cave), [Plato](atlas:plato) imagines prisoners.
+```
+
+Only the words you link are linked; the same word elsewhere stays plain text, and nothing is
+recognised automatically. The build turns each link into an ordinary link to the entry's page. If
+the entry is unknown, not approved, withdrawn, or the atlas is off, the words are published as plain
+text and the build, `check` and Admin tell you which link and why. Feeds and portable copies keep
+the words without the link. See the [format](specs/knowledge-atlas.md#concept-links-in-articles).
+
 ### Knowledge checks
 
 Put a short multiple-choice question in a `quiz` fence. Readers receive feedback as soon
@@ -265,7 +281,7 @@ fn main() {}
 | `showLineNumbers=10` | Number this block starting at 10. |
 | `showLineNumbers=false` | No numbers on this block. |
 | `runnable` | Make Rust, web, or an explicitly configured runner language editable and runnable. Unsupported languages stay static. |
-| `playgroundLink=false` | On a runnable Rust block, hide the separate **Open in Rust Playground** link. |
+| `playgroundLink=false` | On a runnable Rust block, hide the separate **Open in Rust Playground** link. `playgroundLink=true` shows it when the site setting `code.playgroundLink` is off. |
 
 Colours can be turned off for a post (`highlight: false`) or the whole blog, but not for
 one block; mark a block `text` to leave it plain. Copying a block, with the button or by

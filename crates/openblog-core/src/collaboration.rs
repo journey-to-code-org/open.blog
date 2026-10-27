@@ -151,6 +151,16 @@ pub enum AuthorizationAction {
     /// participant. Only Contributors hold it, and only for themselves, because a named author
     /// must be able to approve the piece, which Editors cannot.
     EditSynthesis,
+    /// Answer a reader's Third Perspective as the author of one attributed section (ADR 0128).
+    /// Targets the author's own participant. Only Contributors hold it, and only for themselves:
+    /// a coordinator or site owner moderates the response but never writes as another author,
+    /// and a contributor registry key or an Editor binding grants nothing here.
+    RespondAsAuthor,
+    /// Capture, edit and remove the requester's own media moments (ADR 0062 to 0064), and read
+    /// the moments other authors revealed with a draft. Targets the requester's own participant.
+    /// Only Contributors hold it, and only for themselves: a moment proposed for the piece makes
+    /// its owner a required approver, which an Editor cannot be.
+    EditMoments,
     /// Choose how contribution drafts may be revealed. Targets the publication. Coordinators and
     /// site owners hold it; it reveals nothing and reads no draft.
     SetRevealPolicy,
@@ -263,9 +273,8 @@ impl AuthorizationAction {
             | ArrangeReflection | Schedule | Publish | Export | PlaceInSeries | CreateSeries => {
                 TargetKind::Publication
             }
-            ApproveContribution | EditDraft | EditSynthesis | RemoveMember | ManageRoles => {
-                TargetKind::Participant
-            }
+            ApproveContribution | EditDraft | EditSynthesis | EditMoments | RespondAsAuthor
+            | RemoveMember | ManageRoles => TargetKind::Participant,
             ViewRevealed | ViewContribution | EditContribution | RevealContribution => {
                 TargetKind::Contribution
             }
@@ -594,7 +603,7 @@ fn role_allows(
         (Contributor | Editor, EditDraft, ResolvedTarget::Participant { id, .. }) => *id == own,
         (
             Contributor,
-            ApproveContribution | EditSynthesis,
+            ApproveContribution | EditSynthesis | EditMoments | RespondAsAuthor,
             ResolvedTarget::Participant { id, .. },
         ) => *id == own,
         (
@@ -1314,7 +1323,7 @@ fn is_line_break(character: char) -> bool {
 /// Default_Ignorable_Code_Point plus blank-rendering fillers. These remain allowed inside a
 /// name, where joiners, variation selectors, and emoji tags are legitimate, but a name made only
 /// of them would render as nobody.
-fn is_invisible(character: char) -> bool {
+pub(crate) fn is_invisible(character: char) -> bool {
     matches!(
         character,
         '\u{00AD}'

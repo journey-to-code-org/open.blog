@@ -117,9 +117,10 @@ as it was, and a damaged or newer-version file is reported rather than replaced.
 [format and storage contract](specs/research-source-library.md) and
 [ADR 0010](adr/0010-private-source-library-storage.md).
 
-Admin Studio manages the library under **Sources** (`#/sources`, also in the command
-palette): create, edit, archive, restore, search, and filter each source type. A stale edit
-shows a conflict and keeps your draft without overwriting newer data; see
+Admin Studio manages the library under **Sources** in the research workspace
+(`#/research/sources`, also in the command palette): create, edit, archive, restore, search,
+and filter each source type. A stale edit shows a conflict and keeps your draft without
+overwriting newer data; see
 [ADR 0011](adr/0011-admin-source-library-management.md).
 
 Sources also imports CSL JSON (for example from Zotero) after a preview that lists what would
@@ -156,6 +157,15 @@ link to each other for keyboard and screen-reader users. Only the key, the locat
 source's public description are published, never notes, private identifiers or anything from
 the research notebook.
 
+On the page, a reader with JavaScript also gets a **citation preview**: focusing or hovering a
+marker, or tapping it once on a touch screen, shows the note's reference, the cited location and
+its DOI or web link right beside the marker, and Escape closes it. The marker is still the link to
+its note, nothing is fetched or stored, and without JavaScript the page reads exactly the same.
+A preview shows only what your library says. It does not check that a source exists or is
+described correctly, that a DOI or web address resolves, that the passage is at that location or
+supports your sentence, or that a source is authoritative or may be reused; see
+[what previews do not verify](specs/citations.md#what-previews-do-not-verify).
+
 A citation the build cannot resolve (an unknown key, a page cited on a whole work, a malformed
 bracket, or no library) stops that post with its file line and a fix; write `\[@` for literal
 text. See [ADR 0048](adr/0048-citations-publish-through-the-one-publication-projection.md) and
@@ -164,3 +174,6 @@ text. See [ADR 0048](adr/0048-citations-publish-through-the-one-publication-proj
 For the product boundary and supporting standards research, see
 [Research and evidence publishing](research/research-evidence-publishing.md) and
 [ADR 0002](adr/0002-research-profile-and-evidence-capability.md).
+
+Every code the research checks can report, with what it means and how to fix it, is explained in
+[Research checks](research-checks.md).

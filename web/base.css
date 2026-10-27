@@ -761,6 +761,226 @@ h2.ob-title {
   outline-offset: 2px;
 }
 
+/* Following a marker lands on its note, and a way back lands on the marker:
+   clear of the top edge, and marked so the eye finds where it arrived.
+   Long addresses wrap at high zoom instead of widening the page. */
+.ob-citation-note,
+.ob-citation a {
+  scroll-margin-block: 1.5rem;
+}
+
+.ob-citation-note {
+  overflow-wrap: anywhere;
+}
+
+.ob-citation-note:target,
+.ob-citation a:target {
+  outline: 2px solid var(--ob-color-accent);
+  outline-offset: 2px;
+}
+
+.ob-citation-note:focus:not(:focus-visible, :target) {
+  outline: none;
+}
+
+/* A concept link (ADR 0172): a word the author tied to an atlas entry. The
+   dotted underline marks it as a link to an entry rather than to another
+   page, and does not rely on colour; the visually hidden words after the
+   label say the same to a screen reader. */
+a.ob-concept {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-thickness: 0.12em;
+  text-underline-offset: 0.2em;
+}
+
+a.ob-concept:hover,
+a.ob-concept:focus-visible {
+  text-decoration-style: solid;
+}
+
+/* <ob-citation-previews>: one preview at a time, placed straight after the
+   marker it describes (so Tab reaches its links next) and moved below or
+   above the marker, inside the viewport, by the offsets the component sets. */
+ob-citation-previews {
+  display: none;
+}
+
+.ob-citation-preview {
+  position: absolute;
+  z-index: 20;
+  display: block;
+  box-sizing: border-box;
+  /* The component sets the viewport's width without its scrollbar, less the
+     gutters; `100vw` would count a classic scrollbar. */
+  inline-size: 28rem;
+  max-inline-size: var(--ob-citation-preview-max-inline-size, calc(100vw - 1rem));
+  max-block-size: min(20rem, 70vh);
+  overflow: auto;
+  padding: 0.75rem 1rem;
+  border: var(--ob-border-width, 1px) solid var(--ob-color-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+  color: var(--ob-color-text);
+  box-shadow: var(--ob-shadow);
+  font-size: 0.9rem;
+  font-style: normal;
+  font-weight: normal;
+  line-height: 1.5;
+  text-align: start;
+  text-indent: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  translate: var(--ob-citation-preview-x, 0) var(--ob-citation-preview-y, 1.5em);
+}
+
+.ob-citation-preview[hidden],
+.ob-citation-preview [hidden] {
+  display: none;
+}
+
+.ob-citation-preview-details,
+.ob-citation-preview-reference,
+.ob-citation-preview-locators {
+  display: block;
+}
+
+.ob-citation-preview-locators {
+  margin-block-start: 0.25rem;
+  color: var(--ob-color-muted);
+}
+
+.ob-citation-preview-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin-block-start: 0.5rem;
+}
+
+.ob-citation-preview a:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ob-citation-preview:not([hidden]) {
+    animation: ob-citation-preview-in var(--ob-motion, 150ms) ease-out;
+  }
+}
+
+@keyframes ob-citation-preview-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* <ob-concept-previews> (ADR 0174): one preview at a time, placed straight
+   after the concept link it describes (so Tab reaches its link next) and moved
+   below or above the link, inside the viewport, by the offsets the component
+   sets. It is the citation preview's box with the entry's own lines. */
+ob-concept-previews {
+  display: none;
+}
+
+.ob-concept-preview {
+  position: absolute;
+  z-index: 20;
+  display: block;
+  box-sizing: border-box;
+  inline-size: 28rem;
+  max-inline-size: var(--ob-concept-preview-max-inline-size, calc(100vw - 1rem));
+  max-block-size: min(24rem, 70vh);
+  overflow: auto;
+  padding: 0.75rem 1rem;
+  border: var(--ob-border-width, 1px) solid var(--ob-color-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+  color: var(--ob-color-text);
+  box-shadow: var(--ob-shadow);
+  font-size: 0.9rem;
+  font-style: normal;
+  font-weight: normal;
+  line-height: 1.5;
+  text-align: start;
+  text-indent: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  translate: var(--ob-concept-preview-x, 0) var(--ob-concept-preview-y, 1.5em);
+}
+
+.ob-concept-preview[hidden],
+.ob-concept-preview [hidden] {
+  display: none;
+}
+
+.ob-concept-preview-details,
+.ob-concept-preview-kind,
+.ob-concept-preview-provenance,
+.ob-concept-preview-summary,
+.ob-concept-preview-clipped,
+.ob-concept-preview-source,
+.ob-concept-preview-relationships,
+.ob-concept-preview-relationship,
+.ob-concept-preview-heading,
+.ob-concept-preview-statement,
+.ob-concept-preview-how,
+.ob-concept-preview-uncertainty,
+.ob-concept-preview-evidence,
+.ob-concept-preview-more {
+  display: block;
+}
+
+.ob-concept-preview-kind {
+  font-weight: 600;
+}
+
+.ob-concept-preview-provenance,
+.ob-concept-preview-clipped,
+.ob-concept-preview-source,
+.ob-concept-preview-how,
+.ob-concept-preview-evidence,
+.ob-concept-preview-more {
+  color: var(--ob-color-muted);
+}
+
+.ob-concept-preview-summary,
+.ob-concept-preview-source,
+.ob-concept-preview-relationships {
+  margin-block-start: 0.5rem;
+}
+
+.ob-concept-preview-heading {
+  font-weight: 600;
+}
+
+.ob-concept-preview-relationship {
+  margin-block-start: 0.25rem;
+}
+
+.ob-concept-preview-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin-block-start: 0.5rem;
+}
+
+.ob-concept-preview a:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ob-concept-preview:not([hidden]) {
+    animation: ob-concept-preview-in var(--ob-motion, 150ms) ease-out;
+  }
+}
+
+@keyframes ob-concept-preview-in {
+  from {
+    opacity: 0;
+  }
+}
+
 /* ---------- Syntax highlighting (tokens painted by <ob-code highlight>) ---------- */
 
 .tok-keyword { color: var(--ob-color-code-keyword); }
@@ -1513,6 +1733,740 @@ ob-comments {
 .ob-comments-form textarea { font: inherit; padding: .65rem; border: 1px solid var(--ob-color-border); border-radius: .35rem; background: var(--ob-color-surface); color: inherit; }
 .ob-comments-form button { justify-self: start; }
 
+/* Passage feedback (ADR 0082): a single-column form that fits 320px, a
+   status line outside the form, a copy-and-send fallback, and a button
+   placed next to the reader's selection by the offsets the component sets. */
+.ob-feedback {
+  margin-block: var(--ob-space-8, 2rem);
+  border-top: 1px solid var(--ob-color-border);
+  padding-top: var(--ob-space-6, 1.5rem);
+}
+
+/* Approved reader notes on a post's canonical page (ADR 0083): static text, no script. */
+.ob-reader-feedback {
+  margin-block: var(--ob-space-8, 2rem);
+  border-top: 1px solid var(--ob-color-border);
+  padding-top: var(--ob-space-6, 1.5rem);
+}
+
+/* A passage revision is one long word; let it wrap at 320px. */
+.ob-feedback code,
+.ob-reader-note code,
+.ob-third-perspective code {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+.ob-reader-feedback-list {
+  display: grid;
+  gap: var(--ob-space-6, 1.5rem);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-reader-note {
+  max-inline-size: 42rem;
+  overflow-wrap: anywhere;
+}
+
+.ob-reader-note h3 {
+  margin-block: 0 .5rem;
+  font-size: 1.1rem;
+}
+
+.ob-reader-note blockquote {
+  margin: .5rem 0;
+  border-inline-start: 3px solid var(--ob-color-border);
+  padding-inline-start: 1rem;
+}
+
+.ob-reader-note-meta,
+.ob-reader-note-stale {
+  color: var(--ob-color-subtle, inherit);
+  font-size: .9rem;
+}
+
+.ob-reader-note-response {
+  margin-block-start: .75rem;
+  border-inline-start: 3px solid var(--ob-color-accent, currentColor);
+  padding-inline-start: 1rem;
+}
+
+.ob-reader-note-response h4 {
+  margin-block: 0 .25rem;
+  font-size: 1rem;
+}
+
+/* The author's decision on a published suggestion (ADR 0119): its words name the outcome, so
+   nothing relies on colour; an undecided suggestion has a dashed rule instead of a solid one. */
+.ob-reader-note-outcome,
+.ob-reader-outcome {
+  overflow-wrap: anywhere;
+}
+
+.ob-reader-note-outcome {
+  margin-block-start: .75rem;
+  border-inline-start: 3px solid var(--ob-color-border);
+  padding-inline-start: 1rem;
+}
+
+.ob-reader-note-outcome[data-outcome="unresolved"] {
+  border-inline-start-style: dashed;
+}
+
+.ob-reader-note-outcome h4 {
+  margin-block: 0 .25rem;
+  font-size: 1rem;
+}
+
+.ob-reader-note-outcome p {
+  margin-block: .25rem;
+}
+
+.ob-reader-note-outcome code {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+/* Approved Third Perspectives on a work's canonical page (ADR 0115): readers' reflections, set
+   apart from the authors' text, static and without a script. */
+.ob-third-perspectives {
+  margin-block: var(--ob-space-8, 2rem);
+  border-top: 1px solid var(--ob-color-border);
+  padding-top: var(--ob-space-6, 1.5rem);
+}
+
+.ob-third-perspectives-list {
+  display: grid;
+  gap: var(--ob-space-6, 1.5rem);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-perspective {
+  max-inline-size: 42rem;
+  min-inline-size: 0;
+  border-inline-start: 3px solid var(--ob-color-border);
+  padding-inline-start: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.ob-perspective h3 {
+  margin-block: 0 .5rem;
+  font-size: 1.1rem;
+}
+
+.ob-perspective-meta,
+.ob-perspective-earlier {
+  color: var(--ob-color-subtle, inherit);
+  font-size: .9rem;
+}
+
+/* Featured reflections on a work's canonical page (ADR 0184): the editors' choice of reflections
+   already shown above, in a plain list with its framing as text. Nothing here is a ranking: the
+   marks are borders and words, never colour or size alone, and nothing moves. */
+.ob-community-perspectives {
+  margin-block: var(--ob-space-8, 2rem);
+  border-top: 1px solid var(--ob-color-border);
+  padding-top: var(--ob-space-6, 1.5rem);
+  min-inline-size: 0;
+}
+
+.ob-community-notice {
+  max-inline-size: 42rem;
+  overflow-wrap: anywhere;
+}
+
+.ob-community-perspectives-list {
+  display: grid;
+  gap: var(--ob-space-6, 1.5rem);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-community-perspectives-list > li {
+  min-inline-size: 0;
+}
+
+.ob-feature {
+  max-inline-size: 42rem;
+  min-inline-size: 0;
+  border-inline-start: 3px solid var(--ob-color-border);
+  padding-inline-start: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.ob-feature h3 {
+  margin-block: 0 .5rem;
+  font-size: 1.1rem;
+}
+
+.ob-feature-status {
+  margin-block: 0 .5rem;
+  font-size: .9rem;
+}
+
+.ob-feature-provenance {
+  color: var(--ob-color-subtle, inherit);
+  font-size: .9rem;
+}
+
+.ob-feature-note {
+  border-block-start: 1px dashed var(--ob-color-border);
+  padding-block-start: .5rem;
+}
+
+.ob-feature:target {
+  outline: 2px solid currentColor;
+  outline-offset: 4px;
+}
+
+.ob-feature a:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+@media (forced-colors: active) {
+  .ob-feature,
+  .ob-community-perspectives {
+    border-color: CanvasText;
+  }
+}
+
+/* The conversation after an author's own section (ADR 0138): inside that section's turn, after
+   the author's words, so it never moves them. A reader's reflection and the author's response are
+   told apart by their headings and labels, which are text; the border style only repeats it. */
+ob-conversation {
+  display: block;
+}
+
+.ob-conversation {
+  min-inline-size: 0;
+  margin-block: var(--ob-space-6, 1.5rem) 0;
+  border-top: 1px solid var(--ob-color-border);
+  padding-top: var(--ob-space-4, 1rem);
+  overflow-wrap: anywhere;
+}
+
+.ob-conversation > h3 {
+  margin-block: 0 .5rem;
+  font-size: 1rem;
+}
+
+.ob-conversation-note {
+  margin-block: 0 var(--ob-space-4, 1rem);
+  color: var(--ob-color-subtle, inherit);
+  font-size: .9rem;
+}
+
+.ob-conversation-list {
+  display: grid;
+  gap: var(--ob-space-4, 1rem);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-conversation-list[hidden] {
+  display: none;
+}
+
+.ob-conversation-list > li {
+  display: grid;
+  gap: .75rem;
+  min-inline-size: 0;
+}
+
+.ob-perspective h4,
+.ob-author-response h4,
+.ob-author-response h5 {
+  margin-block: 0 .5rem;
+  font-size: 1rem;
+}
+
+.ob-author-response {
+  max-inline-size: 42rem;
+  min-inline-size: 0;
+  margin-inline-start: 1rem;
+  border-inline-start: 3px double var(--ob-color-border);
+  padding-inline-start: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.ob-perspective > .ob-author-response {
+  margin-block-start: .75rem;
+}
+
+.ob-perspective:target,
+.ob-author-response:target,
+.ob-conversation:target {
+  outline: 2px solid currentColor;
+  outline-offset: 4px;
+}
+
+.ob-conversation-toggle {
+  margin-block: 0 var(--ob-space-4, 1rem);
+}
+
+.ob-conversation-toggle:focus-visible,
+.ob-conversation a:focus-visible,
+.ob-third-perspectives-where a:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+ob-passage-feedback {
+  display: block;
+}
+
+.ob-passage-feedback-form {
+  display: grid;
+  gap: 1rem;
+  max-inline-size: 42rem;
+}
+
+.ob-passage-feedback-form fieldset {
+  display: grid;
+  gap: .5rem;
+  min-inline-size: 0;
+  margin: 0;
+  padding: .75rem 1rem 1rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: .35rem;
+}
+
+.ob-passage-feedback-form legend {
+  padding-inline: .25rem;
+  font-weight: 600;
+}
+
+.ob-passage-feedback-field,
+.ob-passage-feedback-subfield {
+  display: grid;
+  gap: .25rem;
+}
+
+.ob-passage-feedback-subfield {
+  margin-inline-start: 1.75rem;
+}
+
+.ob-passage-feedback-field > label,
+.ob-passage-feedback-subfield > label,
+.ob-passage-feedback-fallback > label {
+  font-weight: 600;
+}
+
+.ob-passage-feedback-choice {
+  display: flex;
+  gap: .5rem;
+  align-items: baseline;
+}
+
+/* Where in an offered source (ADR 0116): side by side when they fit, stacked on a phone. */
+.ob-passage-feedback-locator {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+}
+
+.ob-passage-feedback-locator > .ob-passage-feedback-subfield {
+  flex: 1 1 8rem;
+  min-inline-size: 0;
+  margin-inline-start: 0;
+}
+
+.ob-passage-feedback-form input:not([type="radio"], [type="checkbox"]),
+.ob-passage-feedback-form select,
+.ob-passage-feedback-form textarea,
+.ob-passage-feedback-fallback textarea {
+  box-sizing: border-box;
+  inline-size: 100%;
+  min-inline-size: 0;
+  font: inherit;
+  padding: .65rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: .35rem;
+  background: var(--ob-color-surface);
+  color: inherit;
+}
+
+.ob-passage-feedback-form [aria-invalid="true"] {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.ob-passage-feedback-hint,
+.ob-passage-feedback-quote,
+.ob-passage-feedback-error,
+.ob-passage-feedback-status,
+.ob-passage-feedback-done,
+.ob-passage-feedback-fallback-message {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ob-passage-feedback-hint,
+.ob-passage-feedback-quote {
+  color: var(--ob-color-muted);
+}
+
+.ob-passage-feedback-quote {
+  margin-inline-start: 1.75rem;
+  font-style: italic;
+  white-space: pre-wrap;
+}
+
+.ob-passage-feedback-error,
+.ob-passage-feedback-alert:not(:empty) {
+  font-weight: 600;
+}
+
+.ob-passage-feedback-error::before {
+  content: "Error: ";
+}
+
+.ob-passage-feedback-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1rem;
+  align-items: center;
+}
+
+.ob-passage-feedback-form button[aria-disabled="true"] {
+  cursor: progress;
+  opacity: .7;
+}
+
+.ob-passage-feedback-status:empty {
+  display: none;
+}
+
+.ob-passage-feedback-done,
+.ob-passage-feedback-fallback {
+  max-inline-size: 42rem;
+  margin-block: 1rem;
+}
+
+.ob-passage-feedback-fallback {
+  display: grid;
+  gap: .5rem;
+}
+
+.ob-passage-feedback [hidden],
+ob-passage-feedback [hidden] {
+  display: none;
+}
+
+.ob-passage-feedback-selection {
+  position: fixed;
+  z-index: 20;
+  left: var(--ob-passage-feedback-x, 8px);
+  top: var(--ob-passage-feedback-y, 8px);
+  max-inline-size: calc(100vw - 16px);
+  padding: .4rem .75rem;
+  border: var(--ob-border-width, 1px) solid var(--ob-color-border);
+  border-radius: var(--ob-radius, .35rem);
+  background: var(--ob-color-surface);
+  color: var(--ob-color-text);
+  box-shadow: var(--ob-shadow);
+  font: inherit;
+  font-size: .9rem;
+}
+
+.ob-passage-feedback-form :focus-visible,
+.ob-passage-feedback-fallback :focus-visible,
+.ob-passage-feedback-selection:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* Third Perspectives (ADR 0114): one column at every width, native controls, visible focus. */
+
+ob-third-perspective {
+  display: block;
+}
+
+.ob-third-perspective-form {
+  display: grid;
+  gap: 1rem;
+  max-inline-size: 42rem;
+}
+
+.ob-third-perspective-form fieldset {
+  display: grid;
+  gap: .5rem;
+  min-inline-size: 0;
+  margin: 0;
+  padding: .75rem 1rem 1rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: .35rem;
+}
+
+.ob-third-perspective-form legend {
+  padding-inline: .25rem;
+  font-weight: 600;
+}
+
+.ob-third-perspective-field,
+.ob-third-perspective-subfield {
+  display: grid;
+  gap: .25rem;
+}
+
+.ob-third-perspective-subfield {
+  margin-inline-start: 1.75rem;
+}
+
+.ob-third-perspective-field > label,
+.ob-third-perspective-subfield > label,
+.ob-third-perspective-fallback > label {
+  font-weight: 600;
+}
+
+.ob-third-perspective-choice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: .15rem .5rem;
+  align-items: baseline;
+}
+
+.ob-third-perspective-choice > .ob-third-perspective-hint {
+  grid-column: 2;
+}
+
+.ob-third-perspective-form input:not([type="radio"], [type="checkbox"]),
+.ob-third-perspective-form select,
+.ob-third-perspective-form textarea,
+.ob-third-perspective-fallback textarea {
+  box-sizing: border-box;
+  inline-size: 100%;
+  min-inline-size: 0;
+  font: inherit;
+  padding: .65rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: .35rem;
+  background: var(--ob-color-surface);
+  color: inherit;
+}
+
+.ob-third-perspective-form [aria-invalid="true"] {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.ob-third-perspective-hint,
+.ob-third-perspective-error,
+.ob-third-perspective-status,
+.ob-third-perspective-done,
+.ob-third-perspective-fallback-message {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ob-third-perspective-hint {
+  color: var(--ob-color-muted);
+}
+
+.ob-third-perspective-error,
+.ob-third-perspective-alert:not(:empty) {
+  font-weight: 600;
+}
+
+.ob-third-perspective-error::before {
+  content: "Error: ";
+}
+
+.ob-third-perspective-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1rem;
+  align-items: center;
+}
+
+.ob-third-perspective-form button[aria-disabled="true"],
+.ob-third-perspective-fallback button[aria-disabled="true"] {
+  cursor: progress;
+  opacity: .7;
+}
+
+.ob-third-perspective-status:empty {
+  display: none;
+}
+
+.ob-third-perspective-done,
+.ob-third-perspective-fallback {
+  max-inline-size: 42rem;
+  margin-block: 1rem;
+}
+
+.ob-third-perspective-fallback {
+  display: grid;
+  gap: .5rem;
+}
+
+.ob-third-perspective [hidden],
+ob-third-perspective [hidden] {
+  display: none;
+}
+
+.ob-third-perspective-form :focus-visible,
+.ob-third-perspective-fallback :focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* Suggestions for future work (RD13): one column at every width, native controls, visible focus; a fieldset or the region itself never forces a sideways scroll. */
+
+ob-future-suggestion {
+  display: block;
+}
+
+.ob-future-suggestion-form {
+  display: grid;
+  gap: 1rem;
+  max-inline-size: 42rem;
+}
+
+.ob-future-suggestion-form fieldset {
+  display: grid;
+  gap: .5rem;
+  min-inline-size: 0;
+  margin: 0;
+  padding: .75rem 1rem 1rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: .35rem;
+}
+
+.ob-future-suggestion-form legend {
+  padding-inline: .25rem;
+  font-weight: 600;
+}
+
+.ob-future-suggestion-field,
+.ob-future-suggestion-subfield {
+  display: grid;
+  gap: .25rem;
+}
+
+.ob-future-suggestion-subfield {
+  margin-inline-start: 1.75rem;
+}
+
+.ob-future-suggestion-field > label,
+.ob-future-suggestion-subfield > label,
+.ob-future-suggestion-fallback > label {
+  font-weight: 600;
+}
+
+.ob-future-suggestion-choice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: .15rem .5rem;
+  align-items: baseline;
+}
+
+.ob-future-suggestion-choice > .ob-future-suggestion-hint {
+  grid-column: 2;
+}
+
+.ob-future-suggestion-form input:not([type="radio"], [type="checkbox"]),
+.ob-future-suggestion-form select,
+.ob-future-suggestion-form textarea,
+.ob-future-suggestion-fallback textarea {
+  box-sizing: border-box;
+  inline-size: 100%;
+  min-inline-size: 0;
+  font: inherit;
+  padding: .65rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: .35rem;
+  background: var(--ob-color-surface);
+  color: inherit;
+}
+
+.ob-future-suggestion-form [aria-invalid="true"] {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.ob-future-suggestion-hint,
+.ob-future-suggestion-error,
+.ob-future-suggestion-status,
+.ob-future-suggestion-done,
+.ob-future-suggestion-fallback-message {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ob-future-suggestion-hint {
+  color: var(--ob-color-muted);
+}
+
+.ob-future-suggestion-error,
+.ob-future-suggestion-alert:not(:empty) {
+  font-weight: 600;
+}
+
+.ob-future-suggestion-error::before {
+  content: "Error: ";
+}
+
+.ob-future-suggestion-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1rem;
+  align-items: center;
+}
+
+.ob-future-suggestion-form button[aria-disabled="true"],
+.ob-future-suggestion-fallback button[aria-disabled="true"] {
+  cursor: progress;
+  opacity: .7;
+}
+
+.ob-future-suggestion-status:empty {
+  display: none;
+}
+
+.ob-future-suggestion-done,
+.ob-future-suggestion-fallback {
+  max-inline-size: 42rem;
+  margin-block: 1rem;
+}
+
+.ob-future-suggestion-fallback {
+  display: grid;
+  gap: .5rem;
+}
+
+.ob-future-suggestion [hidden],
+ob-future-suggestion [hidden] {
+  display: none;
+}
+
+.ob-future-suggestion-form :focus-visible,
+.ob-future-suggestion-fallback :focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.ob-future-suggestion-form fieldset[hidden],
+.ob-future-suggestion-form [hidden] {
+  display: none;
+}
+
+.ob-future-suggestion-form textarea {
+  resize: vertical;
+}
+
+.ob-future-suggestion {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
 /* ---------- Series ---------- */
 
 .ob-series-box {
@@ -1714,6 +2668,12 @@ ob-comments {
   border-bottom: var(--ob-border-width) solid var(--ob-color-border);
 }
 
+/* A long unbroken title wraps instead of pushing the page sideways. */
+.ob-archive li > a {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 /* ---------- Search ---------- */
 
 .ob-search-form {
@@ -1865,6 +2825,8 @@ ob-back-to-top button:hover {
   .ob-series-box,
   .ob-post-pager,
   .ob-copy,
+  .ob-feedback,
+  .ob-passage-feedback-selection,
   ob-back-to-top,
   ob-theme-toggle {
     display: none !important;
@@ -1889,6 +2851,28 @@ ob-back-to-top button:hover {
   .ob-recipe-card {
     background: none;
     color: inherit;
+  }
+
+  /* Citation notes print whole and together with their numbers; the ways
+     back to a marker are for screens only. */
+  .ob-citation-back,
+  .ob-citation-preview {
+    display: none !important;
+  }
+
+  /* Entry previews are for screens; a printed concept link is its label. */
+  .ob-concept-preview {
+    display: none !important;
+  }
+
+  .ob-citation-note {
+    break-inside: avoid;
+    color: inherit;
+  }
+
+  .ob-citation-note:target,
+  .ob-citation a:target {
+    outline: none;
   }
 
   .ob-recipe-facts dt {
@@ -1922,6 +2906,20 @@ ob-back-to-top button:hover {
     color: inherit;
     text-decoration: none;
   }
+  .ob-conversation,
+  .ob-perspective,
+  .ob-author-response {
+    break-inside: avoid;
+  }
+
+  .ob-conversation ob-abuse-report,
+  .ob-conversation-toggle {
+    display: none;
+  }
+
+  ob-conversation .ob-conversation-list[hidden] {
+    display: grid;
+  }
 }
 /* Shared reflections: every layout (ADR 0031, ADR 0032). The markup is already in reading
    order; this only places it, and only on wide screens. Below 48em, in print and without CSS it
@@ -1952,6 +2950,207 @@ ob-back-to-top button:hover {
   .ob-reflection-roundtable .ob-round-prompt { grid-column: 1 / -1; margin: 0; }
 }
 
+/* Published media moments (ADR 0066): static, no script; long titles and addresses wrap. */
+.ob-moments .ob-moment { overflow-wrap: anywhere; }
+.ob-moments .ob-moment h3 { margin-bottom: 0.25rem; }
+.ob-moment-by { margin-top: 0; font-size: 0.9rem; font-style: italic; }
+.ob-moment-quotation blockquote { margin: 0; }
+.ob-moment-quotation figcaption { margin-top: 0.4rem; font-size: 0.9rem; color: var(--ob-color-muted); }
+@media print {
+  .ob-moment-link a::after { content: " (" attr(href) ")"; }
+}
+
+/* Reading modes and supplements (ADR 0140-0142). A supplement is a labelled group that holds the
+   author's quote and ends with a visible end line, so it reads as set apart with or without this
+   stylesheet. The build never hides one: <ob-reading-modes> sets `hidden` from the reader's mode,
+   and a supplement holding a warning (data-ob-always) is never hidden. */
+ob-reading-modes { display: block; }
+.ob-supplement {
+  --ob-supplement-edge: var(--ob-color-accent, currentColor);
+  margin: 1.4em 0;
+  padding: 0.75rem 1.1rem;
+  border: var(--ob-border-width, 1px) solid var(--ob-color-border, currentColor);
+  border-inline-start: 4px solid var(--ob-supplement-edge);
+  border-radius: var(--ob-radius-sm, 4px);
+  background: color-mix(in srgb, var(--ob-supplement-edge) 6%, transparent);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ob-supplement[hidden]:not([hidden="until-found"]) { display: none; }
+.ob-supplement .ob-supplement { margin-block: 0.9em; }
+/* Hidden but findable (ADR 0144): the browser skips the contents, and the box shrinks to nothing so
+   no empty frame is left, a nested one too (so this follows the nested margin above). Find in page
+   and a link into it reveal it. */
+.ob-supplement[hidden="until-found"] { margin: 0; padding: 0; border-width: 0; background: none; }
+.ob-supplement > blockquote { margin: 0; padding: 0; border: 0; background: none; }
+.ob-supplement > blockquote > :first-child { margin-top: 0; }
+.ob-supplement > blockquote > :last-child { margin-bottom: 0; }
+.ob-supplement-label { margin: 0 0 0.5em; font-size: 0.9em; }
+.ob-supplement-kind { color: var(--ob-supplement-edge); font-weight: 700; }
+.ob-supplement-level, .ob-supplement-always { color: var(--ob-color-muted, inherit); }
+.ob-supplement-title { font-weight: 600; }
+.ob-supplement-skip:not(:focus):not(:active) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.ob-supplement-skip { display: inline-block; margin: 0 0 0.5em; font-size: 0.9em; }
+.ob-supplement-end { margin: 0.6em 0 0; font-size: 0.8em; color: var(--ob-color-muted, inherit); }
+.ob-supplement-end strong { font-weight: 600; }
+.ob-supplement[data-ob-always] { --ob-supplement-edge: var(--ob-color-callout-warning, #bf8700); }
+.ob-supplement[data-ob-revealed] { outline: 2px dashed var(--ob-supplement-edge); outline-offset: 2px; }
+/* A supplement fades in only when the reader just chose a mode that shows it and has not asked for
+   reduced motion: never on load, never on a page where script has not applied a mode. */
+@media (prefers-reduced-motion: no-preference) {
+  .ob-supplement.ob-just-shown:not([hidden]) { animation: ob-supplement-in 0.18s ease-out; }
+}
+@keyframes ob-supplement-in { from { opacity: 0; } to { opacity: 1; } }
+/* Before script has applied a mode, hide the layers the author's default mode hides, so the page does
+   not paint every layer and then jump. Only on a screen where script is on (without it, and in print,
+   nothing is hidden), and never a warning. The hiding is the animation's first keyframe held through a
+   six second delay, so if the script never arrives the layers return by themselves. The component
+   marks itself `ob-reading-started` as its first act, which ends this at once; `animation: none` for
+   reduced motion removes it altogether, and `animation-play-state` keeps a paused-animation rule from
+   freezing the hidden state. What remains: with script that loads but is slower than six seconds the
+   layers appear and are then hidden, and a browser without `scripting` or `:defined` shows the page
+   as the build wrote it. */
+@media screen and (scripting: enabled) {
+  ob-reading-modes:not(:defined):not(.ob-reading-started)[default="standard"] .ob-supplement:not([data-ob-always], :has(.ob-callout-warning, .ob-callout-caution), .ob-callout-warning .ob-supplement, .ob-callout-caution .ob-supplement),
+  ob-reading-modes:not(:defined):not(.ob-reading-started)[default="guided"] .ob-supplement[data-ob-level="deep-dive"]:not([data-ob-always], :has(.ob-callout-warning, .ob-callout-caution), .ob-callout-warning .ob-supplement, .ob-callout-caution .ob-supplement) {
+    animation: ob-supplement-wait 0.01s 6s backwards;
+    animation-play-state: running !important;
+  }
+}
+@keyframes ob-supplement-wait { from { height: 0; margin: 0; padding: 0; border-width: 0; overflow: hidden; visibility: hidden; } }
+
+.ob-reading-controls {
+  margin: 0 0 1.25rem;
+  padding: 0.5rem 0.9rem 0.75rem;
+  min-width: 0;
+  border: var(--ob-border-width, 1px) solid var(--ob-color-border, currentColor);
+  border-radius: var(--ob-radius-sm, 4px);
+}
+.ob-reading-controls legend { padding: 0 0.35rem; font-weight: 700; }
+.ob-reading-note { margin: 0 0 0.5rem; font-size: 0.9em; color: var(--ob-color-muted, inherit); overflow-wrap: anywhere; }
+.ob-reading-options { display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; }
+.ob-reading-option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: 0.5rem;
+  flex: 1 1 12rem;
+  min-width: 0;
+  min-height: 2.75rem;
+}
+.ob-reading-option input { width: 1.25rem; height: 1.25rem; margin: 0; }
+.ob-reading-option label { font-weight: 600; padding-block: 0.4rem; }
+.ob-reading-help { grid-column: 2; margin-top: -0.25rem; font-size: 0.85em; color: var(--ob-color-muted, inherit); overflow-wrap: anywhere; }
+.ob-reading-reset { margin-top: 0.5rem; min-height: 2.75rem; max-width: 100%; }
+.ob-reading-reset[aria-disabled="true"] { opacity: 0.55; cursor: default; }
+/* Paper only: one line that says which layers the printed page leaves out. */
+.ob-reading-print-note { display: none; }
+@media print {
+  .ob-reading-controls, .ob-supplement-skip { display: none; }
+  .ob-reading-print-note:not(:empty) { display: block; margin: 0 0 1rem; font-style: italic; color: #000; }
+  /* Paper follows the mode on screen: the browser would otherwise print a findable hidden layer
+     with its box taken away. */
+  .ob-supplement[hidden] { display: none; }
+  /* A shown supplement stays a boxed, labelled group on paper, in ink, not in a tint. */
+  .ob-supplement { break-inside: avoid; border: 1px solid #000; border-inline-start-width: 4px; background: none; }
+  .ob-supplement-kind, .ob-supplement-level, .ob-supplement-always, .ob-supplement-end { color: #000; }
+}
+/* Windows high contrast and the like: the box stays drawn in the system's own colours, and a layer
+   the reader navigated into keeps a visible outline. */
+@media (forced-colors: active) {
+  .ob-supplement { border: 1px solid CanvasText; border-inline-start: 4px solid CanvasText; background: none; }
+  .ob-supplement[data-ob-revealed] { outline-color: Highlight; }
+  .ob-supplement-skip:focus { outline: 2px solid Highlight; }
+}
+
+/* Knowledge Atlas datings and timeline (ADR 0099, ADR 0100): static lists that read in order
+   without CSS or JavaScript. Competing datings sit side by side where there is room and stack
+   on narrow screens; nothing moves. Print shows the whole timeline without its filters. */
+.ob-atlas-datings { list-style: none; padding: 0; display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); }
+.ob-atlas-dating { min-width: 0; overflow-wrap: anywhere; padding: 0.5rem 0.75rem; border: 1px solid var(--ob-color-border); border-radius: var(--ob-radius-sm, 4px); }
+.ob-atlas-dating dl { margin: 0.25rem 0 0; }
+.ob-atlas-dating dd { margin-inline-start: 1rem; }
+.ob-atlas-date { margin: 0; font-weight: 600; }
+.ob-atlas-periods, .ob-atlas-aspects { padding-inline-start: 0; list-style: none; }
+.ob-atlas-aspect { margin: 0 0 1.25rem; min-width: 0; overflow-wrap: anywhere; }
+.ob-atlas-aspect-name { margin-bottom: 0.25rem; font-weight: 600; }
+.ob-atlas-trail li { margin-bottom: 0.5rem; overflow-wrap: anywhere; }
+.ob-atlas-timeline-tools { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; align-items: center; margin: 1rem 0; }
+.ob-atlas-timeline-field { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin: 0; }
+.ob-atlas-timeline-tools select { max-width: 100%; }
+.ob-atlas-timeline-status { flex-basis: 100%; margin: 0; }
+@media print {
+  .ob-atlas-timeline-tools { display: none !important; }
+  .ob-atlas-timeline li[hidden] { display: list-item !important; }
+  .ob-atlas-timeline section[hidden] { display: block !important; }
+  .ob-atlas-dating { break-inside: avoid; }
+}
+
+/* Knowledge Atlas relationship trails (ADR 0175): a static ordered list of steps grouped by how
+   far they are from the entry, readable without CSS or JavaScript. Each step is a bordered item
+   whose facts stack on narrow screens and wrap anywhere, so a long label never overflows. Nothing
+   moves. Print shows the whole trail without its filters, even where a filter hid steps. */
+.ob-trail-depths, .ob-trail-steps { list-style: none; padding-inline-start: 0; margin: 0; }
+.ob-trail-depth { margin: 0 0 1.5rem; min-width: 0; }
+.ob-trail-step { min-width: 0; margin: 0 0 0.75rem; padding: 0.5rem 0.75rem; overflow-wrap: anywhere; border: 1px solid var(--ob-color-border); border-inline-start-width: 4px; border-radius: var(--ob-radius-sm, 4px); }
+.ob-trail-step[data-standing="contested"] { border-inline-start-style: double; }
+.ob-trail-step[data-again="true"] { border-style: dashed; }
+.ob-trail-statement { margin: 0 0 0.25rem; font-weight: 600; }
+.ob-trail-facts { margin: 0.25rem 0; }
+.ob-trail-facts dd { margin-inline-start: 1rem; }
+.ob-trail-facts ul { margin: 0; padding-inline-start: 1.25rem; }
+.ob-trail-tools { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; align-items: center; margin: 1rem 0; }
+.ob-trail-field { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin: 0; max-width: 100%; }
+.ob-trail-tools select { max-width: 100%; }
+.ob-trail-status { flex-basis: 100%; margin: 0; }
+@media print {
+  .ob-trail-tools { display: none !important; }
+  .ob-atlas-trail-section li[hidden] { display: list-item !important; }
+  .ob-trail-step { break-inside: avoid; }
+}
+@media (forced-colors: active) {
+  .ob-trail-step { border-color: CanvasText; }
+}
+
+/* Curated research context on a post's page (#197, ADR 0197): a static ordered list of the items the
+   author chose, each a bordered group whose facts stack and wrap anywhere, so nothing overflows at
+   320 pixels or at 400% zoom. It reads in order without CSS or JavaScript. Print keeps every item
+   whole, in ink. */
+.ob-curated { margin: 2rem 0; min-width: 0; overflow-wrap: anywhere; }
+.ob-curated-note { margin: 0 0 1rem; font-size: 0.9em; color: var(--ob-color-muted, inherit); }
+.ob-curated-items, .ob-curated-context { list-style: none; padding-inline-start: 0; margin: 0 0 1rem; }
+.ob-curated-item { min-width: 0; margin: 0 0 0.75rem; padding: 0.5rem 0.75rem; border: 1px solid var(--ob-color-border); border-inline-start-width: 4px; border-radius: var(--ob-radius-sm, 4px); }
+.ob-curated-item:target { outline: 2px solid var(--ob-color-link, currentColor); outline-offset: 2px; }
+.ob-curated-heading { margin: 0 0 0.25rem; font-size: 1.05em; }
+.ob-curated-fields { margin: 0.25rem 0; }
+.ob-curated-fields dt { font-weight: 600; }
+.ob-curated-fields dd { margin-inline-start: 1rem; }
+.ob-curated-fields ul, .ob-curated-notices { margin: 0; padding-inline-start: 1.25rem; }
+.ob-curated-missing, .ob-curated-origin { margin: 0.25rem 0; font-size: 0.9em; }
+.ob-curated-via { font-size: 0.85em; color: var(--ob-color-muted, inherit); }
+@media print {
+  .ob-curated-item { break-inside: avoid; border-color: #000; }
+  .ob-curated-note, .ob-curated-via { color: #000; }
+}
+@media (forced-colors: active) {
+  .ob-curated-item { border-color: CanvasText; }
+}
+
+/* Featured reflections print whole, in text-colour marks (ADR 0184). Kept after the earlier print
+   blocks: a test reads the first one. */
+@media print {
+  .ob-feature {
+    break-inside: avoid;
+    border-inline-start-color: currentColor;
+  }
+}
 
 /* <ob-git-sandbox>: in-memory Git lesson widget. Themed through --ob-* tokens. */
 ob-git-sandbox {

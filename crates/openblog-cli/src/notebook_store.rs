@@ -226,11 +226,35 @@ pub fn remove_passage(
                 .map_err(blocked)?;
             if !using.is_empty() {
                 return Err(blocked(format!(
-                    "{} Knowledge Atlas relationship{} cite{} this passage as evidence ({}); change or remove that evidence first",
+                    "{} Knowledge Atlas item{} cite{} this passage as evidence ({}); change or remove that evidence first",
                     using.len(),
                     if using.len() == 1 { "" } else { "s" },
                     if using.len() == 1 { "s" } else { "" },
                     using.join(", ")
+                )));
+            }
+            let using = crate::claims_store::uses_of_passage(root, library, notebook, id)
+                .map_err(blocked)?;
+            if !using.is_empty() {
+                return Err(blocked(format!(
+                    "{} evidence link{} in the claims file rest{} on this passage ({}); change or remove {} first",
+                    using.len(),
+                    if using.len() == 1 { "" } else { "s" },
+                    if using.len() == 1 { "s" } else { "" },
+                    using.join(", "),
+                    if using.len() == 1 { "it" } else { "them" },
+                )));
+            }
+            let using = crate::alignment_store::uses_of_passage(root, library, notebook, id)
+                .map_err(blocked)?;
+            if !using.is_empty() {
+                return Err(blocked(format!(
+                    "{} passage alignment{} use{} this passage ({}); change or remove {} first",
+                    using.len(),
+                    if using.len() == 1 { "" } else { "s" },
+                    if using.len() == 1 { "s" } else { "" },
+                    using.join(", "),
+                    if using.len() == 1 { "it" } else { "them" },
                 )));
             }
             notebook.remove_passage(id, library).map(|_| ())
@@ -401,14 +425,17 @@ fn change_using(
     // Check again now that every directory exists.
     let _lock = lock_notebook(root)?;
     // The library lock is taken second, everywhere, so a source removal that
-    // checks the notebook cannot interleave with this write. A Knowledge Atlas
-    // write takes its own lock before both, so the atlas read below is stable.
+    // checks the notebook cannot interleave with this write. Knowledge Atlas
+    // and claims writes take their own lock before both, so the atlas and
+    // claims reads below are stable.
     let _library_lock = source_store::lock_library(root).map_err(library_blocked)?;
 
     let current = load(root, contributors)?;
     let mut notebook = checked(&current, expected_revision)?;
     edit(&mut notebook, &current.library).map_err(StoreError::Invalid)?;
     keep_atlas_valid(root, &current, &notebook)?;
+    keep_claims_valid(root, &current, &notebook)?;
+    keep_alignments_valid(root, &current, &notebook)?;
     let text = notebook.to_json();
     commit(&path, text.as_bytes(), rename)?;
     source_store::remove_interrupted_writes(&path);
@@ -420,12 +447,59 @@ fn change_using(
     })
 }
 
-/// Take the notebook's write lock. The Knowledge Atlas takes it after its own
-/// and before the library's, the one order every store uses.
+/// Take the notebook's write lock. The Knowledge Atlas and the claims file
+/// take it after their own and before the library's, the one order every
+/// store uses.
 pub(crate) fn lock_notebook(root: &Path) -> Result<FileLock, StoreError> {
     let path = notebook_path(root)?;
     FileLock::acquire(lock_path(&path), "research notebook write", LOCK_WAIT)
         .map_err(StoreError::Storage)
+}
+
+/// A notebook change must not leave a valid claims file invalid, for example
+/// by moving a passage an evidence link points to. As for the atlas, a claims
+/// file that was already unreadable does not block unrelated edits.
+fn keep_claims_valid(root: &Path, current: &Snapshot, edited: &Notebook) -> Result<(), StoreError> {
+    if crate::claims_store::check_against(root, &current.library, &current.notebook).is_err() {
+        return Ok(());
+    }
+    crate::claims_store::check_against(root, &current.library, edited).map_err(|message| {
+        StoreError::Invalid(vec![NoteDiagnostic {
+            code: NoteDiagnosticCode::StillLinked,
+            collection: None,
+            index: None,
+            id: None,
+            field: None,
+            message: format!(
+                "the change would leave the claims file invalid, so nothing was saved ({message}); change the evidence links first"
+            ),
+        }])
+    })
+}
+
+/// A notebook change must not leave a valid alignments file invalid. As for
+/// the claims file, one that was already unreadable does not block unrelated
+/// edits.
+fn keep_alignments_valid(
+    root: &Path,
+    current: &Snapshot,
+    edited: &Notebook,
+) -> Result<(), StoreError> {
+    if crate::alignment_store::check_against(root, &current.library, &current.notebook).is_err() {
+        return Ok(());
+    }
+    crate::alignment_store::check_against(root, &current.library, edited).map_err(|message| {
+        StoreError::Invalid(vec![NoteDiagnostic {
+            code: NoteDiagnosticCode::StillLinked,
+            collection: None,
+            index: None,
+            id: None,
+            field: None,
+            message: format!(
+                "the change would leave the alignments file invalid, so nothing was saved ({message}); change the alignments first"
+            ),
+        }])
+    })
 }
 
 /// A notebook change must not leave a valid Knowledge Atlas invalid, for

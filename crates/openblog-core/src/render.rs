@@ -6,10 +6,16 @@
 //! Appearance comes entirely from CSS custom properties (`--ob-*`) written by
 //! the theme, so the same markup can look like any theme.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+
+use blake2::{Blake2s256, Digest};
 
 use crate::atlas_publication::{
-    self, PublicAtlas, PublicEntry, PublicEvidence, PublicRelationship,
+    self, DatedAspect, OwnerType, Placement, PublicAtlas, PublicDating, PublicEntry,
+    PublicEvidence, PublicRelationship,
+};
+use crate::comparison_publication::{
+    self, PublicComparison, PublicComparisons, PublicPlace, PublicText, PublicVersion, VersionKind,
 };
 use crate::config::SiteConfig;
 use crate::contributor::{CreditProvenance, ResolvedCredit};
@@ -17,7 +23,9 @@ use crate::escape::{attr, cdata, text};
 use crate::feeds;
 use crate::knowledge_atlas::{EntryKind, Standing};
 use crate::markdown::{self, RenderOptions};
-use crate::model::{CommentsPolicy, Post, Series, Site};
+use crate::model::{Post, Series, Site};
+use crate::participation::{self, ParticipationKind, ParticipationMode};
+use crate::reader_references::ReaderReferences;
 use crate::theme::{Theme, ThemeSet};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -46,6 +54,8 @@ const RESERVED: &[&str] = &[
 ];
 /// Reserved, too, while the site publishes its Knowledge Atlas.
 const ATLAS_SEGMENT: &str = "atlas";
+/// Reserved, too, while the site publishes passage comparisons.
+const COMPARISONS_SEGMENT: &str = comparison_publication::COMPARISONS_SEGMENT;
 
 struct Meta<'a> {
     title: String,
@@ -56,6 +66,34 @@ struct Meta<'a> {
     image: Option<String>,
     image_alt: Option<String>,
     json_ld: Option<String>,
+    /// The reader reference data of a post that publishes citations, as its
+    /// `<script type="application/json">` element (ADR 0059); `None` on every
+    /// other page, which is then written exactly as before.
+    reader_references: Option<String>,
+    /// The `<ob-citation-previews>` element that enhances the markers with
+    /// previews from that data (ADR 0061), present exactly when the data is.
+    citation_previews: Option<String>,
+    /// Whether the page's concept links (ADR 0172) are enhanced with
+    /// previews (ADR 0174): it loads `<ob-concept-previews>` and its element.
+    /// `false` on every other page, which is then written exactly as before.
+    /// The address of the query file the previews read, with its content
+    /// version (`atlas-query.json?v=...`), when the page is enhanced.
+    concept_previews: Option<String>,
+    /// The published passage text of a post that offers passage feedback or
+    /// Third Perspectives, as its `<script type="application/json">` element
+    /// (ADRs 0082, 0114); `None` on every other page, which is then written
+    /// exactly as before.
+    passage_data: Option<String>,
+    /// The participation forms' module scripts the page loads with its
+    /// passage data, in the order their regions appear.
+    participation_scripts: Vec<&'static str>,
+    /// Whether the page carries the atlas timeline (ADR 0100), so it loads
+    /// the `<ob-atlas-timeline>` component; `false` on every other page,
+    /// which is then written exactly as before.
+    atlas_timeline: bool,
+    /// The page has a relationship trail (ADR 0175) whose filters
+    /// `<ob-atlas-trail>` adds.
+    atlas_trail: bool,
     theme: &'a Theme,
     published: Option<String>,
     modified: Option<String>,
@@ -64,9 +102,82 @@ struct Meta<'a> {
     noindex: bool,
 }
 
+/// The query projection of the published atlas, projected once per build: its
+/// JSON as written (base path applied, within its bound) and the model the
+/// relationship trails (ADR 0175) are read from, so a page and the file agree.
+struct QueryProjection {
+    query: crate::atlas_query::AtlasQuery,
+    json: String,
+}
+
+/// The curated research context, projected once per build: the model the pages
+/// are rendered from and the JSON as written (base path applied, within its
+/// bound), so a page and the file agree.
+struct CuratedProjection {
+    context: crate::curated_context::CuratedContext,
+    json: String,
+}
+
 struct Renderer<'a> {
     site: &'a Site,
     themes: &'a HashMap<String, Theme>,
+    /// What the site publishes about sources, read once on first use, for every post's evidence
+    /// choices (ADR 0116).
+    site_references: std::cell::OnceCell<crate::evidence_submission::SiteReferenceIndex>,
+    /// The `atlas-query.json` the build writes, projected once on first use
+    /// (`None` when the site publishes no atlas or the projection is refused
+    /// or over its bound): the concept previews read that file and nothing
+    /// else, and the file written is these bytes.
+    atlas_query: std::cell::OnceCell<Option<QueryProjection>>,
+    /// The curated research context the pages and `curated-context.json` are
+    /// rendered from, projected once on first use (`None` when the site
+    /// publishes none, or the projection is refused or over its bound: the
+    /// pages' own sections then still render, the file is left out).
+    curated: std::cell::OnceCell<Option<CuratedProjection>>,
+    /// How many steps out every entry page's trail goes, decided once for the
+    /// whole site against [`TRAIL_BUDGET_BYTES`] (ADR 0175).
+    trail_depth: std::cell::OnceCell<TrailDepth>,
+    trail_budget: usize,
+}
+
+/// The most trail markup the whole site may carry (ADR 0175). A site over it
+/// shows every trail one step deep and says so in the build log.
+pub const TRAIL_BUDGET_BYTES: usize = 20 * 1024 * 1024;
+
+/// The build log's line for a site whose relationship trails together would
+/// take more than [`TRAIL_BUDGET_BYTES`], so every entry page shows its trail
+/// one step deep (ADR 0175); `None` when every trail keeps its full depth or
+/// the site publishes no atlas.
+pub fn atlas_trail_warning(site: &Site) -> Option<String> {
+    atlas_trail_warning_with_budget(site, TRAIL_BUDGET_BYTES)
+}
+
+#[doc(hidden)]
+pub fn atlas_trail_warning_with_budget(site: &Site, trail_budget: usize) -> Option<String> {
+    let themes = HashMap::new();
+    let renderer = Renderer {
+        site,
+        themes: &themes,
+        site_references: Default::default(),
+        atlas_query: Default::default(),
+        curated: Default::default(),
+        trail_depth: Default::default(),
+        trail_budget,
+    };
+    let bytes = renderer.atlas_trail_depth().over_budget?;
+    Some(format!(
+        "knowledge atlas: relationship trails would add more than {} MB of markup (the site budget is {} MB), so every entry page shows its trail one step deep; each relationship's own page is unchanged",
+        bytes.div_ceil(1024 * 1024),
+        trail_budget.div_ceil(1024 * 1024)
+    ))
+}
+
+/// How far the trails of a site go, and what that cost.
+#[derive(Clone, Copy)]
+struct TrailDepth {
+    depth: usize,
+    /// The bytes every trail would take at full depth, when that is over the budget.
+    over_budget: Option<usize>,
 }
 
 struct Output {
@@ -113,6 +224,180 @@ fn resolve_social_metadata(config: &SiteConfig, input: SocialMetadataInput<'_>) 
         },
         image,
     }
+}
+
+/// The id of a post's feedback region, which the no-JavaScript text and any
+/// participation link can target.
+const FEEDBACK_ANCHOR: &str = "ob-feedback";
+/// The id of a post's Third Perspective region (ADR 0114).
+pub(crate) const THIRD_PERSPECTIVE_ANCHOR: &str = "ob-third-perspective";
+/// The id of a post's suggestion region (RD13).
+pub(crate) const FUTURE_SUGGESTION_ANCHOR: &str = "ob-future-suggestion";
+/// The id of the page data element that holds a post's passage text.
+pub const PASSAGE_DATA_ELEMENT_ID: &str = "ob-passages";
+/// The page data element holding what a reader may name in an evidence
+/// offer (ADR 0116): only what the site publishes.
+pub const EVIDENCE_DATA_ELEMENT_ID: &str = "ob-evidence-references";
+
+/// A post's passage text as the feedback form reads it (ADRs 0076, 0082):
+/// the work's path, the passage revision and each section's index, anchor,
+/// heading title, text and digest, all computed here by the build. The JSON
+/// is escaped so no text in it can end or confuse the script element.
+fn passage_data_element(post: &Post, document: &crate::passage_target::PassageDocument) -> String {
+    // Heading titles label the form's section choices; ids can repeat, so
+    // each anchor takes the titles of its headings in order.
+    let mut titles: HashMap<&str, std::collections::VecDeque<&str>> = HashMap::new();
+    for heading in &post.headings {
+        titles
+            .entry(heading.id.as_str())
+            .or_default()
+            .push_back(heading.text.as_str());
+    }
+    let sections: Vec<serde_json::Value> = document
+        .sections
+        .iter()
+        .enumerate()
+        .map(|(index, section)| {
+            let mut value = serde_json::json!({ "index": index });
+            if let Some(anchor) = &section.anchor {
+                value["anchor"] = serde_json::json!(anchor);
+                if let Some(title) = titles
+                    .get_mut(anchor.as_str())
+                    .and_then(|queue| queue.pop_front())
+                {
+                    value["title"] = serde_json::json!(title);
+                }
+            }
+            value["text"] = serde_json::json!(section.text);
+            value["digest"] = serde_json::json!(section.digest);
+            value
+        })
+        .collect();
+    let data = serde_json::json!({
+        "version": 1,
+        "work": post.url,
+        "revision": document.revision,
+        "sections": sections,
+    });
+    format!(
+        "<script type=\"application/json\" id=\"{PASSAGE_DATA_ELEMENT_ID}\">{}</script>",
+        script_json(&data)
+    )
+}
+
+/// JSON for a data element: `<`, `>`, `&` and the line separators written
+/// as escapes, so no published text can end or confuse the element.
+fn script_json(data: &serde_json::Value) -> String {
+    let mut json = String::new();
+    for character in data.to_string().chars() {
+        match character {
+            '<' | '>' | '&' | '\u{2028}' | '\u{2029}' => {
+                json.push_str(&format!("\\u{:04x}", character as u32));
+            }
+            _ => json.push(character),
+        }
+    }
+    json
+}
+
+/// The id of the page data element that lists a post's attributed sections
+/// for the Third Perspective form (ADR 0131).
+pub const ATTRIBUTED_DATA_ELEMENT_ID: &str = "ob-attributed-sections";
+
+/// A shared reflection's attributed sections as the Third Perspective form
+/// reads them: each author's section by its anchor, author's published name,
+/// place, first words and digest, all computed here by the build from the
+/// committed body and credits. Empty when the post attributes nothing.
+fn attributed_sections_element(
+    post: &Post,
+    sections: &crate::attributed_perspective::AttributedSections,
+) -> String {
+    if sections.sections().is_empty() {
+        return String::new();
+    }
+    let entries: Vec<serde_json::Value> = sections
+        .sections()
+        .iter()
+        .map(|section| {
+            serde_json::json!({
+                "anchor": section.anchor(),
+                "contributor": section.contribution,
+                "nth": section.nth,
+                "author": section.author,
+                "excerpt": section.excerpt,
+                "digest": section.digest,
+            })
+        })
+        .collect();
+    let data = serde_json::json!({ "version": 1, "work": post.url, "sections": entries });
+    format!(
+        "<script type=\"application/json\" id=\"{ATTRIBUTED_DATA_ELEMENT_ID}\">{}</script>\n",
+        script_json(&data)
+    )
+}
+
+/// Give each attributed section of a rendered reflection its `ob-by-` anchor
+/// and put the conversation about it at the end of its own turn. `None`
+/// unless the body's turns are exactly the attributed sections, in order.
+fn anchor_sections(
+    html: &str,
+    sections: &crate::attributed_perspective::AttributedSections,
+    conversations: &[(
+        String,
+        Vec<&crate::perspective_publication::PublicPerspective>,
+    )],
+    reports: Option<&str>,
+) -> Option<String> {
+    const OPEN: &str = "<section class=\"ob-turn ob-lane-";
+    let starts: Vec<usize> = html.match_indices(OPEN).map(|(at, _)| at).collect();
+    if starts.len() != sections.sections().len() {
+        return None;
+    }
+    let mut out = String::with_capacity(html.len() + 512);
+    let mut at = 0;
+    for (start, section) in starts.iter().zip(sections.sections()) {
+        let tag_end = start + html[*start..].find('>')?;
+        let close = start + matching_section_close(&html[*start..])?;
+        let anchor = section.anchor();
+        out.push_str(&html[at..tag_end]);
+        out.push_str(&format!(" id=\"{}\"", attr(&anchor)));
+        out.push_str(&html[tag_end..close]);
+        if let Some((_, items)) = conversations.iter().find(|(held, _)| *held == anchor) {
+            out.push_str(&crate::perspective_publication::render_conversation(
+                &anchor, items, reports,
+            ));
+        }
+        at = close;
+    }
+    out.push_str(&html[at..]);
+    Some(out)
+}
+
+/// The offset of the `</section>` that closes the `<section ...>` whose open
+/// tag starts `html`, counting nested sections (a knowledge check, a recipe
+/// part, citation notes) so the first close tag is not taken for the turn's.
+fn matching_section_close(html: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut at = 0;
+    while let Some(found) = html[at..].find("<") {
+        let tag = at + found;
+        let rest = &html[tag..];
+        if rest.starts_with("</section>") {
+            depth = depth.checked_sub(1)?;
+            if depth == 0 {
+                return Some(tag);
+            }
+        } else if rest.starts_with("<section")
+            && rest[8..]
+                .chars()
+                .next()
+                .is_some_and(|c| c == '>' || c.is_ascii_whitespace())
+        {
+            depth += 1;
+        }
+        at = tag + 1;
+    }
+    None
 }
 
 fn resolved_post_canonical(config: &SiteConfig, post: &Post) -> Option<String> {
@@ -212,12 +497,28 @@ fn url_to_file(url: &str) -> String {
 /// Render the whole site to files. `themes` supplies every registered theme;
 /// the ones the site uses must resolve, others are emitted when they do.
 pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, String> {
+    generate_with_trail_budget(site, themes, TRAIL_BUDGET_BYTES)
+}
+
+/// [`generate`] with the site-wide trail budget (ADR 0175) set by the caller,
+/// so a test can cross it without a site of tens of megabytes.
+#[doc(hidden)]
+pub fn generate_with_trail_budget(
+    site: &Site,
+    themes: &ThemeSet,
+    trail_budget: usize,
+) -> Result<Vec<OutputFile>, String> {
     validate_output_paths(site)?;
     let resolved = resolve_themes(site, themes)?;
 
     let r = Renderer {
         site,
         themes: &resolved,
+        site_references: Default::default(),
+        atlas_query: Default::default(),
+        curated: Default::default(),
+        trail_depth: Default::default(),
+        trail_budget,
     };
     let c = &site.config;
     let mut out = Output {
@@ -246,7 +547,7 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
     }
 
     for (index, post) in site.posts.iter().enumerate() {
-        out.add(url_to_file(&post.url), r.post(index, post))?;
+        out.add(url_to_file(&post.url), r.post(index, post)?)?;
         for alias in &post.aliases {
             out.add(url_to_file(alias), r.alias_page(&post.url, &post.title))?;
         }
@@ -287,6 +588,55 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
             atlas_publication::ATLAS_JSON_FILE.into(),
             c.apply_base_path(&atlas.to_json()),
         )?;
+        // The query projection (ADR 0168), derived from the projection above.
+        // A projection that is refused (over a bound, or not consistent) is
+        // left out and the pages and atlas.json stay the complete fallback;
+        // the build warns (`boundary:`) and the boundary preview says so.
+        if let Some(json) = r.atlas_query_json() {
+            out.add(
+                crate::atlas_query::ATLAS_QUERY_JSON_FILE.into(),
+                json.to_string(),
+            )?;
+        }
+    }
+    // The curated research context (ADR 0197): the data file readers' tools
+    // fetch, projected from the one public curated value the pages' sections
+    // are rendered from. A projection that is refused (over a bound, or not
+    // consistent) is left out whole; the pages stay the complete fallback and
+    // the build warns (`boundary:`).
+    if let Some(projection) = r.curated_projection() {
+        out.add(
+            crate::curated_context::CURATED_CONTEXT_JSON_FILE.into(),
+            projection.json.clone(),
+        )?;
+    }
+    // Passage comparisons, only when the site publishes them (ADR 0092): the
+    // pages and the JSON artifact are both rendered from the one projection.
+    if let Some(comparisons) = &site.comparisons {
+        out.add(
+            url_to_file(comparison_publication::COMPARISONS_URL),
+            r.comparison_index(default_theme, comparisons),
+        )?;
+        for comparison in &comparisons.comparisons {
+            out.add(
+                url_to_file(&comparison.url),
+                r.comparison_page(default_theme, comparisons, comparison),
+            )?;
+        }
+        out.add(
+            comparison_publication::COMPARISONS_JSON_FILE.into(),
+            c.apply_base_path(&comparisons.to_json()),
+        )?;
+    }
+    // Claim evidence as data, only while the site publishes it (ADR 0075):
+    // the same values each post's section was written from.
+    if c.claim_evidence.publish {
+        out.add(
+            crate::claim_publication::CLAIM_EVIDENCE_JSON_FILE.into(),
+            c.apply_base_path(
+                &crate::claim_publication::PublicClaimEvidence::of(&site.posts).to_json(),
+            ),
+        )?;
     }
     // GitHub Pages skips Jekyll processing when this file exists.
     out.add(".nojekyll".into(), String::new())?;
@@ -319,6 +669,10 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
             extra.push(atlas_publication::ATLAS_URL.to_string());
             extra.extend(atlas.entries.iter().map(|entry| entry.url.clone()));
         }
+        if let Some(comparisons) = &site.comparisons {
+            extra.push(comparison_publication::COMPARISONS_URL.to_string());
+            extra.extend(comparisons.comparisons.iter().map(|c| c.url.clone()));
+        }
         out.add("sitemap.xml".into(), feeds::sitemap(site, &extra))?;
         out.add("robots.txt".into(), feeds::robots(site))?;
     }
@@ -345,28 +699,31 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
         "search.json".into(),
         c.apply_base_path(&feeds::search_index(site)),
     )?;
-    let hosted_comments =
-        c.engagement.enabled && c.engagement.comments && !c.engagement.endpoint.trim().is_empty();
+    // Comments keep their own manifest, unchanged; it is the comment row of
+    // the one participation policy (ADR 0101).
     let comment_policies: BTreeMap<&str, &str> = site
         .posts
         .iter()
         .map(|post| {
-            let policy = if !hosted_comments {
-                "hidden"
-            } else {
-                match post.comments {
-                    CommentsPolicy::Open => "open",
-                    CommentsPolicy::Locked => "locked",
-                    CommentsPolicy::Hidden => "hidden",
-                }
-            };
-            (post.url.as_str(), policy)
+            let mode = participation::effective_mode(c, post, ParticipationKind::Comment);
+            (post.url.as_str(), mode.id())
         })
         .collect();
     out.add(
         "openblog-comments.json".into(),
         serde_json::to_string(&comment_policies).expect("comment policy map is serializable"),
     )?;
+    // Published only once a kind beyond comments is switched on, so every
+    // other site's output is unchanged.
+    if let Some(manifest) = participation::manifest(site) {
+        out.add("openblog-participation.json".into(), manifest)?;
+    }
+    // B5's passage feedback manifest (ADR 0081), kept for a hosted function
+    // deployed before the participation manifest: derived from the policy,
+    // never more open than any of B5's four kinds (ADR 0101).
+    if let Some(manifest) = participation::legacy_feedback_manifest(site) {
+        out.add("openblog-feedback.json".into(), manifest)?;
+    }
 
     Ok(out.files)
 }
@@ -384,6 +741,11 @@ pub fn generate_document(
     let renderer = Renderer {
         site,
         themes: &resolved,
+        site_references: Default::default(),
+        atlas_query: Default::default(),
+        curated: Default::default(),
+        trail_depth: Default::default(),
+        trail_budget: TRAIL_BUDGET_BYTES,
     };
     let (url, contents) = if let Some((index, post)) = site
         .posts
@@ -391,7 +753,7 @@ pub fn generate_document(
         .enumerate()
         .find(|(_, post)| post.source == source)
     {
-        (post.url.as_str(), renderer.post(index, post))
+        (post.url.as_str(), renderer.post(index, post)?)
     } else if let Some(series) = site
         .series
         .iter()
@@ -415,8 +777,11 @@ fn validate_output_paths(site: &Site) -> Result<(), String> {
     // not a loaded projection, decides: Admin validates a save against a site
     // that never reads the atlas, and must refuse what the next build would.
     let publishes_atlas = site.config.knowledge_atlas.publish;
+    let publishes_comparisons = site.config.comparisons.publish;
     let reserved = |segment: &str| {
-        RESERVED.contains(&segment) || (publishes_atlas && segment == ATLAS_SEGMENT)
+        RESERVED.contains(&segment)
+            || (publishes_atlas && segment == ATLAS_SEGMENT)
+            || (publishes_comparisons && segment == COMPARISONS_SEGMENT)
     };
     for page in &site.pages {
         if reserved(page.slug.as_str()) {
@@ -639,6 +1004,36 @@ impl<'a> Renderer<'a> {
                     .replace('&', "\\u0026")
             ));
         }
+        if let Some(element) = &meta.reader_references {
+            h.push_str(element);
+            h.push('\n');
+            // The preview component is loaded only by pages that carry its data.
+            h.push_str("<script type=\"module\" src=\"/assets/components/ob-citation-previews.js\"></script>\n");
+        }
+        if let Some(element) = &meta.passage_data {
+            h.push_str(element);
+            h.push('\n');
+        }
+        // Each form's script is loaded only by pages that offer it.
+        for script in &meta.participation_scripts {
+            h.push_str(&format!(
+                "<script type=\"module\" src=\"/assets/components/{script}\"></script>\n"
+            ));
+        }
+        if meta.concept_previews.is_some() {
+            // The preview component is loaded only by a page that has a concept link.
+            h.push_str("<script type=\"module\" src=\"/assets/components/ob-concept-previews.js\"></script>\n");
+        }
+        if meta.atlas_timeline {
+            // The timeline's enhancement is loaded only by the page that has one.
+            h.push_str("<script type=\"module\" src=\"/assets/components/ob-atlas-timeline.js\"></script>\n");
+        }
+        if meta.atlas_trail {
+            // The trail's filters are loaded only by an entry page that has a trail.
+            h.push_str(
+                "<script type=\"module\" src=\"/assets/components/ob-atlas-trail.js\"></script>\n",
+            );
+        }
         // Owner-supplied raw HTML (third-party analytics, verification tags).
         if !c.snippets.head.trim().is_empty() {
             h.push_str(c.snippets.head.trim());
@@ -649,6 +1044,20 @@ impl<'a> Renderer<'a> {
         h.push_str(&self.site_header(theme, &meta.path));
         h.push_str("<main id=\"main\" tabindex=\"-1\">\n");
         h.push_str(body);
+        if let Some(element) = &meta.citation_previews {
+            h.push('\n');
+            h.push_str(element);
+        }
+        if let Some(source) = &meta.concept_previews {
+            h.push('\n');
+            // The file's size in bytes lets a touch screen decide whether it
+            // may be fetched ahead of the first tap (ADR 0174).
+            let bytes = self.atlas_query_json().map_or(0, str::len);
+            h.push_str(&format!(
+                "<ob-concept-previews src=\"/{}\" data-bytes=\"{bytes}\"></ob-concept-previews>",
+                attr(source)
+            ));
+        }
         h.push_str("\n</main>\n");
         h.push_str(&self.site_footer());
         h.push_str("<ob-back-to-top></ob-back-to-top>\n");
@@ -659,6 +1068,364 @@ impl<'a> Renderer<'a> {
         h.push_str("</body>\n</html>\n");
         // CDN first (it matches site-relative asset paths), then the base path for everything else.
         c.apply_base_path(&c.cdn.apply(&h))
+    }
+
+    /// The query projection as the build writes it: projected once, and
+    /// `None` when the site publishes no atlas or the projection is refused
+    /// or over its bound.
+    fn atlas_query_projection(&self) -> Option<&QueryProjection> {
+        self.atlas_query
+            .get_or_init(|| {
+                let c = &self.site.config;
+                let atlas = self.site.atlas.as_ref()?;
+                let query =
+                    crate::atlas_query::AtlasQuery::project(atlas, &c.author.name, &c.base_path())
+                        .ok()?;
+                let json = c.apply_base_path(&query.to_json());
+                (json.len() <= crate::atlas_query::MAX_BYTES)
+                    .then_some(QueryProjection { query, json })
+            })
+            .as_ref()
+    }
+
+    /// The curated context as the build writes it, projected once. `None`
+    /// when the site publishes no curated context at all, or the projection
+    /// is refused (over a bound, or not consistent); a post's section is
+    /// then rendered from the public value directly (see
+    /// [`Self::curated_section`]) and only the data file is left out.
+    fn curated_projection(&self) -> Option<&CuratedProjection> {
+        self.curated
+            .get_or_init(|| {
+                let c = &self.site.config;
+                let curation = self.site.curation.as_ref()?;
+                let base = c.base_path();
+                let posts: Vec<crate::curated_context::PostRef<'_>> = self
+                    .site
+                    .posts
+                    .iter()
+                    .map(|post| crate::curated_context::PostRef {
+                        slug: post.slug.as_str(),
+                        url: post.url.as_str(),
+                    })
+                    .collect();
+                let context =
+                    crate::curated_context::CuratedContext::project(curation, &posts, &base)
+                        .ok()?;
+                // Nothing published, nothing written: a site that curates but
+                // currently publishes no selection is built exactly as before.
+                if context.items.is_empty() {
+                    return None;
+                }
+                let json = c.apply_base_path(&context.to_json());
+                (json.len() <= crate::curated_context::MAX_BYTES)
+                    .then_some(CuratedProjection { context, json })
+            })
+            .as_ref()
+    }
+
+    /// The static research-context section of one post's page, rendered from
+    /// the public curated value alone; `None` when the post offers nothing,
+    /// so its page is exactly what it was.
+    fn curated_section(&self, post: &Post) -> Option<String> {
+        self.site.curation.as_ref()?;
+        if let Some(projection) = self.curated_projection() {
+            let data = format!("/{}", crate::curated_context::CURATED_CONTEXT_JSON_FILE);
+            return projection
+                .context
+                .post_section_html(&post.slug, Some(&data));
+        }
+        // The data file is not written (a bound, or an inconsistency): the
+        // page still carries what its post is offered, without a link to it.
+        let curation = self.site.curation.as_ref()?;
+        crate::curated_context::CuratedContext::for_one_post(
+            curation,
+            crate::curated_context::PostRef {
+                slug: &post.slug,
+                url: &post.url,
+            },
+        )?
+        .post_section_html(&post.slug, None)
+    }
+
+    /// The query file as the build writes it, when it is written.
+    fn atlas_query_json(&self) -> Option<&str> {
+        self.atlas_query_projection()
+            .map(|projection| projection.json.as_str())
+    }
+
+    /// Where the post's concept links read their previews (ADR 0174), when
+    /// they are enhanced: it has a resolved link and the build writes the one
+    /// file the previews read, so a link never leads to a preview that cannot
+    /// load. The address carries the file's content hash, so a browser never
+    /// reads a stale file after the atlas changes, and the same atlas always
+    /// makes the same address.
+    fn concept_previews(&self, post: &Post) -> Option<String> {
+        if !post.has_concept_links() || !post.html.contains(crate::concept_links::LINK_CLASS) {
+            return None;
+        }
+        let json = self.atlas_query_json()?;
+        let mut hasher = Blake2s256::new();
+        hasher.update(json.as_bytes());
+        let version: String = hasher
+            .finalize()
+            .iter()
+            .take(8)
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        Some(format!(
+            "{}?v={version}",
+            crate::atlas_query::ATLAS_QUERY_JSON_FILE
+        ))
+    }
+
+    /// Passage feedback on one post (ADR 0082): the feedback region, whose
+    /// static text is the no-JavaScript path, and the post's passage text as
+    /// page data for the form. Only a post where at least one of B5's kinds
+    /// is `open` has them (ADR 0101), and the form offers exactly those; every
+    /// other page is unchanged.
+    fn passage_feedback(&self, post: &Post) -> Option<(String, String)> {
+        let c = &self.site.config;
+        let endpoint = c.engagement.endpoint.trim().trim_end_matches('/');
+        let offered = participation::offered_passage_kinds(c, post);
+        if offered.is_empty() {
+            return None;
+        }
+        // Named only when the form offers some of the kinds, so a page that
+        // offers all four is what it was before the policy.
+        let (kinds_attr, invitation) = if offered.len() == ParticipationKind::PASSAGE_FEEDBACK.len()
+        {
+            (
+                String::new(),
+                "Ask a question about a passage, suggest a source or a correction, or offer another interpretation.".to_string(),
+            )
+        } else {
+            let ids: Vec<&str> = offered.iter().map(|kind| kind.id()).collect();
+            let labels: Vec<&str> = offered.iter().map(|kind| kind.label()).collect();
+            (
+                format!(" kinds=\"{}\"", attr(&ids.join(" "))),
+                format!(
+                    "Send the author a note about a passage: {}.",
+                    text(&labels.join(", ").to_lowercase())
+                ),
+            )
+        };
+        let document = crate::passage_target::PassageDocument::of_post(post, c);
+        let contact = c.engagement.feedback_contact.as_str();
+        let (contact_attr, contact_words) = if contact.is_empty() {
+            (String::new(), String::new())
+        } else if let Some(address) = contact.strip_prefix("mailto:") {
+            (
+                format!(" contact=\"{}\"", attr(contact)),
+                format!(" at <a href=\"{}\">{}</a>", attr(contact), text(address)),
+            )
+        } else {
+            (
+                format!(" contact=\"{}\"", attr(contact)),
+                format!(
+                    " through <a href=\"{}\">the contact page</a>",
+                    attr(contact)
+                ),
+            )
+        };
+        // Readers can use their receipts on the page once the site says the
+        // hosted service issues them (ADR 0107).
+        let receipts_attr = if c.engagement.receipts {
+            " receipts"
+        } else {
+            ""
+        };
+        // The evidence offer (ADR 0116), once the site says the hosted
+        // service stores it, on a post open to a suggested source or
+        // correction: the form lists only what the site publishes.
+        let evidence = c.engagement.evidence
+            && offered
+                .iter()
+                .any(|kind| crate::evidence_submission::is_evidence_kind(*kind));
+        let evidence_attr = if evidence { " evidence" } else { "" };
+        let region = format!(
+            "<section id=\"{FEEDBACK_ANCHOR}\" class=\"ob-feedback\" aria-labelledby=\"{FEEDBACK_ANCHOR}-title\">\n<h2 id=\"{FEEDBACK_ANCHOR}-title\">Questions and corrections</h2>\n<ob-passage-feedback endpoint=\"{}\" page=\"{}\"{kinds_attr}{contact_attr}{receipts_attr}{evidence_attr}>\n<p>{invitation} The author reviews every note, and nothing is published without their approval.</p>\n<p class=\"ob-passage-feedback-static\">The feedback form needs JavaScript. Without it, you can send your note to the author{contact_words}: name the section by its link, quote the words you mean, and give this page’s passage revision, <code>{}</code>, so the author can find the text you read.</p>\n</ob-passage-feedback>\n</section>\n",
+            attr(endpoint),
+            attr(&c.absolute(&post.url)),
+            text(&document.revision),
+        );
+        let mut data = passage_data_element(post, &document);
+        if evidence {
+            let index = self
+                .site_references
+                .get_or_init(|| crate::evidence_submission::SiteReferenceIndex::of_site(self.site));
+            let choices = crate::evidence_submission::reference_choices(post, index);
+            data.push_str(&format!(
+                "\n<script type=\"application/json\" id=\"{EVIDENCE_DATA_ELEMENT_ID}\">{}</script>",
+                script_json(&choices)
+            ));
+        }
+        Some((region, data))
+    }
+
+    /// The Third Perspective region of one post (ADR 0114): only a post where
+    /// the kind is `open` (`participation.kinds`, the post's own mode and a
+    /// hosted transport, ADR 0101) has it. Its static text is the
+    /// no-JavaScript path, with the site's feedback contact; the form sends
+    /// through the hosted service only where it issues receipts, and
+    /// otherwise prepares the reflection to copy and send.
+    fn third_perspective(&self, post: &Post) -> Option<String> {
+        let c = &self.site.config;
+        if participation::effective_mode(c, post, ParticipationKind::ThirdPerspective)
+            != ParticipationMode::Open
+        {
+            return None;
+        }
+        let endpoint = c.engagement.endpoint.trim().trim_end_matches('/');
+        let document = crate::passage_target::PassageDocument::of_post(post, c);
+        let contact = c.engagement.feedback_contact.as_str();
+        let (contact_attr, contact_words) = if contact.is_empty() {
+            (String::new(), String::new())
+        } else if let Some(address) = contact.strip_prefix("mailto:") {
+            (
+                format!(" contact=\"{}\"", attr(contact)),
+                format!(" at <a href=\"{}\">{}</a>", attr(contact), text(address)),
+            )
+        } else {
+            (
+                format!(" contact=\"{}\"", attr(contact)),
+                format!(
+                    " through <a href=\"{}\">the contact page</a>",
+                    attr(contact)
+                ),
+            )
+        };
+        let receipts_attr = if c.engagement.receipts {
+            " receipts"
+        } else {
+            ""
+        };
+        // Where the site opens author responses on this post, a shared
+        // reflection's author sections can be written about by author and
+        // place (ADR 0131). Everywhere else the region is as it was.
+        let attributed =
+            if participation::effective_mode(c, post, ParticipationKind::AuthorResponse)
+                == ParticipationMode::Hidden
+            {
+                crate::attributed_perspective::AttributedSections::default()
+            } else {
+                crate::attributed_perspective::AttributedSections::of_post(post)
+            };
+        // The example names the first real section, never a made-up author.
+        let attributed_words = match attributed.sections().first() {
+            None => String::new(),
+            Some(first) => format!(
+                " To write about one author’s section, name it by its author and its place among that author’s sections, such as “{}, section 1”.",
+                text(&first.author)
+            ),
+        };
+        let attributed_element = attributed_sections_element(post, &attributed);
+        Some(format!(
+            "<section id=\"{THIRD_PERSPECTIVE_ANCHOR}\" class=\"ob-third-perspective\" aria-labelledby=\"{THIRD_PERSPECTIVE_ANCHOR}-title\">\n<h2 id=\"{THIRD_PERSPECTIVE_ANCHOR}-title\">Offer a Third Perspective</h2>\n<ob-third-perspective endpoint=\"{}\" page=\"{}\"{contact_attr}{receipts_attr}>\n<p>Share your own reading of this work, or of one section of it. If a moderator approves it, it is shown here as a reader’s reflection, never as one of the authors’, and only as you agree: published or not, with your name or without. There are no scores and no votes.</p>\n<p class=\"ob-third-perspective-static\">The form needs JavaScript. Without it, you can write your reflection to the author{contact_words}: say which section it is about, whether it may be published, whether your name may be shown and whether you may be asked to clarify it, and give this page’s passage revision, <code>{}</code>.{attributed_words}</p>\n</ob-third-perspective>\n{attributed_element}</section>\n",
+            attr(endpoint),
+            attr(&c.absolute(&post.url)),
+            text(&document.revision),
+        ))
+    }
+
+    /// The suggestion region of one post (ADRs 0152 to 0157): only a post where
+    /// the site has switched `future-suggestion` on and the post's mode is
+    /// `open` has it. Its static text is the no-JavaScript path, naming the
+    /// site's feedback contact; where the site has a hosted transport it also
+    /// carries `<ob-future-suggestion>`, which sends through the hosted
+    /// service only where it issues receipts and otherwise prepares the
+    /// suggestion to copy and send. A site with no transport shows only the
+    /// contact, and shows nothing at all when it has none, so its pages read as
+    /// before. Nothing here is a vote, a count or a list of other readers'
+    /// suggestions: they are private to the editors.
+    fn future_suggestion(&self, post: &Post) -> Option<String> {
+        let c = &self.site.config;
+        if participation::configured_mode(c, post, ParticipationKind::FutureSuggestion)
+            != ParticipationMode::Open
+        {
+            return None;
+        }
+        let transport = participation::transport_available(c);
+        let contact = c.engagement.feedback_contact.as_str();
+        if !transport && contact.is_empty() {
+            return None;
+        }
+        let (contact_attr, contact_words) = if contact.is_empty() {
+            (String::new(), String::new())
+        } else if let Some(address) = contact.strip_prefix("mailto:") {
+            (
+                format!(" contact=\"{}\"", attr(contact)),
+                format!(" at <a href=\"{}\">{}</a>", attr(contact), text(address)),
+            )
+        } else {
+            (
+                format!(" contact=\"{}\"", attr(contact)),
+                format!(
+                    " through <a href=\"{}\">the contact page</a>",
+                    attr(contact)
+                ),
+            )
+        };
+        let intro = "<p>Suggest a question, text, video, audio or other source for the author to consider for future work. It goes to the site’s editors, never to this page; accepting one only means they are interested, not that they agree with it, have checked it or may use it. There are no votes and no counts.</p>";
+        let words = format!(
+            "<p class=\"ob-future-suggestion-static\">{} you can write your suggestion to the author{contact_words}: say whether it is a question, text, video, audio or other source, give a link if you have one, and say whether you may be contacted about it.</p>",
+            if transport {
+                "The form needs JavaScript. Without it,"
+            } else {
+                "This site does not take suggestions through a form, but"
+            }
+        );
+        let heading = format!(
+            "<h2 id=\"{FUTURE_SUGGESTION_ANCHOR}-title\">Suggest something for future work</h2>\n"
+        );
+        let inner = if transport {
+            let endpoint = c.engagement.endpoint.trim().trim_end_matches('/');
+            let receipts = if c.engagement.receipts {
+                " receipts"
+            } else {
+                ""
+            };
+            format!(
+                "<ob-future-suggestion endpoint=\"{}\" page=\"{}\" work=\"{}\"{contact_attr}{receipts}>\n{intro}\n{words}\n</ob-future-suggestion>\n",
+                attr(endpoint),
+                attr(&c.absolute(&post.url)),
+                attr(&post.url),
+            )
+        } else {
+            format!("{intro}\n{words}\n")
+        };
+        Some(format!(
+            "<section id=\"{FUTURE_SUGGESTION_ANCHOR}\" class=\"ob-future-suggestion\" aria-labelledby=\"{FUTURE_SUGGESTION_ANCHOR}-title\">\n{heading}{inner}</section>\n"
+        ))
+    }
+
+    /// The post's body HTML. For a shared reflection whose author responses
+    /// are not hidden, each author's section gets its `ob-by-` anchor and the
+    /// reflections about its current text, with the author's answer, follow
+    /// the author's words inside that section's own turn (ADR 0138). Anything
+    /// that does not line up (a body that is not a reflection, a section
+    /// count that differs from the attributed sections) is left exactly as it
+    /// is, so a page without answers is byte for byte what it was.
+    fn prose_with_conversations<'p>(&self, post: &'p Post) -> std::borrow::Cow<'p, str> {
+        use std::borrow::Cow;
+        let c = &self.site.config;
+        if participation::published_mode(c, post, ParticipationKind::AuthorResponse)
+            == ParticipationMode::Hidden
+        {
+            return Cow::Borrowed(&post.html);
+        }
+        let sections = crate::attributed_perspective::AttributedSections::of_post(post);
+        if sections.sections().is_empty() {
+            return Cow::Borrowed(&post.html);
+        }
+        let reports = (participation::effective_mode(c, post, ParticipationKind::AbuseReport)
+            == ParticipationMode::Open)
+            .then(|| c.engagement.endpoint.trim().trim_end_matches('/'));
+        let (in_section, _) =
+            crate::perspective_publication::split_by_section(post.third_perspectives());
+        match anchor_sections(&post.html, &sections, &in_section, reports) {
+            Some(html) => Cow::Owned(html),
+            None => Cow::Borrowed(&post.html),
+        }
     }
 
     fn site_header(&self, theme: &Theme, current: &str) -> String {
@@ -911,12 +1678,18 @@ impl<'a> Renderer<'a> {
                 &c.home.intro,
                 RenderOptions {
                     heading_anchors: false,
+                    concept_links: true,
                     ..Default::default()
                 },
             );
-            body.push_str(&format!(
-                "<section class=\"ob-intro ob-prose\">{}</section>\n",
+            // An `atlas:` link is only its label here (ADR 0172).
+            let intro = if intro.html.contains(crate::concept_links::MARK_PREFIX) {
+                crate::concept_links::link_html(&intro.html, None).html
+            } else {
                 intro.html
+            };
+            body.push_str(&format!(
+                "<section class=\"ob-intro ob-prose\">{intro}</section>\n"
             ));
         }
         body.push_str("<section class=\"ob-section\" aria-labelledby=\"latest\">\n");
@@ -980,6 +1753,13 @@ impl<'a> Renderer<'a> {
                 }
                 blog.to_string()
             }),
+            reader_references: None,
+            citation_previews: None,
+            concept_previews: None,
+            passage_data: None,
+            participation_scripts: Vec::new(),
+            atlas_timeline: false,
+            atlas_trail: false,
             theme,
             published: None,
             modified: None,
@@ -990,7 +1770,35 @@ impl<'a> Renderer<'a> {
         self.document(&meta, &body)
     }
 
-    fn post(&self, index: usize, post: &Post) -> String {
+    /// A post's page. A post that publishes citations carries its reader
+    /// reference data, and the page must hold every marker and note that data
+    /// names, each marker linking to its note and back; otherwise the build
+    /// stops with a diagnostic naming the post, rather than publish a citation
+    /// that leads nowhere.
+    fn post(&self, index: usize, post: &Post) -> Result<String, String> {
+        let references = post
+            .citations()
+            .map(ReaderReferences::from_summary)
+            .transpose()
+            .map_err(|error| format!("{}: citation reference data: {error}", post.source))?;
+        let page = self.post_page(index, post, references.as_ref());
+        if let Some(references) = &references {
+            references.check_page(&page).map_err(|error| {
+                format!(
+                    "{}: the page's citation anchors do not match its reference data: {error}",
+                    post.source
+                )
+            })?;
+        }
+        Ok(page)
+    }
+
+    fn post_page(
+        &self,
+        index: usize,
+        post: &Post,
+        references: Option<&ReaderReferences>,
+    ) -> String {
         let c = &self.site.config;
         let theme = self.theme(self.site.theme_for_post(post));
         let series = post
@@ -1155,17 +1963,46 @@ impl<'a> Renderer<'a> {
             }
             body.push_str("</ol></details></nav>\n");
         }
+        // A post with supplements is enhanced by `<ob-reading-modes>` (ADR
+        // 0142): the page is complete without it, so the element carries only
+        // the author's default mode and the control is built by script.
+        let reading_modes = post
+            .reading_depth()
+            .filter(|depth| !depth.is_empty())
+            .map(|depth| depth.default_mode.as_str());
+        if let Some(default_mode) = reading_modes {
+            // A site under a folder (GitHub Pages project sites) shares its
+            // origin's storage with its siblings, so the choice is kept under
+            // the base path (ADR 0144).
+            let base = self.site.config.base_path();
+            let scope = if base.is_empty() {
+                String::new()
+            } else {
+                format!(" data-ob-base=\"{}\"", attr(&base))
+            };
+            body.push_str(&format!(
+                "<ob-reading-modes default=\"{default_mode}\"{scope}>"
+            ));
+        }
         body.push_str(&format!(
             "<ob-code{}><div class=\"ob-prose e-content\">{}</div></ob-code>\n",
             self.code_attr(theme, Some(post)),
-            post.html
+            self.prose_with_conversations(post)
         ));
+        if reading_modes.is_some() {
+            body.push_str("</ob-reading-modes>\n");
+        }
         if post.recipe.is_some() {
             body.push_str("</ob-recipe>\n");
         }
 
         if let Some(source) = post.source_notice_html() {
             body.push_str(&source);
+        }
+        // The author's curated research context for this post (#197): static,
+        // complete without JavaScript, from the public curated value only.
+        if let Some(section) = self.curated_section(post) {
+            body.push_str(&section);
         }
         if c.share.enabled {
             body.push_str(&self.share_block(post));
@@ -1180,22 +2017,62 @@ impl<'a> Renderer<'a> {
             body.push_str("\n</section>\n");
         }
         body.push_str(&self.chronological_nav(index));
-        if c.engagement.enabled
-            && c.engagement.comments
-            && post.comments != crate::model::CommentsPolicy::Hidden
-            && !c.engagement.endpoint.trim().is_empty()
-        {
-            let mode = if post.comments == crate::model::CommentsPolicy::Locked {
+        // Approved reader notes, with the author's responses, are shown on
+        // the canonical page only (ADR 0083), before the form that asks for
+        // more.
+        // Abuse reports (ADR 0107): offered under each public comment and
+        // published note while the site has them open.
+        let reports_endpoint =
+            (participation::effective_mode(c, post, ParticipationKind::AbuseReport)
+                == ParticipationMode::Open)
+                .then(|| c.engagement.endpoint.trim().trim_end_matches('/'));
+        body.push_str(&crate::feedback_publication::render_section(
+            post.reader_feedback(),
+            reports_endpoint,
+        ));
+        let passage_feedback = self.passage_feedback(post);
+        if let Some((region, _)) = &passage_feedback {
+            body.push_str(region);
+        }
+        // Approved Third Perspectives, each a reader's and never an author's,
+        // are shown on the canonical page only (ADRs 0111 and 0115), apart
+        // from the authors' text and before the form that asks for more.
+        body.push_str(&crate::perspective_publication::render_section(
+            post.third_perspectives(),
+            reports_endpoint,
+        ));
+        // Reflections the editors chose to feature, after the reflections they
+        // come from and framed as an editorial choice (ADR 0184).
+        body.push_str(&crate::community_feature::render_section(
+            post.community_features(),
+        ));
+        let third_perspective = self.third_perspective(post);
+        if let Some(region) = &third_perspective {
+            body.push_str(region);
+        }
+        let future_suggestion = self.future_suggestion(post);
+        if let Some(region) = &future_suggestion {
+            body.push_str(region);
+        }
+        let comment_mode = participation::effective_mode(c, post, ParticipationKind::Comment);
+        if comment_mode != ParticipationMode::Hidden {
+            let mode = if comment_mode == ParticipationMode::Locked {
                 " mode=\"locked\""
             } else {
                 ""
             };
+            let reports = if reports_endpoint.is_some() {
+                " reports"
+            } else {
+                ""
+            };
             body.push_str(&format!(
-                "<section id=\"{}\" aria-label=\"Discussion\"><ob-comments path=\"{}\" endpoint=\"{}\"{}><p>Comments require JavaScript.</p></ob-comments></section>\n",
+                "<section id=\"{}\" aria-label=\"Discussion\"><ob-comments path=\"{}\" endpoint=\"{}\"{}{}><p>Comments require JavaScript.</p></ob-comments></section>\n",
                 crate::model::DISCUSSION_ANCHOR,
                 attr(&post.url),
                 attr(c.engagement.endpoint.trim().trim_end_matches('/')),
                 mode,
+                reports,
             ));
         }
         if !c.snippets.post_footer.trim().is_empty() {
@@ -1334,6 +2211,39 @@ impl<'a> Renderer<'a> {
                     None => posting.to_string(),
                 }
             }),
+            reader_references: references.map(ReaderReferences::to_script_element),
+            participation_scripts: [
+                passage_feedback.as_ref().map(|_| "ob-passage-feedback.js"),
+                third_perspective
+                    .as_ref()
+                    .map(|_| "ob-third-perspective.js"),
+                // Only where there is a hosted service to send to; a site with
+                // none keeps the static text alone and loads nothing.
+                future_suggestion
+                    .as_ref()
+                    .filter(|_| participation::transport_available(c))
+                    .map(|_| "ob-future-suggestion.js"),
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
+            passage_data: passage_feedback.map(|(_, data)| data).or_else(|| {
+                third_perspective.as_ref().map(|_| {
+                    passage_data_element(
+                        post,
+                        &crate::passage_target::PassageDocument::of_post(post, c),
+                    )
+                })
+            }),
+            atlas_timeline: false,
+            atlas_trail: false,
+            citation_previews: references.and(post.citations()).map(|summary| {
+                format!(
+                    "<ob-citation-previews note-label=\"{}\"></ob-citation-previews>",
+                    attr(summary.locale.go_to_words(summary.style))
+                )
+            }),
+            concept_previews: self.concept_previews(post),
             theme,
             published: Some(post.date.rfc3339()),
             modified: post.updated.map(|u| u.rfc3339()),
@@ -1970,6 +2880,13 @@ impl<'a> Renderer<'a> {
         if atlas.entries.is_empty() {
             body.push_str("<p class=\"ob-empty\">No entries have been published yet.</p>\n");
         }
+        let timeline = !atlas.datings.is_empty();
+        if timeline {
+            body.push_str(&format!(
+                "<p class=\"ob-meta\">The <a href=\"#atlas-timeline\">timeline</a> lists {} in time order.</p>\n",
+                plural_text(atlas.datings.len(), "published dating", "published datings")
+            ));
+        }
         for kind in EntryKind::ALL {
             let entries: Vec<&PublicEntry> =
                 atlas.entries.iter().filter(|e| e.kind == kind).collect();
@@ -1993,17 +2910,288 @@ impl<'a> Renderer<'a> {
             }
             body.push_str("</ul>\n</section>\n");
         }
+        if timeline {
+            body.push_str(&self.atlas_timeline(atlas));
+        }
         body.push_str(&format!(
             "<p class=\"ob-meta\">The same atlas as data: <a href=\"/{file}\" type=\"application/json\">{file}</a>.</p>\n</section>\n</div>",
             file = atlas_publication::ATLAS_JSON_FILE
         ));
-        self.simple(
+        let mut meta = self.meta_simple(
             theme,
             "Knowledge Atlas",
             "People, works, concepts, movements and events, with attributed, sourced relationships.",
             atlas_publication::ATLAS_URL,
-            &body,
+        );
+        meta.atlas_timeline = timeline;
+        self.document(&meta, &body)
+    }
+
+    /// The public timeline (ADR 0100): every published dating, in the
+    /// chronology's one order, as an ordered list of periods holding dated
+    /// aspects, each with all its competing datings side by side and their
+    /// attribution, evidence and notes. It reads completely without
+    /// JavaScript; `<ob-atlas-timeline>` only adds filters and a way to jump
+    /// to a period. Aspects that cannot be placed in time are listed apart,
+    /// and relative datings are listed again as steps of a trail.
+    fn atlas_timeline(&self, atlas: &PublicAtlas) -> String {
+        let groups = atlas.dated_aspects();
+        let mut out = String::from(
+            "<ob-atlas-timeline>\n<section class=\"ob-atlas-timeline\" aria-labelledby=\"atlas-timeline\">\n<h2 id=\"atlas-timeline\">Timeline</h2>\n",
+        );
+        out.push_str(&format!(
+            "<p class=\"ob-meta\">{}</p>\n",
+            text(ATLAS_TIMELINE_NOTE)
+        ));
+        let placed: Vec<&DatedAspect> = groups.iter().filter(|g| g.placed).collect();
+        if !placed.is_empty() {
+            out.push_str("<ol class=\"ob-atlas-periods\">\n");
+            let mut open: Option<String> = None;
+            for group in placed {
+                let id = atlas_publication::period_id(group.start_year);
+                if open.as_deref() != Some(id.as_str()) {
+                    if open.is_some() {
+                        out.push_str("</ol>\n</li>\n");
+                    }
+                    out.push_str(&format!(
+                        "<li class=\"ob-atlas-period\">\n<h3 id=\"{}\" tabindex=\"-1\">{}</h3>\n<ol class=\"ob-atlas-aspects\">\n",
+                        attr(&id),
+                        text(&atlas_publication::period_label(group.start_year))
+                    ));
+                    open = Some(id);
+                }
+                out.push_str(&self.atlas_timeline_row(atlas, group));
+            }
+            out.push_str("</ol>\n</li>\n</ol>\n");
+        }
+        let unplaced: Vec<&DatedAspect> = groups.iter().filter(|g| !g.placed).collect();
+        if !unplaced.is_empty() {
+            out.push_str("<section class=\"ob-atlas-unplaced\" aria-labelledby=\"atlas-timeline-unplaced\">\n<h3 id=\"atlas-timeline-unplaced\" tabindex=\"-1\">Not placed in time</h3>\n<p class=\"ob-meta\">Aspects dated only relative to another entry, or that the dating party says are of unknown date.</p>\n<ul class=\"ob-atlas-aspects\">\n");
+            for group in unplaced {
+                out.push_str(&self.atlas_timeline_row(atlas, group));
+            }
+            out.push_str("</ul>\n</section>\n");
+        }
+        let relative: Vec<&PublicDating> = atlas
+            .datings
+            .iter()
+            .filter(|d| d.date.relative.is_some())
+            .collect();
+        if !relative.is_empty() {
+            out.push_str("<section class=\"ob-atlas-trails\" aria-labelledby=\"atlas-timeline-relative\">\n<h3 id=\"atlas-timeline-relative\" tabindex=\"-1\">Relative chronology</h3>\n<p class=\"ob-meta\">Each line is one party's recorded order between two entries, to be followed one step at a time. Nothing here is worked out from dates, and none of these is a relationship between the entries.</p>\n<ul class=\"ob-atlas-trail\">\n");
+            let author = &self.site.config.author.name;
+            for dating in relative {
+                out.push_str(&format!(
+                    "<li data-aspect=\"{}\">{} {}. <span class=\"ob-meta\">Dated by {}; {}. <a href=\"#atlas-d-{}\">Evidence and notes</a></span></li>\n",
+                    dating.aspect.as_str(),
+                    self.atlas_aspect_of(atlas, dating, None),
+                    self.atlas_date_html(atlas, dating, None),
+                    text(&atlas.party_text(&dating.asserted_by, author)),
+                    atlas_publication::confidence_text(dating.confidence).to_lowercase(),
+                    attr(&dating.id)
+                ));
+            }
+            out.push_str("</ul>\n</section>\n");
+        }
+        out.push_str("</section>\n</ob-atlas-timeline>\n");
+        out
+    }
+
+    /// One dated aspect on the timeline: what is dated, then every one of
+    /// its datings together.
+    fn atlas_timeline_row(&self, atlas: &PublicAtlas, group: &DatedAspect) -> String {
+        let count = group.datings.len();
+        let mut out = format!(
+            "<li class=\"ob-atlas-aspect\" data-aspect=\"{}\" data-datings=\"{count}\">\n<p class=\"ob-atlas-aspect-name\">{}</p>\n<p class=\"ob-meta\">{}</p>\n<ul class=\"ob-atlas-datings\">\n",
+            group.aspect.as_str(),
+            self.atlas_aspect_of(atlas, group.datings[0], None),
+            competing_text(count)
+        );
+        for dating in &group.datings {
+            out.push_str(&self.atlas_dating(atlas, dating, None, true, None));
+        }
+        out.push_str("</ul>\n</li>\n");
+        out
+    }
+
+    /// "Birth of <a>Plato</a>": the dated aspect of an item, linked to where
+    /// its datings are shown in full, or in bold on that item's own page.
+    fn atlas_aspect_of(
+        &self,
+        atlas: &PublicAtlas,
+        dating: &PublicDating,
+        here: Option<&str>,
+    ) -> String {
+        let name = text(&atlas.owner_text(&dating.owner, dating.owner_type));
+        let owner = if here == Some(dating.owner.as_str()) {
+            format!("<strong>{name}</strong>")
+        } else {
+            let href = match dating.owner_type {
+                OwnerType::Entry => format!(
+                    "{}#atlas-dates-{}",
+                    atlas_publication::entry_url(&dating.owner),
+                    dating.aspect.as_str()
+                ),
+                OwnerType::Relationship => atlas.owner_url(&dating.owner, dating.owner_type),
+            };
+            format!("<a href=\"{}\">{name}</a>", attr(&href))
+        };
+        format!(
+            "{} of {owner}",
+            capitalized(atlas_publication::aspect_noun(dating.aspect))
         )
+    }
+
+    /// A dating's date as stated. A relative dating names the other entry
+    /// and links to its datings: one step of a trail, as someone asserted it.
+    fn atlas_date_html(
+        &self,
+        atlas: &PublicAtlas,
+        dating: &PublicDating,
+        here: Option<&str>,
+    ) -> String {
+        let Some(relative) = &dating.date.relative else {
+            return if dating.placement == Placement::Unknown {
+                "unknown, as the dating party states".to_string()
+            } else {
+                text(&dating.text)
+            };
+        };
+        let label = atlas
+            .entry(&relative.entry)
+            .map_or(relative.entry.as_str(), |entry| entry.label.as_str());
+        let target = if here == Some(relative.entry.as_str()) {
+            format!("<strong>{}</strong>", text(label))
+        } else {
+            let has_aspect = atlas
+                .datings
+                .iter()
+                .any(|d| d.owner == relative.entry && d.aspect == relative.aspect);
+            let anchor = if has_aspect {
+                format!("atlas-dates-{}", relative.aspect.as_str())
+            } else {
+                "atlas-section-dates".to_string()
+            };
+            format!(
+                "<a href=\"{}#{anchor}\">{}</a>",
+                attr(&atlas_publication::entry_url(&relative.entry)),
+                text(label)
+            )
+        };
+        format!(
+            "{} the {} of {target}",
+            relative.order.as_str(),
+            atlas_publication::aspect_noun(relative.aspect)
+        )
+    }
+
+    /// One dating with who dates it, how firmly, on what evidence and with
+    /// what note. `anchored` gives it its fragment id (once per page);
+    /// `lead` replaces the plain date line with a sentence that names what
+    /// is dated.
+    fn atlas_dating(
+        &self,
+        atlas: &PublicAtlas,
+        dating: &PublicDating,
+        here: Option<&str>,
+        anchored: bool,
+        lead: Option<String>,
+    ) -> String {
+        let author = &self.site.config.author.name;
+        let id = if anchored {
+            format!(" id=\"atlas-d-{}\"", attr(&dating.id))
+        } else {
+            String::new()
+        };
+        let placement = match dating.placement {
+            Placement::Dated => "dated",
+            Placement::Relative => "relative",
+            Placement::Unknown => "unknown",
+        };
+        let date = self.atlas_date_html(atlas, dating, here);
+        let line = match lead {
+            Some(lead) => format!("{lead}: {date}"),
+            None => date,
+        };
+        let mut out = format!(
+            "<li{id} class=\"ob-atlas-dating\" data-placement=\"{placement}\">\n<p class=\"ob-atlas-date\">{line}</p>\n<dl>\n"
+        );
+        out.push_str(&format!(
+            "<dt>Dated by</dt><dd>{}</dd>\n",
+            text(&atlas.party_text(&dating.asserted_by, author))
+        ));
+        out.push_str(&format!(
+            "<dt>Confidence</dt><dd>{}: how firmly the dating party holds it, not how widely it is accepted.</dd>\n",
+            atlas_publication::confidence_text(dating.confidence)
+        ));
+        out.push_str("<dt>Evidence</dt><dd><ul>");
+        for item in &dating.evidence {
+            out.push_str(&format!(
+                "<li><cite>{}</cite></li>",
+                text(&atlas.evidence_text(item))
+            ));
+        }
+        out.push_str("</ul></dd>\n");
+        if let Some(note) = &dating.note {
+            out.push_str(&format!("<dt>Note</dt><dd>{}</dd>\n", text(note)));
+        }
+        out.push_str("</dl>\n</li>\n");
+        out
+    }
+
+    /// An entry's own datings, by aspect with competing datings side by
+    /// side, then the relative datings of other items that point at it.
+    /// Empty when it has neither, so its page is written as before.
+    fn atlas_entry_dates(&self, atlas: &PublicAtlas, entry: &PublicEntry) -> String {
+        let groups = atlas.dated_aspects_of(&entry.id);
+        let pointing = atlas.relative_to(&entry.id);
+        if groups.is_empty() && pointing.is_empty() {
+            return String::new();
+        }
+        let mut out = String::from(
+            "<section aria-labelledby=\"atlas-section-dates\">\n<h2 id=\"atlas-section-dates\">Dates</h2>\n",
+        );
+        out.push_str(&format!(
+            "<p class=\"ob-meta\">{} All published datings are also on the <a href=\"{}#atlas-timeline\">timeline</a>.</p>\n",
+            text(ATLAS_DATES_NOTE),
+            atlas_publication::ATLAS_URL
+        ));
+        for group in &groups {
+            out.push_str(&format!(
+                "<h3 id=\"atlas-dates-{}\">{}</h3>\n<p class=\"ob-meta\">{}</p>\n<ul class=\"ob-atlas-datings\">\n",
+                group.aspect.as_str(),
+                atlas_publication::aspect_heading(group.aspect),
+                competing_text(group.datings.len())
+            ));
+            for dating in &group.datings {
+                out.push_str(&self.atlas_dating(atlas, dating, Some(&entry.id), true, None));
+            }
+            out.push_str("</ul>\n");
+        }
+        if !pointing.is_empty() {
+            out.push_str("<h3 id=\"atlas-dates-relative-to\">Dated relative to this entry</h3>\n<p class=\"ob-meta\">Other items that someone dated before, after or during this entry. Each is that party's recorded order, not one worked out from dates; follow a link to continue the trail.</p>\n<ul class=\"ob-atlas-datings\">\n");
+            for dating in pointing {
+                // The step back: the dating in full on the page that owns it.
+                let href = match dating.owner_type {
+                    OwnerType::Entry => atlas_publication::entry_url(&dating.owner),
+                    OwnerType::Relationship => match atlas.relationship(&dating.owner) {
+                        Some(r) => atlas_publication::entry_url(&r.from),
+                        None => atlas_publication::ATLAS_URL.to_string(),
+                    },
+                };
+                let lead = format!(
+                    "{} of <a href=\"{}#atlas-d-{}\">{}</a>",
+                    capitalized(atlas_publication::aspect_noun(dating.aspect)),
+                    attr(&href),
+                    attr(&dating.id),
+                    text(&atlas.owner_text(&dating.owner, dating.owner_type))
+                );
+                out.push_str(&self.atlas_dating(atlas, dating, Some(&entry.id), false, Some(lead)));
+            }
+            out.push_str("</ul>\n");
+        }
+        out.push_str("</section>\n");
+        out
     }
 
     fn atlas_entry(&self, theme: &Theme, atlas: &PublicAtlas, entry: &PublicEntry) -> String {
@@ -2024,13 +3212,6 @@ impl<'a> Renderer<'a> {
                 aliases.join(", ")
             ));
         }
-        if let Some(years) = entry
-            .bounds
-            .as_ref()
-            .and_then(atlas_publication::bounds_text)
-        {
-            body.push_str(&format!("<p class=\"ob-meta\">{}</p>\n", text(&years)));
-        }
         body.push_str("<div class=\"ob-prose\">\n");
         if let Some(summary) = &entry.summary {
             for paragraph in summary
@@ -2050,6 +3231,7 @@ impl<'a> Renderer<'a> {
                 text(&source.text)
             ));
         }
+        body.push_str(&self.atlas_entry_dates(atlas, entry));
         let (outgoing, incoming) = atlas.relationships_of(&entry.id);
         for (id, title, list) in [
             // Section ids and relationship ids (`atlas-r-<id>`) live in
@@ -2076,11 +3258,15 @@ impl<'a> Renderer<'a> {
             }
             body.push_str("</section>\n");
         }
+        let trail = self.atlas_trail(entry);
+        if let Some(trail) = &trail {
+            body.push_str(trail);
+        }
         body.push_str(&format!(
             "<p class=\"ob-meta\">{}</p>\n</div>\n</article>\n</div>",
             text(ATLAS_NOTE)
         ));
-        self.simple(
+        let mut meta = self.meta_simple(
             theme,
             &entry.label,
             &format!(
@@ -2088,8 +3274,240 @@ impl<'a> Renderer<'a> {
                 atlas_publication::kind_label(entry.kind)
             ),
             &entry.url,
-            &body,
-        )
+        );
+        meta.atlas_trail = trail.is_some();
+        self.document(&meta, &body)
+    }
+
+    /// The relationship trail from an entry (ADR 0175): the bounded walk of
+    /// [`crate::atlas_query::AtlasQuery::trail`] over published relationships,
+    /// as an ordered list of steps grouped by how far they are from the entry.
+    /// It is complete without JavaScript; `<ob-atlas-trail>` only adds
+    /// filters. Each step is one published relationship in the direction it
+    /// was stated, with its type, who asserts it, how firmly, its standing,
+    /// its evidence and its stated uncertainty, and says which way the walk
+    /// crossed it. A step that arrives at an entry already on the trail says
+    /// so and is not followed again, so a cycle is a sentence and never a trap.
+    /// `None` when the entry has no published relationship or the query
+    /// projection is not written.
+    fn atlas_trail(&self, entry: &PublicEntry) -> Option<String> {
+        self.atlas_trail_to(entry, self.atlas_trail_depth().depth)
+    }
+
+    /// How far every trail of the site goes: full depth, unless the trails of
+    /// all entries together would take more than [`TRAIL_BUDGET_BYTES`], in
+    /// which case one step, site-wide, so no entry's page differs in kind.
+    fn atlas_trail_depth(&self) -> TrailDepth {
+        use crate::atlas_query::MAX_TRAIL_DEPTH;
+        *self.trail_depth.get_or_init(|| {
+            let full = TrailDepth {
+                depth: MAX_TRAIL_DEPTH,
+                over_budget: None,
+            };
+            let Some(atlas) = self.site.atlas.as_ref() else {
+                return full;
+            };
+            let mut total = 0usize;
+            for entry in &atlas.entries {
+                total += self
+                    .atlas_trail_to(entry, MAX_TRAIL_DEPTH)
+                    .map_or(0, |trail| trail.len());
+                if total > self.trail_budget {
+                    return TrailDepth {
+                        depth: 1,
+                        over_budget: Some(total),
+                    };
+                }
+            }
+            full
+        })
+    }
+
+    /// [`Self::atlas_trail`] for a trail that goes `max_depth` steps out.
+    fn atlas_trail_to(&self, entry: &PublicEntry, max_depth: usize) -> Option<String> {
+        use crate::atlas_query::{Direction, MAX_TRAIL_STEPS};
+        let query = &self.atlas_query_projection()?.query;
+        let trail = query.trail(&entry.id, max_depth);
+        if trail.steps.is_empty() {
+            return None;
+        }
+        let name = |id: &str| query.entry(id).map_or_else(|| text(id), |e| text(&e.label));
+        let link = |id: &str| match query.entry(id) {
+            Some(e) => format!("<a href=\"{}\">{}</a>", attr(&e.url), text(&e.label)),
+            None => text(id),
+        };
+        let mut reached: BTreeSet<&str> = BTreeSet::new();
+        reached.insert(entry.id.as_str());
+        let mut entries_on_trail: BTreeSet<&str> = reached.clone();
+        for step in &trail.steps {
+            entries_on_trail.insert(step.reached);
+        }
+        let mut out = format!(
+            "<ob-atlas-trail>\n<section class=\"ob-atlas-trail-section\" aria-labelledby=\"atlas-section-trail\">\n<h2 id=\"atlas-section-trail\">Relationship trail</h2>\n<p class=\"ob-meta\">{}</p>\n<p class=\"ob-meta\">This trail has {} across {} (including this one), up to {} relationships away. <a href=\"#atlas-trail-end\">Skip the trail</a>.</p>\n",
+            text(ATLAS_TRAIL_NOTE),
+            plural_text(trail.steps.len(), "relationship", "relationships"),
+            plural_text(entries_on_trail.len(), "entry", "entries"),
+            max_depth
+        );
+        let mut open: Option<usize> = None;
+        for step in &trail.steps {
+            let edge = step.edge;
+            if open != Some(step.depth) {
+                if open.is_some() {
+                    out.push_str("</ol>\n</li>\n");
+                } else {
+                    out.push_str("<ol class=\"ob-trail-depths\">\n");
+                }
+                out.push_str(&format!(
+                    "<li class=\"ob-trail-depth\" data-depth=\"{d}\">
+<h3 id=\"atlas-trail-depth-{d}\">{} from {}</h3>
+<p class=\"ob-meta\">{}</p>
+<ol class=\"ob-trail-steps\">
+",
+                    steps_label(step.depth),
+                    name(&entry.id),
+                    if step.depth == 1 {
+                        "Relationships that touch this entry."
+                    } else {
+                        "Relationships that touch an entry reached in the step before."
+                    },
+                    d = step.depth
+                ));
+                open = Some(step.depth);
+            }
+            let again = reached.contains(step.reached);
+            reached.insert(step.reached);
+            let (from, to) = (name(&edge.from), name(&edge.to));
+            // The sentence is escaped once, as a whole, from the raw labels.
+            let raw = |id: &str| {
+                query
+                    .entry(id)
+                    .map_or_else(|| id.to_string(), |e| e.label.clone())
+            };
+            let (from_raw, to_raw) = (raw(&edge.from), raw(&edge.to));
+            let symmetric = edge.kind.is_symmetric();
+            let direction = match (step.direction, symmetric) {
+                (_, true) => format!(
+                    "Stated between {from_raw} and {to_raw}; this kind of relationship reads the same in both directions."
+                ),
+                (Direction::Forward, false) => format!(
+                    "Stated from {from_raw} to {to_raw}. This step follows it forward, in the direction it was stated, from {from_raw} to {to_raw}."
+                ),
+                (Direction::Backward, false) => format!(
+                    "Stated from {from_raw} to {to_raw}. This step follows it backward, against the direction it was stated, from {to_raw} to {from_raw}."
+                ),
+            };
+            let compact_direction = match (step.direction, symmetric) {
+                (_, true) => "Reads the same in both directions.",
+                (Direction::Forward, false) => "Followed in the direction it was stated.",
+                (Direction::Backward, false) => "Followed against the direction it was stated.",
+            };
+            let standing = match edge.standing {
+                Standing::Asserted => "asserted",
+                Standing::Contested => "contested",
+            };
+            let uncertainty_note = match &edge.uncertainty {
+                Some(note) => format!(
+                    "{}{} <a href=\"{}\">Read it in full</a>.",
+                    text(note),
+                    if edge.uncertainty_clipped {
+                        " \u{2026}"
+                    } else {
+                        ""
+                    },
+                    attr(&edge.url)
+                ),
+                None => "None stated. That is not a claim that it is certain.".to_string(),
+            };
+            let evidence: String = edge
+                .evidence
+                .iter()
+                .map(|item| format!("<li><cite>{}</cite></li>", text(&item.text)))
+                .collect();
+            out.push_str(&format!(
+                "<li id=\"atlas-trail-{id}\" class=\"ob-trail-step\" data-depth=\"{depth}\" data-kind=\"{kind}\" data-kind-label=\"{kind_label}\" data-direction=\"{dir}\" data-standing=\"{standing}\" data-uncertain=\"{uncertain}\" data-again=\"{again}\">\n",
+                id = attr(&edge.id),
+                depth = step.depth,
+                kind = edge.kind.as_str(),
+                kind_label = attr(edge.label),
+                dir = match (step.direction, symmetric) {
+                    (_, true) => "symmetric",
+                    (Direction::Forward, false) => "forward",
+                    (Direction::Backward, false) => "backward",
+                },
+                uncertain = edge.uncertainty.is_some(),
+            ));
+            // Facts are written in full on the first step only; a step further
+            // out is its sentence, which way it was followed and a link, so a
+            // hub's trail stays small. Its data attributes still feed the
+            // filters, and the relationship's own page has everything.
+            let full = step.depth == 1;
+            out.push_str(&format!(
+                "<p class=\"ob-trail-statement\">{}{} {} {}.</p>\n{}",
+                if edge.standing == Standing::Contested {
+                    "<strong>Contested:</strong> "
+                } else {
+                    ""
+                },
+                if edge.from == entry.id {
+                    format!("<strong>{from}</strong>")
+                } else {
+                    link(&edge.from)
+                },
+                text(edge.label),
+                if edge.to == entry.id {
+                    format!("<strong>{to}</strong>")
+                } else {
+                    link(&edge.to)
+                },
+                if full {
+                    "<dl class=\"ob-trail-facts\">\n"
+                } else {
+                    ""
+                },
+            ));
+            if full {
+                out.push_str(&format!(
+                    "<dt>Type</dt><dd>{}</dd>\n<dt>Direction</dt><dd>{}</dd>\n<dt>Asserted by</dt><dd>{}</dd>\n<dt>Confidence</dt><dd>{}: how firmly the asserting party holds it, not how widely it is accepted.</dd>\n<dt>Standing</dt><dd>{}</dd>\n<dt>Evidence</dt><dd><ul>{}</ul></dd>\n<dt>Uncertainty</dt><dd>{}</dd>\n</dl>\n",
+                    text(edge.label),
+                    text(&direction),
+                    text(&edge.asserted_by_text),
+                    edge.confidence_text,
+                    text(&edge.standing_text),
+                    evidence,
+                    uncertainty_note,
+                ));
+            }
+            let again_note = if again {
+                " That entry is already on this trail, so the trail does not continue from it again."
+            } else {
+                ""
+            };
+            if full {
+                out.push_str(&format!(
+                    "<p class=\"ob-meta\">This step reaches {}.{} <a href=\"{}\">The relationship in full</a>.</p>\n</li>\n",
+                    link(step.reached),
+                    again_note,
+                    attr(&edge.url),
+                ));
+            } else {
+                out.push_str(&format!(
+                    "<p class=\"ob-meta\">{}{} <a href=\"{}\">The relationship in full</a>.</p>\n</li>\n",
+                    compact_direction, again_note,
+                    attr(&edge.url),
+                ));
+            }
+        }
+        out.push_str("</ol>\n</li>\n</ol>\n");
+        if trail.truncated {
+            out.push_str(&format!(
+                "<p class=\"ob-meta ob-trail-truncated\">The trail stops after {MAX_TRAIL_STEPS} relationships; more exist. Each entry's own page lists all of its relationships and continues the trail from there.</p>\n"
+            ));
+        } else {
+            out.push_str("<p class=\"ob-meta\">To go further, follow an entry's link: its own page continues the trail from there.</p>\n");
+        }
+        out.push_str("<p id=\"atlas-trail-end\" class=\"ob-meta\" tabindex=\"-1\">End of the relationship trail.</p>\n</section>\n</ob-atlas-trail>\n");
+        Some(out)
     }
 
     /// One relationship, always read in its stored direction, with who
@@ -2123,21 +3541,11 @@ impl<'a> Renderer<'a> {
             list.push_str("</ul>");
             list
         };
-        let (standing, standing_text) = match r.standing {
-            Standing::Asserted => (
-                "asserted",
-                "Asserted. No disagreement is recorded here; that is not a claim that it is agreed."
-                    .to_string(),
-            ),
-            Standing::Contested => (
-                "contested",
-                format!(
-                    "Contested: {} recorded dissent{}.",
-                    r.contested_by.len(),
-                    if r.contested_by.len() == 1 { "" } else { "s" }
-                ),
-            ),
+        let standing = match r.standing {
+            Standing::Asserted => "asserted",
+            Standing::Contested => "contested",
         };
+        let standing_text = atlas_publication::standing_text(r.standing, r.contested_by.len());
         let mut out = format!(
             "<li id=\"atlas-r-{}\" class=\"ob-atlas-relationship\" data-standing=\"{standing}\">\n<p>{}{} {} {}.</p>\n<dl>\n",
             attr(&r.id),
@@ -2171,6 +3579,17 @@ impl<'a> Renderer<'a> {
                 "<dt>Uncertain</dt><dd>{}</dd>\n",
                 text(uncertainty)
             ));
+        }
+        // When it held: the relationship's own datings, never evidence for it.
+        for group in atlas.dated_aspects_of(&r.id) {
+            out.push_str(&format!(
+                "<dt>When it held</dt><dd><p>{}</p><ul class=\"ob-atlas-datings\">\n",
+                competing_text(group.datings.len())
+            ));
+            for dating in &group.datings {
+                out.push_str(&self.atlas_dating(atlas, dating, Some(&here.id), true, None));
+            }
+            out.push_str("</ul></dd>\n");
         }
         if !r.contested_by.is_empty() {
             out.push_str("<dt>Disputed by</dt><dd><ul>");
@@ -2213,6 +3632,13 @@ impl<'a> Renderer<'a> {
             image: None,
             image_alt: None,
             json_ld: None,
+            reader_references: None,
+            citation_previews: None,
+            concept_previews: None,
+            passage_data: None,
+            participation_scripts: Vec::new(),
+            atlas_timeline: false,
+            atlas_trail: false,
             theme,
             published: None,
             modified: None,
@@ -2220,6 +3646,117 @@ impl<'a> Renderer<'a> {
             highwire: Vec::new(),
             noindex: false,
         }
+    }
+
+    fn comparison_index(&self, theme: &Theme, comparisons: &PublicComparisons) -> String {
+        let mut body = String::from(
+            "<div class=\"ob-container ob-container-reading\">\n<section class=\"ob-section ob-comparisons\">\n",
+        );
+        body.push_str(&self.heading(theme, 1, "Comparisons", "ob-section-heading"));
+        body.push_str(&format!(
+            "\n<p class=\"ob-lede\">{}</p>\n<p>{}</p>\n",
+            text(COMPARISONS_LEDE),
+            text(comparisons.notice)
+        ));
+        if comparisons.comparisons.is_empty() {
+            body.push_str("<p class=\"ob-empty\">No comparisons have been published yet.</p>\n");
+        } else {
+            body.push_str("<ul class=\"ob-archive\">\n");
+            for comparison in &comparisons.comparisons {
+                let count = comparison.versions.len();
+                body.push_str(&format!(
+                    "<li><a href=\"{}\"><bdi>{}</bdi></a> <span class=\"ob-meta\">{count} version{} · {}</span></li>\n",
+                    attr(&comparison.url),
+                    text(&comparison_title(comparisons, comparison)),
+                    if count == 1 { "" } else { "s" },
+                    text(comparison.correspondence_label)
+                ));
+            }
+            body.push_str("</ul>\n");
+        }
+        body.push_str(&format!(
+            "<p class=\"ob-meta\">The same comparisons as data: <a href=\"/{file}\" type=\"application/json\">{file}</a>.</p>\n</section>\n</div>",
+            file = comparison_publication::COMPARISONS_JSON_FILE
+        ));
+        self.simple(
+            theme,
+            "Comparisons",
+            "Passages compared across editions, translations, manuscripts and interpretations, each version identified.",
+            comparison_publication::COMPARISONS_URL,
+            &body,
+        )
+    }
+
+    fn comparison_page(
+        &self,
+        theme: &Theme,
+        comparisons: &PublicComparisons,
+        comparison: &PublicComparison,
+    ) -> String {
+        let title = comparison_title(comparisons, comparison);
+        let mut body = String::from(
+            "<div class=\"ob-container ob-container-reading\">\n<article class=\"ob-page ob-comparison\">\n",
+        );
+        body.push_str(&format!(
+            "<p class=\"ob-eyebrow\"><a href=\"{}\">Comparisons</a></p>\n",
+            comparison_publication::COMPARISONS_URL
+        ));
+        body.push_str(&self.heading(theme, 1, &title, "ob-post-title"));
+        body.push_str("\n<div class=\"ob-prose\">\n");
+        body.push_str(&format!(
+            "<p class=\"ob-comparison-correspondence\"><strong>{}.</strong> {}</p>\n<dl class=\"ob-comparison-facts\">\n",
+            text(comparison.correspondence_label),
+            text(comparisons.notice)
+        ));
+        body.push_str(&format!(
+            "<dt>Aligned by</dt><dd>{}</dd>\n",
+            text(&comparisons.party_text(&comparison.recorded_by, &self.site.config.author.name))
+        ));
+        body.push_str(&format!(
+            "<dt>Confidence</dt><dd>{}: how firmly the aligner holds this reading, not how widely it is accepted.</dd>\n",
+            atlas_publication::confidence_text(comparison.confidence)
+        ));
+        if let Some(rationale) = &comparison.rationale {
+            body.push_str(&format!(
+                "<dt>Why these places are aligned</dt><dd>{}</dd>\n",
+                text(rationale).replace('\n', "<br>")
+            ));
+        }
+        if !comparison.evidence.is_empty() {
+            body.push_str("<dt>Evidence</dt><dd><ul>");
+            for item in &comparison.evidence {
+                body.push_str(&format!(
+                    "<li><cite>{}</cite></li>",
+                    text(&comparisons.evidence_text(item))
+                ));
+            }
+            body.push_str("</ul></dd>\n");
+        }
+        if let Some(uncertainty) = &comparison.uncertainty {
+            body.push_str(&format!(
+                "<dt>Uncertain</dt><dd>{}</dd>\n",
+                text(uncertainty).replace('\n', "<br>")
+            ));
+        }
+        body.push_str("</dl>\n");
+        for (position, version) in comparison.versions.iter().enumerate() {
+            body.push_str(&comparison_version(comparisons, version, position + 1));
+        }
+        body.push_str(&format!(
+            "<p class=\"ob-meta\">{}</p>\n</div>\n</article>\n</div>",
+            text(COMPARISONS_NOTE)
+        ));
+        self.simple(
+            theme,
+            &title,
+            &format!(
+                "{} compared across {} versions, each identified, with wording only where the author states its rights allow.",
+                title,
+                comparison.versions.len()
+            ),
+            &comparison.url,
+            &body,
+        )
     }
 
     fn simple(
@@ -2237,8 +3774,221 @@ impl<'a> Renderer<'a> {
 
 /// What the atlas index says before any entry.
 const ATLAS_LEDE: &str = "People, works, concepts, movements and events, and the relationships between them that the author has chosen to publish. Each relationship is one party's assertion on cited evidence; contested ones name who disagrees.";
+/// What the atlas timeline says before it lists anything (ADR 0100).
+const ATLAS_TIMELINE_NOTE: &str = "Every published dating in time order, grouped by the century in which each dated aspect's earliest dating begins. Each dating is one party's claim on cited evidence, at the precision it states. Competing datings of the same thing stand side by side; none is preferred, and nothing here resolves them. The order is for reading only: it never means that one thing caused or influenced another.";
+/// What an entry page says above its relationship trail (ADR 0175).
+const ATLAS_TRAIL_NOTE: &str = "Each step below is one relationship that someone published, in the direction it was stated, with who asserts it, how firmly, and the evidence and doubt they gave. A trail follows published relationships outward from this entry, in either direction, one step at a time. It is not a line of influence: nothing here infers a relationship that was not published, joins steps into a new claim, or treats being near as being important.";
+/// What an entry page says above its datings.
+const ATLAS_DATES_NOTE: &str = "Each dating is one party's claim on cited evidence, at the precision it states. Competing datings stand side by side; none is preferred, and nothing here resolves them.";
+
+/// How far a trail step is from the entry, in words.
+fn steps_label(depth: usize) -> String {
+    match depth {
+        1 => "One step".to_string(),
+        2 => "Two steps".to_string(),
+        3 => "Three steps".to_string(),
+        n => format!("{n} steps"),
+    }
+}
+
+/// "2 competing datings, side by side", or that only one is published.
+fn competing_text(count: usize) -> String {
+    if count == 1 {
+        "1 dating; no competing dating is published.".to_string()
+    } else {
+        format!("{count} competing datings, side by side. None is preferred.")
+    }
+}
+
+/// "1 published dating", "3 published datings".
+fn plural_text(count: usize, one: &str, many: &str) -> String {
+    format!("{count} {}", if count == 1 { one } else { many })
+}
+
+/// The first letter in upper case, for a generated word starting a sentence.
+fn capitalized(word: &str) -> String {
+    let mut chars = word.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
+
 /// What every atlas entry page says under its relationships.
 const ATLAS_NOTE: &str = "Every relationship here is one party's assertion on cited evidence, published with the author's approval. A contested relationship lists who disagrees. Nothing here claims that scholars agree.";
+
+/// What the comparisons index says before any comparison.
+const COMPARISONS_LEDE: &str = "Passages the author has compared across editions, translations, manuscripts and interpretations. Every version is identified with its locators; its wording is quoted only where the author states that the version's text may be shown.";
+/// What every comparison page says at the end.
+const COMPARISONS_NOTE: &str = "Rights statements are the author's own declarations, not legal judgements. A version whose rights are unknown or reserved is identified and located but not quoted. Interpretations are attributed to whoever made them and are not the text they interpret.";
+
+fn comparison_title(comparisons: &PublicComparisons, comparison: &PublicComparison) -> String {
+    match &comparison.label {
+        Some(label) => label.clone(),
+        None => {
+            let titles: Vec<String> = comparison
+                .versions
+                .iter()
+                .take(3)
+                .map(|version| comparisons.title_of(&version.source))
+                .collect();
+            format!("Comparison of {}", titles.join(", "))
+        }
+    }
+}
+
+/// Wording as a block quotation in its own language and direction. Text is
+/// escaped and line breaks kept; nothing else changes.
+fn comparison_quote(quoted: &PublicText) -> String {
+    let lang = quoted
+        .language
+        .as_deref()
+        .map(|language| format!(" lang=\"{}\"", attr(language)))
+        .unwrap_or_default();
+    format!(
+        "<blockquote{lang} dir=\"{}\"><p>{}</p></blockquote>\n",
+        quoted.dir,
+        text(&quoted.text).replace('\n', "<br>")
+    )
+}
+
+/// One version's section: its identification, its rights statement, then
+/// each of its places.
+fn comparison_version(
+    comparisons: &PublicComparisons,
+    version: &PublicVersion,
+    number: usize,
+) -> String {
+    let id = format!("comparison-version-{number}");
+    let source = comparisons.source(&version.source);
+    let title = comparisons.title_of(&version.source);
+    let mut out = format!(
+        "<section class=\"ob-comparison-version\" aria-labelledby=\"{id}\" data-version-kind=\"{}\">\n",
+        match version.kind {
+            VersionKind::Source => "source",
+            VersionKind::Interpretation => "interpretation",
+        }
+    );
+    match (&version.kind, &version.interpretation) {
+        (VersionKind::Interpretation, Some(interpretation)) => {
+            out.push_str(&format!(
+                "<h2 id=\"{id}\"><bdi>{}</bdi></h2>\n",
+                text(&comparison_publication::interpretation_heading(
+                    interpretation
+                ))
+            ));
+            out.push_str(&format!(
+                "<p class=\"ob-meta\">An interpretation of <cite><bdi>{}</bdi></cite>, attributed to whoever made it. It is not that text.</p>\n",
+                text(&title)
+            ));
+        }
+        _ => {
+            out.push_str(&format!(
+                "<h2 id=\"{id}\"><bdi>{}</bdi></h2>\n",
+                text(&title)
+            ));
+            if let Some(source) = source {
+                let mut facts = vec![capitalized(source.reference.kind)];
+                if let Some(language) = &source.reference.language {
+                    facts.push(format!("language {language}"));
+                }
+                if version.anonymous {
+                    facts.push("anonymous".to_string());
+                }
+                out.push_str(&format!(
+                    "<p class=\"ob-meta\">{}</p>\n",
+                    text(&facts.join(", "))
+                ));
+                // Each maker reads as an interpreter does: the name, then how
+                // firmly the author ties it to the version (ADR 0086).
+                let mut roles: Vec<(String, Vec<String>)> = Vec::new();
+                for maker in &version.makers {
+                    let role = capitalized(maker.role.as_deref().unwrap_or("creator"));
+                    let name =
+                        comparison_publication::attributed_name(&maker.name, maker.attribution);
+                    match roles.iter_mut().find(|(known, _)| *known == role) {
+                        Some((_, names)) => names.push(name),
+                        None => roles.push((role, vec![name])),
+                    }
+                }
+                for (role, names) in roles {
+                    out.push_str(&format!(
+                        "<p class=\"ob-meta\">{}: <bdi>{}</bdi></p>\n",
+                        text(&role),
+                        text(&names.join("; "))
+                    ));
+                }
+            }
+        }
+    }
+    if let Some(source) = source {
+        out.push_str(&format!(
+            "<p class=\"ob-meta\">Source: <cite><bdi>{}</bdi></cite></p>\n",
+            text(&source.text)
+        ));
+    }
+    out.push_str(&format!(
+        "<p class=\"ob-meta\" data-rights=\"{}\">Rights: <bdi>{}{}</bdi>. This is the author's statement, not a legal judgement.</p>\n",
+        version.rights.status.tag(),
+        text(version.rights.label),
+        version
+            .rights
+            .license
+            .as_deref()
+            .map(|license| format!(" ({})", text(license)))
+            .unwrap_or_default()
+    ));
+    out.push_str(&format!(
+        "<ol class=\"ob-comparison-places\" aria-label=\"Places in {}\">\n",
+        attr(&title)
+    ));
+    for place in &version.places {
+        out.push_str(&comparison_place(version, place));
+    }
+    out.push_str("</ol>\n</section>\n");
+    out
+}
+
+fn comparison_place(version: &PublicVersion, place: &PublicPlace) -> String {
+    let mut out = String::from("<li class=\"ob-comparison-place\">\n");
+    let locators = if place.locators.is_empty() {
+        "none recorded".to_string()
+    } else {
+        crate::bibliography::CitationLocale::En.locators_text(&place.locators)
+    };
+    out.push_str(&format!(
+        "<p class=\"ob-meta\">Where: {}</p>\n",
+        text(&locators)
+    ));
+    if place.absent {
+        out.push_str("<p data-place=\"absent\">Absent: this version lacks the passage.</p>\n");
+    } else if let Some(quoted) = &place.text {
+        out.push_str(&comparison_quote(quoted));
+        if let Some(normalized) = &place.normalized {
+            out.push_str(&format!(
+                "<p class=\"ob-meta\">The author's normalization, not the source text{}:</p>\n",
+                normalized
+                    .note
+                    .as_deref()
+                    .map(|note| format!(" ({})", text(note)))
+                    .unwrap_or_default()
+            ));
+            out.push_str(&comparison_quote(&normalized.text));
+        }
+    } else if let Some(withheld) = place.withheld {
+        out.push_str(&format!(
+            "<p data-place=\"withheld\">{}</p>\n",
+            text(&comparison_publication::withheld_text(
+                withheld,
+                &version.rights
+            ))
+        ));
+    } else {
+        out.push_str("<p data-place=\"unquoted\">No wording is quoted for this place.</p>\n");
+    }
+    out.push_str("</li>\n");
+    out
+}
 
 /// ` · N views` for a page with a known count, else empty.
 fn site_views_text(site: &Site, path: &str) -> String {
@@ -2412,6 +4162,10 @@ mod tests {
                 series: vec![src("series/s.md", "---\nname: Series S\ntheme: loud\n---\nAbout S")],
                 pages: vec![src("pages/about.md", "---\ntitle: About\nnav: true\n---\nHi")],
                 source_library: None,
+                claim_evidence: None,
+                reader_feedback: None,
+                third_perspectives: None,
+                community_features: None,
             },
             LoadOptions::default(),
         )
@@ -3239,6 +4993,69 @@ mod tests {
             .unwrap()
             .values()
             .all(|policy| policy == "hidden"));
+    }
+
+    #[test]
+    fn passage_feedback_publishes_its_policy_only_when_the_site_opts_in() {
+        let posts = [
+            (
+                "posts/locked.md",
+                "---
+title: Locked
+date: 2026-01-01
+comments: locked
+---
+Text",
+            ),
+            (
+                "posts/hidden.md",
+                "---
+title: Hidden
+date: 2026-01-01
+comments: hidden
+---
+Text",
+            ),
+            (
+                "posts/open.md",
+                "---
+title: Open
+date: 2026-01-01
+---
+Text",
+            ),
+        ];
+        // Comments off does not close feedback: each post's discussion
+        // setting decides.
+        let enabled = build_posts(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","engagement":{"enabled":true,"comments":false,"feedback":true,"endpoint":"https://t.dev/api"}}"#,
+            &posts,
+        );
+        assert_eq!(
+            file(&enabled, "openblog-feedback.json"),
+            r#"{"/hidden/":"hidden","/locked/":"locked","/open/":"open"}"#
+        );
+
+        // Off by default and off with engagement off:
+        // the output is exactly what it was before the feature existed.
+        for config in [
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","engagement":{"enabled":true,"endpoint":"https://t.dev/api"}}"#,
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","engagement":{"enabled":false,"feedback":true,"endpoint":"https://t.dev/api"}}"#,
+        ] {
+            let files = build_posts(config, &posts);
+            assert!(
+                !files.iter().any(|f| f.path == "openblog-feedback.json"),
+                "{config}"
+            );
+            let without: Vec<_> = build_posts(&config.replace(r#""feedback":true,"#, ""), &posts)
+                .into_iter()
+                .map(|f| (f.path, f.contents))
+                .collect();
+            let with: Vec<_> = files.into_iter().map(|f| (f.path, f.contents)).collect();
+            assert_eq!(with, without, "{config}");
+        }
+        let defaults = SiteConfig::from_json(r#"{"title":"T","url":"https://t.dev"}"#).unwrap();
+        assert!(!defaults.engagement.feedback);
     }
 
     #[test]

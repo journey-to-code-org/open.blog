@@ -1,8 +1,9 @@
 use std::path::{Path, PathBuf};
 
+use openblog_core::curated_context::BibliographyContext;
 use openblog_core::model::Post;
 use openblog_core::portability::PortableProjection;
-use openblog_core::source_interchange::{self, Export};
+use openblog_core::source_interchange::{self, Export, ExportLoss};
 use openblog_core::Site;
 
 use crate::{clock, fsutil, site};
@@ -56,18 +57,41 @@ pub fn run(
         println!("Dry run: no files will be written. Re-run with --write to create the export.");
     }
 
-    let (site, _) = site::load_site(root, false, Some(clock::now()))?;
+    let (mut site, _) = site::load_site(root, false, Some(clock::now()))?;
+    // The public curated context, while the site publishes it (ADR 0202).
+    crate::boundary::attach_public_curation(root, &mut site)?;
     let post = site
         .posts
         .iter()
         .find(|post| post.slug == slug)
         .ok_or_else(|| format!("published post `{slug}` was not found"))?;
     if format != Format::Markdown {
+        let export = bibliography_export(post, curated_references(&site, post), format)?;
+        for warning in crate::boundary::check_export(
+            root,
+            &site,
+            &format!("the {} export of `{slug}`", format.key()),
+            &export.content,
+            true,
+        )? {
+            eprintln!("warning: {warning}");
+        }
         return run_bibliography(post, &site, format, destination.as_deref(), write, json);
     }
     let projection = PortableProjection::for_site(&site, post)?;
     let markdown = projection.portable_markdown()?;
     let portable = projection.portable_html()?;
+    // The publication boundary (ADR 0125): no private research text leaves
+    // in an export that nothing public holds.
+    for warning in crate::boundary::check_export(
+        root,
+        &site,
+        &format!("the portable Markdown of `{slug}`"),
+        &markdown,
+        false,
+    )? {
+        eprintln!("warning: {warning}");
+    }
     if json {
         println!(
             "{}",
@@ -122,21 +146,55 @@ pub fn run(
 /// post as the site load published it, so the file holds exactly the public
 /// description its notes show (the one publication projection, ADR 0048 and
 /// ADR 0050), and every detail the format cannot carry is listed.
-pub fn bibliography_export(post: &Post, format: Format) -> Result<Export, String> {
-    let references = post
+pub fn bibliography_export(
+    post: &Post,
+    curated: Option<BibliographyContext>,
+    format: Format,
+) -> Result<Export, String> {
+    let cited = post
         .citations()
         .map(|summary| summary.references.as_slice())
-        .filter(|references| !references.is_empty())
-        .ok_or_else(|| {
-            format!(
-                "`{}` publishes no citations, so there are no references to export; add `citations: notes` or `citations: bibliography` and cite a source. No files were changed.",
-                post.source
-            )
-        })?;
-    Ok(match format {
-        Format::Bibtex => source_interchange::export_cited_bibtex(references),
-        _ => source_interchange::export_cited_csl_json(references),
-    })
+        .unwrap_or_default();
+    // The references the author selected for readers of this post join the
+    // cited ones, after them, once each (ADR 0205). Anything else they
+    // selected has no place in a bibliography, and the export says so.
+    let mut references = cited.to_vec();
+    let mut not_carried = Vec::new();
+    if let Some(curated) = curated {
+        for reference in curated.references {
+            if !references.iter().any(|known| known.key == reference.key) {
+                references.push(reference);
+            }
+        }
+        not_carried = curated.not_carried;
+    }
+    if references.is_empty() {
+        return Err(format!(
+            "`{}` publishes no citations, so there are no references to export; add `citations: notes` or `citations: bibliography` and cite a source. No files were changed.",
+            post.source
+        ));
+    }
+    let mut export = match format {
+        Format::Bibtex => source_interchange::export_cited_bibtex(&references),
+        _ => source_interchange::export_cited_csl_json(&references),
+    };
+    for (id, kind) in not_carried {
+        export.losses.push(ExportLoss {
+            source_id: id,
+            field: kind.to_string(),
+            reason: format!(
+                "a bibliography has no place for a {kind} the author selected for readers; it is in the portable article and on the canonical page"
+            ),
+        });
+    }
+    Ok(export)
+}
+
+/// What the post's curated context holds for a bibliography, when the site
+/// publishes one and offers the post something.
+fn curated_references(site: &Site, post: &Post) -> Option<BibliographyContext> {
+    site.curated_context_for(post)?
+        .bibliography_for_post(&post.slug)
 }
 
 fn run_bibliography(
@@ -147,7 +205,7 @@ fn run_bibliography(
     write: bool,
     json: bool,
 ) -> Result<(), String> {
-    let export = bibliography_export(post, format)?;
+    let export = bibliography_export(post, curated_references(site, post), format)?;
     let label = if format == Format::Bibtex {
         "BibTeX"
     } else {
@@ -535,6 +593,72 @@ mod tests {
         std::fs::remove_dir_all(directory).unwrap();
     }
 
+    /// A site of two series parts with a private notebook holding `note`.
+    fn export_site_with_note(tag: &str, note: &str) -> std::path::PathBuf {
+        let directory = std::env::temp_dir().join(format!(
+            "openblog-export-{tag}-{}",
+            crate::auth::random_token().unwrap()
+        ));
+        let posts = directory.join("content/posts");
+        std::fs::create_dir_all(&posts).unwrap();
+        std::fs::write(
+            directory.join("openblog.json"),
+            r#"{"url":"https://portable.example.org","author":{"name":"Site Owner"},
+              "contributors":{"ann":{"name":"Ann"},"bo":{"name":"Bo"}}}"#,
+        )
+        .unwrap();
+        for (slug, number) in [("one", 1), ("two", 2)] {
+            std::fs::write(
+                posts.join(format!("{slug}.md")),
+                format!("---\ntitle: {slug}\nslug: {slug}\ndate: 2020-0{number}-01\nseries: notes\nseriesOrder: {number}\n---\nFirst.\n"),
+            )
+            .unwrap();
+        }
+        let research = directory.join(".openblog/private/research");
+        std::fs::create_dir_all(&research).unwrap();
+        std::fs::write(
+            research.join("sources.json"),
+            r#"{"version":1,"sources":[{"id":"plato","kind":"work","title":"Politeia"}]}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            research.join("notebook.json"),
+            serde_json::json!({"version": 1, "passages": [], "notes": [{"id": "n1", "kind": "observation", "text": note}]})
+                .to_string(),
+        )
+        .unwrap();
+        directory
+    }
+
+    #[test]
+    fn an_export_of_a_post_that_quotes_a_private_passage_is_not_refused() {
+        // The portable Markdown holds nothing but the post's own text, which
+        // the boundary's export check accepts; a refusal of text no post
+        // holds is tested where the check lives (`boundary::tests`).
+        let note =
+            "Plato's prisoners are not a metaphor for anything at all, really, said the reader.";
+        let directory = export_site_with_note("quote", note);
+        std::fs::write(
+            directory.join("content/posts/two.md"),
+            "---\ntitle: two\nslug: two\ndate: 2020-02-01\n---\n\n> Plato's prisoners are not a metaphor\n> for anything at *all*, really,\n> said the reader.\n",
+        )
+        .unwrap();
+        let destination = directory.join("exports/two.md");
+        run(
+            &directory,
+            "two",
+            Format::Markdown,
+            Some(destination.to_str().unwrap()),
+            true,
+            false,
+        )
+        .unwrap();
+        assert!(std::fs::read_to_string(&destination)
+            .unwrap()
+            .contains("prisoners are not a metaphor"));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
     #[test]
     fn universal_publishing_export_requires_write_and_preserves_source_and_existing_files() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -634,7 +758,7 @@ mod tests {
 
         let (site, _) = site::load_site(&directory, false, None).unwrap();
         let cited = site.posts.iter().find(|post| post.slug == "cited").unwrap();
-        let bibtex = bibliography_export(cited, Format::Bibtex).unwrap();
+        let bibtex = bibliography_export(cited, None, Format::Bibtex).unwrap();
         assert!(
             bibtex.content.starts_with("@misc{slings,\n"),
             "{}",
@@ -645,7 +769,7 @@ mod tests {
             "{}",
             bibtex.content
         );
-        let csl = bibliography_export(cited, Format::CslJson).unwrap();
+        let csl = bibliography_export(cited, None, Format::CslJson).unwrap();
         for content in [&bibtex.content, &csl.content] {
             assert!(!content.contains("PRIVATE-EXPORT"), "{content}");
             assert!(!content.contains("uncited"), "{content}");
