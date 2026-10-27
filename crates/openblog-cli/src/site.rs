@@ -67,6 +67,14 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
         include_str!("../../../web/components/ob-quiz.js"),
     ),
     (
+        "components/ob-reading-modes.js",
+        include_str!("../../../web/components/ob-reading-modes.js"),
+    ),
+    (
+        "components/reading-modes.js",
+        include_str!("../../../web/components/reading-modes.js"),
+    ),
+    (
         "components/ob-quantity.js",
         include_str!("../../../web/components/ob-quantity.js"),
     ),
@@ -117,6 +125,10 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
     (
         "components/ob-abuse-report.js",
         include_str!("../../../web/components/ob-abuse-report.js"),
+    ),
+    (
+        "components/ob-conversation.js",
+        include_str!("../../../web/components/ob-conversation.js"),
     ),
     (
         "components/ob-third-perspective.js",

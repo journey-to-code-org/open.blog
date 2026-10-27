@@ -46,7 +46,8 @@ default, so you can edit values in place and delete the ones you do not need.
   "publish": { "remote": "origin", "branch": "main", "auto": false, "includeDrafts": false, "paths": ["content", "static", "openblog.json", "themes", ".github"], "pullFirst": true },
   "knowledgeAtlas": { "publish": false },
   "claimEvidence": { "publish": false },
-  "comparisons": { "publish": false }
+  "comparisons": { "publish": false },
+  "readingModes": { "default": "standard" }
 }
 ```
 
@@ -303,6 +304,15 @@ atlas, the alignments file is private and Git-ignored, so only a build that can 
 comparisons, and `build` and `check` warn when it cannot. See the
 [passage alignments format](specs/passage-alignments.md#publication).
 
+## Reading modes
+
+`readingModes.default` (`standard` by default; `guided` or `deep-dive`) is the mode a post opens in
+when it has [supplements](specs/reading-modes.md) and opts in with `readingModes: true` but names no
+default of its own. It never opts a post in. The order is the post's own
+`readingModes: {default: ...}`, then this site default, then standard, and a reader's saved choice
+beats all three. The key is optional and read tolerantly: a bare mode name works, and anything
+else is read as standard instead of failing the configuration.
+
 ## Claim evidence
 
 `claimEvidence.publish` (off by default) publishes the claims and evidence links you approved in
@@ -373,6 +383,25 @@ other way to take part is a participation kind, off until you switch it on in `p
   remain, which is what the form and the withdrawal say to readers, and a name a reader chose to
   show becomes part of the site's public record. To roll the hosted opt-in back, empty
   `content/third-perspectives.json` (or hide the kind) first.
+- `author-response` lets the author of one section of a shared reflection answer a Third Perspective
+  about it. Where it is `open` on a post whose body is an arranged shared reflection with a committed
+  credits sidecar, the "Offer a Third Perspective" form also offers "One author's section", chosen by
+  author and place (never a side of the page). In Admin, only the contributor bound to that section
+  sees "Answer as ...", on a reflection that is shown, and the answer waits for a coordinator in the
+  **Moderation inbox**: it is never approved by the account that wrote it, only under a reflection
+  that is shown now and about that very author's section, and its author can take it back. The
+  hosted function needs `OPENBLOG_AUTHOR_RESPONSES_ENABLED=true` on top of Third Perspectives and no
+  SQL ([the function's guide](../netlify/functions/README.md#author-responses-optional-no-sql); ADRs
+  [0131](adr/0131-a-reader-writes-about-one-authors-section-from-the-builds-own-list-by-author-and-place.md)
+  to [0135](adr/0135-until-sections-have-anchors-an-approved-reflection-about-an-authors-section-is-named-by-its-author-and-never-linked.md)).
+  Where the kind is not `hidden`, an approved answer is published, with its reader's reflection, in
+  `content/third-perspectives.json` and shown on the post after that author's own section, labelled
+  as the author's response (ADRs
+  [0137](adr/0137-an-approved-author-response-is-published-under-its-reflection-in-the-one-public-file-and-shown-only-where-the-one-rule-says-so.md)
+  to [0139](adr/0139-portable-copies-and-feeds-link-to-a-conversation-and-never-copy-it.md)); `locked`
+  keeps showing what was approved and takes nothing new, and a post that leaves the kind `hidden` or
+  `off` is built exactly as before. Portable copies, feeds and `llms` files only link to the
+  canonical post.
 
 The rules are recorded in ADRs [0101](adr/0101-one-registry-of-participation-kinds-enabled-per-site-and-post.md)
 to [0104](adr/0104-retention-audit-events-and-abuse-reports-fail-closed.md).

@@ -467,6 +467,31 @@ The citation style that publishes each cited reference once, numbered in order o
 citation, under References, with locators kept next to the marker in the text.
 _Avoid_: References section when the research profile's hand-written list is meant
 
+**Supplement**:
+A block quote an author marks `[!supplement kind=... level=...]` in a post that opts in with
+`readingModes`, holding extra context beside the article: a definition, context, deeper evidence, a
+relationship, a comparison or further reading, or a kind the site does not know. It is the
+author's own words in the published post and nothing else can become one. It is never an
+alternate article body: the argument, citations and footnotes read the same without it.
+_Avoid_: Sidebar, hidden text, alternate version, AI summary
+
+**Reading mode**:
+A reader's local choice of how many supplements show: `standard` (none), `guided` (guided ones) or
+`deep-dive` (guided and deep-dive ones). It changes visibility only, never the article, and without
+script every supplement is shown. A supplement that holds a warning or caution callout is shown in
+every mode. The author may name the mode a post opens in; a reader's saved choice comes first.
+_Avoid_: Reading level, difficulty, personalised view
+
+**Article boundary**:
+What tells a reader which words are the article under every reading mode: each supplement is a bordered group with a visible label and an "End of ... supplement." line, and the reading-mode control says everything outside those boxes is the article. The article itself is never wrapped or relabelled.
+_Avoid_: Main text marker, article toggle
+
+**Reading depth**:
+The least reading mode that shows a supplement, `guided` or `deep-dive`, written as `level` or
+taken from the supplement's kind. A supplement inside another is shown no earlier than the one
+holding it.
+_Avoid_: Priority, importance, rank
+
 **Reader references**:
 The versioned data a citation preview reads: each cited reference once under its citation key,
 and each citation with its marker and note ids and its locators, projected from the published
@@ -1740,3 +1765,67 @@ else: waiting for review (never published), asked to clarify, approved and shown
 reflection, approved but not shown, not published, or withdrawn. Looked up by the receipt alone,
 so it cannot enumerate anyone else's reflection (ADR 0115).
 _Avoid_: Public queue, submission list, tracking id
+
+**Attributed section**:
+One author's section of a published shared reflection, named by that author's public contributor id
+(the registry key in the post's committed credits sidecar), its place among that author's sections
+and the digest of its text, never by a side, lane or column. Its anchor is
+`ob-by-{contributor}-{nth}`, an ordinary Third Perspective section target, and `ob-by-` is reserved:
+no heading takes it. Read from the committed body and credits alone, never from private records
+(ADR 0126).
+_Avoid_: Left author, right author, column, nth turn on the page
+
+**Attributed target**:
+What a Third Perspective about an attributed section stores: the reserved anchor and the required
+digest, as one ordinary section target. Resolved by author and text against the sections as
+published now: current (perhaps moved), or stale as changed-or-removed, author-absent or
+ambiguous, and never pointed at other words or another author (ADR 0127).
+_Avoid_: Permalink to a position, retargeting, nearest section
+
+**Author response permission**:
+The one grant, `RespondAsAuthor`, that lets a contributor answer a Third Perspective about their
+own attributed section: the contributor role on the participant whose binding names the section's
+public contributor id, with account, registry key and participant all still current. A contributor
+registry entry alone, a coordinator, a site owner, an editor and the moderation token never hold it;
+they may moderate the answer but not write it, and nobody approves their own answer (ADR 0128).
+_Avoid_: Registry access, author role, impersonation, reply right
+
+**Conversation (on a section)**:
+The reader's Third Perspectives about one attributed section, and the author's approved response to
+each, shown on the post inside that section's own turn, after the author's words: a labelled
+`<aside>` of static HTML (headings h3 to h5, the reader's reflection and the author's response as
+separate articles told apart by their headings and labels), at most five reflections per section
+(the rest stay in the "Third Perspectives" list, each shown once), with a button that folds a long
+one only when script runs. It never changes the author's words, is never ranked or counted, and only
+the canonical page carries it (ADRs 0137 to 0139).
+_Avoid_: Comment thread, discussion, replies, nested thread
+
+**Published answer**:
+An approved author response as `third-perspectives.json` stores it, under the reflection it answers
+(`answer`, file version 2 only while one exists): the hosted row's id, the contributor registry key,
+the published name, the text and two days, never the participant, the account or a moderator. The
+page shows it only where the one rule says so: it and its reflection public in their kinds' modes,
+and the responder the contributor the reflection's section is credited to (ADR 0137).
+_Avoid_: Reply record, stored answer
+
+**Author section list**:
+The build's list of a shared reflection's author sections in its Third Perspective region, written
+only where the site opens author responses on the post and the committed body and credits pair: each
+section by its anchor, contributor, place, author's published name, first words and digest. A reader
+chooses from it by author and place, never by a side (ADR 0131).
+_Avoid_: Left/right column picker, section by position
+
+**Answer request**:
+The one request Admin sends the hosted function to store an author's answer: the work, the parent
+as Admin saw it, the text, and the responder `admit_response` confirmed (public handle, published
+name, standing; private participant binding and account). The function reads it strictly, reads the
+parent from its own store and stores one pending row; it never holds the private record (ADRs 0132,
+0133).
+_Avoid_: Reply post, author comment, browser-built answer
+
+**Author answer**:
+A response written under that grant: the author's own words as a pending `author-response` that
+stores its responder, named by the name the section is published under, shown only while it and the
+Third Perspective it answers are both public and its stored responder is the section's contributor,
+and never nested or sent to the reader (ADR 0129, 0130).
+_Avoid_: Reply thread, discussion, notification

@@ -237,6 +237,30 @@ pub(crate) fn id_attributes(html: &str) -> Vec<(std::ops::Range<usize>, String)>
     found
 }
 
+/// [`id_attributes`], but with the byte range of the written `id` value
+/// itself (inside its quotes, character references as written) instead of
+/// the tag's. Only a value that is really the `id` attribute is found, never
+/// the same text inside `title=` or `data-x=`.
+pub(crate) fn id_value_ranges(html: &str) -> Vec<(std::ops::Range<usize>, String)> {
+    let mut found = Vec::new();
+    let mut at = 0;
+    while at < html.len() {
+        let (token, next) = next_token(html, at);
+        if let Token::Start { attributes, .. } = token {
+            if let Some((_, id)) = attributes.into_iter().find(|(name, _)| name == "id") {
+                let mut spans = Vec::new();
+                if !id.is_empty() && parse_tag_spans(&html[at..next], 1, &mut spans).is_some() {
+                    if let Some((_, range)) = spans.into_iter().find(|(name, _)| name == "id") {
+                        found.push((at + range.start..at + range.end, id));
+                    }
+                }
+            }
+        }
+        at = next;
+    }
+    found
+}
+
 #[derive(Clone)]
 pub(crate) struct SemanticLink {
     pub kind: crate::portability::SemanticLinkKind,
@@ -366,6 +390,17 @@ type ParsedTag = (String, Vec<(String, String)>, bool, usize);
 /// A tag's lowercase name, decoded attributes (the first of a repeated name
 /// wins), whether it ends in `/>`, and its length; `None` when it never ends.
 fn parse_tag(rest: &str, name_at: usize) -> Option<ParsedTag> {
+    parse_tag_spans(rest, name_at, &mut Vec::new())
+}
+
+/// [`parse_tag`], also recording where in `rest` the written value of each
+/// attribute that counts (the first of a repeated name) starts and ends,
+/// without its quotes.
+fn parse_tag_spans(
+    rest: &str,
+    name_at: usize,
+    spans: &mut Vec<(String, std::ops::Range<usize>)>,
+) -> Option<ParsedTag> {
     let bytes = rest.as_bytes();
     let length = bytes.len();
     let mut i = name_at;
@@ -398,6 +433,7 @@ fn parse_tag(rest: &str, name_at: usize) -> Option<ParsedTag> {
             i += 1;
         }
         let mut value = String::new();
+        let mut written = i..i;
         if i < length && bytes[i] == b'=' {
             i += 1;
             while i < length && is_space(bytes[i]) {
@@ -407,6 +443,7 @@ fn parse_tag(rest: &str, name_at: usize) -> Option<ParsedTag> {
                 quote @ (b'"' | b'\'') => {
                     let end = i + 1 + rest[i + 1..].find(*quote as char)?;
                     value = decode(&rest[i + 1..end]);
+                    written = i + 1..end;
                     i = end + 1;
                 }
                 _ => {
@@ -415,10 +452,12 @@ fn parse_tag(rest: &str, name_at: usize) -> Option<ParsedTag> {
                         i += 1;
                     }
                     value = decode(&rest[start..i]);
+                    written = start..i;
                 }
             }
         }
         if seen.insert(attribute.clone()) {
+            spans.push((attribute.clone(), written));
             attributes.push((attribute, value));
         }
     }

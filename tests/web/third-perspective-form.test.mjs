@@ -260,7 +260,7 @@ for (const name of ["localStorage", "sessionStorage", "indexedDB"]) {
     },
   });
 }
-const { readSections, safeContact } = await import("../../web/components/ob-third-perspective.js");
+const { attributedLabel, readAttributedSections, readSections, safeContact } = await import("../../web/components/ob-third-perspective.js");
 const { readThirdPerspectiveSubmissionJson } = await import("../../web/components/third-perspective.js");
 
 const HOSTILE = "<img src=x onerror=alert(1)> & </script>";
@@ -277,7 +277,7 @@ const DATA = {
   ],
 };
 
-function page({ data = JSON.stringify(DATA), endpoint = "https://t.dev/api", contact, receipts = true, connect = true } = {}) {
+function page({ data = JSON.stringify(DATA), attributed, endpoint = "https://t.dev/api", contact, receipts = true, connect = true } = {}) {
   globalThis.document = new FakeDocument();
   globalThis.window = new Target();
   const script = new Element("script");
@@ -304,6 +304,12 @@ function page({ data = JSON.stringify(DATA), endpoint = "https://t.dev/api", con
   section.append(host);
   article.append(prose, section);
   document.body.append(script, article);
+  if (attributed !== undefined) {
+    const list = new Element("script");
+    list.id = "ob-attributed-sections";
+    list.textContent = attributed;
+    document.body.append(list);
+  }
   if (connect) host.connectedCallback();
   return { host, prose, intro, fallback, articleText: prose.textContent };
 }
@@ -564,4 +570,99 @@ test("the article is never changed and nothing is stored in the browser", async 
   fill(view);
   await submitted(view);
   assert.equal(view.prose.textContent, view.articleText);
+});
+
+// ---- One author's section of a shared reflection (#223, ADR 0131)
+
+const ATTRIBUTED = {
+  version: 1,
+  work: "/tides/",
+  sections: [
+    { anchor: "ob-by-mina-0", contributor: "mina", nth: 0, author: "MINA", excerpt: "The moon pulls the water.", digest: digest(5) },
+    { anchor: "ob-by-joe-0", contributor: "joe", nth: 0, author: "JOE", excerpt: "It is also the sun.", digest: digest(6) },
+    { anchor: "ob-by-mina-1", contributor: "mina", nth: 1, author: HOSTILE, excerpt: `${HOSTILE} Neither explains the harbour…`, digest: digest(7) },
+  ],
+};
+
+test("author sections are read only when every one is exactly what the build writes", () => {
+  const read = readAttributedSections(JSON.stringify(ATTRIBUTED), "/tides/");
+  assert.equal(read.sections.length, 3);
+  assert.equal(attributedLabel(read.sections[0]), "MINA, section 1: “The moon pulls the water.”");
+  assert.equal(attributedLabel(read.sections[2]).startsWith(`${HOSTILE}, section 2`), true, "hostile text stays text");
+  const bad = (change) => {
+    const data = structuredClone(ATTRIBUTED);
+    change(data);
+    return readAttributedSections(JSON.stringify(data), "/tides/");
+  };
+  assert.equal(readAttributedSections(JSON.stringify(ATTRIBUTED), "/other/"), null, "another work's list is not this page's");
+  assert.equal(readAttributedSections("not json", "/tides/"), null);
+  assert.equal(readAttributedSections(undefined, "/tides/"), null);
+  assert.equal(bad((data) => { data.version = 2; }), null);
+  assert.equal(bad((data) => { data.sections = []; }), null);
+  assert.equal(bad((data) => { data.sections[0].anchor = "ob-by-Mina-0"; data.sections[0].contributor = "Mina"; }), null, "not a registry key");
+  assert.equal(bad((data) => { data.sections[0].nth = 1; }), null, "anchor and place disagree");
+  assert.equal(bad((data) => { data.sections[0].contributor = "joe"; }), null, "anchor and contributor disagree");
+  assert.equal(bad((data) => { data.sections[0].anchor = "ob-by-mina-00"; }), null);
+  assert.equal(bad((data) => { data.sections[1].digest = "xyz"; }), null);
+  assert.equal(bad((data) => { data.sections[1].author = ""; }), null);
+});
+
+test("without the build's list the form is exactly as before; with it, an author's section is a third, labelled choice", () => {
+  const before = parts(page().host);
+  const without = page({ attributed: "not json" });
+  assert.equal(parts(without.host).control("author-section"), undefined, "an unreadable list adds nothing");
+  const view = page({ attributed: JSON.stringify(ATTRIBUTED) });
+  const ui = parts(view.host);
+  assert.equal(before.control("author-section"), undefined);
+  const radio = ui.control("author-section");
+  const select = ui.control("author-select");
+  assert.equal(radio.type, "radio");
+  assert.equal(radio.checked, false, "the whole work stays the default");
+  assert.deepEqual(select.options.map((option) => option.textContent).slice(0, 2), ["MINA, section 1: “The moon pulls the water.”", "JOE, section 1: “It is also the sun.”"]);
+  const labels = view.host.all().filter((node) => node.localName === "label");
+  for (const control of [radio, select]) assert.ok(labels.some((label) => label.htmlFor === control.id), `${control.localName} has a label`);
+  const legends = view.host.all().filter((node) => node.localName === "legend").map((node) => node.textContent);
+  assert.deepEqual(legends, ["What is it about?", "A prompt (optional)", "May it be published?", "Your name (optional)"], "no new group, no ranking");
+  // Choosing from the list selects the choice.
+  select.value = "1";
+  select.dispatch("change");
+  assert.equal(radio.checked, true);
+  assert.doesNotMatch(view.host.textContent, /\b(left|right|column|side)\b/i, "an author's section is never named by a side");
+});
+
+test("a reflection about an author's section is sent as the ordinary section target of that author and text", async () => {
+  const calls = fakeFetch({ status: 202, body: { status: "pending", receipt: RECEIPT } });
+  const view = page({ attributed: JSON.stringify(ATTRIBUTED) });
+  const ui = fill(view);
+  ui.control("author-select").value = "1";
+  ui.control("author-select").dispatch("change");
+  await submitted(view);
+  assert.equal(calls.length, 1);
+  const sent = calls[0].body;
+  assert.deepEqual(sent.target, { version: 1, kind: "section", section: "ob-by-joe-0", digest: digest(6) });
+  // The shared validator reads it as the build does.
+  assert.equal(readThirdPerspectiveSubmissionJson(JSON.stringify(sent)).ok, true);
+  assert.equal(sent.consent.publish, true);
+  assert.equal(JSON.stringify(sent).includes("excerpt"), false, "the excerpt is for the reader's list only");
+  // A section by the same contributor later in the work is its own choice.
+  const second = fakeFetch({ status: 202, body: { status: "pending", receipt: RECEIPT } });
+  const again = page({ attributed: JSON.stringify(ATTRIBUTED) });
+  const filled = fill(again);
+  filled.control("author-select").value = "2";
+  filled.control("author-select").dispatch("change");
+  await submitted(again);
+  assert.equal(second[0].body.target.section, "ob-by-mina-1");
+});
+
+test("a site without receipts prepares a copy that names the author, never a side, and sends nothing", async () => {
+  noFetch();
+  const view = page({ attributed: JSON.stringify(ATTRIBUTED), receipts: false });
+  const ui = fill(view);
+  ui.control("author-select").value = "0";
+  ui.control("author-select").dispatch("change");
+  await submitted(view);
+  const copy = parts(view.host).copyArea.value;
+  assert.match(copy, /About: One author’s section: by mina, section 1/);
+  assert.doesNotMatch(copy.split("open.blog Third Perspective record")[0], /ob-by-/, "the copy says it in words");
+  assert.match(copy, /"section":"ob-by-mina-0"/, "the record line the author can enter keeps the exact target");
 });

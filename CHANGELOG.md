@@ -3,7 +3,7 @@
 All notable changes to open.blog are recorded here. Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.42.0] - 2026-10-26
 
 - The research checks now have author documentation, [Research checks](docs/research-checks.md),
   explaining every finding in plain language, how to fix it, and what acknowledging one does and
@@ -48,6 +48,114 @@ All notable changes to open.blog are recorded here. Releases follow
   --drafts` list each one. Sites without research print exactly what they printed before. The
   review before publication and the readiness report now share one contract, so acknowledgements
   you already made keep working.
+
+## [0.41.0] - 2026-10-26
+
+- A site can choose the reading mode its posts open in. Set `readingModes.default` in
+  `openblog.json` to `guided` or `deep-dive`: a post that opts in with `readingModes: true` and
+  names no default of its own opens in that mode. A post's own `readingModes: {default: ...}` still
+  wins, a reader's saved choice beats both, and a site that does not set it keeps opening in
+  standard.
+- Printing a post says what it left out: one line, "Printed in Standard mode; 3 supplements not
+  shown.", appears only on paper.
+- Reading modes are safer to read and easier to style. The control says in a visible note that the
+  article is the same in every mode and that everything outside the labelled supplement boxes is the
+  article. Each shown supplement has a "Skip this ... supplement" link, seen when it has focus, that
+  moves past it. A supplement holding a warning or caution is never hidden, even when its marker was
+  lost, and the page keeps the box drawn in forced colours and in print. Passage feedback and
+  claim sections follow the same heading ids as the page in a post with supplements. The stable
+  class, attribute and custom-property hooks for themes are documented.
+- Guided and deep-dive layers now appear progressively and keep your place. With script on, the page
+  no longer paints every layer and then hides some: the layers the post's default mode hides are
+  hidden from the start (and come back by themselves if the script never loads), a mode change keeps
+  the paragraph you are reading where it is, and a hidden layer can still be found with find in
+  page or a link, which show it. A link to the address already shown now reveals a supplement too.
+  Without script every layer is still in the page, labelled, and portable copies keep them all.
+- Reading-mode fixes. A supplement written inside a warning or caution callout is no longer hidden.
+  A change in another tab no longer re-hides a supplement you opened or drops your focus. The
+  "Use the author's default" button keeps keyboard focus. The saved choice is now kept per site
+  folder, so GitHub Pages project sites on one account no longer share it (readers choose once
+  again). With reading modes on, ids you wrote that start with `ob-supplement-` are renamed by
+  their exact value (Markdown links to them follow) and reported, a NUL character is read as a
+  replacement character, headings keep their old slugs when reading modes are off, and
+  `readingModes: {enabled: false}` turns them off while an unknown key is reported.
+- Defined author-approved supplements and reading modes, ahead of the reader controls. A post that
+  opts in with `readingModes: true` can mark a block quote `[!supplement kind=definition
+  level=guided]` as extra context (definition, context, evidence, relationship, comparison, further
+  reading, or any other kind). A reading mode only shows or hides supplements: standard shows none,
+  guided shows guided ones, deep-dive shows both. Nothing about the article changes in any mode, a
+  supplement's words are not counted in the post's word count or reading time, and without script
+  every supplement is shown, labelled, in the page, feeds and portable copies. Posts that do not
+  opt in are unchanged.
+- Readers can choose standard, guided or deep-dive reading. A post with supplements gets a "Reading
+  mode" group of three radio buttons, each saying what it adds, with a reset to the author's
+  default. It works from the keyboard and with a screen reader, announces each change, respects
+  reduced motion, reflows at 320 pixels and 400% zoom, and remembers the choice on that device only
+  (never sent anywhere; the page works when storage is blocked). Without script nothing is hidden.
+  A link into a hidden supplement shows it. Write `readingModes: {default: guided}` to open a post
+  in another mode. A supplement that holds a `[!WARNING]` or `[!CAUTION]` callout is always shown.
+- Supplements are clearer and safer to write. Each one has a visible boundary even without a
+  stylesheet (a labelled quote ending with "End of ... supplement"), headings inside it stay real
+  headings that do not join the outline or renumber yours, a recipe no longer reads its lists as
+  ingredients, and a marker the build could not read is listed in the build, `check` and Admin
+  warnings with the post. Fixed a crash on a citation inside a supplement.
+
+## [0.40.0] - 2026-10-26
+
+- A reader's Third Perspective about one author's section of a shared reflection, and that
+  author's approved response, are now shown on the post, after that author's own words: a labelled
+  conversation inside the section's turn, the reader's reflection under "Third Perspective from a
+  reader" and the author's under "Author's response from NAME", in order, as plain HTML that works
+  without JavaScript or a stylesheet (with script, a long conversation folds behind one button, and
+  a link into it opens it). Each author's section now has an `ob-by-...` anchor, a reflection links
+  to it, no more than five show after a section (the rest stay in the post's "Third Perspectives"
+  list, each shown once), and it reflows at 320px and 400% zoom and prints whole. Admin publishes an
+  approved answer into `content/third-perspectives.json` with its reflection (the file becomes version
+  2 only while it holds an answer) and takes it off when its author withdraws it or a coordinator
+  removes it; the inbox counts any that must come off in the same banner as reflections. Portable
+  copies, feeds and `llms` files only link to the canonical post. Where `author-response` is
+  `hidden` or `off`, or no answer is published, pages build exactly as before. No SQL changes.
+- Credits that are edited after a shared reflection is published can no longer move a section to
+  another author: a section now states its contributor in the post, an older post is paired with
+  the committed contributor names, and anything that does not match attributes nothing. Admin
+  refuses a credits edit that would break it. Approving an answer re-checks the account that wrote
+  it against the shared publication, and an author whose membership was removed can still withdraw
+  their own answer.
+- Readers can write a Third Perspective about one author's section of a shared reflection, and that
+  author can answer it, through the moderation you already have. Where a site sets
+  `participation.kinds."author-response"` to `open`, a shared reflection's Third Perspective form
+  offers "One author's section", chosen by author and place from a list the build writes from the
+  post's committed body and credits (never a side of the page). In Admin, the contributor bound to
+  that section sees "Answer as ...", on a reflection that is shown, and sends a plain-text answer
+  that waits for a coordinator: it is never approved by the account that wrote it, only under a
+  reflection that is shown now and about that very author's section, and an author can take their
+  own answer back. Coordinators moderate answers in the one inbox. Hosted storage needs no SQL: an
+  answer is a row of the existing table, behind the new opt-in
+  `OPENBLOG_AUTHOR_RESPONSES_ENABLED=true` on top of Third Perspectives (remove it to turn answers
+  off). An approved reflection about an author's section is named by its author on the post and not
+  yet linked or answered on the page. Sites that do not set `author-response` build exactly as
+  before.
+- Groundwork for authors answering a reader's Third Perspective about their own section of a shared
+  reflection (nothing is shown or accepted yet): a section is named by its author and its text and
+  never by which side it is on, so a note reaches the intended author after layouts change or
+  sections move, and says honestly when that section has since changed or gone instead of pointing
+  at other words. Only the contributor who wrote the section, signed in as their own bound account,
+  may answer as its author; a contributor registry entry alone, a coordinator or a site owner
+  cannot. Answers will start pending like everything else and appear only while the reader's note
+  does. Nothing is stored or published by this change. Which author wrote a section is read from
+  the post's committed credits alongside its body, so it works in static and CI builds without
+  private records and is not changed by inviting someone with the same name later. Known change:
+  `ob-by-` is now reserved for these section anchors, so a heading whose text begins "OB by" gets
+  the id `heading-ob-by-...` instead of `ob-by-...`, and an `{#ob-by-...}` id written in a post is
+  replaced by the heading's own id. No post in this repository is affected; other existing posts
+  are unchanged.
+- A shared reflection's sections now carry one more class for theme authors,
+  `ob-turn-by-<contributor key>`, next to `ob-turn` and `ob-lane-N`: the registry key of the
+  contributor who wrote the section, which the post's credits already make public. Style it if you
+  like, but do not rely on it for anything else. Only composing a reflection writes it, so Admin
+  now refuses a manual edit that adds, removes, reorders or changes these classes, or that moves
+  an existing section to another author's name or id, whether through the body, the credits or both
+  in one save.
 
 ## [0.39.0] - 2026-10-26
 

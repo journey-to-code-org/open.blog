@@ -38,6 +38,8 @@
 //! - [`moderation_inbox`]: the one moderation inbox over every hosted participation store
 //! - [`third_perspective`]: a reader's consented, moderated reflection on a published work, and its one public form
 //! - [`perspective_publication`]: approved Third Perspectives as the site publishes and its canonical pages show them
+//! - [`attributed_perspective`]: stable targets at one author's section of a shared reflection, and who may answer a Third Perspective about it
+//! - [`author_response`]: an author's answer to a Third Perspective as the hosted store keeps it, the request that stores it and the checks that it still belongs under its parent
 
 pub mod accessibility;
 pub mod alignment;
@@ -46,6 +48,8 @@ pub mod arrangement;
 pub mod assembly;
 pub mod assistant_guide;
 pub mod atlas_publication;
+pub mod attributed_perspective;
+pub mod author_response;
 pub mod bibliography;
 pub mod capability;
 pub mod chronology;
@@ -92,6 +96,7 @@ pub mod publication_review;
 pub mod published_moment;
 mod raw_html;
 pub mod reader_references;
+pub mod reading_depth;
 pub mod recipe;
 pub mod reflection;
 pub mod render;

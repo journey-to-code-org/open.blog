@@ -257,6 +257,9 @@ pub struct Post {
     /// What the published citations made public, for a post that publishes
     /// them; portable bibliography exports read it (ADR 0050).
     pub(crate) citations: Option<CitationSummary>,
+    /// The supplements of a post that opts in to reading modes with
+    /// `readingModes: true` (ADR 0140); `None` for every other post.
+    pub(crate) reading_depth: Option<crate::reading_depth::ReadingDepth>,
     /// What the post publishes of its approved claims and its revision notes,
     /// for a site that publishes claim evidence (ADR 0075).
     pub(crate) claim_evidence: Option<PostEvidence>,
@@ -322,6 +325,12 @@ impl Post {
         self.published_markdown
             .as_deref()
             .unwrap_or(&self.authored_markdown)
+    }
+
+    /// The supplements this post publishes for its reading modes, or `None`
+    /// when it has not opted in (ADR 0140).
+    pub fn reading_depth(&self) -> Option<&crate::reading_depth::ReadingDepth> {
+        self.reading_depth.as_ref()
     }
 
     /// What this post's published citations made public, or `None` when it
@@ -1245,7 +1254,13 @@ fn attach_third_perspectives(
                         item.id, item.work, item.post, post.url
                     ));
                 }
-                post.third_perspectives = publication::project_post(&items, post, config, mode);
+                let answer_mode = crate::participation::published_mode(
+                    config,
+                    post,
+                    ParticipationKind::AuthorResponse,
+                );
+                post.third_perspectives =
+                    publication::project_post(&items, post, config, mode, answer_mode);
             }
         }
         let offered =
@@ -1392,6 +1407,9 @@ fn load_post_in(
     let fm = &doc.front_matter;
     let mut profile = profile::resolve(fm);
     let is_recipe = profile.behavior == ProfileBehavior::Recipe;
+    // `readingModes: true`, or `{default: guided}` (ADR 0142).
+    let reading_setting =
+        crate::reading_depth::setting(fm.get("readingModes").or_else(|| fm.get("reading_modes")));
     // Citations are opt-in (ADR 0043): a post without `citations` is read
     // exactly as before, and so is one that opts in but cites nothing.
     let citation_style = CitationStyle::from_front_matter(first(fm, &["citations"]))?;
@@ -1431,7 +1449,11 @@ fn load_post_in(
             markdown.push('\n');
         }
         markdown.push_str(section);
-        match crate::claim_publication::check_section(&markdown, post_evidence) {
+        match crate::claim_publication::check_section(
+            &markdown,
+            post_evidence,
+            reading_setting.enabled,
+        ) {
             Ok(()) => Some(markdown),
             Err(error) => {
                 evidence_error = Some(error);
@@ -1462,7 +1484,14 @@ fn load_post_in(
             )?;
             // A failure keeps the citations as text and is left to the site
             // load, which knows whether this post is published now.
-            match bibliography::publish_citations(base, doc.body_line, style, locale, library) {
+            match bibliography::publish_citations(
+                base,
+                doc.body_line,
+                style,
+                locale,
+                reading_setting.enabled,
+                library,
+            ) {
                 Ok(published) => published.map(|published| (published, locale)),
                 Err(error) => {
                     citation_error = Some(error);
@@ -1472,7 +1501,7 @@ fn load_post_in(
         }
         _ => None,
     };
-    let rendered = markdown::render(
+    let mut rendered = markdown::render(
         published
             .as_ref()
             .map_or(base, |(published, _)| &published.markdown),
@@ -1485,12 +1514,34 @@ fn load_post_in(
                     locale: *locale,
                 }),
             claim_evidence_section: with_evidence.is_some(),
+            // Reading modes are opt-in (ADR 0140): without the key every
+            // block quote renders exactly as before.
+            supplements: reading_setting.enabled,
             ..options
         },
     );
     if !rendered.errors.is_empty() {
         return Err(rendered.errors.join("; "));
     }
+    if let Some(depth) = rendered.reading_depth.as_mut() {
+        // The post's own default, else the site's, else standard (ADR 0142).
+        depth.default_mode = if reading_setting.default_written {
+            reading_setting.default_mode
+        } else {
+            config.reading_modes.default
+        };
+        // Each unread marker, and each adjustment, is the author's to see in
+        // the build, `check` and Admin warnings (ADR 0142).
+        for finding in &depth.findings {
+            let marker = finding.marker.trim();
+            profile.warnings.push(if marker.is_empty() {
+                format!("reading modes: {}", finding.message)
+            } else {
+                format!("reading modes: `{marker}`: {}", finding.message)
+            });
+        }
+    }
+    profile.warnings.extend(reading_setting.warning.clone());
     let recipe = if is_recipe {
         let mut r = Recipe::from_front_matter(
             fm,
@@ -1680,6 +1731,7 @@ fn load_post_in(
         evidence_error,
         reader_feedback: Vec::new(),
         third_perspectives: Vec::new(),
+        reading_depth: rendered.reading_depth.clone(),
         html: rendered.html,
         text: rendered.text,
         headings: rendered.headings,

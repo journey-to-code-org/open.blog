@@ -430,6 +430,7 @@ export const MODERATION_KINDS = [
   ["correction-suggestion", "Suggested corrections"],
   ["alternative-interpretation", "Other interpretations"],
   ["third-perspective", "Third Perspectives"],
+  ["author-response", "Author responses"],
   ["abuse-report", "Abuse reports"],
 ];
 const MODERATION_STATE_NOTES = {
@@ -485,8 +486,15 @@ export function perspectiveLines(item) {
   const perspective = item?.perspective;
   if (!perspective) return [];
   const lines = [];
-  const about = perspective.about === "work" ? "the whole work" : perspective.section ? `the section #${perspective.section}` : "the opening, before the first heading";
-  const check = perspective.check === "stale" ? " That section has changed since the reader read it." : perspective.check === "unknown-work" ? " No post has this address now." : "";
+  const attributed = perspective.attributed;
+  const by = attributed?.author ? ` by ${attributed.author}` : "";
+  const about = perspective.about === "work" ? "the whole work"
+    : attributed ? `one author’s section${by}`
+      : perspective.section ? `the section #${perspective.section}` : "the opening, before the first heading";
+  const gone = attributed?.standing?.state === "stale" && attributed.standing.reason === "author-absent";
+  const check = perspective.check === "stale"
+    ? (attributed ? (gone ? " No section by that author is published now." : " That author’s section has changed or been removed since the reader read it.") : " That section has changed since the reader read it.")
+    : perspective.check === "unknown-work" ? " No post has this address now." : "";
   lines.push(`About ${about}.${check}`);
   if (item.details?.categoryLabel) lines.push(`Prompt: ${item.details.categoryLabel} (“${item.details.prompt}”).`);
   else lines.push("No prompt chosen.");
@@ -498,6 +506,49 @@ export function perspectiveLines(item) {
     : `Consent record ${consent.number}: the reader no longer agrees to publish it.`);
   if (perspective.nameMatchesCredit) lines.push("The reader’s name matches a name this work credits. It is never shown with the reflection, which always appears as a reader’s.");
   return lines;
+}
+
+/**
+ * What a moderator reads about an author's answer beside its text (ADR 0132): whose section it
+ * answers, what the section's standing was, whether it is the viewer's own, and the account only
+ * the site Admin may see. Never a participant: the server does not send one.
+ */
+export function answerLines(item) {
+  const response = item?.response;
+  if (!response) return [];
+  const lines = [];
+  const standing = response.standing?.state === "stale"
+    ? (response.standing.reason === "author-absent" ? "no section by that author is published now" : response.standing.reason === "ambiguous" ? "the author has identical sections, so which was meant cannot be told" : "the section has changed or been removed since the reader read it")
+    : response.standing?.moved ? "the section is still published, in another place" : "the section is still published as the reader read it";
+  lines.push(`Written by ${response.author}, the author of the section the reader’s reflection is about; ${standing}.`);
+  lines.push("Approving publishes it on the post, after that author’s section and under the reader’s reflection, labelled as the author’s response. It is never approved by the account that wrote it, and it comes off the post whenever the reflection does or the author withdraws it.");
+  if (response.account) lines.push(`Written by the account ${response.account}.`);
+  if (response.mine) lines.push("This is your own answer.");
+  return lines;
+}
+
+/** The body of an answer to a reflection (the server knows who is answering and as whom). */
+export function answerRequest(item, text) {
+  return { parent: item.id, parentVersion: item.version, body: text };
+}
+
+/** The body of taking one's own answer back. */
+export function withdrawAnswerRequest(item) {
+  return { id: item.id, version: item.version };
+}
+
+/** What an answer's author reads before writing it, from the offer the server made. */
+export function answerOffer(item) {
+  const offer = item?.answerAs;
+  if (!offer) return null;
+  const stale = offer.standing?.state === "stale";
+  return {
+    heading: `Answer as ${offer.author}`,
+    hint: stale
+      ? "That section has changed or been removed since the reader read it; your answer says so. It is published on the post, after your section and under the reader’s reflection, labelled as your response, once a coordinator approves it. You cannot approve it yourself, and nothing is e-mailed."
+      : "It is published on the post, after your section and under the reader’s reflection, labelled as your response, once a coordinator approves it. You cannot approve it yourself, and nothing is e-mailed.",
+    button: "Send my answer for review",
+  };
 }
 
 /** What the signed-in account can do with an item, from the role the server resolved. */
@@ -513,6 +564,7 @@ export function moderationRoleLine(role) {
  */
 export function moderationReaderLine(reader, source = "feedback", kind = "") {
   if (source === "report") return "Reports are anonymous: nothing about the reader who sent it is kept.";
+  if (kind === "author-response") return "Written by the author of that section, who is named as the section is published.";
   if (source === "comment") return reader?.name ? `From ${reader.name}, shown with the comment.` : "From an unnamed commenter.";
   if (reader?.private) return "The reader gave a name that only the site Admin can see.";
   if (!reader?.name) return "From an anonymous reader.";
@@ -558,6 +610,7 @@ export function moderationOutcome(item, action, result) {
  */
 export function feedbackPublicationMismatch(item) {
   if (item.kind === "third-perspective") return perspectivePublicationMismatch(item);
+  if (item.kind === "author-response") return answerPublicationMismatch(item);
   if (item.status === "approved" && item.published === false) return { notice: "Approved, but not on the site yet.", action: "publish", label: "Publish on the post" };
   if (item.status === "approved" && item.published === true && item.decisionPublished === false) return { notice: "The decision on the post is not the one you recorded.", action: "publish-decision", label: "Update the published decision" };
   if (item.status === "removed" && item.published === true) return { notice: "Removed, but still on the post.", action: "unpublish", label: "Take it off the post" };
@@ -584,6 +637,22 @@ export function perspectivePublicationMismatch(item) {
 }
 
 /**
+ * The same for an author's answer (ADR 0137): an approved answer that is not on its post yet, or
+ * a published one the hosted copy no longer allows, most often because its author withdrew it.
+ * It is published under its reflection, so the notice says so.
+ */
+export function answerPublicationMismatch(item) {
+  if (item.published === false && item.mayBeShown === true && item.status === "approved") return { notice: "Approved, but not on the post yet.", action: "publish", label: "Publish the answer on the post" };
+  if (item.published !== true || item.mayBeShown !== false) return null;
+  const notice = {
+    withdrawn: "The author withdrew this answer, but it is still on the post under the reader’s reflection. Take it off now.",
+    removed: "Removed, but still on the post under the reader’s reflection.",
+    rejected: "Rejected, but still on the post under the reader’s reflection.",
+  }[item.status] || "This answer is no longer approved, but it is still on the post. Take it off now.";
+  return { notice, action: "unpublish", label: "Take it off the post" };
+}
+
+/**
  * What the audit of the published Third Perspectives (`engagement/third-perspectives/published`)
  * says, in words, for the banner shown on every tab (ADR 0115): how many must come off their posts
  * now, and how many cannot be told because the hosted function does not read their consent.
@@ -594,6 +663,8 @@ export function perspectiveAuditNotices(audit) {
   const notices = [];
   const off = count(audit?.mustComeOff);
   const unknown = count(audit?.unknown);
+  const answers = count(audit?.answersMustComeOff);
+  if (answers) notices.push({ kind: "answersMustComeOff", text: `${answers} published author response${answers === 1 ? "" : "s"} must come off ${answers === 1 ? "its" : "their"} post${answers === 1 ? "" : "s"}: the author withdrew ${answers === 1 ? "it" : "them"}, or ${answers === 1 ? "its" : "their"} approval no longer allows ${answers === 1 ? "it" : "them"}. The reader’s reflection stays.` });
   if (off) notices.push({ kind: "mustComeOff", text: `${many(off)} must come off ${off === 1 ? "its post" : "their posts"}: the reader withdrew ${off === 1 ? "it" : "them"}, or ${off === 1 ? "its" : "their"} approval or consent no longer allows ${off === 1 ? "it" : "them"}.` });
   if (unknown) notices.push({ kind: "unknown", text: `${many(unknown)} cannot be checked against the hosted copy, because Third Perspectives are switched off or rolled back there. Look at ${unknown === 1 ? "it" : "each"}, and take off any that should not be shown.` });
   if (audit?.truncated) notices.push({ kind: "truncated", text: "More reflections are published than one check reads; the first ones were checked." });
@@ -14589,10 +14660,10 @@ export class ObAdmin extends AdminElement {
         return;
       }
       const notices = perspectiveAuditNotices(audit);
-      const entry = (item, label) => h("li", {}, `${item.post}: `, h("button", { class: "oba-btn", type: "button", "data-perspective-id": item.id, onClick: async (event) => {
+      const entry = (item, label, route = "third-perspectives") => h("li", {}, `${item.post}: `, h("button", { class: "oba-btn", type: "button", "data-perspective-id": item.id, onClick: async (event) => {
         event.currentTarget.disabled = true;
         try {
-          await this.api.call("POST", "engagement/third-perspectives/unpublish", { json: { id: item.id } });
+          await this.api.call("POST", `engagement/${route}/unpublish`, { json: { id: item.id } });
           await reloadAll("Taken off its post. Rebuild or publish to update the live site.", "ok");
         } catch (error) {
           event.currentTarget.disabled = false;
@@ -14600,8 +14671,10 @@ export class ObAdmin extends AdminElement {
           queueStatus.focus();
         }
       } }, label));
-      perspectiveBanner.replaceChildren(...notices.map((notice) => h("div", { class: notice.kind === "mustComeOff" ? "oba-notice oba-perspective-must-come-off" : "oba-notice", role: notice.kind === "mustComeOff" ? "alert" : "status", "data-perspective-notice": notice.kind },
+      const urgent = (kind) => kind === "mustComeOff" || kind === "answersMustComeOff";
+      perspectiveBanner.replaceChildren(...notices.map((notice) => h("div", { class: urgent(notice.kind) ? "oba-notice oba-perspective-must-come-off" : "oba-notice", role: urgent(notice.kind) ? "alert" : "status", "data-perspective-notice": notice.kind },
         h("p", {}, h("strong", {}, notice.text)),
+        notice.kind === "answersMustComeOff" ? h("ul", {}, audit.answersMustComeOff.map((item) => entry(item, "Take the answer off the post", "author-responses"))) : null,
         notice.kind === "mustComeOff" ? h("ul", {}, audit.mustComeOff.map((item) => entry(item, "Take it off the post"))) : null,
         notice.kind === "unknown" ? h("ul", {}, audit.unknown.map((item) => entry(item, "Take it off the post"))) : null,
       )));
@@ -14822,12 +14895,13 @@ export class ObAdmin extends AdminElement {
         feedbackPassage(item.passage),
         item.purged ? h("p", { class: "oba-notice" }, "Its text, details and any name were deleted. Only the private record of decisions remains.") : null,
         item.report ? h("p", {}, h("strong", {}, "Ground: "), item.report.groundLabel) : null,
-        item.purged || (item.source === "report" && !item.body) ? null : h("h4", {}, item.source === "comment" ? "The comment" : item.source === "report" ? "What the reader wrote" : item.perspective ? "The reader’s reflection" : "The reader’s note"),
+        item.purged || (item.source === "report" && !item.body) ? null : h("h4", {}, item.source === "comment" ? "The comment" : item.source === "report" ? "What the reader wrote" : item.perspective ? "The reader’s reflection" : item.response ? "The author’s answer" : "The reader’s note"),
         item.purged || (item.source === "report" && !item.body) ? null : h("p", { class: "oba-feedback-body" }, item.body),
         item.source === "report" ? reportedItem(item.target) : null,
         item.details?.sourceUrl ? h("p", {}, "Suggested source: ", h("a", { href: item.details.sourceUrl, target: "_blank", rel: "noopener noreferrer nofollow" }, item.details.sourceUrl)) : null,
         item.details?.suggestedText ? h("div", {}, h("p", {}, "Suggested wording:"), h("blockquote", { class: "oba-feedback-body" }, item.details.suggestedText)) : null,
         item.perspective && !item.purged ? h("div", { class: "oba-feedback-passage" }, h("h4", {}, "About this reflection"), perspectiveLines(item).map((line) => h("p", {}, line))) : null,
+        item.response && !item.purged ? h("div", { class: "oba-feedback-passage" }, h("h4", {}, "About this answer"), answerLines(item).map((line) => h("p", {}, line))) : null,
         h("p", { class: "oba-small" }, moderationReaderLine(item.reader, item.source, item.kind)),
         feedbackPreview(item.publicPreview),
         evidenceSection(item),
@@ -14902,7 +14976,7 @@ export class ObAdmin extends AdminElement {
             guidance));
         }
       }
-      if (!item.actions?.length && item.role !== "contributing-author" && !["withdrawn"].includes(item.status)) {
+      if (!item.actions?.length && item.role !== "contributing-author" && !item.response?.withdrawable && !["withdrawn"].includes(item.status)) {
         actions.append(h("p", { class: "oba-small" }, "No decision is open to you on this item."));
       }
       const mismatch = item.source === "feedback" ? feedbackPublicationMismatch(item) : null;
@@ -14910,7 +14984,7 @@ export class ObAdmin extends AdminElement {
         actions.append(h("button", { class: "oba-btn", type: "button", onClick: async () => {
           busy(true);
           try {
-            await this.api.call("POST", `engagement/${item.kind === "third-perspective" ? "third-perspectives" : "feedback"}/${mismatch.action}`, { json: { id: item.id } });
+            await this.api.call("POST", `engagement/${item.kind === "third-perspective" ? "third-perspectives" : item.kind === "author-response" ? "author-responses" : "feedback"}/${mismatch.action}`, { json: { id: item.id } });
             await reloadAll(mismatch.action === "publish" ? `Published on ${where}.` : mismatch.action === "publish-decision" ? `Decision updated on ${where}. Rebuild or publish to update the live site.` : `Taken off ${where}. Rebuild or publish to update the live site.`, "ok");
           } catch (error) {
             busy(false);
@@ -14920,11 +14994,71 @@ export class ObAdmin extends AdminElement {
         card.append(h("p", { class: "oba-notice" }, mismatch.notice));
       } else if (item.kind === "third-perspective" && item.status === "approved" && item.published === true) {
         card.append(h("p", { class: "oba-small" }, "Published on the post as a reader’s reflection."));
+      } else if (item.kind === "author-response" && item.status === "approved" && item.published === true) {
+        card.append(h("p", { class: "oba-small" }, "Published on the post after the author’s section, under the reader’s reflection, labelled as the author’s response."));
       } else if (item.source === "feedback" && item.status === "approved" && item.published === true) {
         card.append(h("p", { class: "oba-small" }, "Published on the post. ", h("a", { href: `#oba-published-${item.id}`, onClick: (event) => {
           event.preventDefault();
           document.getElementById(`oba-published-${item.id}-response`)?.focus();
         } }, "Respond or record a revision note")));
+      }
+      const offer = answerOffer(item);
+      if (offer && item.kind === "third-perspective") {
+        // The author of the section the reflection is about may answer it (ADR 0132). The server
+        // offered this only to the contributor bound to that section.
+        const textId = `oba-answer-${key}-text`;
+        const hintId = `${textId}-hint`;
+        const text = h("textarea", { id: textId, rows: "4", maxlength: "4000", "aria-describedby": hintId, name: "answer" });
+        const sendAnswer = async (event) => {
+          event.preventDefault();
+          const body = text.value.trim();
+          if (!body) {
+            announce(answerLine, "Write your answer first.", "error");
+            text.focus();
+            return;
+          }
+          busy(true);
+          announce(answerLine, "Sending your answer…");
+          try {
+            await this.api.call("POST", "engagement/author-response", { json: answerRequest(item, body) });
+            await reloadAll("Your answer was sent. It waits for a coordinator’s approval; nothing was shown or e-mailed.", "ok");
+          } catch (error) {
+            busy(false);
+            announce(answerLine, error.message, "error");
+            if (error.status === 409) await reloadAll(`${error.message} The list was reloaded.`, "error");
+            else text.focus();
+          }
+        };
+        const answerLine = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+        card.append(h("form", { class: "oba-answer-form", "data-answer-form": "", onSubmit: sendAnswer },
+          h("h4", {}, offer.heading),
+          h("div", { class: "oba-field" }, h("label", { for: textId }, "Your answer, in plain text"), text, h("p", { class: "oba-small", id: hintId }, offer.hint)),
+          h("button", { class: "oba-btn oba-btn-primary", type: "submit" }, offer.button),
+          answerLine));
+      }
+      if (item.response?.withdrawable) {
+        // An author takes their own answer back; a coordinator removes one instead.
+        const confirmId = `oba-withdraw-${key}-confirm`;
+        const confirmBox = h("input", { type: "checkbox", id: confirmId });
+        actions.append(h("div", { class: "oba-moderation-action", "data-withdraw-answer": "" },
+          h("p", { class: "oba-feedback-acknowledge" }, confirmBox, " ", h("label", { for: confirmId }, "I understand that my answer is taken off the post for good and its text deleted soon after.")),
+          h("button", { class: "oba-btn oba-btn-danger", type: "button", onClick: async () => {
+            if (!confirmBox.checked) {
+              announce(line, "Confirm that you understand this first.", "error");
+              confirmBox.focus();
+              return;
+            }
+            busy(true);
+            announce(line, "Taking your answer back…");
+            try {
+              await this.api.call("PATCH", "engagement/author-response", { json: withdrawAnswerRequest(item) });
+              await reloadAll("Your answer was taken back. It is not shown anywhere.", "ok");
+            } catch (error) {
+              busy(false);
+              announce(line, error.message, "error");
+              if (error.status === 409 || error.status === 404) await reloadAll(`${error.message} The list was reloaded.`, "error");
+            }
+          } }, "Take my answer back")));
       }
       const decision = decisionForm(item, key, line, busy);
       card.append(actions, ...(decision ? [decision] : []), line);
