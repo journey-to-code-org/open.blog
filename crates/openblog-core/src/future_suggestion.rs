@@ -72,15 +72,16 @@ pub const MAX_YEAR_CHARS: usize = 32;
 pub const MAX_CONTACT_BYTES: usize = 254;
 /// The longest series slug or conversion id, in characters.
 pub const MAX_ID_CHARS: usize = 64;
-/// The largest serialized submission accepted, before parsing. It leaves
-/// [`MAX_JSON_BYTES`] less this room for what the receiver adds to make the
-/// stored record (the page, the time, the channel and the revision), so a
-/// submission at its largest still reads back from storage.
+/// The largest serialized submission accepted, before parsing.
 pub const MAX_SUBMISSION_BYTES: usize = 12 * 1024;
-/// The largest serialized record accepted, before parsing. A hosted row's
-/// `details` is held to the same 16 KiB by its own check, and a submission
-/// is smaller than that, so no accepted suggestion can be refused later.
-pub const MAX_JSON_BYTES: usize = 16 * 1024;
+/// The largest whole stored record read back, before parsing. The record is
+/// the text (at most 2,000 characters of four bytes, 8,000 bytes, the row's
+/// `body`), the row's `details` (held below 16 KiB by its own check), the
+/// reader's name, the receipt and the revision (about 1.5 KiB between them).
+/// The columns bound the parts, so this bound is their sum with room to spare:
+/// no accepted suggestion, with eight links and any number of clarifications,
+/// can be refused when it is read back (ADR 0213).
+pub const MAX_JSON_BYTES: usize = 32 * 1024;
 /// The most a suggestion's stored `details` may measure, as Postgres measures
 /// them (`octet_length(details::text)`: jsonb text puts one space after every
 /// `:` and `,`). It is below the 16 KiB of the column's check by the room

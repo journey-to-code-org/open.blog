@@ -1232,7 +1232,11 @@ fn a_largest_submission_round_trips_through_storage_or_is_refused_up_front() {
                     Suggestion::receive(submission, WORK, received(), FeedbackChannel::Hosted)
                         .unwrap();
                 let stored = record.to_json();
-                assert!(stored.len() <= 16 * 1024, "{character}: {}", stored.len());
+                assert!(
+                    stored.len() <= openblog_core::future_suggestion::MAX_JSON_BYTES,
+                    "{character}: {}",
+                    stored.len()
+                );
                 assert_eq!(Suggestion::from_json(&stored).unwrap(), record);
                 let receipt: Value = serde_json::from_str(&stored).unwrap();
                 let details = record.stored_details();
@@ -1777,4 +1781,44 @@ fn the_largest_suggestion_and_eight_largest_links_fit_the_hosted_column() {
     for link in &widest {
         assert_eq!(Conversion::from_value(&link.to_value()).unwrap(), *link);
     }
+}
+
+#[test]
+fn an_accepted_record_over_16_kib_reads_back_with_eight_links_and_a_clarification() {
+    // Text of four-byte characters beside links the details bound lets
+    // through: the whole record is over 16 KiB, and was once unreadable.
+    let wide = |tag: &str| format!("https://example.org/{tag}{}", "\u{6C34}".repeat(225));
+    let wide_submission = submission(json!({
+        "type": "source",
+        "text": "\u{1F4DA}".repeat(2_000),
+        "url": wide(""),
+        "hints": { "identifiers": (0..4).map(|i| json!({ "scheme": "url", "value": wide(&i.to_string()) })).collect::<Vec<_>>() },
+        "attribution": { "name": "\u{1F600}".repeat(80), "publishName": true },
+    }));
+    let mut record = receive(&wide_submission);
+    assert!(record.to_json().len() > 16 * 1024);
+    let links: Vec<Conversion> = (0..MAX_CONVERSIONS)
+        .map(|n| Conversion {
+            kind: ConversionKind::Draft,
+            id: format!("{}-{n}", "\u{6F22}".repeat(62))
+                .chars()
+                .take(64)
+                .collect(),
+            at: time("2026-10-27T10:00:00Z"),
+            by: "\u{1F600}".repeat(MAX_ACTOR_CHARS),
+        })
+        .collect();
+    record.conversions = links;
+    let record = record.clarified(&"\u{1F4DA}".repeat(2_000)).unwrap();
+    let receipt: Value = serde_json::from_str(&record.to_json()).unwrap();
+    let back = Suggestion::from_stored(
+        &record.submission.text,
+        record.revision,
+        &record.stored_details(),
+        &receipt["receipt"],
+        &record.submission.attribution,
+    )
+    .unwrap();
+    assert_eq!(back, record);
+    assert_eq!(Suggestion::from_json(&record.to_json()).unwrap(), record);
 }

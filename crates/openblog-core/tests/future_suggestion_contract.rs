@@ -607,6 +607,17 @@ fn submission_cases() -> Vec<(String, Request)> {
             }
         })),
     );
+    // Details that fit their own bound, beside a text of four-byte characters:
+    // the whole record is larger than 16 KiB and must still read back.
+    let wide = |tag: &str| format!("https://example.org/{tag}{}", "\u{6C34}".repeat(225));
+    add(
+        "text and links that make a record larger than 16 KiB",
+        with(json!({
+            "text": "\u{1F4DA}".repeat(2_000),
+            "url": wide(""),
+            "hints": { "identifiers": (0..4).map(|i| json!({ "scheme": "url", "value": wide(&i.to_string()) })).collect::<Vec<_>>() }
+        })),
+    );
     cases
 }
 
@@ -661,7 +672,10 @@ fn the_submission_format_is_the_one_the_hosted_function_reads() {
                 )
                 .unwrap_or_else(|error| panic!("{name}: {error}"));
                 assert_eq!(back, suggestion, "{name}");
-                assert!(record.to_string().len() <= 16 * 1024, "{name}");
+                assert!(
+                    record.to_string().len() <= openblog_core::future_suggestion::MAX_JSON_BYTES,
+                    "{name}"
+                );
                 json!({ "record": record, "row": row })
             }
             Err(error) => {
