@@ -1842,6 +1842,60 @@ date: 2026-01-07
         let _ = fs::remove_dir_all(root);
     }
 
+    /// The Admin preview scans for private text exactly when the build would: a site
+    /// whose only research is its curated selections is scanned while it publishes them,
+    /// and is not touched while it does not.
+    #[test]
+    fn the_text_preview_includes_the_curated_selections_only_while_they_are_published() {
+        let root = std::env::temp_dir().join(format!(
+            "openblog-guard-curated-only-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        crate::scaffold::init(&root, Some("Guard"), false).unwrap();
+        let research = root.join(".openblog/private/research");
+        fs::create_dir_all(&research).unwrap();
+        let words = "ZqxCuratedOnly comment words that stay private until a projection allows them";
+        fs::write(
+            research.join("selections.json"),
+            serde_json::json!({"version": 1, "selections": [
+                {"id": "annotation-x", "kind": "source-annotation", "target": "plato",
+                 "revision": "0000000000000000", "fields": ["by", "text"],
+                 "by": "The author", "text": words}
+            ]})
+            .to_string(),
+        )
+        .unwrap();
+        fs::create_dir_all(root.join("static")).unwrap();
+        fs::write(root.join("static/leak.txt"), format!("{words}\n")).unwrap();
+        let config = fs::read_to_string(root.join("openblog.json")).unwrap();
+        let with_switch = |on: bool| {
+            let mut value: Value = serde_json::from_str(&config).unwrap();
+            if on {
+                value["curatedContext"] = serde_json::json!({"publish": true});
+            }
+            fs::write(root.join("openblog.json"), value.to_string()).unwrap();
+            crate::site::load_site(&root, false, None).unwrap()
+        };
+        let (site, themes) = with_switch(false);
+        let (warnings, refusal) = preview_text(&root, &site, &themes);
+        assert!(
+            warnings.is_empty() && refusal.is_none(),
+            "off: nothing is scanned"
+        );
+        let (site, themes) = with_switch(true);
+        let (warnings, refusal) = preview_text(&root, &site, &themes);
+        assert!(refusal.is_none());
+        assert!(
+            warnings.iter().any(|w| w.starts_with("boundary: ")
+                && w.contains("`leak.txt`")
+                && w.contains("annotation-x")),
+            "{warnings:?}"
+        );
+        assert!(warnings.iter().all(|w| !w.contains("ZqxCuratedOnly")));
+        let _ = fs::remove_dir_all(root);
+    }
+
     fn tempdir_build(root: &Path, name: &str) -> Vec<(String, Vec<u8>)> {
         let out = root.join(format!("out-{name}"));
         build_into(root, &out).unwrap();
