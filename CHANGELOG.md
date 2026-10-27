@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.46.0] - 2026-10-27
+
 - Portable copies carry the research context: portable HTML, Markdown and text, syndicated copies,
   full-content feeds and `llms-full.txt` now include the research context you selected for a post, in
   the same words as its page, with every attribution, doubt and piece of evidence, each item linked
