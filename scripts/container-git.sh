@@ -32,7 +32,11 @@ fi
 git check-ref-format --branch "$branch" >/dev/null
 git init -q --initial-branch="$branch"
 git config core.filemode false
-git remote add origin "https://github.com/${slug}.git"
+if [ -n "${OPENBLOG_GIT_SSH_KEY_PATH:-}" ]; then
+  git remote add origin "git@github.com:${slug}.git"
+else
+  git remote add origin "https://github.com/${slug}.git"
+fi
 echo "Restoring container Git metadata for the shipped commit."
 GIT_TERMINAL_PROMPT=0 git -c credential.interactive=false fetch -q origin "$commit"
 # Attach metadata to the shipped files without replacing any file contents.

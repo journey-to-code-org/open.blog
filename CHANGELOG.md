@@ -5,6 +5,12 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- The container can publish with a repository-scoped SSH deploy key (`OPENBLOG_GIT_SSH_KEY_PATH` and
+  `OPENBLOG_GIT_SSH_KNOWN_HOSTS_PATH`) instead of a token. The image now ships `openssh-client`; host keys
+  are pinned and verified strictly, Git metadata recovery on Render uses the same key, and the entrypoint
+  refuses to start if both a key and `OPENBLOG_GIT_TOKEN` are configured. A new `tests/docker-entrypoint.sh`
+  check runs in CI.
+
 - New `rust runnable check` fence option: a `---checks` line inside a Rust runnable fence separates the
   reader's starter code from hidden `#[test]` functions. **Check my code** sends both to the Rust Playground
   with `tests: true`, reads `test ob_checks::name ... ok|FAILED` (the first line for a name wins, so a test

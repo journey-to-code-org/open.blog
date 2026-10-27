@@ -11,6 +11,8 @@
 # OPENBLOG_BEHIND_PROXY=1 whenever an HTTPS proxy (Render's, Caddy, nginx) sits in
 # front: it marks cookies Secure and reads the client address from X-Forwarded-For.
 # Mount a volume at /blog/.openblog to keep users, analytics, and the trash.
+# For SSH publishing, mount a repository deploy key and pinned GitHub known-hosts
+# file, then set OPENBLOG_GIT_SSH_KEY_PATH and OPENBLOG_GIT_SSH_KNOWN_HOSTS_PATH.
 
 FROM rust:1-slim-bookworm AS build
 WORKDIR /src
@@ -19,7 +21,7 @@ RUN cargo build --release -p openblog-cli --locked
 
 FROM debian:bookworm-slim
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git ca-certificates curl \
+    && apt-get install -y --no-install-recommends git openssh-client ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /src/target/release/openblog /usr/local/bin/openblog
 WORKDIR /blog
