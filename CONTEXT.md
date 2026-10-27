@@ -2146,7 +2146,7 @@ _Avoid_: Import, conversion, promotion to the library
 
 ## Continuations
 
-How a later work links back to the reader questions that came before it (ADRs 0400 to 0406). Ordinary
+How a later work links back to the reader questions that came before it (ADRs 0400 to 0407). Ordinary
 links are the whole feature; updates are an optional extra.
 
 **Continuation**:
@@ -2166,5 +2166,13 @@ _Avoid_: Reason, cause, impact
 A reader's optional, explicit request to be told when later work continues one page's questions or one
 series. Off by default and offered only where a site turned it on and the hosted service is reachable;
 otherwise the page offers links only. The address is private, kept only while active, never in static
-output or analytics, and erased by unsubscribing. Nothing in open.blog sends the update itself (ADR 0404).
+output or analytics, and erased by unsubscribing. Nothing in open.blog sends the update itself: a site plugs in a mail provider and a hosted store, and
+with neither the page offers links only (ADRs 0404, 0407).
 _Avoid_: Newsletter, follow, mailing list, tracking
+
+**Double opt-in**:
+The two steps that start a subscription: a request stores a pending record only after a confirmation
+message was sent, and a single-use link in it, followed within 48 hours, makes it active. A late or
+unused request is erased. Every request is answered alike so the answer never reveals who is
+subscribed (ADR 0407).
+_Avoid_: Verification, activation email

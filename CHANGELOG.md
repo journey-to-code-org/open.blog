@@ -5,6 +5,7 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Optional update subscriptions: a pluggable, double opt-in service for readers who ask to hear when later work takes up a question, with no provider as the link-only baseline. Requests are confirmed once within 48 hours, answered alike so they reveal nothing, and unsubscribe or deletion erases the address with no account. Hosted storage is additive SQL in `supabase/subscriptions.sql` (rollback in `subscriptions-rollback.sql`), behind `OPENBLOG_SUBSCRIPTIONS_ENABLED`. No page renders a form yet.
 - Continuation links: a canonical page now shows "Where this question went" and, on the later work, "Earlier questions this continues" as plain links that work without JavaScript, built from `continuations.json`. Admin links an approved reflection, question or source suggestion to a later published work, previews it, removes it, and drops the links of a removed or withdrawn submission. A note cannot claim cause, endorsement or popularity. Update subscriptions are not part of this change.
 - `<ob-search>` accepts a `no-history` attribute that stops it from writing `?q=` to the page address,
   for a search box that lives in a dialog or panel on another page.

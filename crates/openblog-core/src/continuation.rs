@@ -1,4 +1,4 @@
-//! Continuing a discussion across episodes (RD15, #215 and #231, ADRs 0400 to 0406).
+//! Continuing a discussion across episodes (RD15, #215 and #231, ADRs 0400 to 0407).
 //!
 //! A *continuation* is an editor's typed link from one approved question,
 //! reflection or source suggestion to a later published work that takes it
@@ -747,6 +747,11 @@ impl SubscriptionRequest {
 
     pub fn scope(&self) -> &Scope {
         &self.scope
+    }
+
+    /// The scope and the private contact, for the service that stores them.
+    pub(crate) fn into_parts(self) -> (Scope, Contact) {
+        (self.scope, self.contact)
     }
 }
 
