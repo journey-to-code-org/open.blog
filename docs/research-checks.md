@@ -177,10 +177,13 @@ When one of your private research files cannot be read, or breaks its own rules,
 that one file and nothing is repaired for you. Fix the file by hand. A finding here refuses the next
 build, before anything public changes, only when the build reads that file: the library and notebook
 whenever the build reads any research, the atlas while `knowledgeAtlas.publish` is on, the claims
-file while `claimEvidence.publish` is on, and the alignments while `comparisons.publish` is on. When
-the build does not read a file, `openblog check` still reports it, and the report says the part that
-depends on it was not reviewed. These codes appear for the source library, notebook, atlas, claims
-and alignments files alike unless a row says otherwise.
+file while `claimEvidence.publish` is on, the alignments while `comparisons.publish` is on, and the
+curated selections while `curatedContext.publish` is on. When the build does not read a file,
+`openblog check` still reports it, and the report says the part that depends on it was not reviewed.
+These codes appear for the source library, notebook, atlas, claims and alignments files alike unless a
+row says otherwise. The curated selections file reports only `file-unreadable` here: a selection that
+is withdrawn, stale, missing or cyclic is your own state, listed with its reason in What will be public
+and never acknowledged (see [ADR 0191](adr/0191-a-damaged-selections-file-refuses-a-full-build-and-withheld-selections-have-no-rows-to-acknowledge.md)).
 
 | Code | What it means |
 | --- | --- |

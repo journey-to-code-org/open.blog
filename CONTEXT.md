@@ -1224,6 +1224,106 @@ its ISBN-13, a PMCID with its prefix upper-cased). It is only compared, never wr
 record keeps the identifier as written.
 _Avoid_: Normalizing, deduplicating, merging
 
+## Curated research context
+
+These terms describe how an author chooses which already-publishable research context readers are
+given. They never describe whether research is true, agreed or fit to publish.
+
+**Curated selection**:
+The author's explicit choice of one publishable research item (or their own attributed words about
+one), kept in the private `selections.json` with the revision it was made against and the public
+fields it lists. A selection is one more projection under the publication boundary: it adds no
+approval, and publishes nothing the atlas, comparison and citation projections do not.
+_Avoid_: Approval, publishing a note, a second atlas
+
+**Selection kind**:
+What a selection selects: reference, contextual entry, relationship, timeline (one dating),
+comparison, source annotation or explanation. The kinds keep the research model's distinctions
+(work, edition, translation, witness, reference, citation, claim, evidence, interpretation,
+contextual entry) apart; selecting a work never selects its versions.
+_Avoid_: Treating a reference as a citation, a note as an annotation
+
+**Selected revision**:
+The fingerprint of the selected public item and of the public context it brings, recorded when it
+was selected. When it no longer matches, the selection is stale and is withheld until the author
+checks the item and selects it again.
+_Avoid_: Auto-updating a selection, publishing the old version
+
+**Selected fields**:
+The public fields a selection lists. Each kind always lists its attribution, uncertainty and
+evidence (a relationship always carries who asserts it, how firmly, on what evidence, and who
+disputes it); the rest are chosen one by one.
+_Avoid_: Dropping a dispute or a doubt to make a selection shorter
+
+**Context item**:
+An approved dependency published with a selection so a reader can understand it: a relationship's
+endpoint entries and cited sources, a dating's owner, a comparison's versions. It is the minimum
+the projections already publish and says which selections need it.
+_Avoid_: Publishing everything linked from a selection
+
+**Selection provenance**:
+Where the selected metadata came from, as the author states it: authored, imported (from a named
+origin) or unrecorded. Never inferred; a detail the source lacks is listed as missing, not filled.
+_Avoid_: Defaulting to authored, placeholder values
+
+**Withdrawn selection**:
+A selection the author withdrew: the record stays, nothing is published, and selecting it again
+records the current revision. Unselecting removes the record. Neither changes the research.
+_Avoid_: Deleting research to withdraw it
+
+**Selection requirement**:
+A selection that must be published with another (at most 32). A withheld or unknown requirement
+withholds the dependant, however far back the chain goes; a cycle withholds every selection on it.
+Each failure is scoped to its selection.
+_Avoid_: Cascading deletes
+
+**Public source**:
+A source that is already public: cited by a published post, or published by the atlas or a
+comparison. Only a public source can be selected as a reference or annotated, so selecting never
+approves a source the library merely holds.
+_Avoid_: Treating a library source as public because it exists
+
+**Selection scope**:
+Whom a selection is offered to: named published posts (`posts`), or the whole site when it names
+none, with optional `positions` (post slug to place) that order it among each post's items. A post's
+order is its own: ordering one post never moves an item in another, even a whole-site item both are
+offered. A record without them is for the whole site and unplaced. Only a published post is ever
+named in a public value; a draft previews as if it were published, labelled so, and the build does not.
+_Avoid_: Naming a draft, ordering by id alone, one number shared by every post
+
+**Selected for readers**:
+The section of the draft-side research panel where an author chooses, orders, withdraws and
+unselects research context for a post, and previews exactly what readers get. It lives in the
+Research panel; it is not a second panel or a second preview.
+_Avoid_: A curation page, a second approval
+
+**Selection notice**:
+A caveat that travels with a published curated item: a competing dating that is published but not
+selected, a selected detail the source lacks, or metadata whose origin is not recorded. A competing
+dating is also a `boundary:` warning. Never a judgement of the research.
+_Avoid_: Hiding a rival dating, filling in a missing detail
+
+**Portable research context**:
+The research-context section as a portable copy (HTML, Markdown, text, feed, syndicated copy) writes it:
+labeled sequential sections from the one public curated value, with links to the canonical section and
+each item's anchor, and a diagnostic for what the format cannot carry. A copy that would lose a selected
+fact is refused for that post alone.
+
+**Curated context file**:
+`curated-context.json`: the versioned public data file projected from the one public curated value,
+holding each published selection with its attribution, doubt, evidence, provenance and selected
+revision, the context it needs, and for each published post its items in that post's order with a
+canonical anchor for each. It is written only while the site publishes at least one selection, is
+bounded and refused whole when over a bound, and names nothing a reader's tool could query for more
+(ADRs 0197, 0200).
+_Avoid_: A query API, an export of the selections file
+
+**Research context section**:
+The static section of a post's page (`#research-context`) that renders the same public value for readers
+without JavaScript: a heading, an ordered list of attributed items with an anchor each (`#curated-` and
+the selection id), and a list of what they refer to. Authored text in it is text (ADR 0198).
+_Avoid_: A widget, a sidebar, a second page
+
 ## Reader participation
 
 These terms describe how readers point at published text, where their feedback came from, and

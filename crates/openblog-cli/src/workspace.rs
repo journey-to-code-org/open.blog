@@ -24,6 +24,8 @@ const ATLAS_PATH: &str = ".openblog/private/research/atlas.json";
 const CLAIMS_PATH: &str = ".openblog/private/research/claims.json";
 /// Private passage alignments share the library limit as well.
 const ALIGNMENTS_PATH: &str = ".openblog/private/research/alignments.json";
+/// The private curated selections (ADR 0185) share the library limit too.
+const SELECTIONS_PATH: &str = openblog_core::curated_selection::SELECTIONS_FILE;
 /// The private review acknowledgements (ADR 0124), up to their own limit.
 const ACKNOWLEDGEMENTS_PATH: &str = crate::research_review::ACKNOWLEDGEMENTS_FILE;
 const MAX_ACKNOWLEDGEMENTS_TEXT: usize = crate::research_review::MAX_ACKNOWLEDGEMENTS_BYTES;
@@ -269,6 +271,7 @@ impl Policy {
             ATLAS_PATH.into(),
             CLAIMS_PATH.into(),
             ALIGNMENTS_PATH.into(),
+            SELECTIONS_PATH.into(),
             ACKNOWLEDGEMENTS_PATH.into(),
             ".openblog/pending-tracks".into(),
             ".openblog/trash".into(),
@@ -289,6 +292,7 @@ impl Policy {
                 | ATLAS_PATH
                 | CLAIMS_PATH
                 | ALIGNMENTS_PATH
+                | SELECTIONS_PATH
                 | ACKNOWLEDGEMENTS_PATH
         ) {
             return true;
@@ -346,6 +350,7 @@ impl Policy {
             ATLAS_PATH,
             CLAIMS_PATH,
             ALIGNMENTS_PATH,
+            SELECTIONS_PATH,
         ]
         .contains(&path)
         {
@@ -1312,6 +1317,9 @@ mod tests {
             ".openblog/private/research/alignments.json/extra",
             ".openblog/private/research/alignments.json.lock",
             ".openblog/private/research/alignments.json.1-2.tmp",
+            ".openblog/private/research/selections.json/extra",
+            ".openblog/private/research/selections.json.lock",
+            ".openblog/private/research/selections.json.1-2.tmp",
             ".openblog/private/research/acknowledgements.json/extra",
             ".openblog/private/research/acknowledgements.json.lock",
             ".openblog/private/research/acknowledgements.json.1-2.tmp",
@@ -1335,6 +1343,7 @@ mod tests {
             ".openblog/private/research/atlas.json",
             ".openblog/private/research/claims.json",
             ".openblog/private/research/alignments.json",
+            ".openblog/private/research/selections.json",
             ".openblog/private/research/acknowledgements.json",
             ".openblog/private/admin-preferences/0000000000000000000000000000000000000000000000000000000000000000.json",
             ".openblog/pending-tracks/0000000000000000000000000000000000000000000000000000000000000000.gpx",
@@ -1422,6 +1431,30 @@ mod tests {
         assert_eq!(files[ALIGNMENTS_PATH], body.as_bytes());
         fs::write(&alignments, "x".repeat(MAX_LIBRARY_TEXT + 1)).unwrap();
         assert!(policy.scan(&fixture.0).is_err());
+    }
+
+    #[test]
+    fn selections_file_is_durable_and_allowed_up_to_the_library_limit() {
+        let fixture = Fixture::new();
+        let selections = fixture.0.join(SELECTIONS_PATH);
+        fs::create_dir_all(selections.parent().unwrap()).unwrap();
+        let body = format!("{{\"pad\":\"{}\"}}", "x".repeat(3 * 1024 * 1024));
+        fs::write(&selections, &body).unwrap();
+        let policy = policy();
+        assert!(policy.allowed(SELECTIONS_PATH));
+        assert!(policy.roots().iter().any(|root| root == SELECTIONS_PATH));
+        assert_eq!(policy.text_limit(SELECTIONS_PATH), MAX_LIBRARY_TEXT);
+        let files = policy.scan(&fixture.0).unwrap();
+        assert_eq!(files[SELECTIONS_PATH], body.as_bytes());
+        fs::write(&selections, "x".repeat(MAX_LIBRARY_TEXT + 1)).unwrap();
+        assert!(policy.scan(&fixture.0).is_err());
+        // A lock or an interrupted write beside it is never persisted.
+        for beside in [".lock", ".1-2.tmp", "/extra"] {
+            assert!(
+                !policy.allowed(&format!("{SELECTIONS_PATH}{beside}")),
+                "{beside}"
+            );
+        }
     }
 
     #[test]

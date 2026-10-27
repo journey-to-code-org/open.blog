@@ -326,6 +326,39 @@ mod tests {
     }
 
     #[test]
+    fn a_selections_file_copy_in_a_public_folder_is_refused_by_structure_alone() {
+        let root = temp_root("selections");
+        let config = SiteConfig::default();
+        fs::create_dir_all(root.join("static/data")).unwrap();
+        let selections = r#"{"version":1,"selections":[{"id":"s1","kind":"source-annotation","target":"plato","revision":"0123456789abcdef","fields":["by","text"],"withdrawnReason":"ob-selection-secret"}]}"#;
+        fs::write(root.join("static/data/curated.json"), selections).unwrap();
+        // Public data that merely has a `selections` list stays publishable.
+        fs::write(
+            root.join("static/data/picks.json"),
+            r#"{"version":1,"selections":[{"id":"x","title":"A layout setting"}]}"#,
+        )
+        .unwrap();
+        fs::create_dir_all(root.join(".openblog/private/research")).unwrap();
+        fs::write(
+            root.join(".openblog/private/research/selections.json"),
+            selections,
+        )
+        .unwrap();
+        assert_eq!(
+            public_inputs_with_private_research(&root, &config),
+            ["static/data/curated.json"]
+        );
+        let error = refuse_private_research_in_public_inputs(&root, &config).unwrap_err();
+        assert!(!error.contains("ob-selection-secret"), "{error}");
+        let leaked = openblog_core::OutputFile {
+            path: "api/curated.json".into(),
+            contents: selections.into(),
+        };
+        assert!(refuse_private_research_in_output(&[leaked]).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn only_files_that_start_like_a_json_object_are_read_whole() {
         assert!(starts_like_json_object(b"{\"a\":1}"));
         assert!(starts_like_json_object(b" \r\n\t{"));

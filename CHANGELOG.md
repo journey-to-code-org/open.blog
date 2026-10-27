@@ -5,6 +5,52 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.46.0] - 2026-10-27
+
+- Portable copies carry the research context: portable HTML, Markdown and text, syndicated copies,
+  full-content feeds and `llms-full.txt` now include the research context you selected for a post, in
+  the same words as its page, with every attribution, doubt and piece of evidence, each item linked
+  back to its anchor on the canonical page. Summary-only feeds link to the section. A bibliography
+  export adds the references you selected and lists what it cannot carry. Copies say what a format
+  cannot carry, show an address that is not a link as text, and are refused for that post alone if
+  anything selected would be lost. With the switch off, or nothing selected, every copy is unchanged.
+  The page now also shows the passages and rights words of each compared version. Anchors on the page
+  moved into the reserved `ob-` family (`ob-research-context`, `ob-curated-<id>`) and
+  `curated-context.json` says `openblog-curated-context-file`. See
+  [ADR 0202](docs/adr/0202-portable-copies-carry-the-public-curated-context-as-labeled-sections-with-links-back-to-the-canonical-page.md).
+- Curated research context: a new private file, `.openblog/private/research/selections.json`,
+  holds which public research context readers may be given: references to sources, atlas entries,
+  relationships, datings and comparisons, and your own attributed comments on a source or an
+  entry. Each selection records the revision you saw and lists the public fields you chose;
+  attribution, doubt, dissent and evidence always travel with it. Selecting never approves
+  anything. Only what the atlas, comparisons and citations already publish can be selected, and a
+  source only when a published post cites it or the atlas or a comparison publishes it. A selection
+  may be for named published posts, in your order, or for the whole site. One that is withdrawn,
+  stale (what it selects changed), missing, unapproved, cyclic or for no published post is
+  withheld on its own, with a reason that names ids only. Imported metadata is published with the
+  origin you stated or as unrecorded, a missing detail is listed and never invented, and a
+  competing dating you did not select is a `boundary:` warning. In Admin, the Research panel beside
+  a post has a Selected for readers section to select, order, withdraw, select again and
+  unselect, with a preview of exactly what readers get, and the same report appears in What this
+  post makes public. `curatedContext.publish` (off by default) turns it on; while it is on, a
+  selections file that cannot be read refuses `build` and `check`, naming the file. While it is
+  off the file is not read and a site builds exactly as before. A post offered selections is given
+  its own order for each of them: ordering one post never moves an item in another, even one offered to
+  the whole site, and a draft previews its own selections as they will be when it is published.
+  A conflict keeps the half-filled form, and Escape closes only the confirmation or form it is in.
+- A site that publishes curated context now also publishes `curated-context.json`, a versioned public
+  data file of the selections you made (with who asserts each, how firmly, on what evidence, where
+  imported metadata came from, and the revision you selected), the context they need, and each post's
+  items in your order with a canonical anchor for each, so Reader Discovery and other tools can reuse it
+  without reading anything private. Each post you offered something also gets a static Research context
+  section after its text, complete without JavaScript, readable in order by a screen reader, kept whole
+  in print and reflowing at 320 pixels and at 400% zoom; what you wrote is shown as text, never markup.
+  Both are built from the one public value Admin's What will be public lists. A change in the Research
+  panel rebuilds the site you are previewing while curated context is published. With the switch off, or
+  nothing selected, a site builds exactly as before; a file over its bound is left out whole with a
+  `boundary:` warning. Portable copies carry it too. See the
+  [curated context format](docs/specs/curated-context.md).
+
 ## [0.45.0] - 2026-10-27
 
 - A post's page now shows the reflections its editors chose to feature, in a "Community perspectives"

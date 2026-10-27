@@ -110,6 +110,14 @@ struct QueryProjection {
     json: String,
 }
 
+/// The curated research context, projected once per build: the model the pages
+/// are rendered from and the JSON as written (base path applied, within its
+/// bound), so a page and the file agree.
+struct CuratedProjection {
+    context: crate::curated_context::CuratedContext,
+    json: String,
+}
+
 struct Renderer<'a> {
     site: &'a Site,
     themes: &'a HashMap<String, Theme>,
@@ -121,6 +129,11 @@ struct Renderer<'a> {
     /// or over its bound): the concept previews read that file and nothing
     /// else, and the file written is these bytes.
     atlas_query: std::cell::OnceCell<Option<QueryProjection>>,
+    /// The curated research context the pages and `curated-context.json` are
+    /// rendered from, projected once on first use (`None` when the site
+    /// publishes none, or the projection is refused or over its bound: the
+    /// pages' own sections then still render, the file is left out).
+    curated: std::cell::OnceCell<Option<CuratedProjection>>,
     /// How many steps out every entry page's trail goes, decided once for the
     /// whole site against [`TRAIL_BUDGET_BYTES`] (ADR 0175).
     trail_depth: std::cell::OnceCell<TrailDepth>,
@@ -147,6 +160,7 @@ pub fn atlas_trail_warning_with_budget(site: &Site, trail_budget: usize) -> Opti
         themes: &themes,
         site_references: Default::default(),
         atlas_query: Default::default(),
+        curated: Default::default(),
         trail_depth: Default::default(),
         trail_budget,
     };
@@ -502,6 +516,7 @@ pub fn generate_with_trail_budget(
         themes: &resolved,
         site_references: Default::default(),
         atlas_query: Default::default(),
+        curated: Default::default(),
         trail_depth: Default::default(),
         trail_budget,
     };
@@ -583,6 +598,17 @@ pub fn generate_with_trail_budget(
                 json.to_string(),
             )?;
         }
+    }
+    // The curated research context (ADR 0197): the data file readers' tools
+    // fetch, projected from the one public curated value the pages' sections
+    // are rendered from. A projection that is refused (over a bound, or not
+    // consistent) is left out whole; the pages stay the complete fallback and
+    // the build warns (`boundary:`).
+    if let Some(projection) = r.curated_projection() {
+        out.add(
+            crate::curated_context::CURATED_CONTEXT_JSON_FILE.into(),
+            projection.json.clone(),
+        )?;
     }
     // Passage comparisons, only when the site publishes them (ADR 0092): the
     // pages and the JSON artifact are both rendered from the one projection.
@@ -717,6 +743,7 @@ pub fn generate_document(
         themes: &resolved,
         site_references: Default::default(),
         atlas_query: Default::default(),
+        curated: Default::default(),
         trail_depth: Default::default(),
         trail_budget: TRAIL_BUDGET_BYTES,
     };
@@ -1059,6 +1086,65 @@ impl<'a> Renderer<'a> {
                     .then_some(QueryProjection { query, json })
             })
             .as_ref()
+    }
+
+    /// The curated context as the build writes it, projected once. `None`
+    /// when the site publishes no curated context at all, or the projection
+    /// is refused (over a bound, or not consistent); a post's section is
+    /// then rendered from the public value directly (see
+    /// [`Self::curated_section`]) and only the data file is left out.
+    fn curated_projection(&self) -> Option<&CuratedProjection> {
+        self.curated
+            .get_or_init(|| {
+                let c = &self.site.config;
+                let curation = self.site.curation.as_ref()?;
+                let base = c.base_path();
+                let posts: Vec<crate::curated_context::PostRef<'_>> = self
+                    .site
+                    .posts
+                    .iter()
+                    .map(|post| crate::curated_context::PostRef {
+                        slug: post.slug.as_str(),
+                        url: post.url.as_str(),
+                    })
+                    .collect();
+                let context =
+                    crate::curated_context::CuratedContext::project(curation, &posts, &base)
+                        .ok()?;
+                // Nothing published, nothing written: a site that curates but
+                // currently publishes no selection is built exactly as before.
+                if context.items.is_empty() {
+                    return None;
+                }
+                let json = c.apply_base_path(&context.to_json());
+                (json.len() <= crate::curated_context::MAX_BYTES)
+                    .then_some(CuratedProjection { context, json })
+            })
+            .as_ref()
+    }
+
+    /// The static research-context section of one post's page, rendered from
+    /// the public curated value alone; `None` when the post offers nothing,
+    /// so its page is exactly what it was.
+    fn curated_section(&self, post: &Post) -> Option<String> {
+        self.site.curation.as_ref()?;
+        if let Some(projection) = self.curated_projection() {
+            let data = format!("/{}", crate::curated_context::CURATED_CONTEXT_JSON_FILE);
+            return projection
+                .context
+                .post_section_html(&post.slug, Some(&data));
+        }
+        // The data file is not written (a bound, or an inconsistency): the
+        // page still carries what its post is offered, without a link to it.
+        let curation = self.site.curation.as_ref()?;
+        crate::curated_context::CuratedContext::for_one_post(
+            curation,
+            crate::curated_context::PostRef {
+                slug: &post.slug,
+                url: &post.url,
+            },
+        )?
+        .post_section_html(&post.slug, None)
     }
 
     /// The query file as the build writes it, when it is written.
@@ -1912,6 +1998,11 @@ impl<'a> Renderer<'a> {
 
         if let Some(source) = post.source_notice_html() {
             body.push_str(&source);
+        }
+        // The author's curated research context for this post (#197): static,
+        // complete without JavaScript, from the public curated value only.
+        if let Some(section) = self.curated_section(post) {
+            body.push_str(&section);
         }
         if c.share.enabled {
             body.push_str(&self.share_block(post));

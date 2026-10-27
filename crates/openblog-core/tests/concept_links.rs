@@ -332,6 +332,7 @@ fn manifest_of(site: &Site) -> BoundaryManifest {
             claims: None,
             alignments: None,
             stale_comparisons: None,
+            curation: None,
             acknowledgements: None,
             unavailable: &[],
             author: &site.config.author.name,

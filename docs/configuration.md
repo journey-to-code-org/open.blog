@@ -47,6 +47,7 @@ default, so you can edit values in place and delete the ones you do not need.
   "knowledgeAtlas": { "publish": false },
   "claimEvidence": { "publish": false },
   "comparisons": { "publish": false },
+  "curatedContext": { "publish": false },
   "readingModes": { "default": "standard" }
 }
 ```
@@ -305,6 +306,40 @@ the alignments file; clearing an approval removes the comparison from the next b
 atlas, the alignments file is private and Git-ignored, so only a build that can read it publishes
 comparisons, and `build` and `check` warn when it cannot. See the
 [passage alignments format](specs/passage-alignments.md#publication).
+
+## Curated research context
+
+`curatedContext.publish` (off by default) turns on the curated-selection projection: Admin's
+**What will be public** (and the build's research summary) then lists what your private
+`.openblog/private/research/selections.json` would give readers and why anything is withheld.
+A selection can only pick what the atlas, comparison and source projections already publish (a
+source must already be cited by a published post or published by the atlas or a comparison); it
+never approves private research, never copies a note, and lists exactly the fields readers get. It
+may be for the whole site or for named posts, in your order. A selection goes stale when what it
+selects, or anything it needs, changes, and stays withheld until you check it and select it again.
+While the switch is on, a selections file that cannot be read refuses `build` and `check`, naming the
+file, and so also blocks publishing a shared reflection (an ordinary post save still succeeds, reporting
+the failed build); a selected dating whose competing datings are not selected is a `boundary:` warning. While the
+switch is off the file is never read and nothing changes. You choose what readers get from **Selected
+for readers** in the Research panel beside a post. The file is private and Git-ignored with the other
+research files. See
+[ADR 0185](adr/0185-curated-research-context-is-one-more-projection-that-selects-only-what-the-other-projections-publish.md).
+
+What readers get: while `curatedContext.publish` is on and at least one selection publishes, the build
+writes `curated-context.json`, a versioned public data file (the published selections with their
+attribution, doubt, evidence, provenance and the revision you selected, the context they need, and each
+post's items in your order with a canonical anchor for each), and each post you offered something gets a
+static **Research context** section after its text, complete without JavaScript. Both are read from the
+one public value that Admin's **What will be public** lists, so they never disagree and neither can reach
+a private note. With the switch off, or nothing selected, the site builds exactly as before; a file over
+its bound is left out whole with a `boundary:` warning and the pages are unaffected. Portable copies, syndicated copies, full-content feeds and `llms-full.txt` carry it too, with a link back to the
+canonical section ([ADR 0202](adr/0202-portable-copies-carry-the-public-curated-context-as-labeled-sections-with-links-back-to-the-canonical-page.md)).
+
+The comment you write for a selection is public, so the build's check for private text allows it: any
+words it shares with a private note are treated as public everywhere on the site, in every file, not
+only in the comment. The rest of that note stays protected, so write a comment fresh instead of pasting
+from a note. See the [curated context
+format](specs/curated-context.md).
 
 ## Reading modes
 

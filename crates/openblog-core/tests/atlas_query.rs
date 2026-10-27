@@ -549,6 +549,7 @@ fn manifest_of(site: &Site) -> BoundaryManifest {
         stale_comparisons: None,
         acknowledgements: None,
         unavailable: &[],
+        curation: None,
         author: &site.config.author.name,
         base_path: &base_path,
     })

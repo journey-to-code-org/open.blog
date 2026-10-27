@@ -81,10 +81,14 @@ pub enum Validator {
     /// `context_links::review_context_links`: whether each context link in a
     /// post names a page the next build publishes (ADR 0123, ADR 0149).
     PublicationContext,
+    /// `curated_selection::SelectionSet::parse`: whether the private
+    /// selections file can be read while the site publishes curated context
+    /// (ADR 0185, ADR 0191).
+    Selections,
 }
 
 impl Validator {
-    pub const ALL: [Validator; 12] = [
+    pub const ALL: [Validator; 13] = [
         Self::ResearchProfile,
         Self::CitationReview,
         Self::ClaimReview,
@@ -97,6 +101,7 @@ impl Validator {
         Self::ComparisonProjection,
         Self::SourceReview,
         Self::PublicationContext,
+        Self::Selections,
     ];
 
     /// The core entry point whose output this validator's findings are.
@@ -114,6 +119,7 @@ impl Validator {
             Self::ComparisonProjection => "comparison_publication::PublicComparisons::project",
             Self::SourceReview => "source_review::review_post and source_review::review_library",
             Self::PublicationContext => "context_links::review_context_links",
+            Self::Selections => "curated_selection::SelectionSet::parse",
         }
     }
 
@@ -215,10 +221,13 @@ pub enum Check {
     CitationConsistency,
     /// Whether each context link names a page the next build publishes.
     ContextLink,
+    /// Whether the curated selections file can be read while the site
+    /// publishes curated context.
+    SelectionsIntegrity,
 }
 
 impl Check {
-    pub const ALL: [Check; 26] = [
+    pub const ALL: [Check; 27] = [
         Self::WorkStructure,
         Self::ReferenceSection,
         Self::WorkIdentifier,
@@ -245,6 +254,7 @@ impl Check {
         Self::QuotationLocation,
         Self::CitationConsistency,
         Self::ContextLink,
+        Self::SelectionsIntegrity,
     ];
 
     /// The one validator that owns the check.
@@ -273,6 +283,7 @@ impl Check {
             | Self::QuotationLocation
             | Self::CitationConsistency => Validator::SourceReview,
             Self::ContextLink => Validator::PublicationContext,
+            Self::SelectionsIntegrity => Validator::Selections,
         }
     }
 
@@ -305,6 +316,7 @@ impl Check {
             Self::QuotationLocation => "whether a quotation or notebook passage gives a location in its source, and how narrow it is, not whether the words are there",
             Self::CitationConsistency => "whether the records a post cites name each source once and one version of each work",
             Self::ContextLink => "whether each link to an atlas entry or comparison names a page the next build publishes",
+            Self::SelectionsIntegrity => "whether the curated selections file can be read, while the site publishes curated context",
         }
     }
 
@@ -330,7 +342,8 @@ impl Check {
             | Self::NotebookIntegrity
             | Self::AtlasIntegrity
             | Self::ClaimsIntegrity
-            | Self::AlignmentsIntegrity => {
+            | Self::AlignmentsIntegrity
+            | Self::SelectionsIntegrity => {
                 "Fix the named record or field; the file is left unchanged until you do."
             }
             Self::AtlasProjection | Self::ClaimProjection => {
@@ -393,6 +406,8 @@ pub enum ObjectKind {
     ClaimsFile,
     /// The whole private alignments file.
     AlignmentsFile,
+    /// The whole private curated selections file.
+    SelectionsFile,
 }
 
 /// Another object a finding is about: the claim of a link finding, the
@@ -847,12 +862,13 @@ pub const FILE_UNREADABLE: &str = "file-unreadable";
 const CONTEXT_LINK: Spec = spec(K::ContextLink, C::PublicBoundary, O::Detected, G::Advisory);
 
 /// The integrity check of each private file, in the row order of the matrix.
-const FILE_CHECKS: [Check; 5] = [
+const FILE_CHECKS: [Check; 6] = [
     K::LibraryIntegrity,
     K::NotebookIntegrity,
     K::AtlasIntegrity,
     K::ClaimsIntegrity,
     K::AlignmentsIntegrity,
+    K::SelectionsIntegrity,
 ];
 
 fn unreadable_spec(check: Check) -> Spec {
@@ -1233,6 +1249,7 @@ impl CompletenessFinding {
             ObjectKind::Notebook => (K::NotebookIntegrity, file),
             ObjectKind::Atlas => (K::AtlasIntegrity, file),
             ObjectKind::ClaimsFile => (K::ClaimsIntegrity, file),
+            ObjectKind::SelectionsFile => (K::SelectionsIntegrity, file),
             _ => (K::AlignmentsIntegrity, ObjectKind::AlignmentsFile),
         };
         let spec = unreadable_spec(check);
@@ -1619,6 +1636,7 @@ pub fn finding_place(finding: &CompletenessFinding) -> String {
         ObjectKind::Atlas => "the Knowledge Atlas".into(),
         ObjectKind::ClaimsFile => "the claims file".into(),
         ObjectKind::AlignmentsFile => "the alignments file".into(),
+        ObjectKind::SelectionsFile => "the curated selections file".into(),
     }
 }
 

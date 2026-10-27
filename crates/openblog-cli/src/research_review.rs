@@ -299,6 +299,18 @@ pub(crate) fn read_published(
         }
     }
 
+    // The curated selections, only while the site publishes them. A file the
+    // build cannot read refuses it, so that is a finding scoped to the file;
+    // what each selection resolves to is the boundary manifest's to say.
+    if config.curated_context.publish {
+        if let Err(message) = crate::selection_store::check(root) {
+            gathered.findings.push(ReviewFinding::unreadable(
+                ObjectKind::SelectionsFile,
+                message,
+            ));
+        }
+    }
+
     published.ready = ready;
     published.claims_stored = claims_stored;
     published

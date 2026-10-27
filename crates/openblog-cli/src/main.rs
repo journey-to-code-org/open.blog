@@ -24,6 +24,7 @@ mod readiness;
 mod research_review;
 mod safe_http;
 mod scaffold;
+mod selection_store;
 mod serve;
 mod shared_publications;
 mod site;

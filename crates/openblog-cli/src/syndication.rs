@@ -44,7 +44,7 @@ pub struct Options {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-struct SyndicationPost {
+pub(crate) struct SyndicationPost {
     source_id: String,
     source_path: String,
     slug: String,
@@ -52,11 +52,11 @@ struct SyndicationPost {
     subtitle: Option<String>,
     description: String,
     source_markdown: String,
-    markdown: String,
-    html: String,
+    pub(crate) markdown: String,
+    pub(crate) html: String,
     tags: Vec<String>,
     canonical_url: String,
-    revision: String,
+    pub(crate) revision: String,
     portable_diagnostics: Vec<openblog_core::portability::PortabilityDiagnostic>,
     content_plans: Vec<DestinationContentPlan>,
 }
@@ -281,7 +281,10 @@ fn run_with_transport(
     }
     let config = site::load_config(root)?;
     let sources = site::read_sources(root, &config)?;
-    let (loaded, _) = site::load_site(root, false, Some(crate::clock::now()))?;
+    let (mut loaded, _) = site::load_site(root, false, Some(crate::clock::now()))?;
+    // The public curated context, while the site publishes it, so the copy sent to a
+    // destination carries it and links back to the canonical page (ADR 0202).
+    crate::boundary::attach_public_curation(root, &mut loaded)?;
     let post = match loaded.posts.iter().find(|post| post.slug == slug) {
         Some(post) => post,
         None => return Err(unavailable_post_error(root, slug)?),
@@ -291,8 +294,13 @@ fn run_with_transport(
         .iter()
         .find(|source| source.path == post.source)
         .ok_or_else(|| format!("cannot find source `{}`", post.source))?;
-    let syndication_post =
-        syndication_post(post, &source.contents, &config, loaded.series_context(post))?;
+    let syndication_post = syndication_post(
+        post,
+        &source.contents,
+        &config,
+        loaded.series_context(post),
+        loaded.curated_context_for(post),
+    )?;
 
     let selected = select_targets(&config, &options.target_names)?;
     let state_path = private_state_path(root, &config.syndication.state_file)?;
@@ -609,11 +617,12 @@ fn private_state_path(root: &Path, configured: &str) -> Result<std::path::PathBu
     Ok(root.join(relative))
 }
 
-fn syndication_post(
+pub(crate) fn syndication_post(
     post: &Post,
     source: &str,
     config: &SiteConfig,
     series: Option<SeriesContext>,
+    curated: Option<std::sync::Arc<openblog_core::curated_context::CuratedContext>>,
 ) -> Result<SyndicationPost, String> {
     let document = frontmatter::parse(source)?;
     let source_id = document
@@ -625,7 +634,9 @@ fn syndication_post(
         .map(str::to_string)
         .unwrap_or_else(|| format!("source:{}", post.source.replace('\\', "/")));
     // A part of a collaborative series links its canonical series page in the copy (ADR 0041).
-    let projection = PortableProjection::from_post(post, config)?.with_series(series);
+    let projection = PortableProjection::from_post(post, config)?
+        .with_series(series)
+        .with_curated(curated);
     let canonical_url = projection.canonical_url().to_string();
     let canonical = url_context::validate_public_url(&canonical_url)
         .map_err(|error| format!("canonical URL is not public: {error}"))?;
@@ -1855,7 +1866,7 @@ mod tests {
                 LoadOptions::default(),
             )
             .unwrap_or_else(|errors| panic!("{}: {errors:?}", fixture["name"]));
-            let post = syndication_post(&site.posts[0], source, &config, None)
+            let post = syndication_post(&site.posts[0], source, &config, None, None)
                 .unwrap_or_else(|error| panic!("{}: {error}", fixture["name"]));
 
             let dev = dev_request(&post, None, false, "test").unwrap();
@@ -1961,7 +1972,7 @@ A recurring premise.
         let part = loaded.posts.iter().find(|post| post.slug == "two").unwrap();
         let context = loaded.series_context(part);
         assert!(context.is_some());
-        let post = syndication_post(part, source, &config, context).unwrap();
+        let post = syndication_post(part, source, &config, context, None).unwrap();
         let series_url = "https://blog.example.org/series/letters/";
         assert!(
             post.markdown.contains(&format!(
@@ -1981,7 +1992,7 @@ Part 2 in the series [Letters]({series_url}). This part is by Ann and Bo. Series
         );
         // The copy with its series is a different revision from one without, so a syndicated
         // part is updated when its context first appears.
-        let plain = syndication_post(part, source, &config, None).unwrap();
+        let plain = syndication_post(part, source, &config, None, None).unwrap();
         assert!(!plain.markdown.contains(series_url) && !plain.html.contains(series_url));
         assert_ne!(post.revision, plain.revision);
     }
@@ -2015,7 +2026,7 @@ Part 2 in the series [Letters]({series_url}). This part is by Ann and Bo. Series
             },
             LoadOptions::default(),
         ).unwrap();
-        let post = syndication_post(&loaded.posts[0], source, &config, None).unwrap();
+        let post = syndication_post(&loaded.posts[0], source, &config, None, None).unwrap();
         let selected = select_targets(&config, &[]).unwrap();
         let plan = dry_run_json_plan(&post, &selected, &State::default(), false);
         assert_eq!(plan["targets"].as_array().unwrap().len(), 5);
@@ -2245,7 +2256,7 @@ Part 2 in the series [Letters]({series_url}). This part is by Ann and Bo. Series
                 LoadOptions::default(),
             )
             .unwrap();
-            syndication_post(&site.posts[0], &source, &config, None)
+            syndication_post(&site.posts[0], &source, &config, None, None)
                 .unwrap()
                 .revision
         };

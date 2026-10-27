@@ -11,6 +11,8 @@
 //! - Every save is validated against the whole site (and rendered once)
 //!   before anything is written, so the editor cannot break the build.
 
+mod curation;
+
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -132,6 +134,9 @@ pub struct BuildStatus {
     pub last_error: Option<String>,
     /// (title, slug, date) of posts waiting for their publish time.
     pub scheduled: Vec<(String, String, String)>,
+    /// An ordering of curated selections was saved with its rebuild deferred
+    /// and the served site has not caught up yet.
+    pub curation_rebuild_pending: bool,
 }
 
 struct PreviewDocument {
@@ -802,6 +807,12 @@ fn authenticated_api(
         ("POST", "research/review") => review_before_publication(state, req),
         ("GET", "research/boundary") => boundary_site(state),
         ("GET", "research/readiness") => readiness_site(state),
+        ("GET", "research/curation") => curation::view(state, req),
+        ("POST", "research/curation/selections") => curation::select(state, req),
+        ("PUT", "research/curation/selections") => curation::update(state, req),
+        ("DELETE", "research/curation/selections") => curation::unselect(state, req),
+        ("PUT", "research/curation/order") => curation::order(state, req),
+        ("POST", "research/curation/rebuild") => curation::rebuild(state, req),
         ("POST", "research/boundary") => boundary_post(state, req),
         ("PUT", "research/review/acknowledgements") => change_acknowledgement(state, req, true),
         ("DELETE", "research/review/acknowledgements") => change_acknowledgement(state, req, false),
@@ -12421,6 +12432,11 @@ fn prepare_post(
 /// Write the Post and its credits, record the outcome, and rebuild, as one unit: if any step
 /// fails, every earlier one is undone and public output is rebuilt from the restored content.
 /// Publishing an already-published reflection changes nothing and succeeds again.
+///
+/// The rebuild is a full build, so while the site publishes curated context
+/// (`curatedContext.publish`) and `selections.json` cannot be read, publishing is refused and
+/// rolled back, naming the file, until it is repaired or the switch is turned off (ADR 0191). An
+/// ordinary post save is not stopped: it is `200` with `build.ok` false.
 fn commit_publication(
     state: &AppState,
     transaction: &mut InvitationTransaction<'_>,
@@ -18410,6 +18426,10 @@ mod tests {
         "claimstatement",
         "linkrationale",
         "ackpath",
+        "selectionreason",
+        "selectionunknown",
+        "selectionstaletext",
+        "selectionwithdrawntext",
     ];
     const PUBLICS: &[&str] = &[
         "passagewording",
@@ -18527,6 +18547,19 @@ mod tests {
                     "fingerprint": "0123456789abcdef0123456789abcdef"}
             ]}),
         );
+        write(
+            openblog_core::curated_selection::SELECTIONS_FILE,
+            json!({"version": 1, "selections": [
+                {"id": "annotation-stale", "kind": "source-annotation", "target": "slings",
+                    "revision": "0000000000000000", "fields": ["by", "text"],
+                    "by": "The author", "text": leak("selectionstaletext"),
+                    "shelf": leak("selectionunknown")},
+                {"id": "explanation-withdrawn", "kind": "explanation", "target": "plato-person",
+                    "revision": "0000000000000000", "fields": ["by", "text"], "state": "withdrawn",
+                    "by": "The author", "text": leak("selectionwithdrawntext"),
+                    "withdrawnReason": leak("selectionreason")}
+            ]}),
+        );
         fs::write(
             f.dir.join("content/posts/cave.md"),
             "---\ntitle: Cave\ndate: 2026-10-01\nprofile: research\ncitations: notes\n---\n\n## Abstract\n\nThe cave educates [@slings, page 514].\n\nSee [Plato](/atlas/plato-person/), [the Good](/atlas/the-good/) and [the places](/comparisons/cave-places/).\n\n## References\n",
@@ -18538,6 +18571,7 @@ mod tests {
         config["knowledgeAtlas"] = json!({"publish": true});
         config["comparisons"] = json!({"publish": true});
         config["claimEvidence"] = json!({"publish": true});
+        config["curatedContext"] = json!({"publish": true});
         fs::write(&config_path, config.to_string()).unwrap();
         f
     }
@@ -18568,10 +18602,35 @@ mod tests {
                 )
             })
             .collect();
-        let (site, _) = site::load_site(root, false, Some(clock::now())).unwrap();
+        let (mut site, _) = site::load_site(root, false, Some(clock::now())).unwrap();
+        // The public curated context, as a build attaches it (ADR 0202): every
+        // portable copy below carries it, so the scan covers what it adds.
+        crate::boundary::attach_public_curation(root, &mut site).unwrap();
+        // A destination refuses a placeholder address, so what is sent names a real one.
+        let mut config = site::load_config(root).unwrap();
+        config.url = "https://corpus.openblog.dev".into();
         for post in &site.posts {
             let projection =
                 openblog_core::portability::PortableProjection::for_site(&site, post).unwrap();
+            artifacts.push((
+                format!("portable text of {}", post.slug),
+                projection.portable_text().unwrap(),
+            ));
+            // What a destination is sent (DEV, Hashnode and a manual import).
+            let source = fs::read_to_string(root.join("content").join(&post.source)).unwrap();
+            let sent = crate::syndication::syndication_post(
+                post,
+                &source,
+                &config,
+                site.series_context(post),
+                site.curated_context_for(post),
+            )
+            .unwrap();
+            artifacts.push((
+                format!("syndicated markdown of {}", post.slug),
+                sent.markdown,
+            ));
+            artifacts.push((format!("syndicated html of {}", post.slug), sent.html));
             artifacts.push((
                 format!("portable markdown of {}", post.slug),
                 projection.portable_markdown().unwrap(),
@@ -18584,7 +18643,12 @@ mod tests {
                 crate::portable_export::Format::CslJson,
                 crate::portable_export::Format::Bibtex,
             ] {
-                if let Ok(export) = crate::portable_export::bibliography_export(post, format) {
+                let curated = site
+                    .curated_context_for(post)
+                    .and_then(|context| context.bibliography_for_post(&post.slug));
+                if let Ok(export) =
+                    crate::portable_export::bibliography_export(post, curated, format)
+                {
                     artifacts.push((
                         format!("{format:?} export of {}", post.slug),
                         export.content,
@@ -38820,5 +38884,1202 @@ series: letters
             10
         );
         assert_eq!(publish_as(f, &mikey, id).status, 200);
+    }
+
+    // ---- curating the research context readers are given (#196, ADR 0195) -------
+
+    const CURATION: &str = "/admin/api/research/curation";
+
+    fn curation_call(
+        f: &Fixture,
+        session: &(String, String),
+        method: &str,
+        path: &str,
+        body: Json,
+    ) -> Response {
+        handle(
+            &f.state,
+            &authed(json_req(method, path, body), session, true),
+        )
+    }
+
+    fn curation_get(f: &Fixture, session: &(String, String), post: Option<&str>) -> Json {
+        let path = match post {
+            Some(post) => format!("{CURATION}?post={post}"),
+            None => CURATION.to_string(),
+        };
+        let response = handle(&f.state, &authed(req("GET", &path), session, false));
+        assert_eq!(
+            response.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
+        body_json(&response)
+    }
+
+    fn selections_bytes(f: &Fixture) -> Vec<u8> {
+        fs::read(
+            f.dir
+                .join(openblog_core::curated_selection::SELECTIONS_FILE),
+        )
+        .unwrap()
+    }
+
+    /// The research the selections point at, never the selections themselves.
+    fn research_without_selections(f: &Fixture) -> Vec<Vec<u8>> {
+        openblog_core::publication_boundary::Store::ALL
+            .iter()
+            .filter(|store| **store != openblog_core::publication_boundary::Store::Selections)
+            .map(|store| fs::read(f.dir.join(store.file())).unwrap())
+            .collect()
+    }
+
+    fn pick_body(revision: &str, post: &str, selection: Json) -> Json {
+        json!({ "revision": revision, "post": post, "selection": selection })
+    }
+
+    fn item_ids(view: &Json) -> Vec<String> {
+        view["preview"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["id"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn every_curation_route_is_authenticated_csrf_checked_and_denies_the_rest() {
+        let f = boundary_fixture("curation-auth");
+        for (method, path) in [
+            ("GET", CURATION),
+            ("POST", "/admin/api/research/curation/selections"),
+            ("PUT", "/admin/api/research/curation/selections"),
+            ("DELETE", "/admin/api/research/curation/selections"),
+            ("PUT", "/admin/api/research/curation/order"),
+            ("POST", "/admin/api/research/curation/rebuild"),
+        ] {
+            assert_eq!(handle(&f.state, &req(method, path)).status, 401, "{path}");
+        }
+        let session = login_ok(&f);
+        let before = selections_bytes(&f);
+        for (method, path) in [
+            ("POST", "/admin/api/research/curation/selections"),
+            ("PUT", "/admin/api/research/curation/selections"),
+            ("DELETE", "/admin/api/research/curation/selections"),
+            ("PUT", "/admin/api/research/curation/order"),
+            ("POST", "/admin/api/research/curation/rebuild"),
+        ] {
+            let without = handle(
+                &f.state,
+                &authed(json_req(method, path, json!({})), &session, false),
+            );
+            assert_eq!(without.status, 403, "{method} {path} needs the CSRF token");
+        }
+        // Anything not listed is denied, whatever the method.
+        for (method, path) in [
+            ("GET", "/admin/api/research/curation/selections"),
+            ("PATCH", "/admin/api/research/curation"),
+            ("POST", "/admin/api/research/curation"),
+            ("POST", "/admin/api/research/curation/order"),
+            ("GET", "/admin/api/research/curation/anything"),
+        ] {
+            let response = handle(
+                &f.state,
+                &authed(json_req(method, path, json!({})), &session, true),
+            );
+            assert_eq!(response.status, 404, "{method} {path}");
+        }
+        assert_eq!(selections_bytes(&f), before, "nothing was written");
+        // A body that is not JSON, is too large or names no revision changes nothing.
+        let not_json = handle(
+            &f.state,
+            &authed(
+                req("POST", "/admin/api/research/curation/selections"),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(not_json.status, 415);
+        let huge = curation_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/curation/selections",
+            json!({ "revision": "x", "pad": "y".repeat(70 * 1024) }),
+        );
+        assert_eq!(huge.status, 413);
+        let none = curation_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/curation/selections",
+            json!({ "selection": {} }),
+        );
+        assert_eq!(none.status, 400);
+        assert_eq!(selections_bytes(&f), before);
+    }
+
+    #[test]
+    fn the_curation_view_lists_what_can_be_selected_and_why_nothing_else_is() {
+        let f = boundary_fixture("curation-view");
+        let session = login_ok(&f);
+        let view = curation_get(&f, &session, Some("cave"));
+        assert_eq!(view["publish"], true);
+        assert_eq!(view["post"], "cave");
+        assert_eq!(
+            view["file"],
+            openblog_core::curated_selection::SELECTIONS_FILE
+        );
+        // The two seeded records are withheld, each with its rule and no text of its own.
+        let why = |id: &str| -> String {
+            view["selections"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|s| s["id"] == id)
+                .unwrap_or_else(|| panic!("{id} is not listed: {view}"))["why"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        assert_eq!(why("annotation-stale"), "stale");
+        assert_eq!(why("explanation-withdrawn"), "withdrawn");
+        assert!(view["preview"]["items"].as_array().unwrap().is_empty());
+        // Candidates are the public items only.
+        let ids = |list: &str| -> Vec<String> {
+            view["candidates"][list]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|c| c["id"].as_str().unwrap().to_string())
+                .collect()
+        };
+        assert_eq!(ids("entries"), ["plato-person", "politeia"]);
+        assert_eq!(ids("relationships"), ["plato-authored-politeia"]);
+        assert_eq!(ids("comparisons"), ["cave-places"]);
+        assert_eq!(ids("datings"), ["born"]);
+        assert!(ids("sources").contains(&"slings".to_string()));
+        // Nothing private is in the candidates or the preview.
+        let readers = format!("{}{}", view["candidates"], view["preview"]);
+        for label in LEAKS {
+            assert!(
+                !readers.contains(&leak(label)),
+                "the private {label} reached the candidates or the preview"
+            );
+        }
+        // A hostile post is refused before it is named anywhere.
+        let bad = handle(
+            &f.state,
+            &authed(
+                req("GET", &format!("{CURATION}?post=..%2Fsecret")),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(bad.status, 400);
+        assert!(!String::from_utf8_lossy(&bad.body).contains("secret"));
+    }
+
+    #[test]
+    fn selecting_is_revision_checked_refuses_what_is_private_and_changes_no_research() {
+        let f = boundary_fixture("curation-select");
+        let session = login_ok(&f);
+        let view = curation_get(&f, &session, Some("cave"));
+        let revision = view["revision"].as_str().unwrap().to_string();
+        let select = |revision: &str, selection: Json| {
+            curation_call(
+                &f,
+                &session,
+                "POST",
+                "/admin/api/research/curation/selections",
+                pick_body(revision, "cave", selection),
+            )
+        };
+
+        // A private entry and a private source are refused, naming the rule.
+        let before = selections_bytes(&f);
+        let private = select(
+            &revision,
+            json!({ "kind": "contextual-entry", "target": "the-good" }),
+        );
+        assert_eq!(private.status, 422);
+        assert!(body_json(&private)["error"]
+            .as_str()
+            .unwrap()
+            .contains("not published"));
+        let library = f.dir.join(crate::source_store::LIBRARY_FILE);
+        let mut sources: Json = serde_json::from_slice(&fs::read(&library).unwrap()).unwrap();
+        sources["sources"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"id": "diary", "kind": "work", "title": "A private diary"}));
+        fs::write(&library, sources.to_string()).unwrap();
+        let research_before = research_without_selections(&f);
+        let diary = select(&revision, json!({ "kind": "reference", "target": "diary" }));
+        assert_eq!(diary.status, 422);
+        assert!(body_json(&diary)["error"]
+            .as_str()
+            .unwrap()
+            .contains("stays private"));
+        assert_eq!(selections_bytes(&f), before, "a refusal writes nothing");
+
+        // An unknown field is refused, so no private field rides in.
+        let smuggled = select(
+            &revision,
+            json!({ "kind": "contextual-entry", "target": "plato-person", "revision": "0000000000000000" }),
+        );
+        assert_eq!(smuggled.status, 422);
+
+        // A public entry, a relationship, a dating and a comparison are selected.
+        let mut current = revision.clone();
+        let mut ids = Vec::new();
+        for selection in [
+            json!({ "kind": "contextual-entry", "target": "plato-person", "optionalFields": ["summary"], "posts": ["cave"], "positions": { "cave": 2 } }),
+            json!({ "kind": "relationship", "target": "plato-authored-politeia", "posts": ["cave"], "positions": { "cave": 1 } }),
+            json!({ "kind": "timeline", "target": "born", "posts": ["cave"], "positions": { "cave": 3 } }),
+            json!({ "kind": "comparison", "target": "cave-places", "posts": ["cave"] }),
+            json!({ "kind": "source-annotation", "target": "slings", "text": "A comment of mine.", "by": "The author", "posts": ["other-post"] }),
+        ] {
+            let response = select(&current, selection);
+            assert_eq!(
+                response.status,
+                201,
+                "{}",
+                String::from_utf8_lossy(&response.body)
+            );
+            let body = body_json(&response);
+            ids.push(body["changed"].as_str().unwrap().to_string());
+            current = body["revision"].as_str().unwrap().to_string();
+            assert_ne!(current, revision);
+        }
+        let view = curation_get(&f, &session, Some("cave"));
+        // What readers of the post get, in the author's order: the whole-site
+        // items are none; this post's items by position, the unpositioned last.
+        assert_eq!(
+            item_ids(&view),
+            [&ids[1], &ids[0], &ids[2], &ids[3]]
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+        );
+        // The annotation is scoped to another post, listed apart and not previewed.
+        let other = view["selections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["id"] == ids[4].as_str())
+            .unwrap();
+        assert_eq!(other["appliesToPost"], false);
+        assert!(!view["preview"].to_string().contains("A comment of mine."));
+        // Only the listed field is in the preview.
+        let entry = &view["preview"]["items"][1];
+        assert_eq!(entry["content"]["summary"], public_text("entrysummary"));
+        assert!(entry["content"].get("aliases").is_none());
+        assert!(
+            research_without_selections(&f) == research_before,
+            "no research file was changed"
+        );
+        // The stored file is exactly the set, written in id order.
+        let text = String::from_utf8(selections_bytes(&f)).unwrap();
+        assert!(!text.contains('\r') && text.ends_with('\n'));
+        assert_eq!(
+            openblog_core::curated_selection::SelectionSet::parse(&text)
+                .unwrap()
+                .to_json(),
+            text
+        );
+
+        // A write based on an older revision is a conflict that changes nothing.
+        let before = selections_bytes(&f);
+        let stale = select(
+            &revision,
+            json!({ "kind": "contextual-entry", "target": "politeia" }),
+        );
+        assert_eq!(stale.status, 409);
+        let conflict = body_json(&stale);
+        assert_eq!(conflict["conflict"], true);
+        assert_eq!(conflict["revision"], current.as_str());
+        assert_eq!(selections_bytes(&f), before);
+        // Selecting the same thing twice says so.
+        let twice = select(
+            &current,
+            json!({ "kind": "contextual-entry", "target": "plato-person" }),
+        );
+        assert_eq!(twice.status, 422);
+    }
+
+    #[test]
+    fn withdrawing_selecting_again_scoping_ordering_and_unselecting_round_trip() {
+        let f = boundary_fixture("curation-round-trip");
+        let session = login_ok(&f);
+        let mut revision = curation_get(&f, &session, Some("cave"))["revision"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let send = |method: &str, path: &str, body: Json| {
+            curation_call(&f, &session, method, &format!("{CURATION}{path}"), body)
+        };
+        let mut ids = Vec::new();
+        for target in ["plato-person", "politeia"] {
+            let response = send(
+                "POST",
+                "/selections",
+                pick_body(
+                    &revision,
+                    "cave",
+                    json!({ "kind": "contextual-entry", "target": target, "posts": ["cave"] }),
+                ),
+            );
+            assert_eq!(response.status, 201);
+            let body = body_json(&response);
+            ids.push(body["changed"].as_str().unwrap().to_string());
+            revision = body["revision"].as_str().unwrap().to_string();
+        }
+        // Order: the second first.
+        let ordered = send(
+            "PUT",
+            "/order",
+            json!({ "revision": revision, "post": "cave", "order": [ids[1], ids[0]] }),
+        );
+        assert_eq!(
+            ordered.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&ordered.body)
+        );
+        let body = body_json(&ordered);
+        assert_eq!(item_ids(&body), [ids[1].clone(), ids[0].clone()]);
+        revision = body["revision"].as_str().unwrap().to_string();
+        // An ordering that names an unknown or repeated selection changes nothing.
+        let before = selections_bytes(&f);
+        for order in [
+            json!([ids[0], "no-such-selection"]),
+            json!([ids[0], ids[0]]),
+            json!([]),
+        ] {
+            let refused = send(
+                "PUT",
+                "/order",
+                json!({ "revision": revision, "post": "cave", "order": order }),
+            );
+            assert!(matches!(refused.status, 404 | 422), "{}", refused.status);
+        }
+        assert_eq!(selections_bytes(&f), before);
+
+        // Withdraw keeps the record and publishes nothing.
+        let withdrawn = send(
+            "PUT",
+            "/selections",
+            json!({ "revision": revision, "post": "cave", "action": "withdraw", "id": ids[0], "reason": "rethinking" }),
+        );
+        assert_eq!(withdrawn.status, 200);
+        let body = body_json(&withdrawn);
+        assert_eq!(item_ids(&body), [ids[1].clone()]);
+        let record = body["selections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["id"] == ids[0].as_str())
+            .unwrap();
+        assert_eq!(record["why"], "withdrawn");
+        assert_eq!(record["withdrawnReason"], "rethinking");
+        revision = body["revision"].as_str().unwrap().to_string();
+        // Select again makes it live.
+        let again = send(
+            "PUT",
+            "/selections",
+            json!({ "revision": revision, "post": "cave", "action": "reselect", "id": ids[0] }),
+        );
+        assert_eq!(again.status, 200);
+        let body = body_json(&again);
+        assert_eq!(item_ids(&body).len(), 2);
+        revision = body["revision"].as_str().unwrap().to_string();
+        // Scope to the whole site, then back to this post.
+        let site_wide = send(
+            "PUT",
+            "/selections",
+            json!({ "revision": revision, "post": "cave", "action": "scope", "id": ids[0], "posts": null }),
+        );
+        assert_eq!(site_wide.status, 200);
+        let body = body_json(&site_wide);
+        revision = body["revision"].as_str().unwrap().to_string();
+        let record = body["selections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["id"] == ids[0].as_str())
+            .unwrap();
+        assert!(record.get("posts").is_none());
+        let shown = body["preview"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == ids[0].as_str())
+            .unwrap();
+        assert!(shown.get("posts").is_none(), "{shown}");
+        // Unselect removes the record and touches no research.
+        let research = research_without_selections(&f);
+        let removed = send(
+            "DELETE",
+            "/selections",
+            json!({ "revision": revision, "post": "cave", "id": ids[0] }),
+        );
+        assert_eq!(removed.status, 200);
+        assert_eq!(research_without_selections(&f), research);
+        let body = body_json(&removed);
+        assert_eq!(item_ids(&body), [ids[1].clone()]);
+        revision = body["revision"].as_str().unwrap().to_string();
+        let missing = send(
+            "DELETE",
+            "/selections",
+            json!({ "revision": revision, "id": ids[0] }),
+        );
+        assert_eq!(missing.status, 404);
+        // A hostile id is refused before it is named.
+        let hostile = send(
+            "DELETE",
+            "/selections",
+            json!({ "revision": revision, "id": "../../secret" }),
+        );
+        assert_eq!(hostile.status, 400);
+        assert!(!String::from_utf8_lossy(&hostile.body).contains("secret"));
+    }
+
+    #[test]
+    fn a_stale_selection_is_withheld_and_ordering_it_never_refreshes_it() {
+        let f = boundary_fixture("curation-stale");
+        let session = login_ok(&f);
+        let revision = curation_get(&f, &session, Some("cave"))["revision"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let selected = curation_call(
+            &f,
+            &session,
+            "POST",
+            &format!("{CURATION}/selections"),
+            pick_body(
+                &revision,
+                "cave",
+                json!({ "kind": "contextual-entry", "target": "plato-person", "optionalFields": ["summary"], "posts": ["cave"] }),
+            ),
+        );
+        assert_eq!(selected.status, 201);
+        let body = body_json(&selected);
+        let id = body["changed"].as_str().unwrap().to_string();
+        let revision = body["revision"].as_str().unwrap().to_string();
+        assert_eq!(item_ids(&body), std::slice::from_ref(&id));
+        // The research changes underneath the selection.
+        let atlas = f.dir.join(crate::atlas_store::ATLAS_FILE);
+        let mut value: Json = serde_json::from_slice(&fs::read(&atlas).unwrap()).unwrap();
+        value["entries"][0]["summary"] = json!("A different summary, written later.");
+        fs::write(&atlas, value.to_string()).unwrap();
+        let view = curation_get(&f, &session, Some("cave"));
+        assert!(item_ids(&view).is_empty(), "withheld until selected again");
+        let record = view["selections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["id"] == id.as_str())
+            .unwrap();
+        assert_eq!(record["why"], "stale");
+        assert!(!view["preview"].to_string().contains("A different summary"));
+        // Ordering it is refused and writes nothing.
+        let before = selections_bytes(&f);
+        let moved = curation_call(
+            &f,
+            &session,
+            "PUT",
+            &format!("{CURATION}/order"),
+            json!({ "revision": revision, "post": "cave", "order": [id] }),
+        );
+        assert_eq!(moved.status, 422);
+        assert!(body_json(&moved)["error"]
+            .as_str()
+            .unwrap()
+            .contains("stale"));
+        assert_eq!(selections_bytes(&f), before);
+        // Selecting it again is the author's act of checking: now it publishes as it stands.
+        let again = curation_call(
+            &f,
+            &session,
+            "PUT",
+            &format!("{CURATION}/selections"),
+            json!({ "revision": revision, "post": "cave", "action": "reselect", "id": id }),
+        );
+        assert_eq!(again.status, 200);
+        let body = body_json(&again);
+        assert_eq!(item_ids(&body), [id]);
+        assert_eq!(
+            body["preview"]["items"][0]["content"]["summary"],
+            "A different summary, written later."
+        );
+    }
+
+    #[test]
+    fn a_selection_writer_holds_the_stores_in_their_order_and_a_held_lock_changes_nothing() {
+        let f = boundary_fixture("curation-locks");
+        let session = login_ok(&f);
+        let revision = curation_get(&f, &session, None)["revision"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let before = selections_bytes(&f);
+        let research = research_without_selections(&f);
+        {
+            // Another writer holds the stores, as an atlas or notebook write does.
+            let held = crate::selection_store::lock(&f.dir).unwrap();
+            let blocked = curation_call(
+                &f,
+                &session,
+                "POST",
+                &format!("{CURATION}/selections"),
+                pick_body(
+                    &revision,
+                    "cave",
+                    json!({ "kind": "contextual-entry", "target": "plato-person" }),
+                ),
+            );
+            assert_eq!(
+                blocked.status,
+                500,
+                "{}",
+                String::from_utf8_lossy(&blocked.body)
+            );
+            assert!(body_json(&blocked)["error"]
+                .as_str()
+                .unwrap()
+                .contains("is active"));
+            drop(held);
+        }
+        assert_eq!(selections_bytes(&f), before);
+        assert_eq!(research_without_selections(&f), research);
+        // Released: the same change now succeeds, and no lock file is left behind.
+        let done = curation_call(
+            &f,
+            &session,
+            "POST",
+            &format!("{CURATION}/selections"),
+            pick_body(
+                &revision,
+                "cave",
+                json!({ "kind": "contextual-entry", "target": "plato-person" }),
+            ),
+        );
+        assert_eq!(done.status, 201, "{}", String::from_utf8_lossy(&done.body));
+        let leftovers: Vec<String> = fs::read_dir(f.dir.join(".openblog/private/research"))
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.ends_with(".lock") || name.ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "{leftovers:?}");
+    }
+
+    #[test]
+    fn a_damaged_selections_file_is_named_and_never_replaced_by_curation() {
+        let f = boundary_fixture("curation-damaged");
+        let session = login_ok(&f);
+        let file = f
+            .dir
+            .join(openblog_core::curated_selection::SELECTIONS_FILE);
+        fs::write(&file, "{ nope").unwrap();
+        let response = handle(&f.state, &authed(req("GET", CURATION), &session, false));
+        assert_eq!(response.status, 422);
+        let body = body_json(&response);
+        assert_eq!(
+            body["file"],
+            openblog_core::curated_selection::SELECTIONS_FILE
+        );
+        let revision = crate::source_store::revision(b"{ nope");
+        let tried = curation_call(
+            &f,
+            &session,
+            "POST",
+            &format!("{CURATION}/selections"),
+            pick_body(
+                &revision,
+                "cave",
+                json!({ "kind": "contextual-entry", "target": "plato-person" }),
+            ),
+        );
+        assert_eq!(tried.status, 422);
+        assert_eq!(fs::read(&file).unwrap(), b"{ nope");
+    }
+
+    #[test]
+    fn curation_prepares_before_the_switch_is_on_and_publishes_nothing_by_itself() {
+        let f = boundary_fixture("curation-off");
+        let config = f.dir.join("openblog.json");
+        let mut value: Json = serde_json::from_slice(&fs::read(&config).unwrap()).unwrap();
+        value["curatedContext"] = json!({"publish": false});
+        fs::write(&config, value.to_string()).unwrap();
+        let session = login_ok(&f);
+        let view = curation_get(&f, &session, Some("cave"));
+        assert_eq!(view["publish"], false);
+        let revision = view["revision"].as_str().unwrap().to_string();
+        let sentinel = "curatedtextsentinel";
+        let selected = curation_call(
+            &f,
+            &session,
+            "POST",
+            &format!("{CURATION}/selections"),
+            pick_body(
+                &revision,
+                "cave",
+                json!({ "kind": "source-annotation", "target": "slings", "text": leak(sentinel), "by": "The author", "posts": ["cave"] }),
+            ),
+        );
+        assert_eq!(
+            selected.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&selected.body)
+        );
+        // Selected with the switch off, the text reaches no public artifact. With it on, the
+        // author's approved comment reaches the context file and the one page it is for (#197),
+        // and no other public artifact.
+        production(&f.dir);
+        let artifacts = public_artifacts(&f.dir);
+        for (path, text) in &artifacts {
+            assert!(
+                !text.to_lowercase().contains(&leak(sentinel).to_lowercase()),
+                "the annotation reached {path}"
+            );
+        }
+        value["curatedContext"] = json!({"publish": true});
+        fs::write(&config, value.to_string()).unwrap();
+        production(&f.dir);
+        let reached: Vec<String> = public_artifacts(&f.dir)
+            .iter()
+            .filter(|(_, text)| text.to_lowercase().contains(&leak(sentinel).to_lowercase()))
+            .map(|(path, _)| path.clone())
+            .collect();
+        assert_eq!(
+            reached
+                .iter()
+                .filter(|path| {
+                    !path.starts_with("posts/cave")
+                        && !path.contains("curated-context")
+                        && !path.ends_with("of cave")
+                        && !["feed.json", "rss.xml", "llms-full.txt"].contains(&path.as_str())
+                })
+                .count(),
+            0,
+            "the approved comment reached {reached:?}"
+        );
+        assert!(
+            reached
+                .iter()
+                .any(|path| path.ends_with("curated-context.json")),
+            "{reached:?}"
+        );
+    }
+
+    // ---- review fixes for #196: a draft's own selections, per-post order -------
+
+    fn select_in(
+        f: &Fixture,
+        session: &(String, String),
+        revision: &str,
+        post: &str,
+        selection: Json,
+    ) -> Json {
+        let response = curation_call(
+            f,
+            session,
+            "POST",
+            &format!("{CURATION}/selections"),
+            pick_body(revision, post, selection),
+        );
+        assert_eq!(
+            response.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
+        body_json(&response)
+    }
+
+    fn write_content_post(f: &Fixture, slug: &str, draft: bool) {
+        let draft = if draft { "draft: true\n" } else { "" };
+        fs::write(
+            f.dir.join(format!("content/posts/{slug}.md")),
+            format!("---\ntitle: {slug}\ndate: 2026-10-02\n{draft}---\n\nBody of {slug}.\n"),
+        )
+        .unwrap();
+        f.state.rebuild().unwrap();
+    }
+
+    #[test]
+    fn a_drafts_own_selections_are_previewed_and_ordered_as_if_it_were_published() {
+        let f = boundary_fixture("curation-draft");
+        write_content_post(&f, "wip", true);
+        let session = login_ok(&f);
+        let view = curation_get(&f, &session, Some("wip"));
+        assert_eq!(view["whenPublished"], true, "the post is not published yet");
+        let revision = view["revision"].as_str().unwrap().to_string();
+        let first = select_in(
+            &f,
+            &session,
+            &revision,
+            "wip",
+            json!({ "kind": "contextual-entry", "target": "plato-person", "posts": ["wip"] }),
+        );
+        let second = select_in(
+            &f,
+            &session,
+            first["revision"].as_str().unwrap(),
+            "wip",
+            json!({ "kind": "relationship", "target": "plato-authored-politeia", "posts": ["wip"] }),
+        );
+        let (a, b) = (
+            first["changed"].as_str().unwrap().to_string(),
+            second["changed"].as_str().unwrap().to_string(),
+        );
+        let revision = second["revision"].as_str().unwrap().to_string();
+        // Its own selections are in the preview, labelled as for when it is published.
+        assert_eq!(second["whenPublished"], true);
+        let mut shown = item_ids(&second);
+        shown.sort();
+        let mut expected = vec![a.clone(), b.clone()];
+        expected.sort();
+        assert_eq!(shown, expected);
+        // They can be ordered there.
+        let ordered = curation_call(
+            &f,
+            &session,
+            "PUT",
+            &format!("{CURATION}/order"),
+            json!({ "revision": revision, "post": "wip", "order": [b, a] }),
+        );
+        assert_eq!(
+            ordered.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&ordered.body)
+        );
+        let ordered = body_json(&ordered);
+        assert_eq!(item_ids(&ordered), [b.clone(), a.clone()]);
+        assert_eq!(ordered["whenPublished"], true);
+        // A published post is not labelled so, and is not offered the draft's selections.
+        let cave = curation_get(&f, &session, Some("cave"));
+        assert!(cave.get("whenPublished").is_none());
+        assert!(item_ids(&cave).is_empty());
+        // The build's rule is unchanged: with no post named, a selection scoped to a
+        // post that is not published is withheld, naming the rule and no slug.
+        let site = curation_get(&f, &session, None);
+        assert!(item_ids(&site).is_empty());
+        let held = site["selections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["id"] == a.as_str())
+            .unwrap();
+        assert_eq!(held["why"], "post-not-published");
+        production(&f.dir);
+        for (path, text) in &public_artifacts(&f.dir) {
+            assert!(
+                !text.contains(&a) && !text.contains(&b),
+                "the draft's selections reached {path}"
+            );
+        }
+    }
+
+    #[test]
+    fn ordering_one_post_never_reorders_another_through_the_routes() {
+        let f = boundary_fixture("curation-two-posts");
+        write_content_post(&f, "second", false);
+        let session = login_ok(&f);
+        let revision = curation_get(&f, &session, Some("cave"))["revision"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let shared = select_in(
+            &f,
+            &session,
+            &revision,
+            "cave",
+            json!({ "kind": "contextual-entry", "target": "plato-person" }),
+        );
+        let only_cave = select_in(
+            &f,
+            &session,
+            shared["revision"].as_str().unwrap(),
+            "cave",
+            json!({ "kind": "contextual-entry", "target": "politeia", "posts": ["cave"] }),
+        );
+        let only_second = select_in(
+            &f,
+            &session,
+            only_cave["revision"].as_str().unwrap(),
+            "second",
+            json!({ "kind": "relationship", "target": "plato-authored-politeia", "posts": ["second"] }),
+        );
+        let (x, a, b) = (
+            shared["changed"].as_str().unwrap().to_string(),
+            only_cave["changed"].as_str().unwrap().to_string(),
+            only_second["changed"].as_str().unwrap().to_string(),
+        );
+        let mut revision = only_second["revision"].as_str().unwrap().to_string();
+        let mut order = |post: &str, ids: Vec<&String>| -> Json {
+            let response = curation_call(
+                &f,
+                &session,
+                "PUT",
+                &format!("{CURATION}/order"),
+                json!({ "revision": revision, "post": post, "order": ids }),
+            );
+            assert_eq!(
+                response.status,
+                200,
+                "{}",
+                String::from_utf8_lossy(&response.body)
+            );
+            let body = body_json(&response);
+            revision = body["revision"].as_str().unwrap().to_string();
+            body
+        };
+        assert_eq!(
+            item_ids(&order("cave", vec![&x, &a])),
+            [x.clone(), a.clone()]
+        );
+        assert_eq!(
+            item_ids(&order("second", vec![&b, &x])),
+            [b.clone(), x.clone()]
+        );
+        // Ordering "second" left "cave" as the author set it, and the reverse.
+        assert_eq!(
+            item_ids(&curation_get(&f, &session, Some("cave"))),
+            [x.clone(), a.clone()]
+        );
+        assert_eq!(
+            item_ids(&order("cave", vec![&a, &x])),
+            [a.clone(), x.clone()]
+        );
+        assert_eq!(
+            item_ids(&curation_get(&f, &session, Some("second"))),
+            [b, x]
+        );
+        // The stored shared item keeps one place per post.
+        let stored: Json = serde_json::from_slice(&selections_bytes(&f)).unwrap();
+        let record = stored["selections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["id"] == shared["changed"])
+            .unwrap();
+        assert_eq!(record["positions"], json!({ "cave": 2, "second": 2 }));
+        assert!(record.get("position").is_none());
+    }
+
+    #[test]
+    fn a_deferred_ordering_marks_the_site_as_behind_until_one_rebuild_catches_it_up() {
+        let f = boundary_fixture("curation-order-deferred");
+        let session = login_ok(&f);
+        let revision = curation_get(&f, &session, Some("cave"))["revision"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let first = select_in(
+            &f,
+            &session,
+            &revision,
+            "cave",
+            json!({ "kind": "contextual-entry", "target": "plato-person", "posts": ["cave"] }),
+        );
+        let second = select_in(
+            &f,
+            &session,
+            first["revision"].as_str().unwrap(),
+            "cave",
+            json!({ "kind": "contextual-entry", "target": "politeia", "posts": ["cave"] }),
+        );
+        let (a, b) = (
+            first["changed"].as_str().unwrap().to_string(),
+            second["changed"].as_str().unwrap().to_string(),
+        );
+        let mut revision = second["revision"].as_str().unwrap().to_string();
+        let built = || fs::read_to_string(f.dir.join("dist/curated-context.json")).ok();
+        let mut previous = String::new();
+        // Each step is saved and none rebuilds; the answer says the site is behind.
+        for order in [vec![&b, &a], vec![&a, &b], vec![&b, &a]] {
+            let response = curation_call(
+                &f,
+                &session,
+                "PUT",
+                &format!("{CURATION}/order"),
+                json!({ "revision": revision, "post": "cave", "order": order, "rebuild": false }),
+            );
+            assert_eq!(response.status, 200);
+            let body = body_json(&response);
+            assert_eq!(
+                body["build"],
+                json!({ "ok": true, "pending": true }),
+                "{body}"
+            );
+            revision = body["revision"].as_str().unwrap().to_string();
+            // The view the author reloads still says so.
+            let view = curation_get(&f, &session, Some("cave"));
+            assert_eq!(view["build"], json!({ "ok": true, "pending": true }));
+            let now = built().unwrap_or_default();
+            assert!(previous.is_empty() || now == previous, "no rebuild ran");
+            previous = now;
+        }
+        // One rebuild after the last step catches the served site up and clears the mark.
+        let rebuilt = curation_call(
+            &f,
+            &session,
+            "POST",
+            &format!("{CURATION}/rebuild"),
+            json!({}),
+        );
+        assert_eq!(rebuilt.status, 200);
+        let rebuilt = body_json(&rebuilt);
+        assert_eq!(rebuilt["build"]["ok"], true, "{rebuilt}");
+        assert!(rebuilt["build"].get("pending").is_none());
+        assert!(curation_get(&f, &session, Some("cave"))
+            .get("build")
+            .is_none());
+        // An ordinary ordering, with no `rebuild` member, still rebuilds at once.
+        let response = curation_call(
+            &f,
+            &session,
+            "PUT",
+            &format!("{CURATION}/order"),
+            json!({ "revision": revision, "post": "cave", "order": [&a, &b] }),
+        );
+        let body = body_json(&response);
+        assert_eq!(body["build"]["ok"], true, "{body}");
+        assert!(body["build"].get("pending").is_none());
+        // Only an ordering can be deferred: a selection always rebuilds.
+        let again = curation_call(
+            &f,
+            &session,
+            "PUT",
+            &format!("{CURATION}/selections"),
+            json!({ "revision": body["revision"], "post": "cave", "id": a, "selection": {}, "rebuild": false }),
+        );
+        assert!(again.status >= 400 || body_json(&again)["build"].get("pending").is_none());
+    }
+
+    #[test]
+    fn an_ordering_validates_every_id_before_naming_any() {
+        let f = boundary_fixture("curation-order-ids");
+        let session = login_ok(&f);
+        let revision = curation_get(&f, &session, Some("cave"))["revision"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let before = selections_bytes(&f);
+        for hostile in ["../../secret", "UPPER", "a b", "x\u{202e}y"] {
+            let response = curation_call(
+                &f,
+                &session,
+                "PUT",
+                &format!("{CURATION}/order"),
+                json!({ "revision": revision, "post": "cave", "order": [hostile] }),
+            );
+            assert_eq!(response.status, 422, "{hostile}");
+            let text = String::from_utf8_lossy(&response.body).to_string();
+            assert!(
+                !text.contains("secret") && !text.contains("UPPER") && !text.contains('\u{202e}'),
+                "the id was echoed: {text}"
+            );
+        }
+        assert_eq!(selections_bytes(&f), before);
+    }
+
+    #[test]
+    fn a_damaged_selections_file_blocks_the_build_but_not_a_post_save() {
+        let f = boundary_fixture("curation-damaged-save");
+        let session = login_ok(&f);
+        fs::write(
+            f.dir
+                .join(openblog_core::curated_selection::SELECTIONS_FILE),
+            "{ nope",
+        )
+        .unwrap();
+        let path = "posts/cave.md";
+        let current = fs::read_to_string(f.dir.join("content").join(path)).unwrap();
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    &format!("/admin/api/document?path={path}"),
+                    json!({
+                        "fields": { "title": "Cave", "date": "2026-10-01", "profile": "research", "citations": "notes" },
+                        "body": "## Abstract\n\nThe cave educates [@slings, page 514].\n\n## References\n",
+                        "etag": etag(&current),
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            saved.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        let saved = body_json(&saved);
+        assert_eq!(saved["build"]["ok"], false, "{saved}");
+        assert!(saved["build"]["error"]
+            .as_str()
+            .unwrap()
+            .contains("curated selections cannot be read"));
+        // The same refusal stops a shared reflection from being published
+        // while the file is damaged (the publication rolls back and says why).
+        assert!(f.state.rebuild().is_err());
+    }
+
+    // ---- the curated context file over the sentinel corpus (#197) -------------------
+
+    #[test]
+    fn the_curated_context_file_carries_only_what_was_approved_and_selected_over_the_sentinel_corpus(
+    ) {
+        let f = boundary_fixture("curated-context-corpus");
+        let session = login_ok(&f);
+        let mut revision = curation_get(&f, &session, Some("cave"))["revision"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let comment = public_text("selectedcomment");
+        for selection in [
+            json!({ "kind": "contextual-entry", "target": "plato-person", "optionalFields": ["summary"], "posts": ["cave"] }),
+            json!({ "kind": "relationship", "target": "plato-authored-politeia", "posts": ["cave"] }),
+            json!({ "kind": "timeline", "target": "born" }),
+            json!({ "kind": "comparison", "target": "cave-places", "posts": ["cave"] }),
+            json!({ "kind": "reference", "target": "slings", "optionalFields": ["identifiers"], "posts": ["cave"] }),
+            json!({ "kind": "source-annotation", "target": "slings", "text": comment, "by": "The author", "posts": ["cave"] }),
+        ] {
+            let body = select_in(&f, &session, &revision, "cave", selection);
+            revision = body["revision"].as_str().unwrap().to_string();
+            // The served site follows the change while the site publishes curated context.
+            assert_eq!(body["build"]["ok"], true, "{}", body["build"]);
+        }
+        let before = research_store_files(&f);
+        production(&f.dir);
+        let artifacts = public_artifacts(&f.dir);
+        let file = artifacts
+            .iter()
+            .find(|(path, _)| path == "curated-context.json")
+            .map(|(_, text)| text.clone())
+            .expect("the context file is written");
+        // No private sentinel reaches any public artifact, the new file and page included.
+        for label in LEAKS {
+            let needle = leak(label).to_lowercase();
+            for (path, text) in &artifacts {
+                assert!(
+                    !text.to_lowercase().contains(&needle),
+                    "the private {label} reached {path}"
+                );
+            }
+        }
+        for (path, text) in &artifacts {
+            assert!(!text.contains(URL_SENTINEL), "{path}");
+            assert!(!text.contains("files.internal"), "{path}");
+        }
+        // What was approved and selected is in the file and on the page, field by field.
+        for words in [
+            public_text("entrysummary"),
+            public_text("relationshipdoubt"),
+            public_text("datingnote"),
+            public_text("comparisonrationale"),
+            comment.clone(),
+        ] {
+            assert!(file.contains(&words), "{words} is not in the file");
+        }
+        let page = &artifacts
+            .iter()
+            .find(|(path, _)| path == "posts/cave/index.html")
+            .unwrap()
+            .1;
+        for words in [
+            public_text("entrysummary"),
+            public_text("relationshipdoubt"),
+            comment.clone(),
+        ] {
+            assert!(page.contains(&words), "{words} is not on the page");
+        }
+        // The comment is on the post it is for, in its data and its portable copies, in the
+        // feeds that carry that post and in llms-full.txt, and no other page carries it.
+        let carrying: Vec<&str> = artifacts
+            .iter()
+            .filter(|(_, text)| text.contains(&comment))
+            .map(|(path, _)| path.as_str())
+            .collect();
+        assert!(
+            carrying.iter().all(|path| {
+                [
+                    "curated-context.json",
+                    "feed.json",
+                    "rss.xml",
+                    "llms-full.txt",
+                ]
+                .contains(path)
+                    || path.starts_with("posts/cave")
+                    || path.ends_with("of cave")
+            }),
+            "{carrying:?}"
+        );
+        assert_eq!(
+            before,
+            research_store_files(&f),
+            "nothing private is changed by a build"
+        );
+        // The boundary manifest lists the file beside the selections it is made from.
+        let manifest = body_json(&handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/research/boundary"), &session, false),
+        ));
+        assert_eq!(
+            published_ids(&manifest, "curated-context", "curated-context"),
+            ["curated-context"]
+        );
+        assert_eq!(published_ids(&manifest, "curated", "selection").len(), 6);
+        // Every portable copy of the post carries what was approved and selected, in the same
+        // words, with the link back to the canonical page's research-context section (ADR 0202):
+        // portable HTML, Markdown and text, what a destination is sent, the feeds and llms-full.txt.
+        let artifact = |path: &str| -> &String {
+            &artifacts
+                .iter()
+                .find(|(name, _)| name == path || name.ends_with(path))
+                .unwrap_or_else(|| panic!("no artifact {path}"))
+                .1
+        };
+        let carriers = [
+            "portable html of cave",
+            "portable markdown of cave",
+            "portable text of cave",
+            "syndicated markdown of cave",
+            "syndicated html of cave",
+            "llms-full.txt",
+            "feed.json",
+            "rss.xml",
+        ];
+        for path in carriers {
+            let text = artifact(path);
+            for words in [
+                public_text("entrysummary"),
+                public_text("relationshipdoubt"),
+                comment.clone(),
+            ] {
+                assert!(text.contains(&words), "{words} is not in {path}");
+            }
+            assert!(
+                text.contains("#ob-research-context"),
+                "{path} does not link back to the canonical section"
+            );
+        }
+        // A bibliography has no place for the author's comment or the relationship; it says so
+        // where it lists omissions, and the words are not in the data.
+        for path in ["Bibtex export of cave", "CslJson export of cave"] {
+            let text = artifact(path);
+            assert!(!text.contains(&comment) && !text.contains(&public_text("relationshipdoubt")));
+        }
     }
 }

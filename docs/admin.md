@@ -282,6 +282,32 @@ your research files. Escape closes the panel. Each item links to its full panel 
 workspace, which keeps your unsaved draft. See
 [ADR 0122](adr/0122-the-draft-side-research-panel-inserts-only-checked-and-published-research.md).
 
+### Choose what readers are given beside a post
+
+The Research panel's **Selected for readers** section is where you choose which already-public
+research context readers are given beside this post, and see exactly what they will get. Choose
+**Select for readers** on a source, an atlas entry, one of its datings or relationships, or a
+comparison; the button is offered only when the build already publishes that item, and otherwise the
+item says it is not selectable (selecting never approves research). Pick the fields you want beyond
+the ones that always travel with it (who asserts a relationship, how firmly, on what evidence, who
+disputes it), say whether it is for this post only or the whole site, and, for a source, where its
+metadata came from. You can also write a comment on a source or an explanation of an entry, attributed
+to a name you give; it is plain text of up to 1,000 characters.
+
+The section lists what readers of the post get, in your order, and what is withheld and why (withdrawn,
+changed since you selected it, no longer there, not published). Move an item up or down, withdraw it
+with an optional private reason, select it again after you have checked what changed, offer it to this
+post only or the whole site, or unselect it; none of this touches your research. **What readers of this
+post get** shows the public data exactly as pages are built from it, with the caveats that travel with
+it (a competing dating you did not select, a detail the source lacks, metadata whose origin is not
+recorded). Every change names the revision it was based on, so a change made elsewhere reloads the
+section and changes nothing. Everything is reachable from the keyboard, each button names the item it
+acts on, and the section reflows at 320 pixels. Readers see none of it until the site publishes
+curated context (`curatedContext.publish`); then it is a data file and a section on the post's page (the
+[curated context format](specs/curated-context.md)), and a change you make here rebuilds the site you are
+previewing. See
+[ADR 0196](adr/0196-selected-for-readers-lives-in-the-draft-side-research-panel-and-previews-the-public-value.md).
+
 ### Move between research and your draft
 
 Sources, the research notebook, the Knowledge Atlas, Compare, and claims form one **Research

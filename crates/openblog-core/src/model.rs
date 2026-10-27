@@ -539,6 +539,17 @@ pub struct Site {
     /// site opts in to publishing comparisons (ADR 0092). `None` writes no
     /// comparison output at all.
     pub comparisons: Option<crate::comparison_publication::PublicComparisons>,
+    /// The public curated research context, supplied by the caller only when
+    /// the site publishes it (`curatedContext.publish`, ADR 0185) and its
+    /// selections can be read. `None` writes no curated output at all: no
+    /// file and no section on any page.
+    pub curation: Option<crate::curated_selection::PublicCuration>,
+    /// The curated context projected once over every post (ADR 0202), shared
+    /// by the portable copies so a long feed does not project it per post.
+    /// Built on first use from `curation`; assign `curation` through
+    /// [`Site::set_curation`], which drops it.
+    curated_cache:
+        std::sync::OnceLock<Option<std::sync::Arc<crate::curated_context::CuratedContext>>>,
     /// Why this site's claim evidence cannot be published (ADR 0075): the
     /// claims file, or the library or notebook it is checked against, cannot
     /// be read or validated. A full build or `check` refuses while it is set,
@@ -562,6 +573,52 @@ pub struct Site {
 }
 
 impl Site {
+    /// Attach (or remove) the public curated context. Anything projected from
+    /// the earlier value is dropped.
+    pub fn set_curation(&mut self, curation: Option<crate::curated_selection::PublicCuration>) {
+        self.curation = curation;
+        self.curated_cache = std::sync::OnceLock::new();
+    }
+
+    /// The curated context a portable copy of `post` carries (ADR 0202): the
+    /// public curated value's projection, when the site publishes one and
+    /// offers this post something. It is the same projection the post's page
+    /// is rendered from; where the whole file is not written (a bound, an
+    /// inconsistency) it is the projection of this post alone, as its page's.
+    /// `None` leaves every copy exactly as it was.
+    pub fn curated_context_for(
+        &self,
+        post: &Post,
+    ) -> Option<std::sync::Arc<crate::curated_context::CuratedContext>> {
+        use crate::curated_context::{CuratedContext, PostRef};
+        let curation = self.curation.as_ref()?;
+        let whole = self.curated_cache.get_or_init(|| {
+            let posts: Vec<PostRef<'_>> = self
+                .posts
+                .iter()
+                .map(|post| PostRef {
+                    slug: post.slug.as_str(),
+                    url: post.url.as_str(),
+                })
+                .collect();
+            CuratedContext::project(curation, &posts, &self.config.base_path())
+                .ok()
+                .filter(|context| !context.items.is_empty())
+                .map(std::sync::Arc::new)
+        });
+        let context = match whole {
+            Some(context) => context.clone(),
+            None => std::sync::Arc::new(CuratedContext::for_one_post(
+                curation,
+                PostRef {
+                    slug: &post.slug,
+                    url: &post.url,
+                },
+            )?),
+        };
+        context.for_post(&post.slug).is_some().then_some(context)
+    }
+
     /// Resolve every post's concept links (ADR 0172) against the public atlas
     /// the caller attached, as it is now: a published entry becomes a link to
     /// its page, and anything else the label as plain text with a warning for
@@ -949,6 +1006,8 @@ impl Site {
             view_counts: BTreeMap::new(),
             atlas: None,
             comparisons: None,
+            curation: None,
+            curated_cache: std::sync::OnceLock::new(),
             claim_evidence_error,
             reader_feedback_error,
             third_perspectives_error,
