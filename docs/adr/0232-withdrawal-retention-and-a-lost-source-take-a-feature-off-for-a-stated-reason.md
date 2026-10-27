@@ -19,19 +19,24 @@ must stop showing a feature when its inputs disappear even before Admin acts.
 
 ## Decision
 
-- **One check, one reason.** `FeatureRecord::hosted_standing(row, post, config, mode)` returns
-  `Covered` or `MustComeOff(reason)`. The reasons, in the order they are checked:
+- **One check, one standing.** `FeatureRecord::hosted_standing(row, post, config, mode)` returns
+  `Covered`, `Hidden(reason)` or `MustComeOff(reason)`, checking in this order and stopping at the first
+  that fails (the order is the code's, and a test pins it):
 
-  | Reason | When |
-  | --- | --- |
-  | `source-gone` | the article it is about is no longer published |
-  | `deleted` | there is no hosted row, or retention purged the text, name and consent |
-  | `withdrawn` | the reader withdrew (RD12's `withdraw`) |
-  | `not-approved` | the row is no longer approved (pending, rejected, removed) |
-  | `consent-declined` | the reader's consent in effect no longer agrees to feature |
-  | `text-changed` | another revision, another approved revision or another text digest |
-  | `not-approved` | the one projection no longer shows it (hidden kind, another work) |
+  | Order | Standing | Reason | When |
+  | --- | --- | --- | --- |
+  | 1 | `Hidden` | `source-gone` | the article it is about is not published now |
+  | 2 | `MustComeOff` | `deleted` | there is no hosted row |
+  | 3 | `MustComeOff` | `withdrawn` | the reader withdrew (RD12's `withdraw`) |
+  | 4 | `MustComeOff` | `deleted` | retention purged the text, name and consent |
+  | 5 | `MustComeOff` | `not-approved` | the row is not approved (pending, rejected, removed) |
+  | 6 | `MustComeOff` | `consent-declined` | the reader's consent in effect agrees to no feature |
+  | 7 | `MustComeOff` | `text-changed` | the consent names another revision, or the row has another revision, another approved revision or another text digest |
+  | 8 | `MustComeOff` | `not-approved` | the one projection no longer shows it (hidden kind, another work) |
 
+  `Hidden` is a different standing from a take-off: nothing the reader or the editors did has changed, so
+  Admin shows no must-come-off banner for it and does not offer to remove it unless the editor wants to;
+  restoring the article restores the feature. A page check can also hide a feature for `misdated` (below).
   The reason's explanation is fixed text: it carries no id, name or reader words.
 - **The static page also refuses a misdated feature.** A feature's day is raised to the day the
   reflection was approved when it is made, so one dated earlier is a hand edit and is hidden
@@ -49,9 +54,9 @@ must stop showing a feature when its inputs disappear even before Admin acts.
 - **A declined feature comes off alone.** Declining consent removes only the feature
   (`consent-declined`); the reflection stays published. Admin's button for it removes the feature
   record and leaves `third-perspectives.json` untouched.
-- **A lost source is hidden, not deleted.** If the article is no longer published, the feature is never
-  shown, but the record stays so that restoring the article at the same address restores the section;
-  Admin may take it off. A reflection about a work that moved is not shown for the same reason the
+- **A lost source is hidden, not taken off.** If the article is no longer published, the feature is never
+  shown (`Hidden(source-gone)`, not a `MustComeOff`), but the record stays so that restoring the article at
+  the same address restores the section; Admin may take it off by choice. A reflection about a work that moved is not shown for the same reason the
   reflection itself is not (ADR 0115).
 - **Retention.** Expired retention purges the hosted text, name and consent (RD12); the feature is then
   `deleted` and must come off. The file never holds text or a private name, so there is nothing in it

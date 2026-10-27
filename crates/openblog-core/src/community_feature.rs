@@ -160,8 +160,6 @@ pub enum FeatureOff {
     ConsentDeclined,
     /// The text is not the text the reader agreed to feature.
     TextChanged,
-    /// The article it is about is gone.
-    SourceGone,
     /// The day it was featured is earlier than the day the reflection was
     /// approved, which no honest feature has (a hand-edited file).
     Misdated,
@@ -175,7 +173,6 @@ impl FeatureOff {
             FeatureOff::NotApproved => "not-approved",
             FeatureOff::ConsentDeclined => "consent-declined",
             FeatureOff::TextChanged => "text-changed",
-            FeatureOff::SourceGone => "source-gone",
             FeatureOff::Misdated => "misdated",
         }
     }
@@ -190,8 +187,33 @@ impl FeatureOff {
             FeatureOff::TextChanged => {
                 "the text is not the text the reader agreed to have featured"
             }
-            FeatureOff::SourceGone => "the article it is about is no longer published",
             FeatureOff::Misdated => "it is dated as featured before the reflection was approved",
+        }
+    }
+}
+
+/// Why a feature is hidden for now but need not come off: nothing the reader
+/// did or the editors decided has changed, so restoring what is missing
+/// restores the feature.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HiddenReason {
+    /// The article it is about is not published now. The record stays, so
+    /// publishing the article again at the same address restores the section;
+    /// Admin may still take it off.
+    SourceGone,
+}
+
+impl HiddenReason {
+    pub fn id(self) -> &'static str {
+        match self {
+            HiddenReason::SourceGone => "source-gone",
+        }
+    }
+
+    /// What Admin says to an editor, never a reader's words.
+    pub fn explanation(self) -> &'static str {
+        match self {
+            HiddenReason::SourceGone => "the article it is about is no longer published",
         }
     }
 }
@@ -200,7 +222,24 @@ impl FeatureOff {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HostedStanding {
     Covered,
+    /// Not shown now, and nothing is wrong with the feature itself: it is not
+    /// a take-off.
+    Hidden(HiddenReason),
+    /// It must come off for the stated reason.
     MustComeOff(FeatureOff),
+}
+
+/// Why a feature is not on the page now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NotShown {
+    Hidden(HiddenReason),
+    Off(FeatureOff),
+}
+
+impl From<FeatureOff> for NotShown {
+    fn from(off: FeatureOff) -> Self {
+        NotShown::Off(off)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -572,7 +611,7 @@ impl FeatureRecord {
         use crate::moderation::ModerationState;
         let off = HostedStanding::MustComeOff;
         let Some(post) = post else {
-            return off(FeatureOff::SourceGone);
+            return HostedStanding::Hidden(HiddenReason::SourceGone);
         };
         let Some((hosted, facts)) = hosted else {
             return off(FeatureOff::Deleted);
@@ -852,11 +891,16 @@ pub fn resolve_post(
     config: &SiteConfig,
     mode: ParticipationMode,
     answer_mode: ParticipationMode,
-) -> Vec<(String, Result<FeaturedPerspective, FeatureOff>)> {
+) -> Vec<(String, Result<FeaturedPerspective, NotShown>)> {
     let Some(post) = post else {
         return records
             .iter()
-            .map(|record| (record.id.clone(), Err(FeatureOff::SourceGone)))
+            .map(|record| {
+                (
+                    record.id.clone(),
+                    Err(NotShown::Hidden(HiddenReason::SourceGone)),
+                )
+            })
             .collect();
     };
     let items: Vec<&PublishedPerspective> = records
@@ -898,7 +942,7 @@ pub fn resolve_post(
                     featured: record.featured.clone(),
                 })
             })();
-            (record.id.clone(), result)
+            (record.id.clone(), result.map_err(NotShown::Off))
         })
         .collect()
 }

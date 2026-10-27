@@ -5,8 +5,8 @@
 
 use openblog_core::community_feature::{
     body_digest, normalize_context, project_post, resolve_post, FeatureError, FeatureOff,
-    FeatureRecord, FeatureRequest, FeaturedPerspective, FeaturesFile, HostedStanding,
-    COMMUNITY_FEATURES_FILE, MAX_CONTEXT_CHARS, NON_CONSENSUS_NOTICE,
+    FeatureRecord, FeatureRequest, FeaturedPerspective, FeaturesFile, HiddenReason, HostedStanding,
+    NotShown, COMMUNITY_FEATURES_FILE, MAX_CONTEXT_CHARS, NON_CONSENSUS_NOTICE,
 };
 use openblog_core::participation::ParticipationMode;
 use openblog_core::passage_target::PassageDocument;
@@ -219,7 +219,7 @@ impl World {
     fn page_with(
         &self,
         published: &ThirdPerspectivesFile,
-    ) -> Result<FeaturedPerspective, FeatureOff> {
+    ) -> Result<FeaturedPerspective, NotShown> {
         resolve_post(
             &[&self.record],
             published,
@@ -232,7 +232,7 @@ impl World {
         .1
     }
 
-    fn page(&self) -> Result<FeaturedPerspective, FeatureOff> {
+    fn page(&self) -> Result<FeaturedPerspective, NotShown> {
         self.page_with(&self.published)
     }
 
@@ -448,7 +448,7 @@ fn a_feature_dated_before_the_reflection_was_approved_is_never_shown() {
     // A hand-edited earlier day is refused by the page.
     w.record.featured = "2026-10-01".into();
     assert!(w.record.featured < w.published.items[0].approved);
-    assert_eq!(w.page().unwrap_err(), FeatureOff::Misdated);
+    assert_eq!(w.page().unwrap_err(), NotShown::Off(FeatureOff::Misdated));
     w.record.featured = w.published.items[0].approved.clone();
     assert!(w.page().is_ok(), "the same day is honest");
 }
@@ -459,7 +459,10 @@ fn the_published_text_that_differs_from_what_was_agreed_is_never_featured() {
     assert!(w.page().is_ok());
     // An editor hand-edits the published words.
     w.published.items[0].body = "Edited by an editor.".into();
-    assert_eq!(w.page().unwrap_err(), FeatureOff::TextChanged);
+    assert_eq!(
+        w.page().unwrap_err(),
+        NotShown::Off(FeatureOff::TextChanged)
+    );
     assert!(project_post(
         &[&w.record],
         &w.published,
@@ -590,7 +593,7 @@ fn a_deleted_source_article_is_never_shown_and_is_not_dropped() {
     assert_eq!(
         w.record
             .hosted_standing(Some((&w.hosted, &w.facts)), None, &w.site.config, OPEN),
-        HostedStanding::MustComeOff(FeatureOff::SourceGone)
+        HostedStanding::Hidden(HiddenReason::SourceGone)
     );
     let resolved = resolve_post(
         &[&w.record],
@@ -600,8 +603,13 @@ fn a_deleted_source_article_is_never_shown_and_is_not_dropped() {
         OPEN,
         HIDDEN,
     );
-    assert_eq!(resolved[0].1.as_ref().unwrap_err(), &FeatureOff::SourceGone);
+    assert_eq!(
+        resolved[0].1.as_ref().unwrap_err(),
+        &NotShown::Hidden(HiddenReason::SourceGone)
+    );
     // The file still holds it, so restoring the article restores the page.
+    assert!(w.page().is_ok());
+    assert_eq!(w.standing(), HostedStanding::Covered);
     let mut features = FeaturesFile::default();
     features.feature(w.record.clone()).unwrap();
     assert_eq!(
@@ -727,7 +735,7 @@ fn a_reflection_has_one_placement_on_the_page_it_is_about() {
     );
     assert_eq!(
         resolved[0].1.as_ref().unwrap_err(),
-        &FeatureOff::NotApproved
+        &NotShown::Off(FeatureOff::NotApproved)
     );
 
     // A kind the work hides shows no feature.
@@ -739,7 +747,10 @@ fn a_reflection_has_one_placement_on_the_page_it_is_about() {
         HIDDEN,
         HIDDEN,
     );
-    assert_eq!(hidden[0].1.as_ref().unwrap_err(), &FeatureOff::NotApproved);
+    assert_eq!(
+        hidden[0].1.as_ref().unwrap_err(),
+        &NotShown::Off(FeatureOff::NotApproved)
+    );
 }
 
 // ---- Provenance and non-consensus
