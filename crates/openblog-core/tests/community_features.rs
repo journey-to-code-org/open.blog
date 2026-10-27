@@ -526,6 +526,17 @@ fn withdrawal_deletion_and_a_declined_feature_each_take_it_off_with_no_tombstone
         gone(FeatureOff::Deleted)
     );
     assert_eq!(w.standing_of(None), gone(FeatureOff::Deleted));
+    // The order of the checks is the ADR's table: purged beats not approved,
+    // and a lost article beats a lost row.
+    let purged_pending = facts(ModerationState::Pending, 1, false);
+    assert_eq!(
+        w.standing_of(Some((&w.hosted, &purged_pending))),
+        gone(FeatureOff::Deleted)
+    );
+    assert_eq!(
+        w.record.hosted_standing(None, None, &w.site.config, OPEN),
+        HostedStanding::Hidden(HiddenReason::SourceGone)
+    );
 
     // Not approved any more (removed by moderation).
     let removed = facts(ModerationState::Removed, 1, true);
