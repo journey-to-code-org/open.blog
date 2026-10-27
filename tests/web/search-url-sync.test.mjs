@@ -25,7 +25,9 @@ class FakeElement {
   }
 }
 
-async function mount(attributes, address) {
+// Installs the fake globals, runs `run`, and always restores them in a finally, so a test never
+// depends on when the runner schedules cleanup hooks.
+async function withSearch(attributes, address, run) {
   const saved = {};
   for (const key of ["HTMLElement", "customElements", "location", "history", "fetch", "console"]) saved[key] = globalThis[key];
   const registry = new Map();
@@ -37,40 +39,38 @@ async function mount(attributes, address) {
   Object.defineProperty(globalThis, "history", { value: { replaceState: (_state, _title, next) => replaced.push(String(next)) }, configurable: true, writable: true });
   globalThis.fetch = async () => ({ ok: true, text: async () => '{"entries":[]}' });
   globalThis.console = { ...console, info() {}, warn() {} };
-  const restore = () => {
+  try {
+    await import(`../../web/components/ob-search.js?test=${Math.random()}`);
+    const ObSearch = registry.get("ob-search");
+    assert.equal(typeof ObSearch, "function", "ob-search.js defines the element");
+    const element = new ObSearch();
+    Object.assign(element.attributes, attributes);
+    await element.connectedCallback();
+    await run({ element, replaced, type: (text) => { element.input.value = text; element.input.listeners.input(); } });
+  } finally {
     for (const [key, value] of Object.entries(saved)) {
       if (value === undefined) delete globalThis[key];
       else Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
     }
-  };
-  try {
-    await import(`../../web/components/ob-search.js?test=${Math.random()}`);
-    const element = new (registry.get("ob-search"))();
-    Object.assign(element.attributes, attributes);
-    await element.connectedCallback();
-    return { element, replaced, restore, type: (text) => { element.input.value = text; element.input.listeners.input(); } };
-  } catch (error) {
-    restore();
-    throw error;
   }
 }
 
-test("by default the search box reads ?q= and keeps the address in step with what is typed", async (t) => {
-  const { element, replaced, restore, type } = await mount({}, "https://site.test/search/?q=hello");
-  t.after(restore);
-  assert.equal(element.input.value, "hello");
-  assert.ok(replaced.at(-1).includes("q=hello"), replaced.join(" | "));
-  type("git rebase");
-  assert.ok(replaced.at(-1).includes("q=git+rebase") || replaced.at(-1).includes("q=git%20rebase"), replaced.join(" | "));
-  type("");
-  assert.equal(new URL(replaced.at(-1)).searchParams.has("q"), false);
+test("by default the search box reads ?q= and keeps the address in step with what is typed", async () => {
+  await withSearch({}, "https://site.test/search/?q=hello", ({ element, replaced, type }) => {
+    assert.equal(element.input.value, "hello");
+    assert.ok(replaced.at(-1).includes("q=hello"), replaced.join(" | "));
+    type("git rebase");
+    assert.ok(replaced.at(-1).includes("q=git+rebase") || replaced.at(-1).includes("q=git%20rebase"), replaced.join(" | "));
+    type("");
+    assert.equal(new URL(replaced.at(-1)).searchParams.has("q"), false);
+  });
 });
 
-test("no-history ignores ?q= and never rewrites the address, so a search inside a dialog leaves the page alone", async (t) => {
-  const { element, replaced, restore, type } = await mount({ "no-history": "" }, "https://site.test/some-post/?q=hello");
-  t.after(restore);
-  assert.equal(element.input.value, "", "the host page's own ?q= must not leak into the dialog");
-  type("git rebase");
-  assert.equal(element.status.textContent.length > 0, true, "it still searches");
-  assert.deepEqual(replaced, [], "history.replaceState is never called");
+test("no-history ignores ?q= and never rewrites the address, so a search inside a dialog leaves the page alone", async () => {
+  await withSearch({ "no-history": "" }, "https://site.test/some-post/?q=hello", ({ element, replaced, type }) => {
+    assert.equal(element.input.value, "", "the host page's own ?q= must not leak into the dialog");
+    type("git rebase");
+    assert.equal(element.status.textContent.length > 0, true, "it still searches");
+    assert.deepEqual(replaced, [], "history.replaceState is never called");
+  });
 });
