@@ -7222,6 +7222,7 @@ export function publicationReviewPlace(finding, { post = "", firstBodyLine = 1 }
     case "atlas": return "the Knowledge Atlas";
     case "claims-file": return "the claims file";
     case "alignments-file": return "the alignments file";
+    case "selections-file": return "the curated selections file";
     default: return "your research";
   }
 }

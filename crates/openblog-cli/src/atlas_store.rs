@@ -505,6 +505,15 @@ fn lock_path(path: &Path) -> PathBuf {
     path.with_extension("json.lock")
 }
 
+/// Take the atlas's write lock, the first in the one order every store uses,
+/// so a store that reads the atlas can hold its writers out.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn lock_atlas(root: &Path) -> Result<FileLock, StoreError> {
+    let path = atlas_path(root)?;
+    FileLock::acquire(lock_path(&path), "Knowledge Atlas write", LOCK_WAIT)
+        .map_err(StoreError::Storage)
+}
+
 /// Write `bytes` to a new temporary file beside `path`, flush it, and rename
 /// it over `path`. On any failure the temporary file is removed and `path`
 /// keeps its previous contents.

@@ -890,6 +890,12 @@ pub fn generate_site_with_boundary(
     // What the projections publish and withhold; a stale approval or an
     // unsafe web address withholds only what it affects, and is named.
     let stores = crate::boundary::Stores::read(root, &shared);
+    // The author's curated selections that cannot be read refuse the output
+    // rather than publishing the site without them, as a damaged claims file
+    // does. Only here: an Admin save's validation render is not stopped.
+    if let Some(error) = crate::boundary::selections_error(site, &stores) {
+        return Err(error);
+    }
     let mut manifest = crate::boundary::manifest(site, &stores, &blocked, None);
     site.warnings.extend(manifest.build_warnings());
     // Required destinations (including full-content feeds) must succeed before

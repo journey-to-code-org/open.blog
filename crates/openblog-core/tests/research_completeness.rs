@@ -462,6 +462,7 @@ fn outcomes_stay_distinct_and_only_detected_integrity_or_privacy_failures_refuse
                         | Check::AtlasIntegrity
                         | Check::ClaimsIntegrity
                         | Check::AlignmentsIntegrity
+                        | Check::SelectionsIntegrity
                 ),
                 "{row:?}"
             );
@@ -1408,6 +1409,7 @@ fn the_rows_the_publication_review_added_have_one_owner_and_a_gate_each() {
             ("atlas".into(), "atlas-integrity".into()),
             ("claims".into(), "claims-integrity".into()),
             ("alignments".into(), "alignments-integrity".into()),
+            ("selections".into(), "selections-integrity".into()),
         ])
     );
     for row in &unreadable {
@@ -1521,6 +1523,42 @@ fn a_stale_approval_withholds_and_is_never_acknowledgeable() {
     assert!(!finding.blocks_publication());
     assert_eq!(Acknowledgement::of(&finding), None);
     assert!(!acknowledgeable(Validator::Alignments, "stale-approval"));
+}
+
+/// A damaged curated selections file refuses a full build while the site
+/// publishes curated context (ADR 0224). It is the only thing the selections
+/// validator owns: a withdrawn, stale, missing or cyclic selection is the
+/// author's own state, listed by the boundary manifest with its reason, so it
+/// has no advisory row to acknowledge and the acknowledgeable set is unchanged.
+#[test]
+fn the_selections_validator_owns_one_refusing_row_and_nothing_acknowledgeable() {
+    assert_eq!(Check::SelectionsIntegrity.owner(), Validator::Selections);
+    assert_eq!(
+        Validator::Selections.entry_point(),
+        "curated_selection::SelectionSet::parse"
+    );
+    assert!(Validator::ALL.contains(&Validator::Selections));
+    assert!(Check::ALL.contains(&Check::SelectionsIntegrity));
+    let rows: Vec<MatrixRow> = matrix()
+        .into_iter()
+        .filter(|row| row.validator == Validator::Selections)
+        .collect();
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0].code, FILE_UNREADABLE);
+    assert_eq!(rows[0].gate, Gate::Refuses);
+    assert_eq!(rows[0].category, Category::Integrity);
+    assert!(!acknowledgeable(Validator::Selections, FILE_UNREADABLE));
+
+    let finding = CompletenessFinding::unreadable(
+        ObjectKind::SelectionsFile,
+        "The selections file is not valid.",
+    );
+    assert_eq!(finding.validator, Validator::Selections);
+    assert_eq!(finding.check, Check::SelectionsIntegrity);
+    assert_eq!(finding.scope.object, ObjectKind::SelectionsFile);
+    assert!(finding.blocks_publication());
+    assert_eq!(Acknowledgement::of(&finding), None);
+    assert_eq!(finding.scope.object.to_string(), "selections-file");
 }
 
 /// The acknowledgements file exactly as the Admin flow of #62 writes it

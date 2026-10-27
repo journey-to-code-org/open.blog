@@ -540,6 +540,16 @@ fn lock_path(path: &Path) -> PathBuf {
     path.with_extension("json.lock")
 }
 
+/// Take the alignments' write lock, after the atlas's and claims' and before
+/// the notebook's, so a store that reads the alignments can hold their
+/// writers out.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn lock_alignments(root: &Path) -> Result<FileLock, StoreError> {
+    let path = alignments_path(root)?;
+    FileLock::acquire(lock_path(&path), "alignments file write", LOCK_WAIT)
+        .map_err(StoreError::Storage)
+}
+
 /// Write `bytes` to a new temporary file beside `path`, flush it, and rename
 /// it over `path`. On any failure the temporary file is removed and `path`
 /// keeps its previous contents.

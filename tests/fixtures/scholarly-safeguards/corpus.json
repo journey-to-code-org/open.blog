@@ -3197,6 +3197,25 @@
       "emits": [
         "alignments: file-unreadable"
       ]
+    },
+    {
+      "id": "unreadable-selections",
+      "distinction": [
+        "contextual-entry",
+        "reference"
+      ],
+      "summary": "A curated selections file that cannot be read stops the next build, while the site publishes curated context, and is named once.",
+      "dirs": [
+        ".openblog/private/research/selections.json"
+      ],
+      "config": {
+        "curatedContext": {
+          "publish": true
+        }
+      },
+      "emits": [
+        "selections: file-unreadable"
+      ]
     }
   ]
 }
