@@ -10,7 +10,10 @@
 -- inbox's, protection's, Third Perspectives' and evidence's columns to those
 -- two tables of its own. It does not
 -- rename, drop or rewrite any existing table, column, function or row, so
--- comments and analytics keep working exactly as before. Running it twice
+-- comments and analytics keep working exactly as before. Its one change to
+-- something that exists is to loosen a check (ADR 0192): a row may now have
+-- a page and no passage, as a suggestion for future work does; every row the
+-- old check allowed is still allowed. Running it twice
 -- changes nothing; running it again after an upgrade adds only what is new.
 -- To undo it, see feedback-rollback.sql.
 --
@@ -31,8 +34,9 @@ create table if not exists public.openblog_feedback (
   format_version integer not null default 1 check (format_version >= 1),
   kind text not null check (kind ~ '^[a-z][a-z0-9-]{0,39}$'),
   -- The work, the passage revision the reader saw and the passage target
-  -- (ADRs 0076, 0078). All three, or none for a future kind that is about
-  -- the site rather than a passage.
+  -- (ADRs 0076, 0078). All three, or no revision and no target: a kind that
+  -- is about the page rather than a passage, such as a suggestion for future
+  -- work (ADR 0192), has its `work` and neither of the other two.
   work text check (char_length(work) between 2 and 500),
   revision text check (revision ~ '^p[1-9][0-9]{0,3}:[0-9a-f]{32}$'),
   target jsonb check (jsonb_typeof(target) = 'object' and octet_length(target::text) <= 16384),
@@ -55,7 +59,7 @@ create table if not exists public.openblog_feedback (
   -- The reason code of the last rejection or removal; never free text.
   moderation_reason text check (moderation_reason ~ '^[a-z][a-z-]{0,31}$'),
   constraint openblog_feedback_passage_complete check (
-    (work is null and revision is null and target is null)
+    (revision is null and target is null)
     or (work is not null and revision is not null and target is not null)
   ),
   constraint openblog_feedback_consent_needs_name check (reader_name is not null or not publish_name),
@@ -508,5 +512,19 @@ $$;
 
 revoke all on function public.openblog_record_feedback_decision(text, uuid, integer, integer, jsonb, text, text, timestamptz) from public, anon, authenticated;
 grant execute on function public.openblog_record_feedback_decision(text, uuid, integer, integer, jsonb, text, text, timestamptz) to service_role;
+
+-- Suggestions for future work (ADR 0192), used only once
+-- OPENBLOG_SUGGESTIONS_ENABLED is set. A suggestion is one row with kind
+-- `future-suggestion`: the page it was sent from in `work`, and no passage
+-- revision or target, which the check above used to refuse. This loosens the
+-- check and nothing else: every row that satisfied the old one satisfies
+-- the new one, so no stored row changes and nothing is rewritten. Dropping
+-- and adding it again is safe to repeat; to restore the old check, run
+-- future-suggestions-rollback.sql, which refuses while such a row exists.
+alter table public.openblog_feedback drop constraint if exists openblog_feedback_passage_complete;
+alter table public.openblog_feedback add constraint openblog_feedback_passage_complete check (
+  (revision is null and target is null)
+  or (work is not null and revision is not null and target is not null)
+);
 
 commit;
