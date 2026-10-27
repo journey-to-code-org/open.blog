@@ -1,5 +1,6 @@
 //! Private research source library: works, editions, translations, witnesses,
-//! and references with stable identities and a versioned, lossless file format.
+//! and references with stable identities and a versioned, lossless file format,
+//! plus the attributed interpretations made from them (see [`crate::interpretation`]).
 //!
 //! The library is author research data. Nothing here renders, publishes, or
 //! contacts a metadata service; validation is offline and structural, and it
@@ -12,6 +13,7 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 
 use crate::contributor::{valid_registry_key, Contributor};
+use crate::interpretation::{self, Interpretation};
 use crate::research::{absolute_http_url, normalize_doi_url};
 
 /// The only library file version this release reads and writes.
@@ -31,7 +33,7 @@ const CREATOR_ROLES: &[&str] = &[
     "scribe",
     "other",
 ];
-const LOCATION_SCHEMES: &[&str] = &[
+pub(crate) const LOCATION_SCHEMES: &[&str] = &[
     "page",
     "folio",
     "line",
@@ -42,8 +44,8 @@ const LOCATION_SCHEMES: &[&str] = &[
 ];
 /// Field names that belong to contributor credit sidecars. A source record
 /// describes a researched work; it never carries or points at work credits.
-const CREDIT_FIELDS: &[&str] = &["credit", "credits", "contributor", "contributors"];
-const CREDIT_FIELD_MESSAGE: &str = "contributor credits stay in `.credits.json` sidecars; describe a source's makers as `creators`";
+pub(crate) const CREDIT_FIELDS: &[&str] = &["credit", "credits", "contributor", "contributors"];
+pub(crate) const CREDIT_FIELD_MESSAGE: &str = "contributor credits stay in `.credits.json` sidecars; describe a source's makers as `creators`";
 pub(crate) const RECORD_FIELDS: &[&str] = &[
     "id",
     "kind",
@@ -56,7 +58,19 @@ pub(crate) const RECORD_FIELDS: &[&str] = &[
     "location",
     "identifiers",
     "archived",
+    "anonymous",
+    "revises",
+    "repository",
+    "shelfmark",
+    "volumes",
+    "rights",
 ];
+const CREATOR_FIELDS: &[&str] = &["name", "role", "attribution", "note"];
+const LOCATION_FIELDS: &[&str] = &["scheme", "value", "volume"];
+pub(crate) const RIGHTS_FIELDS: &[&str] = &["status", "note", "license"];
+const LIBRARY_FIELDS: &[&str] = &["version", "sources", "interpretations"];
+/// Upper bound on the volumes one edition or witness may declare.
+pub const MAX_VOLUMES: u64 = 10_000;
 
 /// What a source-library record is. Distinct from the crate-root
 /// `SourceKind`, which classifies content files for the loader.
@@ -81,7 +95,7 @@ impl ResearchSourceKind {
         }
     }
 
-    fn parse(value: &str) -> Option<Self> {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
         Some(match value {
             "work" => Self::Work,
             "edition" => Self::Edition,
@@ -90,6 +104,12 @@ impl ResearchSourceKind {
             "reference" => Self::Reference,
             _ => return None,
         })
+    }
+
+    /// Editions, translations, and witnesses have a text of their own; a work
+    /// is abstract and a reference only points into a version.
+    pub fn is_version(self) -> bool {
+        matches!(self, Self::Edition | Self::Translation | Self::Witness)
     }
 
     /// Kinds an `of` relationship from this kind may point at.
@@ -122,6 +142,124 @@ impl fmt::Display for ResearchSourceKind {
     }
 }
 
+/// How firmly a name is tied to a source or an interpretation, as the author
+/// records it (ADR 0086). An absent value says nothing either way; none of
+/// these is a finding, and open.blog never decides between them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AttributionCertainty {
+    /// The source itself names this person, for example on a title page.
+    Stated,
+    /// Tradition or scholarship assigns the name; the source does not state it.
+    Attributed,
+    /// The author is unsure of the attribution.
+    Uncertain,
+    /// Scholars disagree about the attribution.
+    Disputed,
+}
+
+impl AttributionCertainty {
+    pub const ALL: [Self; 4] = [
+        Self::Stated,
+        Self::Attributed,
+        Self::Uncertain,
+        Self::Disputed,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Stated => "stated",
+            Self::Attributed => "attributed",
+            Self::Uncertain => "uncertain",
+            Self::Disputed => "disputed",
+        }
+    }
+
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|certainty| certainty.as_str() == value)
+    }
+
+    /// Whether the name is firm enough to contradict an anonymous source: an
+    /// unqualified name reads as stated.
+    pub(crate) fn names_maker(certainty: Option<Self>) -> bool {
+        matches!(certainty, None | Some(Self::Stated))
+    }
+}
+
+/// The author's own statement of the rights in one version's text (ADR 0085).
+/// It is never a legal determination, and `Unknown` is the honest default.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RightsStatus {
+    /// Nobody has looked into it yet. Also what an undeclared version means.
+    Unknown,
+    /// The author believes the text is under copyright with rights reserved.
+    RightsReserved,
+    /// The rights holder gave the author permission.
+    Permission,
+    /// The text carries an open licence, named in `license`.
+    OpenLicense,
+    /// The author believes the text is in the public domain.
+    PublicDomain,
+    /// The text is the author's own work.
+    OwnWork,
+}
+
+impl RightsStatus {
+    pub const ALL: [Self; 6] = [
+        Self::Unknown,
+        Self::RightsReserved,
+        Self::Permission,
+        Self::OpenLicense,
+        Self::PublicDomain,
+        Self::OwnWork,
+    ];
+
+    /// The stable value written to the file and exchanged with clients.
+    pub fn tag(self) -> &'static str {
+        match self {
+            Self::Unknown => "unknown",
+            Self::RightsReserved => "rightsReserved",
+            Self::Permission => "permission",
+            Self::OpenLicense => "openLicense",
+            Self::PublicDomain => "publicDomain",
+            Self::OwnWork => "ownWork",
+        }
+    }
+
+    /// The status as the author states it, in a few words. Never "allowed".
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Unknown => "Rights not checked yet",
+            Self::RightsReserved => "The author states the text is under copyright",
+            Self::Permission => "The author states the rights holder gave permission",
+            Self::OpenLicense => "The author states the text is under an open licence",
+            Self::PublicDomain => "The author states the text is in the public domain",
+            Self::OwnWork => "The author states the text is their own work",
+        }
+    }
+
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|status| status.tag() == value)
+    }
+}
+
+/// A rights declaration with an optional one-line note and licence name.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct RightsDeclaration {
+    pub status: RightsStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    /// The licence's name or identifier, such as `CC-BY-4.0`; only with an
+    /// open licence. Kept as text and never resolved.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub license: Option<String>,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
+}
+
 /// A descriptive name recorded on a source, such as a manuscript's scribe.
 /// Creators are bibliographic description, not contributor credits.
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -130,6 +268,12 @@ pub struct SourceCreator {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
+    /// How firmly the source is tied to this name (ADR 0086).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attribution: Option<AttributionCertainty>,
+    /// The author's one-line note on the attribution, such as who disputes it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
 }
@@ -149,6 +293,9 @@ pub struct SourceIdentifier {
 pub struct SourceLocation {
     pub scheme: String,
     pub value: String,
+    /// The volume of a multi-volume edition or witness the position is in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub volume: Option<String>,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
 }
@@ -182,15 +329,91 @@ pub struct SourceRecord {
     /// at it still resolve. `false` is written as an absent field.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub archived: bool,
+    /// The source names no maker for this record (ADR 0086). Names tradition
+    /// assigns may still be recorded as attributed, uncertain, or disputed
+    /// creators. `false` is written as an absent field.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub anonymous: bool,
+    /// For an edition, the earlier edition of the same text it revises.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub revises: Option<String>,
+    /// For a witness, the library, archive, or owner that holds it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repository: Option<String>,
+    /// For a witness, its call number or shelfmark in that repository.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shelfmark: Option<String>,
+    /// For an edition or witness in several volumes, how many there are.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub volumes: Option<u64>,
+    /// For an edition, translation, or witness, the author's own statement of
+    /// the rights in its text (ADR 0085).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rights: Option<RightsDeclaration>,
     /// Fields this release does not understand, preserved verbatim.
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
+}
+
+impl SourceRecord {
+    /// A record of this kind with only its identity set, for callers that
+    /// fill in the rest.
+    pub fn new(id: impl Into<String>, kind: ResearchSourceKind) -> Self {
+        Self {
+            id: id.into(),
+            kind,
+            title: None,
+            creators: Vec::new(),
+            language: None,
+            issued: None,
+            of: None,
+            based_on: None,
+            location: None,
+            identifiers: Vec::new(),
+            archived: false,
+            anonymous: false,
+            revises: None,
+            repository: None,
+            shelfmark: None,
+            volumes: None,
+            rights: None,
+            extra: BTreeMap::new(),
+        }
+    }
+
+    /// Whether this record is a version with a text of its own: an edition,
+    /// translation, or witness. Only versions carry rights.
+    pub fn is_version(&self) -> bool {
+        self.kind.is_version()
+    }
+
+    /// The rights status the author declared for this version, or `Unknown`
+    /// when none is declared. `None` for a work or reference, which have no
+    /// text of their own. Nothing here decides whether a use is allowed.
+    pub fn rights_status(&self) -> Option<RightsStatus> {
+        self.is_version().then(|| {
+            self.rights
+                .as_ref()
+                .map_or(RightsStatus::Unknown, |rights| rights.status)
+        })
+    }
+}
+
+/// Whether a read validates the library's interpretations or keeps them raw.
+#[derive(Clone, Copy)]
+enum Interpretations {
+    Validate,
+    KeepRaw,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct SourceLibrary {
     pub version: u64,
     pub sources: Vec<SourceRecord>,
+    /// Attributed renderings and readings of places in the library's versions
+    /// (ADR 0087). Private research, never a source, citation, or credit.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub interpretations: Vec<Interpretation>,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
 }
@@ -200,6 +423,7 @@ impl Default for SourceLibrary {
         Self {
             version: LIBRARY_VERSION,
             sources: Vec::new(),
+            interpretations: Vec::new(),
             extra: BTreeMap::new(),
         }
     }
@@ -225,7 +449,7 @@ impl SourceIndex {
         self.kinds.get(&kind).map_or(&[], Vec::as_slice)
     }
 
-    /// Identifiers of the records whose `of` or `basedOn` names this one.
+    /// Identifiers of the records whose `of`, `basedOn`, or `revises` names this one.
     pub fn dependents(&self, id: &str) -> &[String] {
         self.dependents.get(id).map_or(&[], Vec::as_slice)
     }
@@ -251,6 +475,10 @@ pub enum SourceDiagnosticCode {
     AmbiguousLocation,
     InvalidIdentifier,
     ContributorCredit,
+    /// Private research (a passage, note, or interpretation) still points at the record.
+    StillUsed,
+    /// An anonymous record or interpretation also names a stated maker.
+    ConflictingAttribution,
 }
 
 impl fmt::Display for SourceDiagnosticCode {
@@ -273,6 +501,8 @@ impl fmt::Display for SourceDiagnosticCode {
             Self::AmbiguousLocation => "ambiguous-location",
             Self::InvalidIdentifier => "invalid-identifier",
             Self::ContributorCredit => "contributor-credit",
+            Self::StillUsed => "still-used",
+            Self::ConflictingAttribution => "conflicting-attribution",
         })
     }
 }
@@ -330,13 +560,34 @@ impl SourceLibrary {
         text: &str,
         contributors: &BTreeMap<String, Contributor>,
     ) -> Result<Self, Vec<SourceDiagnostic>> {
+        Self::parse_with(text, contributors, Interpretations::Validate)
+    }
+
+    /// Parse a library for a build, which reads only its sources. Builds never
+    /// output interpretations (ADR 0087), so a problem in one, such as an
+    /// interpreter whose contributor was removed, must not fail every build
+    /// that cites a source: they are not validated and are kept raw in
+    /// [`Self::extra`], leaving [`Self::interpretations`] empty. Admin, the
+    /// store, and `openblog check` use [`Self::parse`], which validates them.
+    pub fn parse_for_build(
+        text: &str,
+        contributors: &BTreeMap<String, Contributor>,
+    ) -> Result<Self, Vec<SourceDiagnostic>> {
+        Self::parse_with(text, contributors, Interpretations::KeepRaw)
+    }
+
+    fn parse_with(
+        text: &str,
+        contributors: &BTreeMap<String, Contributor>,
+        mode: Interpretations,
+    ) -> Result<Self, Vec<SourceDiagnostic>> {
         if text.len() > MAX_LIBRARY_BYTES {
             return Err(vec![too_large()]);
         }
         // Editors on Windows may save a byte-order mark, which is not JSON.
         let text = text.strip_prefix('\u{feff}').unwrap_or(text);
         match serde_json::from_str(text) {
-            Ok(value) => Self::from_value(value, contributors),
+            Ok(value) => Self::from_value(value, contributors, mode),
             Err(error) => Err(vec![library_diagnostic(
                 SourceDiagnosticCode::InvalidJson,
                 None,
@@ -351,6 +602,7 @@ impl SourceLibrary {
     fn from_value(
         value: Value,
         contributors: &BTreeMap<String, Contributor>,
+        mode: Interpretations,
     ) -> Result<Self, Vec<SourceDiagnostic>> {
         let mut diagnostics = Vec::new();
         let Value::Object(mut root) = value else {
@@ -429,6 +681,9 @@ impl SourceLibrary {
             ));
             return Err(diagnostics);
         }
+        // Interpretations name contributors on purpose and check credit
+        // fields themselves (ADR 0087); everything else at this level may not.
+        let raw_interpretations = root.remove("interpretations");
         for (key, value) in &root {
             for field in credit_paths(value, key.clone(), CREDIT_FIELDS.contains(&key.as_str())) {
                 diagnostics.push(library_diagnostic(
@@ -451,6 +706,20 @@ impl SourceLibrary {
             }
         }
         validate_relationships(&identities, &parsed, contributors, &mut diagnostics);
+        let interpretations = match mode {
+            Interpretations::Validate => interpretation::parse_all(
+                raw_interpretations,
+                &identities,
+                contributors,
+                &mut diagnostics,
+            ),
+            Interpretations::KeepRaw => {
+                if let Some(raw) = raw_interpretations {
+                    root.insert("interpretations".into(), raw);
+                }
+                Vec::new()
+            }
+        };
         if !diagnostics.is_empty() {
             diagnostics.sort_by_key(|diagnostic| diagnostic.index);
             return Err(diagnostics);
@@ -458,6 +727,7 @@ impl SourceLibrary {
         let library = Self {
             version,
             sources: parsed.into_iter().map(|(_, record)| record).collect(),
+            interpretations,
             extra: root.into_iter().collect(),
         };
         if library.written_len() > MAX_LIBRARY_BYTES {
@@ -483,7 +753,12 @@ impl SourceLibrary {
                 .entry(record.kind)
                 .or_default()
                 .push(record.id.clone());
-            for target in record.of.iter().chain(&record.based_on) {
+            for target in record
+                .of
+                .iter()
+                .chain(&record.based_on)
+                .chain(&record.revises)
+            {
                 index
                     .dependents
                     .entry(target.clone())
@@ -521,7 +796,7 @@ impl SourceLibrary {
             return Err(shadowed);
         }
         match serde_json::to_value(candidate) {
-            Ok(value) => Self::from_value(value, contributors),
+            Ok(value) => Self::from_value(value, contributors, Interpretations::Validate),
             Err(error) => Err(vec![library_diagnostic(
                 SourceDiagnosticCode::InvalidJson,
                 None,
@@ -616,6 +891,33 @@ impl SourceLibrary {
                 message: format!("no source has the id `{id}`"),
             }]);
         };
+        let users: Vec<&str> = self
+            .interpretations_of(id)
+            .map(|interpretation| interpretation.id.as_str())
+            .collect();
+        if !users.is_empty() {
+            return Err(vec![record_diagnostic(
+                SourceDiagnosticCode::StillUsed,
+                index,
+                id,
+                "id",
+                format!(
+                    "the interpretation{} {} still {} this source; remove or repoint {} first",
+                    if users.len() == 1 { "" } else { "s" },
+                    users
+                        .iter()
+                        .map(|user| format!("`{user}`"))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    if users.len() == 1 {
+                        "interprets"
+                    } else {
+                        "interpret"
+                    },
+                    if users.len() == 1 { "it" } else { "them" },
+                ),
+            )]);
+        }
         let mut candidate = self.clone();
         let removed = candidate.sources.remove(index);
         match Self::validated(&candidate, contributors) {
@@ -634,6 +936,170 @@ impl SourceLibrary {
                 Err(diagnostics)
             }
         }
+    }
+
+    /// The interpretation with exactly this identifier.
+    pub fn interpretation(&self, id: &str) -> Option<&Interpretation> {
+        self.interpretations
+            .iter()
+            .find(|interpretation| interpretation.id == id)
+    }
+
+    /// Whether the library holds an interpretation with this identifier,
+    /// validated or, in a library read by [`Self::parse_for_build`], still
+    /// raw. A build checks that the alignments it reads point at entries
+    /// that exist without validating every interpretation (ADR 0087).
+    pub fn has_interpretation(&self, id: &str) -> bool {
+        self.interpretation(id).is_some()
+            || self.raw_interpretations().is_some_and(|items| {
+                items
+                    .iter()
+                    .any(|item| item.get("id").and_then(Value::as_str) == Some(id))
+            })
+    }
+
+    fn raw_interpretations(&self) -> Option<&Vec<Value>> {
+        self.extra.get("interpretations").and_then(Value::as_array)
+    }
+
+    /// For a build that publishes comparisons (ADR 0092): validate exactly
+    /// the raw interpretations with these identifiers, each with the same
+    /// field, id and contributor checks as a full parse, and add them to
+    /// [`Self::interpretations`]. Every other interpretation stays raw and
+    /// unvalidated, so a problem in one that nothing published uses never
+    /// stops the build. Problems are grouped by the identifier named, with
+    /// field paths at the entry's position in the stored array. An
+    /// identifier with no raw entry is left for the caller to report.
+    pub fn validate_interpretations_for_build(
+        &mut self,
+        ids: &BTreeSet<String>,
+        contributors: &BTreeMap<String, Contributor>,
+    ) -> Result<(), Vec<(String, Vec<SourceDiagnostic>)>> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let Some(items) = self.raw_interpretations() else {
+            if self.extra.contains_key("interpretations") {
+                let problem = library_diagnostic(
+                    SourceDiagnosticCode::InvalidField,
+                    Some("interpretations"),
+                    "interpretations must be a JSON array".into(),
+                );
+                return Err(ids
+                    .iter()
+                    .map(|id| (id.clone(), vec![problem.clone()]))
+                    .collect());
+            }
+            return Ok(());
+        };
+        let identities: Vec<(usize, String, Option<ResearchSourceKind>)> = self
+            .sources
+            .iter()
+            .enumerate()
+            .map(|(index, record)| (index, record.id.clone(), Some(record.kind)))
+            .collect();
+        let mut validated = Vec::new();
+        let mut failures = Vec::new();
+        for id in ids {
+            let (positions, entries): (Vec<usize>, Vec<Value>) = items
+                .iter()
+                .enumerate()
+                .filter(|(_, item)| item.get("id").and_then(Value::as_str) == Some(id))
+                .map(|(position, item)| (position, item.clone()))
+                .unzip();
+            if entries.is_empty() {
+                continue;
+            }
+            let mut diagnostics = Vec::new();
+            let parsed = interpretation::parse_all(
+                Some(Value::Array(entries)),
+                &identities,
+                contributors,
+                &mut diagnostics,
+            );
+            if diagnostics.is_empty() {
+                validated.extend(parsed);
+            } else {
+                for diagnostic in &mut diagnostics {
+                    if let Some(field) = &mut diagnostic.field {
+                        *field = at_stored_position(field, &positions);
+                    }
+                }
+                failures.push((id.clone(), diagnostics));
+            }
+        }
+        if !failures.is_empty() {
+            return Err(failures);
+        }
+        self.interpretations.extend(validated);
+        Ok(())
+    }
+
+    /// Interpretations made from this source's text, in library order.
+    pub fn interpretations_of<'a>(
+        &'a self,
+        source: &'a str,
+    ) -> impl Iterator<Item = &'a Interpretation> + 'a {
+        self.interpretations
+            .iter()
+            .filter(move |interpretation| interpretation.source == source)
+    }
+
+    /// The record and every record it realizes, following `of` up to the work:
+    /// a reference, then the witness, edition, or translation it points into,
+    /// then the work. Each keeps its own kind, so a translation in the chain
+    /// is never read as an edition or as the original work.
+    pub fn realization_chain(&self, id: &str) -> Vec<&SourceRecord> {
+        let mut chain: Vec<&SourceRecord> = Vec::new();
+        let mut current = self.get(id);
+        while let Some(record) = current {
+            if chain.iter().any(|seen| seen.id == record.id) {
+                break;
+            }
+            chain.push(record);
+            current = record.of.as_deref().and_then(|of| self.get(of));
+        }
+        chain
+    }
+
+    /// Add an interpretation, or replace the one with the same identifier in
+    /// place. The library changes only when the whole result is valid.
+    pub fn upsert_interpretation(
+        &mut self,
+        interpretation: Interpretation,
+        contributors: &BTreeMap<String, Contributor>,
+    ) -> Result<(), Vec<SourceDiagnostic>> {
+        let mut candidate = self.clone();
+        match candidate
+            .interpretations
+            .iter()
+            .position(|existing| existing.id == interpretation.id)
+        {
+            Some(index) => candidate.interpretations[index] = interpretation,
+            None => candidate.interpretations.push(interpretation),
+        }
+        *self = Self::validated(&candidate, contributors)?;
+        Ok(())
+    }
+
+    /// Remove an interpretation. Nothing else points at one, so this fails
+    /// only when the identifier is unknown.
+    pub fn remove_interpretation(
+        &mut self,
+        id: &str,
+        contributors: &BTreeMap<String, Contributor>,
+    ) -> Result<Interpretation, Vec<SourceDiagnostic>> {
+        let Some(index) = self
+            .interpretations
+            .iter()
+            .position(|interpretation| interpretation.id == id)
+        else {
+            return Err(vec![interpretation::unknown(id)]);
+        };
+        let mut candidate = self.clone();
+        let removed = candidate.interpretations.remove(index);
+        *self = Self::validated(&candidate, contributors)?;
+        Ok(removed)
     }
 }
 
@@ -662,11 +1128,26 @@ impl std::io::Write for ByteCounter {
 /// Unknown fields that collide with a defined field. With flattened extras the
 /// colliding key would be written twice and the unknown value would replace
 /// the typed one on the next read, so such an edit is refused instead.
+/// Rewrite a field path such as `interpretations[1].text`, whose index is a
+/// position in a filtered array, to the entry's position in the stored one.
+fn at_stored_position(field: &str, positions: &[usize]) -> String {
+    let Some(rest) = field.strip_prefix("interpretations[") else {
+        return field.to_string();
+    };
+    let Some((index, tail)) = rest.split_once(']') else {
+        return field.to_string();
+    };
+    match index.parse::<usize>().ok().and_then(|i| positions.get(i)) {
+        Some(stored) => format!("interpretations[{stored}]{tail}"),
+        None => field.to_string(),
+    }
+}
+
 fn shadowed_fields(library: &SourceLibrary) -> Vec<SourceDiagnostic> {
     let mut diagnostics = Vec::new();
     let message = || "an unknown field cannot shadow a defined field".to_string();
     for key in library.extra.keys() {
-        if ["version", "sources"].contains(&key.as_str()) {
+        if LIBRARY_FIELDS.contains(&key.as_str()) {
             diagnostics.push(library_diagnostic(
                 SourceDiagnosticCode::InvalidField,
                 Some(key),
@@ -697,7 +1178,7 @@ fn shadowed_fields(library: &SourceLibrary) -> Vec<SourceDiagnostic> {
         for (position, creator) in record.creators.iter().enumerate() {
             check(
                 &creator.extra,
-                &["name", "role"],
+                CREATOR_FIELDS,
                 &format!("creators[{position}]"),
             );
         }
@@ -709,14 +1190,26 @@ fn shadowed_fields(library: &SourceLibrary) -> Vec<SourceDiagnostic> {
             );
         }
         if let Some(location) = &record.location {
-            check(&location.extra, &["scheme", "value"], "location");
+            check(&location.extra, LOCATION_FIELDS, "location");
+        }
+        if let Some(rights) = &record.rights {
+            check(&rights.extra, RIGHTS_FIELDS, "rights");
+        }
+    }
+    for (index, interpretation) in library.interpretations.iter().enumerate() {
+        for path in interpretation.shadowed_fields() {
+            diagnostics.push(library_diagnostic(
+                SourceDiagnosticCode::InvalidField,
+                Some(&format!("interpretations[{index}].{path}")),
+                message(),
+            ));
         }
     }
     diagnostics
 }
 
 /// Paths of every credit sidecar field inside `value`, at any depth.
-fn credit_paths(value: &Value, path: String, is_credit: bool) -> Vec<String> {
+pub(crate) fn credit_paths(value: &Value, path: String, is_credit: bool) -> Vec<String> {
     let mut found = Vec::new();
     let mut pending = vec![(value, path, is_credit)];
     while let Some((value, path, is_credit)) = pending.pop() {
@@ -787,10 +1280,35 @@ fn validate_relationships(
     // Only edges that passed every check take part in the graph checks below.
     let mut of_edges: BTreeMap<&str, (&str, ResearchSourceKind)> = BTreeMap::new();
     let mut based_on_edges: BTreeMap<&str, &str> = BTreeMap::new();
+    let mut revises_edges: BTreeMap<&str, &str> = BTreeMap::new();
+    let mut volumes: BTreeMap<&str, u64> = BTreeMap::new();
+    let mut holdings: BTreeMap<(&str, &str), usize> = BTreeMap::new();
     for (index, record) in records {
         // A duplicate is reported once; its relationships are ambiguous.
         if known.get(record.id.as_str()).map(|(first, _)| first) != Some(index) {
             continue;
+        }
+        if let Some(count) = record.volumes {
+            volumes.insert(&record.id, count);
+        }
+        if let Some(shelfmark) = &record.shelfmark {
+            let holding = (
+                record.repository.as_deref().unwrap_or_default(),
+                shelfmark.as_str(),
+            );
+            if let Some(first) = holdings.get(&holding) {
+                diagnostics.push(record_diagnostic(
+                    SourceDiagnosticCode::DuplicateId,
+                    *index,
+                    &record.id,
+                    "shelfmark",
+                    format!(
+                        "sources[{first}] is already the witness with this repository and shelfmark; one copy is one witness"
+                    ),
+                ));
+            } else {
+                holdings.insert(holding, *index);
+            }
         }
         let edges = [
             ("of", record.of.as_deref(), record.kind.of_targets()),
@@ -802,6 +1320,11 @@ fn validate_relationships(
                     ResearchSourceKind::Witness,
                     ResearchSourceKind::Translation,
                 ][..],
+            ),
+            (
+                "revises",
+                record.revises.as_deref(),
+                &[ResearchSourceKind::Edition][..],
             ),
         ];
         for (field, target, permitted) in edges {
@@ -847,10 +1370,16 @@ fn validate_relationships(
                 ));
                 continue;
             }
-            if field == "of" {
-                of_edges.insert(&record.id, (target, *target_kind));
-            } else {
-                based_on_edges.insert(&record.id, target);
+            match field {
+                "of" => {
+                    of_edges.insert(&record.id, (target, *target_kind));
+                }
+                "basedOn" => {
+                    based_on_edges.insert(&record.id, target);
+                }
+                _ => {
+                    revises_edges.insert(&record.id, target);
+                }
             }
         }
     }
@@ -886,9 +1415,66 @@ fn validate_relationships(
             }
         }
 
+        if let Some(earlier) = revises_edges.get(record.id.as_str()) {
+            let text = of_edges.get(record.id.as_str()).map(|(text, _)| *text);
+            let earlier_text = of_edges.get(earlier).map(|(text, _)| *text);
+            if revises_chain_reaches(earlier, &record.id, &revises_edges) {
+                diagnostics.push(record_diagnostic(
+                    SourceDiagnosticCode::RelationshipCycle,
+                    *index,
+                    &record.id,
+                    "revises",
+                    format!(
+                        "`{}` revises `{earlier}`, which itself revises `{}`",
+                        record.id, record.id
+                    ),
+                ));
+            } else if let (Some(text), Some(earlier_text)) = (text, earlier_text) {
+                if text != earlier_text {
+                    diagnostics.push(record_diagnostic(
+                        SourceDiagnosticCode::AmbiguousRelationship,
+                        *index,
+                        &record.id,
+                        "revises",
+                        format!(
+                            "this edition is `of` `{text}` but revises `{earlier}`, an edition of `{earlier_text}`; a revision is an edition of the same text"
+                        ),
+                    ));
+                }
+            }
+        }
+
         if let (Some(location), Some((target, target_kind))) =
             (&record.location, of_edges.get(record.id.as_str()))
         {
+            let count = volumes.get(target).copied().unwrap_or(1);
+            let volume_message = match location.volume.as_deref() {
+                None if count > 1 && matches!(location.scheme.as_str(), "page" | "folio") => {
+                    Some(format!(
+                        "`{target}` has {count} volumes and each may restart its {}s; add the location's `volume`",
+                        location.scheme
+                    ))
+                }
+                Some(volume)
+                    if volumes.contains_key(target)
+                        && volume.parse::<u64>().is_ok_and(|n| n == 0 || n > count) =>
+                {
+                    Some(format!(
+                        "`{target}` has {count} volume{}; volume {volume} is not one of them",
+                        if count == 1 { "" } else { "s" }
+                    ))
+                }
+                _ => None,
+            };
+            if let Some(message) = volume_message {
+                diagnostics.push(record_diagnostic(
+                    SourceDiagnosticCode::AmbiguousLocation,
+                    *index,
+                    &record.id,
+                    "location.volume",
+                    message,
+                ));
+            }
             let message = match location.scheme.as_str() {
                 "page" if *target_kind == ResearchSourceKind::Work => Some(format!(
                     "pages differ between editions of the work `{target}`; point this reference at the edition, translation, or witness whose pages are cited"
@@ -907,6 +1493,24 @@ fn validate_relationships(
                     message,
                 ));
             }
+        }
+    }
+}
+
+/// Whether following `revises` edges from `start` reaches `goal`.
+fn revises_chain_reaches(start: &str, goal: &str, revises_edges: &BTreeMap<&str, &str>) -> bool {
+    let mut current = start;
+    let mut seen = BTreeSet::new();
+    loop {
+        if current == goal {
+            return true;
+        }
+        if !seen.insert(current) {
+            return false;
+        }
+        match revises_edges.get(current) {
+            Some(next) => current = next,
+            None => return false,
         }
     }
 }
@@ -958,7 +1562,7 @@ fn kind_list(kinds: &[ResearchSourceKind]) -> String {
     }
 }
 
-fn library_diagnostic(
+pub(crate) fn library_diagnostic(
     code: SourceDiagnosticCode,
     field: Option<&str>,
     message: String,
@@ -970,6 +1574,150 @@ fn library_diagnostic(
         field: field.map(str::to_string),
         message,
     }
+}
+
+/// What is wrong with one line of authored text, if anything: it must be
+/// non-empty, at most [`MAX_TEXT_CHARS`] characters, and free of control
+/// characters.
+pub(crate) fn short_text_problem(text: &str) -> Option<(SourceDiagnosticCode, String)> {
+    if text.trim().is_empty() {
+        Some((
+            SourceDiagnosticCode::InvalidField,
+            "must not be empty".into(),
+        ))
+    } else if text.chars().count() > MAX_TEXT_CHARS {
+        Some((
+            SourceDiagnosticCode::TooLarge,
+            format!("must be at most {MAX_TEXT_CHARS} characters"),
+        ))
+    } else if text.chars().any(char::is_control) {
+        Some((
+            SourceDiagnosticCode::InvalidField,
+            "must not contain control characters".into(),
+        ))
+    } else {
+        None
+    }
+}
+
+/// Read a rights declaration at `path`, reporting each problem through
+/// `report` with a field path. Shared by records and interpretations.
+pub(crate) fn parse_rights(
+    value: Value,
+    path: &str,
+    report: &mut dyn FnMut(SourceDiagnosticCode, String, String),
+) -> Option<RightsDeclaration> {
+    let Value::Object(mut object) = value else {
+        report(
+            SourceDiagnosticCode::InvalidField,
+            path.into(),
+            "must be an object with a `status`".into(),
+        );
+        return None;
+    };
+    let text = |object: &mut Map<String, Value>,
+                field: &str,
+                report: &mut dyn FnMut(SourceDiagnosticCode, String, String)| {
+        match object.remove(field) {
+            Some(Value::String(text)) => match short_text_problem(&text) {
+                Some((code, message)) => {
+                    report(code, format!("{path}.{field}"), message);
+                    None
+                }
+                None => Some(text),
+            },
+            Some(_) => {
+                report(
+                    SourceDiagnosticCode::InvalidField,
+                    format!("{path}.{field}"),
+                    "must be a string".into(),
+                );
+                None
+            }
+            None => None,
+        }
+    };
+    let note = text(&mut object, "note", report);
+    let license = text(&mut object, "license", report);
+    let statuses = || {
+        RightsStatus::ALL
+            .iter()
+            .map(|status| status.tag())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let status = match object.remove("status") {
+        Some(Value::String(tag)) => {
+            let status = RightsStatus::parse(&tag);
+            if status.is_none() {
+                report(
+                    SourceDiagnosticCode::InvalidField,
+                    format!("{path}.status"),
+                    format!("use one of: {}", statuses()),
+                );
+            }
+            status
+        }
+        Some(_) => {
+            report(
+                SourceDiagnosticCode::InvalidField,
+                format!("{path}.status"),
+                "must be a string".into(),
+            );
+            None
+        }
+        None => {
+            report(
+                SourceDiagnosticCode::MissingField,
+                format!("{path}.status"),
+                format!(
+                    "state the rights as you understand them: {}; this is your declaration, never a legal determination",
+                    statuses()
+                ),
+            );
+            None
+        }
+    };
+    if license.is_some() && status.is_some_and(|status| status != RightsStatus::OpenLicense) {
+        report(
+            SourceDiagnosticCode::InvalidField,
+            format!("{path}.license"),
+            "a licence belongs with the `openLicense` status".into(),
+        );
+    }
+    // Credit fields inside a declaration are reported by the caller's scan
+    // of the whole record or interpretation.
+    status.map(|status| RightsDeclaration {
+        status,
+        note,
+        license,
+        extra: object.into_iter().collect(),
+    })
+}
+
+/// Read a creator or interpreter `attribution` certainty at `path`.
+pub(crate) fn parse_certainty(
+    value: Option<Value>,
+    path: &str,
+    report: &mut dyn FnMut(SourceDiagnosticCode, String, String),
+) -> Option<AttributionCertainty> {
+    let value = value?;
+    let certainty = value.as_str().and_then(AttributionCertainty::parse);
+    if certainty.is_none() {
+        report(
+            SourceDiagnosticCode::InvalidField,
+            path.into(),
+            format!(
+                "use one of: {}",
+                AttributionCertainty::ALL
+                    .iter()
+                    .map(|certainty| certainty.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        );
+    }
+    certainty
 }
 
 /// Field-by-field reader for one raw record, so each problem names its field.
@@ -1009,25 +1757,46 @@ impl RecordReader<'_> {
 
     /// Report a problem with authored text.
     fn check_text(&mut self, field: String, text: &str) {
-        if text.trim().is_empty() {
-            self.report(
-                SourceDiagnosticCode::InvalidField,
-                Some(field),
-                "must not be empty".into(),
-            );
-        } else if text.chars().count() > MAX_TEXT_CHARS {
-            self.report(
-                SourceDiagnosticCode::TooLarge,
-                Some(field),
-                format!("must be at most {MAX_TEXT_CHARS} characters"),
-            );
-        } else if text.chars().any(char::is_control) {
-            self.report(
-                SourceDiagnosticCode::InvalidField,
-                Some(field),
-                "must not contain control characters".into(),
-            );
+        if let Some((code, message)) = short_text_problem(text) {
+            self.report(code, Some(field), message);
         }
+    }
+
+    fn take_flag(&mut self, field: &str) -> bool {
+        match self.fields.remove(field) {
+            Some(Value::Bool(flag)) => flag,
+            Some(_) => {
+                self.report(
+                    SourceDiagnosticCode::InvalidField,
+                    Some(field.into()),
+                    "must be true or false".into(),
+                );
+                false
+            }
+            None => false,
+        }
+    }
+
+    fn rights(&mut self, value: Value) -> Option<RightsDeclaration> {
+        let mut problems = Vec::new();
+        let rights = parse_rights(value, "rights", &mut |code, field, message| {
+            problems.push((code, field, message));
+        });
+        for (code, field, message) in problems {
+            self.report(code, Some(field), message);
+        }
+        rights
+    }
+
+    fn certainty(&mut self, value: Option<Value>, path: &str) -> Option<AttributionCertainty> {
+        let mut problems = Vec::new();
+        let certainty = parse_certainty(value, path, &mut |code, field, message| {
+            problems.push((code, field, message));
+        });
+        for (code, field, message) in problems {
+            self.report(code, Some(field), message);
+        }
+        certainty
     }
 
     fn take_id(&mut self, field: &str) -> Option<String> {
@@ -1227,10 +1996,15 @@ fn parse_record(
                 format!("use one of: {}", CREATOR_ROLES.join(", ")),
             );
         }
+        let note = reader.nested_text(&mut object, &path, "note", false);
+        let attribution =
+            reader.certainty(object.remove("attribution"), &format!("{path}.attribution"));
         if let Some(name) = name {
             creators.push(SourceCreator {
                 name,
                 role,
+                attribution,
+                note,
                 extra: object.into_iter().collect(),
             });
         }
@@ -1253,23 +2027,39 @@ fn parse_record(
         });
     }
 
-    let archived = match reader.fields.remove("archived") {
-        Some(Value::Bool(archived)) => archived,
+    let archived = reader.take_flag("archived");
+    let anonymous = reader.take_flag("anonymous");
+    let revises = reader.take_id("revises");
+    let repository = reader.take_text("repository");
+    let shelfmark = reader.take_text("shelfmark");
+    let volumes = match reader.fields.remove("volumes") {
+        Some(Value::Number(number))
+            if number
+                .as_u64()
+                .is_some_and(|count| (1..=MAX_VOLUMES).contains(&count)) =>
+        {
+            number.as_u64()
+        }
         Some(_) => {
             reader.report(
                 SourceDiagnosticCode::InvalidField,
-                Some("archived".into()),
-                "must be true or false".into(),
+                Some("volumes".into()),
+                format!("must be a whole number of volumes from 1 to {MAX_VOLUMES}"),
             );
-            false
+            None
         }
-        None => false,
+        None => None,
+    };
+    let rights = match reader.fields.remove("rights") {
+        Some(value) => reader.rights(value),
+        None => None,
     };
 
     let location = match reader.fields.remove("location") {
         Some(Value::Object(mut object)) => {
             let scheme = reader.nested_text(&mut object, "location", "scheme", true);
             let value = reader.nested_text(&mut object, "location", "value", true);
+            let volume = reader.nested_text(&mut object, "location", "volume", false);
             if let Some(scheme) = &scheme {
                 if !LOCATION_SCHEMES.contains(&scheme.as_str()) {
                     reader.report(
@@ -1292,6 +2082,7 @@ fn parse_record(
             scheme.zip(value).map(|(scheme, value)| SourceLocation {
                 scheme,
                 value,
+                volume,
                 extra: object.into_iter().collect(),
             })
         }
@@ -1317,8 +2108,17 @@ fn parse_record(
                 of: of.is_some(),
                 based_on: based_on.is_some(),
                 location: location.is_some(),
+                revises: revises.is_some(),
+                repository: repository.is_some(),
+                shelfmark: shelfmark.is_some(),
+                volumes: volumes.is_some(),
+                rights: rights.is_some(),
+                anonymous,
             },
         );
+        if anonymous {
+            check_anonymous(&mut reader, kind, &creators);
+        }
     }
 
     let failed = reader.failed;
@@ -1337,6 +2137,12 @@ fn parse_record(
         location,
         identifiers,
         archived,
+        anonymous,
+        revises,
+        repository,
+        shelfmark,
+        volumes,
+        rights,
         extra: fields.into_iter().collect(),
     };
     (id, Some(record))
@@ -1348,6 +2154,48 @@ struct KindFields<'a> {
     of: bool,
     based_on: bool,
     location: bool,
+    revises: bool,
+    repository: bool,
+    shelfmark: bool,
+    volumes: bool,
+    rights: bool,
+    anonymous: bool,
+}
+
+/// The creator role that names the maker of each kind of record, which an
+/// anonymous record cannot also state.
+fn maker_role(kind: ResearchSourceKind) -> Option<&'static str> {
+    match kind {
+        ResearchSourceKind::Work => Some("author"),
+        ResearchSourceKind::Edition => Some("editor"),
+        ResearchSourceKind::Translation => Some("translator"),
+        ResearchSourceKind::Witness => Some("scribe"),
+        ResearchSourceKind::Reference => None,
+    }
+}
+
+fn check_anonymous(
+    reader: &mut RecordReader<'_>,
+    kind: ResearchSourceKind,
+    creators: &[SourceCreator],
+) {
+    let Some(role) = maker_role(kind) else {
+        return;
+    };
+    for (position, creator) in creators.iter().enumerate() {
+        if creator.role.as_deref() == Some(role)
+            && AttributionCertainty::names_maker(creator.attribution)
+        {
+            reader.report(
+                SourceDiagnosticCode::ConflictingAttribution,
+                Some(format!("creators[{position}].attribution")),
+                format!(
+                    "this {kind} is marked anonymous but states `{}` as its {role}; record the name as attributed, uncertain, or disputed, or remove `anonymous`",
+                    creator.name
+                ),
+            );
+        }
+    }
 }
 
 fn check_kind_fields(
@@ -1394,6 +2242,56 @@ fn check_kind_fields(
             "only a reference has a location; add a reference that points at this source".into(),
         );
     }
+    if fields.revises && kind != ResearchSourceKind::Edition {
+        reader.report(
+            SourceDiagnosticCode::InvalidRelationship,
+            Some("revises".into()),
+            "only an edition revises an earlier edition; a new translation is its own translation record".into(),
+        );
+    }
+    if kind != ResearchSourceKind::Witness {
+        for (present, field) in [
+            (fields.repository, "repository"),
+            (fields.shelfmark, "shelfmark"),
+        ] {
+            if present {
+                reader.report(
+                    SourceDiagnosticCode::InvalidField,
+                    Some(field.into()),
+                    "only a witness is one held copy with a repository and shelfmark".into(),
+                );
+            }
+        }
+    }
+    if fields.volumes
+        && !matches!(
+            kind,
+            ResearchSourceKind::Edition | ResearchSourceKind::Witness
+        )
+    {
+        reader.report(
+            SourceDiagnosticCode::InvalidField,
+            Some("volumes".into()),
+            "only an edition or a witness is published or bound in volumes".into(),
+        );
+    }
+    if fields.rights && !kind.is_version() {
+        reader.report(
+            SourceDiagnosticCode::InvalidField,
+            Some("rights".into()),
+            format!(
+                "{} has no text of its own; declare rights on the edition, translation, or witness whose text is used",
+                kind.with_article()
+            ),
+        );
+    }
+    if fields.anonymous && kind == ResearchSourceKind::Reference {
+        reader.report(
+            SourceDiagnosticCode::InvalidField,
+            Some("anonymous".into()),
+            "a reference has no maker of its own; mark the work, edition, translation, or witness anonymous".into(),
+        );
+    }
     match fields.language {
         Some(language) if !valid_language_tag(language) => reader.report(
             SourceDiagnosticCode::InvalidField,
@@ -1409,12 +2307,12 @@ fn check_kind_fields(
     }
 }
 
-fn valid_source_id(value: &str) -> bool {
+pub(crate) fn valid_source_id(value: &str) -> bool {
     value.len() <= MAX_ID_BYTES && valid_registry_key(value)
 }
 
 /// BCP 47 shape only: a 2–8 letter primary subtag and 1–8 character subtags.
-fn valid_language_tag(value: &str) -> bool {
+pub(crate) fn valid_language_tag(value: &str) -> bool {
     let mut subtags = value.split('-');
     let primary = subtags.next().unwrap_or_default();
     (2..=8).contains(&primary.len())
@@ -1425,7 +2323,7 @@ fn valid_language_tag(value: &str) -> bool {
         })
 }
 
-fn valid_timestamp(value: &str) -> bool {
+pub(crate) fn valid_timestamp(value: &str) -> bool {
     let (clock, fraction) = value.split_once('.').unwrap_or((value, "0"));
     let parts: Vec<&str> = clock.split(':').collect();
     let digits = |part: &str| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit());
@@ -1439,7 +2337,7 @@ fn valid_timestamp(value: &str) -> bool {
 
 /// Offline structural checks for known schemes; other schemes are kept as
 /// authored once their name is a lowercase slug.
-fn check_identifier(scheme: &str, value: &str) -> Result<(), String> {
+pub(crate) fn check_identifier(scheme: &str, value: &str) -> Result<(), String> {
     if value.trim() != value {
         return Err("must not start or end with whitespace".into());
     }

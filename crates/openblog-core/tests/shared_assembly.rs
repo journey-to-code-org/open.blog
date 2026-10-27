@@ -12,7 +12,9 @@ use openblog_core::collaboration::{
 use openblog_core::config::SiteConfig;
 use openblog_core::contributor::Contributor;
 use openblog_core::draft::DraftSet;
+use openblog_core::media_moment::MomentSet;
 use openblog_core::preview::build as preview;
+use openblog_core::synthesis::SynthesisSet;
 use openblog_core::SourceFile;
 
 const T: i64 = 1_800_000_000;
@@ -65,12 +67,24 @@ fn drafts(texts: &[(&str, &str)]) -> DraftSet {
 
 /// Approve for `who` the exact piece `set` holds, through the binding the gate itself computes.
 fn approve(record: &SharedPublication, set: &DraftSet, approvals: &mut ApprovalSet, who: &str) {
-    let seen = with_subject(record, set, &ALL, |subject| {
-        approvals.binding_for(subject, who).unwrap()
-    });
-    with_subject(record, set, &ALL, |subject| {
-        approvals.approve(who, who, subject, &seen, true, T)
-    })
+    let seen = with_subject(
+        record,
+        None,
+        set,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &ALL,
+        |subject| approvals.binding_for(subject, who).unwrap(),
+    );
+    with_subject(
+        record,
+        None,
+        set,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &ALL,
+        |subject| approvals.approve(who, who, subject, &seen, true, T),
+    )
     .unwrap();
 }
 
@@ -85,16 +99,26 @@ fn the_gate_binding_equals_the_one_the_preview_hands_out() {
     voluntary.mark_ready("bo", 1, &ALL).unwrap();
     let shown = preview(
         &record,
+        None,
         &voluntary,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
         &approvals,
         "ann",
         &ALL,
+        true,
         SiteConfig::default().render_options(),
     )
     .unwrap();
-    let gate = with_subject(&record, &voluntary, &ALL, |subject| {
-        approvals.binding_for(subject, "ann").unwrap()
-    });
+    let gate = with_subject(
+        &record,
+        None,
+        &voluntary,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &ALL,
+        |subject| approvals.binding_for(subject, "ann").unwrap(),
+    );
     assert_eq!(shown.seen.as_deref(), Some(gate.as_str()));
 }
 
@@ -103,7 +127,18 @@ fn nothing_is_assembled_until_every_required_author_approved_the_current_piece()
     let record = record();
     let set = drafts(&[("ann", "Ann words"), ("bo", "Bo words")]);
     let mut approvals = ApprovalSet::new();
-    let refused = |approvals: &ApprovalSet| assemble(&record, &set, approvals, &ALL, DATE);
+    let refused = |approvals: &ApprovalSet| {
+        assemble(
+            &record,
+            None,
+            &set,
+            &SynthesisSet::new(),
+            &MomentSet::new(),
+            approvals,
+            &ALL,
+            DATE,
+        )
+    };
     // Only names come back, never prose.
     assert_eq!(
         refused(&approvals),
@@ -133,11 +168,21 @@ fn a_changed_piece_blocks_only_the_authors_whose_approval_it_invalidates() {
     for who in ALL {
         approve(&record, &set, &mut approvals, who);
     }
-    assert!(assemble(&record, &set, &approvals, &ALL, DATE).is_ok());
+    assert!(assemble(
+        &record,
+        None,
+        &set,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &approvals,
+        &ALL,
+        DATE
+    )
+    .is_ok());
     set.save("ann", "ann", 1, "Ann changed her mind", T + 1)
         .unwrap();
     assert!(matches!(
-        assemble(&record, &set, &approvals, &ALL, DATE),
+        assemble(&record, None, &set, &SynthesisSet::new(), &MomentSet::new(), &approvals, &ALL, DATE),
         Err(AssemblyError::Blocked { missing }) if missing == ["Ann", "Cy"]
     ));
     // Removing an author changes the author set, which every approval is bound to.
@@ -146,8 +191,28 @@ fn a_changed_piece_blocks_only_the_authors_whose_approval_it_invalidates() {
     for who in ALL {
         approve(&record, &set, &mut again, who);
     }
-    assert!(assemble(&record, &set, &again, &ALL, DATE).is_ok());
-    assert!(assemble(&record, &set, &again, &two, DATE).is_err());
+    assert!(assemble(
+        &record,
+        None,
+        &set,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &again,
+        &ALL,
+        DATE
+    )
+    .is_ok());
+    assert!(assemble(
+        &record,
+        None,
+        &set,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &again,
+        &two,
+        DATE
+    )
+    .is_err());
 }
 
 #[test]
@@ -159,7 +224,16 @@ fn a_withdrawn_draft_is_never_published_even_with_old_approvals() {
         approve(&record, &set, &mut approvals, who);
     }
     set.withdraw("bo", "bo").unwrap();
-    match assemble(&record, &set, &approvals, &ALL, DATE) {
+    match assemble(
+        &record,
+        None,
+        &set,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &approvals,
+        &ALL,
+        DATE,
+    ) {
         Ok(made) => assert!(!made.source.contains("SECRET")),
         Err(error) => assert!(!format!("{error:?}").contains("SECRET")),
     }
@@ -179,7 +253,17 @@ fn the_post_loads_through_the_production_pipeline_with_ordered_credits_and_attri
     for who in ALL {
         approve(&record, &set, &mut approvals, who);
     }
-    let made = assemble(&record, &set, &approvals, &ALL, DATE).unwrap();
+    let made = assemble(
+        &record,
+        None,
+        &set,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &approvals,
+        &ALL,
+        DATE,
+    )
+    .unwrap();
     let mut config = SiteConfig::default();
     for (id, name) in [("ann", "Ann"), ("bo", "Bo"), ("cy", "Cy")] {
         config.contributors.insert(
@@ -244,16 +328,42 @@ fn a_piece_without_a_title_or_a_section_is_invalid_not_blocked() {
         approve(&untitled, &set, &mut approvals, who);
     }
     assert_eq!(
-        assemble(&untitled, &set, &approvals, &ALL, DATE),
+        assemble(
+            &untitled,
+            None,
+            &set,
+            &SynthesisSet::new(),
+            &MomentSet::new(),
+            &approvals,
+            &ALL,
+            DATE
+        ),
         Err(AssemblyError::Invalid)
     );
     let empty = drafts(&[]);
     assert_eq!(
-        assemble(&record(), &empty, &ApprovalSet::new(), &ALL, DATE),
+        assemble(
+            &record(),
+            None,
+            &empty,
+            &SynthesisSet::new(),
+            &MomentSet::new(),
+            &ApprovalSet::new(),
+            &ALL,
+            DATE
+        ),
         Err(AssemblyError::Invalid)
     );
     assert_eq!(
-        with_subject(&record(), &empty, &ALL, |s| ApprovalSet::new().evaluate(s)),
+        with_subject(
+            &record(),
+            None,
+            &empty,
+            &SynthesisSet::new(),
+            &MomentSet::new(),
+            &ALL,
+            |s| { ApprovalSet::new().evaluate(s) }
+        ),
         Err(openblog_core::approval::ApprovalError::Invalid)
     );
     let _ = Readiness::Ready;
@@ -288,6 +398,8 @@ fn unsafe_markup_in_any_section_refuses_the_whole_piece_even_when_approved() {
         "Bo [odd](java&#115;cript:alert(1)) words",
         "Bo [odd](JaVaScRiPt:alert(1)) words",
         "Bo ![odd](data:text/html;base64,AAAA) words",
+        "Bo [odd](https://user:pw@host.example/) words",
+        "Bo ![odd](https://user@host.example/x.png) words",
         "[odd]
 
 [odd]: vbscript:x",
@@ -298,7 +410,16 @@ fn unsafe_markup_in_any_section_refuses_the_whole_piece_even_when_approved() {
             approve(&record, &set, &mut approvals, who);
         }
         assert_eq!(
-            assemble(&record, &set, &approvals, &ALL, DATE),
+            assemble(
+                &record,
+                None,
+                &set,
+                &SynthesisSet::new(),
+                &MomentSet::new(),
+                &approvals,
+                &ALL,
+                DATE
+            ),
             Err(AssemblyError::UnsafeMarkup),
             "{hostile}"
         );
@@ -316,7 +437,17 @@ fn unsafe_markup_in_any_section_refuses_the_whole_piece_even_when_approved() {
     for who in ALL {
         approve(&record, &set, &mut approvals, who);
     }
-    assert!(assemble(&record, &set, &approvals, &ALL, DATE).is_ok());
+    assert!(assemble(
+        &record,
+        None,
+        &set,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &approvals,
+        &ALL,
+        DATE
+    )
+    .is_ok());
 }
 
 #[test]
@@ -360,7 +491,16 @@ fn markup_that_only_the_joined_page_would_make_active_or_different_is_refused() 
             approve(&record, &set, &mut approvals, who);
         }
         assert_eq!(
-            assemble(&record, &set, &approvals, &ALL, DATE),
+            assemble(
+                &record,
+                None,
+                &set,
+                &SynthesisSet::new(),
+                &MomentSet::new(),
+                &approvals,
+                &ALL,
+                DATE
+            ),
             Err(AssemblyError::UnsafeMarkup),
             "{ann:?} / {bo:?}"
         );
@@ -371,5 +511,247 @@ fn markup_that_only_the_joined_page_would_make_active_or_different_is_refused() 
     for who in ALL {
         approve(&record, &set, &mut approvals, who);
     }
-    assert!(assemble(&record, &set, &approvals, &ALL, DATE).is_ok());
+    assert!(assemble(
+        &record,
+        None,
+        &set,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &approvals,
+        &ALL,
+        DATE
+    )
+    .is_ok());
+}
+
+// ---- Shared synthesis through the real gate (ADR 0025) ----
+
+fn approve_with(
+    record: &SharedPublication,
+    set: &DraftSet,
+    synthesis: &SynthesisSet,
+    approvals: &mut ApprovalSet,
+    who: &str,
+) {
+    let seen = with_subject(
+        record,
+        None,
+        set,
+        synthesis,
+        &MomentSet::new(),
+        &ALL,
+        |subject| approvals.binding_for(subject, who).unwrap(),
+    );
+    with_subject(
+        record,
+        None,
+        set,
+        synthesis,
+        &MomentSet::new(),
+        &ALL,
+        |subject| approvals.approve(who, who, subject, &seen, true, T),
+    )
+    .unwrap();
+}
+
+fn whole_piece_contributing() -> ApprovalSet {
+    let mut approvals = ApprovalSet::new();
+    approvals.set_policy(openblog_core::approval::ApprovalPolicy {
+        requirement: openblog_core::approval::ApprovalRequirement::ContributingAuthors,
+        scope: openblog_core::approval::ApprovalScope::WholePiece,
+    });
+    approvals
+}
+
+fn note(synthesis: &mut SynthesisSet, requester: &str, text: &str, others: &[&str]) -> String {
+    let revision = synthesis.revision();
+    synthesis
+        .add(
+            requester,
+            &ALL,
+            revision,
+            openblog_core::synthesis::NewSynthesisItem {
+                kind: openblog_core::synthesis::SynthesisKind::Agreement,
+                markdown: text,
+                others,
+            },
+        )
+        .unwrap()
+}
+
+#[test]
+fn a_synthesis_edit_makes_a_standing_whole_piece_approval_stale_at_the_gate() {
+    let record = record();
+    let set = drafts(&[("ann", "Ann words"), ("bo", "Bo words")]);
+    let mut synthesis = SynthesisSet::new();
+    let id = note(&mut synthesis, "ann", "We both noticed the light.", &["bo"]);
+    // Cy is not named and wrote nothing, so under this policy Cy is not required.
+    let mut approvals = whole_piece_contributing();
+    for who in ["ann", "bo"] {
+        approve_with(&record, &set, &synthesis, &mut approvals, who);
+    }
+    // The pieces approve, but the item itself still awaits each author's own item approval.
+    assert!(matches!(
+        assemble(&record, None, &set, &synthesis, &MomentSet::new(), &approvals, &ALL, DATE),
+        Err(AssemblyError::Blocked { missing }) if missing == ["Ann", "Bo"]
+    ));
+    for who in ["ann", "bo"] {
+        let revision = synthesis.revision();
+        synthesis.approve_item(who, &ALL, revision, &id).unwrap();
+    }
+    // Item approval changes the set revision but not the binding frame (no prose, no approvals).
+    assert!(assemble(
+        &record,
+        None,
+        &set,
+        &synthesis,
+        &MomentSet::new(),
+        &approvals,
+        &ALL,
+        DATE
+    )
+    .is_ok());
+
+    let revision = synthesis.revision();
+    synthesis
+        .edit(
+            "ann",
+            &ALL,
+            revision,
+            &id,
+            openblog_core::synthesis::SynthesisEdit {
+                markdown: Some("We both noticed the shadows."),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    for who in ["ann", "bo"] {
+        let revision = synthesis.revision();
+        synthesis.approve_item(who, &ALL, revision, &id).unwrap();
+    }
+    // Every item is approved again, yet the standing whole-piece approvals are stale.
+    assert!(openblog_core::assembly::unapproved_item_authors(&synthesis).is_empty());
+    assert!(matches!(
+        assemble(&record, None, &set, &synthesis, &MomentSet::new(), &approvals, &ALL, DATE),
+        Err(AssemblyError::Blocked { missing }) if missing == ["Ann", "Bo"]
+    ));
+    // Re-approving the changed piece publishes.
+    for who in ["ann", "bo"] {
+        approve_with(&record, &set, &synthesis, &mut approvals, who);
+    }
+    assert!(assemble(
+        &record,
+        None,
+        &set,
+        &synthesis,
+        &MomentSet::new(),
+        &approvals,
+        &ALL,
+        DATE
+    )
+    .is_ok());
+}
+
+#[test]
+fn a_named_author_who_has_not_approved_blocks_publishing_even_without_a_section() {
+    let record = record();
+    let set = drafts(&[("ann", "Ann words")]);
+    let mut synthesis = SynthesisSet::new();
+    let id = note(&mut synthesis, "ann", "Cy sees it differently.", &["cy"]);
+    let mut approvals = whole_piece_contributing();
+    approve_with(&record, &set, &synthesis, &mut approvals, "ann");
+    // Cy wrote nothing so the policy alone would not require Cy; being named does.
+    assert!(matches!(
+        assemble(&record, None, &set, &synthesis, &MomentSet::new(), &approvals, &ALL, DATE),
+        Err(AssemblyError::Blocked { missing }) if missing == ["Cy"]
+    ));
+    approve_with(&record, &set, &synthesis, &mut approvals, "cy");
+    // Both authors still owe the item itself.
+    assert!(assemble(
+        &record,
+        None,
+        &set,
+        &synthesis,
+        &MomentSet::new(),
+        &approvals,
+        &ALL,
+        DATE
+    )
+    .is_err());
+    for who in ["ann", "cy"] {
+        let revision = synthesis.revision();
+        synthesis.approve_item(who, &ALL, revision, &id).unwrap();
+    }
+    assert!(assemble(
+        &record,
+        None,
+        &set,
+        &synthesis,
+        &MomentSet::new(),
+        &approvals,
+        &ALL,
+        DATE
+    )
+    .is_ok());
+}
+
+#[test]
+fn unapproved_synthesis_prose_never_reaches_the_assembled_post() {
+    let record = record();
+    let set = drafts(&[("ann", "Ann words")]);
+    let mut synthesis = SynthesisSet::new();
+    note(&mut synthesis, "ann", "UNAPPROVED-SYNTHESIS-PROSE", &[]);
+    let mut approvals = ApprovalSet::new();
+    for who in ALL {
+        approve_with(&record, &set, &synthesis, &mut approvals, who);
+    }
+    match assemble(
+        &record,
+        None,
+        &set,
+        &synthesis,
+        &MomentSet::new(),
+        &approvals,
+        &ALL,
+        DATE,
+    ) {
+        Ok(made) => {
+            assert!(!made.source.contains("UNAPPROVED") && !made.credits.contains("UNAPPROVED"))
+        }
+        Err(error) => assert!(!format!("{error:?}").contains("UNAPPROVED")),
+    }
+}
+
+#[test]
+fn the_preview_shows_who_approved_each_item_and_is_ready_only_when_all_have() {
+    let record = record();
+    let set = drafts(&[("ann", "Ann words"), ("bo", "Bo words")]);
+    let mut synthesis = SynthesisSet::new();
+    let id = note(&mut synthesis, "ann", "Shared **point**.", &["bo"]);
+    let revision = synthesis.revision();
+    synthesis.approve_item("ann", &ALL, revision, &id).unwrap();
+    let mut approvals = ApprovalSet::new();
+    for who in ALL {
+        approve_with(&record, &set, &synthesis, &mut approvals, who);
+    }
+    let shown = preview(
+        &record,
+        None,
+        &set,
+        &synthesis,
+        &MomentSet::new(),
+        &approvals,
+        "cy",
+        &ALL,
+        true,
+        SiteConfig::default().render_options(),
+    )
+    .unwrap();
+    assert_eq!(shown.items.len(), 1);
+    assert_eq!(shown.items[0].approved, ["Ann"]);
+    assert_eq!(shown.items[0].awaiting, ["Bo"]);
+    assert!(!shown.items[0].mine);
+    assert!(!shown.ready);
+    assert!(shown.document.contains("Approved by: Ann. Awaiting: Bo."));
+    assert!(shown.document.contains("<strong>point</strong>"));
 }

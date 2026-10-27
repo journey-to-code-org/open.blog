@@ -428,3 +428,110 @@ fn site_model_audits_page_and_series_markdown_too() {
         .iter()
         .all(|finding| finding.code == FindingCode::LinkNameEmpty));
 }
+
+#[test]
+fn a_reflection_arrangement_frame_is_not_custom_markup_but_stray_html_still_is() {
+    use openblog_core::reflection::{compose, ComposedTurn, Placement, ReflectionLayout};
+    let names = ["Ann", "Bo", "Cy"];
+    let turns = names
+        .iter()
+        .enumerate()
+        .map(|(i, name)| ComposedTurn {
+            round: 0,
+            round_prompt: (i == 0).then_some("Around the table"),
+            display_name: name,
+            label: None,
+            placement: Placement { lane: i, lanes: 3 },
+            body: format!("Words of {name}.\n"),
+        })
+        .collect::<Vec<_>>();
+    let framed = compose(ReflectionLayout::Roundtable, &turns);
+    let audit = |markdown: &str| {
+        audit_document(DocumentAuditInput {
+            path: "posts/shared-0a1b2c3d4e5f.md",
+            markdown,
+            body_line: 1,
+            embeds_enabled: true,
+            cover_alt: None,
+        })
+    };
+    assert!(audit(&framed).is_empty(), "{:?}", audit(&framed));
+    // Anything outside the closed grammar is not the frame, so it is reviewed as before.
+    let stray = format!("{framed}\n<div onclick=\"x()\">Mine</div>\n");
+    let findings = audit(&stray);
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].code, FindingCode::RawHtmlReview);
+}
+
+fn moments_block() -> String {
+    use openblog_core::published_moment::{
+        block_markdown, PublicMoment, PublicMomentLink, PublicQuotation,
+    };
+    block_markdown(&[PublicMoment {
+        location: "The Art of Noticing (Video), from 1:02 to 1:10".into(),
+        noted_by: "Ann".into(),
+        quotation: Some(PublicQuotation {
+            text: "Look again".into(),
+            language: Some("fr".into()),
+            attribution: "The host, in The Art of Noticing (Video), from 1:02 to 1:10".into(),
+        }),
+        observation: Some("I *noticed* [this](https://example.org/a).".into()),
+        link: Some(PublicMomentLink {
+            href: "https://www.youtube.com/watch?v=abcdefghijk&t=62s".into(),
+            label: "Open The Art of Noticing at 1:02".into(),
+        }),
+    }])
+}
+
+fn audit_shared(markdown: &str) -> Vec<openblog_core::accessibility::AccessibilityFinding> {
+    audit_document(DocumentAuditInput {
+        path: "posts/shared-0a1b2c3d4e5f.md",
+        markdown,
+        body_line: 1,
+        embeds_enabled: true,
+        cover_alt: None,
+    })
+}
+
+#[test]
+fn a_moments_frame_is_not_custom_markup_but_stray_html_before_it_still_is() {
+    let body = format!("Ann words.\n\n---\n\n{}", moments_block());
+    assert!(audit_shared(&body).is_empty(), "{:?}", audit_shared(&body));
+    let stray = format!(
+        "Ann <b onclick=\"x()\">words</b>.\n\n---\n\n{}",
+        moments_block()
+    );
+    let findings = audit_shared(&stray);
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].code, FindingCode::RawHtmlReview);
+    assert_eq!(findings[0].source.line(), Some(1));
+}
+
+#[test]
+fn an_arranged_reflection_with_a_conversation_and_moments_keeps_its_exemption() {
+    use openblog_core::reflection::{compose, ComposedTurn, Placement, ReflectionLayout};
+    let names = ["Ann", "Bo"];
+    let turns = names
+        .iter()
+        .enumerate()
+        .map(|(i, name)| ComposedTurn {
+            round: 0,
+            round_prompt: None,
+            display_name: name,
+            label: None,
+            placement: Placement { lane: i, lanes: 2 },
+            body: format!("Words of {name}.\n"),
+        })
+        .collect::<Vec<_>>();
+    let framed = compose(ReflectionLayout::Roundtable, &turns);
+    let body = format!(
+        "{framed}\n\n---\n\n## Conversation\n\nAnn: a reply.\n\n---\n\n{}",
+        moments_block()
+    );
+    assert!(audit_shared(&body).is_empty(), "{:?}", audit_shared(&body));
+    // HTML in the conversation, before the moments, is still reviewed.
+    let stray = body.replace("a reply.", "a <span>reply</span>.");
+    let findings = audit_shared(&stray);
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].code, FindingCode::RawHtmlReview);
+}

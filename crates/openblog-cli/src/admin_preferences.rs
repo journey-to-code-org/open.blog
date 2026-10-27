@@ -9,13 +9,15 @@ pub const SCHEMA_VERSION: u32 = 1;
 pub const MAX_FILE_BYTES: usize = 64 * 1024;
 /// Largest accepted `PUT /admin/api/preferences` body.
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
-pub const OPTIONAL_MODULES: [&str; 10] = [
+pub const OPTIONAL_MODULES: [&str; 11] = [
     "social",
     "release",
     "field",
     "optimize",
     "accessibility",
     "evidence",
+    // The research workspace's place in the main navigation (ADR 0120).
+    "research",
     "assistant",
     "analytics",
     "contributors",
@@ -108,7 +110,11 @@ impl Preferences {
     /// Stored preferences written by another release may name modules this
     /// release does not know or omit ones it added. Unknown and repeated names
     /// are dropped and missing modules are appended, so every tool stays reachable.
+    /// Preferences saved before the research workspace existed showed research
+    /// only with Evidence Studio, so a layout that hid Evidence Studio keeps the
+    /// research workspace hidden too (ADR 0120).
     fn migrate_modules(mut self) -> Self {
+        let knew_research = self.module_order.iter().any(|module| module == "research");
         let mut order: Vec<String> = Vec::with_capacity(OPTIONAL_MODULES.len());
         for module in self.module_order.drain(..) {
             if OPTIONAL_MODULES.contains(&module.as_str()) && !order.contains(&module) {
@@ -126,6 +132,12 @@ impl Preferences {
             if OPTIONAL_MODULES.contains(&module.as_str()) && !hidden.contains(&module) {
                 hidden.push(module);
             }
+        }
+        if !knew_research
+            && hidden.iter().any(|module| module == "evidence")
+            && !hidden.iter().any(|module| module == "research")
+        {
+            hidden.push("research".into());
         }
         self.hidden_modules = hidden;
         self
@@ -290,7 +302,7 @@ pub fn save(
         file.write_all(&bytes)?;
         file.sync_all()?;
         drop(file);
-        fs::rename(&temporary, &path)?;
+        crate::fsutil::replace_file(&temporary, &path)?;
         Ok(())
     })();
     if let Err(error) = write_result {
@@ -432,6 +444,73 @@ mod tests {
             vec!["social".to_string()]
         );
         loaded.preferences.validate().unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn preferences_saved_before_the_research_workspace_gain_it_at_the_end_hidden_with_evidence() {
+        let root = fixture("research-module");
+        let path = preference_path(&root, "alice").unwrap();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            br#"{"schemaVersion":1,"preset":"custom","density":"comfortable","editorMode":"visual",
+            "moduleOrder":["social","release","field","optimize","accessibility","evidence",
+            "assistant","analytics","contributors","public-site"],"hiddenModules":["evidence"]}"#,
+        )
+        .unwrap();
+        let loaded = load(&root, "alice").unwrap();
+        assert_eq!(
+            loaded.preferences.module_order.last().map(String::as_str),
+            Some("research")
+        );
+        // Research used to show only with Evidence Studio, so hiding one kept hiding the other.
+        assert_eq!(
+            loaded.preferences.hidden_modules,
+            vec!["evidence".to_string(), "research".to_string()]
+        );
+        loaded.preferences.validate().unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn preferences_saved_before_the_research_workspace_show_it_when_evidence_was_shown() {
+        let root = fixture("research-module-shown");
+        let path = preference_path(&root, "alice").unwrap();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            br#"{"schemaVersion":1,"preset":"custom","density":"comfortable","editorMode":"visual",
+            "moduleOrder":["social","release","field","optimize","accessibility","evidence",
+            "assistant","analytics","contributors","public-site"],"hiddenModules":["social"]}"#,
+        )
+        .unwrap();
+        let loaded = load(&root, "alice").unwrap();
+        assert_eq!(
+            loaded.preferences.hidden_modules,
+            vec!["social".to_string()]
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn preferences_that_know_the_research_workspace_keep_it_as_chosen() {
+        let root = fixture("research-module-known");
+        let path = preference_path(&root, "alice").unwrap();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            br#"{"schemaVersion":1,"preset":"custom","density":"comfortable","editorMode":"visual",
+            "moduleOrder":["social","release","field","optimize","accessibility","evidence",
+            "research","assistant","analytics","contributors","public-site"],
+            "hiddenModules":["evidence"]}"#,
+        )
+        .unwrap();
+        let loaded = load(&root, "alice").unwrap();
+        assert_eq!(
+            loaded.preferences.hidden_modules,
+            vec!["evidence".to_string()]
+        );
         fs::remove_dir_all(root).unwrap();
     }
 

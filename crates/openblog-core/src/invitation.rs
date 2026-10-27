@@ -16,6 +16,7 @@ use crate::collaboration::{
     AuthorizationAction, AuthorizationRole, AuthorizationTarget, IdentityBinding, Participant,
     SharedPublication, MAX_DISPLAY_NAME_BYTES, MAX_PARTICIPANTS,
 };
+use crate::members::AuditEvent;
 
 pub const MAX_INVITATIONS: usize = 100;
 pub const DEFAULT_INVITATION_LIFETIME_DAYS: u32 = 7;
@@ -288,6 +289,14 @@ impl SharedPublication {
         let mut next = self.clone();
         sweep(&mut next.invitations, now);
         let token = next.add_invitation(&invited_by, identities, new, now)?;
+        next.record_audit(
+            now,
+            &invited_by,
+            AuditEvent::Invited,
+            &new.id,
+            &[],
+            &new.roles,
+        );
         next.checked().map(|next| (next, token))
     }
 
@@ -406,6 +415,7 @@ impl SharedPublication {
         now: i64,
     ) -> Result<Self, InvitationError> {
         let inviter = self.inviter(requester, identities)?;
+        let actor = inviter.participant_id.clone();
         let mut next = self.clone();
         sweep(&mut next.invitations, now);
         let invitation = next
@@ -422,6 +432,8 @@ impl SharedPublication {
         invitation.state = InvitationState::Revoked;
         invitation.token_hash = None;
         invitation.resolved_at = Some(now);
+        let (id, roles) = (invitation.id.clone(), invitation.roles.clone());
+        next.record_audit(now, &actor, AuditEvent::InvitationRevoked, &id, &roles, &[]);
         next.checked()
     }
 
@@ -450,7 +462,9 @@ impl SharedPublication {
         if !Self::may_grant(inviter, &old.roles) {
             return Err(InvitationError::Denied);
         }
-        if old.state == InvitationState::Pending {
+        let revoked =
+            (old.state == InvitationState::Pending).then(|| (old.id.clone(), old.roles.clone()));
+        if revoked.is_some() {
             old.state = InvitationState::Revoked;
             old.token_hash = None;
             old.resolved_at = Some(now);
@@ -462,6 +476,24 @@ impl SharedPublication {
             ..replacement.clone()
         };
         let token = next.add_invitation(&invited_by, identities, &new, now)?;
+        if let Some((id, roles)) = revoked {
+            next.record_audit(
+                now,
+                &invited_by,
+                AuditEvent::InvitationRevoked,
+                &id,
+                &roles,
+                &[],
+            );
+        }
+        next.record_audit(
+            now,
+            &invited_by,
+            AuditEvent::Invited,
+            &new.id,
+            &[],
+            &new.roles,
+        );
         next.checked().map(|next| (next, token))
     }
 
@@ -539,6 +571,14 @@ impl SharedPublication {
             profile_url: None,
         });
         next.collaboration.revision = next.collaboration.revision.saturating_add(1);
+        let joined = next
+            .authorization
+            .bindings
+            .last()
+            .map(|binding| (binding.participant_id.clone(), binding.roles.clone()));
+        if let Some((id, roles)) = joined {
+            next.record_audit(now, &id, AuditEvent::Joined, &id, &[], &roles);
+        }
         next.checked().map_err(|_| InvitationError::Unavailable)
     }
 

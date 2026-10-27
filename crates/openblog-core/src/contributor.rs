@@ -125,6 +125,10 @@ pub fn role_catalog() -> Vec<CreditRole> {
         .collect()
 }
 
+/// The contributor id of a legacy post's default credit, which comes from the site author in
+/// `openblog.json` rather than from the contributor registry.
+pub const SITE_AUTHOR_ID: &str = "site-author";
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResolvedCredit {
     pub contributor_id: String,
@@ -204,7 +208,7 @@ pub fn resolve(
         };
         return Ok((
             vec![ResolvedCredit {
-                contributor_id: "site-author".into(),
+                contributor_id: SITE_AUTHOR_ID.into(),
                 contributor,
                 roles: vec![CreditRole {
                     vocabulary: RoleVocabulary::Crossref,
@@ -275,6 +279,19 @@ pub fn resolve(
         });
     }
     Ok((resolved, CreditProvenance::ExplicitSidecar))
+}
+
+/// The contributor registry keys of a credits sidecar, in the order it lists
+/// them, or `None` when it is not a readable version 1 sidecar. A sidecar is
+/// committed with the post, so this needs no private record and no registry.
+pub fn credited_ids(sidecar: &str) -> Option<Vec<String>> {
+    let file: CreditFile = serde_json::from_str(sidecar).ok()?;
+    (file.version == 1).then(|| {
+        file.credits
+            .into_iter()
+            .map(|credit| credit.contributor)
+            .collect()
+    })
 }
 
 /// The ordered, escaped "Contributions" list: each credited name (linked through

@@ -24,8 +24,11 @@ pub const MAX_AUTHORIZATION_POLICY_BYTES: usize = 64 * 1024;
 pub const MAX_AUTHORIZATION_BINDINGS: usize = MAX_PARTICIPANTS;
 pub const MAX_ADMIN_USERNAME_BYTES: usize = 32;
 pub const SHARED_PUBLICATION_VERSION: u8 = 1;
-pub const MAX_SHARED_PUBLICATION_BYTES: usize =
-    MAX_CONTRACT_BYTES + MAX_AUTHORIZATION_POLICY_BYTES + 192 * 1024;
+/// The largest stored record that loads. It sits above the pretty-printed text of a record at
+/// every other bound at once (a full group with the longest names and keys, every source, every
+/// invitation and a full audit trail, about 600 KiB), so ordinary use can never write a record
+/// that no longer loads; the store also refuses to write anything larger (#188).
+pub const MAX_SHARED_PUBLICATION_BYTES: usize = 1024 * 1024;
 pub const MAX_SOURCES: usize = 20;
 pub const MAX_PUBLICATION_TITLE_BYTES: usize = 300;
 pub const MAX_GUIDING_QUESTION_BYTES: usize = 1_000;
@@ -143,9 +146,31 @@ pub enum AuthorizationAction {
     /// Contributors and Editors hold it, and only for themselves: revealed drafts are read
     /// through `DraftSet::view`, never through this grant.
     EditDraft,
+    /// Read and change the shared synthesis items (ADR 0025) as the requester's own participant:
+    /// add, edit, withdraw from, reorder and approve items. Targets the requester's own
+    /// participant. Only Contributors hold it, and only for themselves, because a named author
+    /// must be able to approve the piece, which Editors cannot.
+    EditSynthesis,
+    /// Answer a reader's Third Perspective as the author of one attributed section (ADR 0128).
+    /// Targets the author's own participant. Only Contributors hold it, and only for themselves:
+    /// a coordinator or site owner moderates the response but never writes as another author,
+    /// and a contributor registry key or an Editor binding grants nothing here.
+    RespondAsAuthor,
+    /// Capture, edit and remove the requester's own media moments (ADR 0062 to 0064), and read
+    /// the moments other authors revealed with a draft. Targets the requester's own participant.
+    /// Only Contributors hold it, and only for themselves: a moment proposed for the piece makes
+    /// its owner a required approver, which an Editor cannot be.
+    EditMoments,
     /// Choose how contribution drafts may be revealed. Targets the publication. Coordinators and
     /// site owners hold it; it reveals nothing and reads no draft.
     SetRevealPolicy,
+    /// Choose whose approval publication needs and what an approval covers (ADR 0052). Targets
+    /// the publication. Coordinators and site owners hold it; it reads no draft, never approves
+    /// for anyone, and a real change clears every standing approval.
+    SetApprovalPolicy,
+    /// Choose a shared reflection's layout and arrangement (ADR 0031). Targets the publication.
+    /// Coordinators and site owners hold it; it reads no draft and changes no prose.
+    ArrangeReflection,
     /// Start an invitation into the publication. Targets the publication.
     Invite,
     /// Reveal one's own contribution draft. Targets a contribution.
@@ -166,6 +191,14 @@ pub enum AuthorizationAction {
     /// Export the published projection, never private collaboration state. Targets the
     /// publication.
     Export,
+    /// Set, change or remove the publication's series placement (ADR 0038, ADR 0039). Targets
+    /// the publication. An arrangement decision, so Site owners and Coordinators hold it and
+    /// participants do not; authors consent to the placement through approval.
+    PlaceInSeries,
+    /// Create a new series definition (`content/series/<slug>.md`: name and premise) from this
+    /// publication's Admin view. Targets the publication. Series are site-owned, so only Site
+    /// owners hold it (ADR 0039).
+    CreateSeries,
 }
 
 /// What a request acts on. Participant and contribution IDs come from the request and resolve
@@ -236,9 +269,12 @@ impl AuthorizationAction {
     fn target_kind(self) -> TargetKind {
         use AuthorizationAction::*;
         match self {
-            ViewPublication | ViewPublished | Invite | SetRevealPolicy | Schedule | Publish
-            | Export => TargetKind::Publication,
-            ApproveContribution | EditDraft | RemoveMember | ManageRoles => TargetKind::Participant,
+            ViewPublication | ViewPublished | Invite | SetRevealPolicy | SetApprovalPolicy
+            | ArrangeReflection | Schedule | Publish | Export | PlaceInSeries | CreateSeries => {
+                TargetKind::Publication
+            }
+            ApproveContribution | EditDraft | EditSynthesis | EditMoments | RespondAsAuthor
+            | RemoveMember | ManageRoles => TargetKind::Participant,
             ViewRevealed | ViewContribution | EditContribution | RevealContribution => {
                 TargetKind::Contribution
             }
@@ -539,7 +575,13 @@ fn role_allows(
                 ..
             },
         ) => *revealed_to_requester,
-        (SiteOwner | Coordinator, Invite | SetRevealPolicy | Schedule | Publish, _) => true,
+        (
+            SiteOwner | Coordinator,
+            Invite | SetRevealPolicy | SetApprovalPolicy | ArrangeReflection | Schedule | Publish
+            | PlaceInSeries,
+            _,
+        ) => true,
+        (SiteOwner, CreateSeries, _) => true,
         (
             SiteOwner,
             RemoveMember,
@@ -559,7 +601,11 @@ fn role_allows(
             ResolvedTarget::Contribution { owner, .. },
         ) => *owner == own,
         (Contributor | Editor, EditDraft, ResolvedTarget::Participant { id, .. }) => *id == own,
-        (Contributor, ApproveContribution, ResolvedTarget::Participant { id, .. }) => *id == own,
+        (
+            Contributor,
+            ApproveContribution | EditSynthesis | EditMoments | RespondAsAuthor,
+            ResolvedTarget::Participant { id, .. },
+        ) => *id == own,
         (
             Editor,
             ViewContribution | EditContribution,
@@ -713,6 +759,16 @@ pub struct SharedPublication {
     /// participant, the binding, and the invitation outcome in one atomic write.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub invitations: Vec<crate::invitation::Invitation>,
+    /// Who changed membership and when (ADR 0051). Absent in records written before it existed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub audit: Vec<crate::members::AuditEntry>,
+    /// The ordinary series this publication joins (ADR 0038). Absent for every legacy record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub series: Option<crate::shared_series::SeriesPlacement>,
+    /// Counts placement changes, so a change made against an older read is refused (ADR 0039).
+    /// Zero, and absent from the file, until the first change.
+    #[serde(default, skip_serializing_if = "crate::shared_series::is_zero")]
+    pub series_revision: u64,
 }
 
 /// Author-entered attribution for material that prompted a shared publication. It is not a
@@ -967,6 +1023,9 @@ impl SharedPublication {
                 }],
             },
             invitations: Vec::new(),
+            audit: Vec::new(),
+            series: None,
+            series_revision: 0,
         };
         record.validate()?;
         Ok(record)
@@ -1064,7 +1123,8 @@ impl SharedPublication {
         {
             return Err(SharedPublicationError::InvalidRecord);
         }
-        if !crate::invitation::valid_invitations(self) {
+        if !crate::invitation::valid_invitations(self) || !crate::members::valid_audit(&self.audit)
+        {
             return Err(SharedPublicationError::InvalidRecord);
         }
         if self.title.is_none() && self.guiding_question.is_none() {
@@ -1083,6 +1143,13 @@ impl SharedPublication {
             .is_some_and(|question| !valid_text(question, MAX_GUIDING_QUESTION_BYTES))
         {
             return Err(SharedPublicationError::GuidingQuestion);
+        }
+        if self
+            .series
+            .as_ref()
+            .is_some_and(|placement| placement.validate().is_err())
+        {
+            return Err(SharedPublicationError::InvalidRecord);
         }
         if self.sources.is_empty() {
             return Err(SharedPublicationError::NoSources);
@@ -1256,7 +1323,7 @@ fn is_line_break(character: char) -> bool {
 /// Default_Ignorable_Code_Point plus blank-rendering fillers. These remain allowed inside a
 /// name, where joiners, variation selectors, and emoji tags are legitimate, but a name made only
 /// of them would render as nobody.
-fn is_invisible(character: char) -> bool {
+pub(crate) fn is_invisible(character: char) -> bool {
     matches!(
         character,
         '\u{00AD}'

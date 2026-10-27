@@ -49,8 +49,8 @@ the main navigation focused on content and the essential **Write**, **Site previ
 and the header's **Advanced tools** dialog groups every optional tool by goal: getting
 writing help (the optional AI Assistant, including knowledge checks and runnable-code
 proposals), checking quality and research, sharing and distribution, and collaboration and
-readership. **Guided** adds Accessibility, Evidence Studio, and Assistant to the editor bar,
-**Advanced** shows everything, and **Custom** lets you show or hide each optional tool. In
+readership. **Guided** adds Accessibility, Evidence Studio, and Assistant to the editor bar
+and the Research workspace to the main navigation, **Advanced** shows everything, and **Custom** lets you show or hide each optional tool. In
 every preset you can reorder optional tools with the up and down buttons, choose comfortable
 or compact spacing, pick a default Visual or Markdown writing mode, and **Restore defaults**.
 Open **Personalize** from the header, from Advanced tools, or by searching for
@@ -238,6 +238,157 @@ protected block visually, or choose **Edit in Markdown** to change its exact sou
 boundary prevents an ordinary visual edit from flattening syntax the visual editor cannot
 represent safely.
 
+### Cite a source while writing
+
+In a post, choose **Cite** in the Write toolbar to insert a citation at the caret in either mode.
+Search the source library by title, creator, identifier or key, choose a source, and add
+optional locators one per line (`page: 514`, `canonical: 514a to 520a`). **Start from a notebook
+passage** copies a passage's source and locators, never its quotation or notes. Insert asks the
+server to check the citation with the same parser and resolver a build uses, then writes
+`[@key, page 514]` into the Markdown. If the library changed since the dialog opened, nothing is
+inserted and the refreshed sources are shown with your choices kept.
+
+In Visual mode each citation, generated or hand-written, is a chip that keeps its exact Markdown.
+Click a chip, or focus it and press Enter, to edit it; in Markdown mode, place the caret inside a
+citation and choose **Cite**. Press Ctrl+Z or **Undo citation** right after inserting to restore
+the draft and caret exactly. Escape closes the dialog without changing anything. See
+[Citation format](specs/citations.md).
+
+### Insert research from beside the draft
+
+In a post, choose **Research** in the Write toolbar to open your research beside the draft (below
+it on narrow screens). The draft stays editable. Search passages, sources, Knowledge Atlas entries,
+comparisons and interpretations; choose **Show → My private notes** to see your notes, which are
+never listed otherwise. Choose an item to see what it would insert:
+
+- **Insert quotation with citation** puts the passage's wording, exactly as stored, in a block
+  quote after the paragraph you are in, followed by its citation, checked by the server like the
+  Cite dialog. Notes linked to the passage are never inserted. If you have not stated the
+  version's rights, or state that it is under copyright, confirm that you have read the rights
+  statement first; the statement is yours and is not permission.
+- **Insert citation** on a source writes only its key and the locators you enter.
+- **Insert link to this entry** (or to a comparison, or a published dating's words) appears only
+  once the next build publishes that page: the entry or comparison is approved and the site
+  publishes its atlas (`knowledgeAtlas.publish`) or comparisons (`comparisons.publish`).
+  Otherwise the item says what is missing. Interpretations are never inserted; link the published
+  comparison that shows one, or cite the source it interprets.
+- A private note goes in only through **Convert to draft text…** and a confirmation that it
+  becomes part of the post, as your own words.
+
+Insertions work in Visual and Markdown modes and never land inside code, HTML or a link. Press
+Ctrl+Z, or the **Undo** button named for what you inserted, to restore the draft exactly. If
+something cannot be inserted, the item says why and the draft is unchanged; nothing is written to
+your research files. Escape closes the panel. Each item links to its full panel in the research
+workspace, which keeps your unsaved draft. See
+[ADR 0122](adr/0122-the-draft-side-research-panel-inserts-only-checked-and-published-research.md).
+
+### Choose what readers are given beside a post
+
+The Research panel's **Selected for readers** section is where you choose which already-public
+research context readers are given beside this post, and see exactly what they will get. Choose
+**Select for readers** on a source, an atlas entry, one of its datings or relationships, or a
+comparison; the button is offered only when the build already publishes that item, and otherwise the
+item says it is not selectable (selecting never approves research). Pick the fields you want beyond
+the ones that always travel with it (who asserts a relationship, how firmly, on what evidence, who
+disputes it), say whether it is for this post only or the whole site, and, for a source, where its
+metadata came from. You can also write a comment on a source or an explanation of an entry, attributed
+to a name you give; it is plain text of up to 1,000 characters.
+
+The section lists what readers of the post get, in your order, and what is withheld and why (withdrawn,
+changed since you selected it, no longer there, not published). Move an item up or down, withdraw it
+with an optional private reason, select it again after you have checked what changed, offer it to this
+post only or the whole site, or unselect it; none of this touches your research. **What readers of this
+post get** shows the public data exactly as pages are built from it, with the caveats that travel with
+it (a competing dating you did not select, a detail the source lacks, metadata whose origin is not
+recorded). Every change names the revision it was based on, so a change made elsewhere reloads the
+section and changes nothing. Everything is reachable from the keyboard, each button names the item it
+acts on, and the section reflows at 320 pixels. Readers see none of it until the site publishes
+curated context (`curatedContext.publish`); then it is a data file and a section on the post's page (the
+[curated context format](specs/curated-context.md)), and a change you make here rebuilds the site you are
+previewing. See
+[ADR 0196](adr/0196-selected-for-readers-lives-in-the-draft-side-research-panel-and-previews-the-public-value.md).
+
+### Move between research and your draft
+
+Sources, the research notebook, the Knowledge Atlas, Compare, and claims form one **Research
+workspace** (`#/research/`). Open it from **Research workspace** in the main navigation (shown in
+Guided and Advanced, and in Custom when you choose it), from **Advanced tools** in any layout, or
+by searching with `Ctrl+K`. Its first panel, **Workflow**, lists the steps from a first source to
+a cited draft and says how far each has come: add a source, capture a passage, relate and compare
+if that helps, then cite it from the draft with **Cite a source**. If the library or notebook
+cannot be read, only its own step says so, with the file to repair; nothing is changed.
+
+The workspace's navigation sits under the page title. It lists the research panels under
+**Private research** and the draft under **Publishable**, and screen readers hear the same label
+with each link. Private research is never public because it exists: a post shows a source's
+reference only when it cites it, and atlas relationships, claim evidence, and comparisons only
+when you approve them. **Claims** opens the draft's Evidence Studio, and **Draft** returns to the
+document you were writing (`Ctrl+K` → **Back to draft** works too).
+
+Switching between the draft and research panels never loses unsaved changes. A panel you leave
+with unsaved changes is kept as it was, marked **Unsaved changes kept**, and reopens exactly as you
+left it, with a short announcement. Panels without unsaved changes reload, so they always show the
+latest files. Admin still asks first, naming where the unsaved work is, before you leave the
+workspace for another page, open a different document while a draft is kept, sign out, or close
+or reload the page. Kept work stays only in this page's memory: it is never saved, stored in the
+browser, or sent anywhere, and signing out discards it. If your session expires instead, the
+unsaved panels wait in the page until you sign in again as the same user; signing in as anyone
+else discards them. A panel that is saving is not kept; Admin asks first. A kept panel saves against the revision
+it read, so if the file changed elsewhere meanwhile you get the usual conflict choice instead of
+an overwrite. The earlier addresses `#/sources`, `#/research`, `#/atlas/<id>`, and
+`#/compare/<id>` open the same panels. See
+[ADR 0120](adr/0120-the-research-workspace-is-one-admin-destination-with-one-route-namespace.md)
+and [ADR 0121](adr/0121-workspace-panels-keep-unsaved-changes-while-another-panel-opens.md).
+
+Every Admin page starts with a **Skip to main content** link, and after you move to another page
+keyboard focus starts at its heading.
+
+### See what will be public
+
+**Research workspace → What will be public** (`#/research/public`) shows exactly what the next
+build publishes of your research, from the same projection the build writes: per projection
+(citations, claims and evidence, the Knowledge Atlas, datings, comparisons), whether its switch is
+on, every item it publishes with the fields it copies, and every item it withholds with the reason
+in words (not approved, an unsourced draft, depends on something private, its post is not
+published, approved before what it rests on changed, and so on). A field of a published item that
+stays private is listed under it, such as a web address on a private network. Each withheld item
+links to where you change it, and **Never published** lists what no projection ever copies.
+**Evidence Studio → What this post makes public** shows the same for the post you are editing,
+unsaved changes included: its cited sources, its claims and evidence links, and the atlas and
+comparison pages it links to. Neither changes any file.
+
+Builds check their output against the same boundary before writing. A page for an item no
+projection publishes, a damaged private file, or text from a private research file inside the
+data generated from your approved research (the atlas, comparisons and claim-evidence JSON, a
+post's citation data) refuses the build, with the file, record and field it came from. The same
+words in any other public file (a page, a feed, the search index, a static, theme or front-end
+file, a portable Markdown export) are only a `boundary:` warning, also shown here, that names the
+output, the private file, the record and the field: the text is in a file you placed or wrote, so
+remove it there or keep it. Saving a comparison does not approve it again when a place moved;
+open it in Compare and choose **Checked - approve again** once you have checked the place. See
+[ADR 0125](adr/0125-one-publication-boundary-previewed-from-and-enforced-on-the-builds-own-projections.md).
+
+### Compare versions of a passage
+
+**Research workspace → Compare** lists your private passage alignments. Open one to read its places in
+each edition, translation, manuscript, or interpretation, side by side or, with **Layout → Single
+column**, one version after another (narrow screens use the same order). Every place shows its
+version, its editor, translator, scribe or interpreters, and its locator. Original wording is
+shown exactly as quoted, in its own language and direction; **Show the author's normalizations**
+adds your normalized form under it, labelled. A version that lacks the passage says **Absent**.
+
+**New alignment** and **Edit alignment** open a form for the label, how the places correspond
+(always phrased as your reading, never "the same"), and the places: a version with a notebook
+passage or locators, a version marked absent, or an interpretation. Reorder places with **Move
+up** and **Move down**. If the alignment changed elsewhere, nothing is saved until you choose
+**Use the stored copy** or **Keep my draft**.
+
+To copy, tick the places you want and choose **Copy selected places** or **Download selected
+places**. Each copied place carries its version, maker, locator, and rights statement. When a
+selected version's rights are not checked or are reserved, confirm that you have read the rights
+statements first; open.blog never decides what you may copy. See
+[Passage alignments format](specs/passage-alignments.md).
+
 ### Test a theme before publishing
 
 The Site preview reports the theme it resolved and renders through the same site model,
@@ -304,8 +455,14 @@ examples, containers, and HTML blocks consistent with the actual build parser. P
 metadata drafts survive profile switches and are included when the document is saved.
 
 Evidence Studio does not score truth, source authority, peer review, methodology, or
-whether a citation supports a claim. Outside the Research profile it explicitly reports
-that the checks are inactive. See [Research posts and Evidence Studio](research-profile.md).
+whether a citation supports a claim. For a post that publishes citations it also lists, as
+separate findings, citations it cannot read or resolve, cited references missing a detail
+readers need (title, creator, date, container, publisher or web address), identifiers left out
+of the notes, and the cited locations only you can check against the source. These checks run
+offline from your source library. **Download cited references** saves the post's references
+as CSL JSON or BibTeX, holding only what its notes show and stating what the format cannot
+carry. Outside the Research profile, a post without citations reports that the checks are
+inactive. See [Research posts and Evidence Studio](research-profile.md).
 
 The **Overview** is the admin home. It summarizes the publishing pipeline, links to quick
 creation flows, shows the size of the content library and recent posts, and surfaces the
@@ -442,6 +599,21 @@ a warning. If your browser cannot copy to the clipboard, select the link and cop
 Everything is reachable by keyboard: **Escape** cancels a confirmation, and results are announced
 to screen readers. The design is recorded in
 [ADR 0015](adr/0015-member-management-separates-access-from-credit.md).
+
+### Putting a shared reflection in a series
+
+Each shared reflection has a **Series** section. Everyone taking part sees which series it will
+join, its position, and the reading order it would have among the parts already published.
+Site owners and coordinators choose an existing series or type a new title, set a position (or
+leave it empty to follow the numbered parts, by date), use **Preview order**, and **Save
+placement**. Choose **Not in a series** and save to remove it. The series and position are shown in
+the combined preview and are part of what every author approves, so saving a change means each
+author approves again. If someone else changed the placement first, your choice stays in the form
+next to the current one and you can save again. Site owners can also **Add a new series** with a
+name and a one-line recurring premise; it is an ordinary series file, not shown to readers until a
+part is published, and other details stay in the Series editor. Once the reflection is published,
+its series is changed in the post like any other. The design is recorded in
+[ADR 0039](adr/0039-arranging-a-shared-reflections-series-in-admin.md).
 
 ## Scheduling
 

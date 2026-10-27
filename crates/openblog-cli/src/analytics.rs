@@ -202,7 +202,8 @@ impl Store {
         }
         let tmp = path.with_extension("json.tmp");
         fs::write(&tmp, text).map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
-        fs::rename(&tmp, path).map_err(|e| format!("cannot replace {}: {e}", path.display()))
+        crate::fsutil::replace_file(&tmp, path)
+            .map_err(|e| format!("cannot replace {}: {e}", path.display()))
     }
 
     /// Persist if anything changed. The server uses `snapshot` + `write_snapshot`

@@ -19,11 +19,12 @@ use blake2::{Blake2b512, Digest};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
+use crate::citations::{public_identifier, PublicReference};
 use crate::contributor::{valid_registry_key, Contributor};
 use crate::research::normalize_doi_url;
 use crate::source_library::{
-    ResearchSourceKind, SourceDiagnostic, SourceDiagnosticCode, SourceLibrary, SourceRecord,
-    MAX_TEXT_CHARS, RECORD_FIELDS,
+    ResearchSourceKind, SourceCreator, SourceDiagnostic, SourceDiagnosticCode, SourceIdentifier,
+    SourceLibrary, SourceRecord, MAX_TEXT_CHARS, RECORD_FIELDS,
 };
 
 /// Upper bound on a CSL JSON import, checked before parsing.
@@ -33,7 +34,7 @@ pub const MAX_IMPORT_ITEMS: usize = 5_000;
 const MAX_ID_BYTES: usize = 64;
 
 /// CSL name variables the library records as creator roles.
-const NAME_ROLES: [&str; 3] = ["author", "editor", "translator"];
+pub(crate) const NAME_ROLES: [&str; 3] = ["author", "editor", "translator"];
 /// Name parts kept on a creator so an export can rebuild the CSL name.
 const NAME_PARTS: [&str; 5] = [
     "family",
@@ -43,7 +44,7 @@ const NAME_PARTS: [&str; 5] = [
     "suffix",
 ];
 /// Identifier schemes with a dedicated CSL variable, in output order.
-const IDENTIFIER_FIELDS: [(&str, &str); 6] = [
+pub(crate) const IDENTIFIER_FIELDS: [(&str, &str); 6] = [
     ("doi", "DOI"),
     ("isbn", "ISBN"),
     ("issn", "ISSN"),
@@ -53,7 +54,7 @@ const IDENTIFIER_FIELDS: [(&str, &str); 6] = [
 ];
 /// CSL variables with no source-library field. Their text or number is kept
 /// verbatim under the record's `csl` field.
-const PRESERVED_FIELDS: &[&str] = &[
+pub(crate) const PRESERVED_FIELDS: &[&str] = &[
     "archive",
     "archive_location",
     "collection-title",
@@ -76,8 +77,8 @@ const PRESERVED_FIELDS: &[&str] = &[
 ];
 /// Private notes never enter the library through an import, so they cannot
 /// reach an export a person shares.
-const NOTE_FIELDS: &[&str] = &["abstract", "annote", "keyword", "note"];
-const CUSTOM_KEYS: [&str; 8] = [
+pub(crate) const NOTE_FIELDS: &[&str] = &["abstract", "annote", "keyword", "note"];
+const CUSTOM_KEYS: [&str; 14] = [
     "openblog-kind",
     "openblog-of",
     "openblog-basedOn",
@@ -86,6 +87,25 @@ const CUSTOM_KEYS: [&str; 8] = [
     "openblog-creators",
     "openblog-identifiers",
     "openblog-extra",
+    "openblog-anonymous",
+    "openblog-revises",
+    "openblog-repository",
+    "openblog-shelfmark",
+    "openblog-volumes",
+    "openblog-rights",
+];
+/// Version provenance fields (ADR 0084, 0085, 0086) that CSL has no variable
+/// for. Each travels verbatim in its own `custom` key, so an export imports
+/// back unchanged. CSL's own `archive`, `archive_location`, and
+/// `number-of-volumes` stay preserved CSL description and are never read as
+/// these fields.
+const PROVENANCE_FIELDS: [(&str, &str); 6] = [
+    ("openblog-anonymous", "anonymous"),
+    ("openblog-revises", "revises"),
+    ("openblog-repository", "repository"),
+    ("openblog-shelfmark", "shelfmark"),
+    ("openblog-volumes", "volumes"),
+    ("openblog-rights", "rights"),
 ];
 /// Strong identifiers that mark two records as the same published thing.
 const DUPLICATE_SCHEMES: [&str; 5] = ["doi", "isbn", "issn", "pmid", "pmcid"];
@@ -342,27 +362,32 @@ pub fn plan_csl_import(
                     ));
                     record = None;
                 } else {
-                    let merged = merge(existing, parsed, &item.provided);
-                    entry.changes = diff(existing, &merged);
-                    entry.kept = kept_fields(existing, &item.provided);
-                    entry.action = if entry.changes.is_empty() {
-                        ImportAction::Unchanged
-                    } else {
-                        ImportAction::Update
-                    };
-                    // Identifiers the update adds must not belong to another record.
-                    let mut added = merged.clone();
-                    added.identifiers.retain(|identifier| {
-                        let key = identifier_key(&identifier.scheme, &identifier.value);
-                        !existing
-                            .identifiers
-                            .iter()
-                            .any(|held| identifier_key(&held.scheme, &held.value) == key)
-                    });
-                    if let Some(other) =
-                        duplicate_identifier(library, &added, id, &mut seen_identifiers)
-                    {
-                        entry.diagnostics.push(problem(
+                    match merge(existing, parsed, &item.provided) {
+                        Err(conflicts) => {
+                            entry.diagnostics.extend(conflicts);
+                            record = None;
+                        }
+                        Ok(merged) => {
+                            entry.changes = diff(existing, &merged);
+                            entry.kept = kept_fields(existing, &item.provided);
+                            entry.action = if entry.changes.is_empty() {
+                                ImportAction::Unchanged
+                            } else {
+                                ImportAction::Update
+                            };
+                            // Identifiers the update adds must not belong to another record.
+                            let mut added = merged.clone();
+                            added.identifiers.retain(|identifier| {
+                                let key = identifier_key(&identifier.scheme, &identifier.value);
+                                !existing
+                                    .identifiers
+                                    .iter()
+                                    .any(|held| identifier_key(&held.scheme, &held.value) == key)
+                            });
+                            if let Some(other) =
+                                duplicate_identifier(library, &added, id, &mut seen_identifiers)
+                            {
+                                entry.diagnostics.push(problem(
                             SourceDiagnosticCode::DuplicateId,
                             Some(id),
                             "identifiers",
@@ -370,13 +395,26 @@ pub fn plan_csl_import(
                                 "shares an identifier with `{other}`; import it under the id `{other}` or remove the duplicate"
                             ),
                         ));
-                        entry.duplicate_of = Some(other);
-                        entry.changes = Vec::new();
-                        record = None;
-                    } else {
-                        record = Some(merged);
+                                entry.duplicate_of = Some(other);
+                                entry.changes = Vec::new();
+                                record = None;
+                            } else {
+                                record = Some(merged);
+                            }
+                        }
                     }
                 }
+            } else if library.interpretation(id).is_some() {
+                // Sources and interpretations share one set of ids (ADR 0087).
+                entry.diagnostics.push(problem(
+                    SourceDiagnosticCode::DuplicateId,
+                    Some(id),
+                    "id",
+                    format!(
+                        "`{id}` is already used by an interpretation; sources and interpretations share one set of ids, so give the item another id"
+                    ),
+                ));
+                record = None;
             } else if let Some(other) =
                 duplicate_identifier(library, parsed, id, &mut seen_identifiers)
             {
@@ -461,7 +499,7 @@ pub fn plan_csl_import(
 /// A stable source identifier for a CSL id: its lowercase ASCII slug, or a
 /// short digest when the id has no usable slug, so distinct non-ASCII ids
 /// never collapse into each other.
-fn derive_id(raw: &str) -> String {
+pub(crate) fn derive_id(raw: &str) -> String {
     if raw.is_ascii() {
         let mut slug = String::new();
         let mut separator = false;
@@ -587,7 +625,10 @@ fn map_item(raw: Value) -> Mapped {
         ("openblog-basedOn", "basedOn"),
         ("openblog-location", "location"),
         ("openblog-archived", "archived"),
-    ] {
+    ]
+    .into_iter()
+    .chain(PROVENANCE_FIELDS)
+    {
         if let Some(value) = custom.remove(custom_key) {
             provided.insert(field.into());
             mapped.object.insert(field.into(), value);
@@ -1127,11 +1168,14 @@ fn date_from_csl(value: &Value, unsupported: &mut Vec<Loss>) -> Result<String, S
 /// Merge an incoming item into the record it matches. Only what the item
 /// states changes; every other field of the existing record stays as it is,
 /// and lists are unioned so an import never removes a creator or identifier.
+/// A creator's attribution or note that differs from the one held is
+/// returned as a conflict instead of being merged.
 fn merge(
     existing: &SourceRecord,
     incoming: &SourceRecord,
     provided: &BTreeSet<String>,
-) -> SourceRecord {
+) -> Result<SourceRecord, Vec<SourceDiagnostic>> {
+    let mut conflicts = Vec::new();
     let mut merged = existing.clone();
     if provided.contains("title") {
         merged.title.clone_from(&incoming.title);
@@ -1154,13 +1198,66 @@ fn merge(
     if provided.contains("archived") {
         merged.archived = incoming.archived;
     }
+    if provided.contains("anonymous") {
+        merged.anonymous = incoming.anonymous;
+    }
+    if provided.contains("revises") {
+        merged.revises.clone_from(&incoming.revises);
+    }
+    if provided.contains("repository") {
+        merged.repository.clone_from(&incoming.repository);
+    }
+    if provided.contains("shelfmark") {
+        merged.shelfmark.clone_from(&incoming.shelfmark);
+    }
+    if provided.contains("volumes") {
+        merged.volumes = incoming.volumes;
+    }
+    if provided.contains("rights") {
+        merged.rights.clone_from(&incoming.rights);
+    }
     for creator in &incoming.creators {
-        let found = merged.creators.iter_mut().find(|held| {
+        let found = merged.creators.iter_mut().enumerate().find(|(_, held)| {
             held.name == creator.name
                 && (held.role == creator.role || held.role.is_none() || creator.role.is_none())
         });
         match found {
-            Some(held) => {
+            Some((position, held)) => {
+                // Attribution certainty and its note are filled in when the
+                // library has none; two different statements are a conflict
+                // for the author to settle, never a silent choice.
+                match (&held.attribution, creator.attribution) {
+                    (None, Some(stated)) => held.attribution = Some(stated),
+                    (Some(kept), Some(stated)) if *kept != stated => {
+                        conflicts.push(problem(
+                            SourceDiagnosticCode::ConflictingAttribution,
+                            Some(&existing.id),
+                            &format!("creators[{position}].attribution"),
+                            format!(
+                                "the library records {} as {} and the item as {}; make them agree before importing",
+                                creator.name,
+                                kept.as_str(),
+                                stated.as_str()
+                            ),
+                        ));
+                    }
+                    _ => {}
+                }
+                match (&held.note, &creator.note) {
+                    (None, Some(note)) => held.note = Some(note.clone()),
+                    (Some(kept), Some(note)) if kept != note => {
+                        conflicts.push(problem(
+                            SourceDiagnosticCode::ConflictingAttribution,
+                            Some(&existing.id),
+                            &format!("creators[{position}].note"),
+                            format!(
+                                "the library and the item give {} different attribution notes; make them agree before importing",
+                                creator.name
+                            ),
+                        ));
+                    }
+                    _ => {}
+                }
                 for (key, value) in &creator.extra {
                     held.extra
                         .entry(key.clone())
@@ -1192,7 +1289,11 @@ fn merge(
             }
         }
     }
-    merged
+    if conflicts.is_empty() {
+        Ok(merged)
+    } else {
+        Err(conflicts)
+    }
 }
 
 /// Identifier comparison key: the same DOI or ISBN written differently
@@ -1375,6 +1476,13 @@ fn csl_item(record: &SourceRecord) -> Value {
     if record.archived {
         custom.insert("openblog-archived".into(), Value::Bool(true));
     }
+    if let Ok(Value::Object(mut fields)) = serde_json::to_value(record) {
+        for (custom_key, field) in PROVENANCE_FIELDS {
+            if let Some(value) = fields.remove(field) {
+                custom.insert(custom_key.into(), value);
+            }
+        }
+    }
     if !creators.is_empty() {
         custom.insert("openblog-creators".into(), Value::Array(creators));
     }
@@ -1422,6 +1530,146 @@ pub fn export_bibtex(library: &SourceLibrary) -> Export {
         content,
         count: library.sources.len(),
         losses,
+    }
+}
+
+/// A post's cited references as CSL JSON, in order of first citation: a
+/// portable bibliography (ADR 0050). Unlike [`export_csl_json`] it is built
+/// only from the public description ([`PublicReference`]) a published post
+/// already shows, so it carries no `custom` envelope, no relationships,
+/// locations, archived flags, unknown fields or private identifiers. What
+/// CSL cannot carry of that description is reported in `losses`.
+pub fn export_cited_csl_json(references: &[PublicReference]) -> Export {
+    let mut losses = Vec::new();
+    let items: Vec<Value> = references
+        .iter()
+        .map(|reference| {
+            let record = public_record(reference);
+            let mut item = csl_item(&record);
+            if let Value::Object(map) = &mut item {
+                map.remove("custom");
+            }
+            let mut lose = |field: String, reason: String| {
+                losses.push(ExportLoss {
+                    source_id: reference.key.clone(),
+                    field,
+                    reason,
+                });
+            };
+            if record.kind != ResearchSourceKind::Work {
+                lose(
+                    "kind".into(),
+                    format!("CSL JSON cannot tell {} from a work", record.kind.as_str()),
+                );
+            }
+            for (position, creator) in reference.creators.iter().enumerate() {
+                let role = creator.role.as_deref().unwrap_or("author");
+                if !NAME_ROLES.contains(&role) {
+                    lose(
+                        format!("creators[{position}]"),
+                        format!("CSL JSON has no name variable for the role `{role}`"),
+                    );
+                }
+            }
+            for (scheme, _) in IDENTIFIER_FIELDS {
+                let count = reference
+                    .identifiers
+                    .iter()
+                    .filter(|(held, _)| held == scheme)
+                    .count();
+                if count > 1 && !matches!(scheme, "isbn" | "issn") {
+                    lose(
+                        "identifiers".into(),
+                        format!("CSL JSON holds one `{scheme}`; the others are omitted"),
+                    );
+                }
+            }
+            item
+        })
+        .collect();
+    let mut content = serde_json::to_string_pretty(&items).unwrap_or_else(|_| "[]".into());
+    content.push('\n');
+    Export {
+        content,
+        count: items.len(),
+        losses,
+    }
+}
+
+/// A post's cited references as BibTeX, in order of first citation and keyed
+/// by source id, built only from their public description like
+/// [`export_cited_csl_json`]. What BibTeX cannot carry is reported in
+/// `losses`.
+pub fn export_cited_bibtex(references: &[PublicReference]) -> Export {
+    let mut content = String::new();
+    let mut losses = Vec::new();
+    for (position, reference) in references.iter().enumerate() {
+        if position > 0 {
+            content.push('\n');
+        }
+        content.push_str(&bibtex_entry(&public_record(reference), &mut losses));
+    }
+    Export {
+        content,
+        count: references.len(),
+        losses,
+    }
+}
+
+/// A record holding exactly a reference's public description, so the library
+/// exporters can write it without ever seeing a private field.
+fn public_record(reference: &PublicReference) -> SourceRecord {
+    let mut extra = BTreeMap::new();
+    if !reference.csl.is_empty() {
+        extra.insert(
+            "csl".into(),
+            Value::Object(
+                reference
+                    .csl
+                    .iter()
+                    .map(|(key, value)| (key.clone(), Value::String(value.clone())))
+                    .collect(),
+            ),
+        );
+    }
+    SourceRecord {
+        id: reference.key.clone(),
+        kind: ResearchSourceKind::parse(reference.kind).unwrap_or(ResearchSourceKind::Work),
+        title: reference.title.clone(),
+        creators: reference
+            .creators
+            .iter()
+            .map(|creator| SourceCreator {
+                name: creator.name.clone(),
+                role: creator.role.clone(),
+                attribution: None,
+                note: None,
+                extra: BTreeMap::new(),
+            })
+            .collect(),
+        language: reference.language.clone(),
+        issued: reference.issued.clone(),
+        of: None,
+        based_on: None,
+        location: None,
+        identifiers: reference
+            .identifiers
+            .iter()
+            .filter(|(scheme, value)| public_identifier(scheme, value))
+            .map(|(scheme, value)| SourceIdentifier {
+                scheme: scheme.clone(),
+                value: value.clone(),
+                extra: BTreeMap::new(),
+            })
+            .collect(),
+        archived: false,
+        anonymous: false,
+        revises: None,
+        repository: None,
+        shelfmark: None,
+        volumes: None,
+        rights: None,
+        extra,
     }
 }
 
@@ -1674,6 +1922,46 @@ fn bibtex_entry(record: &SourceRecord, losses: &mut Vec<ExportLoss>) -> String {
     }
     if record.archived {
         lose("archived", "the archived flag is open.blog's own");
+    }
+    if record.anonymous {
+        lose(
+            "anonymous",
+            "BibTeX cannot say that a source names no maker",
+        );
+    }
+    if record.revises.is_some() {
+        lose(
+            "revises",
+            "BibTeX cannot express which edition this one revises",
+        );
+    }
+    if record.repository.is_some() || record.shelfmark.is_some() {
+        lose(
+            "shelfmark",
+            "BibTeX has no field for a witness's repository and shelfmark",
+        );
+    }
+    if record.volumes.is_some() {
+        lose(
+            "volumes",
+            "the declared number of volumes is open.blog's own",
+        );
+    }
+    if record.rights.is_some() {
+        lose(
+            "rights",
+            "the rights declaration is the author's private statement and BibTeX has no field for it",
+        );
+    }
+    if record
+        .creators
+        .iter()
+        .any(|creator| creator.attribution.is_some() || creator.note.is_some())
+    {
+        lose(
+            "creators",
+            "BibTeX cannot express how firmly a name is attributed",
+        );
     }
     let unknown: Vec<&String> = record
         .extra

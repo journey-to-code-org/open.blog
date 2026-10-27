@@ -8,7 +8,7 @@ use openblog_core::{
 };
 use serde_json::json;
 
-const ACTIONS: [AuthorizationAction; 13] = [
+const ACTIONS: [AuthorizationAction; 16] = [
     AuthorizationAction::ViewPublication,
     AuthorizationAction::ViewPublished,
     AuthorizationAction::ViewRevealed,
@@ -22,6 +22,9 @@ const ACTIONS: [AuthorizationAction; 13] = [
     AuthorizationAction::RemoveMember,
     AuthorizationAction::ManageRoles,
     AuthorizationAction::Export,
+    AuthorizationAction::PlaceInSeries,
+    AuthorizationAction::CreateSeries,
+    AuthorizationAction::ArrangeReflection,
 ];
 
 /// One allowed (action, target) pair in the role matrix.
@@ -203,6 +206,9 @@ fn every_role_action_combination_is_explicit() {
                     (ManageRoles, grace_target),
                     (ManageRoles, linus_target),
                     (Export, Publication),
+                    (PlaceInSeries, Publication),
+                    (ArrangeReflection, Publication),
+                    (CreateSeries, Publication),
                 ];
                 // The last site owner cannot remove themselves.
                 if grace_site_owner {
@@ -223,6 +229,8 @@ fn every_role_action_combination_is_explicit() {
                     (ManageRoles, ada_target),
                     (ManageRoles, linus_target),
                     (Export, Publication),
+                    (PlaceInSeries, Publication),
+                    (ArrangeReflection, Publication),
                 ];
                 if !grace_site_owner {
                     grants.extend([(RemoveMember, grace_target), (ManageRoles, grace_target)]);
@@ -1391,5 +1399,78 @@ Published body."
         ] {
             assert!(!contents.contains(private), "{private} leaked");
         }
+    }
+}
+
+#[test]
+fn editing_synthesis_is_a_contributors_own_participant_grant_only() {
+    let collaboration = group();
+    let own = AuthorizationTarget::Participant("ada-participant");
+    for (role, allowed) in [
+        ("contributor", true),
+        ("siteOwner", false),
+        ("coordinator", false),
+        ("editor", false),
+        ("reader", false),
+    ] {
+        let policy = policy(json!([binding(role)]));
+        assert_eq!(
+            policy
+                .authorize(
+                    &ada(&collaboration, own),
+                    AuthorizationAction::EditSynthesis
+                )
+                .is_ok(),
+            allowed,
+            "{role}"
+        );
+    }
+    let contributor = policy(json!([binding("contributor")]));
+    for target in [
+        AuthorizationTarget::Participant("grace-participant"),
+        AuthorizationTarget::Publication,
+        AuthorizationTarget::Contribution("ada-draft"),
+    ] {
+        assert!(contributor
+            .authorize(
+                &ada(&collaboration, target),
+                AuthorizationAction::EditSynthesis
+            )
+            .is_err());
+    }
+}
+
+#[test]
+fn editing_media_moments_is_a_contributors_own_participant_grant_only() {
+    let collaboration = group();
+    let own = AuthorizationTarget::Participant("ada-participant");
+    for (role, allowed) in [
+        ("contributor", true),
+        ("siteOwner", false),
+        ("coordinator", false),
+        ("editor", false),
+        ("reader", false),
+    ] {
+        let policy = policy(json!([binding(role)]));
+        assert_eq!(
+            policy
+                .authorize(&ada(&collaboration, own), AuthorizationAction::EditMoments)
+                .is_ok(),
+            allowed,
+            "{role}"
+        );
+    }
+    let contributor = policy(json!([binding("contributor")]));
+    for target in [
+        AuthorizationTarget::Participant("grace-participant"),
+        AuthorizationTarget::Publication,
+        AuthorizationTarget::Contribution("ada-draft"),
+    ] {
+        assert!(contributor
+            .authorize(
+                &ada(&collaboration, target),
+                AuthorizationAction::EditMoments
+            )
+            .is_err());
     }
 }
