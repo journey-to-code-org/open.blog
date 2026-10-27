@@ -92,6 +92,11 @@ pub struct SiteConfig {
     /// written file while it is off.
     #[serde(skip_serializing_if = "ComparisonsConfig::is_off")]
     pub comparisons: ComparisonsConfig,
+    /// Opt-in publication of the author's curated selection of research
+    /// context for readers (ADR 0215). Omitted from the written file while
+    /// it is off.
+    #[serde(skip_serializing_if = "CuratedContextConfig::is_off")]
+    pub curated_context: CuratedContextConfig,
     /// The reading mode a post with supplements opens in when the post does
     /// not say (ADR 0142). Omitted from the written file while it is standard.
     #[serde(
@@ -148,6 +153,23 @@ pub struct ComparisonsConfig {
 }
 
 impl ComparisonsConfig {
+    fn is_off(&self) -> bool {
+        !self.publish
+    }
+}
+
+/// Whether builds publish the author's curated research context (ADR 0215).
+/// Off by default: nothing is curated and every output is exactly what it
+/// was. On, the Admin preview and the build's boundary manifest list what the
+/// private selections publish and why the rest is withheld. A selection only ever picks what the atlas, comparison
+/// and citation projections already publish.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CuratedContextConfig {
+    pub publish: bool,
+}
+
+impl CuratedContextConfig {
     fn is_off(&self) -> bool {
         !self.publish
     }
@@ -452,6 +474,7 @@ impl Default for SiteConfig {
             participation: ParticipationConfig::default(),
             claim_evidence: ClaimEvidenceConfig::default(),
             comparisons: ComparisonsConfig::default(),
+            curated_context: CuratedContextConfig::default(),
             reading_modes: ReadingModesConfig::default(),
         }
     }

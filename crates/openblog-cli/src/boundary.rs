@@ -110,9 +110,9 @@ impl Shared {
             atlas: OnceCell::new(),
             alignments: OnceCell::new(),
         };
-        let any_research = Store::ALL
-            .iter()
-            .any(|&store| store != Store::Acknowledgements && stored(root, store));
+        let any_research = Store::ALL.iter().any(|&store| {
+            !matches!(store, Store::Acknowledgements | Store::Selections) && stored(root, store)
+        });
         if !any_research {
             return shared;
         }
@@ -169,6 +169,7 @@ pub struct Stores<'a> {
     claims: Option<openblog_core::claims::ClaimSet>,
     alignments: Option<&'a alignment_store::Snapshot>,
     acknowledgements: Option<usize>,
+    selections: Option<openblog_core::curated_selection::SelectionSet>,
     unavailable: Vec<Unavailable>,
 }
 
@@ -237,6 +238,26 @@ impl<'a> Stores<'a> {
                 Err(error) => fail(Store::Acknowledgements, error.to_string()),
             }
         }
+        let mut selections = None;
+        if stored(root, Store::Selections) {
+            let parsed = read_capped(&root.join(Store::Selections.file()), MAX_GUARDED_FILE)
+                .ok_or_else(|| "the file cannot be read".to_string())
+                .and_then(|bytes| {
+                    openblog_core::curated_selection::SelectionSet::parse(&String::from_utf8_lossy(
+                        &bytes,
+                    ))
+                    .map_err(|problems| {
+                        problems
+                            .first()
+                            .map(|problem| problem.message.clone())
+                            .unwrap_or_default()
+                    })
+                });
+            match parsed {
+                Ok(set) => selections = Some(set),
+                Err(message) => fail(Store::Selections, message),
+            }
+        }
         Self {
             library,
             notebook,
@@ -244,6 +265,7 @@ impl<'a> Stores<'a> {
             claims,
             alignments,
             acknowledgements,
+            selections,
             unavailable,
         }
     }
@@ -268,6 +290,33 @@ pub fn manifest(
             },
         )
     });
+    // Selections resolve against what the build publishes, never against
+    // the private files; those only tell a deleted item from an unapproved one.
+    let existing = openblog_core::curated_selection::Existing::of(
+        stores.atlas,
+        stores.alignments.map(|snapshot| &snapshot.alignments),
+    );
+    let resolution = stores.selections.as_ref().map(|set| {
+        openblog_core::curated_selection::resolve(
+            set,
+            &openblog_core::curated_selection::Basis {
+                atlas: site.atlas.as_ref(),
+                comparisons: site.comparisons.as_ref(),
+                library: stores.library,
+                existing: Some(&existing),
+            },
+        )
+    });
+    let curation = stores
+        .selections
+        .as_ref()
+        .zip(resolution.as_ref())
+        .map(
+            |(set, resolution)| openblog_core::publication_boundary::CurationInput {
+                set,
+                resolution,
+            },
+        );
     let inputs = BoundaryInputs {
         switches: Switches::of(&site.config),
         posts: &site.posts,
@@ -283,6 +332,7 @@ pub fn manifest(
         alignments: stores.alignments.map(|snapshot| &snapshot.alignments),
         stale_comparisons: stale.as_ref(),
         acknowledgements: stores.acknowledgements,
+        curation: curation.as_ref(),
         unavailable: &stores.unavailable,
     };
     match post {
@@ -797,9 +847,9 @@ pub fn preview_text(
     site: &Site,
     themes: &openblog_core::theme::ThemeSet,
 ) -> (Vec<String>, Option<String>) {
-    let any_research = Store::ALL
-        .iter()
-        .any(|&store| store != Store::Acknowledgements && stored(root, store));
+    let any_research = Store::ALL.iter().any(|&store| {
+        !matches!(store, Store::Acknowledgements | Store::Selections) && stored(root, store)
+    });
     if !any_research {
         return (Vec::new(), None);
     }
@@ -1481,6 +1531,78 @@ date: 2026-01-07
         );
         assert!(!warnings[0].contains("Smith"), "{warnings:?}");
         let _ = fs::remove_dir_all(root);
+    }
+
+    /// The curated selections are one more projection of the same manifest,
+    /// and a site that does not curate builds exactly what it built before.
+    #[test]
+    fn curated_selections_are_one_more_projection_and_off_changes_nothing() {
+        let root = research_site("curated");
+        let research = root.join(".openblog/private/research");
+        fs::write(
+            research.join("atlas.json"),
+            serde_json::json!({"version": 2, "entries": [
+                {"id": "plato", "kind": "person", "label": "Plato", "visibility": "approved"},
+                {"id": "hidden", "kind": "person", "label": "Hidden", "visibility": "private"}
+            ], "relationships": []})
+            .to_string(),
+        )
+        .unwrap();
+        let config = fs::read_to_string(root.join("openblog.json")).unwrap();
+        let publishing = |on: bool| {
+            let mut value: Value = serde_json::from_str(&config).unwrap();
+            value["knowledgeAtlas"] = serde_json::json!({"publish": true});
+            if on {
+                value["curatedContext"] = serde_json::json!({"publish": true});
+            }
+            fs::write(root.join("openblog.json"), value.to_string()).unwrap();
+        };
+        publishing(false);
+        let before = tempdir_build(&root, "before");
+
+        // The selections file exists but the switch is off: same output.
+        let selections = serde_json::json!({"version": 1, "selections": [
+            {"id": "contextual-entry-plato", "kind": "contextual-entry", "target": "plato",
+             "revision": "0000000000000000", "fields": []}
+        ]});
+        fs::write(research.join("selections.json"), selections.to_string()).unwrap();
+        assert_eq!(
+            before,
+            tempdir_build(&root, "after"),
+            "the switch off changes no output"
+        );
+
+        publishing(true);
+        let (mut site, _) = crate::site::load_site(&root, false, None).unwrap();
+        let shared = Shared::read(&root, &site.config);
+        let manifest = site_preview(&root, &mut site, &shared);
+        let curated = manifest
+            .projections
+            .iter()
+            .find(|p| p.projection == Projection::Curated)
+            .expect("the curated projection");
+        assert!(curated.enabled && curated.published.is_empty());
+        assert_eq!(curated.withheld.len(), 1, "{:?}", curated.withheld);
+        assert_eq!(
+            curated.withheld[0].reason,
+            openblog_core::publication_boundary::Reason::StaleSelection
+        );
+
+        // A file that cannot be read is named, and nothing else changes.
+        fs::write(research.join("selections.json"), "{ nope").unwrap();
+        let shared = Shared::read(&root, &site.config);
+        let manifest = site_preview(&root, &mut site, &shared);
+        assert!(manifest
+            .unavailable
+            .iter()
+            .any(|u| u.store == Store::Selections));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    fn tempdir_build(root: &Path, name: &str) -> Vec<(String, Vec<u8>)> {
+        let out = root.join(format!("out-{name}"));
+        build_into(root, &out).unwrap();
+        tree(&out)
     }
 
     #[test]

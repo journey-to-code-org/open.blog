@@ -7294,6 +7294,7 @@ export const BOUNDARY_PROJECTIONS = Object.freeze({
   datings: "Datings",
   comparisons: "Comparisons",
   "context-links": "Links to research pages",
+  curated: "Curated for readers",
 });
 
 /** How each kind of research item is named. */
@@ -7307,6 +7308,7 @@ export const BOUNDARY_KINDS = Object.freeze({
   comparison: "Comparison",
   "atlas-page": "Atlas page",
   "comparison-page": "Comparison page",
+  selection: "Curated selection",
 });
 
 /** Why an item or a field is withheld, in a few words. The server's message says exactly which. */
@@ -7325,6 +7327,10 @@ export const BOUNDARY_REASONS = Object.freeze({
   length: "Wording longer than a brief excerpt",
   "stale-anchor": "The anchored words have changed",
   "page-not-published": "The linked page is not published",
+  withdrawn: "Withdrawn by the author",
+  "stale-selection": "Selected before it changed: select it again",
+  "missing-target": "What it selects no longer exists",
+  "selection-cycle": "Its required selections lead back to it",
 });
 
 const BOUNDARY_STORES = Object.freeze({
@@ -7334,6 +7340,7 @@ const BOUNDARY_STORES = Object.freeze({
   claims: "Claims",
   alignments: "Alignments",
   acknowledgements: "Review acknowledgements",
+  selections: "Curated selections",
 });
 
 /**

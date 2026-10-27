@@ -33,6 +33,9 @@ use crate::citations::{public_identifier, public_url_problem, PublicReference};
 use crate::claims::{ClaimSet, Relation};
 use crate::comparison_publication::{PublicComparisons, Withheld};
 use crate::context_links::{find_context_links, ContextKind};
+use crate::curated_selection::{
+    ContextKind as CurationContext, NoticeCode, Resolution, SelectionSet, Why,
+};
 use crate::knowledge_atlas::{Atlas, Visibility};
 use crate::model::Post;
 use crate::research_notes::Notebook;
@@ -58,6 +61,8 @@ pub enum Projection {
     Comparisons,
     /// Links a post makes to atlas and comparison pages.
     ContextLinks,
+    /// The author's curated selection of research context (ADR 0215).
+    Curated,
 }
 
 impl Projection {
@@ -70,6 +75,7 @@ impl Projection {
             Self::Atlas | Self::Datings => "knowledgeAtlas.publish",
             Self::Comparisons => "comparisons.publish",
             Self::ContextLinks => "knowledgeAtlas.publish, comparisons.publish",
+            Self::Curated => "curatedContext.publish",
         }
     }
 }
@@ -89,6 +95,8 @@ pub enum ItemKind {
     AtlasPage,
     /// A link in a post to a comparison's page.
     ComparisonPage,
+    /// One curated selection.
+    Selection,
 }
 
 /// Why an item, or one field of a published item, is withheld. Each is a
@@ -125,6 +133,14 @@ pub enum Reason {
     StaleAnchor,
     /// The page a link names is not published.
     PageNotPublished,
+    /// The author withdrew the selection.
+    Withdrawn,
+    /// Selected before what it selects, or something it depends on, changed.
+    StaleSelection,
+    /// What the selection selects no longer exists.
+    MissingTarget,
+    /// The selections it requires lead back to it.
+    SelectionCycle,
 }
 
 /// One field of a published item that is left out, and why.
@@ -206,6 +222,7 @@ pub enum Store {
     Claims,
     Alignments,
     Acknowledgements,
+    Selections,
 }
 
 impl Store {
@@ -218,6 +235,7 @@ impl Store {
             Self::Claims => ".openblog/private/research/claims.json",
             Self::Alignments => ".openblog/private/research/alignments.json",
             Self::Acknowledgements => ".openblog/private/research/acknowledgements.json",
+            Self::Selections => crate::curated_selection::SELECTIONS_FILE,
         }
     }
 
@@ -230,16 +248,18 @@ impl Store {
             Self::Claims => "the claims file",
             Self::Alignments => "the alignments file",
             Self::Acknowledgements => "the review acknowledgements",
+            Self::Selections => "the curated selections",
         }
     }
 
-    pub const ALL: [Store; 6] = [
+    pub const ALL: [Store; 7] = [
         Self::SourceLibrary,
         Self::Notebook,
         Self::Atlas,
         Self::Claims,
         Self::Alignments,
         Self::Acknowledgements,
+        Self::Selections,
     ];
 }
 
@@ -292,6 +312,7 @@ pub struct Switches {
     pub atlas: bool,
     pub comparisons: bool,
     pub claim_evidence: bool,
+    pub curated: bool,
 }
 
 impl Switches {
@@ -300,6 +321,7 @@ impl Switches {
             atlas: config.knowledge_atlas.publish,
             comparisons: config.comparisons.publish,
             claim_evidence: config.claim_evidence.publish,
+            curated: config.curated_context.publish,
         }
     }
 }
@@ -329,7 +351,15 @@ pub struct BoundaryInputs<'a> {
     /// Stale approvals of approved alignments, by id (`stale_approvals`).
     pub stale_comparisons: Option<&'a BTreeMap<String, String>>,
     pub acknowledgements: Option<usize>,
+    /// The curated selections resolved against what the build publishes.
+    pub curation: Option<&'a CurationInput<'a>>,
     pub unavailable: &'a [Unavailable],
+}
+
+/// The curated selections as the manifest reads them.
+pub struct CurationInput<'a> {
+    pub set: &'a SelectionSet,
+    pub resolution: &'a Resolution,
 }
 
 fn present(fields: &mut Vec<String>, name: &str, present: bool) {
@@ -454,6 +484,12 @@ impl BoundaryManifest {
             datings(inputs),
             comparisons(inputs),
         ];
+        let mut projections = projections;
+        // Absent while the switch is off and nothing is selected, so a site
+        // that does not curate is described exactly as before.
+        if inputs.switches.curated || inputs.curation.is_some() {
+            projections.push(curated(inputs));
+        }
         Self {
             version: BOUNDARY_FORMAT_VERSION,
             scope: Scope::Site,
@@ -495,7 +531,7 @@ impl BoundaryManifest {
         let mut warnings = Vec::new();
         for report in &self.projections {
             for item in &report.withheld {
-                if item.reason == Reason::StaleApproval {
+                if matches!(item.reason, Reason::StaleApproval | Reason::StaleSelection) {
                     warnings.push(format!("boundary: {}", item.message));
                 }
             }
@@ -527,6 +563,9 @@ impl BoundaryManifest {
                 .filter(|item| {
                     item.kind != ItemKind::Source || report.projection == Projection::Citations
                 })
+                .filter(|item| {
+                    report.projection != Projection::Curated || item.kind == ItemKind::Selection
+                })
                 .count();
             if count > 0 {
                 let name = match report.projection {
@@ -536,6 +575,7 @@ impl BoundaryManifest {
                     Projection::Datings => "datings",
                     Projection::Comparisons => "comparisons",
                     Projection::ContextLinks => "linked research pages",
+                    Projection::Curated => "curated selections",
                 };
                 parts.push(format!("{count} {name}"));
             }
@@ -1128,6 +1168,92 @@ fn comparisons(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
     report
 }
 
+fn curated(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
+    let mut report = report(Projection::Curated, inputs.switches.curated);
+    let Some(curation) = inputs.curation else {
+        return report;
+    };
+    let resolution = curation.resolution;
+    if !report.enabled {
+        for selection in &curation.set.selections {
+            let mut item = withheld(
+                ItemKind::Selection,
+                &selection.id,
+                Reason::ProjectionOff,
+                off_message(Projection::Curated),
+            );
+            item.label = Some(selection.target.clone());
+            report.withheld.push(item);
+        }
+        return report;
+    }
+    for item in &resolution.curation.items {
+        let mut withheld_fields = Vec::new();
+        for notice in resolution.notices.iter().filter(|n| n.id == item.id) {
+            let reason = match notice.code {
+                NoticeCode::UnsafeUrl => Reason::UnsafeUrl,
+                NoticeCode::PrivateIdentifier => Reason::PrivateIdentifier,
+                NoticeCode::RightsRestricted => Reason::Rights,
+                _ => continue,
+            };
+            withheld_fields.push(WithheldField {
+                field: notice.field.clone().unwrap_or_default(),
+                reason,
+                message: notice.message.clone(),
+            });
+        }
+        let label = ["title", "label", "by"]
+            .iter()
+            .find_map(|name| item.content.get(*name).and_then(Value::as_str))
+            .map(str::to_string);
+        report.published.push(PublishedItem {
+            kind: ItemKind::Selection,
+            id: item.id.clone(),
+            label,
+            posts: Vec::new(),
+            url: item
+                .content
+                .get("url")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            fields: item.content.keys().cloned().collect(),
+            withheld_fields,
+        });
+    }
+    for context in &resolution.curation.context {
+        let kind = match context.kind {
+            CurationContext::Entry => ItemKind::Entry,
+            CurationContext::Relationship => ItemKind::Relationship,
+            CurationContext::Source => ItemKind::Source,
+        };
+        report.published.push(PublishedItem {
+            kind,
+            id: context.id.clone(),
+            label: context.label.clone(),
+            posts: Vec::new(),
+            url: context.url.clone(),
+            fields: vec!["context for ".to_string() + &context.via.join(", ")],
+            withheld_fields: Vec::new(),
+        });
+    }
+    for held in &resolution.withheld {
+        let reason = match held.why {
+            Why::Withdrawn => Reason::Withdrawn,
+            Why::TargetMissing => Reason::MissingTarget,
+            Why::NotApproved => Reason::NotApproved,
+            Why::NotPublished | Why::DependencyMissing | Why::DependencyWithheld => {
+                Reason::PrivateDependency
+            }
+            Why::Stale => Reason::StaleSelection,
+            Why::Cycle => Reason::SelectionCycle,
+        };
+        let mut item = withheld(ItemKind::Selection, &held.id, reason, held.message.clone());
+        item.label = Some(held.target.clone());
+        report.withheld.push(item);
+    }
+    report
+}
+
 fn context_links(inputs: &BoundaryInputs<'_>, post: &Post) -> ProjectionReport {
     let mut report = report(
         Projection::ContextLinks,
@@ -1242,6 +1368,13 @@ fn never(inputs: &BoundaryInputs<'_>) -> Vec<NeverPublished> {
             Store::Alignments,
             alignments.alignments.len(),
             "Visibility, place notes, notebook passage ids, normalizations not chosen for publication and unknown fields of every alignment.".into(),
+        );
+    }
+    if let Some(curation) = inputs.curation {
+        push(
+            Store::Selections,
+            curation.set.selections.len(),
+            "Selection records: revisions, withdrawal reasons, requirements and unknown fields. Only the fields a live, current selection lists are published, and only from what the atlas, comparison and citation projections publish.".into(),
         );
     }
     if let Some(count) = inputs.acknowledgements {

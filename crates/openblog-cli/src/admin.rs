@@ -17372,7 +17372,7 @@ mod tests {
     fn research_store_files(f: &Fixture) -> Vec<Vec<u8>> {
         openblog_core::publication_boundary::Store::ALL
             .iter()
-            .map(|store| fs::read(f.dir.join(store.file())).unwrap())
+            .filter_map(|store| fs::read(f.dir.join(store.file())).ok())
             .collect()
     }
 
