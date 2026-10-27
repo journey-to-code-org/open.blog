@@ -1,4 +1,4 @@
-import test from "node:test";
+import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
 
 // A just-enough DOM for <ob-search>: it only needs the four children it queries and a few
@@ -25,52 +25,65 @@ class FakeElement {
   }
 }
 
-// Installs the fake globals, runs `run`, and always restores them in a finally, so a test never
-// depends on when the runner schedules cleanup hooks.
-async function withSearch(attributes, address, run) {
-  const saved = {};
-  for (const key of ["HTMLElement", "customElements", "location", "history", "fetch", "console"]) saved[key] = globalThis[key];
+// The component is imported exactly once. Re-importing the same file under a different `?query`
+// is not a reliable way to get a fresh copy on every Node version, so each test builds a new
+// element and swaps the page address instead. The runner gives this file its own process; the
+// hooks put the globals back anyway.
+const KEYS = ["HTMLElement", "customElements", "location", "history", "fetch", "console"];
+const saved = new Map();
+const page = { location: { href: "", search: "" }, replaced: [] };
+let ObSearch;
+
+before(async () => {
+  for (const key of KEYS) saved.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
   const registry = new Map();
-  const replaced = [];
   globalThis.HTMLElement = FakeElement;
   globalThis.customElements = { get: (name) => registry.get(name), define: (name, value) => registry.set(name, value) };
-  const url = new URL(address);
-  Object.defineProperty(globalThis, "location", { value: { href: url.href, search: url.search }, configurable: true, writable: true });
-  Object.defineProperty(globalThis, "history", { value: { replaceState: (_state, _title, next) => replaced.push(String(next)) }, configurable: true, writable: true });
+  Object.defineProperty(globalThis, "location", { get: () => page.location, configurable: true });
+  Object.defineProperty(globalThis, "history", {
+    value: { replaceState: (_state, _title, next) => page.replaced.push(String(next)) },
+    configurable: true,
+    writable: true,
+  });
   globalThis.fetch = async () => ({ ok: true, text: async () => '{"entries":[]}' });
   globalThis.console = { ...console, info() {}, warn() {} };
-  try {
-    await import(`../../web/components/ob-search.js?test=${Math.random()}`);
-    const ObSearch = registry.get("ob-search");
-    assert.equal(typeof ObSearch, "function", "ob-search.js defines the element");
-    const element = new ObSearch();
-    Object.assign(element.attributes, attributes);
-    await element.connectedCallback();
-    await run({ element, replaced, type: (text) => { element.input.value = text; element.input.listeners.input(); } });
-  } finally {
-    for (const [key, value] of Object.entries(saved)) {
-      if (value === undefined) delete globalThis[key];
-      else Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
-    }
+  await import("../../web/components/ob-search.js");
+  ObSearch = registry.get("ob-search");
+  assert.equal(typeof ObSearch, "function", "ob-search.js defines the element");
+});
+
+after(() => {
+  for (const key of KEYS) {
+    const descriptor = saved.get(key);
+    if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+    else delete globalThis[key];
   }
+});
+
+async function mount(attributes, address) {
+  const url = new URL(address);
+  page.location = { href: url.href, search: url.search };
+  page.replaced = [];
+  const element = new ObSearch();
+  Object.assign(element.attributes, attributes);
+  await element.connectedCallback();
+  return { element, replaced: page.replaced, type: (text) => { element.input.value = text; element.input.listeners.input(); } };
 }
 
 test("by default the search box reads ?q= and keeps the address in step with what is typed", async () => {
-  await withSearch({}, "https://site.test/search/?q=hello", ({ element, replaced, type }) => {
-    assert.equal(element.input.value, "hello");
-    assert.ok(replaced.at(-1).includes("q=hello"), replaced.join(" | "));
-    type("git rebase");
-    assert.ok(replaced.at(-1).includes("q=git+rebase") || replaced.at(-1).includes("q=git%20rebase"), replaced.join(" | "));
-    type("");
-    assert.equal(new URL(replaced.at(-1)).searchParams.has("q"), false);
-  });
+  const { element, replaced, type } = await mount({}, "https://site.test/search/?q=hello");
+  assert.equal(element.input.value, "hello");
+  assert.ok(replaced.at(-1).includes("q=hello"), replaced.join(" | "));
+  type("git rebase");
+  assert.ok(replaced.at(-1).includes("q=git+rebase") || replaced.at(-1).includes("q=git%20rebase"), replaced.join(" | "));
+  type("");
+  assert.equal(new URL(replaced.at(-1)).searchParams.has("q"), false);
 });
 
 test("no-history ignores ?q= and never rewrites the address, so a search inside a dialog leaves the page alone", async () => {
-  await withSearch({ "no-history": "" }, "https://site.test/some-post/?q=hello", ({ element, replaced, type }) => {
-    assert.equal(element.input.value, "", "the host page's own ?q= must not leak into the dialog");
-    type("git rebase");
-    assert.equal(element.status.textContent.length > 0, true, "it still searches");
-    assert.deepEqual(replaced, [], "history.replaceState is never called");
-  });
+  const { element, replaced, type } = await mount({ "no-history": "" }, "https://site.test/some-post/?q=hello");
+  assert.equal(element.input.value, "", "the host page's own ?q= must not leak into the dialog");
+  type("git rebase");
+  assert.equal(element.status.textContent.length > 0, true, "it still searches");
+  assert.deepEqual(replaced, [], "history.replaceState is never called");
 });
