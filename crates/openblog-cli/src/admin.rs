@@ -5864,7 +5864,15 @@ fn feature_target(
 /// (bound in no shared publication) to take off.
 fn feature_admin(state: &AppState, id: &str, session: &auth::Session) -> Result<(), Response> {
     let sources = inbox_sources(state)?;
-    match hosted_inbox_lookup(state, moderation_inbox::Source::Feedback, id)? {
+    // Taking a feature off, or editing its note, is always safe, so the site
+    // Admin of every work needs no hosted service for it; a per-work Admin does
+    // (the work is the hosted row's).
+    let lookup = match hosted_inbox_lookup(state, moderation_inbox::Source::Feedback, id) {
+        Ok(lookup) => lookup,
+        Err(_) if retention_admin(&sources, session) => return Ok(()),
+        Err(response) => return Err(response),
+    };
+    match lookup {
         Some((protocol, third_perspectives, item)) => {
             if item.kind != ParticipationKind::ThirdPerspective {
                 return Err(Response::error(404, "No such Third Perspective"));
@@ -6024,25 +6032,27 @@ fn apply_feature(
     if features.get(&id).is_some() {
         return feature_error_response(community_feature::FeatureError::AlreadyFeatured);
     }
+    // The public form the page will project, from the same code the build
+    // uses, for the file as it would be after choosing. A choice runs the same
+    // mode check as the preview, so a kind that is hidden or locked on the post
+    // never gets a feature it would not show.
+    let mut shown = third.clone();
+    if let Err(error) = shown.publish(candidate.clone()) {
+        return Response::error(409, &error);
+    }
+    let mode =
+        participation::published_mode(&site.config, post, ParticipationKind::ThirdPerspective);
+    let answers =
+        participation::published_mode(&site.config, post, ParticipationKind::AuthorResponse);
+    let featured =
+        community_feature::project_post(&[&record], &shown, post, &site.config, mode, answers);
+    let Some(featured) = featured.into_iter().next() else {
+        return Response::error(
+            409,
+            "The post would not show this feature now: the kind is hidden or locked out",
+        );
+    };
     if preview {
-        // The public form the page will project, from the same code the build
-        // uses, for the file as it would be after choosing.
-        let mut shown = third.clone();
-        if let Err(error) = shown.publish(candidate) {
-            return Response::error(409, &error);
-        }
-        let mode =
-            participation::published_mode(&site.config, post, ParticipationKind::ThirdPerspective);
-        let answers =
-            participation::published_mode(&site.config, post, ParticipationKind::AuthorResponse);
-        let featured =
-            community_feature::project_post(&[&record], &shown, post, &site.config, mode, answers);
-        let Some(featured) = featured.into_iter().next() else {
-            return Response::error(
-                409,
-                "The post would not show this feature now: the kind is hidden or locked out",
-            );
-        };
         return Response::json(
             200,
             &json!({
@@ -6179,14 +6189,30 @@ fn unfeature_beside(third_perspectives_file: &Path, id: &str) {
     }
 }
 
-/// Whether one feature still stands against its hosted reflection (`None`: the
-/// row is gone), as the audit and a test ask it; `None` back when the hosted
-/// service does not read consent, so it cannot be told.
+/// What the audit knows of a feature's hosted reflection.
+enum HostedCheck<'a> {
+    /// The row, and whether the hosted service reads consent.
+    Row(&'a moderation_inbox::InboxItem, bool),
+    /// The hosted service says there is no such row.
+    Gone,
+    /// The hosted service could not be asked.
+    Unavailable,
+}
+
+/// Whether one feature still stands, as the audit and a test ask it: against
+/// its hosted reflection (ADR 0232's order), then against the committed
+/// `third-perspectives.json` the page is built from, so a feature the page
+/// would not show is reported with the page's own reason (the reflection is not
+/// published, its text is not the agreed text, or it is dated before it was
+/// approved). `None` when the hosted copy cannot say and the page shows no
+/// reason either, so it cannot be told.
 fn feature_standing(
     site: &Site,
     record: &community_feature::FeatureRecord,
-    hosted: Option<(&moderation_inbox::InboxItem, bool)>,
+    published: &perspective_publication::ThirdPerspectivesFile,
+    hosted: HostedCheck,
 ) -> Option<community_feature::HostedStanding> {
+    use community_feature::{HostedStanding, NotShown};
     let post = site
         .posts
         .iter()
@@ -6194,19 +6220,54 @@ fn feature_standing(
     let mode = post.map_or(participation::ParticipationMode::Open, |post| {
         participation::published_mode(&site.config, post, ParticipationKind::ThirdPerspective)
     });
-    match hosted {
-        Some((item, third_perspectives)) => match (item.perspective(), third_perspectives) {
-            (Some(hosted), true) => Some(record.hosted_standing(
-                Some((hosted, &hosted_facts(hosted))),
+    let standing = match hosted {
+        HostedCheck::Row(item, third_perspectives) => match item.perspective() {
+            Some(hosted) if third_perspectives => Some(record.hosted_standing(
+                Some((Some(hosted), &hosted_facts(hosted))),
                 post,
                 &site.config,
                 mode,
             )),
-            (None, _) => Some(record.hosted_standing(None, post, &site.config, mode)),
-            (Some(_), false) => None,
+            Some(_) => None,
+            None => Some(record.hosted_standing(
+                Some((
+                    None,
+                    &third_perspective::ModerationFacts {
+                        state: item.state,
+                        revision: item.revision,
+                        approved_revision: item.approved_revision,
+                        approved_consent: None,
+                        clarification_asked: None,
+                        content_retained: false,
+                    },
+                )),
+                post,
+                &site.config,
+                mode,
+            )),
         },
-        None => Some(record.hosted_standing(None, post, &site.config, mode)),
+        HostedCheck::Gone => Some(record.hosted_standing(None, post, &site.config, mode)),
+        HostedCheck::Unavailable => None,
+    };
+    if matches!(standing, Some(HostedStanding::MustComeOff(_))) {
+        return standing;
     }
+    if let Some(post) = post {
+        let answers =
+            participation::published_mode(&site.config, post, ParticipationKind::AuthorResponse);
+        let resolved = community_feature::resolve_post(
+            &[record],
+            published,
+            Some(post),
+            &site.config,
+            mode,
+            answers,
+        );
+        if let Some((_, Err(NotShown::Off(reason)))) = resolved.into_iter().next() {
+            return Some(HostedStanding::MustComeOff(reason));
+        }
+    }
+    standing
 }
 
 /// The most features one audit reads from the hosted copy.
@@ -6229,11 +6290,12 @@ fn featured_audit(state: &AppState, session: &auth::Session) -> Response {
     };
     // A site that features nothing has nothing to check, and needs no hosted service.
     if file.items.is_empty() {
-        return Response::json(
-            200,
-            &json!({ "checked": 0, "truncated": false, "features": [] }),
-        );
+        return Response::json(200, &json!({ "truncated": false, "features": [] }));
     }
+    let published = match third_perspectives_path(state).and_then(|p| load_third_perspectives(&p)) {
+        Ok(published) => published,
+        Err(response) => return response,
+    };
     let sources = match inbox_sources(state) {
         Ok(sources) => sources,
         Err(response) => return response,
@@ -6243,30 +6305,52 @@ fn featured_audit(state: &AppState, session: &auth::Session) -> Response {
         Err(response) => return response,
     };
     let mut out = Vec::new();
+    // Once the hosted service cannot be asked, it is not asked again for each
+    // feature; the site Admin of every work still sees what the committed file
+    // alone shows, and may take any feature off (removing is always safe).
+    let mut hosted_down = false;
     for record in file.items.iter().take(FEATURE_AUDIT_LIMIT) {
         let mut entry = json!({
             "id": record.id, "post": record.post, "featured": record.featured,
             "context": record.context,
         });
-        let standing =
-            match hosted_inbox_lookup(state, moderation_inbox::Source::Feedback, &record.id) {
-                Ok(Some((protocol, third_perspectives, item))) => {
-                    let role = sources.inbox(session, protocol, third_perspectives, |inbox| {
-                        inbox.actor(&item).role()
-                    });
-                    if role != moderation::ActorRole::SiteAdmin {
-                        continue;
-                    }
-                    feature_standing(&site, record, Some((&item, third_perspectives)))
+        let lookup = if hosted_down {
+            Err(Response::error(
+                502,
+                "The hosted service could not be asked",
+            ))
+        } else {
+            hosted_inbox_lookup(state, moderation_inbox::Source::Feedback, &record.id)
+        };
+        let standing = match lookup {
+            Ok(Some((protocol, third_perspectives, item))) => {
+                let role = sources.inbox(session, protocol, third_perspectives, |inbox| {
+                    inbox.actor(&item).role()
+                });
+                if role != moderation::ActorRole::SiteAdmin {
+                    continue;
                 }
-                Ok(None) => {
-                    if !retention_admin(&sources, session) {
-                        continue;
-                    }
-                    feature_standing(&site, record, None)
+                feature_standing(
+                    &site,
+                    record,
+                    &published,
+                    HostedCheck::Row(&item, third_perspectives),
+                )
+            }
+            Ok(None) => {
+                if !retention_admin(&sources, session) {
+                    continue;
                 }
-                Err(response) => return response,
-            };
+                feature_standing(&site, record, &published, HostedCheck::Gone)
+            }
+            Err(response) => {
+                if !retention_admin(&sources, session) {
+                    return response;
+                }
+                hosted_down = true;
+                feature_standing(&site, record, &published, HostedCheck::Unavailable)
+            }
+        };
         match standing {
             Some(community_feature::HostedStanding::Covered) => {
                 entry["standing"] = json!("covered")
@@ -6288,7 +6372,6 @@ fn featured_audit(state: &AppState, session: &auth::Session) -> Response {
     Response::json(
         200,
         &json!({
-            "checked": file.items.len().min(FEATURE_AUDIT_LIMIT),
             "truncated": file.items.len() > FEATURE_AUDIT_LIMIT,
             "features": out,
         }),
@@ -24844,6 +24927,29 @@ What I read:
         assert_eq!(refused.status, 409);
         assert_eq!(body_of(refused)["code"], "consentMissing");
         assert!(!features_path.exists() && !third_path.exists());
+        // A kind that is hidden on the post shows no feature, so choosing is
+        // refused exactly as the preview is, and nothing is written.
+        let mut hidden_config = config.clone();
+        hidden_config["participation"] = json!({"kinds": {"third-perspective": "hidden"}});
+        fs::write(
+            &config_path,
+            serde_json::to_string_pretty(&hidden_config).unwrap(),
+        )
+        .unwrap();
+        for preview in [true, false] {
+            let refused = apply_feature(
+                &f.state,
+                "mikey",
+                &consenting,
+                true,
+                String::new(),
+                Some(2),
+                preview,
+            );
+            assert_eq!(refused.status, 409, "preview: {preview}");
+        }
+        assert!(!features_path.exists() && !third_path.exists());
+        fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
         assert_eq!(
             community_feature::FeatureConsent::of(silent.perspective().unwrap()).id(),
             "not-agreed"
@@ -24985,13 +25091,55 @@ What I read:
         // It stands while covered, is hidden (not taken off) when the article is
         // gone, and must come off when the reader declines or withdraws.
         let record = &features.items[0];
+        let published = perspective_publication::ThirdPerspectivesFile::from_json(
+            &fs::read_to_string(&third_path).unwrap(),
+        )
+        .unwrap();
         assert_eq!(
-            feature_standing(&site, record, Some((&consenting, true))),
+            feature_standing(
+                &site,
+                record,
+                &published,
+                HostedCheck::Row(&consenting, true)
+            ),
             Some(community_feature::HostedStanding::Covered)
         );
         assert_eq!(
-            feature_standing(&site, record, Some((&consenting, false))),
+            feature_standing(
+                &site,
+                record,
+                &published,
+                HostedCheck::Row(&consenting, false)
+            ),
             None
+        );
+        assert_eq!(
+            feature_standing(&site, record, &published, HostedCheck::Unavailable),
+            None
+        );
+        // The committed file the page is built from is checked too, with the
+        // page's own reason, even when the hosted copy cannot say.
+        let must = community_feature::HostedStanding::MustComeOff;
+        let empty = perspective_publication::ThirdPerspectivesFile::default();
+        assert_eq!(
+            feature_standing(&site, record, &empty, HostedCheck::Row(&consenting, true)),
+            Some(must(community_feature::FeatureOff::NotApproved))
+        );
+        assert_eq!(
+            feature_standing(&site, record, &empty, HostedCheck::Unavailable),
+            Some(must(community_feature::FeatureOff::NotApproved))
+        );
+        let mut edited = published.clone();
+        edited.items[0].body = "Another text".into();
+        assert_eq!(
+            feature_standing(&site, record, &edited, HostedCheck::Row(&consenting, false)),
+            Some(must(community_feature::FeatureOff::TextChanged))
+        );
+        let mut misdated = record.clone();
+        misdated.featured = "2000-01-01".into();
+        assert_eq!(
+            feature_standing(&site, &misdated, &published, HostedCheck::Unavailable),
+            Some(must(community_feature::FeatureOff::Misdated))
         );
         let withdrawn = moderation_inbox::InboxItem::from_value(&json!({
             "source": "feedback", "id": FEEDBACK_ITEM_ID, "kind": "third-perspective", "status": "withdrawn",
@@ -25000,13 +25148,18 @@ What I read:
         }))
         .unwrap();
         assert_eq!(
-            feature_standing(&site, record, Some((&withdrawn, true))),
+            feature_standing(
+                &site,
+                record,
+                &published,
+                HostedCheck::Row(&withdrawn, true)
+            ),
             Some(community_feature::HostedStanding::MustComeOff(
-                community_feature::FeatureOff::Deleted
+                community_feature::FeatureOff::Withdrawn
             ))
         );
         assert_eq!(
-            feature_standing(&site, record, None),
+            feature_standing(&site, record, &published, HostedCheck::Gone),
             Some(community_feature::HostedStanding::MustComeOff(
                 community_feature::FeatureOff::Deleted
             ))
@@ -25014,7 +25167,12 @@ What I read:
         let mut elsewhere = record.clone();
         elsewhere.post = "posts/gone.md".into();
         assert_eq!(
-            feature_standing(&site, &elsewhere, Some((&consenting, true))),
+            feature_standing(
+                &site,
+                &elsewhere,
+                &published,
+                HostedCheck::Row(&consenting, true)
+            ),
             Some(community_feature::HostedStanding::Hidden(
                 community_feature::HiddenReason::SourceGone
             ))

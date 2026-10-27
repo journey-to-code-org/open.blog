@@ -666,31 +666,33 @@ impl FeatureRecord {
     }
 
     /// Whether this feature still stands against the hosted copy: the check
-    /// Admin makes on every inbox load, for the reflection's row, its
-    /// moderation facts and the post as published now. `None` for the row is
-    /// a copy that no longer exists. Nothing here reads a private field into
-    /// the answer: it is a reason, never the reader's words.
+    /// Admin makes on every inbox load. `hosted` is `None` for a row that no
+    /// longer exists, else the row's moderation facts and its Third Perspective
+    /// (`None` once retention purged the text, so a withdrawn row is still
+    /// told apart from a gone one). `post` is the post as published now.
+    /// Everything the reader or the editors decided is checked before the
+    /// article is, so a feature is `Hidden` only when nothing else is wrong and
+    /// restoring the article does restore it. Nothing here reads a private
+    /// field into the answer: it is a reason, never the reader's words.
     pub fn hosted_standing(
         &self,
-        hosted: Option<(&HostedPerspective, &ModerationFacts)>,
+        hosted: Option<(Option<&HostedPerspective>, &ModerationFacts)>,
         post: Option<&Post>,
         config: &SiteConfig,
         mode: ParticipationMode,
     ) -> HostedStanding {
         use crate::moderation::ModerationState;
         let off = HostedStanding::MustComeOff;
-        let Some(post) = post else {
-            return HostedStanding::Hidden(HiddenReason::SourceGone);
-        };
-        let Some((hosted, facts)) = hosted else {
+        let Some((hosted_copy, facts)) = hosted else {
             return off(FeatureOff::Deleted);
         };
         if facts.state == ModerationState::Withdrawn {
             return off(FeatureOff::Withdrawn);
         }
-        if !facts.content_retained {
-            return off(FeatureOff::Deleted);
-        }
+        let hosted = match hosted_copy {
+            Some(hosted) if facts.content_retained => hosted,
+            _ => return off(FeatureOff::Deleted),
+        };
         if facts.state != ModerationState::Approved {
             return off(FeatureOff::NotApproved);
         }
@@ -706,6 +708,9 @@ impl FeatureRecord {
         {
             return off(FeatureOff::TextChanged);
         }
+        let Some(post) = post else {
+            return HostedStanding::Hidden(HiddenReason::SourceGone);
+        };
         if PublishedPerspective::response_in(hosted, post, config, mode).is_none() {
             return off(FeatureOff::NotApproved);
         }

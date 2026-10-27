@@ -208,8 +208,12 @@ impl World {
         &self,
         hosted: Option<(&HostedPerspective, &ModerationFacts)>,
     ) -> HostedStanding {
-        self.record
-            .hosted_standing(hosted, Some(&self.site.posts[0]), &self.site.config, OPEN)
+        self.record.hosted_standing(
+            hosted.map(|(hosted, facts)| (Some(hosted), facts)),
+            Some(&self.site.posts[0]),
+            &self.site.config,
+            OPEN,
+        )
     }
 
     fn standing(&self) -> HostedStanding {
@@ -512,6 +516,17 @@ fn withdrawal_deletion_and_a_declined_feature_each_take_it_off_with_no_tombstone
         w.standing_of(Some((&row, &purged))),
         gone(FeatureOff::Withdrawn)
     );
+    // A withdrawn row whose text was purged is still told apart from a gone
+    // row: the reason is "withdrawn", not "deleted".
+    assert_eq!(
+        w.record.hosted_standing(
+            Some((None, &purged)),
+            Some(&w.site.posts[0]),
+            &w.site.config,
+            OPEN
+        ),
+        gone(FeatureOff::Withdrawn)
+    );
     // Even before the purge, a withdrawn row is off.
     let kept = facts(ModerationState::Withdrawn, 1, true);
     assert_eq!(
@@ -527,7 +542,7 @@ fn withdrawal_deletion_and_a_declined_feature_each_take_it_off_with_no_tombstone
     );
     assert_eq!(w.standing_of(None), gone(FeatureOff::Deleted));
     // The order of the checks is the ADR's table: purged beats not approved,
-    // and a lost article beats a lost row.
+    // and what the reader or editors decided beats a lost article.
     let purged_pending = facts(ModerationState::Pending, 1, false);
     assert_eq!(
         w.standing_of(Some((&w.hosted, &purged_pending))),
@@ -535,7 +550,24 @@ fn withdrawal_deletion_and_a_declined_feature_each_take_it_off_with_no_tombstone
     );
     assert_eq!(
         w.record.hosted_standing(None, None, &w.site.config, OPEN),
-        HostedStanding::Hidden(HiddenReason::SourceGone)
+        gone(FeatureOff::Deleted)
+    );
+    // With the article gone too, the reflection's own state is still the
+    // reason: withdrawn, purged and declined are never "hidden".
+    let no_post = |hosted: Option<(Option<&HostedPerspective>, &ModerationFacts)>| {
+        w.record.hosted_standing(hosted, None, &w.site.config, OPEN)
+    };
+    assert_eq!(no_post(Some((None, &purged))), gone(FeatureOff::Withdrawn));
+    assert_eq!(
+        no_post(Some((Some(&w.hosted), &expired))),
+        gone(FeatureOff::Deleted)
+    );
+    assert_eq!(
+        no_post(Some((
+            Some(&w.hosted),
+            &facts(ModerationState::Removed, 1, true)
+        ))),
+        gone(FeatureOff::NotApproved)
     );
 
     // Not approved any more (removed by moderation).
@@ -565,6 +597,11 @@ fn withdrawal_deletion_and_a_declined_feature_each_take_it_off_with_no_tombstone
         Some(&w.site.posts[0]),
         &w.site.config
     ));
+    assert_eq!(
+        w.record
+            .hosted_standing(Some((Some(&row), &w.facts)), None, &w.site.config, OPEN),
+        gone(FeatureOff::ConsentDeclined)
+    );
 
     // Taking a reflection off takes its feature off in the same step, and the
     // file keeps nothing: no id, no day, no note.
@@ -602,8 +639,12 @@ fn withdrawal_deletion_and_a_declined_feature_each_take_it_off_with_no_tombstone
 fn a_deleted_source_article_is_never_shown_and_is_not_dropped() {
     let w = world("Mina", true);
     assert_eq!(
-        w.record
-            .hosted_standing(Some((&w.hosted, &w.facts)), None, &w.site.config, OPEN),
+        w.record.hosted_standing(
+            Some((Some(&w.hosted), &w.facts)),
+            None,
+            &w.site.config,
+            OPEN
+        ),
         HostedStanding::Hidden(HiddenReason::SourceGone)
     );
     let resolved = resolve_post(
