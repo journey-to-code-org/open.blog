@@ -284,10 +284,13 @@ class ObFetchLab extends ObLab {
   }
 
   buildWorld() {
-    const box = el("section", { class: "ob-fetch-panel", "aria-label": this.kind === "login" ? "Cookie jar" : "Cache and clock" });
+    // Read the field into a local before an object literal uses it: the components' guard against
+    // assigning host fields reads a comparison placed straight after a key as an assignment.
+    const login = this.kind === "login";
+    const box = el("section", { class: "ob-fetch-panel", "aria-label": login ? "Cookie jar" : "Cache and clock" });
     this.worldView = el("div", { class: "ob-fetch-world", role: "status" });
     const actions = el("div", { class: "ob-fetch-actions" });
-    const buttons = this.kind === "login"
+    const buttons = login
       ? [["Clear cookies", () => { this.world = clearCookies(this.world); }]]
       : [
         ["Advance the clock 30 seconds", () => { this.world = advance(this.world, 30); }],
