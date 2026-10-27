@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// The curated research-context projection on a post's page (#197, ADR 0250): built from selections an
+// The curated research-context projection on a post's page (#197, ADR 0197): built from selections an
 // author made through the real Admin API, then served by the real binary. The section is static, complete
 // without JavaScript, reads in order, has a canonical anchor for each item, reflows at 320 pixels and at
 // 400% zoom, prints whole, treats authored text as text, and the data file Reader Discovery reads holds

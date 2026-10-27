@@ -65,10 +65,10 @@ pub enum Projection {
     Comparisons,
     /// Links a post makes to atlas and comparison pages.
     ContextLinks,
-    /// The author's curated selection of research context (ADR 0215).
+    /// The author's curated selection of research context (ADR 0185).
     Curated,
     /// The data file derived from the curated selections, for readers' tools
-    /// (ADR 0250).
+    /// (ADR 0197).
     CuratedContext,
 }
 
@@ -1417,7 +1417,7 @@ fn curated(inputs: &BoundaryInputs<'_>, post: Option<&str>) -> ProjectionReport 
     report
 }
 
-/// The curated context file (ADR 0250): one item for the file as a whole,
+/// The curated context file (ADR 0197): one item for the file as a whole,
 /// derived from the curated selections the manifest already lists and from
 /// nothing else, so it can name nothing the curated projection does not
 /// publish. A projection that is over a bound or does not agree with itself
@@ -1893,7 +1893,7 @@ wall of the cave</p>",
             .is_some());
     }
 
-    /// ADR 0252: a comment the author makes public excuses the words it shares
+    /// ADR 0199: a comment the author makes public excuses the words it shares
     /// with a private note everywhere, and nothing more of that note.
     #[test]
     fn an_annotation_that_copies_a_note_sentence_excuses_only_that_sentence() {

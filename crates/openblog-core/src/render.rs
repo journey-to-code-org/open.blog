@@ -599,7 +599,7 @@ pub fn generate_with_trail_budget(
             )?;
         }
     }
-    // The curated research context (ADR 0250): the data file readers' tools
+    // The curated research context (ADR 0197): the data file readers' tools
     // fetch, projected from the one public curated value the pages' sections
     // are rendered from. A projection that is refused (over a bound, or not
     // consistent) is left out whole; the pages stay the complete fallback and

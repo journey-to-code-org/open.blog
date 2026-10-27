@@ -5,7 +5,7 @@ import test from "node:test";
 import { BOUNDARY_KINDS, BOUNDARY_PROJECTIONS, BOUNDARY_REASONS, boundaryCountsText, createBoundaryPreview } from "../../web/admin/admin.js";
 import { withDom } from "./dom-shim.mjs";
 
-// The curated research-context projection (#197, ADR 0250 to ADR 0254): the public data file and the
+// The curated research-context projection (#197, ADR 0197 to ADR 0201): the public data file and the
 // static section of a post's page, read here from the fixtures the Rust tests pin byte for byte
 // (tests/fixtures/curated-context). Reader Discovery consumes these without any private store; this
 // pins the contract a consumer, and Admin's preview of it, may rely on.

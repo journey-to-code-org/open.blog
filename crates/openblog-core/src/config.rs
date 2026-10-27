@@ -93,7 +93,7 @@ pub struct SiteConfig {
     #[serde(skip_serializing_if = "ComparisonsConfig::is_off")]
     pub comparisons: ComparisonsConfig,
     /// Opt-in publication of the author's curated selection of research
-    /// context for readers (ADR 0215). Omitted from the written file while
+    /// context for readers (ADR 0185). Omitted from the written file while
     /// it is off.
     #[serde(skip_serializing_if = "CuratedContextConfig::is_off")]
     pub curated_context: CuratedContextConfig,
@@ -158,7 +158,7 @@ impl ComparisonsConfig {
     }
 }
 
-/// Whether builds publish the author's curated research context (ADR 0215).
+/// Whether builds publish the author's curated research context (ADR 0185).
 /// Off by default: nothing is curated and every output is exactly what it
 /// was. On, the Admin preview and the build's boundary manifest list what the
 /// private selections publish and why the rest is withheld. A selection only ever picks what the atlas, comparison

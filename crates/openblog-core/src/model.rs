@@ -540,11 +540,11 @@ pub struct Site {
     /// comparison output at all.
     pub comparisons: Option<crate::comparison_publication::PublicComparisons>,
     /// The public curated research context, supplied by the caller only when
-    /// the site publishes it (`curatedContext.publish`, ADR 0215) and its
+    /// the site publishes it (`curatedContext.publish`, ADR 0185) and its
     /// selections can be read. `None` writes no curated output at all: no
     /// file and no section on any page.
     pub curation: Option<crate::curated_selection::PublicCuration>,
-    /// The curated context projected once over every post (ADR 0258), shared
+    /// The curated context projected once over every post (ADR 0202), shared
     /// by the portable copies so a long feed does not project it per post.
     /// Built on first use from `curation`; assign `curation` through
     /// [`Site::set_curation`], which drops it.
@@ -580,7 +580,7 @@ impl Site {
         self.curated_cache = std::sync::OnceLock::new();
     }
 
-    /// The curated context a portable copy of `post` carries (ADR 0258): the
+    /// The curated context a portable copy of `post` carries (ADR 0202): the
     /// public curated value's projection, when the site publishes one and
     /// offers this post something. It is the same projection the post's page
     /// is rendered from; where the whole file is not written (a bound, an

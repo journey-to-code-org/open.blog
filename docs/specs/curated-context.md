@@ -1,11 +1,11 @@
 # Curated research context
 
 Status: implemented for v1 of the format (#197). Decisions:
-[ADR 0250](../adr/0250-the-curated-context-file-is-a-bounded-versioned-projection-of-the-one-public-curated-value.md),
-[ADR 0251](../adr/0251-a-post-page-carries-its-curated-context-as-a-static-section-with-canonical-anchors.md),
-[ADR 0252](../adr/0252-the-text-guard-allows-the-public-curated-value-and-the-manifest-checks-the-file-against-it.md),
-[ADR 0253](../adr/0253-nothing-published-means-nothing-written-and-a-refused-file-is-left-out-whole.md) and
-[ADR 0254](../adr/0254-portable-output-and-shared-reflections-are-left-to-198-and-a-curation-change-rebuilds-the-served-site.md).
+[ADR 0197](../adr/0197-the-curated-context-file-is-a-bounded-versioned-projection-of-the-one-public-curated-value.md),
+[ADR 0198](../adr/0198-a-post-page-carries-its-curated-context-as-a-static-section-with-canonical-anchors.md),
+[ADR 0199](../adr/0199-the-text-guard-allows-the-public-curated-value-and-the-manifest-checks-the-file-against-it.md),
+[ADR 0200](../adr/0200-nothing-published-means-nothing-written-and-a-refused-file-is-left-out-whole.md) and
+[ADR 0201](../adr/0201-portable-output-and-shared-reflections-are-left-to-198-and-a-curation-change-rebuilds-the-served-site.md).
 
 A site that sets `curatedContext.publish` and has selections (see [Curated research
 context](../configuration.md#curated-research-context)) publishes two things from one public value:
@@ -52,7 +52,7 @@ and needs no script. A post that is offered nothing has no section and is byte f
 ## Portable copies
 
 Portable HTML, Markdown and text, syndicated copies, full-content feeds and `llms-full.txt` carry the same
-section as labeled sequential sections (ADR 0258 to 0262): no ids, scripts or data attributes, absolute links,
+section as labeled sequential sections (ADR 0202 to 0206): no ids, scripts or data attributes, absolute links,
 a link to the section and to each item's anchor on the canonical page, and the same words as the page. A
 summary-only feed links to the section (`<atom:link rel="related">`, `_openblog.researchContext`). A copy that
 would lose anything it shows is refused for that post. Formats say what they cannot carry

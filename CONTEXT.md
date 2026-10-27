@@ -1315,13 +1315,13 @@ holding each published selection with its attribution, doubt, evidence, provenan
 revision, the context it needs, and for each published post its items in that post's order with a
 canonical anchor for each. It is written only while the site publishes at least one selection, is
 bounded and refused whole when over a bound, and names nothing a reader's tool could query for more
-(ADRs 0250, 0253).
+(ADRs 0197, 0200).
 _Avoid_: A query API, an export of the selections file
 
 **Research context section**:
 The static section of a post's page (`#research-context`) that renders the same public value for readers
 without JavaScript: a heading, an ordered list of attributed items with an anchor each (`#curated-` and
-the selection id), and a list of what they refer to. Authored text in it is text (ADR 0251).
+the selection id), and a list of what they refer to. Authored text in it is text (ADR 0198).
 _Avoid_: A widget, a sidebar, a second page
 
 ## Reader participation

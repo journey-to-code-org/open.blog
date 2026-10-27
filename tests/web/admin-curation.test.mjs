@@ -17,7 +17,7 @@ import {
 } from "../../web/admin/admin.js";
 import { ApiError, tick, withDom } from "./dom-shim.mjs";
 
-// Selected for readers (#196, ADR 0228, ADR 0229): the author's view of the selections inside the
+// Selected for readers (#196, ADR 0195, ADR 0196): the author's view of the selections inside the
 // draft-side research panel. The view is the shared fixture the Rust tests pin byte for byte
 // (tests/fixtures/curated-selections/view.json), so the page is tested against exactly what the
 // server sends: what readers get, what is withheld and why, notices, ordering, and the forms that

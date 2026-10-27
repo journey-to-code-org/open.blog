@@ -1,11 +1,11 @@
-# ADR 0254: Portable output and shared reflections are left to #198, and a curation change rebuilds the served site
+# ADR 0201: Portable output and shared reflections are left to #198, and a curation change rebuilds the served site
 
 - Status: Accepted
 - Date: 2026-10-27
 - Decision issue: [#197](https://github.com/journey-to-code-org/open.blog/issues/197)
 - Parent story: [#190](https://github.com/journey-to-code-org/open.blog/issues/190)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
-- Builds on: [ADR 0250](0250-the-curated-context-file-is-a-bounded-versioned-projection-of-the-one-public-curated-value.md), [ADR 0228](0228-curation-changes-are-revision-checked-ordered-after-the-content-lock-and-atomic.md)
+- Builds on: [ADR 0197](0197-the-curated-context-file-is-a-bounded-versioned-projection-of-the-one-public-curated-value.md), [ADR 0195](0195-curation-changes-are-revision-checked-ordered-after-the-content-lock-and-atomic.md)
 
 ## Context
 

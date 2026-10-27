@@ -1,4 +1,4 @@
-//! Curated public-research selection (#192, ADR 0215-0220): nothing is public
+//! Curated public-research selection (#192, ADR 0185-0190): nothing is public
 //! because it exists, selection is revision-aware and item-scoped, a
 //! relationship brings its approved endpoint context and provenance, and
 //! private research never reaches the curated projection.
@@ -2782,7 +2782,7 @@ mod context {
             .any(|p| p.projection == Projection::Curated));
     }
 
-    // ---- portable copies, feeds and the bibliography (#198, ADR 0258 to ADR 0262) -----------
+    // ---- portable copies, feeds and the bibliography (#198, ADR 0202 to ADR 0206) -----------
 
     mod portable {
         use super::*;

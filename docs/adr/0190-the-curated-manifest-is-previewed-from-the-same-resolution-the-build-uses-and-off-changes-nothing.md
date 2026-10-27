@@ -1,11 +1,11 @@
-# ADR 0220: The curated manifest is previewed from the same resolution the build uses, and off changes nothing
+# ADR 0190: The curated manifest is previewed from the same resolution the build uses, and off changes nothing
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#192](https://github.com/journey-to-code-org/open.blog/issues/192)
 - Parent story: [#190](https://github.com/journey-to-code-org/open.blog/issues/190)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
-- Builds on: [ADR 0125](0125-one-publication-boundary-previewed-from-and-enforced-on-the-builds-own-projections.md), [ADR 0215](0215-curated-research-context-is-one-more-projection-that-selects-only-what-the-other-projections-publish.md)
+- Builds on: [ADR 0125](0125-one-publication-boundary-previewed-from-and-enforced-on-the-builds-own-projections.md), [ADR 0185](0185-curated-research-context-is-one-more-projection-that-selects-only-what-the-other-projections-publish.md)
 
 ## Context
 
@@ -28,7 +28,7 @@ and the file format must be safe to extend.
   until a projection allows them; while it is off it is neither read nor reason to read the
   research stores. A site without the switch builds the same bytes and prints the same messages,
   and its manifest and Admin preview are unchanged. A file that cannot be read is named as
-  unavailable while the switch is on and, then, refuses a full build or `check` (ADR 0224).
+  unavailable while the switch is on and, then, refuses a full build or `check` (ADR 0191).
 - **File format and migration.** `selections.json` is `{ "version": 1, "selections": [...] }`; a
   different version is refused (`unsupported-version`) rather than guessed at, unknown fields
   are preserved, and records are written in id order. The public `PublicCuration` value

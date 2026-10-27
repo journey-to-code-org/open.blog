@@ -3840,7 +3840,7 @@ a.oba-btn-primary {
   border-top: var(--ob-border-width) solid var(--oba-panel-border);
 }
 
-/* Selected for readers (#196, ADR 0229): inside the draft-side research panel, so it reflows with
+/* Selected for readers (#196, ADR 0196): inside the draft-side research panel, so it reflows with
    it. Everything wraps, nothing scrolls sideways, and controls stack at 320 pixels or 400% zoom. */
 .oba-draft-research-curate {
   display: grid;

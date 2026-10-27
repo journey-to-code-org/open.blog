@@ -58,7 +58,7 @@ pub fn run(
     }
 
     let (mut site, _) = site::load_site(root, false, Some(clock::now()))?;
-    // The public curated context, while the site publishes it (ADR 0258).
+    // The public curated context, while the site publishes it (ADR 0202).
     crate::boundary::attach_public_curation(root, &mut site)?;
     let post = site
         .posts
@@ -156,7 +156,7 @@ pub fn bibliography_export(
         .map(|summary| summary.references.as_slice())
         .unwrap_or_default();
     // The references the author selected for readers of this post join the
-    // cited ones, after them, once each (ADR 0261). Anything else they
+    // cited ones, after them, once each (ADR 0205). Anything else they
     // selected has no place in a bibliography, and the export says so.
     let mut references = cited.to_vec();
     let mut not_carried = Vec::new();

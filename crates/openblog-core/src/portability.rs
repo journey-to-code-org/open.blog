@@ -207,7 +207,7 @@ pub struct PortableProjection<'a> {
     outcomes: Vec<&'a crate::feedback_publication::PublicFeedback>,
     /// The post's slug, which names it in the curated context.
     slug: &'a str,
-    /// The public curated context this post is offered (ADR 0258), which every
+    /// The public curated context this post is offered (ADR 0202), which every
     /// portable artifact must carry whole. Only `for_site` attaches it, from
     /// the site's public curated value and from nothing else.
     curated: Option<std::sync::Arc<crate::curated_context::CuratedContext>>,
@@ -631,7 +631,7 @@ impl<'a> PortableProjection<'a> {
     }
 
     /// The same projection carrying `context`, the public curated context the
-    /// post is offered (ADR 0258). `None` removes it, and the copies are then
+    /// post is offered (ADR 0202). `None` removes it, and the copies are then
     /// exactly what they were without it.
     pub fn with_curated(
         mut self,
@@ -1762,7 +1762,7 @@ impl<'a> PortableProjection<'a> {
                 ));
             }
         }
-        // The research context fails closed the same way (ADR 0258): a copy
+        // The research context fails closed the same way (ADR 0202): a copy
         // that dropped an item, its anchor or any of its words would show a
         // view without the doubt that came with it.
         if let Some(section) = self.curated_section(format) {
@@ -1836,7 +1836,7 @@ impl<'a> PortableProjection<'a> {
         ))
     }
 
-    /// The post's research context as a portable copy writes it (ADR 0258),
+    /// The post's research context as a portable copy writes it (ADR 0202),
     /// when the post is offered one: from the public curated value alone, with
     /// every link absolute and a link back to the canonical page's anchors.
     fn curated_section(
@@ -1873,13 +1873,13 @@ impl<'a> PortableProjection<'a> {
             .feed_summary(self.slug, &self.canonical_url)
     }
 
-    /// The post's research context for a bibliography export (ADR 0261).
+    /// The post's research context for a bibliography export (ADR 0205).
     pub fn curated_bibliography(&self) -> Option<crate::curated_context::BibliographyContext> {
         self.curated.as_ref()?.bibliography_for_post(self.slug)
     }
 
     /// Loss diagnostics for the research context in a portable copy (ADR
-    /// 0258): what a format cannot carry as the page does, said once.
+    /// 0202): what a format cannot carry as the page does, said once.
     fn curated_diagnostics(&self) -> Vec<PortabilityDiagnostic> {
         let Some(section) = self.curated_section(RepresentationFormat::Html) else {
             return Vec::new();

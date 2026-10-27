@@ -1526,7 +1526,7 @@ fn a_stale_approval_withholds_and_is_never_acknowledgeable() {
 }
 
 /// A damaged curated selections file refuses a full build while the site
-/// publishes curated context (ADR 0224). It is the only thing the selections
+/// publishes curated context (ADR 0191). It is the only thing the selections
 /// validator owns: a withdrawn, stale, missing or cyclic selection is the
 /// author's own state, listed by the boundary manifest with its reason, so it
 /// has no advisory row to acknowledge and the acknowledgeable set is unchanged.

@@ -1,11 +1,11 @@
-# ADR 0252: The text guard allows the public curated value, and the manifest checks the file against it
+# ADR 0199: The text guard allows the public curated value, and the manifest checks the file against it
 
 - Status: Accepted
 - Date: 2026-10-27
 - Decision issue: [#197](https://github.com/journey-to-code-org/open.blog/issues/197)
 - Parent story: [#190](https://github.com/journey-to-code-org/open.blog/issues/190)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
-- Builds on: [ADR 0250](0250-the-curated-context-file-is-a-bounded-versioned-projection-of-the-one-public-curated-value.md), [ADR 0125](0125-one-publication-boundary-previewed-from-and-enforced-on-the-builds-own-projections.md), [ADR 0224](0224-a-damaged-selections-file-refuses-a-full-build-and-withheld-selections-have-no-rows-to-acknowledge.md)
+- Builds on: [ADR 0197](0197-the-curated-context-file-is-a-bounded-versioned-projection-of-the-one-public-curated-value.md), [ADR 0125](0125-one-publication-boundary-previewed-from-and-enforced-on-the-builds-own-projections.md), [ADR 0191](0191-a-damaged-selections-file-refuses-a-full-build-and-withheld-selections-have-no-rows-to-acknowledge.md)
 
 ## Context
 
@@ -36,5 +36,5 @@ an allowance, and only for what is public.
   context entry's `via`, and the address of each post and of each item's anchor (a published post's
   address and the item's own `ob-curated-` fragment) (an entry or relationship also has to be published by the atlas projection), and one
   that the manifest does not list.
-- **A damaged selections file still refuses a full build** (ADR 0224). The curated selections are
+- **A damaged selections file still refuses a full build** (ADR 0191). The curated selections are
   resolved against what the build publishes, never against the private files.

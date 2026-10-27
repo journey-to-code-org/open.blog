@@ -12435,7 +12435,7 @@ fn prepare_post(
 ///
 /// The rebuild is a full build, so while the site publishes curated context
 /// (`curatedContext.publish`) and `selections.json` cannot be read, publishing is refused and
-/// rolled back, naming the file, until it is repaired or the switch is turned off (ADR 0224). An
+/// rolled back, naming the file, until it is repaired or the switch is turned off (ADR 0191). An
 /// ordinary post save is not stopped: it is `200` with `build.ok` false.
 fn commit_publication(
     state: &AppState,
@@ -18603,7 +18603,7 @@ mod tests {
             })
             .collect();
         let (mut site, _) = site::load_site(root, false, Some(clock::now())).unwrap();
-        // The public curated context, as a build attaches it (ADR 0258): every
+        // The public curated context, as a build attaches it (ADR 0202): every
         // portable copy below carries it, so the scan covers what it adds.
         crate::boundary::attach_public_curation(root, &mut site).unwrap();
         // A destination refuses a placeholder address, so what is sent names a real one.
@@ -38886,7 +38886,7 @@ series: letters
         assert_eq!(publish_as(f, &mikey, id).status, 200);
     }
 
-    // ---- curating the research context readers are given (#196, ADR 0228) -------
+    // ---- curating the research context readers are given (#196, ADR 0195) -------
 
     const CURATION: &str = "/admin/api/research/curation";
 
@@ -40042,7 +40042,7 @@ series: letters
         );
         assert_eq!(published_ids(&manifest, "curated", "selection").len(), 6);
         // Every portable copy of the post carries what was approved and selected, in the same
-        // words, with the link back to the canonical page's research-context section (ADR 0258):
+        // words, with the link back to the canonical page's research-context section (ADR 0202):
         // portable HTML, Markdown and text, what a destination is sent, the feeds and llms-full.txt.
         let artifact = |path: &str| -> &String {
             &artifacts

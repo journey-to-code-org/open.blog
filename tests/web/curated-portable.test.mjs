@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-// Curated research context in portable copies (#198, ADR 0258): the portable HTML, Markdown and
+// Curated research context in portable copies (#198, ADR 0202): the portable HTML, Markdown and
 // text, and the JSON Feed item, are the fixtures the Rust tests pin byte for byte. Here the same
 // semantic facts are compared across every format against the public data file, and the copies
 // are checked for the links back to the canonical page and for inert markup.

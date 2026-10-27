@@ -1,5 +1,5 @@
 //! Admin routes for curating the research context readers are given (#196,
-//! ADR 0228, ADR 0229).
+//! ADR 0195, ADR 0196).
 //!
 //! `GET research/curation` reads the author's view of the selections: each one
 //! with its status and the reason it publishes nothing, what readers of one

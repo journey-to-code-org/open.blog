@@ -15,7 +15,7 @@ All notable changes to open.blog are recorded here. Releases follow
   The page now also shows the passages and rights words of each compared version. Anchors on the page
   moved into the reserved `ob-` family (`ob-research-context`, `ob-curated-<id>`) and
   `curated-context.json` says `openblog-curated-context-file`. See
-  [ADR 0258](docs/adr/0258-portable-copies-carry-the-public-curated-context-as-labeled-sections-with-links-back-to-the-canonical-page.md).
+  [ADR 0202](docs/adr/0202-portable-copies-carry-the-public-curated-context-as-labeled-sections-with-links-back-to-the-canonical-page.md).
 - Curated research context: a new private file, `.openblog/private/research/selections.json`,
   holds which public research context readers may be given: references to sources, atlas entries,
   relationships, datings and comparisons, and your own attributed comments on a source or an

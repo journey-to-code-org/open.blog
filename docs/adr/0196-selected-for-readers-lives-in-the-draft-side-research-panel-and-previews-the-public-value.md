@@ -1,11 +1,11 @@
-# ADR 0229: Selected for readers lives in the draft-side research panel and previews the public value
+# ADR 0196: Selected for readers lives in the draft-side research panel and previews the public value
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#196](https://github.com/journey-to-code-org/open.blog/issues/196)
 - Parent story: [#190](https://github.com/journey-to-code-org/open.blog/issues/190)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
-- Builds on: [ADR 0215](0215-curated-research-context-is-one-more-projection-that-selects-only-what-the-other-projections-publish.md), [ADR 0122](0122-the-draft-side-research-panel-inserts-only-checked-and-published-research.md), [ADR 0125](0125-one-publication-boundary-previewed-from-and-enforced-on-the-builds-own-projections.md)
+- Builds on: [ADR 0185](0185-curated-research-context-is-one-more-projection-that-selects-only-what-the-other-projections-publish.md), [ADR 0122](0122-the-draft-side-research-panel-inserts-only-checked-and-published-research.md), [ADR 0125](0125-one-publication-boundary-previewed-from-and-enforced-on-the-builds-own-projections.md)
 
 ## Context
 
@@ -43,7 +43,7 @@ third panel nor a second preview.
   selected" line is never stale.
 - **A draft says so.** When the post is not published yet, the section says its selections are
   shown as they will be when it is published and the preview is headed "when this post is
-  published" (ADR 0226); ordering works there.
+  published" (ADR 0193); ordering works there.
 - **The server states the rules.** The view lists each kind's always-included and optional
-  fields, so the page restates none of ADR 0217, and the Rust tests pin the view as a fixture the
+  fields, so the page restates none of ADR 0187, and the Rust tests pin the view as a fixture the
   node tests render.

@@ -1,11 +1,11 @@
-# ADR 0258: Portable copies carry the public curated context as labeled sections with links back to the canonical page
+# ADR 0202: Portable copies carry the public curated context as labeled sections with links back to the canonical page
 
 - Status: Accepted
 - Date: 2026-10-27
 - Decision issue: [#198](https://github.com/journey-to-code-org/open.blog/issues/198)
 - Parent story: [#190](https://github.com/journey-to-code-org/open.blog/issues/190)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
-- Builds on: [ADR 0250](0250-the-curated-context-file-is-a-bounded-versioned-projection-of-the-one-public-curated-value.md), [ADR 0251](0251-a-post-page-carries-its-curated-context-as-a-static-section-with-canonical-anchors.md)
+- Builds on: [ADR 0197](0197-the-curated-context-file-is-a-bounded-versioned-projection-of-the-one-public-curated-value.md), [ADR 0198](0198-a-post-page-carries-its-curated-context-as-a-static-section-with-canonical-anchors.md)
 
 ## Context
 

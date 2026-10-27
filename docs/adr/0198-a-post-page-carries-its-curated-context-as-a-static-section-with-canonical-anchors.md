@@ -1,11 +1,11 @@
-# ADR 0251: A post's page carries its curated context as a static section with canonical anchors
+# ADR 0198: A post's page carries its curated context as a static section with canonical anchors
 
 - Status: Accepted
 - Date: 2026-10-27
 - Decision issue: [#197](https://github.com/journey-to-code-org/open.blog/issues/197)
 - Parent story: [#190](https://github.com/journey-to-code-org/open.blog/issues/190)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
-- Builds on: [ADR 0250](0250-the-curated-context-file-is-a-bounded-versioned-projection-of-the-one-public-curated-value.md), [ADR 0226](0226-a-selection-is-for-the-site-or-for-named-published-posts-in-the-authors-order.md), [ADR 0229](0229-selected-for-readers-lives-in-the-draft-side-research-panel-and-previews-the-public-value.md)
+- Builds on: [ADR 0197](0197-the-curated-context-file-is-a-bounded-versioned-projection-of-the-one-public-curated-value.md), [ADR 0193](0193-a-selection-is-for-the-site-or-for-named-published-posts-in-the-authors-order.md), [ADR 0196](0196-selected-for-readers-lives-in-the-draft-side-research-panel-and-previews-the-public-value.md)
 
 ## Context
 

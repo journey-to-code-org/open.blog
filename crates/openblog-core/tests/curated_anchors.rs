@@ -1,5 +1,5 @@
 //! The anchors of the research-context section are in a reserved family no
-//! heading id can take (ADR 0251).
+//! heading id can take (ADR 0198).
 
 use openblog_core::curated_context::{ANCHOR_PREFIX, SECTION_ID};
 

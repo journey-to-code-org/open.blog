@@ -1,6 +1,6 @@
 //! A published shared reflection carries the public research context its post is offered, in
 //! every portable form, feed and llms-full.txt, without changing the approved assembly (ADR
-//! 0258): the arrangement keeps its reading order, the approved words are exactly what the
+//! 0202): the arrangement keeps its reading order, the approved words are exactly what the
 //! authors approved, and nothing private or unselected comes with the context.
 
 use openblog_core::approval::ApprovalSet;

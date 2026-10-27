@@ -1,11 +1,11 @@
-# ADR 0217: A selection publishes only the fields it lists, and always the attribution, uncertainty and evidence of its kind
+# ADR 0187: A selection publishes only the fields it lists, and always the attribution, uncertainty and evidence of its kind
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#192](https://github.com/journey-to-code-org/open.blog/issues/192)
 - Parent story: [#190](https://github.com/journey-to-code-org/open.blog/issues/190)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
-- Builds on: [ADR 0058](0058-publish-one-allowlisted-knowledge-atlas-projection.md), [ADR 0092](0092-publish-approved-comparisons-as-one-rights-gated-projection.md), [ADR 0215](0215-curated-research-context-is-one-more-projection-that-selects-only-what-the-other-projections-publish.md)
+- Builds on: [ADR 0058](0058-publish-one-allowlisted-knowledge-atlas-projection.md), [ADR 0092](0092-publish-approved-comparisons-as-one-rights-gated-projection.md), [ADR 0185](0185-curated-research-context-is-one-more-projection-that-selects-only-what-the-other-projections-publish.md)
 
 ## Context
 

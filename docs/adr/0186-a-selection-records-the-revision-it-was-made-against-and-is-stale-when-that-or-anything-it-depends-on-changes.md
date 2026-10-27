@@ -1,11 +1,11 @@
-# ADR 0216: A selection records the revision it was made against and is stale when that, or anything it depends on, changes
+# ADR 0186: A selection records the revision it was made against and is stale when that, or anything it depends on, changes
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#192](https://github.com/journey-to-code-org/open.blog/issues/192)
 - Parent story: [#190](https://github.com/journey-to-code-org/open.blog/issues/190)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
-- Builds on: [ADR 0125](0125-one-publication-boundary-previewed-from-and-enforced-on-the-builds-own-projections.md), [ADR 0215](0215-curated-research-context-is-one-more-projection-that-selects-only-what-the-other-projections-publish.md)
+- Builds on: [ADR 0125](0125-one-publication-boundary-previewed-from-and-enforced-on-the-builds-own-projections.md), [ADR 0185](0185-curated-research-context-is-one-more-projection-that-selects-only-what-the-other-projections-publish.md)
 
 ## Context
 
@@ -24,8 +24,8 @@ needs the same honesty for everything it selects: the author chose one version o
   list of explicit name/value pairs, each length-prefixed so no two lists feed the hash the same
   bytes: the kind and target, the whole selected public item (not only the listed fields), the
   listed `fields`, the `provenance`, the author's `text`, `by` and a listed `locator`, the sorted
-  `requires`, the `posts`, and every public dependency the item brings (ADR 0218), recorded
-  when the author selects. Where the item sits among a post's items (`positions`, ADR 0226) is
+  `requires`, the `posts`, and every public dependency the item brings (ADR 0188), recorded
+  when the author selects. Where the item sits among a post's items (`positions`, ADR 0193) is
   presentation, not content, and is deliberately not in it. Every choice about what readers are
   given is in it, so changing one is a change to what was selected; it is computed from the projections' public values, never
   from private notes. A fingerprint is only compared with one made by the same engine: an

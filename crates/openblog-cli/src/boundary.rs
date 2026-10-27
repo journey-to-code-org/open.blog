@@ -456,7 +456,7 @@ pub fn selections_error(site: &Site, stores: &Stores<'_>) -> Option<String> {
 
 /// Attach the public curated value to `site` exactly as a build does, while
 /// the site publishes curated context, so a portable export or a syndicated
-/// copy carries the research context (ADR 0258). Nothing but the value the
+/// copy carries the research context (ADR 0202). Nothing but the value the
 /// build lists is attached, and nothing is written. A selections file that
 /// cannot be read refuses, as a build does, rather than leaving the author's
 /// curation out of a copy that looks complete. With the switch off nothing is
@@ -2341,7 +2341,7 @@ date: 2026-01-07
         let _ = fs::remove_dir_all(root);
     }
 
-    // ---- the curated research-context projection (#197, ADR 0250) ---------------
+    // ---- the curated research-context projection (#197, ADR 0197) ---------------
 
     const APPROVED_WORDS: &str =
         "Plato taught at the Academy for forty years, and this is a comment by the author.";
@@ -2692,7 +2692,7 @@ date: 2026-01-07
         let _ = fs::remove_dir_all(root);
     }
 
-    // ---- portable copies of the curated context (#198, ADR 0258 to ADR 0262) ----------------
+    // ---- portable copies of the curated context (#198, ADR 0202 to ADR 0206) ----------------
 
     fn export_to(root: &Path, slug: &str, name: &str) -> Result<String, String> {
         let out = root.join("exports").join(name);

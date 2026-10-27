@@ -1,8 +1,8 @@
 //! The public research-context projection for Reader Discovery (#197,
-//! ADR 0250 to ADR 0254).
+//! ADR 0197 to ADR 0201).
 //!
 //! [`CuratedContext`] is a bounded, deterministic reading of the one public
-//! curated value ([`PublicCuration`], ADR 0215) shaped to be fetched and
+//! curated value ([`PublicCuration`], ADR 0185) shaped to be fetched and
 //! reused: every published selection with its attribution, uncertainty,
 //! evidence and the revision that was selected, the context each one needs,
 //! and, for each published post, the items it is offered in the author's
@@ -41,14 +41,14 @@ use crate::escape::{attr, text};
 /// The `format` of the artifact. It is not the public curated value's own
 /// format ([`crate::curated_selection::CURATED_FORMAT`]): the file is a projection of that value (the
 /// selected items plus the posts' anchors), not the value itself, so a reader
-/// told one is never handed the other (ADR 0250).
+/// told one is never handed the other (ADR 0197).
 pub const FILE_FORMAT: &str = "openblog-curated-context-file";
 /// The artifact, relative to the site root.
 pub const CURATED_CONTEXT_JSON_FILE: &str = "curated-context.json";
 /// The prefix of the anchor each curated item has on a post's page, followed
 /// by the selection id. A selection id is a lowercase slug, so the anchor is
 /// a valid, stable fragment. It is in the reserved `ob-` family: no heading id
-/// of the post can have it (ADR 0250).
+/// of the post can have it (ADR 0197).
 pub const ANCHOR_PREFIX: &str = "ob-curated-";
 /// The id of the section on a post's page that holds the curated context.
 pub const SECTION_ID: &str = "ob-research-context";
@@ -57,7 +57,7 @@ pub const MAX_BYTES: usize = 1024 * 1024;
 /// Most posts the artifact lists.
 pub const MAX_LISTED_POSTS: usize = 2_000;
 /// Most items one post's page section shows. A post offered more has the rest
-/// in the data file, and its page says so (ADR 0251): the page stays bounded
+/// in the data file, and its page says so (ADR 0198): the page stays bounded
 /// however large the selections file is.
 pub const MAX_PAGE_ITEMS: usize = 1_000;
 /// Deepest nesting of a field value shown on a page.
@@ -462,7 +462,7 @@ enum Syntax {
     Markdown,
 }
 
-/// Where a copy that has left the site links back to (ADR 0258): the canonical
+/// Where a copy that has left the site links back to (ADR 0202): the canonical
 /// address of the post, whose page holds every anchor the copy names, and how
 /// a root-relative address of this site is made absolute.
 pub struct CopyLinks<'a> {
@@ -1165,7 +1165,7 @@ impl<'a> Page<'a> {
         Some(html)
     }
 
-    /// The section of a portable copy (ADR 0258), in this page's syntax.
+    /// The section of a portable copy (ADR 0202), in this page's syntax.
     fn copy_section(&self, post: &PostContext) -> Option<CopySection> {
         let copy = self.copy?;
         let (items, held_back, listed) = self.chosen(post);
@@ -1314,7 +1314,7 @@ fn fold(value: &str) -> String {
         .collect()
 }
 
-/// One post's research context as a portable copy writes it (ADR 0258),
+/// One post's research context as a portable copy writes it (ADR 0202),
 /// with what a copy must carry whole and what it could not.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CopySection {
@@ -1414,7 +1414,7 @@ impl CuratedContext {
         Page::new(self, post, Syntax::Html, None).section(post, data_url)
     }
 
-    /// The same context as one post's portable HTML (ADR 0258): semantic
+    /// The same context as one post's portable HTML (ADR 0202): semantic
     /// headings, lists and definitions with no ids, scripts or data
     /// attributes, every link absolute, and a link to each item's anchor and
     /// to the section on the canonical page. `None` when the post offers
@@ -1424,7 +1424,7 @@ impl CuratedContext {
         Page::new(self, post, Syntax::Html, Some(links)).copy_section(post)
     }
 
-    /// The same context as one post's portable Markdown (ADR 0258), every
+    /// The same context as one post's portable Markdown (ADR 0202), every
     /// value escaped as inline text. Plain text is derived from this.
     pub fn copy_markdown(&self, slug: &str, links: &CopyLinks<'_>) -> Option<CopySection> {
         let post = self.for_post(slug)?;
@@ -1432,7 +1432,7 @@ impl CuratedContext {
     }
 
     /// What a bibliography export can carry of one post's curated context
-    /// (ADR 0261): the references the author selected for it, as the public
+    /// (ADR 0205): the references the author selected for it, as the public
     /// description the exporters already read, in the author's order. Every
     /// other kind of item has no place in a bibliography; each is listed in
     /// `not_carried`, so the export can say what it left out.
@@ -1481,7 +1481,7 @@ impl CuratedContext {
 }
 
 /// The references a post's curated context holds for a bibliography, and the
-/// items it holds that no bibliography format can carry (ADR 0261).
+/// items it holds that no bibliography format can carry (ADR 0205).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct BibliographyContext {
     pub references: Vec<crate::citations::PublicReference>,

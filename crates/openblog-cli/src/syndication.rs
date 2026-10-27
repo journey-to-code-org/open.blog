@@ -283,7 +283,7 @@ fn run_with_transport(
     let sources = site::read_sources(root, &config)?;
     let (mut loaded, _) = site::load_site(root, false, Some(crate::clock::now()))?;
     // The public curated context, while the site publishes it, so the copy sent to a
-    // destination carries it and links back to the canonical page (ADR 0258).
+    // destination carries it and links back to the canonical page (ADR 0202).
     crate::boundary::attach_public_curation(root, &mut loaded)?;
     let post = match loaded.posts.iter().find(|post| post.slug == slug) {
         Some(post) => post,

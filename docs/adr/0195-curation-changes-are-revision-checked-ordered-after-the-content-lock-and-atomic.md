@@ -1,11 +1,11 @@
-# ADR 0228: Curation changes are revision-checked, ordered after the content lock and atomic
+# ADR 0195: Curation changes are revision-checked, ordered after the content lock and atomic
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#196](https://github.com/journey-to-code-org/open.blog/issues/196)
 - Parent story: [#190](https://github.com/journey-to-code-org/open.blog/issues/190)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
-- Builds on: [ADR 0215](0215-curated-research-context-is-one-more-projection-that-selects-only-what-the-other-projections-publish.md), [ADR 0216](0216-a-selection-records-the-revision-it-was-made-against-and-is-stale-when-that-or-anything-it-depends-on-changes.md), [ADR 0089](0089-alignments-take-their-lock-after-claims-and-guard-what-they-use.md)
+- Builds on: [ADR 0185](0185-curated-research-context-is-one-more-projection-that-selects-only-what-the-other-projections-publish.md), [ADR 0186](0186-a-selection-records-the-revision-it-was-made-against-and-is-stale-when-that-or-anything-it-depends-on-changes.md), [ADR 0089](0089-alignments-take-their-lock-after-claims-and-guard-what-they-use.md)
 
 ## Context
 
@@ -28,7 +28,7 @@ a write that cannot half-happen.
   replaced.
 - **Lock order.** A change takes the content lock first (the build mutex and the content
   transaction), loads the saved site as a build does, then the atlas, alignments, notebook,
-  library and selections locks in that order (ADR 0215), reads the stores and resolves
+  library and selections locks in that order (ADR 0185), reads the stores and resolves
   against them under those locks, and writes. While nothing is stored the change is first tried
   without the locks, so a refused change creates no directory. A lock another writer holds is a
   `500` that changes nothing, after the usual wait. The locks cover the change only: they are
@@ -42,7 +42,7 @@ a write that cannot half-happen.
 - **These routes only edit private choices.** The text an author writes for a comment is guarded like
   every private store until the build publishes it. While the site publishes curated context, a
   successful change rebuilds the served site, as an atlas change does, and returns the outcome as
-  `build` (ADR 0254); a site that does not publish it is not rebuilt.
+  `build` (ADR 0201); a site that does not publish it is not rebuilt.
 - **A run of orderings rebuilds once.** An ordering may say `"rebuild": false`: it is written, the
   served site is marked as behind (`build: { ok: true, pending: true }`, also on the next view), and one
   `POST research/curation/rebuild` after the last step rebuilds it and returns the outcome. The Admin

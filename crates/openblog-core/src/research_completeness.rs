@@ -83,7 +83,7 @@ pub enum Validator {
     PublicationContext,
     /// `curated_selection::SelectionSet::parse`: whether the private
     /// selections file can be read while the site publishes curated context
-    /// (ADR 0215, ADR 0224).
+    /// (ADR 0185, ADR 0191).
     Selections,
 }
 

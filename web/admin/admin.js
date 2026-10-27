@@ -2704,7 +2704,7 @@ export function createDraftResearchPanel({ api, insert, onClose, onClaim, onClai
 }
 
 // ---------------------------------------------------------------------------------------------
-// Selected for readers (#196, ADR 0228, ADR 0229)
+// Selected for readers (#196, ADR 0195, ADR 0196)
 // ---------------------------------------------------------------------------------------------
 
 /** What a selection selects, in the author's words. The distinctions of the research model stay apart. */

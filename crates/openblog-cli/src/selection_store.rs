@@ -1,5 +1,5 @@
 //! Private, file-backed storage for the author's curated selections
-//! (ADR 0215, ADR 0224).
+//! (ADR 0185, ADR 0191).
 //!
 //! The selections file lives at [`SELECTIONS_FILE`] beside the source
 //! library, the notebook, the Knowledge Atlas, the claims file and the

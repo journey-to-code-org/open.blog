@@ -1,11 +1,11 @@
-# ADR 0224: A damaged selections file refuses a full build, and withheld selections have no rows to acknowledge
+# ADR 0191: A damaged selections file refuses a full build, and withheld selections have no rows to acknowledge
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#192](https://github.com/journey-to-code-org/open.blog/issues/192)
 - Parent story: [#190](https://github.com/journey-to-code-org/open.blog/issues/190)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
-- Builds on: [ADR 0215](0215-curated-research-context-is-one-more-projection-that-selects-only-what-the-other-projections-publish.md), [ADR 0220](0220-the-curated-manifest-is-previewed-from-the-same-resolution-the-build-uses-and-off-changes-nothing.md), [ADR 0146](0146-one-research-completeness-contract-with-one-owner-per-check.md), [ADR 0147](0147-acknowledgements-never-resolve-a-finding-and-go-stale-when-it-changes.md)
+- Builds on: [ADR 0185](0185-curated-research-context-is-one-more-projection-that-selects-only-what-the-other-projections-publish.md), [ADR 0190](0190-the-curated-manifest-is-previewed-from-the-same-resolution-the-build-uses-and-off-changes-nothing.md), [ADR 0146](0146-one-research-completeness-contract-with-one-owner-per-check.md), [ADR 0147](0147-acknowledgements-never-resolve-a-finding-and-go-stale-when-it-changes.md)
 
 ## Context
 

@@ -183,7 +183,7 @@ curated selections while `curatedContext.publish` is on. When the build does not
 These codes appear for the source library, notebook, atlas, claims and alignments files alike unless a
 row says otherwise. The curated selections file reports only `file-unreadable` here: a selection that
 is withdrawn, stale, missing or cyclic is your own state, listed with its reason in What will be public
-and never acknowledged (see [ADR 0224](adr/0224-a-damaged-selections-file-refuses-a-full-build-and-withheld-selections-have-no-rows-to-acknowledge.md)).
+and never acknowledged (see [ADR 0191](adr/0191-a-damaged-selections-file-refuses-a-full-build-and-withheld-selections-have-no-rows-to-acknowledge.md)).
 
 | Code | What it means |
 | --- | --- |

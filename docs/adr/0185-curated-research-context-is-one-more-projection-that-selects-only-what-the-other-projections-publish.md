@@ -1,4 +1,4 @@
-# ADR 0215: Curated research context is one more projection that selects only what the other projections publish
+# ADR 0185: Curated research context is one more projection that selects only what the other projections publish
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -25,13 +25,13 @@ would let the two disagree about what is public.
   projected dating, a published comparison, or a source's public description
   (`public_reference`). Selecting a private, unapproved or unprojected item is refused with
   `target-not-published`, naming the id only. A source is selectable only when it is already
-  public: cited by a published post, or published by the atlas or a comparison (ADR 0225). A
+  public: cited by a published post, or published by the atlas or a comparison (ADR 0192). A
   library source nothing publishes is private even though it exists, and selecting it does not
   change that. Approval stays where it was made (ADR 0058, 0092,
   0099); withdrawing it there withholds every selection of the item at the next resolve.
 - **Nothing is public because it exists.** An empty selections file, a missing file and a switch
   that is off all publish nothing. A selection of an item publishes only the fields the selection
-  lists (ADR 0217).
+  lists (ADR 0187).
 - **Private by file.** Selections live in `.openblog/private/research/selections.json`, a private
   store like the others (`Store::Selections`, guarded by the text guard, never copied to a public
   folder, listed under what is never published). Selecting, withdrawing and unselecting never
@@ -47,7 +47,7 @@ would let the two disagree about what is public.
   atlas, the alignments, the notebook and the library to resolve what it selects, so it takes
   those locks first, in that order, then its own; it never takes the claims lock, and no other
   writer takes the selections lock, so no two writers can wait on each other. An Admin curation
-  request holds the content lock before any of them (ADR 0228). A change to a store it reads only
+  request holds the content lock before any of them (ADR 0195). A change to a store it reads only
   ever makes a selection stale, which withholds it.
 
 ## Consequences

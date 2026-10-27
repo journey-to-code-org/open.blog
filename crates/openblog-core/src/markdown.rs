@@ -1672,7 +1672,7 @@ const RESERVED_ANCHOR_PREFIX: &str = crate::attributed_perspective::ANCHOR_PREFI
 
 /// Every start of an anchor the build itself writes on a post's page, which no
 /// heading id may have: attributed sections (ADR 0126) and the research-context
-/// section and its items (ADR 0250). Local to this function by design.
+/// section and its items (ADR 0197). Local to this function by design.
 const RESERVED_ANCHOR_PREFIXES: [&str; 3] = [
     RESERVED_ANCHOR_PREFIX,
     crate::curated_context::ANCHOR_PREFIX,

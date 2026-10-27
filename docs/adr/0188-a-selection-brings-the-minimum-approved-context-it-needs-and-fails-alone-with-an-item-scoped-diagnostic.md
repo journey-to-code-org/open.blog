@@ -1,11 +1,11 @@
-# ADR 0218: A selection brings the minimum approved context it needs and fails alone with an item-scoped diagnostic
+# ADR 0188: A selection brings the minimum approved context it needs and fails alone with an item-scoped diagnostic
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#192](https://github.com/journey-to-code-org/open.blog/issues/192)
 - Parent story: [#190](https://github.com/journey-to-code-org/open.blog/issues/190)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
-- Builds on: [ADR 0215](0215-curated-research-context-is-one-more-projection-that-selects-only-what-the-other-projections-publish.md), [ADR 0216](0216-a-selection-records-the-revision-it-was-made-against-and-is-stale-when-that-or-anything-it-depends-on-changes.md), [ADR 0146](0146-one-research-completeness-contract-with-one-owner-per-check.md)
+- Builds on: [ADR 0185](0185-curated-research-context-is-one-more-projection-that-selects-only-what-the-other-projections-publish.md), [ADR 0186](0186-a-selection-records-the-revision-it-was-made-against-and-is-stale-when-that-or-anything-it-depends-on-changes.md), [ADR 0146](0146-one-research-completeness-contract-with-one-owner-per-check.md)
 
 ## Context
 
@@ -39,7 +39,7 @@ stale, missing or private must not silently drop or leak.
   repaired in place.
 - **A competing dating** of the same owner (by owner type) and aspect that is published but not
   selected gives a `competing-unselected` notice on the selected dating, so a reader is never
-  shown one side of a disagreement by accident. The notice travels with the item (ADR 0227).
+  shown one side of a disagreement by accident. The notice travels with the item (ADR 0194).
 - **A dating names what it dates by its owner type.** A relationship-owned dating brings the
   relationship (and its endpoints) and says "relationship", an entry-owned one the entry; the id
   alone never decides.

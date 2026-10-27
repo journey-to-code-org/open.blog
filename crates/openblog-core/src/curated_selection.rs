@@ -1,6 +1,6 @@
 //! Curated public-research selection: the author's explicit, revision-aware
 //! choice of which already-publishable research context readers are given
-//! (#192, ADR 0215-0220).
+//! (#192, ADR 0185-0190).
 //!
 //! A selection is one more projection under the publication boundary, never
 //! a second one. It adds no approval of its own to research the other
@@ -975,7 +975,7 @@ struct Evaluated {
 /// Every pair is length-prefixed, so no two lists feed the hash the same
 /// bytes. A fingerprint is only ever compared with another made by this same
 /// engine: an upgrade that changes how an item is projected may make
-/// selections stale, and the author selects them again (ADR 0216).
+/// selections stale, and the author selects them again (ADR 0186).
 fn fingerprint(pairs: &[(String, String)]) -> String {
     let mut hash = 0xcbf2_9ce4_8422_2325u64;
     let mut feed = |bytes: &[u8]| {
@@ -2263,7 +2263,7 @@ pub struct Candidates {
 }
 
 /// What a kind of selection always publishes and what the author may add,
-/// so no client restates the rules of ADR 0217.
+/// so no client restates the rules of ADR 0187.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct KindView {

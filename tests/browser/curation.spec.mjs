@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Selected for readers in the real Admin Studio (#196, ADR 0228, ADR 0229): inside the draft-side
+// Selected for readers in the real Admin Studio (#196, ADR 0195, ADR 0196): inside the draft-side
 // research panel an author selects public research context for one post, sees exactly what
 // readers will get, orders it from the keyboard, withdraws it, selects it again when it went
 // stale, and unselects it, without losing the draft, in Markdown or Visual mode, and the section

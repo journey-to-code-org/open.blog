@@ -306,7 +306,7 @@ acts on, and the section reflows at 320 pixels. Readers see none of it until the
 curated context (`curatedContext.publish`); then it is a data file and a section on the post's page (the
 [curated context format](specs/curated-context.md)), and a change you make here rebuilds the site you are
 previewing. See
-[ADR 0229](adr/0229-selected-for-readers-lives-in-the-draft-side-research-panel-and-previews-the-public-value.md).
+[ADR 0196](adr/0196-selected-for-readers-lives-in-the-draft-side-research-panel-and-previews-the-public-value.md).
 
 ### Move between research and your draft
 

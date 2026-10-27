@@ -1,11 +1,11 @@
-# ADR 0226: A selection is for the site or for named published posts, in the author's order
+# ADR 0193: A selection is for the site or for named published posts, in the author's order
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#196](https://github.com/journey-to-code-org/open.blog/issues/196)
 - Parent story: [#190](https://github.com/journey-to-code-org/open.blog/issues/190)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
-- Builds on: [ADR 0215](0215-curated-research-context-is-one-more-projection-that-selects-only-what-the-other-projections-publish.md), [ADR 0216](0216-a-selection-records-the-revision-it-was-made-against-and-is-stale-when-that-or-anything-it-depends-on-changes.md)
+- Builds on: [ADR 0185](0185-curated-research-context-is-one-more-projection-that-selects-only-what-the-other-projections-publish.md), [ADR 0186](0186-a-selection-records-the-revision-it-was-made-against-and-is-stale-when-that-or-anything-it-depends-on-changes.md)
 
 ## Context
 
@@ -38,7 +38,7 @@ format is unreleased, so it stays at version 1.
   1..n for that post and no other. A selection this post has placed that is not listed (a
   withheld one) keeps its relative place after the listed ones, so places stay unique and
   consistent. Narrowing a selection's scope drops the places it no longer needs.
-- **Scope is part of the revision** (ADR 0216), and changing it is refused while the selection is
+- **Scope is part of the revision** (ADR 0186), and changing it is refused while the selection is
   stale. A place is not part of the revision: ordering is presentation, so ordering one post can
   never make a selection stale for another. An ordering is all or nothing and refuses a stale,
   unknown or not-offered selection.

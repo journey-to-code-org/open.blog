@@ -1,11 +1,11 @@
-# ADR 0253: Nothing published means nothing written, and a refused file is left out whole
+# ADR 0200: Nothing published means nothing written, and a refused file is left out whole
 
 - Status: Accepted
 - Date: 2026-10-27
 - Decision issue: [#197](https://github.com/journey-to-code-org/open.blog/issues/197)
 - Parent story: [#190](https://github.com/journey-to-code-org/open.blog/issues/190)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
-- Builds on: [ADR 0250](0250-the-curated-context-file-is-a-bounded-versioned-projection-of-the-one-public-curated-value.md), [ADR 0220](0220-the-curated-manifest-is-previewed-from-the-same-resolution-the-build-uses-and-off-changes-nothing.md), [ADR 0168](0168-the-atlas-query-projection-is-derived-from-the-public-atlas-alone-and-is-one-more-listed-artifact.md)
+- Builds on: [ADR 0197](0197-the-curated-context-file-is-a-bounded-versioned-projection-of-the-one-public-curated-value.md), [ADR 0190](0190-the-curated-manifest-is-previewed-from-the-same-resolution-the-build-uses-and-off-changes-nothing.md), [ADR 0168](0168-the-atlas-query-projection-is-derived-from-the-public-atlas-alone-and-is-one-more-listed-artifact.md)
 
 ## Context
 

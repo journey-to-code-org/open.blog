@@ -99,7 +99,7 @@ pub fn rss(site: &Site) -> Result<String, String> {
             ));
         }
         // Where the post's research context is on the canonical page, whether or
-        // not the feed carries the post's words (ADR 0258). A related link, which
+        // not the feed carries the post's words (ADR 0202). A related link, which
         // readers that do not know it ignore.
         if let Some(context) = projection.curated_context_summary() {
             if let Some(url) = context["url"].as_str() {
@@ -203,7 +203,7 @@ pub fn json_feed(site: &Site) -> Result<String, String> {
             }
             // A post with a research context says where it is on the canonical page
             // and which items it holds, by id, kind and anchor, even when the feed
-            // carries no full content (ADR 0258). The words are in `content_*`.
+            // carries no full content (ADR 0202). The words are in `content_*`.
             if let Some(context) = projection.curated_context_summary() {
                 if item.get("_openblog").is_none() {
                     item["_openblog"] = serde_json::json!({ "about": JSON_FEED_EXTENSION_ABOUT });
@@ -461,7 +461,7 @@ pub fn llms_full(site: &Site) -> Result<String, String> {
         };
         out.push_str(&format!("\n{}\n", body.trim()));
         // The research context the post is offered, in the same words as every
-        // other portable copy, with its links back to the canonical page (ADR 0258).
+        // other portable copy, with its links back to the canonical page (ADR 0202).
         if let Some(context) = projection.curated_context_markdown() {
             out.push_str(&format!("\n{}\n", context.trim()));
         }

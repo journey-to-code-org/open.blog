@@ -1,11 +1,11 @@
-# ADR 0227: Curated items carry their caveats, and a competing dating is a boundary warning
+# ADR 0194: Curated items carry their caveats, and a competing dating is a boundary warning
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#192](https://github.com/journey-to-code-org/open.blog/issues/192)
 - Parent story: [#190](https://github.com/journey-to-code-org/open.blog/issues/190)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
-- Builds on: [ADR 0215](0215-curated-research-context-is-one-more-projection-that-selects-only-what-the-other-projections-publish.md), [ADR 0218](0218-a-selection-brings-the-minimum-approved-context-it-needs-and-fails-alone-with-an-item-scoped-diagnostic.md), [ADR 0219](0219-imported-metadata-keeps-the-provenance-the-author-states-and-a-missing-detail-is-listed-never-invented.md)
+- Builds on: [ADR 0185](0185-curated-research-context-is-one-more-projection-that-selects-only-what-the-other-projections-publish.md), [ADR 0188](0188-a-selection-brings-the-minimum-approved-context-it-needs-and-fails-alone-with-an-item-scoped-diagnostic.md), [ADR 0189](0189-imported-metadata-keeps-the-provenance-the-author-states-and-a-missing-detail-is-listed-never-invented.md)
 
 ## Context
 
