@@ -73,6 +73,11 @@ pub struct SiteConfig {
     /// Optional server-side cross-posting destinations. Credentials are read from
     /// environment variables and are never serialized here.
     pub syndication: SyndicationConfig,
+    /// Also write a Netlify/Cloudflare-style `_redirects` file with a real 301 for every
+    /// `aliases:` address. The meta-refresh pages are always written; this adds the
+    /// server-side redirect on hosts that read the file. Do not also keep your own
+    /// `static/_redirects`.
+    pub redirects_file: bool,
     /// Opt-in publication of the approved part of the private Knowledge Atlas.
     /// Omitted from the written file while it is off, so existing projects
     /// keep their configuration unchanged.
@@ -474,6 +479,7 @@ impl Default for SiteConfig {
             admin: AdminConfig::default(),
             publish: PublishConfig::default(),
             syndication: SyndicationConfig::default(),
+            redirects_file: false,
             knowledge_atlas: KnowledgeAtlasConfig::default(),
             participation: ParticipationConfig::default(),
             claim_evidence: ClaimEvidenceConfig::default(),

@@ -13,6 +13,24 @@ All notable changes to open.blog are recorded here. Releases follow
   Markdown show the starter and tuck the checks into a `<details>` block headed "Spoiler: the checks for
   this challenge"; the semantic-fact check fails an export that loses either.
 
+- New `demo git-practice` kind with `lesson="<id>"`: a guided practice terminal where the reader types each
+  Git command and sees what it would print. Lessons are scripted in `ob-practice-model.js` with accepted
+  alternates, hints after wrong answers, and long output that opens in a simulated `less` (space, `b`, `j`/`k`,
+  `g`/`G`, `q`). The prompt answers to shell keys: Up and Down (or Ctrl+P and Ctrl+N) walk earlier commands and
+  restore a half-typed line, and Ctrl+A, Ctrl+E, Ctrl+U, Ctrl+W, Ctrl+L and Ctrl+C edit, clear and cancel the
+  line without breaking copy.
+
+- `fetch-lab` takes `lesson="login"`, `"caching"` or `"testing"`. Login simulates a cookie jar with the
+  `credentials` option and CORS credential headers; caching simulates `Cache-Control`, `ETag`, `304` and
+  `no-store` on a pretend clock the reader advances; testing runs a function against a stubbed `fetch` that
+  succeeds, returns 404, fails, times out or returns broken JSON. A plain fence keeps its original presets.
+
+- Terminal fences (`bash`, `sh`, `console`, `powershell` and friends) are no longer numbered by default,
+  and in a `console` session an output line that starts with `##` (for example `git status -sb`) is output,
+  not a comment.
+- A series can declare `aliases:` in its front matter and the site can write a `_redirects` file with real
+  301s for moved posts, pages and series (`"redirectsFile": true`); alias pages still carry a meta refresh,
+  canonical and `noindex` for hosts without redirect rules.
 - `<ob-search>` accepts a `no-history` attribute that stops it from writing `?q=` to the page address,
   for a search box that lives in a dialog or panel on another page.
 

@@ -3403,6 +3403,235 @@ ob-evolution-lab .ob-evo-eras button[aria-pressed="true"] {
   color: var(--ob-color-accent-contrast, Canvas);
 }
 
+/* <ob-git-sandbox>: in-memory Git lesson widget. Themed through --ob-* tokens. */
+ob-git-sandbox {
+  display: block;
+  margin-block: var(--ob-space-5, 1.5rem);
+  padding: var(--ob-space-4, 1rem);
+  border: var(--ob-border-width, 1px) solid var(--ob-color-border, currentColor);
+  border-radius: var(--ob-radius, 0.5rem);
+  background: var(--ob-color-surface, transparent);
+}
+
+ob-git-sandbox .ob-git-note { margin: 0 0 1rem; color: var(--ob-color-muted, inherit); font-size: 0.85em; }
+ob-git-sandbox .ob-git-graph { overflow-x: auto; }
+ob-git-sandbox .ob-git-svg { display: block; width: 100%; height: auto; max-height: 22rem; }
+ob-git-sandbox .ob-git-edge { fill: none; stroke: var(--ob-color-border, currentColor); stroke-width: 2.5; }
+ob-git-sandbox .ob-git-node circle { fill: var(--ob-color-surface-raised, var(--ob-color-surface, Canvas)); stroke: var(--ob-color-accent-soft, currentColor); stroke-width: 2.5; }
+ob-git-sandbox .ob-git-node.is-merge circle { stroke-dasharray: 4 3; }
+ob-git-sandbox .ob-git-node.is-head circle { fill: var(--ob-color-accent, currentColor); }
+ob-git-sandbox .ob-git-id,
+ob-git-sandbox .ob-git-branch { fill: var(--ob-color-text, currentColor); font: 0.7rem var(--ob-font-mono, monospace); text-anchor: middle; }
+ob-git-sandbox .ob-git-branch { fill: var(--ob-color-accent-soft, currentColor); font-weight: 700; }
+ob-git-sandbox .ob-git-branch.is-current { text-decoration: underline; }
+ob-git-sandbox .ob-git-refs { display: grid; gap: 0.5rem; margin: 1rem 0; padding: 0; list-style: none; }
+ob-git-sandbox .ob-git-refs li { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+ob-git-sandbox .ob-git-ref { font-family: var(--ob-font-mono, monospace); font-size: 0.85em; margin-right: auto; }
+ob-git-sandbox .ob-git-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; }
+ob-git-sandbox .ob-git-resolve-actions { display: contents; }
+ob-git-sandbox button {
+  min-height: 2.75rem;
+  padding: 0.4rem 0.9rem;
+  border: var(--ob-border-width, 1px) solid var(--ob-color-accent-border, currentColor);
+  border-radius: var(--ob-radius-sm, 4px);
+  background: transparent;
+  color: var(--ob-color-text, inherit);
+  font: inherit;
+  cursor: pointer;
+}
+ob-git-sandbox button:hover:not(:disabled) { background: var(--ob-color-accent, currentColor); color: var(--ob-color-accent-contrast, Canvas); }
+ob-git-sandbox button:disabled { opacity: 0.5; cursor: not-allowed; }
+ob-git-sandbox button:focus-visible,
+ob-git-sandbox .ob-git-input:focus-visible,
+ob-git-sandbox .ob-git-log:focus-visible { outline: var(--ob-focus-ring, 3px solid currentColor); outline-offset: 2px; }
+ob-git-sandbox .ob-git-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+ob-git-sandbox .ob-git-form label { flex-basis: 100%; font-size: 0.8em; color: var(--ob-color-muted, inherit); }
+ob-git-sandbox .ob-git-input {
+  flex: 1 1 14rem;
+  min-height: 2.75rem;
+  padding: 0.4rem 0.7rem;
+  border: var(--ob-border-width, 1px) solid var(--ob-color-border, currentColor);
+  border-radius: var(--ob-radius-sm, 4px);
+  background: var(--ob-color-code-bg, transparent);
+  color: var(--ob-color-code-text, inherit);
+  font: 1rem var(--ob-font-mono, monospace);
+}
+ob-git-sandbox .ob-git-log {
+  min-height: 5.5rem;
+  margin: 1rem 0 0;
+  padding: 0.75rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-radius: var(--ob-radius-sm, 4px);
+  background: var(--ob-color-code-bg, transparent);
+  color: var(--ob-color-code-text, inherit);
+  font: 0.85rem/1.5 var(--ob-font-mono, monospace);
+}
+ob-git-sandbox .ob-git-log[data-error="true"] { border-left: 4px solid var(--ob-color-accent, currentColor); }
+
+/* <ob-fetch-lab>: simulated network inspector and Web Storage panel. */
+ob-fetch-lab { display: block; margin-block: var(--ob-space-5, 1.5rem); }
+ob-fetch-lab .ob-fetch-note { margin: 0 0 1rem; color: var(--ob-color-muted, inherit); font-size: 0.85em; }
+ob-fetch-lab .ob-fetch-panel {
+  min-width: 0;
+  margin-bottom: 1rem;
+  padding: var(--ob-space-4, 1rem);
+  border: var(--ob-border-width, 1px) solid var(--ob-color-border, currentColor);
+  border-radius: var(--ob-radius, 0.5rem);
+  background: var(--ob-color-surface, transparent);
+}
+ob-fetch-lab .ob-fetch-panel h3 { margin: 0 0 0.75rem; font-size: 1rem; }
+ob-fetch-lab .ob-fetch-presets,
+ob-fetch-lab .ob-fetch-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; }
+ob-fetch-lab .ob-fetch-form { display: grid; gap: 0.75rem; grid-template-columns: minmax(6rem, 8rem) 1fr; }
+ob-fetch-lab .ob-fetch-form > :nth-child(n + 3) { grid-column: 1 / -1; }
+ob-fetch-lab .ob-fetch-form > button { justify-self: start; }
+ob-fetch-lab .ob-lab-field { display: grid; gap: 0.25rem; min-width: 0; }
+ob-fetch-lab .ob-lab-field label,
+ob-fetch-lab .ob-fetch-check { font-size: 0.8em; color: var(--ob-color-muted, inherit); }
+ob-fetch-lab input[type="text"],
+ob-fetch-lab select,
+ob-fetch-lab textarea {
+  min-height: 2.75rem;
+  width: 100%;
+  padding: 0.4rem 0.7rem;
+  border: var(--ob-border-width, 1px) solid var(--ob-color-border, currentColor);
+  border-radius: var(--ob-radius-sm, 4px);
+  background: var(--ob-color-code-bg, transparent);
+  color: var(--ob-color-code-text, inherit);
+  font: 1rem var(--ob-font-mono, monospace);
+}
+ob-fetch-lab button {
+  min-height: 2.75rem;
+  padding: 0.4rem 0.9rem;
+  border: var(--ob-border-width, 1px) solid var(--ob-color-accent-border, currentColor);
+  border-radius: var(--ob-radius-sm, 4px);
+  background: transparent;
+  color: var(--ob-color-text, inherit);
+  font: inherit;
+  cursor: pointer;
+}
+ob-fetch-lab button:hover:not(:disabled) { background: var(--ob-color-accent, currentColor); color: var(--ob-color-accent-contrast, Canvas); }
+ob-fetch-lab button:disabled { opacity: 0.5; cursor: not-allowed; }
+ob-fetch-lab :is(button, input, select, textarea, pre):focus-visible { outline: var(--ob-focus-ring, 3px solid currentColor); outline-offset: 2px; }
+ob-fetch-lab .ob-fetch-stages { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0 0 1rem; padding: 0; list-style: none; counter-reset: stage; }
+ob-fetch-lab .ob-fetch-stages li {
+  flex: 1 1 6rem;
+  padding: 0.5rem 0.75rem;
+  border: var(--ob-border-width, 1px) solid var(--ob-color-border, currentColor);
+  border-radius: var(--ob-radius-sm, 4px);
+  font-family: var(--ob-font-mono, monospace);
+  font-size: 0.85em;
+  text-align: center;
+}
+ob-fetch-lab .ob-fetch-stages li[data-state="active"]::before { content: "… "; }
+ob-fetch-lab .ob-fetch-stages li[data-state="done"] { border-color: var(--ob-color-accent-soft, currentColor); }
+ob-fetch-lab .ob-fetch-stages li[data-state="done"]::before { content: "✓ "; }
+ob-fetch-lab .ob-fetch-stages li[data-state="error"] { border-style: dashed; border-width: 2px; }
+ob-fetch-lab .ob-fetch-stages li[data-state="error"]::before { content: "✕ "; }
+ob-fetch-lab .ob-fetch-result { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); }
+ob-fetch-lab :is(.ob-fetch-out, .ob-fetch-code) {
+  margin: 0;
+  padding: 0.75rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-radius: var(--ob-radius-sm, 4px);
+  background: var(--ob-color-code-bg, transparent);
+  color: var(--ob-color-code-text, inherit);
+  font: 0.85rem/1.5 var(--ob-font-mono, monospace);
+}
+ob-fetch-lab .ob-fetch-code { margin-top: 1rem; }
+ob-fetch-lab .ob-fetch-out[data-error="true"] { border-left: 4px solid var(--ob-color-accent, currentColor); }
+ob-fetch-lab .ob-fetch-lesson { margin: 0.75rem 0 0; font-size: 0.9em; }
+ob-fetch-lab .ob-fetch-usage { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin: 0 0 0.75rem; font-family: var(--ob-font-mono, monospace); font-size: 0.85em; }
+ob-fetch-lab meter { width: 10rem; max-width: 100%; }
+ob-fetch-lab .ob-fetch-items { margin: 0 0 1rem; padding: 0; list-style: none; font: 0.8rem var(--ob-font-mono, monospace); overflow-wrap: anywhere; }
+ob-fetch-lab .ob-fetch-items li { padding-block: 0.15rem; }
+ob-fetch-lab .ob-fetch-explain { margin: 0 0 1rem; font-size: 0.9em; }
+ob-fetch-lab .ob-fetch-world { margin-bottom: 1rem; font: 0.85rem var(--ob-font-mono, monospace); white-space: pre-wrap; overflow-wrap: anywhere; }
+ob-fetch-lab .ob-fetch-empty { color: var(--ob-color-muted, inherit); }
+ob-fetch-lab .ob-fetch-check { display: block; margin-block: 0.75rem; }
+
+/* <ob-component-lab>: live Shadow DOM architecture explorer. */
+ob-component-lab { display: block; margin-block: var(--ob-space-5, 1.5rem); }
+ob-component-lab .ob-cl-note { margin: 0 0 1rem; color: var(--ob-color-muted, inherit); font-size: 0.85em; }
+ob-component-lab .ob-cl-panel {
+  min-width: 0;
+  margin-bottom: 1rem;
+  padding: var(--ob-space-4, 1rem);
+  border: var(--ob-border-width, 1px) solid var(--ob-color-border, currentColor);
+  border-radius: var(--ob-radius, 0.5rem);
+  background: var(--ob-color-surface, transparent);
+}
+ob-component-lab .ob-cl-panel h3 { margin: 0 0 0.75rem; font-size: 1rem; }
+ob-component-lab .ob-cl-stage { padding: 1rem; border: 1px dashed var(--ob-color-border, currentColor); border-radius: var(--ob-radius-sm, 4px); }
+ob-component-lab .ob-cl-controls { display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); }
+ob-component-lab .ob-cl-field { display: grid; gap: 0.25rem; min-width: 0; }
+ob-component-lab .ob-cl-field label,
+ob-component-lab .ob-cl-check label { font-size: 0.85em; }
+ob-component-lab .ob-cl-field output { font: 0.8rem var(--ob-font-mono, monospace); color: var(--ob-color-muted, inherit); }
+ob-component-lab .ob-cl-check { display: flex; align-items: center; gap: 0.5rem; min-height: 2.75rem; }
+ob-component-lab input[type="checkbox"] { width: 1.25rem; height: 1.25rem; accent-color: var(--ob-color-accent, currentColor); }
+ob-component-lab input[type="color"] { width: 100%; min-height: 2.75rem; padding: 0.2rem; background: transparent; border: var(--ob-border-width, 1px) solid var(--ob-color-border, currentColor); border-radius: var(--ob-radius-sm, 4px); }
+ob-component-lab input[type="range"] { width: 100%; min-height: 2.75rem; accent-color: var(--ob-color-accent, currentColor); }
+ob-component-lab select {
+  min-height: 2.75rem;
+  padding: 0.4rem 0.7rem;
+  border: var(--ob-border-width, 1px) solid var(--ob-color-border, currentColor);
+  border-radius: var(--ob-radius-sm, 4px);
+  background: var(--ob-color-code-bg, transparent);
+  color: var(--ob-color-code-text, inherit);
+  font: 1rem var(--ob-font-mono, monospace);
+}
+ob-component-lab :is(input, select, pre):focus-visible { outline: var(--ob-focus-ring, 3px solid currentColor); outline-offset: 2px; }
+ob-component-lab .ob-cl-code {
+  margin: 0 0 0.75rem;
+  padding: 0.75rem;
+  overflow-x: auto;
+  border-radius: var(--ob-radius-sm, 4px);
+  background: var(--ob-color-code-bg, transparent);
+  color: var(--ob-color-code-text, inherit);
+  font: 0.8rem/1.5 var(--ob-font-mono, monospace);
+}
+ob-component-lab :is(.ob-cl-slots, .ob-cl-notes) { margin: 0; padding-left: 1.25rem; font-size: 0.9em; }
+ob-component-lab .ob-cl-slots { font-family: var(--ob-font-mono, monospace); font-size: 0.85em; }
+ob-component-lab .ob-cl-notes li { margin-bottom: 0.4rem; }
+
+/* <ob-evolution-lab>, <ob-audio-lab>, <ob-native-lab>: embeddable versions of the series labs. */
+:is(ob-evolution-lab, ob-audio-lab, ob-native-lab) {
+  display: block;
+  margin-block: var(--ob-space-5, 1.5rem);
+  padding: var(--ob-space-4, 1rem);
+  border: var(--ob-border-width, 1px) solid var(--ob-color-border, currentColor);
+  border-radius: var(--ob-radius, 0.5rem);
+  background: var(--ob-color-surface, transparent);
+}
+
+:is(ob-evolution-lab, ob-audio-lab, ob-native-lab) :is(.ob-evo-note, .ob-audio-note, .ob-native-note) {
+  margin: 0 0 1rem;
+  color: var(--ob-color-muted, inherit);
+  font-size: 0.85em;
+}
+
+:is(ob-evolution-lab, ob-audio-lab, ob-native-lab) button {
+  min-height: 2.75rem;
+  padding: 0.4rem 0.9rem;
+  border: var(--ob-border-width, 1px) solid var(--ob-color-accent-border, currentColor);
+  border-radius: var(--ob-radius-sm, 4px);
+  background: transparent;
+  color: var(--ob-color-text, inherit);
+  font: inherit;
+  cursor: pointer;
+}
+
+:is(ob-evolution-lab, ob-audio-lab, ob-native-lab) button:hover:not(:disabled),
+ob-evolution-lab .ob-evo-eras button[aria-pressed="true"] {
+  background: var(--ob-color-accent, currentColor);
+  color: var(--ob-color-accent-contrast, Canvas);
+}
+
 :is(ob-evolution-lab, ob-audio-lab, ob-native-lab) button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 :is(ob-evolution-lab, ob-audio-lab, ob-native-lab) :is(button, input, select, pre, summary, [tabindex]):focus-visible {
@@ -3477,3 +3706,83 @@ ob-native-lab .ob-native-target.ob-native-in-view { border-color: var(--ob-color
 ob-native-lab .ob-native-field { display: grid; gap: 0.25rem; margin-top: 0.75rem; }
 ob-native-lab .ob-native-field label { font-size: 0.85em; }
 ob-native-lab input[type="range"] { width: 100%; min-height: 2.75rem; accent-color: var(--ob-color-accent, currentColor); }
+
+/* <ob-practice-lab>: guided Git practice terminal. Themed through --ob-* tokens. */
+ob-practice-lab {
+  display: block;
+  margin-block: var(--ob-space-5, 1.5rem);
+  padding: var(--ob-space-4, 1rem);
+  border: var(--ob-border-width, 1px) solid var(--ob-color-border, currentColor);
+  border-radius: var(--ob-radius, 0.5rem);
+  background: var(--ob-color-surface, transparent);
+}
+ob-practice-lab .ob-practice-status { margin: 0 0 0.25rem; color: var(--ob-color-muted, inherit); font-size: 0.8em; letter-spacing: 0.06em; text-transform: uppercase; }
+ob-practice-lab .ob-practice-goal { margin: 0 0 0.75rem; font-weight: 700; }
+ob-practice-lab .ob-practice-log {
+  height: 14rem;
+  padding: 0.75rem;
+  overflow-y: auto;
+  border-radius: var(--ob-radius-sm, 4px);
+  background: var(--ob-color-code-bg, transparent);
+  color: var(--ob-color-code-text, inherit);
+  font: 0.85rem/1.5 var(--ob-font-mono, monospace);
+}
+ob-practice-lab .ob-practice-line { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+ob-practice-lab .ob-practice-line.is-cmd { font-weight: 700; }
+ob-practice-lab .ob-practice-line.is-why { margin-bottom: 0.5rem; font-style: italic; opacity: 0.85; }
+ob-practice-lab .ob-practice-line.is-err { border-left: 4px solid var(--ob-color-accent, currentColor); padding-left: 0.5rem; }
+ob-practice-lab .ob-practice-line.is-tip { color: var(--ob-color-muted, inherit); }
+ob-practice-lab .ob-practice-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.75rem; }
+ob-practice-lab .ob-practice-form label { flex-basis: 100%; font-size: 0.8em; color: var(--ob-color-muted, inherit); }
+ob-practice-lab .ob-practice-input {
+  flex: 1 1 14rem;
+  min-height: 2.75rem;
+  padding: 0.4rem 0.7rem;
+  border: var(--ob-border-width, 1px) solid var(--ob-color-border, currentColor);
+  border-radius: var(--ob-radius-sm, 4px);
+  background: var(--ob-color-code-bg, transparent);
+  color: var(--ob-color-code-text, inherit);
+  font: 1rem var(--ob-font-mono, monospace);
+}
+ob-practice-lab button {
+  min-height: 2.75rem;
+  padding: 0.4rem 0.9rem;
+  border: var(--ob-border-width, 1px) solid var(--ob-color-accent-border, currentColor);
+  border-radius: var(--ob-radius-sm, 4px);
+  background: transparent;
+  color: var(--ob-color-text, inherit);
+  font: inherit;
+  cursor: pointer;
+}
+ob-practice-lab button:hover:not(:disabled) { background: var(--ob-color-accent, currentColor); color: var(--ob-color-accent-contrast, Canvas); }
+ob-practice-lab button:disabled { opacity: 0.5; cursor: not-allowed; }
+ob-practice-lab .ob-practice-restart { margin-top: 0.75rem; }
+ob-practice-lab button:focus-visible,
+ob-practice-lab .ob-practice-input:focus-visible,
+ob-practice-lab .ob-practice-log:focus-visible { outline: var(--ob-focus-ring, 3px solid currentColor); outline-offset: 2px; }
+ob-practice-lab .ob-practice-pager { padding: 0; }
+ob-practice-lab .ob-practice-pager:focus-visible { outline: var(--ob-focus-ring, 3px solid currentColor); outline-offset: 2px; }
+ob-practice-lab .ob-practice-pager-view {
+  height: 12.5em;
+  margin: 0;
+  padding: 0.75rem 0.75rem 0;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-radius: var(--ob-radius-sm, 4px) var(--ob-radius-sm, 4px) 0 0;
+  background: var(--ob-color-code-bg, transparent);
+  color: var(--ob-color-code-text, inherit);
+  font: 0.85rem/1.5 var(--ob-font-mono, monospace);
+}
+ob-practice-lab .ob-practice-pager-prompt {
+  margin: 0;
+  padding: 0 0.75rem 0.5rem;
+  border-radius: 0 0 var(--ob-radius-sm, 4px) var(--ob-radius-sm, 4px);
+  background: var(--ob-color-code-bg, transparent);
+  color: var(--ob-color-code-text, inherit);
+  font: 700 0.85rem/1.5 var(--ob-font-mono, monospace);
+}
+ob-practice-lab .ob-practice-pager-keys,
+ob-practice-lab .ob-practice-pager-summary { margin: 0.5rem 0 0; color: var(--ob-color-muted, inherit); font-size: 0.8em; }
+ob-practice-lab .ob-practice-pager-controls { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
+ob-practice-lab [hidden] { display: none; }

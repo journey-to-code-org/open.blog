@@ -10,8 +10,9 @@
 // With the `line-numbers` attribute, blocks of two or more lines are numbered.
 // The numbers are drawn by CSS (a counter on each .ob-line), so they are never
 // part of the text: copying, by button or by selection, gives only the code.
-// Plain-text fences (`text`, `output`) and unrecognised untagged blocks,
-// which are usually program output or prose, are not numbered.
+// Plain-text fences (`text`, `output`), terminal fences (`bash`, `sh`, `console`,
+// `powershell`, ...) and unrecognised untagged blocks, which are usually program
+// output, shell commands or prose, are not numbered unless the fence asks.
 //
 // A fence can override this and more (the Markdown renderer turns its options
 // into data attributes): ```js title="app.js" {2,4-6} showLineNumbers=10
@@ -22,7 +23,7 @@
 // guessed from their content. Tokens are emitted as <span class="tok-…">
 // elements built with DOM calls, never innerHTML, so code can never inject markup.
 
-import { detectLanguage, highlight, isKnownLanguage, isPlainText, parseLineRanges, splitLines } from "./ob-highlight.js";
+import { detectLanguage, highlight, isKnownLanguage, isPlainText, isTerminal, parseLineRanges, splitLines } from "./ob-highlight.js";
 
 /** Append one token to `parent`: a classed span, or plain text. */
 function append(parent, token) {
@@ -54,7 +55,7 @@ export function enhanceCode(codeEl, { colour, numbers }) {
   const asked = codeEl.dataset.lineNumbers; // "true" | "false" | undefined
   const lineCount = text.replace(/\n$/, "").split("\n").length;
   const numbered =
-    asked === "true" || (asked !== "false" && numbers && lineCount >= 2 && Boolean(language) && !isPlainText(language));
+    asked === "true" || (asked !== "false" && numbers && lineCount >= 2 && Boolean(language) && !isPlainText(language) && !isTerminal(language));
   const marked = parseLineRanges(codeEl.dataset.highlightLines);
   if (!tokens && !numbered && !marked.size) return;
 

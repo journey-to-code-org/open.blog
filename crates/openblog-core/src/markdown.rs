@@ -159,6 +159,8 @@ pub(crate) struct FenceInfo {
     libs: Vec<String>,
     /// The kind named after `demo`, as in ```` ```demo git-sandbox ````.
     pub(crate) demo: Option<String>,
+    /// `lesson="first-workflow"`: which scripted lesson a `git-practice` demo runs.
+    pub(crate) demo_lesson: Option<String>,
     /// `check` on a `rust runnable` fence: the body continues after a `---checks` line with
     /// hidden `#[test]` functions that the "Check my code" button runs against the reader's code.
     pub(crate) check: bool,
@@ -280,6 +282,15 @@ pub(crate) fn parse_fence_info(info: &str) -> FenceInfo {
             out.network = true;
         } else if word == "images" {
             out.images = true;
+        } else if let Some(value) = word.strip_prefix("lesson=") {
+            let id = value.trim_matches(|c| c == '"' || c == '\'');
+            if !id.is_empty()
+                && id
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+            {
+                out.demo_lesson = Some(id.to_string());
+            }
         } else if let Some(value) = word.strip_prefix("playgroundLink=") {
             out.playground_link = match value {
                 "true" => Some(true),
@@ -826,6 +837,12 @@ const DEMO_KINDS: &[DemoKind] = &[
         summary: "An in-memory Git repository you can drive with commands or buttons: make commits, create branches, merge with and without fast-forward, cause a conflict and resolve it, with a graph that updates after every step.",
     },
     DemoKind {
+        id: "git-practice",
+        element: "ob-practice-lab",
+        label: "Git practice terminal",
+        summary: "A guided practice terminal: one goal at a time, you type the Git command yourself, and the terminal shows what it would print and why, with a hint when you are stuck.",
+    },
+    DemoKind {
         id: "fetch-lab",
         element: "ob-fetch-lab",
         label: "Fetch and storage inspector",
@@ -959,9 +976,14 @@ fn render_demo(
             url = escape::attr(url),
         ),
         None => format!(
-            "<figure class=\"ob-demo\" data-demo=\"{id}\">{caption}<{element}>{fallback}</{element}></figure>\n",
+            "<figure class=\"ob-demo\" data-demo=\"{id}\">{caption}<{element}{lesson}>{fallback}</{element}></figure>\n",
             id = kind.id,
             element = kind.element,
+            lesson = fence
+                .demo_lesson
+                .as_deref()
+                .map(|id| format!(" data-lesson=\"{}\"", escape::attr(id)))
+                .unwrap_or_default(),
         ),
     })
 }
@@ -3175,9 +3197,32 @@ mod tests {
     }
 
     #[test]
+    fn a_practice_demo_names_its_lesson_on_the_element() {
+        let r = render(
+            "```demo git-practice lesson=\"first-workflow\" title=\"Type it\"
+1. Run `git init`.
+```
+",
+            RenderOptions::default(),
+        );
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+        assert!(
+            r.html
+                .contains("<ob-practice-lab data-lesson=\"first-workflow\"><ol>"),
+            "{}",
+            r.html
+        );
+        assert_eq!(
+            parse_fence_info("demo git-practice lesson=\"A_b\"").demo_lesson,
+            None
+        );
+    }
+
+    #[test]
     fn an_empty_demo_fence_uses_the_kinds_own_description() {
         for (kind, element, words) in [
             ("git-sandbox", "ob-git-sandbox", "in-memory Git"),
+            ("git-practice", "ob-practice-lab", "practice terminal"),
             ("fetch-lab", "ob-fetch-lab", "network inspector"),
             ("component-lab", "ob-component-lab", "shadow root"),
             (

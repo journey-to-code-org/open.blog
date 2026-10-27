@@ -50,7 +50,7 @@ a `#` heading, which is then used. Everything else is optional:
 | `canonical` | If the post was first published elsewhere, that address. Search engines then credit the original. |
 | `sourceUrl` | Shown as "Originally published at" under the post. The Hashnode importer fills this in. |
 | `guidingQuestion`, `sharedSourceTitle`, `sharedSourceUrl`, `sharedSourceType` | Shared-reflection attribution: the guiding question and the original source's title, HTTP(S) link, and type (`Video`, `Article`, `Podcast`, `Book`, or `Other`), shown beside the post and in feeds and exports. The title is required with a link or type; the source is always a link, never an embed. |
-| `aliases` | Old addresses that should redirect here, such as `[/old-slug/]`. Also accepted as `redirectFrom`. |
+| `aliases` | Old addresses that should redirect here, such as `[/old-slug/]`. Also accepted as `redirectFrom`. Works on posts, pages and series pages (a series page in `content/series/`). The engine always writes a redirect page; set `redirectsFile: true` in `openblog.json` to also write a `_redirects` file with real 301s on hosts that read one. |
 | `highlight` | `false` turns off code colouring for this post; `true` turns it on. Overrides the site and theme. |
 | `lineNumbers` | `false` or `true`: line numbers on this post's code blocks. Overrides the site and theme. |
 | `profile` | Authoring and publishing behavior for this post. Defaults to `article`; built-ins also include `recipe`, `research`, `video`, and `field-journal`. |
@@ -277,7 +277,7 @@ fn main() {}
 | --- | --- |
 | `title="..."` | A caption bar above the block, for a file name or a label. |
 | `{2,4-6}` | Highlight those lines, counted from 1 at the top of the block (even with `showLineNumbers=10`). |
-| `showLineNumbers` | Number this block even when numbering is off, or when it has one line. |
+| `showLineNumbers` | Number this block even when numbering is off, when it has one line, or when it is a terminal block (`bash`, `sh`, `console`, `powershell`). |
 | `showLineNumbers=10` | Number this block starting at 10. |
 | `showLineNumbers=false` | No numbers on this block. |
 | `runnable` | Make Rust, web, or an explicitly configured runner language editable and runnable. Unsupported languages stay static. |
@@ -356,7 +356,8 @@ If both sides edited the same file, Git stops with a conflict.
 | Kind | Demo |
 | --- | --- |
 | `git-sandbox` | An in-memory Git you can drive with commands or buttons: commits, branches, merges, conflicts. |
-| `fetch-lab` | A simulated network inspector and Web Storage panel: edit a request, see what `fetch()` and `response.json()` do, hit the quota. |
+| `git-practice` | A guided practice terminal: one goal at a time, the reader types each Git command and sees what it would print. Add `lesson="<id>"` to pick a scripted lesson (ids in `web/components/ob-practice-model.js`). |
+| `fetch-lab` | A simulated network inspector and Web Storage panel: edit a request, see what `fetch()` and `response.json()` do, hit the quota. Add `lesson="login"`, `lesson="caching"` or `lesson="testing"` to swap in a scenario instead: cookies and `credentials` with CORS, `Cache-Control`/`ETag`/304 with a pretend clock, or a stubbed `fetch` for testing. Without `lesson` the original lab is unchanged. |
 | `component-lab` | A live custom element with a shadow root: change attributes, slots and CSS custom properties. |
 | `js-evolution` | Older and newer JavaScript for the same task, side by side, run on the same fixed data across three milestones (2015, 2017, 2020). |
 | `audio-lab` | A real, quiet Web Audio synth: oscillator, low-pass filter, live signal trace. Sound plays only after Start. |
