@@ -1893,6 +1893,42 @@ wall of the cave</p>",
             .is_some());
     }
 
+    /// ADR 0252: a comment the author makes public excuses the words it shares
+    /// with a private note everywhere, and nothing more of that note.
+    #[test]
+    fn an_annotation_that_copies_a_note_sentence_excuses_only_that_sentence() {
+        let copied = "Smith (2003) disagrees about the cave, see p. 41 of the letter.";
+        let other = "Ask Dana whether the 1987 letter was really written by Plato's pupil.";
+        let mut guard = PrivateText::new();
+        guard.add_file(
+            Store::Notebook,
+            serde_json::json!({"notes": [{"id": "n0", "text": format!("{copied} {other}")}]})
+                .to_string()
+                .as_bytes(),
+        );
+        // The author's public annotation quotes the first sentence.
+        guard.allow_output(
+            &serde_json::json!({"items": [{"id": "annotation-x", "content": {"text": copied}}]})
+                .to_string(),
+        );
+        // The copied sentence is public wherever it appears, including beside a private note's id.
+        assert!(guard.find("any.html", copied.as_bytes()).is_none());
+        // The note's other sentence is still refused, in any file, and names the note.
+        let leak = guard
+            .find("any.html", format!("<p>{other}</p>").as_bytes())
+            .expect("the rest of the note is still private");
+        assert_eq!(leak.origin.id.as_deref(), Some("n0"));
+        let leak = guard
+            .find(
+                "curated-context.json",
+                serde_json::json!({"items": [{"content": {"text": other}}]})
+                    .to_string()
+                    .as_bytes(),
+            )
+            .expect("and so in the curated file");
+        assert_eq!(leak.origin.id.as_deref(), Some("n0"));
+    }
+
     #[test]
     fn text_shorter_than_a_shingle_and_ids_are_not_guarded_by_text() {
         let mut guard = PrivateText::new();

@@ -2922,7 +2922,7 @@ export function createCurationSection({ api, getPost = () => "", onSessionEnded,
       always,
       optionalSet,
       info.text
-        ? h("div", { class: "oba-field" }, h("label", { for: text.id }, "Your words"), text, h("p", { class: "oba-small", id: `${name}-text-hint` }, "Up to 1,000 characters. A comment, never a quotation: a source's own words go through a comparison. Plain text, shown as written."))
+        ? h("div", { class: "oba-field" }, h("label", { for: text.id }, "Your words"), text, h("p", { class: "oba-small", id: `${name}-text-hint` }, "Up to 1,000 characters. A comment, never a quotation: a source's own words go through a comparison. Plain text, shown as written. These words become public, and the build's check for private text then treats any words you copy from a private note as public everywhere on the site; the note's other sentences stay protected. Write it fresh rather than pasting a note."))
         : null,
       info.text ? h("div", { class: "oba-field" }, h("label", { for: by.id }, "Who the words are attributed to"), by) : null,
       info.text ? h("div", { class: "oba-field" }, h("label", { for: locator.id }, "Where in the source it applies (optional)"), locator) : null,

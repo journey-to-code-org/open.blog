@@ -333,7 +333,12 @@ static **Research context** section after its text, complete without JavaScript.
 one public value that Admin's **What will be public** lists, so they never disagree and neither can reach
 a private note. With the switch off, or nothing selected, the site builds exactly as before; a file over
 its bound is left out whole with a `boundary:` warning and the pages are unaffected. Feeds and portable
-copies of a post do not carry the section yet (#198). See the [curated context
+copies of a post do not carry the section yet (#198).
+
+The comment you write for a selection is public, so the build's check for private text allows it: any
+words it shares with a private note are treated as public everywhere on the site, in every file, not
+only in the comment. The rest of that note stays protected, so write a comment fresh instead of pasting
+from a note. See the [curated context
 format](specs/curated-context.md).
 
 ## Reading modes

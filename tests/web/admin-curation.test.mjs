@@ -236,6 +236,8 @@ test("selecting walks through the fields, sends only what was chosen and keeps t
   }
   assert.ok(all(form, "fieldset").every((fieldset) => all(fieldset, "legend").length === 1));
   assert.match(text(form), /Always included, so it cannot be left out: Who wrote it, The words\./);
+  // The hint says honestly that the words become public and excuse any words copied from a private note.
+  assert.match(text(form), /become public.*public everywhere on the site; the note.s other sentences stay protected/);
   const set = (id, value) => {
     const node = form.querySelector(`#${id}`);
     node.value = value;

@@ -21,6 +21,12 @@ an allowance, and only for what is public.
   build renders them. The words of a selection that is withdrawn, stale, missing, unapproved or cyclic
   are not in that value, so they are still found wherever they appear; so is the text of every other
   private store, in the new file or any other.
+- **The allowance is by words, and it is not scoped to the selection.** The guard works on word
+  sequences ("shingles"), not on records: allowing the public value drops every sequence that the
+  published text contains from the private set, wherever else that sequence appears. An annotation the
+  author makes public that copies a sentence of a private note therefore excuses that sentence in every
+  file, and the note's other sentences are still refused (tested). The Admin's selection form, the
+  configuration guide and this record say so, and advise writing a comment fresh rather than pasting.
 - **The file is machine data.** `curated-context.json` is scanned field by field like the atlas files:
   private text that no projection approved is a refusal naming the file, the store and the record, never
   the text. The same words in a page are a warning, as for every other page.
