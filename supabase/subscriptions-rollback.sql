@@ -15,7 +15,10 @@
 begin;
 
 drop function if exists public.openblog_purge_subscriptions();
-drop function if exists public.openblog_subscription_recipients(text, text, text);
+drop function if exists public.openblog_mark_subscription_sent(uuid, text, integer);
+drop function if exists public.openblog_subscription_recipients(text);
+drop function if exists public.openblog_queue_subscription_update(text, text, text, text, text);
+drop function if exists public.openblog_cancel_subscription_request(text);
 drop function if exists public.openblog_unsubscribe(text);
 drop function if exists public.openblog_confirm_subscription(text);
 drop function if exists public.openblog_subscribe(text, text, text, text);
