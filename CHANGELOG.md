@@ -5,6 +5,31 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- New `demo` fence: ```` ```demo <kind> ```` embeds an interactive lesson demo in a post. Kinds are
+  `git-sandbox` (an in-memory Git), `fetch-lab` (a simulated network and Web Storage inspector),
+  `component-lab` (a live custom element with a shadow root), `js-evolution` (older and newer JavaScript
+  run on the same data), `audio-lab` (a quiet Web Audio synth that plays only after Start) and
+  `native-lab` (View Transitions, Web Animations, the popover attribute and the observers, each reporting
+  browser support). The fence body is its authored fallback, plain Markdown shown to readers without
+  JavaScript and used as the portable representation: feeds, portable HTML, portable Markdown and
+  syndicated copies carry the caption, the description and a link to the live version on the original
+  article, never the element. The `interactive-demo` capability reports a graceful transformation, the
+  semantic-fact check fails an export that loses the description, label or link, and an unknown kind or a
+  body with raw HTML, images or non-https links fails the build. An empty body uses the kind's own summary.
+  The elements (`<ob-git-sandbox>`, `<ob-fetch-lab>`, `<ob-component-lab>`, `<ob-evolution-lab>`,
+  `<ob-audio-lab>`, `<ob-native-lab>`) share `web/components/ob-lab.js` and use only `--ob-*` tokens, so
+  any theme restyles them; they store and send nothing.
+- Series navigation on a lesson is now the same shape on every part and in every theme. The series box
+  always shows a previous and a next control: the first part's previous goes to the series overview
+  ("Start of series") and the last part's next goes back to it ("End of series"), instead of leaving an
+  empty slot. A decorative path of one cell per part shows where you are (`ol.ob-series-path`,
+  `aria-hidden`, since the position is already spoken in "Part N of M" and the list). On narrow screens
+  the controls stack, and all are at least 44px tall.
+- `openblog build`, `serve` and `check` no longer print a `graceful-transformation` or
+  `canonical-only-interaction` warning for every quiz, runnable example, sandbox and comment box. Those
+  blocks always export as their documented static fallback; `openblog export` and syndication dry runs
+  still list them for the post being published.
+
 - A new `code.playgroundLink` setting (default on) hides the **Open in Rust Playground** link from every
   runnable Rust example, portable copy, and export at once. A fence can still override it with
   `playgroundLink=true` or `playgroundLink=false`.

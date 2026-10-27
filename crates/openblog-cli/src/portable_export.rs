@@ -304,6 +304,11 @@ pub fn build_diagnostics(site: &Site) -> Result<Vec<String>, String> {
     collect_diagnostics(site, true)
 }
 
+/// Interactive blocks always export as their documented static fallback, so the
+/// site-wide build and check report only problems. `export` and syndication
+/// dry runs still list these for the post being published.
+const EXPECTED_FALLBACKS: [&str; 2] = ["graceful-transformation", "canonical-only-interaction"];
+
 fn collect_diagnostics(site: &Site, optional: bool) -> Result<Vec<String>, String> {
     let mut warnings = Vec::new();
     for post in site.posts.iter().filter(|post| !post.draft) {
@@ -318,6 +323,9 @@ fn collect_diagnostics(site: &Site, optional: bool) -> Result<Vec<String>, Strin
             Err(error) => return Err(error),
         };
         for diagnostic in portable.diagnostics {
+            if EXPECTED_FALLBACKS.contains(&diagnostic.code.as_str()) {
+                continue;
+            }
             warnings.push(format!(
                 "{} [{}] {} Action: {}",
                 diagnostic.source_path,
@@ -422,6 +430,34 @@ mod tests {
                 .unwrap_err()
                 .contains("without `..`"));
         }
+    }
+
+    #[test]
+    fn site_wide_diagnostics_skip_expected_fallbacks_but_keep_them_in_the_export() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("examples")
+            .join("portable-publishing");
+        let (site, _) = site::load_site(&root, false, Some(clock::now())).unwrap();
+        let warnings = diagnostics(&site).unwrap();
+        assert!(warnings
+            .iter()
+            .all(|warning| !warning.contains("[graceful-transformation]")
+                && !warning.contains("[canonical-only-interaction]")));
+        let post = site
+            .posts
+            .iter()
+            .find(|post| post.slug == "portable-lesson")
+            .unwrap();
+        let portable = PortableProjection::from_post(post, &site.config)
+            .unwrap()
+            .portable_html()
+            .unwrap();
+        assert!(portable
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "graceful-transformation"));
     }
 
     #[test]

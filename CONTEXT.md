@@ -27,6 +27,20 @@ The public intellectual or creative work represented by a document, independent 
 or presentation.
 _Avoid_: Page when identity rather than location is meant
 
+**Interactive demo**:
+A publishing capability in which a reader operates a small in-browser model of a mechanism (an
+in-memory Git, a simulated network and storage inspector, a live custom element) embedded in a post
+with a `demo` fence. It runs only on the canonical page and never stores or sends anything. It is
+not a Web sandbox (the reader edits code there) or a Rust Playground (an external service).
+_Avoid_: Widget, playground, sandbox when the reader is not writing code
+
+**Demo fallback**:
+The Markdown body of a `demo` fence, written by the author. It is the authored meaning of the demo
+for every reader who cannot run it (no JavaScript, feed readers, portable and syndicated copies,
+where a link to the live version follows it). It is plain Markdown with no raw HTML, no images, and
+only absolute https links, and is never generated from the demo's behavior.
+_Avoid_: Alt text, caption, placeholder
+
 ## Shared publication collaboration
 
 These terms describe private collaboration before publication. They do not replace the public
