@@ -45,3 +45,12 @@ recorded it. A hosted change that adds a table or column would be a one-way door
   16 KiB. A test measures the sum.
 - **The generic feedback route never decides a suggestion**: `PATCH admin/feedback` refuses it with
   `useModerationInbox`, because a decision or a link carries an audit event the inbox writes.
+- **The audit event is written after the link, best-effort.** The link is a `PATCH` guarded on the
+  version, and the `convert` event is a second request after it succeeds; it is not in one
+  transaction with it (the moderation RPCs are, but they move a state, and adding one RPC for this
+  would be new SQL for a record that changes no state). If the event fails it is logged and the link
+  stands, because the link is the author's own record and the version raise has already stopped any
+  stale view acting. The cost is that a failed event leaves a link with no event, which the dry-run
+  never reads; it never leaves an event without a link. A test holds the link standing when the
+  event cannot be written. Linking also needs suggestions and engagement protection both switched
+  on, and says so when they are not (a clear 422, not a store error).

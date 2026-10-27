@@ -733,3 +733,23 @@ test("a reader's credit is for the text as it stands: changed consent and a clar
   const purged = await read(stored({ status: "withdrawn", purged_at: "2026-10-27T00:00:00+00:00", details: {}, reader_name: null, publish_name: false }));
   assert.ok(!("credit" in purged));
 });
+
+test("a link stands when its audit event cannot be written, and no event is written for a link that did not happen", async () => {
+  const current = approvedRow();
+  const database = fakeDatabase((entry) => {
+    if (entry.method === "PATCH" && entry.path.endsWith("/openblog_feedback")) {
+      if (entry.params.version !== `eq.${current.version}`) return [];
+      Object.assign(current, entry.body);
+      return [{ ...current }];
+    }
+    if (entry.method === "POST" && entry.path.endsWith("/openblog_feedback_events")) return new Error("events unavailable");
+    return entry.path.endsWith("/openblog_feedback") ? [{ ...current }] : [];
+  });
+  const response = await convertCall(database, convertBody());
+  assert.equal(response.statusCode, 200, response.body);
+  assert.deepEqual(current.details.conversions, [LINK], "the link stands");
+  // A stale request changes nothing and writes no event.
+  const stale = await convertCall(database, convertBody({ expectedVersion: 3, conversion: { kind: "series", id: "other" } }));
+  assert.equal(stale.statusCode, 409);
+  assert.equal(writes(database).filter((entry) => entry.path.endsWith("/openblog_feedback_events")).length, 1);
+});
