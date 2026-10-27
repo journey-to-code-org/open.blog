@@ -5,6 +5,13 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Admin Studio can curate reading paths: **Content → Reading paths** lists, creates, edits, reorders (with
+  Move up and Move down, no drag needed) and moves paths to the trash. Steps are chosen from published posts
+  and public atlas entries only, a step that is no longer published is marked as one readers will not see,
+  every step after the first needs a relationship and your own reason, and a preview shows the public
+  projection with diagnostics for you alone. Saves are refused when the file changed elsewhere, written
+  atomically in canonical form, and source mode keeps fields the release does not know. Nothing publishes
+  a path yet, and a site without paths builds exactly as before. See [Reading paths](docs/specs/reading-paths.md#admin).
 - Reading paths now have a defined, checked file format. A path is an ordered list of published
   posts and Knowledge Atlas entries in `content/paths/<slug>.json`, with a rationale per step and an
   author-written reason (and a relationship that never defaults to influence) for every step after

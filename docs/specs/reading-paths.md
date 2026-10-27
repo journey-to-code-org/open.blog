@@ -142,6 +142,30 @@ published item. `to_json` escapes `<`, `>` and `&`.
 there is then refused by the build and by `check`; while it is off `check` warns when path files
 exist beside such a page or post. Editing paths in Admin does not need the switch.
 
+## Admin
+
+Admin Studio edits paths under **Content → Reading paths** (`#/paths`), through the route family
+`reading-paths` ([ADR 0246](../adr/0246-reading-paths-are-curated-through-one-admin-route-family-with-revision-checked-atomic-canonical-writes.md),
+[ADR 0247](../adr/0247-the-path-editor-offers-only-published-targets-names-unpublished-steps-and-previews-the-one-public-projection.md)).
+
+| Route | Does |
+| --- | --- |
+| `GET reading-paths` | Lists every path file (title, status, steps, problems, whether it would be shown) and the site's `publish` switch. |
+| `GET reading-paths/targets` | The published posts and public atlas entries that may be picked, the relationships and the limits. |
+| `GET reading-paths/path?slug=` | One path: form model, canonical `source`, step states, problems and the public projection. |
+| `POST reading-paths/preview` | Checks an unsaved `path` or `source` and returns its projection. Writes nothing. |
+| `POST reading-paths` | Creates a path (`409` if the slug has a file). |
+| `PUT reading-paths` | Replaces a path, naming the `revision` read (`409` with the newer copy when stale). |
+| `POST reading-paths/reorder` | Applies a full `order` of step ids; `clearTransition` and `transitions` say what happens to a step that moves to or from the front. |
+| `DELETE reading-paths?slug=&revision=` | Moves the file to `.openblog/trash`. |
+
+Every route needs a session and every write a CSRF token; any other name is not found. A revision is
+the SHA-256 of the stored bytes. Writes hold the content lock, are refused over 512 KiB, and replace
+the file atomically with the canonical text. Admin additionally requires every step after the first
+to have a relationship and a reason, even in a draft. A step's state in the editor is `published`,
+`draft`, `scheduled`, `missing` (a post) or `published`, `unpublished` (an atlas entry), for the
+author only.
+
 ## Limits
 
 100 steps, 200 path files, 256 KiB per file, 64 bytes per slug or id; text limits above.

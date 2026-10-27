@@ -1030,6 +1030,13 @@ a published, uncontested atlas influence from the followed entry to this one; or
 imply it, and a path that would lose a transition is withheld whole (ADR 0243, ADR 0244).
 _Avoid_: Link, edge, influence chain
 
+**Path editor**:
+Admin Studio's place to curate reading paths (`#/paths`): it offers only published posts and public atlas
+entries, marks a step that is no longer published as one readers will not see, requires a relationship and the
+author's own reason for every step after the first, reorders by Move up and Move down, and previews the one
+public projection. Saves name the revision read and are written atomically in canonical form (ADRs 0246, 0247).
+_Avoid_: Path builder, drag-and-drop curation
+
 **Public reading paths**:
 The allowlisted, deterministic projection of published paths (`openblog-reading-paths`) that later pages,
 discovery and export share, resolved against the published posts and public atlas alone (ADR 0245).

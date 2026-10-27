@@ -12,8 +12,9 @@
 use std::collections::BTreeMap;
 
 use openblog_core::reading_path::{
-    PathProblem, PublicPaths, PublishedTargets, ReadingPath, Status, Step, Target, MAX_FILE_BYTES,
-    MAX_PATHS, PATHS_DIR, READING_PATH_FORMAT, READING_PATH_VERSION,
+    Difficulty, PathProblem, PublicPaths, PublishedTargets, ReadingPath, Relationship, Status,
+    Step, Target, MAX_FILE_BYTES, MAX_PATHS, MAX_PREREQUISITE_CHARS, MAX_STEPS, MAX_TEXT_CHARS,
+    MAX_TITLE_CHARS, PATHS_DIR, READING_PATH_FORMAT, READING_PATH_VERSION,
 };
 use openblog_core::{LoadOptions, SiteConfig};
 
@@ -267,7 +268,7 @@ fn requested_path(request: &Json, slug: &str) -> Result<ReadingPath, Vec<PathPro
     ReadingPath::parse(&file, &text)
 }
 
-fn slug_of<'a>(request: &'a Json) -> Result<&'a str, Response> {
+fn slug_of(request: &Json) -> Result<&str, Response> {
     request["slug"]
         .as_str()
         .filter(|slug| openblog_core::reading_path::valid_slug(slug))
@@ -364,9 +365,25 @@ pub(super) fn targets(state: &AppState) -> Response {
         .entries()
         .map(|(id, label, kind)| json!({ "id": id, "label": label, "kind": kind }))
         .collect();
+    let relationships: Vec<Json> = Relationship::ALL
+        .iter()
+        .map(|r| json!({ "value": r.value(), "label": r.label() }))
+        .collect();
     Response::json(
         200,
-        &json!({ "posts": posts, "entries": entries, "problem": ctx.problem }),
+        &json!({
+            "posts": posts,
+            "entries": entries,
+            "problem": ctx.problem,
+            "relationships": relationships,
+            "difficulties": Difficulty::ALL.iter().map(|d| d.value()).collect::<Vec<_>>(),
+            "limits": {
+                "steps": MAX_STEPS,
+                "title": MAX_TITLE_CHARS,
+                "text": MAX_TEXT_CHARS,
+                "prerequisites": MAX_PREREQUISITE_CHARS,
+            },
+        }),
     )
 }
 

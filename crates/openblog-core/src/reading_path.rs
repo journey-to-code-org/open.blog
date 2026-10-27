@@ -98,6 +98,18 @@ pub enum Difficulty {
 }
 
 impl Difficulty {
+    /// Every difficulty, in the order an editor lists them.
+    pub const ALL: [Self; 3] = [Self::Introductory, Self::Intermediate, Self::Advanced];
+
+    /// The value as the file writes it.
+    pub fn value(self) -> &'static str {
+        match self {
+            Self::Introductory => "introductory",
+            Self::Intermediate => "intermediate",
+            Self::Advanced => "advanced",
+        }
+    }
+
     fn parse(value: &str) -> Option<Self> {
         match value {
             "introductory" => Some(Self::Introductory),
@@ -125,6 +137,31 @@ pub enum Relationship {
 }
 
 impl Relationship {
+    /// Every relationship, in the order an editor lists them. `Next` first:
+    /// it is the neutral one.
+    pub const ALL: [Self; 7] = [
+        Self::Next,
+        Self::Background,
+        Self::BuildsOn,
+        Self::ContrastsWith,
+        Self::RespondsTo,
+        Self::Applies,
+        Self::Influenced,
+    ];
+
+    /// The value as the file writes it.
+    pub fn value(self) -> &'static str {
+        match self {
+            Self::Next => "next",
+            Self::Background => "background",
+            Self::BuildsOn => "builds-on",
+            Self::ContrastsWith => "contrasts-with",
+            Self::RespondsTo => "responds-to",
+            Self::Applies => "applies",
+            Self::Influenced => "influenced",
+        }
+    }
+
     fn parse(value: &str) -> Option<Self> {
         match value {
             "next" => Some(Self::Next),
