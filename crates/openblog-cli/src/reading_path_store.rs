@@ -16,7 +16,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use openblog_core::reading_path::{
-    followed_index, valid_slug, PathProblem, ReadingPath, MAX_FILE_BYTES, MAX_PATHS, PATHS_DIR,
+    followed_index, valid_path_slug, PathProblem, ReadingPath, MAX_FILE_BYTES, MAX_PATHS, PATHS_DIR,
 };
 
 use crate::source_store::{self, StoreError as RootError};
@@ -72,7 +72,7 @@ fn directory(root: &Path, content: &str) -> Result<PathBuf, StoreError> {
 }
 
 fn file_path(root: &Path, content: &str, slug: &str) -> Result<PathBuf, StoreError> {
-    if !valid_slug(slug) {
+    if !valid_path_slug(slug) {
         return Err(StoreError::Invalid(vec![PathProblem {
             file: format!("{PATHS_DIR}/<slug>.json"),
             step: None,
@@ -155,7 +155,7 @@ pub fn list(root: &Path, content: &str) -> Result<Vec<Stored>, StoreError> {
         .filter_map(|entry| {
             let name = entry.file_name().to_string_lossy().into_owned();
             name.strip_suffix(".json")
-                .filter(|slug| valid_slug(slug))
+                .filter(|slug| valid_path_slug(slug))
                 .map(str::to_string)
         })
         .collect();

@@ -5,6 +5,15 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- With `readingPaths.publish` on, a published reading path is now a page at `/paths/<slug>/`: its steps in
+  the order you chose, each linking to its post or atlas entry with your reason and relationship (never
+  more than you wrote; order alone is not influence), previous and next links, and your rationale and
+  prerequisites notes. It works without JavaScript. `/paths/` lists the paths you leave listed; an unlisted
+  path keeps its page but is not listed or in the sitemap. Readers can optionally mark steps as read, kept
+  only in their own browser, with a link to continue and a reset. A draft step is left out with no trace,
+  and problems are build warnings for you alone. A path file named like a Windows device (`con`, `nul`, ...)
+  is refused, and unknown numbers in a path file are written back digit for digit. See
+  [Reading paths](docs/specs/reading-paths.md#pages-and-progress).
 - Admin Studio can curate reading paths: **Content → Reading paths** lists, creates, edits, reorders (with
   Move up and Move down, no drag needed) and moves paths to the trash. Steps are chosen from published posts
   and public atlas entries only, a step that is no longer published is marked as one readers will not see,

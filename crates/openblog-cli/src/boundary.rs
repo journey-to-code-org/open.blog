@@ -80,6 +80,7 @@ pub fn project_with(root: &Path, site: &mut Site, shared: &Shared) -> Blocked {
         Err(error) => blocked.comparisons = Some(error),
     }
     blocked.claims = site.claim_evidence_error.clone();
+    attach_reading_paths(root, site);
     // The public curated context, resolved against exactly what this build
     // publishes (the atlas and comparisons just attached, the posts, the
     // sources they cite), so the pages and curated-context.json read the one
@@ -100,6 +101,45 @@ pub fn project_with(root: &Path, site: &mut Site, shared: &Shared) -> Blocked {
     // attached, and against nothing when it is not published or not readable.
     site.link_concepts();
     blocked
+}
+
+/// Attach the public reading paths (ADR 0245, #78), only while the site
+/// publishes them. They are resolved against exactly what this build
+/// publishes (the posts and the atlas just attached), so a path never names
+/// what production would not show. A file that does not parse, a step that is
+/// not published and a path that is withheld are warned about to the author
+/// (naming the path and step, never a value) and leave the other paths and
+/// every other output as they were. Off means the folder is never read.
+fn attach_reading_paths(root: &Path, site: &mut Site) {
+    site.reading_paths = None;
+    if !site.config.reading_paths.publish {
+        return;
+    }
+    let stored = match crate::reading_path_store::list(root, &site.config.paths.content) {
+        Ok(stored) => stored,
+        Err(error) => {
+            site.warnings
+                .push(format!("reading paths: no path is published: {error}"));
+            return;
+        }
+    };
+    let mut paths = Vec::new();
+    for file in stored {
+        match file.parsed {
+            Ok(path) => paths.push(path),
+            Err(problems) => {
+                for problem in problems {
+                    site.warnings.push(problem.to_string());
+                }
+            }
+        }
+    }
+    let targets = openblog_core::reading_path::PublishedTargets::from_site(site);
+    let resolution = openblog_core::reading_path::PublicPaths::resolve(&paths, &targets);
+    for diagnostic in &resolution.diagnostics {
+        site.warnings.push(diagnostic.to_string());
+    }
+    site.reading_paths = Some(resolution.paths);
 }
 
 /// The source library and notebook, and the atlas and alignments read

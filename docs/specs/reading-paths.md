@@ -11,8 +11,8 @@ before. It is owned by `openblog_core::reading_path`. Decisions are in
 [ADR 0245](../adr/0245-the-public-paths-value-is-an-allowlisted-deterministic-projection-and-nothing-reads-a-path-yet.md) (the public value).
 
 This task defines the contract and the core types. Admin editing (#77), pages and local progress
-(#78) and discovery and export (#79) build on it; until they land nothing renders, indexes or
-exports a path, and a site builds exactly as before.
+(#78, [ADR 0248](../adr/0248-a-published-path-is-a-static-ordered-page-with-optional-progress-kept-only-in-the-readers-browser.md)) and discovery and export (#79) build on it. A site that does not turn
+`readingPaths.publish` on builds exactly as before.
 
 ## File
 
@@ -166,11 +166,38 @@ to have a relationship and a reason, even in a draft. A step's state in the edit
 `draft`, `scheduled`, `missing` (a post) or `published`, `unpublished` (an atlas entry), for the
 author only.
 
+## Pages and progress
+
+With `readingPaths.publish` on, each published path is written to `/paths/<slug>/` and `/paths/` lists
+the `listed` ones (it is written only if one is listed). A path page is complete HTML without JavaScript:
+
+- an ordered list, one item per shown step (`id="step-N"`), each with a link to its post or atlas
+  entry, its kind, difficulty and `optional` marks, the transition (the relationship's label, the
+  author's reason and, when it is not the step just above, which step it is about), the rationale, the
+  prerequisites note, and previous and next links;
+- a fixed note that order alone never means influence. `next` reads "Comes next, with no further
+  relationship claimed";
+- no draft, scheduled or withdrawn step, author step id or path-file text: the page is written from
+  `PublicPaths` alone. An unlisted path has a page but is not in the index or the sitemap.
+
+`<ob-reading-path>` (`web/components/ob-reading-path.js`, loaded only by a path page) adds optional
+progress. It keeps `{"version":1,"read":["post:slug","atlas:id"]}` in `localStorage` under
+`openblog:reading-path:<slug>`, adds a labelled "Mark step N, title, as read" checkbox per step, a
+status line (`role="status"`), a link to the first required step not yet read and "Reset progress"
+(focus moves to the status line). Optional steps do not count toward finishing; entries for steps the
+path no longer has are ignored; unreadable stored data is ignored and left alone until the reader
+changes something; refused storage is said and nothing else is added; a failed write is said. Nothing
+is sent anywhere. Print leaves the controls out.
+
+Build problems (an unparseable file, a left-out step, a withheld path) are warnings to the author, naming
+the path and step and never a value. Path slugs that Windows reserves for devices (`con`, `prn`, `aux`,
+`nul`, `com1` to `com9`, `lpt1` to `lpt9`) are refused.
+
 ## Limits
 
 100 steps, 200 path files, 256 KiB per file, 64 bytes per slug or id; text limits above.
 
 ## Not defined here
 
-Admin editing and saves (#77), pages, navigation and local progress (#78), discovery links, search,
-feeds policy, `paths.json`, the publication-manifest entry and export or import (#79).
+Discovery links from posts, search, feeds policy, `paths.json`, the publication-manifest entry and
+export or import (#79).

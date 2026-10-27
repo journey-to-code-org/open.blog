@@ -962,3 +962,51 @@ fn a_hostile_step_id_is_named_by_position_and_never_echoed() {
         "{e}"
     );
 }
+
+#[test]
+fn a_windows_device_name_cannot_name_a_path_file() {
+    use openblog_core::reading_path::valid_path_slug;
+    for name in ["con", "prn", "aux", "nul", "com1", "com9", "lpt1", "lpt9"] {
+        assert!(!valid_path_slug(name), "{name}");
+    }
+    for name in [
+        "com0",
+        "com10",
+        "console",
+        "auxiliary",
+        "lpt",
+        "plato-route",
+    ] {
+        assert!(valid_path_slug(name), "{name}");
+    }
+    let file = doc(json!([
+        post_step("a", "other"),
+        with_next(post_step("b", "the-cave"))
+    ]));
+    let refused = ReadingPath::parse("paths/con.json", &file.to_string());
+    assert!(refused.is_err());
+    // A step id is never a file name, so it keeps its old rule.
+    assert!(ReadingPath::parse(
+        "paths/ok.json",
+        &doc(json!([
+            post_step("aux", "other"),
+            with_next(post_step("nul", "the-cave"))
+        ]))
+        .to_string()
+    )
+    .is_ok());
+}
+
+#[test]
+fn an_unknown_number_is_written_back_with_every_digit() {
+    let mut file = doc(json!([
+        post_step("a", "other"),
+        with_next(post_step("b", "the-cave"))
+    ]));
+    let text = file
+        .to_string()
+        .replacen('{', "{\"x-ratio\": 0.30000000000000004,", 1);
+    file = serde_json::from_str(&text).unwrap();
+    let path = ReadingPath::parse("paths/p.json", &file.to_string()).unwrap();
+    assert!(path.to_canonical_json().contains("0.30000000000000004"));
+}

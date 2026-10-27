@@ -1056,6 +1056,18 @@ The allowlisted, deterministic projection of published paths (`openblog-reading-
 discovery and export share, resolved against the published posts and public atlas alone (ADR 0245).
 _Avoid_: Path index, recommendation feed
 
+**Path page**:
+`/paths/<slug>/`, the static page of one published reading path: an ordered list of its shown steps, each
+linking to its post or atlas entry with the author's transition, rationale, previous and next links, and
+no JavaScript needed. `/paths/` lists only paths marked listed (ADR 0248).
+_Avoid_: Lesson, course, playlist
+
+**Path progress**:
+A reader's optional marks of which path steps they have read, kept as step targets in their own browser by
+`<ob-reading-path>` and nowhere else. It can be reset, never changes what the page says, never counts an
+optional step toward finishing and is not sent to anyone (ADR 0248).
+_Avoid_: Completion, certificate, enrolment, tracking
+
 **Concept link**:
 An author's explicit Markdown link to `atlas:<entry id>` in a post. The build resolves it against
 the public atlas projection alone: a published entry becomes an ordinary link to its page, and

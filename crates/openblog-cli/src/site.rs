@@ -163,6 +163,10 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
         include_str!("../../../web/components/ob-atlas-trail.js"),
     ),
     (
+        "components/ob-reading-path.js",
+        include_str!("../../../web/components/ob-reading-path.js"),
+    ),
+    (
         "components/ob-concept-previews.js",
         include_str!("../../../web/components/ob-concept-previews.js"),
     ),
@@ -1368,6 +1372,87 @@ mod tests {
             },
         )
         .unwrap()
+    }
+
+    fn reading_path_project(tag: &str, config: &str) -> PathBuf {
+        let root = temp_root(tag);
+        fs::create_dir_all(root.join("content/posts")).unwrap();
+        fs::create_dir_all(root.join("content/paths")).unwrap();
+        fs::write(root.join(CONFIG_FILE), config).unwrap();
+        for (slug, extra) in [
+            ("one", ""),
+            ("two", ""),
+            (
+                "secret",
+                "draft: true
+",
+            ),
+        ] {
+            fs::write(
+                root.join(format!("content/posts/2026-01-05-{slug}.md")),
+                format!(
+                    "---
+title: Post {slug}
+date: 2026-01-05
+{extra}---
+
+Body.
+"
+                ),
+            )
+            .unwrap();
+        }
+        let step = |id: &str, slug: &str, transition: bool| {
+            let mut step = serde_json::json!({"id": id, "target": {"kind": "post", "slug": slug}});
+            if transition {
+                step["transition"] =
+                    serde_json::json!({"relationship": "builds-on", "why": "Because."});
+            }
+            step
+        };
+        let path = serde_json::json!({
+            "format": "openblog-reading-path", "version": 1, "title": "Route",
+            "status": "published",
+            "steps": [step("a", "one", false), step("b", "two", true), step("c", "secret", true)]
+        });
+        fs::write(root.join("content/paths/route.json"), path.to_string()).unwrap();
+        // A damaged file never stops the others or the build.
+        fs::write(root.join("content/paths/broken.json"), "{ not json").unwrap();
+        root
+    }
+
+    #[test]
+    fn reading_paths_are_built_only_while_published_and_never_show_a_draft_step() {
+        let root = reading_path_project("reading-paths", "{}");
+        production_build(&root);
+        let off = dist_bytes(&root);
+        assert!(off.keys().all(|path| !path.starts_with("paths/")));
+        // Only the shipped component and stylesheet carry the name; no page loads it.
+        assert!(off
+            .iter()
+            .filter(|(path, _)| !path.starts_with("assets/"))
+            .all(|(_, bytes)| !String::from_utf8_lossy(bytes).contains("ob-reading-path")));
+
+        fs::write(
+            root.join(CONFIG_FILE),
+            r#"{"readingPaths":{"publish":true}}"#,
+        )
+        .unwrap();
+        production_build(&root);
+        let on = dist_bytes(&root);
+        let page = String::from_utf8(on["paths/route/index.html"].clone()).unwrap();
+        assert!(page.contains("Post one") && page.contains("Post two"));
+        assert!(!page.contains("Post secret") && !page.contains("secret"));
+        assert!(on.contains_key("paths/index.html"));
+        assert!(!on.contains_key("paths/broken/index.html"));
+        // Everything outside the path pages, the sitemap and the stylesheet is what it was.
+        for (path, bytes) in &off {
+            if path.starts_with("assets/") || path == "sitemap.xml" || path == "search.json" {
+                continue;
+            }
+            assert_eq!(on.get(path), Some(bytes), "{path}");
+        }
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

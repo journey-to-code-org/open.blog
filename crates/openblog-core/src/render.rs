@@ -94,6 +94,9 @@ struct Meta<'a> {
     /// The page has a relationship trail (ADR 0175) whose filters
     /// `<ob-atlas-trail>` adds.
     atlas_trail: bool,
+    /// The page is a reading path (#78), so it loads `<ob-reading-path>`,
+    /// which adds optional progress kept in the reader's own browser.
+    reading_path: bool,
     theme: &'a Theme,
     published: Option<String>,
     modified: Option<String>,
@@ -599,6 +602,22 @@ pub fn generate_with_trail_budget(
             )?;
         }
     }
+    // Reading paths, only when the site publishes them (ADR 0245, #78): every
+    // page is rendered from the one public paths value and is complete HTML.
+    if let Some(paths) = &site.reading_paths {
+        if paths.paths.iter().any(|path| path.listed) {
+            out.add(
+                url_to_file(crate::reading_path::PATHS_URL),
+                r.paths_index(default_theme, paths),
+            )?;
+        }
+        for path in &paths.paths {
+            out.add(
+                url_to_file(&path.url),
+                r.path_page(default_theme, paths, path),
+            )?;
+        }
+    }
     // The curated research context (ADR 0197): the data file readers' tools
     // fetch, projected from the one public curated value the pages' sections
     // are rendered from. A projection that is refused (over a bound, or not
@@ -668,6 +687,20 @@ pub fn generate_with_trail_budget(
         if let Some(atlas) = &site.atlas {
             extra.push(atlas_publication::ATLAS_URL.to_string());
             extra.extend(atlas.entries.iter().map(|entry| entry.url.clone()));
+        }
+        if let Some(paths) = &site.reading_paths {
+            // Discovery follows `listed`: an unlisted path is published but
+            // not advertised to crawlers.
+            if paths.paths.iter().any(|path| path.listed) {
+                extra.push(crate::reading_path::PATHS_URL.to_string());
+            }
+            extra.extend(
+                paths
+                    .paths
+                    .iter()
+                    .filter(|path| path.listed)
+                    .map(|path| path.url.clone()),
+            );
         }
         if let Some(comparisons) = &site.comparisons {
             extra.push(comparison_publication::COMPARISONS_URL.to_string());
@@ -1059,6 +1092,12 @@ impl<'a> Renderer<'a> {
             // The trail's filters are loaded only by an entry page that has a trail.
             h.push_str(
                 "<script type=\"module\" src=\"/assets/components/ob-atlas-trail.js\"></script>\n",
+            );
+        }
+        if meta.reading_path {
+            // Optional local progress, loaded only by a reading path's page.
+            h.push_str(
+                "<script type=\"module\" src=\"/assets/components/ob-reading-path.js\"></script>\n",
             );
         }
         // Owner-supplied raw HTML (third-party analytics, verification tags).
@@ -1787,6 +1826,7 @@ impl<'a> Renderer<'a> {
             participation_scripts: Vec::new(),
             atlas_timeline: false,
             atlas_trail: false,
+            reading_path: false,
             theme,
             published: None,
             modified: None,
@@ -2264,6 +2304,7 @@ impl<'a> Renderer<'a> {
             }),
             atlas_timeline: false,
             atlas_trail: false,
+            reading_path: false,
             citation_previews: references.and(post.citations()).map(|summary| {
                 format!(
                     "<ob-citation-previews note-label=\"{}\"></ob-citation-previews>",
@@ -3668,6 +3709,7 @@ impl<'a> Renderer<'a> {
             participation_scripts: Vec::new(),
             atlas_timeline: false,
             atlas_trail: false,
+            reading_path: false,
             theme,
             published: None,
             modified: None,
@@ -3788,6 +3830,167 @@ impl<'a> Renderer<'a> {
         )
     }
 
+    fn paths_index(&self, theme: &Theme, paths: &crate::reading_path::PublicPaths) -> String {
+        let mut body = String::from(
+            "<div class=\"ob-container ob-container-reading\">\n<section class=\"ob-section ob-reading-paths\">\n",
+        );
+        body.push_str(&self.heading(theme, 1, "Reading paths", "ob-section-heading"));
+        body.push_str(&format!(
+            "\n<p class=\"ob-lede\">{}</p>\n",
+            text(PATHS_LEDE)
+        ));
+        body.push_str("<ul class=\"ob-archive\">\n");
+        for path in paths.paths.iter().filter(|path| path.listed) {
+            let count = path.steps.len();
+            body.push_str(&format!(
+                "<li><a href=\"{}\"><bdi>{}</bdi></a> <span class=\"ob-meta\">{count} step{}</span>",
+                attr(&path.url),
+                text(&path.title),
+                if count == 1 { "" } else { "s" }
+            ));
+            if let Some(summary) = &path.summary {
+                body.push_str(&format!("<br>{}", text(summary)));
+            }
+            body.push_str("</li>\n");
+        }
+        body.push_str("</ul>\n</section>\n</div>");
+        self.simple(
+            theme,
+            "Reading paths",
+            "Routes through the author's work, in an order they chose, with their reasons.",
+            crate::reading_path::PATHS_URL,
+            &body,
+        )
+    }
+
+    fn path_page(
+        &self,
+        theme: &Theme,
+        paths: &crate::reading_path::PublicPaths,
+        path: &crate::reading_path::PublicPath,
+    ) -> String {
+        let listed = paths.paths.iter().any(|path| path.listed);
+        let mut body = String::from(
+            "<div class=\"ob-container ob-container-reading\">\n<article class=\"ob-page ob-reading-path\">\n",
+        );
+        if listed {
+            body.push_str(&format!(
+                "<p class=\"ob-eyebrow\"><a href=\"{}\">Reading paths</a></p>\n",
+                crate::reading_path::PATHS_URL
+            ));
+        }
+        body.push_str(&self.heading(theme, 1, &path.title, "ob-post-title"));
+        body.push_str("\n<div class=\"ob-prose\">\n");
+        if let Some(summary) = &path.summary {
+            body.push_str(&format!("<p class=\"ob-lede\">{}</p>\n", text(summary)));
+        }
+        let optional = path.steps.iter().filter(|step| step.optional).count();
+        let mut facts = format!(
+            "{} step{} in the order the author chose",
+            path.steps.len(),
+            if path.steps.len() == 1 { "" } else { "s" }
+        );
+        if optional > 0 {
+            facts.push_str(&format!(", {optional} of them optional"));
+        }
+        body.push_str(&format!(
+            "<p class=\"ob-meta\">{facts}. {}</p>\n",
+            text(PATHS_NOTE)
+        ));
+        body.push_str(&format!(
+            "<ob-reading-path data-slug=\"{}\">\n<ol class=\"ob-path-steps\">\n",
+            attr(&path.slug)
+        ));
+        let last = path.steps.len();
+        for (index, step) in path.steps.iter().enumerate() {
+            let position = step.position;
+            body.push_str(&format!(
+                "<li id=\"step-{position}\" class=\"ob-path-step\" data-key=\"{}:{}\" data-optional=\"{}\">\n",
+                step.kind,
+                attr(&step.target),
+                step.optional
+            ));
+            body.push_str(&format!(
+                "<h2 class=\"ob-path-step-title\"><span class=\"ob-path-step-number\">Step {position}.</span> <a href=\"{}\"><bdi>{}</bdi></a></h2>\n",
+                attr(&step.url),
+                text(&step.title)
+            ));
+            let mut facts = vec![step.kind_label.to_string()];
+            if let Some(difficulty) = step.difficulty {
+                facts.push(format!("{} (the author's judgement)", difficulty.value()));
+            }
+            if step.optional {
+                facts.push("optional: you can skip it and keep reading".to_string());
+            }
+            body.push_str(&format!(
+                "<p class=\"ob-meta\">{}</p>\n",
+                text(&facts.join(" · "))
+            ));
+            if let Some(transition) = &step.transition {
+                let about = path
+                    .steps
+                    .iter()
+                    .find(|other| other.position == transition.follows)
+                    .map(|other| {
+                        format!(
+                            "(step <a href=\"#step-{0}\">{0}, {1}</a>)",
+                            other.position,
+                            text(&other.title)
+                        )
+                    })
+                    .unwrap_or_default();
+                body.push_str(&format!(
+                    "<p class=\"ob-path-relation\"><strong>{}</strong> {about}</p>\n<p class=\"ob-path-why\">{}</p>\n",
+                    text(transition.label),
+                    text(&transition.why)
+                ));
+            }
+            if let Some(rationale) = &step.rationale {
+                body.push_str(&format!(
+                    "<p class=\"ob-path-rationale\"><em>Why it is in the path:</em> {}</p>\n",
+                    text(rationale)
+                ));
+            }
+            if let Some(prerequisites) = &step.prerequisites {
+                body.push_str(&format!(
+                    "<p class=\"ob-path-prerequisites\"><em>Before this step:</em> {} (a note, not a requirement)</p>\n",
+                    text(prerequisites)
+                ));
+            }
+            body.push_str("<p class=\"ob-path-nav\">");
+            if index > 0 {
+                let before = &path.steps[index - 1];
+                body.push_str(&format!(
+                    "<a href=\"#step-{0}\" rel=\"prev\">Previous: step {0}, {1}</a>",
+                    before.position,
+                    text(&before.title)
+                ));
+            } else {
+                body.push_str("<span>First step</span>");
+            }
+            body.push_str(" · ");
+            if index + 1 < last {
+                let after = &path.steps[index + 1];
+                body.push_str(&format!(
+                    "<a href=\"#step-{0}\" rel=\"next\">Next: step {0}, {1}</a>",
+                    after.position,
+                    text(&after.title)
+                ));
+            } else {
+                body.push_str("<span>End of the path</span>");
+            }
+            body.push_str("</p>\n</li>\n");
+        }
+        body.push_str("</ol>\n</ob-reading-path>\n</div>\n</article>\n</div>");
+        let description = path
+            .summary
+            .clone()
+            .unwrap_or_else(|| format!("A reading path of {last} steps."));
+        let mut meta = self.meta_simple(theme, &path.title, &description, &path.url);
+        meta.reading_path = true;
+        self.document(&meta, &body)
+    }
+
     fn simple(
         &self,
         theme: &Theme,
@@ -3800,6 +4003,11 @@ impl<'a> Renderer<'a> {
         self.document(&meta, body)
     }
 }
+
+/// What the reading paths index says before any path.
+const PATHS_LEDE: &str = "Routes through this site's posts and Knowledge Atlas entries, in an order the author chose, each with a reason for the step that follows.";
+/// What a path page says about its transitions.
+const PATHS_NOTE: &str = "Each step says in the author's words how it relates to the step it follows. Order alone never means that one thing influenced another, and no step is required reading.";
 
 /// What the atlas index says before any entry.
 const ATLAS_LEDE: &str = "People, works, concepts, movements and events, and the relationships between them that the author has chosen to publish. Each relationship is one party's assertion on cited evidence; contested ones name who disagrees.";

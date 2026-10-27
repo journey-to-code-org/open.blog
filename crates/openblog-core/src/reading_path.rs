@@ -368,6 +368,20 @@ pub fn valid_slug(value: &str) -> bool {
     is_ascii_slug(value)
 }
 
+/// Whether `value` can name a path file: a slug that is not a name Windows
+/// reserves for a device (`con`, `prn`, `aux`, `nul`, `com1` to `com9`, `lpt1`
+/// to `lpt9`), which no file there can be created or read under. Step ids are
+/// never file names and keep the plain [`valid_slug`].
+pub fn valid_path_slug(value: &str) -> bool {
+    const DEVICES: [&str; 4] = ["con", "prn", "aux", "nul"];
+    let device = DEVICES.contains(&value)
+        || ((value.starts_with("com") || value.starts_with("lpt"))
+            && value.len() == 4
+            && value.as_bytes()[3].is_ascii_digit()
+            && value.as_bytes()[3] != b'0');
+    is_ascii_slug(value) && !device
+}
+
 fn is_ascii_slug(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= MAX_ID_BYTES
@@ -703,7 +717,7 @@ impl ReadingPath {
         let stem = file
             .strip_prefix("paths/")
             .and_then(|rest| rest.strip_suffix(".json"))
-            .filter(|stem| is_ascii_slug(stem));
+            .filter(|stem| valid_path_slug(stem));
         let Some(slug) = stem else {
             add(
                 &mut problems,

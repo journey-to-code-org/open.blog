@@ -271,7 +271,7 @@ fn requested_path(request: &Json, slug: &str) -> Result<ReadingPath, Vec<PathPro
 fn slug_of(request: &Json) -> Result<&str, Response> {
     request["slug"]
         .as_str()
-        .filter(|slug| openblog_core::reading_path::valid_slug(slug))
+        .filter(|slug| openblog_core::reading_path::valid_path_slug(slug))
         .ok_or_else(|| {
             Response::error(
                 400,
@@ -394,7 +394,7 @@ pub(super) fn get(state: &AppState, req: &Request) -> Response {
     let Some(slug) = req
         .query
         .get("slug")
-        .filter(|slug| openblog_core::reading_path::valid_slug(slug))
+        .filter(|slug| openblog_core::reading_path::valid_path_slug(slug))
     else {
         return Response::error(400, "Name the path by ?slug=");
     };
@@ -628,7 +628,7 @@ pub(super) fn remove(state: &AppState, req: &Request) -> Response {
     let Some(slug) = req
         .query
         .get("slug")
-        .filter(|slug| openblog_core::reading_path::valid_slug(slug))
+        .filter(|slug| openblog_core::reading_path::valid_path_slug(slug))
     else {
         return Response::error(400, "Name the path by ?slug=");
     };

@@ -319,6 +319,7 @@ the ordered routes you curate in Admin under **Content → Reading paths**. Whil
 preview paths freely; nothing publishes them and `/paths/` is not reserved. Turning it on reserves
 `/paths/`, so a page named `paths` or a `postPath` that puts a post there is refused by the build and by
 `check`; while it is off, `check` warns when you have path files beside such a page or post.
+While it is on, each published path is a page at `/paths/<slug>/` (see [Pages and progress](specs/reading-paths.md#pages-and-progress)); `/paths/` lists the paths you leave `listed`.
 
 ## Curated research context
 
