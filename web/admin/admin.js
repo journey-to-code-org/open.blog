@@ -571,10 +571,48 @@ export function suggestionLines(suggestion) {
   if (suggestion.about?.article) lines.push({ text: `About the article: ${suggestion.about.article}` });
   if (suggestion.missing?.length) lines.push({ text: `Still to find: ${suggestion.missing.join(", ")}.` });
   lines.push({ text: `Stands as: ${suggestion.standing.label}.` });
+  // How the editors dealt with it, once they have, and what an author linked it to: the author's own
+  // records, never opened or checked, never a count or a rank (ADRs 0210 and 0211).
+  if (suggestion.outcome) lines.push({ text: `Outcome: ${suggestion.outcome.label}.` });
+  for (const link of suggestion.conversions || []) {
+    lines.push({ text: `Linked to ${conversionKindName(link.kind)} ${link.id}, recorded ${String(link.at).slice(0, 10)} by ${link.by}. Nothing opened or checked it.` });
+  }
   return lines;
 }
 
 /** What the signed-in account can do with an item, from the role the server resolved. */
+function conversionKindName(kind) {
+  if (kind === "draft") return "the draft";
+  if (kind === "series") return "the series";
+  if (kind === "library-source") return "the Source Library record";
+  return "the work";
+}
+
+/**
+ * The body of recording a link between an accepted suggestion and work the author made, or the
+ * reason it is not ready: the kind (a draft or series by its slug, a library source by its id) and
+ * the target as typed, which the server checks again. `item` is the loaded inbox item.
+ */
+export function linkRequest(item, kind, target) {
+  const id = String(target ?? "").trim();
+  if (!["draft", "series", "library-source"].includes(kind)) return { ok: false, message: "Choose what you made from this suggestion." };
+  if (id === "") return { ok: false, message: "Name it: the slug of a draft or series, or the id of a source in your library." };
+  return { ok: true, body: { id: item.id, version: item.version, conversion: { kind, id } } };
+}
+
+/** The unverified hints an author may copy into a Source Library record of their own making, as plain lines. */
+export function libraryCandidateLines(candidate) {
+  if (!candidate) return [];
+  const lines = [`Kind: ${candidate.type}. Unverified: these are the reader’s own words about a source, and nothing checked them.`];
+  if (candidate.url) lines.push(`Link: ${candidate.url}`);
+  if (candidate.title) lines.push(`Title: ${candidate.title}`);
+  if (candidate.creators?.length) lines.push(`Creators: ${candidate.creators.join("; ")}`);
+  if (candidate.year) lines.push(`Year: ${candidate.year}`);
+  if (candidate.publisher) lines.push(`Publisher: ${candidate.publisher}`);
+  for (const identifier of candidate.identifiers || []) lines.push(`${String(identifier.scheme).toUpperCase()}: ${identifier.value}`);
+  return lines;
+}
+
 export function moderationRoleLine(role) {
   if (role === "coordinator") return "You moderate this as a coordinator of its shared publication. Only the site Admin sees a reader’s private name or reopens a decision.";
   if (role === "contributing-author") return "You can read this as a contributing author of the work. A coordinator or the site Admin decides.";
@@ -15014,6 +15052,54 @@ export class ObAdmin extends AdminElement {
             }
           } }, item.suggestion.export.label),
           h("p", { class: "oba-small oba-moderation-guidance", id: guidanceId }, item.suggestion.export.guidance)));
+      }
+      if (item.suggestion?.link) {
+        // The author's own record that an accepted suggestion became, or is becoming, future work they
+        // made. It creates, fetches and publishes nothing, and the reader is told only that it is linked
+        // (ADR 0210). Nothing is written to the Source Library: its hints below are copied by hand (ADR 0212).
+        const offer = item.suggestion.link;
+        const fieldId = (name) => `oba-moderation-${key}-link-${name}`;
+        const kind = h("select", { id: fieldId("kind"), "aria-describedby": fieldId("guidance") },
+          h("option", { value: "" }, "Choose what you made"),
+          offer.kinds.map((each) => h("option", { value: each.id }, each.label)));
+        const target = h("input", { type: "text", id: fieldId("target"), maxlength: "64", spellcheck: "false", autocomplete: "off", "aria-describedby": fieldId("guidance") });
+        const submit = h("button", { class: "oba-btn", type: "submit", "data-link-suggestion": "" }, "Record this link");
+        if (offer.full) submit.disabled = true;
+        const form = h("form", { class: "oba-moderation-action oba-suggestion-link-form", "data-link-form": "", onSubmit: async (event) => {
+          event.preventDefault();
+          const request = linkRequest(item, kind.value, target.value);
+          if (!request.ok) {
+            announce(line, request.message, "error");
+            (kind.value === "" ? kind : target).focus();
+            return;
+          }
+          busy(true);
+          announce(line, "Recording the link…");
+          try {
+            await this.api.call("POST", "engagement/suggestions/link", { json: request.body });
+            await reloadAll("The link was recorded. Nothing was created, published or sent; the reader’s contact and unpublished name are cleared the next time you run retention.", "ok");
+          } catch (error) {
+            busy(false);
+            announce(line, error.data?.code === "alreadyLinked" ? "It is already linked to that." : error.message, "error");
+            if (error.status === 409) await reloadAll(`${error.message} The list was reloaded.`, "error");
+            else target.focus();
+          }
+        } },
+        h("h4", {}, "Link to future work"),
+        h("div", { class: "oba-field" }, h("label", { for: fieldId("kind") }, "What you made"), kind),
+        h("div", { class: "oba-field" }, h("label", { for: fieldId("target") }, "Its slug or id"), target),
+        h("p", { class: "oba-small oba-moderation-guidance", id: fieldId("guidance") }, offer.full ? "It is linked as many times as it can be." : offer.guidance),
+        submit);
+        actions.append(form);
+      }
+      if (item.suggestion?.libraryCandidate) {
+        // The reader's hints for a source, to copy by hand into a record the author makes (ADR 0212).
+        const candidate = item.suggestion.libraryCandidate;
+        const guidanceId = `oba-moderation-${key}-candidate-guidance`;
+        actions.append(h("details", { class: "oba-moderation-action oba-suggestion-candidate", "data-library-candidate": "" },
+          h("summary", { "aria-describedby": guidanceId }, candidate.label),
+          h("p", { class: "oba-small oba-moderation-guidance", id: guidanceId }, candidate.guidance),
+          h("ul", {}, libraryCandidateLines(candidate).map((text) => h("li", {}, text)))));
       }
       const decision = decisionForm(item, key, line, busy);
       card.append(actions, ...(decision ? [decision] : []), line);

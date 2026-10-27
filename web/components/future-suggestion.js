@@ -29,10 +29,13 @@ export const MAX_YEAR_CHARS = 32;
 export const MAX_CONTACT_BYTES = 254;
 export const MAX_ID_CHARS = 64;
 export const MAX_READER_NAME_CHARS = 80;
+export const MAX_CONVERSIONS = 8;
+export const MAX_ACTOR_CHARS = 64;
 export const MAX_SUBMISSION_BYTES = 12 * 1024;
 // Below the 16 KiB of the column's check, measured as Postgres measures jsonb text (a space after
-// every `:` and `,`), so a link that percent-encoding made longer never makes the insert fail.
-export const MAX_STORED_DETAILS_BYTES = 15 * 1024;
+// every `:` and `,`), by the room eight links at their largest need, so neither a link that percent-encoding
+// made longer nor an author's links ever make a write fail (ADR 0210).
+export const MAX_STORED_DETAILS_BYTES = 11 * 1024;
 // The build's JSON reader refuses documents nested deeper than this.
 const MAX_JSON_DEPTH = 127;
 
@@ -49,6 +52,11 @@ export const IDENTIFIER_SCHEMES = Object.freeze(["doi", "isbn", "issn", "url", "
 
 /** What acceptance means, in the words an editor's screen and a reader's receipt use. */
 export const ACCEPTANCE_NOTICE = "Accepted means the editors are interested in exploring this. It does not mean they agree with it, have checked it, or have permission to use it.";
+
+/** What a reader's receipt says of a link between their suggestion and work the editors are doing. It is not a promise. */
+export const LINK_NOTICE = "An editor has recorded a link between it and work they are doing. That is a record, not a promise to publish, and it says nothing about who is right.";
+/** What it says when the editors did not take a suggestion forward. */
+export const DECLINE_NOTICE = "Not taking an idea forward is about this site's plans. It is not a judgement of the idea or of you.";
 
 const WHITE_SPACE = "\\t\\n\\v\\f\\r \\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000";
 const TRIM = new RegExp(`^[${WHITE_SPACE}]+|[${WHITE_SPACE}]+$`, "gu");
@@ -432,3 +440,117 @@ export function suggestionCopyText(submission, canonicalUrl = "") {
   lines.push("", "open.blog suggestion record (for the author; keep it on one line):", JSON.stringify(submission));
   return lines.join("\n");
 }
+
+// ---- Editorial standing, outcomes and links to future work (ADRs 0194, 0195, 0210 to 0212)
+
+/** What a link points at: a draft or a series by its slug, a Source Library record by its source id. */
+export const CONVERSION_KINDS = Object.freeze(["draft", "series", "library-source"]);
+
+const STANDINGS = Object.freeze({
+  received: "Received",
+  "needs-clarification": "Waiting for the reader to say more",
+  interested: "Editors are interested",
+  converted: "Linked to future work",
+  "closed-converted": "Linked to future work, now closed",
+  declined: "Not taken forward",
+  withdrawn: "Withdrawn by the reader",
+});
+
+/** Where a suggestion stands, derived from its moderation state and recorded links and never stored: `{ id, label }`. */
+export function standingOf(state, conversions = []) {
+  let id;
+  if (state === "pending") id = "received";
+  else if (state === "clarification") id = "needs-clarification";
+  else if (state === "approved") id = conversions.length === 0 ? "interested" : "converted";
+  else if (state === "removed") id = conversions.length === 0 ? "declined" : "closed-converted";
+  else if (state === "rejected") id = "declined";
+  else if (state === "withdrawn") id = "withdrawn";
+  else return null;
+  return { id, label: STANDINGS[id] };
+}
+
+const OUTCOMES = Object.freeze({ held: "Held", converted: "Converted", declined: "Declined", closed: "Closed" });
+
+/**
+ * How the editors dealt with a suggestion, once they have: held, converted, declined or closed, as
+ * `{ id, label }`, or null while it is undecided or the reader withdrew it. Derived, never stored.
+ */
+export function outcomeOf(state, conversions = []) {
+  let id = null;
+  if (state === "approved") id = conversions.length === 0 ? "held" : "converted";
+  else if (state === "removed") id = conversions.length === 0 ? "closed" : "converted";
+  else if (state === "rejected") id = "declined";
+  return id === null ? null : { id, label: OUTCOMES[id] };
+}
+
+/**
+ * What a reader's receipt says of their own suggestion: its standing, and the one honest sentence
+ * for it (ACCEPTANCE_NOTICE for interest, never a promise, a rank, a count or what it was linked
+ * to), as `{ id, label, note, acceptance }`, or null for a state this code does not know.
+ */
+export function readerStanding(state, conversions = []) {
+  const standing = standingOf(state, conversions);
+  if (standing === null) return null;
+  const note = { interested: ACCEPTANCE_NOTICE, converted: LINK_NOTICE, "closed-converted": LINK_NOTICE, declined: DECLINE_NOTICE }[standing.id] ?? null;
+  return { ...standing, note, acceptance: ["interested", "converted", "closed-converted"].includes(standing.id) };
+}
+
+const isLibraryId = (value) => typeof value === "string" && value.length <= MAX_ID_CHARS && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
+const isTarget = (kind, id) => (kind === "library-source" ? isLibraryId(id) : isSlug(id));
+
+/** One recorded link, exactly as the build reads it, or null. */
+function readConversion(value) {
+  if (!isObject(value) || !onlyFields(value, new Set(["kind", "id", "at", "by"]))) return null;
+  const { kind, id, at, by } = value;
+  if (!CONVERSION_KINDS.includes(kind) || !isTarget(kind, id) || !isCanonicalTime(at)) return null;
+  if (typeof by !== "string" || by === "" || Array.from(by).length > MAX_ACTOR_CHARS || /[\u0000-\u001f\u007f-\u009f]/u.test(by)) return null;
+  return { kind, id, at, by };
+}
+
+/**
+ * The links a stored row's `details` hold: an array (empty when it has none), or null when
+ * `details.conversions` is malformed (more than eight, a repeat, a bad target, an unknown field).
+ */
+export function readConversions(details) {
+  const value = isObject(details) ? details.conversions : undefined;
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length < 1 || value.length > MAX_CONVERSIONS) return null;
+  const links = [];
+  for (const item of value) {
+    const link = readConversion(item);
+    if (link === null || links.some((seen) => seen.kind === link.kind && seen.id === link.id)) return null;
+    links.push(link);
+  }
+  return links;
+}
+
+/**
+ * Decide whether an author may record a link now, exactly as `convert` does in the build: the
+ * policy's approve grant (the site Admin or a coordinator of the work; Admin names the role), a
+ * suggestion approved at its current revision, not awaiting clarification and still kept, a target
+ * of the right shape not already linked, at most eight links, and an Admin account to name. `row`
+ * is the stored row; returns `{ ok: true, conversion, details }` (the details to store) or
+ * `{ ok: false, code }` with the build's code.
+ */
+export function planConversion(row, { role, kind, target, actor, at }) {
+  if (row?.kind !== FUTURE_SUGGESTION_KIND) return { ok: false, code: "wrongKind" };
+  if (role !== "site-admin" && role !== "coordinator") return { ok: false, code: "denied" };
+  const revision = row.item_revision ?? 1;
+  if (row.status !== "approved" || row.approved_revision !== revision || row.clarification_asked === revision || row.purged_at) return { ok: false, code: "notAccepted" };
+  if (!CONVERSION_KINDS.includes(kind) || !isTarget(kind, target)) return { ok: false, code: "invalidTarget" };
+  const existing = readConversions(row.details);
+  if (existing === null) return { ok: false, code: "invalidDetails" };
+  if (existing.some((link) => link.kind === kind && link.id === target)) return { ok: false, code: "alreadyLinked" };
+  if (existing.length >= MAX_CONVERSIONS) return { ok: false, code: "tooMany" };
+  if (typeof actor !== "string" || actor === "" || Array.from(actor).length > MAX_ACTOR_CHARS) return { ok: false, code: "denied" };
+  if (!isCanonicalTime(at)) throw new TypeError("at must be a canonical UTC time");
+  const conversion = { kind, id: target, at, by: actor };
+  return { ok: true, conversion, details: { ...row.details, conversions: [...existing, conversion] } };
+}
+
+/**
+ * Whether a kept suggestion owes the clearing of its private identity now, as `identity_scrub_due`
+ * does in the build: it is approved and still kept, holds some, and an author has linked it to
+ * future work or the closed-item period has passed (`periodPassed`).
+ */
+export const identityScrubDue = (row, periodPassed) => row?.kind === FUTURE_SUGGESTION_KIND && row.status === "approved" && !row.purged_at && holdsIdentity(row) && ((readConversions(row.details) ?? []).length > 0 || periodPassed === true);

@@ -32,6 +32,8 @@ import {
   perspectiveLines,
   retentionSummaryLines,
   suggestionLines,
+  linkRequest,
+  libraryCandidateLines,
 } from "../../web/admin/admin.js";
 
 const transitions = JSON.parse(readFileSync(new URL("../fixtures/participation-transitions.json", import.meta.url), "utf8"));
@@ -406,4 +408,37 @@ test("the export is the author's own explicit action and sends only the item and
   assert.match(admin, /"POST", "engagement\/suggestions\/export", \{ json: \{ id: item\.id, version: item\.version \} \}/);
   assert.match(admin, /item\.suggestion\?\.export/);
   assert.match(admin, /Nothing was published, fetched or e-mailed, and the suggestion is unchanged\./);
+});
+
+test("a suggestion's outcome and links read as the author's own records, never opened, counted or ranked", () => {
+  const linked = {
+    ...suggestionCard,
+    standing: { id: "converted", label: "Linked to future work" },
+    outcome: { id: "converted", label: "Converted" },
+    conversions: [{ kind: "draft", id: "tide-tables", at: "2026-10-28T10:00:00Z", by: "mikey" }, { kind: "library-source", id: "survey-1850", at: "2026-10-29T10:00:00Z", by: "mikey" }],
+  };
+  const text = suggestionLines(linked).map((line) => line.text ?? "").join("\n");
+  assert.match(text, /Outcome: Converted\./);
+  assert.match(text, /Linked to the draft tide-tables, recorded 2026-10-28 by mikey\. Nothing opened or checked it\./);
+  assert.match(text, /Linked to the Source Library record survey-1850, recorded 2026-10-29/);
+  assert.ok(!/\b(rank|popular|votes?|most requested|trending|score)\b/i.test(text), text);
+  // Without an outcome or links the lines are as they were.
+  assert.ok(!suggestionLines(suggestionCard).some((line) => /Outcome|Linked/.test(line.text ?? "")));
+});
+
+test("a link request is read before anything is sent, and names the item as it was loaded", () => {
+  const item = { id: "00000000-0000-4000-8000-000000000001", version: 4 };
+  assert.deepEqual(linkRequest(item, "draft", "  tide-tables "), { ok: true, body: { id: item.id, version: 4, conversion: { kind: "draft", id: "tide-tables" } } });
+  assert.equal(linkRequest(item, "", "tides").ok, false);
+  assert.equal(linkRequest(item, "page", "tides").ok, false);
+  assert.equal(linkRequest(item, "series", "   ").ok, false);
+  assert.match(linkRequest(item, "series", "").message, /Name it/);
+});
+
+test("library hints are plain lines marked unverified, with nothing the reader did not say about the source", () => {
+  assert.deepEqual(libraryCandidateLines(null), []);
+  const lines = libraryCandidateLines({ type: "video", url: "https://example.org/watch", title: "The survey", creators: ["A. Surveyor"], year: "1850", publisher: "Admiralty", identifiers: [{ scheme: "doi", value: "10.1234/abc" }], unverified: true });
+  assert.match(lines[0], /Unverified/);
+  assert.deepEqual(lines.slice(1), ["Link: https://example.org/watch", "Title: The survey", "Creators: A. Surveyor", "Year: 1850", "Publisher: Admiralty", "DOI: 10.1234/abc"]);
+  assert.deepEqual(libraryCandidateLines({ type: "text", unverified: true }).length, 1);
 });

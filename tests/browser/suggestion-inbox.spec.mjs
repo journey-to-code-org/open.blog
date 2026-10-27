@@ -274,6 +274,166 @@ test("an accepted suggestion is copied into a private research note only when th
   await expect(card).toBeVisible();
 });
 
+const KINDS = [
+  { id: "draft", label: "A draft (its slug)" },
+  { id: "series", label: "A series (its slug)" },
+  { id: "library-source", label: "A Source Library record (its id)" },
+];
+const LINK_OFFER = {
+  kinds: KINDS,
+  full: false,
+  guidance: "Records that you made, or are making, something from this suggestion: the slug of a draft or series, or the id of a source you added to your library. It creates, fetches and publishes nothing, and tells the reader only that it is linked to future work. The reader’s contact and unpublished name are cleared the next time you run retention.",
+};
+const CANDIDATE = {
+  label: "Show hints for a Source Library record",
+  guidance: "Shows the link and details the reader gave, marked unverified, to copy into a source record you make yourself. Nothing is written to your library, fetched or published, and rights stay your own declaration.",
+  type: "text", url: "https://example.org/letters", title: "The survey letters", creators: ["A. Surveyor"], year: "c. 1850", publisher: null,
+  identifiers: [{ scheme: "doi", value: "10.1234/abc" }], unverified: true,
+};
+const acceptedCard = (n, details = {}, extra = {}) => suggestion(n, {
+  status: "approved", statusLabel: "Approved", version: 4, moderatedAt: "2026-10-27T10:00:00Z",
+  actions: [{ action: "remove", label: "Close it", reasons: DECLINE, guidance: "Closes it with this reason. It was never shown." }],
+  ...extra,
+}, {
+  standing: { id: "interested", label: "Editors are interested" },
+  outcome: { id: "held", label: "Held" },
+  conversions: [],
+  link: LINK_OFFER,
+  libraryCandidate: CANDIDATE,
+  ...details,
+});
+
+test("an author records a link to future work from the keyboard, and the outcome and link are shown as theirs", async ({ page }) => {
+  let card = acceptedCard(7);
+  const sent = [];
+  let answer = { status: 200, body: { ok: true, item: null, published: false } };
+  await page.route(`${origin}/admin/api/engagement/moderation?**`, (route) => json(route, 200, page_([card], { state: "approved" })));
+  await page.route(`${origin}/admin/api/engagement/suggestions/link`, async (route) => {
+    sent.push(route.request().postDataJSON());
+    if (answer.status === 200) {
+      card = acceptedCard(7, {
+        standing: { id: "converted", label: "Linked to future work" },
+        outcome: { id: "converted", label: "Converted" },
+        conversions: [{ kind: "draft", kindLabel: "A draft (its slug)", id: "tide-tables", at: "2026-10-28T10:00:00Z", by: "writer" }],
+      }, { version: 5 });
+    }
+    return json(route, answer.status, answer.body);
+  });
+  await signIn(page);
+  await page.goto(`${origin}/admin/#/moderation/approved?kind=future-suggestion`);
+  const item = page.locator(`[data-moderation-id="${ID(7)}"]`);
+  await expect(item.getByText("Outcome: Held.")).toBeVisible();
+  await expect(item.getByText("Stands as: Editors are interested.")).toBeVisible();
+  const form = item.locator("[data-link-form]");
+  await expect(form.getByRole("heading", { name: "Link to future work" })).toBeVisible();
+  const kind = form.getByLabel("What you made", { exact: true });
+  const target = form.getByLabel("Its slug or id", { exact: true });
+  await expect(kind).toHaveAccessibleDescription(/creates, fetches and publishes nothing/);
+  await expect(target).toHaveAccessibleDescription(/reader’s contact and unpublished name are cleared the next time you run retention/);
+  // Nothing is sent until the author says so, and an incomplete form says what is missing and where.
+  expect(sent).toEqual([]);
+  await form.getByRole("button", { name: "Record this link" }).click();
+  await expect(item.locator('p[role="status"]')).toContainText("Choose what you made from this suggestion.");
+  await expect(kind).toBeFocused();
+  await kind.selectOption({ label: "A draft (its slug)" });
+  await form.getByRole("button", { name: "Record this link" }).click();
+  await expect(item.locator('p[role="status"]')).toContainText("Name it:");
+  await expect(target).toBeFocused();
+  expect(sent).toEqual([]);
+  // From the keyboard.
+  await target.fill("tide-tables");
+  await target.press("Enter");
+  await expect(queueStatus(page)).toContainText("The link was recorded. Nothing was created, published or sent");
+  expect(sent).toEqual([{ id: ID(7), version: 4, conversion: { kind: "draft", id: "tide-tables" } }]);
+  // The reloaded card shows the outcome and the link as the author's own record, never opened.
+  await expect(item.getByText("Outcome: Converted.")).toBeVisible();
+  await expect(item.getByText("Linked to the draft tide-tables, recorded 2026-10-28 by writer. Nothing opened or checked it.")).toBeVisible();
+  await expect(item.getByText("Stands as: Linked to future work.")).toBeVisible();
+  await expect(item).not.toContainText("Published on the post");
+  expect(await item.innerText()).not.toMatch(/\b(rank|score|votes?|popular|most requested|trending)\b/i);
+  // A duplicate and a conflict each say what happened.
+  answer = { status: 422, body: { error: "The suggestion is already linked to that.", code: "alreadyLinked" } };
+  await item.locator("[data-link-form]").getByLabel("What you made", { exact: true }).selectOption({ label: "A draft (its slug)" });
+  await item.locator("[data-link-form]").getByLabel("Its slug or id", { exact: true }).fill("tide-tables");
+  await item.locator("[data-link-form]").getByRole("button", { name: "Record this link" }).click();
+  await expect(item.locator('p[role="status"]').first()).toContainText("It is already linked to that.");
+  answer = { status: 409, body: { error: "This item changed since you loaded it. Review it again before acting.", code: "conflict", item: null } };
+  await item.locator("[data-link-form]").getByRole("button", { name: "Record this link" }).click();
+  await expect(queueStatus(page)).toContainText("This item changed since you loaded it");
+});
+
+test("the library hints are offered only to copy by hand, marked unverified, and a full list or an unaccepted suggestion offers no link", async ({ page }) => {
+  const full = acceptedCard(8, { link: { ...LINK_OFFER, full: true } });
+  const pending = suggestion(9);
+  const requests = [];
+  page.on("request", (request) => requests.push(request.url()));
+  await page.route(`${origin}/admin/api/engagement/moderation?**`, (route) => json(route, 200, page_([full, pending], { state: "approved" })));
+  await signIn(page);
+  await page.goto(`${origin}/admin/#/moderation/approved?kind=future-suggestion`);
+  const item = page.locator(`[data-moderation-id="${ID(8)}"]`);
+  const details = item.locator("[data-library-candidate]");
+  await expect(details.locator("summary")).toHaveText("Show hints for a Source Library record");
+  await expect(details.locator("summary")).toHaveAccessibleDescription(/Nothing is written to your library, fetched or published/);
+  await details.locator("summary").focus();
+  await page.keyboard.press("Enter");
+  await expect(details.getByText("Unverified: these are the reader’s own words about a source", { exact: false })).toBeVisible();
+  await expect(details.getByText("Title: The survey letters")).toBeVisible();
+  await expect(details.getByText("DOI: 10.1234/abc")).toBeVisible();
+  await expect(details.getByText("Private Person")).toHaveCount(0);
+  await expect(details.getByText("ada@example.org")).toHaveCount(0);
+  // The list is full: the control stays, disabled, and says why.
+  await expect(item.getByRole("button", { name: "Record this link" })).toBeDisabled();
+  await expect(item.getByText("It is linked as many times as it can be.")).toBeVisible();
+  // Nothing was fetched on the author's behalf: no request left the admin origin or reached the link.
+  expect(requests.filter((url) => url.includes("example.org"))).toEqual([]);
+  // An unaccepted suggestion offers neither (the server sends neither).
+  await page.route(`${origin}/admin/api/engagement/moderation?**`, (route) => json(route, 200, page_([pending], { state: "pending" })));
+  await page.goto(`${origin}/admin/#/moderation?kind=future-suggestion`);
+  const waiting = page.locator(`[data-moderation-id="${ID(9)}"]`);
+  await expect(waiting.getByText("Kind: Text to read.")).toBeVisible();
+  await expect(waiting.locator("[data-link-form], [data-library-candidate]")).toHaveCount(0);
+});
+
+for (const [name, viewport, zoom] of [["320px", { width: 320, height: 900 }, 1], ["400% zoom", { width: 1280, height: 800 }, 4]]) {
+  test(`at ${name} the link form, the links and the library hints reflow without scrolling sideways`, async ({ browser }) => {
+    const size = zoom === 1 ? viewport : { width: viewport.width / zoom, height: viewport.height / zoom };
+    const context = await browser.newContext({ viewport: size, reducedMotion: "reduce" });
+    const page = await context.newPage();
+    const long = "x".repeat(400);
+    const card = acceptedCard(10, {
+      standing: { id: "converted", label: "Linked to future work" },
+      outcome: { id: "converted", label: "Converted" },
+      conversions: [
+        { kind: "draft", kindLabel: "A draft (its slug)", id: "d".repeat(64), at: "2026-10-28T10:00:00Z", by: "w".repeat(64) },
+        { kind: "library-source", kindLabel: "A Source Library record (its id)", id: "s".repeat(64), at: "2026-10-29T10:00:00Z", by: "w".repeat(64) },
+      ],
+      libraryCandidate: { ...CANDIDATE, url: `https://example.org/${"a".repeat(300)}`, title: long, creators: [long], publisher: long, identifiers: [{ scheme: "doi", value: `10.1234/${long}` }] },
+    });
+    await page.route(`${origin}/admin/api/engagement/moderation?**`, (route) => json(route, 200, page_([card], { state: "approved" })));
+    await signIn(page);
+    await page.goto(`${origin}/admin/#/moderation/approved?kind=future-suggestion`);
+    const item = page.locator(`[data-moderation-id="${ID(10)}"]`);
+    await expect(item.getByText("Outcome: Converted.")).toBeVisible();
+    await item.locator("[data-library-candidate] summary").click();
+    await expect(item.getByText("Title: ", { exact: false })).toBeVisible();
+    const wide = await page.evaluate(() => {
+      const limit = document.documentElement.clientWidth;
+      return [...document.querySelectorAll(".oba-moderation-item, .oba-moderation-item *")]
+        .filter((element) => element.getBoundingClientRect().right > limit + 1)
+        .map((element) => element.className || element.tagName);
+    });
+    expect(wide).toEqual([]);
+    expect(await item.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(0);
+    for (const control of await item.locator("[data-link-form] select, [data-link-form] input, [data-link-form] button, [data-library-candidate] summary").all()) {
+      await expect(control).toBeVisible();
+      const box = await control.boundingBox();
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(size.width + 1);
+    }
+    await context.close();
+  });
+}
+
 for (const [name, viewport, zoom] of [["320px", { width: 320, height: 900 }, 1], ["400% zoom", { width: 1280, height: 800 }, 4]]) {
   test(`at ${name} a suggestion's card reflows without scrolling sideways`, async ({ browser }) => {
     const size = zoom === 1 ? viewport : { width: viewport.width / zoom, height: viewport.height / zoom };

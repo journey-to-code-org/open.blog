@@ -389,6 +389,85 @@ for (const [name, viewport, zoom] of [["320px", { width: 320, height: 640 }, 1],
   });
 }
 
+// The standing a receipt shows (#228, ADR 0211): a stage and one honest sentence, derived by the service.
+const NOTICE = "Accepted means the editors are interested in exploring this. It does not mean they agree with it, have checked it, or have permission to use it.";
+const LINK_NOTICE = "An editor has recorded a link between it and work they are doing. That is a record, not a promise to publish, and it says nothing about who is right.";
+const DECLINE_NOTICE = "Not taking an idea forward is about this site's plans. It is not a judgement of the idea or of you.";
+const STANDINGS = {
+  received: { label: "Received", note: null },
+  interested: { label: "Editors are interested", note: NOTICE },
+  converted: { label: "Linked to future work", note: LINK_NOTICE },
+  "closed-converted": { label: "Linked to future work, now closed", note: LINK_NOTICE },
+  declined: { label: "Not taken forward", note: DECLINE_NOTICE },
+};
+const suggestionReceipt = (status, standing, extra = {}) => ({
+  kind: "future-suggestion", status, version: 4, work: "/tides/", receivedAt: "2026-10-26T10:00:00Z", clarification: null, consent: false, published: false, purged: false,
+  body: "Her letters from the 1850 survey would help.", details: { type: "text", url: "https://example.org/letters" },
+  standing: { id: standing, ...STANDINGS[standing], acceptance: ["interested", "converted", "closed-converted"].includes(standing) },
+  ...extra,
+});
+
+async function lookUp(page, item) {
+  const sent = [];
+  await page.route(/\/receipt(\?.*)?$/, async (route) => {
+    if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers: CORS });
+    sent.push(route.request().postDataJSON());
+    return route.fulfill({ status: 200, headers: { ...CORS, "content-type": "application/json" }, body: JSON.stringify({ item }) });
+  });
+  await open(page);
+  const manage = page.locator(".ob-receipt-manage");
+  await manage.locator("summary").click();
+  await manage.getByLabel("Your receipt", { exact: true }).fill(RECEIPT);
+  await manage.getByRole("button", { name: "Look up my suggestion" }).click();
+  return { manage, sent };
+}
+
+for (const [standing, status, expected, absent] of [
+  ["received", "pending", /Waiting for the editors’ review/, [NOTICE, LINK_NOTICE]],
+  ["interested", "approved", new RegExp(NOTICE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), [LINK_NOTICE, "Linked to future work"]],
+  ["converted", "approved", /^Linked to future work\. Accepted means the editors are interested/, []],
+  ["closed-converted", "removed", /closed it, after linking it to future work/, []],
+  ["declined", "rejected", /decided not to take it forward\. Not taking an idea forward is about this site/, [NOTICE]],
+]) {
+  test(`a reader's receipt for a suggestion that is "${standing}" says so honestly, with no rank, count or promise`, async ({ page }) => {
+    const { manage, sent } = await lookUp(page, suggestionReceipt(status, standing));
+    const state = manage.locator(".ob-receipt-state");
+    await expect(state).toBeVisible();
+    await expect(manage.getByRole("heading", { name: "Your suggestion" })).toBeFocused();
+    await expect(state).toHaveText(expected);
+    const text = await manage.innerText();
+    for (const word of absent) expect(text).not.toContain(word);
+    expect(text).not.toMatch(/\b(rank|ranked|score|votes?|popular|most requested|trending)\b/i);
+    expect(text).not.toMatch(/will be published|has been published|is published/i);
+    // Nothing of what the editors linked it to reaches the reader, and the lookup sends only the receipt.
+    expect(text).not.toMatch(/tide-tables|conversions/);
+    expect(sent).toEqual([{ receipt: RECEIPT, action: "read" }]);
+  });
+}
+
+for (const [name, viewport, zoom] of [["320px", { width: 320, height: 640 }, 1], ["400% zoom", { width: 1280, height: 800 }, 4]]) {
+  test(`at ${name} a linked suggestion's receipt reflows without scrolling sideways`, async ({ page }) => {
+    await page.setViewportSize(zoom === 1 ? viewport : { width: viewport.width / zoom, height: viewport.height / zoom });
+    const long = "x".repeat(400);
+    const { manage } = await lookUp(page, suggestionReceipt("approved", "converted", { body: long }));
+    await expect(manage.locator(".ob-receipt-state")).toContainText("Linked to future work.");
+    // Measured on the region under test, not on the theme's header.
+    const measure = (selector) => page.evaluate((query) => {
+      const root = document.querySelector(query);
+      const limit = window.innerWidth;
+      const elements = [root, ...root.querySelectorAll("*")];
+      return {
+        overflow: Math.max(Math.max(...elements.map((element) => element.getBoundingClientRect().right)) - limit, root.scrollWidth - root.clientWidth),
+        offenders: elements.filter((element) => element.getBoundingClientRect().right > limit + 1).map((element) => `${element.tagName.toLowerCase()}.${element.className}`),
+      };
+    }, selector);
+    const result = await measure("#ob-future-suggestion");
+    expect(result.offenders).toEqual([]);
+    expect(result.overflow).toBeLessThanOrEqual(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });
+}
+
 test("it works under a strict content security policy", async ({ page }) => {
   await page.route(`${hosted}/tides/`, async (route) => {
     const response = await route.fetch();

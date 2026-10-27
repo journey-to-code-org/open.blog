@@ -36,6 +36,10 @@ export function receiptNoun(item) {
  * is not agreement, a check or permission to use it.
  */
 function suggestionStateText(item, purged) {
+  // Where it stands, as the service derived it (ADR 0211): a stage and one sentence that never ranks,
+  // counts, promises or says what it was linked to. Nothing is added to it here.
+  const note = typeof item.standing?.note === "string" && item.standing.note !== "" ? ` ${item.standing.note}` : "";
+  const linked = item.standing?.id === "converted" || item.standing?.id === "closed-converted";
   switch (item.status) {
     case "pending":
       return "Waiting for the editors’ review. It is private to them: nothing about it is shown on the site.";
@@ -44,11 +48,11 @@ function suggestionStateText(item, purged) {
       return `The editors asked you to clarify this suggestion${why ? ` because ${why}` : ""}. Your answer replaces it and goes back for review; what you first wrote is not used.`;
     }
     case "approved":
-      return "Accepted means the editors are interested in exploring this. It does not mean they agree with it, have checked it, or have permission to use it. It is private to them and is not shown on the site.";
+      return `${linked ? "Linked to future work. " : ""}Accepted means the editors are interested in exploring this. It does not mean they agree with it, have checked it, or have permission to use it.${linked ? note : ""} It is private to them and is not shown on the site.`;
     case "rejected":
-      return `The editors decided not to take it forward.${purged}`;
+      return `The editors decided not to take it forward.${note}${purged}`;
     case "removed":
-      return `The editors closed it.${purged}`;
+      return linked ? `The editors closed it, after linking it to future work.${note}${purged}` : `The editors closed it.${note}${purged}`;
     case "withdrawn":
       return `You withdrew it.${purged}`;
     default:
