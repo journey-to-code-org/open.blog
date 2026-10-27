@@ -386,7 +386,7 @@ impl Contact {
 
     /// A plain mailbox: one ASCII `local@domain`, no display name, comment,
     /// quoting or whitespace.
-    fn new(address: &str) -> Result<Self, SuggestionError> {
+    pub(crate) fn new(address: &str) -> Result<Self, SuggestionError> {
         let invalid = || {
             SuggestionError::new(
                 ErrorCode::InvalidContact,

@@ -284,7 +284,7 @@ fn is_format_character(character: char) -> bool {
     )
 }
 
-fn forbidden_in_context(character: char) -> bool {
+pub(crate) fn forbidden_in_context(character: char) -> bool {
     character.is_control()
         || is_format_character(character)
         || crate::collaboration::is_invisible(character)
@@ -443,7 +443,7 @@ fn is_number_token(word: &str) -> bool {
 /// agreement. A lint: a simple, conservative hint that errs toward refusing,
 /// not a judgment of the note and not a guarantee, which is why a refusal says
 /// so and an editor can say why a reflection is worth reading in other words.
-fn claims_popularity(text: &str) -> bool {
+pub(crate) fn claims_popularity(text: &str) -> bool {
     let lower = text.to_lowercase();
     let words: Vec<&str> = lower
         .split(|c: char| !c.is_alphanumeric())

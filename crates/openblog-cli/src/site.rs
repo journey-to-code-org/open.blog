@@ -428,6 +428,12 @@ pub fn read_sources_excluding(
         config,
         openblog_core::community_feature::COMMUNITY_FEATURES_FILE,
     )?;
+    // Continuation links (ADR 0219), the same way.
+    sources.continuations = read_content_file(
+        root,
+        config,
+        openblog_core::continuation::CONTINUATIONS_FILE,
+    )?;
     // Claim evidence is read only while the site publishes it (ADR 0075).
     if config.claim_evidence.publish {
         sources.claim_evidence = Some(crate::claims_store::evidence_for_build(
@@ -975,6 +981,10 @@ pub fn generate_site_with_boundary(
     }
     // And featured reflections (ADR 0181).
     if let Some(error) = &site.community_features_error {
+        return Err(error.clone());
+    }
+    // And continuation links (ADR 0219).
+    if let Some(error) = &site.continuations_error {
         return Err(error.clone());
     }
     // What the projections publish and withhold; a stale approval or an

@@ -46,6 +46,8 @@
 //! - [`attributed_perspective`]: stable targets at one author's section of a shared reflection, and who may answer a Third Perspective about it
 //! - [`future_suggestion`]: a reader's question or source suggestion for future work, kept private to the editors, never entering the Source Library by itself
 //! - [`community_feature`]: a reader's separate, revision-bound consent to feature an approved reflection on its page, and the editorial selection that is never a vote or a consensus
+//! - [`continuation`]: typed links from an approved question, reflection or source suggestion to the later work that takes it up, and the optional, consented, link-only-by-default update subscription
+//! - [`subscription`]: the pluggable, double opt-in service behind a continuation's optional update subscription, with no provider as its baseline
 //! - [`author_response`]: an author's answer to a Third Perspective as the hosted store keeps it, the request that stores it and the checks that it still belongs under its parent
 
 pub mod accessibility;
@@ -73,6 +75,7 @@ pub mod comparison_publication;
 pub mod concept_links;
 pub mod config;
 pub mod context_links;
+pub mod continuation;
 pub mod contributor;
 pub mod correction_decision;
 pub mod curated_context;
@@ -131,6 +134,7 @@ pub mod slug;
 pub mod source_interchange;
 pub mod source_library;
 pub mod source_review;
+pub mod subscription;
 pub mod synthesis;
 pub mod theme;
 pub mod third_perspective;

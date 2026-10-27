@@ -2243,3 +2243,36 @@ The optional control on a published comparison that narrows which explanation le
 Every level is a section of the page whatever the control does, the quoted evidence sits outside them,
 and the control stores nothing (ADR 0306).
 _Avoid_: Reading level setting, personalisation, difficulty toggle
+
+## Continuations
+
+How a later work links back to the reader questions that came before it (ADRs 0218 to 0225). Ordinary
+links are the whole feature; updates are an optional extra.
+
+**Continuation**:
+An editor's typed link from one approved question, reflection or source suggestion to a later published
+work that takes it up, kept in `continuations.json` as ids and canonical paths and never a reader's
+words, name or contact. It shows only while the submission is approved and both pages are published,
+and it never says the submission caused the work or that anyone endorses it. Built into the canonical page
+of both ends as a static list of links and managed by the site Admin (ADR 0224).
+_Avoid_: Reply, answer, credit, inspiration, trackback
+
+**Continuation relation**:
+How the later work relates to the earlier submission: takes up, revisits or uses a suggested source. A
+closed set that describes the link and never its worth.
+_Avoid_: Reason, cause, impact
+
+**Update subscription**:
+A reader's optional, explicit request to be told when later work continues one page's questions or one
+series. Off by default and offered only where a site turned it on and the hosted service is reachable;
+otherwise the page offers links only. The address is private, kept only while active, never in static
+output or analytics, and erased by unsubscribing. Nothing in open.blog sends the update itself: a site plugs in a mail provider and a hosted store, and
+with neither the page offers links only (ADRs 0222, 0225).
+_Avoid_: Newsletter, follow, mailing list, tracking
+
+**Double opt-in**:
+The two steps that start a subscription: a request stores a pending record only after a confirmation
+message was sent, and a single-use link in it, followed within 48 hours, makes it active. A late or
+unused request is erased. Every request is answered alike so the answer never reveals who is
+subscribed (ADR 0225).
+_Avoid_: Verification, activation email
