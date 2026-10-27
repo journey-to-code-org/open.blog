@@ -8,7 +8,7 @@
 //! gave. It is one participation kind (`third-perspective`) in the one
 //! participation and moderation policy (#211), not another comment system.
 //!
-//! Four things are kept apart, each its own type:
+//! Three things are kept apart, each its own type:
 //!
 //! - [`LocalReflection`]: the reader's private draft. It has no id, no
 //!   provenance and no consent, and nothing here sends or stores it.
@@ -16,8 +16,12 @@
 //!   history and moderation provenance. Private to moderation.
 //! - [`ApprovedResponse`]: the one public projection of an approved copy, for
 //!   the canonical page only.
-//! - [`FeaturedPublication`]: an approved response an editor features, which
-//!   needs the reader's separate feature consent for that approved revision.
+//!
+//! Featuring an approved response in a community section is an editor's
+//! choice that needs the reader's separate feature consent for that approved
+//! revision. It lives in [`crate::community_feature`] (ADR 0176), which
+//! replaced the earlier `FeatureSelection` and `FeaturedPublication` types
+//! this module had no caller for.
 //!
 //! The policy is pure. Callers bring the moderation facts (see
 //! [`ModerationFacts`]) and the published work, and apply what a decision
@@ -725,9 +729,28 @@ pub struct ConsentChange {
     pub publish: bool,
     pub attribution: ReaderAttribution,
     pub clarification: bool,
-    /// Agreement that an editor may feature the approved text (or, before a
-    /// decision, the current text).
-    pub feature: bool,
+    /// What the change does to the reader's feature consent. Only an explicit
+    /// [`FeatureChange::Agree`] for the revision the reader saw binds it; any
+    /// other change carries it forward unchanged (ADR 0177).
+    pub feature: FeatureChange,
+}
+
+/// A reader's choice about feature consent in one consent change. It is
+/// deliberately not a flag: a change to something else (such as being asked
+/// to clarify) must never renew an agreement for text the reader has not
+/// seen, so "leave it as it is" and "agree to this text" are different
+/// choices.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FeatureChange {
+    /// Carry the feature consent in effect forward exactly as it is, bound
+    /// to whatever revision it was bound to.
+    Keep,
+    /// Agree that an editor may feature `revision_seen`, which must be the
+    /// revision the reader is looking at: the approved one once approved, the
+    /// current one before a decision.
+    Agree { revision_seen: u32 },
+    /// Take the agreement back.
+    Decline,
 }
 
 /// What a recorded consent change asks of moderation.
@@ -861,14 +884,6 @@ pub struct PublishedWork {
     pub revision: String,
     /// Every name its work credits show: each author and any group.
     pub credited: Vec<String>,
-}
-
-/// An editor's choice to feature one approved revision (RD14 owns where and
-/// why). It never comes from counts or reactions.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FeatureSelection {
-    pub selected_by: String,
-    pub revision: u32,
 }
 
 // ---------------------------------------------------------------------------
@@ -1477,8 +1492,11 @@ impl SubmittedCopy {
     /// Record a consent change. Narrowing (hiding a name, declining
     /// clarification or a feature) takes effect at once in every state the
     /// text is kept. Showing a name, or another name, is accepted only while
-    /// undecided (pending or clarification). Feature consent binds to the
-    /// approved revision, or before a decision to the current one. Revoking
+    /// undecided (pending or clarification). Feature consent changes only by
+    /// its own [`FeatureChange`]: `Keep` leaves it bound to the revision it
+    /// was, so a change to something else never renews it for edited text,
+    /// and `Agree` binds it to the revision the reader saw (the approved one,
+    /// or before a decision the current one). Revoking
     /// publication is final and asks for RD12's withdrawal where it applies
     /// (a site Admin's removal and purge for a manual copy).
     pub fn revise_consent(
@@ -1535,18 +1553,26 @@ impl SubmittedCopy {
             facts.state,
             ModerationState::Pending | ModerationState::Clarification
         );
-        let feature_revision = if !change.feature {
-            None
-        } else if undecided {
-            Some(self.revision)
-        } else if facts.state == ModerationState::Approved {
-            facts.approved_revision
-        } else {
-            current.feature_revision
+        let feature_revision = match change.feature {
+            FeatureChange::Decline => None,
+            FeatureChange::Keep => current.feature_revision,
+            FeatureChange::Agree { revision_seen } => {
+                let bindable = if undecided {
+                    Some(self.revision)
+                } else if facts.state == ModerationState::Approved {
+                    facts.approved_revision
+                } else {
+                    None
+                };
+                match bindable {
+                    None => return Err(LifecycleError::FeatureNotAvailable),
+                    Some(revision) if revision != revision_seen => {
+                        return Err(LifecycleError::StaleRevision)
+                    }
+                    Some(revision) => Some(revision),
+                }
+            }
         };
-        if change.feature && feature_revision.is_none() {
-            return Err(LifecycleError::FeatureNotAvailable);
-        }
         let record = SubmissionConsent {
             number,
             given_at: at,
@@ -1684,22 +1710,10 @@ impl SubmittedCopy {
         )
     }
 
-    /// An approved response an editor features: only while it is public and
-    /// the reader's current consent covers featuring exactly the approved
-    /// revision the editor chose.
-    pub fn featured(
-        &self,
-        facts: &ModerationFacts,
-        mode: ParticipationMode,
-        work: &PublishedWork,
-        target: &TargetStatus,
-        selection: &FeatureSelection,
-    ) -> Option<FeaturedPublication> {
-        let response = self.approved_response(facts, mode, work, target)?;
-        let covered = crate::collaboration::valid_admin_username(&selection.selected_by)
-            && facts.approved_revision == Some(selection.revision)
-            && self.consent().feature_revision == Some(selection.revision);
-        covered.then_some(FeaturedPublication { response })
+    /// Whether the reader's consent in effect agrees to feature exactly
+    /// `revision` of their text (ADR 0110); none agrees to feature any other.
+    pub fn feature_covers(&self, revision: u32) -> bool {
+        self.consent().publish && self.consent().feature_revision == Some(revision)
     }
 }
 
@@ -1905,21 +1919,6 @@ impl ApprovedResponse {
 
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).expect("a public response always serializes")
-    }
-}
-
-/// An approved response an editor chose to feature, with the reader's
-/// feature consent for that revision. Selection is editorial, never a count
-/// or a consensus; RD14 owns its placement and context.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FeaturedPublication {
-    pub response: ApprovedResponse,
-}
-
-impl FeaturedPublication {
-    pub fn to_json(&self) -> String {
-        serde_json::to_string(self).expect("a featured response always serializes")
     }
 }
 

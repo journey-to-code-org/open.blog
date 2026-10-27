@@ -30,6 +30,7 @@ use openblog_core::collaboration::{
     NewSharedPublication, NewSourceReference, PublishError, SharedPublication,
     SharedPublicationError, SourceField, SourceKind,
 };
+use openblog_core::community_feature;
 use openblog_core::config::{AssistantProviderKind, SyndicationProvider};
 use openblog_core::draft::{
     ComparisonSlot, DraftError, DraftSet, DraftView, ReadyOutcome, RevealPolicy,
@@ -703,6 +704,11 @@ fn authenticated_api(
         ("GET", "engagement/third-perspectives/published") => {
             published_perspectives_audit(state, session)
         }
+        ("GET", "engagement/community/features") => featured_audit(state, session),
+        ("POST", "engagement/community/preview") => feature_reflection(state, req, session, true),
+        ("POST", "engagement/community/feature") => feature_reflection(state, req, session, false),
+        ("POST", "engagement/community/note") => update_feature_note(state, req, session),
+        ("POST", "engagement/community/unfeature") => unfeature_reflection(state, req, session),
         ("POST", "engagement/author-responses/publish") => {
             sync_published_answer(state, req, session, true)
         }
@@ -5306,6 +5312,8 @@ fn unpublish_perspective(path: &Path, id: &str) -> Result<(), String> {
         "third-perspectives.json cannot be read; remove the reflection from it in source mode"
             .to_string()
     })?;
+    // A feature never outlives its reflection (ADR 0178): it comes off first.
+    unfeature_beside(path, id);
     if file.unpublish(id) {
         write_atomic_bytes(path, file.to_json().as_bytes())
             .map_err(|_| "third-perspectives.json could not be written".to_string())?;
@@ -5398,6 +5406,26 @@ fn perspective_must_come_off(
         // A purged item keeps no text: nothing of it may stay public.
         None => Some(item.kind == ParticipationKind::ThirdPerspective),
     }
+}
+
+/// Whether the published file still shows a name the hosted copy no longer
+/// shows (the reader hid it after approval): the one step that removes it from
+/// the committed file is publishing the reflection again (ADR 0115, 0177).
+/// Only where the hosted function reads consent, else the copy cannot say.
+fn perspective_name_narrowed(
+    site: &Site,
+    third_perspectives: bool,
+    file: &perspective_publication::ThirdPerspectivesFile,
+    item: &moderation_inbox::InboxItem,
+) -> bool {
+    let (true, Some(hosted), Some(record)) =
+        (third_perspectives, item.perspective(), file.get(&item.id))
+    else {
+        return false;
+    };
+    let post = feedback_moderation::post_for_work(site, &hosted.copy.provenance.work);
+    record.name_standing(hosted, post, &site.config)
+        == perspective_publication::NameStanding::Narrowed
 }
 
 /// `POST engagement/third-perspectives/publish` or `/unpublish`: put an
@@ -5673,15 +5701,17 @@ fn published_perspectives_audit(state: &AppState, session: &auth::Session) -> Re
     let mut must_come_off = Vec::new();
     let mut unknown = Vec::new();
     let mut answers_off = Vec::new();
+    let mut name_narrowed = Vec::new();
     for record in file.items.iter().take(PERSPECTIVE_AUDIT_LIMIT) {
         let entry = json!({ "id": record.id, "post": record.post });
         match hosted_inbox_lookup(state, moderation_inbox::Source::Feedback, &record.id) {
             Ok(Some((protocol, third_perspectives, item))) => {
-                let (role, state_now) =
+                let (role, state_now, narrowed) =
                     sources.inbox(session, protocol, third_perspectives, |inbox| {
                         (
                             inbox.actor(&item).role(),
                             perspective_must_come_off(inbox.site, third_perspectives, &item),
+                            perspective_name_narrowed(inbox.site, third_perspectives, &file, &item),
                         )
                     });
                 if role != moderation::ActorRole::SiteAdmin {
@@ -5703,6 +5733,7 @@ fn published_perspectives_audit(state: &AppState, session: &auth::Session) -> Re
                 match state_now {
                     Some(true) => must_come_off.push(entry),
                     None => unknown.push(entry),
+                    Some(false) if narrowed => name_narrowed.push(entry),
                     Some(false) => {}
                 }
             }
@@ -5723,6 +5754,626 @@ fn published_perspectives_audit(state: &AppState, session: &auth::Session) -> Re
             "mustComeOff": must_come_off,
             "unknown": unknown,
             "answersMustComeOff": answers_off,
+            "nameNarrowed": name_narrowed,
+        }),
+    )
+}
+
+// ---- Featured reflections (#229, ADRs 0176 to 0182)
+//
+// An editor's choice to show one approved reflection again in the community
+// section of its post lives in `community-perspectives.json` in the content
+// folder, beside `third-perspectives.json`, written only here under the content
+// lock. A feature is a reference (never the reader's words), made only for a
+// reflection the one projection shows, whose reader agreed to feature exactly
+// its approved text. Every route is the site Admin's and denies the rest.
+
+fn community_features_path(state: &AppState) -> Result<PathBuf, Response> {
+    let config = site::load_config(&state.root).map_err(|error| Response::error(500, &error))?;
+    let path = state
+        .root
+        .join(&config.paths.content)
+        .join(community_feature::COMMUNITY_FEATURES_FILE);
+    if fs::symlink_metadata(&path).is_ok_and(|metadata| !metadata.is_file()) {
+        return Err(Response::error(
+            409,
+            "community-perspectives.json must be a regular file in the content folder",
+        ));
+    }
+    Ok(path)
+}
+
+/// The features; an absent file is an empty one. A file that cannot be read is
+/// refused, naming the file, and nothing is written over it.
+fn load_community_features(path: &Path) -> Result<community_feature::FeaturesFile, Response> {
+    let Some(bytes) = read_optional_bytes(path).map_err(|error| Response::error(500, &error))?
+    else {
+        return Ok(Default::default());
+    };
+    let text = String::from_utf8(bytes).map_err(|_| {
+        Response::error(
+            409,
+            "community-perspectives.json is not UTF-8; fix it in source mode before featuring",
+        )
+    })?;
+    community_feature::FeaturesFile::from_json(&text).map_err(|error| {
+        Response::error(
+            409,
+            &format!("community-perspectives.json {error}; fix it in source mode before featuring"),
+        )
+    })
+}
+
+fn write_community_features(
+    path: &Path,
+    file: &community_feature::FeaturesFile,
+) -> Result<(), Response> {
+    write_atomic_bytes(path, file.to_json().as_bytes())
+        .map_err(|_| Response::error(500, "community-perspectives.json could not be written"))
+}
+
+/// A refused feature, with its stable code and a message that carries no
+/// reader's words.
+fn feature_error_response(error: community_feature::FeatureError) -> Response {
+    use community_feature::FeatureError as E;
+    let status = match error {
+        E::InvalidEditor => 403,
+        E::InvalidContext | E::PopularityClaim => 422,
+        _ => 409,
+    };
+    Response::json(
+        status,
+        &json!({ "error": error.message(), "code": error.code() }),
+    )
+}
+
+fn feature_denied() -> Response {
+    Response::json(
+        403,
+        &json!({ "error": "Only the site Admin can change what the site features.", "code": "denied" }),
+    )
+}
+
+/// The hosted reflection a request names, once the account is its site Admin.
+fn feature_target(
+    state: &AppState,
+    body: &Json,
+    session: &auth::Session,
+) -> Result<(String, moderation_inbox::InboxItem, bool), Response> {
+    let id = feedback_id(&body["id"])?;
+    let Some((protocol, third_perspectives, item)) =
+        hosted_inbox_lookup(state, moderation_inbox::Source::Feedback, &id)?
+    else {
+        return Err(Response::error(404, "No such Third Perspective"));
+    };
+    if item.kind != ParticipationKind::ThirdPerspective {
+        return Err(Response::error(404, "No such Third Perspective"));
+    }
+    let sources = inbox_sources(state)?;
+    let role = sources.inbox(session, protocol, third_perspectives, |inbox| {
+        inbox.actor(&item).role()
+    });
+    if role != moderation::ActorRole::SiteAdmin {
+        return Err(feature_denied());
+    }
+    Ok((id, item, third_perspectives))
+}
+
+/// The site Admin check for taking a feature off or changing its note, which
+/// needs no hosted copy: a reflection whose row is gone is the site Admin's
+/// (bound in no shared publication) to take off.
+fn feature_admin(state: &AppState, id: &str, session: &auth::Session) -> Result<(), Response> {
+    let sources = inbox_sources(state)?;
+    // Taking a feature off, or editing its note, is always safe, so the site
+    // Admin of every work needs no hosted service for it; a per-work Admin does
+    // (the work is the hosted row's).
+    let lookup = match hosted_inbox_lookup(state, moderation_inbox::Source::Feedback, id) {
+        Ok(lookup) => lookup,
+        Err(_) if retention_admin(&sources, session) => return Ok(()),
+        Err(response) => return Err(response),
+    };
+    match lookup {
+        Some((protocol, third_perspectives, item)) => {
+            if item.kind != ParticipationKind::ThirdPerspective {
+                return Err(Response::error(404, "No such Third Perspective"));
+            }
+            let role = sources.inbox(session, protocol, third_perspectives, |inbox| {
+                inbox.actor(&item).role()
+            });
+            if role == moderation::ActorRole::SiteAdmin {
+                Ok(())
+            } else {
+                Err(feature_denied())
+            }
+        }
+        None if retention_admin(&sources, session) => Ok(()),
+        None => Err(feature_denied()),
+    }
+}
+
+fn hosted_facts(
+    hosted: &third_perspective::HostedPerspective,
+) -> third_perspective::ModerationFacts {
+    third_perspective::ModerationFacts {
+        state: hosted.state,
+        revision: hosted.copy.revision,
+        approved_revision: hosted.approved_revision,
+        approved_consent: hosted.approved_consent,
+        clarification_asked: hosted.clarification_asked,
+        content_retained: true,
+    }
+}
+
+/// `POST engagement/community/preview` or `/feature`: show, or make, one
+/// feature of an approved reflection. Both run every check a feature needs, so
+/// a preview never promises what choosing would refuse: the one projection
+/// shows the reflection now, the reader agreed to feature exactly its approved
+/// text, the published file holds that text and name, the note passes ADR
+/// 0180's lint, the reflection is not already featured. The preview is the
+/// public form (`FeaturedPerspective`) the page will project, and writes
+/// nothing. Choosing also publishes the reflection first when it is not on
+/// `third-perspectives.json` yet, in the same step.
+fn feature_reflection(
+    state: &AppState,
+    req: &Request,
+    session: &auth::Session,
+    preview: bool,
+) -> Response {
+    let body = match feedback_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let (_, item, third_perspectives) = match feature_target(state, &body, session) {
+        Ok(target) => target,
+        Err(response) => return response,
+    };
+    let context = match body.get("context") {
+        None | Some(Json::Null) => String::new(),
+        Some(Json::String(text)) => text.clone(),
+        Some(_) => return Response::error(422, "An editors' note is plain text"),
+    };
+    apply_feature(
+        state,
+        &session.user,
+        &item,
+        third_perspectives,
+        context,
+        body["expectedVersion"].as_u64(),
+        preview,
+    )
+}
+
+/// What a preview or a choice does once the hosted reflection is read and its
+/// site Admin known (see `feature_reflection`). `expected` is the version the
+/// editor saw, which a choice needs and a preview does not.
+fn apply_feature(
+    state: &AppState,
+    user: &str,
+    item: &moderation_inbox::InboxItem,
+    third_perspectives: bool,
+    context: String,
+    expected: Option<u64>,
+    preview: bool,
+) -> Response {
+    let id = item.id.clone();
+    if !preview && expected != Some(item.version) {
+        return Response::json(409, &json!({ "error": INBOX_CHANGED, "code": "stale" }));
+    }
+    if !third_perspectives {
+        return Response::error(
+            409,
+            "Third Perspectives are switched off or rolled back on the hosted service, so the reader's consent cannot be checked",
+        );
+    }
+    let Some(hosted) = item.perspective() else {
+        return Response::error(409, "Its text was deleted, so it cannot be featured");
+    };
+    let site = match feedback_site(state) {
+        Ok(site) => site,
+        Err(response) => return response,
+    };
+    let Some(post) = feedback_moderation::post_for_work(&site, &hosted.copy.provenance.work) else {
+        return Response::error(
+            409,
+            "No post has this address now, so the reflection cannot be featured",
+        );
+    };
+    let source = post.source.replace('\\', "/");
+    let mut status = lock(&state.build);
+    let _transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let (third_path, features_path) = match (
+        third_perspectives_path(state),
+        community_features_path(state),
+    ) {
+        (Ok(third), Ok(features)) => (third, features),
+        (Err(response), _) | (_, Err(response)) => return response,
+    };
+    let mut third = match load_third_perspectives(&third_path) {
+        Ok(file) => file,
+        Err(response) => return response,
+    };
+    let mut features = match load_community_features(&features_path) {
+        Ok(file) => file,
+        Err(response) => return response,
+    };
+    let publishing = third.get(&id).is_none();
+    let candidate = match third.get(&id) {
+        Some(published) => published.clone(),
+        None => match perspective_publication::PublishedPerspective::from_hosted(
+            &source,
+            hosted,
+            post,
+            &site.config,
+            hosted.moderated_at.unwrap_or_else(clock::now),
+        ) {
+            Ok(published) => published,
+            Err(error) => return Response::error(409, &error),
+        },
+    };
+    let record = match community_feature::FeatureRecord::new(
+        &source,
+        hosted,
+        &hosted_facts(hosted),
+        &candidate,
+        post,
+        &site.config,
+        &community_feature::FeatureRequest {
+            selected_by: user.to_string(),
+            context,
+            at: clock::now(),
+        },
+    ) {
+        Ok(record) => record,
+        Err(error) => return feature_error_response(error),
+    };
+    if features.get(&id).is_some() {
+        return feature_error_response(community_feature::FeatureError::AlreadyFeatured);
+    }
+    // The public form the page will project, from the same code the build
+    // uses, for the file as it would be after choosing. A choice runs the same
+    // mode check as the preview, so a kind that is hidden or locked on the post
+    // never gets a feature it would not show.
+    let mut shown = third.clone();
+    if let Err(error) = shown.publish(candidate.clone()) {
+        return Response::error(409, &error);
+    }
+    let mode =
+        participation::published_mode(&site.config, post, ParticipationKind::ThirdPerspective);
+    let answers =
+        participation::published_mode(&site.config, post, ParticipationKind::AuthorResponse);
+    let featured =
+        community_feature::project_post(&[&record], &shown, post, &site.config, mode, answers);
+    let Some(featured) = featured.into_iter().next() else {
+        return Response::error(
+            409,
+            "The post would not show this feature now: the kind is hidden or locked out",
+        );
+    };
+    if preview {
+        return Response::json(
+            200,
+            &json!({
+                "preview": featured,
+                "notice": community_feature::NON_CONSENSUS_NOTICE,
+                "willPublish": publishing,
+            }),
+        );
+    }
+    if let Err(error) = features.feature(record) {
+        return feature_error_response(error);
+    }
+    // The published reflection first, so a feature never stands without it.
+    if publishing {
+        if let Err(error) = third.publish(candidate) {
+            return Response::error(409, &error);
+        }
+        if write_atomic_bytes(&third_path, third.to_json().as_bytes()).is_err() {
+            return Response::error(500, "third-perspectives.json could not be written");
+        }
+    }
+    if let Err(response) = write_community_features(&features_path, &features) {
+        return response;
+    }
+    let build = feedback_build_json(&state.rebuild_locked(&mut status));
+    eprintln!("admin: community feature {id} featured");
+    Response::json(200, &json!({ "featured": true, "build": build }))
+}
+
+/// `POST engagement/community/unfeature`: take a feature off its post. An
+/// editor may do it by choice at any time, and it is the step for a feature
+/// the audit says must come off. The reflection stays published; the file keeps
+/// nothing of the feature (ADR 0179).
+fn unfeature_reflection(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    let body = match feedback_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let id = match feedback_id(&body["id"]) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    if let Err(response) = feature_admin(state, &id, session) {
+        return response;
+    }
+    apply_unfeature(state, &id)
+}
+
+/// Take the feature of `id` off, once its site Admin is known.
+fn apply_unfeature(state: &AppState, id: &str) -> Response {
+    let mut status = lock(&state.build);
+    let _transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let path = match community_features_path(state) {
+        Ok(path) => path,
+        Err(response) => return response,
+    };
+    let mut features = match load_community_features(&path) {
+        Ok(file) => file,
+        Err(response) => return response,
+    };
+    if !features.unfeature(id) {
+        return Response::error(404, "This reflection is not featured");
+    }
+    if let Err(response) = write_community_features(&path, &features) {
+        return response;
+    }
+    let build = feedback_build_json(&state.rebuild_locked(&mut status));
+    eprintln!("admin: community feature {id} taken off");
+    Response::json(200, &json!({ "featured": false, "build": build }))
+}
+
+/// `POST engagement/community/note`: change a feature's editors' note (blank
+/// clears it). The note is the editors' own words and passes the same lint
+/// as when it was made; the reader's words and the day are untouched.
+fn update_feature_note(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    let body = match feedback_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let id = match feedback_id(&body["id"]) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let Some(context) = body["context"].as_str() else {
+        return Response::error(422, "An editors' note is plain text");
+    };
+    if let Err(response) = feature_admin(state, &id, session) {
+        return response;
+    }
+    apply_note(state, &id, context)
+}
+
+/// Change the note of the feature of `id`, once its site Admin is known.
+fn apply_note(state: &AppState, id: &str, context: &str) -> Response {
+    let mut status = lock(&state.build);
+    let _transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let path = match community_features_path(state) {
+        Ok(path) => path,
+        Err(response) => return response,
+    };
+    let mut features = match load_community_features(&path) {
+        Ok(file) => file,
+        Err(response) => return response,
+    };
+    match features.set_context(id, context) {
+        Ok(true) => {}
+        Ok(false) => return Response::error(404, "This reflection is not featured"),
+        Err(error) => return feature_error_response(error),
+    }
+    if let Err(response) = write_community_features(&path, &features) {
+        return response;
+    }
+    let build = feedback_build_json(&state.rebuild_locked(&mut status));
+    Response::json(200, &json!({ "updated": true, "build": build }))
+}
+
+/// Take a feature off beside its published reflection, before the reflection
+/// goes: a feature never outlives its reflection (ADR 0178). A features file
+/// that cannot be read does not stop the take-off (a withdrawal comes first):
+/// the page hides a feature whose reflection is gone. The caller holds the
+/// content lock.
+fn unfeature_beside(third_perspectives_file: &Path, id: &str) {
+    let path = third_perspectives_file.with_file_name(community_feature::COMMUNITY_FEATURES_FILE);
+    if let Ok(mut features) = load_community_features(&path) {
+        if features.unfeature(id) {
+            let _ = write_community_features(&path, &features);
+        }
+    }
+}
+
+/// What the audit knows of a feature's hosted reflection.
+enum HostedCheck<'a> {
+    /// The row, and whether the hosted service reads consent.
+    Row(&'a moderation_inbox::InboxItem, bool),
+    /// The hosted service says there is no such row.
+    Gone,
+    /// The hosted service could not be asked.
+    Unavailable,
+}
+
+/// Whether one feature still stands, as the audit and a test ask it: against
+/// its hosted reflection (ADR 0178's order), then against the committed
+/// `third-perspectives.json` the page is built from, so a feature the page
+/// would not show is reported with the page's own reason (the reflection is not
+/// published, its text is not the agreed text, or it is dated before it was
+/// approved). `None` when the hosted copy cannot say and the page shows no
+/// reason either, so it cannot be told.
+fn feature_standing(
+    site: &Site,
+    record: &community_feature::FeatureRecord,
+    published: &perspective_publication::ThirdPerspectivesFile,
+    hosted: HostedCheck,
+) -> Option<community_feature::HostedStanding> {
+    use community_feature::{HostedStanding, NotShown};
+    let post = site
+        .posts
+        .iter()
+        .find(|post| post.source.replace('\\', "/") == record.post);
+    let mode = post.map_or(participation::ParticipationMode::Open, |post| {
+        participation::published_mode(&site.config, post, ParticipationKind::ThirdPerspective)
+    });
+    let standing = match hosted {
+        HostedCheck::Row(item, third_perspectives) => match item.perspective() {
+            Some(hosted) if third_perspectives => Some(record.hosted_standing(
+                Some((Some(hosted), &hosted_facts(hosted))),
+                post,
+                &site.config,
+                mode,
+            )),
+            Some(_) => None,
+            None => Some(record.hosted_standing(
+                Some((
+                    None,
+                    &third_perspective::ModerationFacts {
+                        state: item.state,
+                        revision: item.revision,
+                        approved_revision: item.approved_revision,
+                        approved_consent: None,
+                        clarification_asked: None,
+                        content_retained: false,
+                    },
+                )),
+                post,
+                &site.config,
+                mode,
+            )),
+        },
+        HostedCheck::Gone => Some(record.hosted_standing(None, post, &site.config, mode)),
+        HostedCheck::Unavailable => None,
+    };
+    if matches!(standing, Some(HostedStanding::MustComeOff(_))) {
+        return standing;
+    }
+    if let Some(post) = post {
+        let answers =
+            participation::published_mode(&site.config, post, ParticipationKind::AuthorResponse);
+        let resolved = community_feature::resolve_post(
+            &[record],
+            published,
+            Some(post),
+            &site.config,
+            mode,
+            answers,
+        );
+        if let Some((_, Err(NotShown::Off(reason)))) = resolved.into_iter().next() {
+            return Some(HostedStanding::MustComeOff(reason));
+        }
+    }
+    standing
+}
+
+/// The most features one audit reads from the hosted copy.
+const FEATURE_AUDIT_LIMIT: usize = 200;
+
+/// `GET engagement/community/features`: every feature the site makes, checked
+/// against its hosted copy on each load (ADR 0178), for the site Admin of each
+/// reflection's work. Each is `covered`, `hidden` (the article is not published
+/// now; the record stays), `mustComeOff` with a stated reason, or `unknown` when
+/// the hosted service does not read consent. Only ids, posts, days, the editors'
+/// notes and fixed reasons: never a reader's words.
+fn featured_audit(state: &AppState, session: &auth::Session) -> Response {
+    let path = match community_features_path(state) {
+        Ok(path) => path,
+        Err(response) => return response,
+    };
+    let file = match load_community_features(&path) {
+        Ok(file) => file,
+        Err(response) => return response,
+    };
+    // A site that features nothing has nothing to check, and needs no hosted service.
+    if file.items.is_empty() {
+        return Response::json(200, &json!({ "truncated": false, "features": [] }));
+    }
+    let published = match third_perspectives_path(state).and_then(|p| load_third_perspectives(&p)) {
+        Ok(published) => published,
+        Err(response) => return response,
+    };
+    let sources = match inbox_sources(state) {
+        Ok(sources) => sources,
+        Err(response) => return response,
+    };
+    let site = match feedback_site(state) {
+        Ok(site) => site,
+        Err(response) => return response,
+    };
+    let mut out = Vec::new();
+    // Once the hosted service cannot be asked, it is not asked again for each
+    // feature; the site Admin of every work still sees what the committed file
+    // alone shows, and may take any feature off (removing is always safe).
+    let mut hosted_down = false;
+    for record in file.items.iter().take(FEATURE_AUDIT_LIMIT) {
+        let mut entry = json!({
+            "id": record.id, "post": record.post, "featured": record.featured,
+            "context": record.context,
+        });
+        let lookup = if hosted_down {
+            Err(Response::error(
+                502,
+                "The hosted service could not be asked",
+            ))
+        } else {
+            hosted_inbox_lookup(state, moderation_inbox::Source::Feedback, &record.id)
+        };
+        let standing = match lookup {
+            Ok(Some((protocol, third_perspectives, item))) => {
+                let role = sources.inbox(session, protocol, third_perspectives, |inbox| {
+                    inbox.actor(&item).role()
+                });
+                if role != moderation::ActorRole::SiteAdmin {
+                    continue;
+                }
+                feature_standing(
+                    &site,
+                    record,
+                    &published,
+                    HostedCheck::Row(&item, third_perspectives),
+                )
+            }
+            Ok(None) => {
+                if !retention_admin(&sources, session) {
+                    continue;
+                }
+                feature_standing(&site, record, &published, HostedCheck::Gone)
+            }
+            Err(response) => {
+                if !retention_admin(&sources, session) {
+                    return response;
+                }
+                hosted_down = true;
+                feature_standing(&site, record, &published, HostedCheck::Unavailable)
+            }
+        };
+        match standing {
+            Some(community_feature::HostedStanding::Covered) => {
+                entry["standing"] = json!("covered")
+            }
+            Some(community_feature::HostedStanding::Hidden(reason)) => {
+                entry["standing"] = json!("hidden");
+                entry["reason"] = json!(reason.id());
+                entry["explanation"] = json!(reason.explanation());
+            }
+            Some(community_feature::HostedStanding::MustComeOff(reason)) => {
+                entry["standing"] = json!("mustComeOff");
+                entry["reason"] = json!(reason.id());
+                entry["explanation"] = json!(reason.explanation());
+            }
+            None => entry["standing"] = json!("unknown"),
+        }
+        out.push(entry);
+    }
+    Response::json(
+        200,
+        &json!({
+            "truncated": file.items.len() > FEATURE_AUDIT_LIMIT,
+            "features": out,
         }),
     )
 }
@@ -6383,6 +7034,14 @@ fn inbox_view(
                     Some(must) => json!(!must),
                     None => Json::Null,
                 };
+            // The reader hid their name after it was published: the file still holds it.
+            // What the reader agreed about featuring, for the card's choose button.
+            if let Some(hosted) = item.perspective() {
+                view["featureConsent"] = json!(community_feature::FeatureConsent::of(hosted).id());
+            }
+            view["nameNarrowed"] = json!(perspectives.is_some_and(|file| {
+                perspective_name_narrowed(inbox.site, inbox.third_perspectives, file, item)
+            }));
         } else if item.kind == ParticipationKind::FutureSuggestion {
             // A suggestion is never published, in any file, whatever its state:
             // accepting it admits it to the editors' private list (ADR 0152).
@@ -23792,7 +24451,7 @@ What I read:
         fs::write(&path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
     }
 
-    fn feedback_routes() -> [(&'static str, &'static str); 20] {
+    fn feedback_routes() -> [(&'static str, &'static str); 25] {
         [
             ("POST", "/admin/api/engagement/suggestions/export"),
             ("POST", "/admin/api/engagement/suggestions/link"),
@@ -23801,6 +24460,11 @@ What I read:
             ("POST", "/admin/api/engagement/author-response"),
             ("PATCH", "/admin/api/engagement/author-response"),
             ("GET", "/admin/api/engagement/third-perspectives/published"),
+            ("GET", "/admin/api/engagement/community/features"),
+            ("POST", "/admin/api/engagement/community/preview"),
+            ("POST", "/admin/api/engagement/community/feature"),
+            ("POST", "/admin/api/engagement/community/note"),
+            ("POST", "/admin/api/engagement/community/unfeature"),
             ("POST", "/admin/api/engagement/third-perspectives/publish"),
             ("POST", "/admin/api/engagement/third-perspectives/unpublish"),
             ("GET", "/admin/api/engagement/moderation"),
@@ -24077,6 +24741,628 @@ What I read:
             refused.contains("third-perspectives.json: item 1:"),
             "{refused}"
         );
+    }
+
+    #[test]
+    fn a_name_the_reader_hid_leaves_the_published_file_when_it_is_published_again() {
+        use openblog_core::third_perspective::{
+            ConsentChange, ConsentChoices, FeatureChange, Intake, LocalReflection, ModerationFacts,
+            PerspectiveTarget, ReaderAttribution,
+        };
+        let f = fixture("perspective-name-narrowed");
+        let (site, _) = site::load_site(&f.dir, false, None).unwrap();
+        let post = site.posts[0].clone();
+        let document = PassageDocument::of_post(&post, &site.config);
+        let mut copy = LocalReflection {
+            work: post.url.clone(),
+            revision: document.revision.clone(),
+            target: PerspectiveTarget::work(),
+            category: None,
+            body: "A reader’s reading.".into(),
+            attribution: ReaderAttribution::named("Mina", true),
+            seen_at: None,
+        }
+        .submission(ConsentChoices {
+            publish: true,
+            clarification: false,
+            feature: false,
+        })
+        .receive(
+            openblog_core::DateTime::parse("2026-10-26T10:00:00Z").unwrap(),
+            Intake::Hosted {
+                receipt_digest: "5e".repeat(32),
+            },
+        )
+        .unwrap();
+        let item = |copy: &third_perspective::SubmittedCopy| {
+            let record: Json = serde_json::from_str(&copy.to_json()).unwrap();
+            moderation_inbox::InboxItem::from_value(&json!({
+                "source": "feedback", "id": FEEDBACK_ITEM_ID, "status": "approved", "version": 2,
+                "moderatedAt": "2026-10-27T09:00:00Z", "reason": null,
+                "feedback": {"version": 1, "kind": "third-perspective", "body": copy.body, "details": copy.stored_details(), "provenance": record["provenance"]},
+                "itemRevision": 1, "approvedRevision": 1,
+                "clarificationAsked": null, "clarificationConsent": false, "approvedConsent": 1,
+            }))
+            .unwrap()
+        };
+        let path = f
+            .dir
+            .join("content")
+            .join(perspective_publication::THIRD_PERSPECTIVES_FILE);
+        publish_approved_perspective(&path, &site, item(&copy).perspective().unwrap()).unwrap();
+        let works = moderation::SharedWorks::new(&[], &site);
+        let identities = Identities {
+            active_admin_users: &[],
+            contributor_ids: &[],
+        };
+        let inbox = moderation_inbox::Inbox {
+            site: &site,
+            works: &works,
+            principal: moderation::Principal::ModerationToken,
+            identities: &identities,
+            policy: moderation::ModerationPolicy::default(),
+            protocol: moderation_inbox::Protocol::Protected,
+            third_perspectives: true,
+            now: clock::now(),
+        };
+        let file = || load_third_perspectives(&path).unwrap();
+        assert_eq!(file().items[0].name.as_deref(), Some("Mina"));
+        let view = inbox_view(&inbox, &item(&copy), None, Some(&file())).unwrap();
+        assert_eq!(view["nameNarrowed"], json!(false));
+
+        // The reader hides their name after approval, through their receipt.
+        copy.revise_consent(
+            &ModerationFacts {
+                state: moderation::ModerationState::Approved,
+                revision: 1,
+                approved_revision: Some(1),
+                approved_consent: Some(1),
+                clarification_asked: None,
+                content_retained: true,
+            },
+            ConsentChange {
+                publish: true,
+                attribution: ReaderAttribution::named("Mina", false),
+                clarification: false,
+                feature: FeatureChange::Keep,
+            },
+            openblog_core::DateTime::parse("2026-10-28T10:00:00Z").unwrap(),
+        )
+        .unwrap();
+        let hidden = item(&copy);
+        let view = inbox_view(&inbox, &hidden, None, Some(&file())).unwrap();
+        assert_eq!(
+            (
+                &view["published"],
+                &view["mayBeShown"],
+                &view["nameNarrowed"]
+            ),
+            (&json!(true), &json!(true), &json!(true)),
+            "the card offers the republish"
+        );
+        assert!(!perspective_name_narrowed(&site, false, &file(), &hidden));
+
+        // Publishing again, the one step the card offers, drops the name.
+        publish_approved_perspective(&path, &site, hidden.perspective().unwrap()).unwrap();
+        assert_eq!(file().items[0].name, None);
+        assert!(!fs::read_to_string(&path).unwrap().contains("Mina"));
+        let view = inbox_view(&inbox, &hidden, None, Some(&file())).unwrap();
+        assert_eq!(view["nameNarrowed"], json!(false));
+    }
+
+    #[test]
+    fn a_reflection_is_featured_only_with_the_readers_consent_and_the_feature_leaves_with_it() {
+        use openblog_core::third_perspective::{
+            ConsentChoices, Intake, LocalReflection, PerspectiveTarget, ReaderAttribution,
+        };
+        let f = fixture("community-features");
+        // Locked without a transport: published reflections still show.
+        let config_path = f.dir.join(site::CONFIG_FILE);
+        let mut config: Json =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        config["participation"] = json!({"kinds": {"third-perspective": "locked"}});
+        fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
+        let (site, _) = site::load_site(&f.dir, false, None).unwrap();
+        let post = site.posts[0].clone();
+        let document = PassageDocument::of_post(&post, &site.config);
+        let copy = |feature: bool| {
+            LocalReflection {
+                work: post.url.clone(),
+                revision: document.revision.clone(),
+                target: PerspectiveTarget::work(),
+                category: None,
+                body: "A reader’s <b>reading</b> of the tides.".into(),
+                attribution: ReaderAttribution::named("Mina Private", true),
+                seen_at: None,
+            }
+            .submission(ConsentChoices {
+                publish: true,
+                clarification: false,
+                feature,
+            })
+            .receive(
+                openblog_core::DateTime::parse("2026-10-26T10:00:00Z").unwrap(),
+                Intake::Hosted {
+                    receipt_digest: "5e".repeat(32),
+                },
+            )
+            .unwrap()
+        };
+        let item = |copy: &third_perspective::SubmittedCopy, status: &str| {
+            let record: Json = serde_json::from_str(&copy.to_json()).unwrap();
+            let approved = status == "approved";
+            moderation_inbox::InboxItem::from_value(&json!({
+                "source": "feedback", "id": FEEDBACK_ITEM_ID, "status": status, "version": 2,
+                "moderatedAt": "2026-10-27T09:00:00Z", "reason": null,
+                "feedback": {"version": 1, "kind": "third-perspective", "body": copy.body, "details": copy.stored_details(), "provenance": record["provenance"]},
+                "itemRevision": 1, "approvedRevision": if approved { json!(1) } else { Json::Null },
+                "clarificationAsked": null, "clarificationConsent": false,
+                "approvedConsent": if approved { json!(1) } else { Json::Null },
+            }))
+            .unwrap()
+        };
+        let third_path = f
+            .dir
+            .join("content")
+            .join(perspective_publication::THIRD_PERSPECTIVES_FILE);
+        let features_path = f
+            .dir
+            .join("content")
+            .join(community_feature::COMMUNITY_FEATURES_FILE);
+        let body_of =
+            |response: Response| -> Json { serde_json::from_slice(&response.body).unwrap() };
+        let consenting = item(&copy(true), "approved");
+        let silent = item(&copy(false), "approved");
+
+        // Without the reader's agreement nothing is featured or published.
+        let refused = apply_feature(
+            &f.state,
+            "mikey",
+            &silent,
+            true,
+            String::new(),
+            Some(2),
+            false,
+        );
+        assert_eq!(refused.status, 409);
+        assert_eq!(body_of(refused)["code"], "consentMissing");
+        assert!(!features_path.exists() && !third_path.exists());
+        // A kind that is hidden on the post shows no feature, so choosing is
+        // refused exactly as the preview is, and nothing is written.
+        let mut hidden_config = config.clone();
+        hidden_config["participation"] = json!({"kinds": {"third-perspective": "hidden"}});
+        fs::write(
+            &config_path,
+            serde_json::to_string_pretty(&hidden_config).unwrap(),
+        )
+        .unwrap();
+        for preview in [true, false] {
+            let refused = apply_feature(
+                &f.state,
+                "mikey",
+                &consenting,
+                true,
+                String::new(),
+                Some(2),
+                preview,
+            );
+            assert_eq!(refused.status, 409, "preview: {preview}");
+        }
+        assert!(!features_path.exists() && !third_path.exists());
+        fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
+        assert_eq!(
+            community_feature::FeatureConsent::of(silent.perspective().unwrap()).id(),
+            "not-agreed"
+        );
+        assert_eq!(
+            community_feature::FeatureConsent::of(consenting.perspective().unwrap()).id(),
+            "agreed"
+        );
+
+        // A stale view, a switched-off hosted consent, a popularity claim and
+        // a bad editor are each refused, and write nothing.
+        for (response, code) in [
+            (
+                apply_feature(
+                    &f.state,
+                    "mikey",
+                    &consenting,
+                    true,
+                    String::new(),
+                    Some(1),
+                    false,
+                ),
+                "stale",
+            ),
+            (
+                apply_feature(
+                    &f.state,
+                    "mikey",
+                    &consenting,
+                    true,
+                    "Most popular reflection".into(),
+                    Some(2),
+                    false,
+                ),
+                "popularityClaim",
+            ),
+            (
+                apply_feature(
+                    &f.state,
+                    "not an admin!",
+                    &consenting,
+                    true,
+                    String::new(),
+                    Some(2),
+                    false,
+                ),
+                "invalidEditor",
+            ),
+        ] {
+            assert_eq!(body_of(response)["code"], code);
+        }
+        assert_eq!(
+            apply_feature(
+                &f.state,
+                "mikey",
+                &consenting,
+                false,
+                String::new(),
+                Some(2),
+                false
+            )
+            .status,
+            409
+        );
+        assert!(!features_path.exists() && !third_path.exists());
+
+        // The preview is the public form and writes nothing.
+        let preview = apply_feature(
+            &f.state,
+            "mikey",
+            &consenting,
+            true,
+            "Connects the tides.".into(),
+            None,
+            true,
+        );
+        assert_eq!(
+            preview.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&preview.body)
+        );
+        let preview = body_of(preview);
+        assert_eq!(preview["willPublish"], json!(true));
+        assert_eq!(preview["preview"]["context"], "Connects the tides.");
+        assert_eq!(preview["preview"]["response"]["name"], "Mina Private");
+        assert_eq!(preview["notice"], community_feature::NON_CONSENSUS_NOTICE);
+        for private in [
+            "consents",
+            "intake",
+            "receipt",
+            "moderat",
+            "\"count\"",
+            "rank",
+            "score",
+            "vote",
+        ] {
+            assert!(
+                !preview["preview"]
+                    .to_string()
+                    .to_lowercase()
+                    .contains(private),
+                "{private}"
+            );
+        }
+        assert!(!features_path.exists() && !third_path.exists());
+
+        // Choosing publishes the reflection first and records a reference, never words.
+        let chosen = apply_feature(
+            &f.state,
+            "mikey",
+            &consenting,
+            true,
+            "Connects the tides.".into(),
+            Some(2),
+            false,
+        );
+        assert_eq!(chosen.status, 200);
+        assert!(third_path.exists());
+        let text = fs::read_to_string(&features_path).unwrap();
+        let features = community_feature::FeaturesFile::from_json(&text).unwrap();
+        assert_eq!(features.items.len(), 1);
+        for private in ["reading of the tides", "Mina", "mikey", "5e5e", "consent"] {
+            assert!(!text.contains(private), "{private} in {text}");
+        }
+        assert_eq!(text, features.to_json(), "canonical, deterministic");
+        // Preview parity: what Admin previewed is exactly what the build shows,
+        // value for value, and the page's HTML is made from that same value.
+        let (loaded, _) = site::load_site(&f.dir, false, None).unwrap();
+        let shown = loaded.posts[0].community_features();
+        assert_eq!(shown.len(), 1);
+        assert_eq!(
+            serde_json::to_value(&shown[0]).unwrap(),
+            preview["preview"],
+            "the preview is the build's projection"
+        );
+        let out = f.dir.join("out-parity");
+        site::build(
+            &f.dir,
+            &site::BuildOptions {
+                include_drafts: false,
+                out_override: Some(out.clone()),
+                now: None,
+            },
+        )
+        .unwrap();
+        let page =
+            fs::read_to_string(out.join(post.url.trim_matches('/')).join("index.html")).unwrap();
+        assert!(
+            page.contains(&community_feature::render_section(shown)),
+            "the page carries the previewed feature"
+        );
+        assert!(page.contains(community_feature::COMMUNITY_FEATURES_ANCHOR));
+        // Once is enough: a reflection has one placement.
+        let again = apply_feature(
+            &f.state,
+            "mikey",
+            &consenting,
+            true,
+            String::new(),
+            Some(2),
+            false,
+        );
+        assert_eq!(body_of(again)["code"], "alreadyFeatured");
+
+        // It stands while covered, is hidden (not taken off) when the article is
+        // gone, and must come off when the reader declines or withdraws.
+        let record = &features.items[0];
+        let published = perspective_publication::ThirdPerspectivesFile::from_json(
+            &fs::read_to_string(&third_path).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            feature_standing(
+                &site,
+                record,
+                &published,
+                HostedCheck::Row(&consenting, true)
+            ),
+            Some(community_feature::HostedStanding::Covered)
+        );
+        assert_eq!(
+            feature_standing(
+                &site,
+                record,
+                &published,
+                HostedCheck::Row(&consenting, false)
+            ),
+            None
+        );
+        assert_eq!(
+            feature_standing(&site, record, &published, HostedCheck::Unavailable),
+            None
+        );
+        // The committed file the page is built from is checked too, with the
+        // page's own reason, even when the hosted copy cannot say.
+        let must = community_feature::HostedStanding::MustComeOff;
+        let empty = perspective_publication::ThirdPerspectivesFile::default();
+        assert_eq!(
+            feature_standing(&site, record, &empty, HostedCheck::Row(&consenting, true)),
+            Some(must(community_feature::FeatureOff::NotApproved))
+        );
+        assert_eq!(
+            feature_standing(&site, record, &empty, HostedCheck::Unavailable),
+            Some(must(community_feature::FeatureOff::NotApproved))
+        );
+        let mut edited = published.clone();
+        edited.items[0].body = "Another text".into();
+        assert_eq!(
+            feature_standing(&site, record, &edited, HostedCheck::Row(&consenting, false)),
+            Some(must(community_feature::FeatureOff::TextChanged))
+        );
+        let mut misdated = record.clone();
+        misdated.featured = "2000-01-01".into();
+        assert_eq!(
+            feature_standing(&site, &misdated, &published, HostedCheck::Unavailable),
+            Some(must(community_feature::FeatureOff::Misdated))
+        );
+        let withdrawn = moderation_inbox::InboxItem::from_value(&json!({
+            "source": "feedback", "id": FEEDBACK_ITEM_ID, "kind": "third-perspective", "status": "withdrawn",
+            "version": 4, "revision": 1, "moderatedAt": "2026-10-28T10:00:00Z", "reason": null,
+            "receivedAt": "2026-10-26T10:00:00Z", "work": post.url, "purgedAt": "2026-10-28T10:00:00Z",
+        }))
+        .unwrap();
+        assert_eq!(
+            feature_standing(
+                &site,
+                record,
+                &published,
+                HostedCheck::Row(&withdrawn, true)
+            ),
+            Some(community_feature::HostedStanding::MustComeOff(
+                community_feature::FeatureOff::Withdrawn
+            ))
+        );
+        assert_eq!(
+            feature_standing(&site, record, &published, HostedCheck::Gone),
+            Some(community_feature::HostedStanding::MustComeOff(
+                community_feature::FeatureOff::Deleted
+            ))
+        );
+        let mut elsewhere = record.clone();
+        elsewhere.post = "posts/gone.md".into();
+        assert_eq!(
+            feature_standing(
+                &site,
+                &elsewhere,
+                &published,
+                HostedCheck::Row(&consenting, true)
+            ),
+            Some(community_feature::HostedStanding::Hidden(
+                community_feature::HiddenReason::SourceGone
+            ))
+        );
+
+        // The note is the editors' own words and passes the lint on change too.
+        assert_eq!(
+            apply_note(&f.state, FEEDBACK_ITEM_ID, "Most agreed with").status,
+            422
+        );
+        assert_eq!(
+            apply_note(&f.state, FEEDBACK_ITEM_ID, "A closer look at the tides.").status,
+            200
+        );
+        let features = community_feature::FeaturesFile::from_json(
+            &fs::read_to_string(&features_path).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            features.items[0].context.as_deref(),
+            Some("A closer look at the tides.")
+        );
+        assert_eq!(
+            apply_note(&f.state, "00000000-0000-4000-8000-0000000000aa", "x").status,
+            404
+        );
+
+        // Taking a reflection off takes its feature off in the same step.
+        unpublish_perspective(&third_path, FEEDBACK_ITEM_ID).unwrap();
+        assert!(community_feature::FeaturesFile::from_json(
+            &fs::read_to_string(&features_path).unwrap()
+        )
+        .unwrap()
+        .items
+        .is_empty());
+        assert!(perspective_publication::ThirdPerspectivesFile::from_json(
+            &fs::read_to_string(&third_path).unwrap()
+        )
+        .unwrap()
+        .items
+        .is_empty());
+
+        // An editor may also take just the feature off by choice; the reflection stays.
+        assert_eq!(
+            apply_feature(
+                &f.state,
+                "mikey",
+                &consenting,
+                true,
+                String::new(),
+                Some(2),
+                false
+            )
+            .status,
+            200
+        );
+        assert_eq!(apply_unfeature(&f.state, FEEDBACK_ITEM_ID).status, 200);
+        assert_eq!(apply_unfeature(&f.state, FEEDBACK_ITEM_ID).status, 404);
+        assert_eq!(
+            perspective_publication::ThirdPerspectivesFile::from_json(
+                &fs::read_to_string(&third_path).unwrap()
+            )
+            .unwrap()
+            .items
+            .len(),
+            1
+        );
+
+        // A features file that cannot be read is refused, not overwritten.
+        fs::write(&features_path, r#"{"version":1,"items":[{}]}"#).unwrap();
+        let blocked = apply_feature(
+            &f.state,
+            "mikey",
+            &consenting,
+            true,
+            String::new(),
+            Some(2),
+            false,
+        );
+        assert_eq!(blocked.status, 409);
+        assert_eq!(
+            fs::read_to_string(&features_path).unwrap(),
+            r#"{"version":1,"items":[{}]}"#
+        );
+    }
+
+    #[test]
+    fn a_featured_reflections_file_is_read_strictly_and_a_feature_that_does_not_stand_changes_no_output(
+    ) {
+        let f = fixture("community-features-build");
+        let build = |out: &str| {
+            let out = f.dir.join(out);
+            let report = site::build(
+                &f.dir,
+                &site::BuildOptions {
+                    include_drafts: false,
+                    out_override: Some(out.clone()),
+                    now: None,
+                },
+            );
+            (report, out)
+        };
+        let tree = |root: &Path| -> BTreeMap<String, Vec<u8>> {
+            fn walk(dir: &Path, root: &Path, into: &mut BTreeMap<String, Vec<u8>>) {
+                for entry in fs::read_dir(dir).unwrap() {
+                    let path = entry.unwrap().path();
+                    if path.is_dir() {
+                        walk(&path, root, into);
+                    } else {
+                        into.insert(
+                            path.strip_prefix(root)
+                                .unwrap()
+                                .to_string_lossy()
+                                .replace('\\', "/"),
+                            fs::read(&path).unwrap(),
+                        );
+                    }
+                }
+            }
+            let mut files = BTreeMap::new();
+            walk(root, root, &mut files);
+            files
+        };
+        let (without, out_without) = build("out-without");
+        without.unwrap();
+        let features_path = f
+            .dir
+            .join("content")
+            .join(community_feature::COMMUNITY_FEATURES_FILE);
+        // A valid file, even one about a post the site has, changes no byte.
+        let site_posts = site::load_site(&f.dir, false, None).unwrap().0.posts;
+        let source = site_posts[0].source.replace('\\', "/");
+        let record = community_feature::FeatureRecord {
+            id: FEEDBACK_ITEM_ID.to_string(),
+            post: source,
+            revision: 1,
+            digest: community_feature::body_digest("text"),
+            featured: "2026-10-28".into(),
+            context: Some("A careful reading.".into()),
+        };
+        fs::write(
+            &features_path,
+            community_feature::FeaturesFile {
+                items: vec![record],
+            }
+            .to_json(),
+        )
+        .unwrap();
+        let (with, out_with) = build("out-with");
+        with.unwrap();
+        assert_eq!(
+            tree(&out_without),
+            tree(&out_with),
+            "a feature whose reflection is not published shows nowhere and changes no byte"
+        );
+        // A file that cannot be read refuses the build rather than being dropped.
+        fs::write(&features_path, r#"{"version":1,"items":[{}]}"#).unwrap();
+        let refused = build("out-refused").0.err().unwrap();
+        assert!(
+            refused.contains("community-perspectives.json: item 1:"),
+            "{refused}"
+        );
+        assert!(!refused.contains("A careful"), "never its contents");
     }
 
     #[test]

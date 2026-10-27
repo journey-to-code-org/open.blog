@@ -344,7 +344,7 @@ const noFetch = () => {
   globalThis.fetch = () => assert.fail("nothing may be sent");
 };
 
-function fill(view, { body = "Another way to read the ending.", publish = "yes", category, section, name, showName, clarification } = {}) {
+function fill(view, { body = "Another way to read the ending.", publish = "yes", category, section, name, showName, clarification, feature } = {}) {
   const ui = parts(view.host);
   ui.control("body").value = body;
   if (publish) ui.control(`publish-${publish}`).checked = true;
@@ -356,6 +356,7 @@ function fill(view, { body = "Another way to read the ending.", publish = "yes",
   if (name !== undefined) ui.control("name").value = name;
   if (showName !== undefined) ui.control("show-name").checked = showName;
   if (clarification !== undefined) ui.control("clarification").checked = clarification;
+  if (feature !== undefined) ui.control("feature").checked = feature;
   return ui;
 }
 
@@ -465,6 +466,30 @@ test("a reflection is sent with exactly the reader's choices and enters pending;
   const consent = view.host.all().find((node) => node.localName === "input" && node.type === "checkbox" && node.id.endsWith("-consent") && node.id.startsWith("ob-receipt"));
   assert.equal(consent.checked, true, "the receipt shows the consent already given");
   assert.ok(view.host.all().some((node) => node.textContent === "Check, clarify or withdraw a reflection you sent"), "readers can use a receipt here");
+});
+
+test("feature consent is its own unticked choice, says copies may remain, and is sent only when ticked", async () => {
+  const unticked = fakeFetch({ status: 202, body: { status: "pending", receipt: RECEIPT } });
+  const view = page();
+  const ui = fill(view);
+  const box = ui.control("feature");
+  assert.equal(box.checked, false, "never ticked for the reader");
+  assert.equal(box.type, "checkbox");
+  const label = view.host.all().find((node) => node.localName === "label" && node.htmlFor === box.id);
+  assert.match(label.textContent, /feature my reflection/);
+  const hint = view.host.all().find((node) => node.id === box.getAttribute("aria-describedby"));
+  assert.match(hint.textContent, /Separate from publishing/);
+  assert.match(hint.textContent, /copies already published may remain/);
+  await submitted(view);
+  assert.equal(unticked[0].body.consent.feature, false);
+  const ticked = fakeFetch({ status: 202, body: { status: "pending", receipt: RECEIPT } });
+  const again = page();
+  fill(again, { feature: true });
+  await submitted(again);
+  assert.equal(ticked[0].body.consent.feature, true);
+  assert.ok(readThirdPerspectiveSubmissionJson(JSON.stringify(ticked[0].body)).ok);
+  const agreed = again.host.all().find((node) => node.localName === "input" && node.type === "checkbox" && node.id.endsWith("-feature") && node.id.startsWith("ob-receipt"));
+  assert.equal(agreed.checked, true, "the receipt shows what was agreed");
 });
 
 test("a pending state is explicit and a second submit waits", async () => {

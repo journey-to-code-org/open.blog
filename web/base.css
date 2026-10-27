@@ -1864,6 +1864,78 @@ ob-comments {
   font-size: .9rem;
 }
 
+/* Featured reflections on a work's canonical page (ADR 0184): the editors' choice of reflections
+   already shown above, in a plain list with its framing as text. Nothing here is a ranking: the
+   marks are borders and words, never colour or size alone, and nothing moves. */
+.ob-community-perspectives {
+  margin-block: var(--ob-space-8, 2rem);
+  border-top: 1px solid var(--ob-color-border);
+  padding-top: var(--ob-space-6, 1.5rem);
+  min-inline-size: 0;
+}
+
+.ob-community-notice {
+  max-inline-size: 42rem;
+  overflow-wrap: anywhere;
+}
+
+.ob-community-perspectives-list {
+  display: grid;
+  gap: var(--ob-space-6, 1.5rem);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-community-perspectives-list > li {
+  min-inline-size: 0;
+}
+
+.ob-feature {
+  max-inline-size: 42rem;
+  min-inline-size: 0;
+  border-inline-start: 3px solid var(--ob-color-border);
+  padding-inline-start: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.ob-feature h3 {
+  margin-block: 0 .5rem;
+  font-size: 1.1rem;
+}
+
+.ob-feature-status {
+  margin-block: 0 .5rem;
+  font-size: .9rem;
+}
+
+.ob-feature-provenance {
+  color: var(--ob-color-subtle, inherit);
+  font-size: .9rem;
+}
+
+.ob-feature-note {
+  border-block-start: 1px dashed var(--ob-color-border);
+  padding-block-start: .5rem;
+}
+
+.ob-feature:target {
+  outline: 2px solid currentColor;
+  outline-offset: 4px;
+}
+
+.ob-feature a:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+@media (forced-colors: active) {
+  .ob-feature,
+  .ob-community-perspectives {
+    border-color: CanvasText;
+  }
+}
+
 /* The conversation after an author's own section (ADR 0138): inside that section's turn, after
    the author's words, so it never moves them. A reader's reflection and the author's response are
    told apart by their headings and labels, which are text; the border style only repeats it. */
@@ -2992,4 +3064,12 @@ ob-reading-modes { display: block; }
 }
 @media (forced-colors: active) {
   .ob-trail-step { border-color: CanvasText; }
+}
+/* Featured reflections print whole, in text-colour marks (ADR 0184). Kept after the earlier print
+   blocks: a test reads the first one. */
+@media print {
+  .ob-feature {
+    break-inside: avoid;
+    border-inline-start-color: currentColor;
+  }
 }
