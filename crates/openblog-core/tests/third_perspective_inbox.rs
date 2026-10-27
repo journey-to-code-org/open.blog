@@ -438,7 +438,7 @@ fn clarification_consent_follows_the_consent_in_effect() {
                 publish: true,
                 attribution: ReaderAttribution::named("Grace", false),
                 clarification: false,
-                feature: false,
+                feature: openblog_core::third_perspective::FeatureChange::Decline,
             },
             time("2026-10-26T11:00:00Z"),
         )

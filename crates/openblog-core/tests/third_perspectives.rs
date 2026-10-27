@@ -4,11 +4,11 @@
 
 use openblog_core::participation::{ParticipationKind, ParticipationMode};
 use openblog_core::third_perspective::{
-    ApprovalRequest, ConsentChange, ConsentChoices, ConsentOutcome, ErrorCode, FeatureSelection,
-    Intake, LifecycleError, LocalReflection, ModerationFacts, ModerationState, PerspectiveTarget,
-    PublishedWork, ReaderAttribution, ResponseCategory, Stage, SubmissionRequest, SubmittedCopy,
-    TargetStatus, KIND, MAX_BODY_CHARS, MAX_CONSENT_RECORDS, MAX_DETAILS_BYTES, MAX_JSON_BYTES,
-    NARROWING_RESERVE, READER_ROLE,
+    ApprovalRequest, ConsentChange, ConsentChoices, ConsentOutcome, ErrorCode, FeatureChange,
+    FeatureSelection, Intake, LifecycleError, LocalReflection, ModerationFacts, ModerationState,
+    PerspectiveTarget, PublishedWork, ReaderAttribution, ResponseCategory, Stage,
+    SubmissionRequest, SubmittedCopy, TargetStatus, KIND, MAX_BODY_CHARS, MAX_CONSENT_RECORDS,
+    MAX_DETAILS_BYTES, MAX_JSON_BYTES, NARROWING_RESERVE, READER_ROLE,
 };
 use openblog_core::DateTime;
 use serde_json::{json, Value};
@@ -102,7 +102,7 @@ fn change(publish: bool, attribution: ReaderAttribution) -> ConsentChange {
         publish,
         attribution,
         clarification: true,
-        feature: false,
+        feature: FeatureChange::Decline,
     }
 }
 
@@ -425,7 +425,7 @@ fn local_reflection_submitted_copy_approved_response_and_featured_publication_ar
         .revise_consent(
             &approved,
             ConsentChange {
-                feature: true,
+                feature: FeatureChange::Agree { revision_seen: 1 },
                 ..change(true, ReaderAttribution::named("Mina Okafor", true))
             },
             time("2026-10-27T08:00:00Z"),
@@ -1065,10 +1065,11 @@ fn a_name_that_only_looks_like_a_credit_is_never_shown() {
 #[test]
 fn feature_consent_binds_to_one_approved_revision() {
     let later = time("2026-10-27T08:00:00Z");
-    let feature = ConsentChange {
-        feature: true,
+    let agree = |revision_seen| ConsentChange {
+        feature: FeatureChange::Agree { revision_seen },
         ..change(true, ReaderAttribution::anonymous())
     };
+    let feature = agree(1);
     let mut copy = submitted(ReaderAttribution::anonymous());
     assert_eq!(
         copy.revise_consent(&facts(ModerationState::Rejected), feature.clone(), later),
@@ -1100,7 +1101,7 @@ fn feature_consent_binds_to_one_approved_revision() {
         ),
         None
     );
-    copy.revise_consent(&approved, feature, time("2026-10-28T08:00:00Z"))
+    copy.revise_consent(&approved, agree(2), time("2026-10-28T08:00:00Z"))
         .unwrap();
     assert_eq!(copy.consent().feature_revision, Some(2));
     assert!(copy
@@ -1310,7 +1311,7 @@ fn consent_history_is_append_only_numbered_and_bounded() {
             &pending,
             ConsentChange {
                 clarification: copy.consent().clarification,
-                feature: true,
+                feature: FeatureChange::Agree { revision_seen: 1 },
                 ..change(true, mina())
             },
             received()
@@ -1386,7 +1387,7 @@ fn narrowing_and_revoking_stay_possible_when_the_history_is_full() {
             &pending,
             ConsentChange {
                 clarification: false,
-                feature: true,
+                feature: FeatureChange::Agree { revision_seen: 1 },
                 ..change(true, hide)
             },
             received()
@@ -1864,7 +1865,13 @@ fn shared_submission_fixtures_read_and_receive_as_the_browser_and_function_do() 
                 publish: true,
                 attribution: current.attribution.clone(),
                 clarification: case["clarification"].as_bool().unwrap(),
-                feature: current.feature_revision.is_some(),
+                feature: match &case["feature"] {
+                    Value::Null => FeatureChange::Keep,
+                    Value::String(word) if word == "decline" => FeatureChange::Decline,
+                    seen => FeatureChange::Agree {
+                        revision_seen: seen.as_u64().unwrap() as u32,
+                    },
+                },
             },
             time(case["at"].as_str().unwrap()),
         );

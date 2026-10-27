@@ -21,9 +21,17 @@ match the text must not carry over to different text.
 
 - **A material edit is any change to the reflection's text.** Only a clarification the reader answers
   changes it, as the next text revision (ADR 0111). It leaves the old `featureRevision` behind, so the
-  consent covers the old words only. The reader renews it by their receipt for the text as it now
-  stands, which binds it to the approved revision (ADR 0110). A feature of the old text is `textChanged`
-  and comes off.
+  consent covers the old words only. A feature of the old text is `textChanged` and comes off.
+- **Only an explicit agreement renews, and a change to anything else never does.** A consent change
+  carries a three-way feature choice, `FeatureChange::Keep`, `Agree { revision_seen }` or `Decline`,
+  never a flag. `Keep` (what every change to the name or to being asked to clarify sends) carries the
+  `featureRevision` in effect forward exactly as it was, still naming the old text. Only `Agree` binds
+  a revision, and only the revision the reader saw: the approved one once approved, or the current one
+  before a decision; an agreement for any other revision is refused (`staleRevision`). The first design
+  rebound a kept agreement to the current text whenever any consent change was made, so a reader who
+  merely switched off clarification after rewriting their reflection silently agreed to feature words
+  they had not agreed to; that is now impossible by construction. Stored consent records are unchanged
+  and read as before: this alters only what a new change may write.
 - **The words are bound twice.** A feature records the revision the reader agreed to and the digest of
   that text (`body_digest`, a domain-separated BLAKE2s-256 of the exact bytes). The hosted check
   compares the revision, the approved revision and the digest; the static page compares the published
@@ -43,12 +51,14 @@ match the text must not carry over to different text.
   ADR 0234's rules.
 - **Declining is immediate and renewing is explicit.** Declining to feature (a narrowing change,
   ADR 0110) takes effect at once and the reflection stays published; to be featured again the reader
-  renews, for the current revision. A reader who revoked publication cannot be featured at all.
+  agrees again, explicitly, for the revision they see. A reader who revoked publication cannot be featured at all.
 
 ## Considered options
 
 - **Bind only to the revision number.** Rejected: it does not catch a hand-edited published file, which
   the static build alone must refuse.
+- **Rebind a kept agreement to the current text on any change.** Rejected: it renewed consent the
+  reader never gave (RD10 behaved so until this correction; the stored records are unaffected).
 - **Allow light editing of featured text (trimming, spelling).** Rejected: any edit puts words in the
   reader's mouth; if the reader wants a change they clarify and renew.
 - **Let the featured name differ from the published name.** Rejected: one projection decides what a

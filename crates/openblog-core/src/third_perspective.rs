@@ -725,9 +725,28 @@ pub struct ConsentChange {
     pub publish: bool,
     pub attribution: ReaderAttribution,
     pub clarification: bool,
-    /// Agreement that an editor may feature the approved text (or, before a
-    /// decision, the current text).
-    pub feature: bool,
+    /// What the change does to the reader's feature consent. Only an explicit
+    /// [`FeatureChange::Agree`] for the revision the reader saw binds it; any
+    /// other change carries it forward unchanged (ADR 0231).
+    pub feature: FeatureChange,
+}
+
+/// A reader's choice about feature consent in one consent change. It is
+/// deliberately not a flag: a change to something else (such as being asked
+/// to clarify) must never renew an agreement for text the reader has not
+/// seen, so "leave it as it is" and "agree to this text" are different
+/// choices.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FeatureChange {
+    /// Carry the feature consent in effect forward exactly as it is, bound
+    /// to whatever revision it was bound to.
+    Keep,
+    /// Agree that an editor may feature `revision_seen`, which must be the
+    /// revision the reader is looking at: the approved one once approved, the
+    /// current one before a decision.
+    Agree { revision_seen: u32 },
+    /// Take the agreement back.
+    Decline,
 }
 
 /// What a recorded consent change asks of moderation.
@@ -1477,8 +1496,11 @@ impl SubmittedCopy {
     /// Record a consent change. Narrowing (hiding a name, declining
     /// clarification or a feature) takes effect at once in every state the
     /// text is kept. Showing a name, or another name, is accepted only while
-    /// undecided (pending or clarification). Feature consent binds to the
-    /// approved revision, or before a decision to the current one. Revoking
+    /// undecided (pending or clarification). Feature consent changes only by
+    /// its own [`FeatureChange`]: `Keep` leaves it bound to the revision it
+    /// was, so a change to something else never renews it for edited text,
+    /// and `Agree` binds it to the revision the reader saw (the approved one,
+    /// or before a decision the current one). Revoking
     /// publication is final and asks for RD12's withdrawal where it applies
     /// (a site Admin's removal and purge for a manual copy).
     pub fn revise_consent(
@@ -1535,18 +1557,26 @@ impl SubmittedCopy {
             facts.state,
             ModerationState::Pending | ModerationState::Clarification
         );
-        let feature_revision = if !change.feature {
-            None
-        } else if undecided {
-            Some(self.revision)
-        } else if facts.state == ModerationState::Approved {
-            facts.approved_revision
-        } else {
-            current.feature_revision
+        let feature_revision = match change.feature {
+            FeatureChange::Decline => None,
+            FeatureChange::Keep => current.feature_revision,
+            FeatureChange::Agree { revision_seen } => {
+                let bindable = if undecided {
+                    Some(self.revision)
+                } else if facts.state == ModerationState::Approved {
+                    facts.approved_revision
+                } else {
+                    None
+                };
+                match bindable {
+                    None => return Err(LifecycleError::FeatureNotAvailable),
+                    Some(revision) if revision != revision_seen => {
+                        return Err(LifecycleError::StaleRevision)
+                    }
+                    Some(revision) => Some(revision),
+                }
+            }
         };
-        if change.feature && feature_revision.is_none() {
-            return Err(LifecycleError::FeatureNotAvailable);
-        }
         let record = SubmissionConsent {
             number,
             given_at: at,

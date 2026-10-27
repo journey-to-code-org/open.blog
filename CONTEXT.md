@@ -1844,7 +1844,8 @@ A reader's separate agreement, recorded as `featureRevision` in their Submission
 editor may feature exactly one text revision of their approved reflection. It is not implied by
 approval, by agreeing to publish or by showing a name; it is bound to the revision (and, in a
 Feature record, to a digest of the text), so a clarification that changes the text leaves it behind
-until the reader renews it. Declining takes effect at once; revoking publication ends it for good
+until the reader explicitly agrees again for the text they see: a change to anything else (a name, being
+asked to clarify) carries it forward unchanged and never renews it. Declining takes effect at once; revoking publication ends it for good
 (ADR 0230, 0231).
 _Avoid_: Terms acceptance, blanket permission, approval
 

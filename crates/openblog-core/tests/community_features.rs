@@ -12,9 +12,9 @@ use openblog_core::participation::ParticipationMode;
 use openblog_core::passage_target::PassageDocument;
 use openblog_core::perspective_publication::{PublishedPerspective, ThirdPerspectivesFile};
 use openblog_core::third_perspective::{
-    ConsentChange, ConsentChoices, ConsentOutcome, HostedPerspective, Intake, LocalReflection,
-    ModerationFacts, ModerationState, PerspectiveTarget, ReaderAttribution, ResponseCategory,
-    SubmittedCopy,
+    ConsentChange, ConsentChoices, ConsentOutcome, FeatureChange, HostedPerspective, Intake,
+    LocalReflection, ModerationFacts, ModerationState, PerspectiveTarget, ReaderAttribution,
+    ResponseCategory, SubmittedCopy,
 };
 use openblog_core::{DateTime, LoadOptions, Site, SiteConfig, SourceFile, Sources};
 use serde_json::{json, Value};
@@ -131,7 +131,13 @@ fn publish(site: &Site, hosted: &HostedPerspective) -> PublishedPerspective {
     .unwrap()
 }
 
-fn narrow(copy: &mut SubmittedCopy, facts: &ModerationFacts, show: bool, feature: bool, day: &str) {
+fn narrow(
+    copy: &mut SubmittedCopy,
+    facts: &ModerationFacts,
+    show: bool,
+    feature: FeatureChange,
+    day: &str,
+) {
     copy.revise_consent(
         facts,
         ConsentChange {
@@ -248,7 +254,13 @@ fn approval_alone_features_nothing_and_consent_is_separate_and_explicit() {
 
     // The reader agrees later, by their own change, for the approved text.
     let mut later = without.clone();
-    narrow(&mut later, &facts, true, true, "2026-10-28T08:00:00Z");
+    narrow(
+        &mut later,
+        &facts,
+        true,
+        FeatureChange::Agree { revision_seen: 1 },
+        "2026-10-28T08:00:00Z",
+    );
     assert_eq!(later.consent().feature_revision, Some(1));
     let hosted = hosted_row(&later, "approved", Some(1));
     let record = try_feature(&site, &hosted, &facts, &item, "").unwrap();
@@ -322,11 +334,93 @@ fn a_material_edit_needs_renewed_consent_for_the_new_revision() {
     // The reader renews, for the text as it now stands; featuring is then
     // possible again, as a new record that binds the new text.
     let mut renewed = edited.clone();
-    narrow(&mut renewed, &new_facts, true, true, "2026-10-30T08:00:00Z");
+    narrow(
+        &mut renewed,
+        &new_facts,
+        true,
+        FeatureChange::Agree { revision_seen: 2 },
+        "2026-10-30T08:00:00Z",
+    );
     let hosted = hosted_row(&renewed, "approved", Some(1));
     let again = try_feature(&w.site, &hosted, &new_facts, &item, "").unwrap();
     assert_eq!(again.revision, 2);
     assert_ne!(again.digest, w.record.digest);
+}
+
+#[test]
+fn changing_what_the_reader_may_be_asked_never_renews_feature_consent_for_edited_text() {
+    // The reader agrees to feature revision 1, answers a clarification (text
+    // revision 2), then only toggles whether they may be asked to clarify.
+    // Nothing they did agreed to feature the new words.
+    let w = world("Mina", true);
+    let mut edited = w.copy();
+    edited
+        .clarify(
+            &facts(ModerationState::Clarification, 1, true),
+            "A rewritten reflection.",
+            time("2026-10-29T08:00:00Z"),
+        )
+        .unwrap();
+    edited
+        .revise_consent(
+            &facts(ModerationState::Pending, 2, true),
+            ConsentChange {
+                publish: true,
+                attribution: edited.consent().attribution.clone(),
+                clarification: !edited.consent().clarification,
+                feature: FeatureChange::Keep,
+            },
+            time("2026-10-29T09:00:00Z"),
+        )
+        .unwrap();
+    assert_eq!(edited.consent().feature_revision, Some(1));
+
+    // Approved at revision 2: feature consent still names revision 1.
+    let hosted = hosted_row(&edited, "approved", Some(2));
+    let approved = facts(ModerationState::Approved, 2, true);
+    let item = publish(&w.site, &hosted);
+    assert_eq!(
+        try_feature(&w.site, &hosted, &approved, &item, "").unwrap_err(),
+        FeatureError::ConsentForOtherRevision
+    );
+
+    // Even after approval, a toggle keeps it where it was; only an explicit
+    // agreement for the revision the reader saw binds revision 2, and one for
+    // a revision they did not see is refused.
+    let toggle = |feature| ConsentChange {
+        publish: true,
+        attribution: edited.consent().attribution.clone(),
+        clarification: edited.consent().clarification,
+        feature,
+    };
+    let mut after = edited.clone();
+    assert!(after
+        .revise_consent(
+            &approved,
+            ConsentChange {
+                clarification: !edited.consent().clarification,
+                ..toggle(FeatureChange::Keep)
+            },
+            time("2026-10-30T08:00:00Z")
+        )
+        .is_ok());
+    assert_eq!(after.consent().feature_revision, Some(1));
+    assert_eq!(
+        after.revise_consent(
+            &approved,
+            toggle(FeatureChange::Agree { revision_seen: 1 }),
+            time("2026-10-30T09:00:00Z")
+        ),
+        Err(openblog_core::third_perspective::LifecycleError::StaleRevision)
+    );
+    after
+        .revise_consent(
+            &approved,
+            toggle(FeatureChange::Agree { revision_seen: 2 }),
+            time("2026-10-30T10:00:00Z"),
+        )
+        .unwrap();
+    assert_eq!(after.consent().feature_revision, Some(2));
 }
 
 #[test]
@@ -373,7 +467,7 @@ fn withdrawal_deletion_and_a_declined_feature_each_take_it_off_with_no_tombstone
                 publish: false,
                 attribution: ReaderAttribution::named("Mina", false),
                 clarification: false,
-                feature: false,
+                feature: FeatureChange::Decline,
             },
             time("2026-10-31T08:00:00Z"),
         )
@@ -410,7 +504,13 @@ fn withdrawal_deletion_and_a_declined_feature_each_take_it_off_with_no_tombstone
     // The reader declines featuring but stays published: the reflection is
     // still shown, its feature is not.
     let mut declined = w.copy();
-    narrow(&mut declined, &w.facts, true, false, "2026-10-31T09:00:00Z");
+    narrow(
+        &mut declined,
+        &w.facts,
+        true,
+        FeatureChange::Decline,
+        "2026-10-31T09:00:00Z",
+    );
     let row = hosted_row(&declined, "approved", Some(1));
     assert_eq!(
         w.standing_of(Some((&row, &w.facts))),
@@ -492,7 +592,13 @@ fn a_name_can_only_narrow_after_a_feature() {
 
     // The reader hides their name: the feature stands, anonymously.
     let mut hidden = w.copy();
-    narrow(&mut hidden, &w.facts, false, true, "2026-10-31T08:00:00Z");
+    narrow(
+        &mut hidden,
+        &w.facts,
+        false,
+        FeatureChange::Keep,
+        "2026-10-31T08:00:00Z",
+    );
     let row = hosted_row(&hidden, "approved", Some(1));
     assert_eq!(
         w.standing_of(Some((&row, &w.facts))),
@@ -517,7 +623,7 @@ fn a_name_can_only_narrow_after_a_feature() {
                 publish: true,
                 attribution: ReaderAttribution::named("Someone Else", true),
                 clarification: true,
-                feature: true,
+                feature: FeatureChange::Agree { revision_seen: 1 },
             },
             time("2026-10-31T08:00:00Z"),
         )

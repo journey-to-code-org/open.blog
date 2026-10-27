@@ -5,6 +5,10 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Fixed: changing any other part of a reader's consent (such as whether they may be asked to clarify)
+  no longer renews their agreement to feature a Third Perspective for text they have since edited.
+  Only an explicit agreement for the text the reader sees binds feature consent. Stored consent
+  records are read exactly as before.
 - Featuring a reader's reflection in a community section is now defined (RD14, no page change yet):
   it needs the reader's own separate consent for the exact text, a change to the text needs fresh
   consent, withdrawal or a declined feature takes it off with no public tombstone, and a featured

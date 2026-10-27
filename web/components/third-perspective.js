@@ -395,24 +395,38 @@ export function checkThirdPerspectiveApproval(row, seenRevision, seenConsent) {
 }
 
 /**
- * A reader's change to whether they may be asked to clarify, made through their receipt, as
- * `SubmittedCopy::revise_consent` records it with the rest of the consent unchanged: a new
- * consent record appended to the stored `details`. `copy` is `{ body, revision, provenance,
- * details, state, approvedRevision, retained }`; `at` is the receiver's canonical time. Returns
- * { ok: true, details } or { ok: false, code } with the code the build gives.
+ * A reader's change to their consent, made through their receipt, as `SubmittedCopy::revise_consent`
+ * records it: a new consent record appended to the stored `details`. `copy` is `{ body, revision,
+ * provenance, details, state, approvedRevision, retained }`; `at` is the receiver's canonical time.
+ * `change` is `{ clarification, feature }` where `feature` is the reader's own choice about feature
+ * consent (ADR 0231) and never a flag: `"keep"` (or left out) carries the agreement forward bound to
+ * the revision it was, `"decline"` takes it back, and `{ agree: n }` agrees for revision `n`, which
+ * must be the revision the reader saw (the approved one, or before a decision the current one).
+ * Only an explicit agreement binds a revision, so changing what the reader may be asked can never
+ * renew feature consent for text that was edited. Returns { ok: true, details } or { ok: false, code }
+ * with the code the build gives.
  */
-export function reviseClarificationConsent(copy, clarification, at) {
+export function reviseConsent(copy, change, at) {
+  const clarification = change.clarification;
+  const choice = change.feature ?? "keep";
   if (!copy.retained) return { ok: false, code: "contentPurged" };
   const consents = Array.isArray(copy.details?.consents) ? copy.details.consents : [];
   const current = consentInEffect(copy.details);
   if (!current || !current.publish || copy.state === "withdrawn") return { ok: false, code: "closed" };
   if (!isCanonicalTime(at) || at < current.givenAt) return { ok: false, code: "invalidTime" };
   const undecided = copy.state === "pending" || copy.state === "clarification";
-  const feature = current.featureRevision !== undefined && current.featureRevision !== null;
+  const kept = current.featureRevision ?? null;
   let featureRevision = null;
-  if (feature) featureRevision = undecided ? copy.revision : copy.state === "approved" ? copy.approvedRevision ?? null : current.featureRevision;
-  if (feature && featureRevision === null) return { ok: false, code: "featureNotAvailable" };
-  const before = current.featureRevision ?? null;
+  if (choice === "keep") featureRevision = kept;
+  else if (choice !== "decline") {
+    const seen = isObject(choice) && Number.isInteger(choice.agree) ? choice.agree : null;
+    const bindable = undecided ? copy.revision : copy.state === "approved" ? copy.approvedRevision ?? null : null;
+    if (seen === null) return { ok: false, code: "invalid" };
+    if (bindable === null) return { ok: false, code: "featureNotAvailable" };
+    if (bindable !== seen) return { ok: false, code: "staleRevision" };
+    featureRevision = bindable;
+  }
+  const before = kept;
   if (clarification === current.clarification && featureRevision === before) return { ok: false, code: "unchanged" };
   const narrows = (!clarification || current.clarification) && (featureRevision === null || featureRevision === before);
   const record = { number: current.number + 1, givenAt: at, publish: true, attribution: { publishName: current.attribution?.publishName === true }, clarification };
@@ -428,6 +442,11 @@ export function reviseClarificationConsent(copy, clarification, at) {
     return { ok: false, code: "consentLimit" };
   }
   return { ok: true, details };
+}
+
+/** A reader's change to whether they may be asked to clarify, with every other part of the consent kept. */
+export function reviseClarificationConsent(copy, clarification, at) {
+  return reviseConsent(copy, { clarification, feature: "keep" }, at);
 }
 
 const describeTarget = (target) => {
