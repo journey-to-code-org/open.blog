@@ -11,6 +11,7 @@ mod auth;
 mod boundary;
 mod claims_store;
 mod clock;
+mod comparison_store;
 mod contributor_migration;
 mod fsutil;
 mod git;

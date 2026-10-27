@@ -83,6 +83,7 @@ use crate::assistant::{
     ReviewSkill, SkillDefinition, SkillOutputKind, SkillScope, ASSISTANT_SCHEMA_VERSION,
     BUILTIN_SKILL_SOURCES,
 };
+mod comparisons;
 mod reading_paths;
 
 use crate::atlas_store;
@@ -678,6 +679,15 @@ fn authenticated_api(
         ("POST", "research/alignments") => save_alignment(state, req, true),
         ("PUT", "research/alignments") => save_alignment(state, req, false),
         ("DELETE", "research/alignments") => remove_alignment_item(state, req),
+        ("GET", "comparisons") => comparisons::list(state),
+        ("GET", "comparisons/references") => comparisons::references(state),
+        ("GET", "comparisons/item") => comparisons::get(state, req),
+        ("POST", "comparisons/preview") => comparisons::preview(state, req),
+        ("POST", "comparisons/approve") => comparisons::decide(state, req, &session.user, true),
+        ("POST", "comparisons/revoke") => comparisons::decide(state, req, &session.user, false),
+        ("POST", "comparisons") => comparisons::save(state, req, true),
+        ("PUT", "comparisons") => comparisons::save(state, req, false),
+        ("DELETE", "comparisons") => comparisons::remove(state, req),
         ("GET", "reading-paths") => reading_paths::list(state),
         ("GET", "reading-paths/targets") => reading_paths::targets(state),
         ("GET", "reading-paths/path") => reading_paths::get(state, req),
@@ -17165,6 +17175,7 @@ fn xml_attribute<'a>(tag: &'a str, key: &str) -> Option<&'a str> {
 
 #[cfg(test)]
 mod tests {
+    mod comparison_routes;
     mod reading_path_routes;
 
     use super::*;
