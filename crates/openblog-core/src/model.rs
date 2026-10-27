@@ -1079,7 +1079,12 @@ impl Site {
     }
 
     /// Whether `post` is public on this site's production pages: neither a draft nor dated after
-    /// the time the site was loaded for.
+    /// the time the site was loaded for. Unlike membership of `posts`, this holds even when a
+    /// preview or Admin load included drafts.
+    pub fn is_published(&self, post: &Post) -> bool {
+        self.is_public_part(post)
+    }
+
     fn is_public_part(&self, post: &Post) -> bool {
         !post.draft && self.now.is_none_or(|now| post.date <= now)
     }

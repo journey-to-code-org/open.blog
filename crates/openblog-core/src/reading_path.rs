@@ -12,17 +12,21 @@
 //! version 1). It is public, author-written plain text. [`ReadingPath::parse`]
 //! checks it and [`ReadingPath::to_canonical_json`] writes it back byte for
 //! byte the same for the same path, so an Admin save and a hand edit agree.
-//! Unknown fields are refused rather than dropped, so a round trip never
-//! loses anything.
+//! Fields this release does not define are kept as written and written back
+//! (the atlas and notebook idiom), so an older release still reads a newer
+//! file's known fields and a round trip never loses anything. A repeated key,
+//! a defined field of the wrong type and another version are refused.
 //!
 //! [`PublicPaths::resolve`] reads paths against [`PublishedTargets`] (the
 //! posts a build publishes and the public atlas) and nothing else. A step
 //! whose target is not published is left out of the public value and named
 //! in an author-facing [`Diagnostic`]; the public value never says that
-//! anything was left out, and never carries an unpublished item's title or
-//! text. A transition never claims more than the author wrote: one that
-//! followed a left-out step, or that claims influence without a published
-//! relationship behind it, is dropped.
+//! anything was left out, and never carries an unpublished item's title,
+//! text or an author-chosen step id. A transition never claims more than the
+//! author wrote and never loses the step it follows: when a left-out step
+//! would leave a transition behind, or an `influenced` claim has no published,
+//! uncontested relationship from the step it follows to this one, the whole
+//! path is withheld rather than shown with a gap.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -30,7 +34,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::atlas_publication::{entry_url, escaped_json, kind_label, PublicAtlas};
-use crate::knowledge_atlas::{valid_id, RelationshipKind};
+use crate::knowledge_atlas::{valid_id, RelationshipKind, Standing};
 use crate::model::{Site, SourceFile};
 
 /// Names the stored file.
@@ -45,6 +49,9 @@ pub const PUBLIC_PATHS_FORMAT_VERSION: u64 = 1;
 pub const PATHS_DIR: &str = "paths";
 /// Where a path's page will live on the site (`/paths/<slug>/`).
 pub const PATHS_URL: &str = "/paths/";
+/// The first segment of that address. Reserved only while
+/// `readingPaths.publish` is on.
+pub const PATHS_SEGMENT: &str = "paths";
 
 /// Most steps in one path.
 pub const MAX_STEPS: usize = 100;
@@ -63,7 +70,7 @@ pub const MAX_PREREQUISITE_CHARS: usize = 400;
 
 /// Whether a path is public. Absent means a draft: nothing is published by
 /// leaving a field out.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Status {
     #[default]
@@ -71,8 +78,18 @@ pub enum Status {
     Published,
 }
 
+impl Status {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "draft" => Some(Self::Draft),
+            "published" => Some(Self::Published),
+            _ => None,
+        }
+    }
+}
+
 /// The author's own judgement of how demanding a step is. Never computed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Difficulty {
     Introductory,
@@ -80,10 +97,22 @@ pub enum Difficulty {
     Advanced,
 }
 
-/// How a step relates to the one before it, as the author states it. There
+impl Difficulty {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "introductory" => Some(Self::Introductory),
+            "intermediate" => Some(Self::Intermediate),
+            "advanced" => Some(Self::Advanced),
+            _ => None,
+        }
+    }
+}
+
+/// How a step relates to the step it follows, as the author states it. There
 /// is no default: a transition without one is refused. `Next` claims only
-/// order, and `Influenced` needs a published atlas relationship behind it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// order, and `Influenced` needs a published, uncontested atlas relationship
+/// between two atlas entries behind it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Relationship {
     Next,
@@ -96,34 +125,74 @@ pub enum Relationship {
 }
 
 impl Relationship {
-    /// The relationship in words, about this step and the one before it.
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "next" => Some(Self::Next),
+            "background" => Some(Self::Background),
+            "builds-on" => Some(Self::BuildsOn),
+            "contrasts-with" => Some(Self::ContrastsWith),
+            "responds-to" => Some(Self::RespondsTo),
+            "applies" => Some(Self::Applies),
+            "influenced" => Some(Self::Influenced),
+            _ => None,
+        }
+    }
+
+    /// The relationship in words, about this step and the step it follows
+    /// (the nearest required step before it).
     pub fn label(self) -> &'static str {
         match self {
             Self::Next => "Comes next, with no further relationship claimed",
-            Self::Background => "The previous step is background for this one",
-            Self::BuildsOn => "Builds on the previous step",
-            Self::ContrastsWith => "Contrasts with the previous step",
-            Self::RespondsTo => "Responds to the previous step",
-            Self::Applies => "Applies the previous step",
+            Self::Background => "Gives background for the step it follows",
+            Self::BuildsOn => "Builds on the step it follows",
+            Self::ContrastsWith => "Contrasts with the step it follows",
+            Self::RespondsTo => "Responds to the step it follows",
+            Self::Applies => "Applies the step it follows",
             Self::Influenced => {
-                "Was influenced by the previous step, which a published relationship states"
+                "Was influenced by the step it follows, which a published relationship states"
             }
         }
     }
 }
 
+/// Fields the file holds that this release does not define, kept as written
+/// and written back (ADR 0241). Never read, never shown.
+pub type Extra = BTreeMap<String, Value>;
+
 /// What a step points at. Only these two kinds exist: a path cannot contain
 /// a path, so paths cannot cycle through one another.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum Target {
     /// A published post, by slug.
-    Post { slug: String },
+    Post {
+        slug: String,
+        #[serde(flatten)]
+        extra: Extra,
+    },
     /// A published Knowledge Atlas entry, by id.
-    Atlas { id: String },
+    Atlas {
+        id: String,
+        #[serde(flatten)]
+        extra: Extra,
+    },
 }
 
 impl Target {
+    pub fn post(slug: impl Into<String>) -> Self {
+        Self::Post {
+            slug: slug.into(),
+            extra: Extra::new(),
+        }
+    }
+
+    pub fn atlas(id: impl Into<String>) -> Self {
+        Self::Atlas {
+            id: id.into(),
+            extra: Extra::new(),
+        }
+    }
+
     fn noun(&self) -> &'static str {
         match self {
             Self::Post { .. } => "post",
@@ -133,44 +202,77 @@ impl Target {
 
     fn key(&self) -> String {
         match self {
-            Self::Post { slug } => format!("post `{slug}`"),
-            Self::Atlas { id } => format!("atlas entry `{id}`"),
+            Self::Post { slug, .. } => format!("post `{slug}`"),
+            Self::Atlas { id, .. } => format!("atlas entry `{id}`"),
         }
     }
 }
 
-/// Why a step follows the one before it, written by the author.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// Why a step follows the step before it, written by the author.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Transition {
     pub relationship: Relationship,
     /// The author's explanation. Required.
     pub why: String,
     /// The id of a published atlas relationship this transition rests on.
-    /// Required for `influenced`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Required for `influenced` and refused on any other label.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub basis: Option<String>,
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+impl Transition {
+    pub fn new(relationship: Relationship, why: impl Into<String>) -> Self {
+        Self {
+            relationship,
+            why: why.into(),
+            basis: None,
+            extra: Extra::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Step {
-    /// Stable within the path, so a reorder keeps a step's identity.
+    /// Stable within the path, so a reorder keeps a step's identity. For the
+    /// author only: the public value never carries it (ADR 0244).
     pub id: String,
     pub target: Target,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub rationale: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub prerequisites: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub difficulty: Option<Difficulty>,
-    /// A side step a reader may skip. It never changes the order.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    /// A side step a reader may skip. It never changes the order, and the
+    /// first step is never optional.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub optional: bool,
     /// Absent on the first step and required on every other one of a path
-    /// that is published.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// that is published. It relates this step to the nearest earlier step
+    /// that is not optional (ADR 0243).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub transition: Option<Transition>,
+    #[serde(flatten)]
+    pub extra: Extra,
+}
+
+impl Step {
+    pub fn new(id: impl Into<String>, target: Target) -> Self {
+        Self {
+            id: id.into(),
+            target,
+            rationale: None,
+            prerequisites: None,
+            difficulty: None,
+            optional: false,
+            transition: None,
+            extra: Extra::new(),
+        }
+    }
 }
 
 /// One path as stored.
@@ -181,23 +283,28 @@ pub struct ReadingPath {
     pub title: String,
     pub summary: Option<String>,
     pub status: Status,
+    /// Whether discovery (the index, search, #79) may list a published path.
+    /// A path that is not listed is still published at its address. Listed
+    /// unless the file says otherwise.
+    pub listed: bool,
     pub steps: Vec<Step>,
+    /// Top-level fields this release does not define, kept for the round trip.
+    pub extra: Extra,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct RawPath {
-    #[allow(dead_code)]
-    format: String,
-    #[allow(dead_code)]
-    version: u64,
-    title: String,
-    #[serde(default)]
-    summary: Option<String>,
-    #[serde(default)]
-    status: Status,
-    #[serde(default)]
-    steps: Vec<Value>,
+impl ReadingPath {
+    /// An empty draft with the given slug and title.
+    pub fn draft(slug: impl Into<String>, title: impl Into<String>) -> Self {
+        Self {
+            slug: slug.into(),
+            title: title.into(),
+            summary: None,
+            status: Status::Draft,
+            listed: true,
+            steps: Vec::new(),
+            extra: Extra::new(),
+        }
+    }
 }
 
 /// One refusal, scoped to a file and, where it has one, a step. It names
@@ -218,7 +325,7 @@ impl std::fmt::Display for PathProblem {
     }
 }
 
-fn is_ascii_slug(value: &str) -> bool {
+pub(crate) fn is_ascii_slug(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= MAX_ID_BYTES
         && !value.starts_with('-')
@@ -259,6 +366,284 @@ fn text_problem(value: &str, max_chars: usize) -> Option<String> {
     None
 }
 
+// ---------------------------------------------------------------------------
+// Reading the file. Nothing here echoes a value: a message names a field,
+// never what it held.
+// ---------------------------------------------------------------------------
+
+type Obj = serde_json::Map<String, Value>;
+
+const DUPLICATE_MARK: char = '\u{1}';
+
+/// A JSON value that refuses a repeated key instead of keeping the last one,
+/// so a hand edit that pastes a field twice is told, not silently changed.
+struct Strict(Value);
+
+impl<'de> Deserialize<'de> for Strict {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visit;
+        impl<'de> serde::de::Visitor<'de> for Visit {
+            type Value = Value;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("a JSON value")
+            }
+            fn visit_bool<E>(self, v: bool) -> Result<Value, E> {
+                Ok(Value::Bool(v))
+            }
+            fn visit_i64<E>(self, v: i64) -> Result<Value, E> {
+                Ok(Value::from(v))
+            }
+            fn visit_u64<E>(self, v: u64) -> Result<Value, E> {
+                Ok(Value::from(v))
+            }
+            fn visit_f64<E>(self, v: f64) -> Result<Value, E> {
+                Ok(serde_json::Number::from_f64(v).map_or(Value::Null, Value::Number))
+            }
+            fn visit_str<E>(self, v: &str) -> Result<Value, E> {
+                Ok(Value::String(v.to_string()))
+            }
+            fn visit_string<E>(self, v: String) -> Result<Value, E> {
+                Ok(Value::String(v))
+            }
+            fn visit_unit<E>(self) -> Result<Value, E> {
+                Ok(Value::Null)
+            }
+            fn visit_none<E>(self) -> Result<Value, E> {
+                Ok(Value::Null)
+            }
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                self,
+                mut seq: A,
+            ) -> Result<Value, A::Error> {
+                let mut items = Vec::new();
+                while let Some(Strict(item)) = seq.next_element()? {
+                    items.push(item);
+                }
+                Ok(Value::Array(items))
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<Value, A::Error> {
+                let mut out = Obj::new();
+                while let Some((key, Strict(value))) = map.next_entry::<String, Strict>()? {
+                    if out.contains_key(&key) {
+                        return Err(serde::de::Error::custom(format!(
+                            "{DUPLICATE_MARK}{key}{DUPLICATE_MARK}"
+                        )));
+                    }
+                    out.insert(key, value);
+                }
+                Ok(Value::Object(out))
+            }
+        }
+        deserializer.deserialize_any(Visit).map(Strict)
+    }
+}
+
+/// A field name safe to quote: short, plain, and so not hostile text.
+fn quotable(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 40
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+/// Reads JSON text into a value. A repeated key or invalid JSON is a message
+/// that never quotes the text.
+fn read_json(text: &str) -> Result<Value, String> {
+    match serde_json::from_str::<Strict>(text) {
+        Ok(Strict(value)) => Ok(value),
+        Err(e) => {
+            let message = e.to_string();
+            let mut marks = message.split(DUPLICATE_MARK);
+            if let (Some(_), Some(key)) = (marks.next(), marks.next()) {
+                return Err(if quotable(key) {
+                    format!("repeats the field `{key}`; a field is written once")
+                } else {
+                    "repeats a field; a field is written once".into()
+                });
+            }
+            let at = if e.is_eof() {
+                "ends too early".to_string()
+            } else {
+                format!(
+                    "is not valid JSON (line {}, column {})",
+                    e.line(),
+                    e.column()
+                )
+            };
+            Err(at)
+        }
+    }
+}
+
+fn take_text(
+    obj: &mut Obj,
+    name: &str,
+    scope: &str,
+    required: bool,
+    errs: &mut Vec<String>,
+) -> Option<String> {
+    match obj.remove(name) {
+        None => {
+            if required {
+                errs.push(format!("`{scope}{name}` is required"));
+            }
+            None
+        }
+        Some(Value::String(text)) => Some(text),
+        Some(_) => {
+            errs.push(format!("`{scope}{name}` must be text"));
+            None
+        }
+    }
+}
+
+fn take_flag(
+    obj: &mut Obj,
+    name: &str,
+    scope: &str,
+    default: bool,
+    errs: &mut Vec<String>,
+) -> bool {
+    match obj.remove(name) {
+        None => default,
+        Some(Value::Bool(flag)) => flag,
+        Some(_) => {
+            errs.push(format!("`{scope}{name}` must be true or false"));
+            default
+        }
+    }
+}
+
+fn take_choice<T>(
+    obj: &mut Obj,
+    name: &str,
+    scope: &str,
+    required: bool,
+    parse: fn(&str) -> Option<T>,
+    allowed: &str,
+    errs: &mut Vec<String>,
+) -> Option<T> {
+    let text = take_text(obj, name, scope, required, errs)?;
+    let parsed = parse(&text);
+    if parsed.is_none() {
+        errs.push(format!("`{scope}{name}` must be {allowed}"));
+    }
+    parsed
+}
+
+fn take_object(obj: &mut Obj, name: &str, required: bool, errs: &mut Vec<String>) -> Option<Obj> {
+    match obj.remove(name) {
+        None => {
+            if required {
+                errs.push(format!("`{name}` is required"));
+            }
+            None
+        }
+        Some(Value::Object(inner)) => Some(inner),
+        Some(_) => {
+            errs.push(format!("`{name}` must be an object"));
+            None
+        }
+    }
+}
+
+fn read_target(obj: &mut Obj, errs: &mut Vec<String>) -> Option<Target> {
+    let mut target = take_object(obj, "target", true, errs)?;
+    let kind = take_text(&mut target, "kind", "target.", true, errs)?;
+    let made = match kind.as_str() {
+        "post" => take_text(&mut target, "slug", "target.", true, errs).map(|slug| Target::Post {
+            slug,
+            extra: Extra::new(),
+        }),
+        "atlas" => take_text(&mut target, "id", "target.", true, errs).map(|id| Target::Atlas {
+            id,
+            extra: Extra::new(),
+        }),
+        _ => {
+            errs.push("`target.kind` must be `post` or `atlas`".into());
+            None
+        }
+    }?;
+    let rest: Extra = target.into_iter().collect();
+    Some(match made {
+        Target::Post { slug, .. } => Target::Post { slug, extra: rest },
+        Target::Atlas { id, .. } => Target::Atlas { id, extra: rest },
+    })
+}
+
+fn read_transition(obj: &mut Obj, errs: &mut Vec<String>) -> Option<Transition> {
+    let mut t = take_object(obj, "transition", false, errs)?;
+    let before = errs.len();
+    let relationship = take_choice(
+        &mut t,
+        "relationship",
+        "transition.",
+        true,
+        Relationship::parse,
+        "one of `next`, `background`, `builds-on`, `contrasts-with`, `responds-to`, `applies`, `influenced`",
+        errs,
+    );
+    let why = take_text(&mut t, "why", "transition.", true, errs);
+    let basis = take_text(&mut t, "basis", "transition.", false, errs);
+    if errs.len() > before {
+        return None;
+    }
+    Some(Transition {
+        relationship: relationship?,
+        why: why?,
+        basis,
+        extra: t.into_iter().collect(),
+    })
+}
+
+fn read_step(value: Value, errs: &mut Vec<String>) -> Option<Step> {
+    let Value::Object(mut obj) = value else {
+        errs.push("must be an object".into());
+        return None;
+    };
+    let before = errs.len();
+    let id = take_text(&mut obj, "id", "", true, errs);
+    let target = read_target(&mut obj, errs);
+    let rationale = take_text(&mut obj, "rationale", "", false, errs);
+    let prerequisites = take_text(&mut obj, "prerequisites", "", false, errs);
+    let difficulty = take_choice(
+        &mut obj,
+        "difficulty",
+        "",
+        false,
+        Difficulty::parse,
+        "`introductory`, `intermediate` or `advanced`",
+        errs,
+    );
+    let optional = take_flag(&mut obj, "optional", "", false, errs);
+    let transition = read_transition(&mut obj, errs);
+    if errs.len() > before {
+        return None;
+    }
+    Some(Step {
+        id: id?,
+        target: target?,
+        rationale,
+        prerequisites,
+        difficulty,
+        optional,
+        transition,
+        extra: obj.into_iter().collect(),
+    })
+}
+
+/// The index of the step that step `index` follows: the nearest earlier step
+/// that is not optional. A reader who skips every optional step still reads
+/// each shown step after the step its transition describes (ADR 0243).
+pub fn followed_index(steps: &[Step], index: usize) -> Option<usize> {
+    (0..index).rev().find(|&i| !steps[i].optional)
+}
+
 impl ReadingPath {
     /// Reads and checks one file. `file` is its path under the content
     /// folder (`paths/<slug>.json`), which names the path. Every refusal
@@ -294,13 +679,18 @@ impl ReadingPath {
             );
             return Err(problems);
         }
-        let root: Value = match serde_json::from_str(text) {
-            Ok(root) => root,
-            Err(e) => {
-                add(&mut problems, None, format!("is not valid JSON ({e})"));
+        let root = match read_json(text) {
+            Ok(Value::Object(root)) => root,
+            Ok(_) => {
+                add(&mut problems, None, "must be a JSON object".into());
+                return Err(problems);
+            }
+            Err(message) => {
+                add(&mut problems, None, message);
                 return Err(problems);
             }
         };
+        let mut root = root;
         if root.get("format").and_then(Value::as_str) != Some(READING_PATH_FORMAT) {
             add(
                 &mut problems,
@@ -326,110 +716,77 @@ impl ReadingPath {
                 return Err(problems);
             }
         }
-        let raw: RawPath = match serde_json::from_value(root) {
-            Ok(raw) => raw,
-            Err(e) => {
-                add(&mut problems, None, e.to_string());
-                return Err(problems);
+        root.remove("format");
+        root.remove("version");
+        let mut errs: Vec<String> = Vec::new();
+        let title = take_text(&mut root, "title", "", true, &mut errs);
+        let summary = take_text(&mut root, "summary", "", false, &mut errs);
+        let status = take_choice(
+            &mut root,
+            "status",
+            "",
+            false,
+            Status::parse,
+            "`draft` or `published`",
+            &mut errs,
+        )
+        .unwrap_or_default();
+        let listed = take_flag(&mut root, "listed", "", true, &mut errs);
+        let raw_steps = match root.remove("steps") {
+            None => Vec::new(),
+            Some(Value::Array(items)) => items,
+            Some(_) => {
+                errs.push("`steps` must be a list".into());
+                Vec::new()
             }
         };
-        if raw.title.trim().is_empty() {
-            add(&mut problems, None, "`title` is required".into());
-        } else if let Some(p) = text_problem(&raw.title, MAX_TITLE_CHARS) {
+        for message in errs {
+            add(&mut problems, None, message);
+        }
+        let title = title.unwrap_or_default();
+        if title.trim().is_empty() {
+            if !problems.iter().any(|p| p.message.contains("`title`")) {
+                add(&mut problems, None, "`title` is required".into());
+            }
+        } else if let Some(p) = text_problem(&title, MAX_TITLE_CHARS) {
             add(&mut problems, None, format!("`title` {p}"));
         }
-        if let Some(p) = raw
-            .summary
+        if let Some(p) = summary
             .as_deref()
             .and_then(|s| text_problem(s, MAX_TEXT_CHARS))
         {
             add(&mut problems, None, format!("`summary` {p}"));
         }
-        if raw.steps.len() > MAX_STEPS {
+        if raw_steps.len() > MAX_STEPS {
             add(
                 &mut problems,
                 None,
                 format!(
                     "has {} steps; a path holds at most {MAX_STEPS}",
-                    raw.steps.len()
+                    raw_steps.len()
                 ),
             );
             return Err(problems);
         }
         let mut steps = Vec::new();
-        for (index, value) in raw.steps.iter().enumerate() {
+        for (index, value) in raw_steps.into_iter().enumerate() {
             let label = value
                 .get("id")
                 .and_then(Value::as_str)
                 .filter(|id| is_ascii_slug(id))
                 .map_or_else(|| format!("#{}", index + 1), str::to_string);
-            match serde_json::from_value::<Step>(value.clone()) {
-                Ok(step) => steps.push(step),
-                Err(e) => add(&mut problems, Some(&label), e.to_string()),
-            }
-        }
-        let published = raw.status == Status::Published;
-        let mut ids = BTreeSet::new();
-        let mut targets: BTreeMap<String, String> = BTreeMap::new();
-        for (index, step) in steps.iter().enumerate() {
-            let id = step.id.as_str();
-            let mut at = |message: String| add(&mut problems, Some(id), message);
-            if !is_ascii_slug(id) {
-                at(format!(
-                    "`id` is a lowercase slug of at most {MAX_ID_BYTES} characters"
-                ));
-            } else if !ids.insert(id.to_string()) {
-                at("`id` is used by an earlier step".into());
-            }
-            match &step.target {
-                Target::Post { slug } if !is_post_slug(slug) => {
-                    at("`slug` is not a post slug".into())
-                }
-                Target::Atlas { id } if !valid_id(id) => {
-                    at("`id` is not an atlas entry id".into());
-                }
-                _ => {}
-            }
-            if let Some(first) = targets.insert(step.target.key(), id.to_string()) {
-                at(format!(
-                    "points at the same {} as step `{first}`; a path never returns to a step",
-                    step.target.noun()
-                ));
-            }
-            for (name, value, max) in [
-                ("rationale", &step.rationale, MAX_TEXT_CHARS),
-                ("prerequisites", &step.prerequisites, MAX_PREREQUISITE_CHARS),
-            ] {
-                if let Some(p) = value.as_deref().and_then(|v| text_problem(v, max)) {
-                    at(format!("`{name}` {p}"));
-                }
-            }
-            match (&step.transition, index) {
-                (Some(_), 0) => at(
-                    "the first step has no earlier step to follow, so it has no transition".into(),
-                ),
-                (None, i) if i > 0 && published => {
-                    at(
-                        "a published path explains every step after the first: add a transition"
-                            .into(),
-                    );
-                }
-                _ => {}
-            }
-            if let Some(t) = &step.transition {
-                if t.why.trim().is_empty() {
-                    at("`transition.why` is required: say why this step follows".into());
-                } else if let Some(p) = text_problem(&t.why, MAX_TEXT_CHARS) {
-                    at(format!("`transition.why` {p}"));
-                }
-                if t.basis.as_deref().is_some_and(|basis| !valid_id(basis)) {
-                    at("`transition.basis` is not an atlas relationship id".into());
-                }
-                if t.relationship == Relationship::Influenced && t.basis.is_none() {
-                    at("`influenced` needs `basis`, a published atlas relationship that states it; order and chronology never imply influence".into());
+            let mut step_errs = Vec::new();
+            match read_step(value, &mut step_errs) {
+                Some(step) => steps.push(step),
+                None => {
+                    for message in step_errs {
+                        add(&mut problems, Some(&label), message);
+                    }
                 }
             }
         }
+        let published = status == Status::Published;
+        check_steps(&steps, published, file, &mut problems);
         if published && steps.len() < 2 {
             add(
                 &mut problems,
@@ -442,16 +799,31 @@ impl ReadingPath {
         }
         Ok(Self {
             slug: slug.to_string(),
-            title: raw.title,
-            summary: raw.summary,
-            status: raw.status,
+            title,
+            summary,
+            status,
+            listed,
             steps,
+            extra: root.into_iter().collect(),
         })
+    }
+
+    /// Checks a path built in memory (an Admin edit) by the rules `parse`
+    /// applies to a file, without writing anything.
+    pub fn validate(&self) -> Vec<PathProblem> {
+        match Self::parse(
+            &format!("{PATHS_DIR}/{}.json", self.slug),
+            &self.to_canonical_json(),
+        ) {
+            Ok(_) => Vec::new(),
+            Err(problems) => problems,
+        }
     }
 
     /// The file's bytes: two-space JSON, fixed field order, `\n` line ends and
     /// a final newline. `parse` of this text gives the same path, and this of
-    /// that path gives the same text.
+    /// that path gives the same text. Fields this release does not define
+    /// follow the defined ones in name order.
     pub fn to_canonical_json(&self) -> String {
         #[derive(Serialize)]
         #[serde(rename_all = "camelCase")]
@@ -462,7 +834,14 @@ impl ReadingPath {
             #[serde(skip_serializing_if = "Option::is_none")]
             summary: &'a Option<String>,
             status: Status,
+            #[serde(skip_serializing_if = "is_true")]
+            listed: bool,
             steps: &'a [Step],
+            #[serde(flatten)]
+            extra: &'a Extra,
+        }
+        fn is_true(value: &bool) -> bool {
+            *value
         }
         let mut text = serde_json::to_string_pretty(&Out {
             format: READING_PATH_FORMAT,
@@ -470,11 +849,98 @@ impl ReadingPath {
             title: &self.title,
             summary: &self.summary,
             status: self.status,
+            listed: self.listed,
             steps: &self.steps,
+            extra: &self.extra,
         })
         .expect("a path is serializable");
         text.push('\n');
         text
+    }
+}
+
+fn check_steps(steps: &[Step], published: bool, file: &str, problems: &mut Vec<PathProblem>) {
+    let mut ids = BTreeSet::new();
+    let mut targets: BTreeMap<String, String> = BTreeMap::new();
+    for (index, step) in steps.iter().enumerate() {
+        let id = step.id.as_str();
+        let mut at = |message: String| {
+            problems.push(PathProblem {
+                file: file.to_string(),
+                step: Some(id.to_string()),
+                message,
+            })
+        };
+        if !is_ascii_slug(id) {
+            at(format!(
+                "`id` is a lowercase slug of at most {MAX_ID_BYTES} characters"
+            ));
+        } else if !ids.insert(id.to_string()) {
+            at("`id` is used by an earlier step".into());
+        }
+        match &step.target {
+            Target::Post { slug, .. } if !is_post_slug(slug) => {
+                at("`slug` is not a post slug".into())
+            }
+            Target::Atlas { id, .. } if !valid_id(id) => {
+                at("`id` is not an atlas entry id".into());
+            }
+            _ => {}
+        }
+        if let Some(first) = targets.insert(step.target.key(), id.to_string()) {
+            at(format!(
+                "points at the same {} as step `{first}`; a path never returns to a step",
+                step.target.noun()
+            ));
+        }
+        for (name, value, max) in [
+            ("rationale", &step.rationale, MAX_TEXT_CHARS),
+            ("prerequisites", &step.prerequisites, MAX_PREREQUISITE_CHARS),
+        ] {
+            if let Some(p) = value.as_deref().and_then(|v| text_problem(v, max)) {
+                at(format!("`{name}` {p}"));
+            }
+        }
+        if index == 0 && step.optional {
+            at("the first step is where every reader starts, so it cannot be optional".into());
+        }
+        match (&step.transition, index) {
+            (Some(_), 0) => {
+                at("the first step has no earlier step to follow, so it has no transition".into())
+            }
+            (None, i) if i > 0 && published => {
+                at("a published path explains every step after the first: add a transition".into());
+            }
+            _ => {}
+        }
+        if let Some(t) = &step.transition {
+            if t.why.trim().is_empty() {
+                at("`transition.why` is required: say why this step follows".into());
+            } else if let Some(p) = text_problem(&t.why, MAX_TEXT_CHARS) {
+                at(format!("`transition.why` {p}"));
+            }
+            if t.basis.as_deref().is_some_and(|basis| !valid_id(basis)) {
+                at("`transition.basis` is not an atlas relationship id".into());
+            }
+            match t.relationship {
+                Relationship::Influenced => {
+                    if t.basis.is_none() {
+                        at("`influenced` needs `basis`, a published atlas relationship that states it; order and chronology never imply influence".into());
+                    }
+                    let followed = followed_index(steps, index).map(|i| &steps[i].target);
+                    let between_entries = matches!(followed, Some(Target::Atlas { .. }))
+                        && matches!(step.target, Target::Atlas { .. });
+                    if index > 0 && !between_entries {
+                        at("`influenced` joins two atlas entries, because only the atlas states influence; use another label between posts".into());
+                    }
+                }
+                _ => {
+                    if t.basis.is_some() {
+                        at("`transition.basis` belongs to `influenced` only".into());
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -521,15 +987,20 @@ pub fn load_paths(files: &[SourceFile]) -> LoadedPaths {
 pub struct PublishedTargets {
     posts: BTreeMap<String, (String, String)>,
     entries: BTreeMap<String, (String, String, &'static str)>,
-    influences: BTreeMap<String, (String, String)>,
+    /// Published `influenced` relationships: id to (from, to, contested).
+    influences: BTreeMap<String, (String, String, bool)>,
 }
 
 impl PublishedTargets {
-    /// The published posts of `site` (drafts and scheduled posts are not in
-    /// `Site::posts`) and its public atlas, if it publishes one.
+    /// The posts `site` publishes in production and its public atlas, if it
+    /// publishes one. A post that is a draft or is dated after the time the
+    /// site was loaded for is left out even when a preview or Admin load
+    /// included it (`Site::is_published`): a path never names what production
+    /// would not show. A site loaded without a time cannot tell scheduled
+    /// posts from published ones; callers that need that load it with one.
     pub fn from_site(site: &Site) -> Self {
         let mut targets = Self::default();
-        for post in &site.posts {
+        for post in site.posts.iter().filter(|post| site.is_published(post)) {
             targets.add_post(&post.slug, &post.title, &post.url);
         }
         if let Some(atlas) = &site.atlas {
@@ -552,10 +1023,40 @@ impl PublishedTargets {
         }
         for r in &atlas.relationships {
             if r.kind == RelationshipKind::Influenced {
-                self.influences
-                    .insert(r.id.clone(), (r.from.clone(), r.to.clone()));
+                self.influences.insert(
+                    r.id.clone(),
+                    (
+                        r.from.clone(),
+                        r.to.clone(),
+                        r.standing != Standing::Asserted,
+                    ),
+                );
             }
         }
+    }
+
+    /// Published posts an author may pick as a step: (slug, title).
+    pub fn posts(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.posts
+            .iter()
+            .map(|(slug, (title, _))| (slug.as_str(), title.as_str()))
+    }
+
+    /// Public atlas entries an author may pick as a step: (id, label, kind label).
+    pub fn entries(&self) -> impl Iterator<Item = (&str, &str, &'static str)> {
+        self.entries
+            .iter()
+            .map(|(id, (label, _, kind))| (id.as_str(), label.as_str(), *kind))
+    }
+
+    /// The title of a published post, if `slug` is one.
+    pub fn post_title(&self, slug: &str) -> Option<&str> {
+        self.posts.get(slug).map(|(title, _)| title.as_str())
+    }
+
+    /// The label of a public atlas entry, if `id` is one.
+    pub fn entry_label(&self, id: &str) -> Option<&str> {
+        self.entries.get(id).map(|(label, _, _)| label.as_str())
     }
 }
 
@@ -564,11 +1065,11 @@ impl PublishedTargets {
 pub enum DiagnosticKind {
     /// A step's target is not published (or does not exist: the two are not told apart).
     StepUnavailable,
-    /// A transition was dropped so it would not claim more than was written.
+    /// A transition could not be shown as written, so the path is withheld
+    /// rather than shown with a gap or a weaker claim.
     TransitionDropped,
-    /// A basis is not a published influence between the two steps; the rest of the transition stands.
-    BasisUnavailable,
-    /// Fewer than two steps are published, so the path is not published.
+    /// The path is not published: fewer than two steps are published, or a
+    /// transition would be lost.
     PathWithheld,
 }
 
@@ -614,15 +1115,18 @@ pub struct PublicPath {
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    /// Whether discovery may list the path. It is published either way.
+    pub listed: bool,
     /// In the author's order, at least two.
     pub steps: Vec<PublicStep>,
 }
 
+/// A step as the public sees it. It carries no author-chosen id: ids would
+/// show where a step was left out. A step is named by its kind and target.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PublicStep {
-    pub id: String,
-    /// One-based among the published steps.
+    /// One-based, with no gaps.
     pub position: usize,
     /// `post` or `atlas`.
     pub kind: &'static str,
@@ -640,6 +1144,7 @@ pub struct PublicStep {
     pub difficulty: Option<Difficulty>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub optional: bool,
+    /// Present on every step after the first.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transition: Option<PublicTransition>,
 }
@@ -650,7 +1155,11 @@ pub struct PublicTransition {
     pub relationship: Relationship,
     pub label: &'static str,
     pub why: String,
-    /// A published atlas relationship id.
+    /// The position of the step this transition describes: the nearest
+    /// earlier step that is not optional, which is not always the one just
+    /// above when optional steps lie between.
+    pub follows: usize,
+    /// A published, uncontested atlas relationship id (`influenced` only).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub basis: Option<String>,
 }
@@ -664,7 +1173,8 @@ pub struct Resolution {
 
 impl PublicPaths {
     /// Resolves `paths` against `targets`. Draft paths are not published and
-    /// are not reported. Never fails: whatever cannot be published is left out.
+    /// are not reported. Never fails: whatever cannot be published is left
+    /// out, and a path that cannot be shown without a gap is withheld whole.
     pub fn resolve(paths: &[ReadingPath], targets: &PublishedTargets) -> Resolution {
         let mut sorted: Vec<&ReadingPath> = paths
             .iter()
@@ -674,16 +1184,21 @@ impl PublicPaths {
         let mut diagnostics = Vec::new();
         let mut out = Vec::new();
         for path in sorted {
-            let steps = resolve_steps(path, targets, &mut diagnostics);
-            if steps.len() < 2 {
+            let (steps, gap) = resolve_steps(path, targets, &mut diagnostics);
+            if gap || steps.len() < 2 {
+                let message = if gap {
+                    "a transition would lose the step it follows, so the whole path is withheld rather than shown with a gap".to_string()
+                } else {
+                    format!(
+                        "only {} of its steps are published and a path needs two, so it is not published",
+                        steps.len()
+                    )
+                };
                 diagnostics.push(Diagnostic {
                     path: path.slug.clone(),
                     step: None,
                     kind: DiagnosticKind::PathWithheld,
-                    message: format!(
-                        "only {} of its steps are published and a path needs two, so it is not published",
-                        steps.len()
-                    ),
+                    message,
                 });
                 continue;
             }
@@ -692,6 +1207,7 @@ impl PublicPaths {
                 url: format!("{PATHS_URL}{}/", path.slug),
                 title: path.title.clone(),
                 summary: path.summary.clone(),
+                listed: path.listed,
                 steps,
             });
         }
@@ -711,59 +1227,109 @@ impl PublicPaths {
     }
 }
 
+type Found = (&'static str, &'static str, String, String, String);
+
+fn find_target(step: &Step, targets: &PublishedTargets) -> Option<Found> {
+    match &step.target {
+        Target::Post { slug, .. } => targets
+            .posts
+            .get(slug)
+            .map(|(title, url)| ("post", "Post", slug.clone(), title.clone(), url.clone())),
+        Target::Atlas { id, .. } => targets
+            .entries
+            .get(id)
+            .map(|(label, url, kind)| ("atlas", *kind, id.clone(), label.clone(), url.clone())),
+    }
+}
+
+/// The shown steps and whether the path has a gap: a transition that could
+/// not be kept as written. With a gap the steps are not to be published.
+///
+/// A step that is left out leaves no trace in the shown steps when it is
+/// optional and not the one a shown step follows, or when it is last. Any
+/// other case would leave a step whose transition describes a step the reader
+/// does not see, so the whole path is withheld (ADR 0244).
 fn resolve_steps(
     path: &ReadingPath,
     targets: &PublishedTargets,
     diagnostics: &mut Vec<Diagnostic>,
-) -> Vec<PublicStep> {
+) -> (Vec<PublicStep>, bool) {
     let diag = |step: &Step, kind, message: String| Diagnostic {
         path: path.slug.clone(),
         step: Some(step.id.clone()),
         kind,
         message,
     };
-    let mut steps: Vec<PublicStep> = Vec::new();
-    let mut previous: Option<&Step> = None;
-    // Whether the step just before this one made it into `steps`.
-    let mut previous_published = false;
-    for step in &path.steps {
-        let found = match &step.target {
-            Target::Post { slug } => targets
-                .posts
-                .get(slug)
-                .map(|(title, url)| ("post", "Post", slug.clone(), title.clone(), url.clone())),
-            Target::Atlas { id } => targets
-                .entries
-                .get(id)
-                .map(|(label, url, kind)| ("atlas", *kind, id.clone(), label.clone(), url.clone())),
-        };
-        let Some((kind, kind_label, target, title, url)) = found else {
+    let found: Vec<Option<Found>> = path
+        .steps
+        .iter()
+        .map(|step| find_target(step, targets))
+        .collect();
+    // The public position of each step that is shown.
+    let mut positions: Vec<Option<usize>> = vec![None; path.steps.len()];
+    let mut shown = 0;
+    for (i, f) in found.iter().enumerate() {
+        if f.is_some() {
+            shown += 1;
+            positions[i] = Some(shown);
+        } else {
             diagnostics.push(diag(
-                step,
+                &path.steps[i],
                 DiagnosticKind::StepUnavailable,
                 format!(
                     "{} is not published, so the step is left out",
-                    step.target.key()
+                    path.steps[i].target.key()
                 ),
             ));
-            previous = Some(step);
-            previous_published = false;
+        }
+    }
+    let mut gap = false;
+    let mut steps: Vec<PublicStep> = Vec::new();
+    for (i, (step, found)) in path.steps.iter().zip(found).enumerate() {
+        let Some((kind, kind_label, target, title, url)) = found else {
             continue;
         };
         let mut transition = None;
-        if let Some(t) = &step.transition {
-            if !previous_published {
-                diagnostics.push(diag(
-                    step,
-                    DiagnosticKind::TransitionDropped,
-                    "the step before it is left out, so its transition would describe a step the reader does not see".into(),
-                ));
-            } else {
-                transition = resolve_transition(t, previous, step, targets, diagnostics, &diag);
+        if i == 0 {
+            // The first step of the path has no transition.
+        } else {
+            let anchor = followed_index(&path.steps, i).filter(|&a| positions[a].is_some());
+            match (&step.transition, anchor) {
+                (Some(t), Some(a)) => match check_transition(t, &path.steps[a], step, targets) {
+                    Ok(basis) => {
+                        transition = Some(PublicTransition {
+                            relationship: t.relationship,
+                            label: t.relationship.label(),
+                            why: t.why.clone(),
+                            follows: positions[a].expect("a followed step is shown"),
+                            basis,
+                        });
+                    }
+                    Err(message) => {
+                        gap = true;
+                        diagnostics.push(diag(step, DiagnosticKind::TransitionDropped, message));
+                    }
+                },
+                (Some(_), None) => {
+                    gap = true;
+                    diagnostics.push(diag(
+                        step,
+                        DiagnosticKind::TransitionDropped,
+                        "the step it follows is left out, so its transition would describe a step the reader does not see".into(),
+                    ));
+                }
+                (None, _) => {
+                    gap = true;
+                    diagnostics.push(diag(
+                        step,
+                        DiagnosticKind::TransitionDropped,
+                        "it has no transition, so the reader would not be told why it follows"
+                            .into(),
+                    ));
+                }
             }
         }
         steps.push(PublicStep {
-            id: step.id.clone(),
             position: steps.len() + 1,
             kind,
             kind_label,
@@ -776,53 +1342,41 @@ fn resolve_steps(
             optional: step.optional,
             transition,
         });
-        previous = Some(step);
-        previous_published = true;
     }
-    steps
+    // Step 0 left out: the first shown step would start the path in the
+    // middle. Its transition (if it has one) follows a step that is gone, so
+    // the loop above already marked a gap; a step with none is also a gap.
+    if !path.steps.is_empty() && positions[0].is_none() && !steps.is_empty() {
+        gap = true;
+    }
+    (steps, gap)
 }
 
-fn resolve_transition(
+/// Whether the transition holds as written; the basis to show, or why not.
+fn check_transition(
     t: &Transition,
-    previous: Option<&Step>,
+    followed: &Step,
     step: &Step,
     targets: &PublishedTargets,
-    diagnostics: &mut Vec<Diagnostic>,
-    diag: &dyn Fn(&Step, DiagnosticKind, String) -> Diagnostic,
-) -> Option<PublicTransition> {
-    let mut basis = t.basis.clone();
-    if let Some(id) = &t.basis {
-        // Where an end is an atlas entry, the published influence must run
-        // from the previous step to this one.
-        let joins = targets.influences.get(id).is_some_and(|(from, to)| {
-            let end = |target: Option<&Target>| match target {
-                Some(Target::Atlas { id }) => Some(id.clone()),
-                _ => None,
-            };
-            end(previous.map(|p| &p.target)).is_none_or(|p| &p == from)
-                && end(Some(&step.target)).is_none_or(|s| &s == to)
-        });
-        if !joins {
-            basis = None;
-            if t.relationship == Relationship::Influenced {
-                diagnostics.push(diag(
-                    step,
-                    DiagnosticKind::TransitionDropped,
-                    format!("`influenced` rests on `{id}`, which is not a published influence from the previous step to this one, so the transition is dropped"),
-                ));
-                return None;
-            }
-            diagnostics.push(diag(
-                step,
-                DiagnosticKind::BasisUnavailable,
-                format!("basis `{id}` is not a published influence from the previous step to this one, so it is not shown"),
-            ));
-        }
+) -> Result<Option<String>, String> {
+    if t.relationship != Relationship::Influenced {
+        return Ok(None);
     }
-    Some(PublicTransition {
-        relationship: t.relationship,
-        label: t.relationship.label(),
-        why: t.why.clone(),
-        basis,
-    })
+    let Some(id) = &t.basis else {
+        return Err("`influenced` has no basis, so the path is not published".into());
+    };
+    let (Target::Atlas { id: from, .. }, Target::Atlas { id: to, .. }) =
+        (&followed.target, &step.target)
+    else {
+        return Err("`influenced` joins two atlas entries, so the path is not published".into());
+    };
+    match targets.influences.get(id) {
+        Some((f, t, false)) if f == from && t == to => Ok(Some(id.clone())),
+        Some((_, _, true)) => Err(format!(
+            "`influenced` rests on `{id}`, which is contested, so the path is not published; use another label"
+        )),
+        _ => Err(format!(
+            "`influenced` rests on `{id}`, which is not a published influence from the step it follows to this one, so the path is not published"
+        )),
+    }
 }

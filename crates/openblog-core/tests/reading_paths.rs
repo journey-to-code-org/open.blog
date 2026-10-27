@@ -12,7 +12,9 @@ use openblog_core::reading_path::{
 };
 use openblog_core::research_notes::Notebook;
 use openblog_core::source_library::SourceLibrary;
-use openblog_core::{generate, LoadOptions, Site, SiteConfig, SourceFile, Sources, ThemeSet};
+use openblog_core::{
+    generate, DateTime, LoadOptions, Site, SiteConfig, SourceFile, Sources, ThemeSet,
+};
 use serde_json::{json, Value};
 
 const GOLDEN: &str = include_str!("fixtures/reading-path.json");
@@ -134,9 +136,9 @@ fn steps_keep_the_authors_order_and_resolve_in_it() {
     assert_eq!(
         steps
             .iter()
-            .map(|s| (s.id.as_str(), s.position))
+            .map(|s| (s.target.as_str(), s.position))
             .collect::<Vec<_>>(),
-        [("one", 1), ("two", 2)]
+        [("other", 1), ("the-cave", 2)]
     );
     assert_eq!(
         steps[1].transition.as_ref().unwrap().relationship,
@@ -179,16 +181,20 @@ fn there_are_no_branches_and_a_path_never_returns_to_a_step() {
          "transition": {"relationship": "next", "why": "w"}},
     ])));
     assert!(
-        e.contains("step `b`") && e.contains("unknown variant"),
+        e.contains("step `b`") && e.contains("`target.kind` must be `post` or `atlas`"),
         "{e}"
     );
-    // A step cannot name several next steps.
-    let e = errors(doc(json!([
+    // A `next` field is kept as an unread extra, so it never makes a branch:
+    // the list is the order.
+    let p = parse(doc(json!([
         post_step("a", "other"),
         {"id": "b", "target": {"kind": "post", "slug": "the-cave"},
          "next": ["c"], "transition": {"relationship": "next", "why": "w"}},
-    ])));
-    assert!(e.contains("unknown field `next`"), "{e}");
+    ])))
+    .unwrap();
+    let out = PublicPaths::resolve(&[p], &targets());
+    assert_eq!(out.paths.paths[0].steps.len(), 2);
+    assert!(!out.paths.to_json().contains("\"next\":[\"c"));
 }
 
 #[test]
@@ -220,7 +226,7 @@ fn every_transition_explains_why_and_has_no_default_relationship() {
     let mut none = post_step("b", "the-cave");
     none["transition"] = json!({"why": "because"});
     let e = errors(doc(json!([post_step("a", "other"), none])));
-    assert!(e.contains("missing field `relationship`"), "{e}");
+    assert!(e.contains("`transition.relationship` is required"), "{e}");
     let first = with_next(post_step("a", "other"));
     assert!(errors(doc(json!([first, post_step("b", "the-cave")]))).contains("no transition"));
 }
@@ -249,6 +255,16 @@ fn influence_needs_a_published_relationship_and_chronology_is_never_enough() {
     assert!(e.contains("`influenced` needs `basis`"), "{e}");
 }
 
+fn atlas_step(id: &str, entry: &str) -> Value {
+    json!({"id": id, "target": {"kind": "atlas", "id": entry}})
+}
+
+fn influenced(mut step: Value, basis: &str) -> Value {
+    step["transition"] =
+        json!({"relationship": "influenced", "why": "The atlas says so.", "basis": basis});
+    step
+}
+
 #[test]
 fn influence_is_kept_only_with_a_published_influence_in_the_stated_direction() {
     let path = ReadingPath::parse("paths/golden.json", GOLDEN).unwrap();
@@ -256,72 +272,138 @@ fn influence_is_kept_only_with_a_published_influence_in_the_stated_direction() {
     let stoics = &out.paths.paths[0].steps[2];
     let t = stoics.transition.as_ref().unwrap();
     assert_eq!(
-        (t.relationship, t.basis.as_deref()),
-        (Relationship::Influenced, Some("r-influence"))
+        (t.relationship, t.basis.as_deref(), t.follows),
+        (Relationship::Influenced, Some("r-influence"), 2)
     );
     assert!(out.diagnostics.is_empty(), "{:?}", out.diagnostics);
 
-    // Reversed: the previous step would be the later one.
-    let mut reversed = path.clone();
-    reversed.steps.swap(1, 2);
-    reversed.steps[1].transition = path.steps[1].transition.clone();
-    reversed.steps[2].transition = path.steps[2].transition.clone();
+    // Reversed: the relationship runs plato to stoics, and this path asks the
+    // opposite. The whole path is withheld, never softened or shown with a gap.
+    let reversed = parse(doc(json!([
+        post_step("a", "other"),
+        with_next(atlas_step("s", "stoics")),
+        influenced(atlas_step("p", "plato"), "r-influence"),
+    ])))
+    .unwrap();
     let out = PublicPaths::resolve(&[reversed], &targets());
-    assert!(out.paths.paths[0].steps[2].transition.is_none());
+    assert!(out.paths.paths.is_empty());
     assert!(out
         .diagnostics
         .iter()
         .any(|d| d.kind == DiagnosticKind::TransitionDropped));
+    assert!(out
+        .diagnostics
+        .iter()
+        .any(|d| d.kind == DiagnosticKind::PathWithheld));
 
-    // A basis that is not an influence, or does not exist: dropped, never "influenced".
+    // A basis that is not an influence, or does not exist.
     for basis in ["r-related", "nope"] {
         let mut p = path.clone();
         p.steps[2].transition.as_mut().unwrap().basis = Some(basis.into());
         let out = PublicPaths::resolve(&[p], &targets());
-        assert!(out.paths.paths[0].steps[2].transition.is_none(), "{basis}");
+        assert!(out.paths.paths.is_empty(), "{basis}");
     }
-
-    // A softer label keeps its words and loses the unpublished basis.
-    let mut p = path;
-    {
-        let t = p.steps[2].transition.as_mut().unwrap();
-        t.relationship = Relationship::BuildsOn;
-        t.basis = Some("nope".into());
-    }
-    let out = PublicPaths::resolve(&[p], &targets());
-    let t = out.paths.paths[0].steps[2].transition.as_ref().unwrap();
-    assert_eq!(
-        (t.relationship, t.basis.as_deref()),
-        (Relationship::BuildsOn, None)
-    );
-    assert_eq!(out.diagnostics[0].kind, DiagnosticKind::BasisUnavailable);
 }
 
 #[test]
-fn a_missing_step_is_left_out_with_a_diagnostic_and_its_neighbours_claim_nothing() {
+fn influence_joins_two_atlas_entries_and_never_a_post() {
+    // post -> post, atlas -> post and post -> atlas are all refused when read.
+    let cases = [
+        (
+            post_step("a", "other"),
+            influenced(post_step("b", "the-cave"), "r-influence"),
+        ),
+        (
+            atlas_step("a", "plato"),
+            influenced(post_step("b", "the-cave"), "r-influence"),
+        ),
+        (
+            post_step("a", "the-cave"),
+            influenced(atlas_step("b", "stoics"), "r-influence"),
+        ),
+    ];
+    for (first, second) in cases {
+        let e = errors(draft(json!([first, second])));
+        assert!(
+            e.contains("step `b`") && e.contains("`influenced` joins two atlas entries"),
+            "{e}"
+        );
+    }
+    // Atlas to atlas is read.
+    assert!(parse(doc(json!([
+        atlas_step("a", "plato"),
+        influenced(atlas_step("b", "stoics"), "r-influence"),
+    ])))
+    .is_ok());
+}
+
+#[test]
+fn a_basis_belongs_to_influenced_alone() {
+    let mut s = atlas_step("b", "stoics");
+    s["transition"] = json!({"relationship": "builds-on", "why": "w", "basis": "r-influence"});
+    let e = errors(draft(json!([atlas_step("a", "plato"), s])));
+    assert!(
+        e.contains("`transition.basis` belongs to `influenced` only"),
+        "{e}"
+    );
+}
+
+#[test]
+fn a_contested_influence_is_not_published_as_one() {
+    let mut t = targets();
+    // The same ids, but the relationship is contested by someone.
+    let library = SourceLibrary::parse(
+        &json!({"version": 1, "sources": [{"id": "book", "kind": "work", "title": "A book"}]})
+            .to_string(),
+        &BTreeMap::new(),
+    )
+    .unwrap();
+    let notebook = Notebook::parse(
+        &json!({"version": 1, "passages": [], "notes": []}).to_string(),
+        &library,
+    )
+    .unwrap();
+    let atlas = Atlas::parse(
+        &json!({"version": 1,
+            "entries": [
+                {"id": "plato", "kind": "person", "label": "Plato", "visibility": "approved"},
+                {"id": "stoics", "kind": "movement", "label": "The Stoics", "visibility": "approved"}],
+            "relationships": [{"id": "r-contested", "kind": "influenced", "from": "plato", "to": "stoics",
+                "assertedBy": {"kind": "author"}, "confidence": "plausible",
+                "evidence": [{"source": "book"}], "visibility": "approved",
+                "contestedBy": [{"by": {"kind": "named", "name": "A later editor"},
+                    "note": "Disputed."}]}]})
+        .to_string(),
+        Links {
+            library: &library,
+            notebook: &notebook,
+        },
+    );
+    let atlas = atlas.expect("a contested relationship parses");
+    t.add_atlas(&PublicAtlas::project(&atlas, &library).unwrap());
+    let p = parse(doc(json!([
+        atlas_step("a", "plato"),
+        influenced(atlas_step("b", "stoics"), "r-contested"),
+    ])))
+    .unwrap();
+    let out = PublicPaths::resolve(&[p], &t);
+    assert!(out.paths.paths.is_empty());
+    assert!(out
+        .diagnostics
+        .iter()
+        .any(|d| d.message.contains("contested")));
+}
+
+#[test]
+fn a_missing_required_step_withholds_the_path_and_never_shows_a_gap() {
     let path = parse(doc(json!([
         post_step("a", "other"),
         with_next(post_step("gone", "deleted-post")),
         with_next(post_step("c", "the-cave")),
-        with_next(post_step("d", "other-2")),
-        with_next(json!({"id": "e", "target": {"kind": "atlas", "id": "plato"}})),
     ])))
     .unwrap();
-    let mut t = targets();
-    t.add_post("other-2", "Other 2", "/posts/other-2/");
-    let out = PublicPaths::resolve(&[path], &t);
-    let steps = &out.paths.paths[0].steps;
-    assert_eq!(
-        steps.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
-        ["a", "c", "d", "e"]
-    );
-    assert_eq!(
-        steps.iter().map(|s| s.position).collect::<Vec<_>>(),
-        [1, 2, 3, 4]
-    );
-    // `c` followed a step the reader does not see, so it claims no transition.
-    assert!(steps[1].transition.is_none());
-    assert!(steps[2].transition.is_some() && steps[3].transition.is_some());
+    let out = PublicPaths::resolve(&[path], &targets());
+    assert!(out.paths.paths.is_empty());
     let kinds: Vec<_> = out
         .diagnostics
         .iter()
@@ -331,13 +413,153 @@ fn a_missing_step_is_left_out_with_a_diagnostic_and_its_neighbours_claim_nothing
         kinds,
         [
             (Some("gone"), DiagnosticKind::StepUnavailable),
-            (Some("c"), DiagnosticKind::TransitionDropped)
+            (Some("c"), DiagnosticKind::TransitionDropped),
+            (None, DiagnosticKind::PathWithheld),
         ]
     );
     assert_eq!(
         out.diagnostics[0].to_string(),
         "reading path `p`, step `gone`: post `deleted-post` is not published, so the step is left out"
     );
+    // A missing first step leaves the second one starting the path mid-way.
+    let path = parse(doc(json!([
+        post_step("gone", "deleted-post"),
+        with_next(post_step("b", "the-cave")),
+        with_next(post_step("c", "other")),
+    ])))
+    .unwrap();
+    assert!(PublicPaths::resolve(&[path], &targets())
+        .paths
+        .paths
+        .is_empty());
+}
+
+#[test]
+fn a_missing_optional_or_last_step_leaves_no_trace() {
+    let mut t = targets();
+    t.add_post("other-2", "Other 2", "/posts/other-2/");
+    let mut optional = with_next(post_step("gone", "deleted-post"));
+    optional["optional"] = json!(true);
+    let path = parse(doc(json!([
+        post_step("a", "other"),
+        optional,
+        with_next(post_step("c", "the-cave")),
+        with_next(post_step("d", "other-2")),
+        with_next(post_step("tail", "deleted-too")),
+    ])))
+    .unwrap();
+    let out = PublicPaths::resolve(&[path], &t);
+    let steps = &out.paths.paths[0].steps;
+    assert_eq!(
+        steps.iter().map(|s| s.target.as_str()).collect::<Vec<_>>(),
+        ["other", "the-cave", "other-2"]
+    );
+    assert_eq!(
+        steps.iter().map(|s| s.position).collect::<Vec<_>>(),
+        [1, 2, 3]
+    );
+    // `c` follows `a`, the nearest required step, which is shown.
+    assert_eq!(steps[1].transition.as_ref().unwrap().follows, 1);
+    assert_eq!(out.diagnostics.len(), 2);
+    // The author's ids never reach the public value.
+    let json = out.paths.to_json();
+    for id in ["\"gone\"", "\"tail\"", "\"id\""] {
+        assert!(!json.contains(id), "{id}");
+    }
+}
+
+#[test]
+fn every_shown_step_after_the_first_has_a_transition_or_the_path_is_withheld() {
+    // Every combination of which of five steps are published; steps 1 and 3
+    // are optional. Whatever is shown, no step is left without its transition.
+    for mask in 0u32..32 {
+        let slugs = ["s0", "s1", "s2", "s3", "s4"];
+        let mut t = PublishedTargets::default();
+        for (i, slug) in slugs.iter().enumerate() {
+            if mask & (1 << i) != 0 {
+                t.add_post(slug, slug, &format!("/{slug}/"));
+            }
+        }
+        let steps: Vec<Value> = slugs
+            .iter()
+            .enumerate()
+            .map(|(i, slug)| {
+                let mut s = post_step(&format!("id{i}"), slug);
+                if i > 0 {
+                    s = with_next(s);
+                }
+                if i == 1 || i == 3 {
+                    s["optional"] = json!(true);
+                }
+                s
+            })
+            .collect();
+        let p = parse(doc(json!(steps))).unwrap();
+        let out = PublicPaths::resolve(&[p], &t);
+        for path in &out.paths.paths {
+            assert!(path.steps.len() >= 2, "{mask}");
+            for (i, step) in path.steps.iter().enumerate() {
+                assert_eq!(step.position, i + 1, "{mask}");
+                match &step.transition {
+                    None => assert_eq!(i, 0, "step {i} lost its transition with mask {mask:05b}"),
+                    Some(tr) => assert!(tr.follows >= 1 && tr.follows <= i, "{mask}"),
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn the_first_step_is_never_optional_and_a_skipped_optional_step_keeps_the_path_coherent() {
+    let mut first = post_step("a", "other");
+    first["optional"] = json!(true);
+    let e = errors(draft(json!([first, with_next(post_step("b", "the-cave"))])));
+    assert!(
+        e.contains("step `a`") && e.contains("cannot be optional"),
+        "{e}"
+    );
+
+    // Two optional steps in a row both follow the same required step, so
+    // skipping either leaves the next one's transition true.
+    let mut o1 = with_next(post_step("o1", "the-cave"));
+    o1["optional"] = json!(true);
+    let mut o2 = with_next(post_step("o2", "other-2"));
+    o2["optional"] = json!(true);
+    let mut t = targets();
+    t.add_post("other-2", "Other 2", "/posts/other-2/");
+    t.add_post("last", "Last", "/posts/last/");
+    let p = parse(doc(json!([
+        post_step("a", "other"),
+        o1,
+        o2,
+        with_next(post_step("z", "last")),
+    ])))
+    .unwrap();
+    let out = PublicPaths::resolve(&[p], &t);
+    let follows: Vec<usize> = out.paths.paths[0]
+        .steps
+        .iter()
+        .skip(1)
+        .map(|s| s.transition.as_ref().unwrap().follows)
+        .collect();
+    assert_eq!(follows, [1, 1, 1]);
+}
+
+#[test]
+fn a_path_is_listed_unless_the_author_says_otherwise() {
+    let mut d = doc(json!([
+        post_step("a", "other"),
+        with_next(post_step("b", "the-cave"))
+    ]));
+    let listed = parse(d.clone()).unwrap();
+    assert!(listed.listed);
+    assert!(!listed.to_canonical_json().contains("listed"));
+    d["listed"] = json!(false);
+    let unlisted = parse(d).unwrap();
+    assert!(!unlisted.listed);
+    assert!(unlisted.to_canonical_json().contains("\"listed\": false"));
+    let out = PublicPaths::resolve(&[unlisted], &targets());
+    assert!(!out.paths.paths[0].listed);
 }
 
 #[test]
@@ -385,16 +607,30 @@ fn unpublished_targets_never_leak_and_are_not_told_apart_from_missing_ones() {
 }
 
 #[test]
-fn unknown_fields_and_versions_are_refused_not_dropped() {
-    let mut d = draft(json!([post_step("a", "other")]));
+fn unknown_fields_are_kept_losslessly_and_unknown_versions_are_refused() {
+    // An older release reads a newer file's known fields and writes the rest back.
+    let mut d = draft(json!([
+        {"id": "a", "target": {"kind": "post", "slug": "x", "z-extra": [1]}, "mood": 1,
+         "transition": null}
+    ]));
+    d["steps"][0].as_object_mut().unwrap().remove("transition");
     d["notes"] = json!("private thought");
-    assert!(errors(d).contains("unknown field `notes`"));
-    let d = draft(json!([{"id": "a", "target": {"kind": "post", "slug": "x"}, "mood": 1}]));
-    let e = errors(d);
-    assert!(
-        e.contains("step `a`") && e.contains("unknown field `mood`"),
-        "{e}"
-    );
+    let p = parse(d).unwrap();
+    let text = p.to_canonical_json();
+    let again = ReadingPath::parse("paths/p.json", &text).unwrap();
+    assert_eq!(again, p);
+    assert_eq!(again.to_canonical_json(), text);
+    assert!(text.contains("\"notes\": \"private thought\""));
+    assert!(text.contains("\"mood\": 1") && text.contains("\"z-extra\""));
+    // Extras are inert: never read, never public.
+    let mut published = p.clone();
+    published.status = Status::Published;
+    let out = PublicPaths::resolve(&[published], &targets());
+    assert!(!out.paths.to_json().contains("private thought"));
+    // Defined fields used wrongly are refused, naming the field only.
+    let mut d = draft(json!([post_step("a", "other")]));
+    d["summary"] = json!(7);
+    assert!(errors(d).contains("`summary` must be text"));
     let mut d = doc(json!([]));
     d["version"] = json!(2);
     assert!(errors(d).contains("version 2"));
@@ -403,7 +639,52 @@ fn unknown_fields_and_versions_are_refused_not_dropped() {
     assert!(errors(d).contains("`format` must be"));
     let mut d = doc(json!([post_step("a", "other")]));
     d["status"] = json!("public");
-    assert!(errors(d).contains("unknown variant"));
+    let e = errors(d);
+    assert!(e.contains("`status` must be `draft` or `published`"), "{e}");
+    assert!(!e.contains("public"), "{e}");
+}
+
+#[test]
+fn a_repeated_key_is_refused_and_a_serde_message_never_echoes_a_value() {
+    let dup =
+        r#"{"format":"openblog-reading-path","version":1,"title":"A","title":"B","steps":[]}"#;
+    let e = ReadingPath::parse("paths/p.json", dup).unwrap_err();
+    assert!(e[0].message.contains("repeats the field `title`"), "{e:?}");
+    let nested = r#"{"format":"openblog-reading-path","version":1,"title":"A","steps":[{"id":"a","id":"b","target":{"kind":"post","slug":"x"}}]}"#;
+    let e = ReadingPath::parse("paths/p.json", nested).unwrap_err();
+    assert!(e[0].message.contains("repeats the field `id`"), "{e:?}");
+    let hostile = format!(
+        r#"{{"format":"openblog-reading-path","version":1,"title":"A","steps":[],"{k}":1,"{k}":2}}"#,
+        k = "<script>alert(1)</script>"
+    );
+    let e = ReadingPath::parse("paths/p.json", &hostile).unwrap_err();
+    assert!(!e[0].message.contains("script"), "{e:?}");
+
+    // Wrong types name the field and never repeat what was written.
+    const SECRET: &str = "SECRET-VALUE-9";
+    let mut s = post_step("a", "other");
+    s["optional"] = json!(SECRET);
+    s["difficulty"] = json!(SECRET);
+    s["rationale"] = json!(5);
+    s["target"]["slug"] = json!([SECRET]);
+    let mut d = draft(json!([s]));
+    d["title"] = json!({"k": SECRET});
+    d["listed"] = json!(SECRET);
+    let e = errors(d);
+    assert!(!e.contains(SECRET), "{e}");
+    for field in [
+        "`title`",
+        "`listed`",
+        "`optional`",
+        "`difficulty`",
+        "`rationale`",
+        "`target.slug`",
+    ] {
+        assert!(e.contains(field), "{field}: {e}");
+    }
+    let bad_json = format!("{{\"title\": \"{SECRET}\" oops");
+    let e = ReadingPath::parse("paths/p.json", &bad_json).unwrap_err();
+    assert!(!e[0].message.contains(SECRET), "{e:?}");
 }
 
 #[test]
@@ -577,4 +858,94 @@ fn a_path_coexists_with_a_series_and_leaves_it_and_the_build_unchanged() {
     assert_eq!(site.series_by_slug("guide").unwrap().posts, series_order);
     assert_eq!(before, built(&site));
     assert!(before.keys().all(|p| !p.contains("paths")));
+}
+
+fn visibility_site(include_drafts: bool) -> Site {
+    let config = SiteConfig::from_json(
+        r#"{"title": "S", "url": "https://example.com", "author": {"name": "A"}}"#,
+    )
+    .unwrap();
+    let post = |name: &str, date: &str, extra: &str| SourceFile {
+        path: format!("posts/{name}.md"),
+        contents: format!(
+            "---
+title: {name}
+date: {date}
+{extra}---
+Body."
+        ),
+    };
+    Site::load(
+        config,
+        Sources {
+            posts: vec![
+                post("live", "2026-10-01", ""),
+                post(
+                    "drafty",
+                    "2026-10-01",
+                    "draft: true
+",
+                ),
+                post("later", "2027-01-01", ""),
+            ],
+            ..Default::default()
+        },
+        LoadOptions {
+            include_drafts,
+            now: Some(DateTime::parse("2026-10-22T00:00:00Z").unwrap()),
+            ..Default::default()
+        },
+    )
+    .expect("site")
+}
+
+#[test]
+fn targets_from_a_site_loaded_with_drafts_still_use_production_visibility() {
+    let site = visibility_site(true);
+    // The Admin load holds the draft and the scheduled post as posts...
+    assert!(site.posts.iter().any(|p| p.slug == "drafty"));
+    // ...but a path may not name them.
+    let targets = PublishedTargets::from_site(&site);
+    let names: Vec<_> = targets.posts().map(|(slug, _)| slug.to_string()).collect();
+    assert_eq!(names, ["live"], "{names:?}");
+    assert_eq!(
+        PublishedTargets::from_site(&visibility_site(false))
+            .posts()
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn paths_reserve_their_address_only_when_the_switch_is_on() {
+    let build = |on: bool| {
+        let mut config = SiteConfig::from_json(
+            r#"{"title": "S", "url": "https://example.com", "author": {"name": "A"}}"#,
+        )
+        .unwrap();
+        config.reading_paths.publish = on;
+        let site = Site::load(
+            config,
+            Sources {
+                pages: vec![SourceFile {
+                    path: "pages/paths.md".into(),
+                    contents: "---
+title: Paths
+---
+Mine."
+                        .into(),
+                }],
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .expect("site");
+        generate(&site, &ThemeSet::new())
+    };
+    assert!(
+        build(false).is_ok(),
+        "off: an existing /paths/ page keeps working"
+    );
+    let e = build(true).unwrap_err();
+    assert!(e.contains("paths") && e.contains("reserved"), "{e}");
 }

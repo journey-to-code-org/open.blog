@@ -21,10 +21,9 @@
         "id": "plato"
       },
       "prerequisites": "No background needed.",
-      "optional": true,
       "transition": {
         "relationship": "background",
-        "why": "The author of the image is worth knowing before the later readers."
+        "why": "The first step assumes some knowledge of the man who wrote the image."
       }
     },
     {
@@ -39,6 +38,24 @@
         "why": "The atlas records this influence with its evidence.",
         "basis": "r-influence"
       }
+    },
+    {
+      "id": "aside",
+      "target": {
+        "kind": "post",
+        "slug": "other"
+      },
+      "optional": true,
+      "transition": {
+        "relationship": "applies",
+        "why": "A worked example for readers who want one."
+      }
     }
-  ]
+  ],
+  "x-future": {
+    "kept": [
+      1,
+      2
+    ]
+  }
 }

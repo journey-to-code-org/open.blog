@@ -751,10 +751,14 @@ fn validate_output_paths(site: &Site) -> Result<(), String> {
     // that never reads the atlas, and must refuse what the next build would.
     let publishes_atlas = site.config.knowledge_atlas.publish;
     let publishes_comparisons = site.config.comparisons.publish;
+    // Like the atlas: reading paths reserve `/paths/` only behind their own
+    // switch (ADR 0245), so a site that has not opted in is unaffected.
+    let publishes_paths = site.config.reading_paths.publish;
     let reserved = |segment: &str| {
         RESERVED.contains(&segment)
             || (publishes_atlas && segment == ATLAS_SEGMENT)
             || (publishes_comparisons && segment == COMPARISONS_SEGMENT)
+            || (publishes_paths && segment == crate::reading_path::PATHS_SEGMENT)
     };
     for page in &site.pages {
         if reserved(page.slug.as_str()) {
