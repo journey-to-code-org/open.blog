@@ -29,6 +29,7 @@
 //! - [`atlas_publication`]: the one public projection of its approved items, for pages and `atlas.json`
 //! - [`concept_links`]: an author's explicit `atlas:` links, resolved at build time against the public atlas alone
 //! - [`atlas_query`]: the bounded query projection derived from the public atlas, for components and search
+//! - [`reading_path`]: author-curated reading paths of published steps with author-written transitions, resolved against what a build publishes
 //! - [`comparison_publication`]: the one public projection of approved passage alignments, rights-gated, for pages and `comparisons.json`
 //! - [`passage_target`]: stable passage targets in published text, resolved as current, re-anchored or stale
 //! - [`feedback_provenance`]: which revision a reader's feedback was about and when, with consent-gated attribution
@@ -103,6 +104,7 @@ pub mod published_moment;
 mod raw_html;
 pub mod reader_references;
 pub mod reading_depth;
+pub mod reading_path;
 pub mod recipe;
 pub mod reflection;
 pub mod render;
