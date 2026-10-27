@@ -2257,13 +2257,21 @@ _Avoid_: Comment, research note, feedback
 
 **Saved source**:
 A source a reader keeps in their annotation document: a title and either an http(s) link or a work on a
-site, with an optional note. It is not an entry in the source library or a reference (ADR 0450).
+site, with an optional note. A linked source also records the work it was found in (`from`). It is not an
+entry in the source library or a reference (ADRs 0450, 0455).
 _Avoid_: Reference, source library entry, bibliography
 
 **Reading trail**:
 A reader's own ordered line of up to 200 highlights, notes and saved sources, each once. Unlike an
-author's reading path it is private, local and implies no relationship between steps (ADR 0453).
+author's reading path it is private, local, built by hand and implies no relationship between steps (ADRs 0453, 0455).
 _Avoid_: Reading path, history
+
+**Trail panel**:
+The second part of a post offered by a site that turns on `readerAnnotations`: "Your reading trails and saved
+sources", where a reader saves this post or a reference it cites, starts trails by hand, orders them, and
+removes one thing or everything. Nothing is recorded as a reader reads; it holds only what the reader added,
+in their browser (ADR 0455).
+_Avoid_: History, recently read, tracking
 
 **Annotation privacy scope**:
 The statement every annotation document and export carries: `reader-private`, and whether the reader's own

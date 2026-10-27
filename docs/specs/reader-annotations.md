@@ -8,10 +8,11 @@ with no account. This page is the contract those features share. It is implement
 [ADR 0451](../adr/0451-an-annotation-names-its-work-by-site-and-path-and-its-text-by-a-passage-target-and-staleness-is-derived-never-stored.md) (identity and stale state),
 [ADR 0452](../adr/0452-an-export-states-its-privacy-scope-and-leaves-note-text-out-unless-the-reader-includes-it.md) (export privacy) and
 [ADR 0453](../adr/0453-reader-annotation-validation-is-strict-scoped-to-the-record-and-never-repairs-or-repeats-reader-text.md) (validation) and
-[ADR 0454](../adr/0454-highlights-and-notes-are-opt-in-per-site-keep-the-article-unchanged-and-save-only-to-bounded-local-storage.md) (highlights and notes on a page).
+[ADR 0454](../adr/0454-highlights-and-notes-are-opt-in-per-site-keep-the-article-unchanged-and-save-only-to-bounded-local-storage.md) (highlights and notes on a page) and
+[ADR 0455](../adr/0455-reading-trails-are-built-by-hand-nothing-is-recorded-as-a-reader-reads-and-a-linked-source-remembers-the-work-it-was-found-in.md) (reading trails and saved sources on a page).
 
 The contract comes first. Local highlights and notes (#85, below), the trail and saved-source organizer
-(#86) and import, export and privacy controls (#87) build on it. A site and its posts are unchanged
+(#86, below) and import, export and privacy controls (#87) build on it. A site and its posts are unchanged
 until those features are used; nothing here is in the build, Admin or any feed.
 
 ## Document
@@ -34,6 +35,7 @@ until those features are used; nothing here is in the build, Admin or any feed.
   ],
   "sources": [
     { "id": "kettle-guide", "kind": "source", "title": "Kettle guide", "url": "https://example.org/kettles",
+      "from": { "site": "https://example.com", "path": "/posts/tea/" },
       "text": "Check the boiling point.", "createdAt": "2026-10-27T09:30:00Z", "updatedAt": "2026-10-27T09:30:00Z" }
   ],
   "trails": [
@@ -46,7 +48,7 @@ until those features are used; nothing here is in the build, Admin or any feed.
 
 - **Highlight**: a quoted passage, with no text of the reader's own. **Note**: the reader's text attached to
   a quote, a section or the whole work. **Saved source**: a title and either an http(s) `url` or a `work`
-  on a site, with an optional note. **Trail**: an ordered line of up to 200 steps, each naming one
+  on a site, with an optional note. A source with a `url` may also say which work it was found in (`from`). **Trail**: an ordered line of up to 200 steps, each naming one
   annotation or saved source by id, once.
 - **Identity.** A work is its site origin plus its canonical path. The target is a passage target
   ([ADR 0076](../adr/0076-passage-targets-are-section-anchors-with-quoted-context.md)): exact text with
@@ -80,6 +82,7 @@ repaired and the caller keeps what it had. Messages never repeat reader text.
 | Id not a lowercase slug of 1 to 64 characters, or reused | `invalidId`, `duplicateId` |
 | Site not a plain http(s) origin; path not canonical, or holds traversal | `invalidSite`, `invalidPath` |
 | URL not http(s), with credentials, or not canonical | `unsafeScheme`, `invalidUrl` |
+| Source with both or neither of `url` and `work`, or `from` on a source with no `url` | `invalidSource` |
 | Highlight not a quote, or with text; note without text | `wrongTarget`, `unexpectedText`, `emptyText` |
 | Target invalid | the passage-target code (`splitCharacter`, `unsupportedVersion`, ...) |
 | Control, bidirectional or lone-surrogate characters | `forbiddenCharacter` |
@@ -112,3 +115,27 @@ needs. With it:
   or is full, the reader is told and changes last until the page closes. Data under the key that this version
   cannot read is never overwritten.
 - **Safety.** Everything a reader wrote is set as text. The page holds no annotation and makes no request.
+
+## Reading trails and saved sources on a page
+
+The same sites get a second region, "Your reading trails and saved sources" (`<ob-reading-trail>`,
+`web/components/ob-reading-trail.js`), beside the highlights. **Nothing is recorded as a reader reads.** The
+panel holds only what the reader adds, says so at the top, and keeps it in this browser. Without JavaScript it
+is one paragraph saying what it needs. With it:
+
+- **Saved sources.** "Save this post as a source" keeps the post by its work. "A reference this post cites" lists the
+  references the page publishes: one with an outside link is saved by that link, one without as a link to its note in
+  the post, each with the post it was found in (`from`) and its formatted text as the title. The same link or post
+  is never saved twice. Outside links open with `rel="noopener noreferrer"`.
+- **Posts you have marked.** Every post with a saved highlight or note, most recent first, with counts and a link.
+- **Trails.** Name a trail, then add a saved source, highlight or note to it from a list that leaves out what
+  is already in it. A step appears once. "Move earlier" and "Move later" reorder one place at a time and keep focus
+  on the moved step; "Remove from the trail" keeps the record. Trails are listed most recently changed first.
+- **Clearing.** Removing a source, deleting a trail, removing one post's highlights and notes, and "Clear all my
+  local data" each ask first and change only what they name. Clearing all removes the whole key, even data this
+  version cannot read; it is the only action that ever touches such data.
+- **Storage.** Unlike highlights, nothing here is kept in memory only. A change that cannot be saved (storage denied,
+  full, unreadable, or a limit of 500 sources, 50 trails or 200 steps) is refused with the reason beside the control
+  and nothing changes. The panel and the highlights refresh each other, and other tabs, when the document changes.
+- **Safety.** Titles, names and notes are set as text; links come from validated data (http or https, no credentials).
+

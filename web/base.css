@@ -3610,3 +3610,123 @@ ob-annotations [hidden] {
   outline: 2px solid currentColor;
   outline-offset: 2px;
 }
+
+/* Reader saved sources and reading trails (ADR 0455): the same quiet, one-column controls. */
+
+.ob-reading-trail {
+  max-inline-size: 42rem;
+}
+
+ob-reading-trail {
+  display: block;
+}
+
+ob-reading-trail [hidden] {
+  display: none;
+}
+
+.ob-trail-body,
+.ob-trail-section,
+.ob-trail-form,
+.ob-trail-field,
+.ob-trail-item {
+  display: grid;
+  gap: .75rem;
+}
+
+.ob-trail-section {
+  margin-block-start: 1.5rem;
+}
+
+.ob-trail-heading {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.ob-trail-lead,
+.ob-trail-hint,
+.ob-trail-meta,
+.ob-trail-empty,
+.ob-trail-status,
+.ob-trail-notice,
+.ob-trail-error,
+.ob-trail-title {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ob-trail-hint,
+.ob-trail-meta,
+.ob-trail-empty {
+  color: var(--ob-color-muted);
+}
+
+.ob-trail-notice,
+.ob-trail-error {
+  font-weight: 600;
+}
+
+.ob-trail-error::before {
+  content: "Error: ";
+}
+
+.ob-trail-status:empty {
+  display: none;
+}
+
+.ob-trail-title {
+  font-weight: 600;
+}
+
+.ob-trail-list,
+.ob-trail-steps {
+  display: grid;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-trail-item {
+  padding: .75rem 1rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: .35rem;
+}
+
+.ob-trail-steps {
+  gap: .75rem;
+  counter-reset: ob-trail-step;
+}
+
+.ob-trail-step {
+  display: grid;
+  gap: .35rem;
+  padding-inline-start: .75rem;
+  border-inline-start: 3px solid var(--ob-color-border);
+}
+
+.ob-trail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1rem;
+  align-items: center;
+}
+
+.ob-reading-trail input[type="text"],
+.ob-reading-trail select {
+  box-sizing: border-box;
+  inline-size: 100%;
+  min-inline-size: 0;
+  font: inherit;
+  padding: .65rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: .35rem;
+  background: var(--ob-color-surface);
+  color: inherit;
+}
+
+.ob-reading-trail :focus-visible,
+.ob-reading-trail [aria-invalid="true"] {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}

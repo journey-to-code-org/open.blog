@@ -17,7 +17,7 @@
 
 import { assessAnnotations, workKey, MAX_NOTE_CHARS } from "./reader-annotations.js";
 import { DATA_ELEMENT_ID, locateSelection, quoteFromSelection, readPassages, selectionProblem } from "./passage-selection.js";
-import { addAnnotation, annotationsOf, deleteAnnotation, readStore, setNoteText, writeStore } from "./reader-annotations-store.js";
+import { CHANGED_EVENT, STORAGE_KEY, addAnnotation, annotationsOf, deleteAnnotation, readStore, setNoteText, writeStore } from "./reader-annotations-store.js";
 
 export const HIGHLIGHT_NAME = "ob-annotation";
 
@@ -208,7 +208,11 @@ export class ObAnnotations extends HTMLElement {
     const { signal } = this.#listeners;
     document.addEventListener("selectionchange", () => this.#selectionChanged(), { signal });
     window.addEventListener("storage", (event) => {
-      if (event.key === null || event.key === "openblog.reader-annotations") this.#reload();
+      if (event.key === null || event.key === STORAGE_KEY) this.#reload();
+    }, { signal });
+    // The reading-trail panel on the same page changed the saved document.
+    window.addEventListener(CHANGED_EVENT, (event) => {
+      if (event.detail?.from !== this) this.#reload();
     }, { signal });
     this.#reload();
   }
@@ -369,6 +373,7 @@ export class ObAnnotations extends HTMLElement {
     if (this.#persistence === "saved" || this.#persistence === "full") {
       const written = writeStore(storage, result.document);
       this.#persistence = written.ok ? "saved" : written.reason;
+      if (written.ok) window.dispatchEvent(new CustomEvent(CHANGED_EVENT, { detail: { from: this } }));
     }
     return result;
   }

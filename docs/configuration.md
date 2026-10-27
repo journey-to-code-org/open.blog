@@ -372,6 +372,9 @@ else is read as standard instead of failing the configuration.
 reader can highlight words and keep private notes (see [Reader annotations](specs/reader-annotations.md#highlights-and-notes-on-a-page)).
 They are kept in that reader's own browser and are never sent to you, to the build or to any service. Turning
 it on adds the region, the post's passage text and one script to each post; with it off, pages are unchanged.
+It also adds a second region, "Your reading trails and saved sources", where a reader saves this post or a
+reference it cites and builds trails by hand (see [Reading trails and saved sources](specs/reader-annotations.md#reading-trails-and-saved-sources-on-a-page)).
+Nothing is recorded as a reader reads, and what they keep stays in their browser.
 
 ## Claim evidence
 

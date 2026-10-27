@@ -69,6 +69,33 @@ fn an_opted_in_post_carries_the_region_the_passage_text_and_the_script() {
 }
 
 #[test]
+fn an_opted_in_post_also_carries_the_trail_region_with_its_disclosure_and_script() {
+    let files = build(&config(ON));
+    let page = &files["tides/index.html"];
+    let trail_script =
+        "<script type=\"module\" src=\"/assets/components/ob-reading-trail.js\"></script>";
+    assert_eq!(page.matches("<ob-reading-trail>").count(), 1);
+    assert_eq!(page.matches(trail_script).count(), 1);
+    assert!(page.contains("aria-labelledby=\"ob-reading-trail-title\""));
+    assert!(page
+        .contains("<h2 id=\"ob-reading-trail-title\">Your reading trails and saved sources</h2>"));
+    // The no-JavaScript text says what it needs, that nothing is recorded as a reader reads,
+    // and that nothing leaves the browser.
+    assert!(page.contains("need JavaScript"));
+    assert!(page.contains("Nothing is recorded as you read"));
+    assert!(page.contains("stays in this browser only"));
+    // Beside the highlights, after them, and its script is in the head.
+    assert!(page.find("<ob-annotations>").unwrap() < page.find("<ob-reading-trail>").unwrap());
+    assert!(page.find(trail_script).unwrap() < page.find("</head>").unwrap());
+}
+
+#[test]
+fn a_site_that_does_not_opt_in_has_no_trail_region_or_script() {
+    let page = &build(&config(""))["tides/index.html"];
+    assert!(!page.contains("ob-reading-trail"));
+}
+
+#[test]
 fn it_does_not_load_the_feedback_form_or_name_a_reader() {
     let files = build(&config(ON));
     let page = &files["tides/index.html"];

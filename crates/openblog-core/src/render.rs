@@ -247,6 +247,16 @@ const READER_ANNOTATIONS_REGION: &str = "<section id=\"ob-annotations\" class=\"
 </ob-annotations>
 </section>
 ";
+/// A post's region for the reader's own saved sources and reading trails
+/// (ADR 0455), beside the highlights. It holds only text: a trail is built by
+/// hand in the reader's browser and nothing is recorded as they read.
+const READER_TRAIL_REGION: &str = "<section id=\"ob-reading-trail\" class=\"ob-reading-trail\" aria-labelledby=\"ob-reading-trail-title\">
+<h2 id=\"ob-reading-trail-title\">Your reading trails and saved sources</h2>
+<ob-reading-trail>
+<p class=\"ob-reading-trail-static\">Saved sources and reading trails need JavaScript. With it, you can save this post or a reference it cites and build a trail by hand. Nothing is recorded as you read, what you keep stays in this browser only, and nothing is sent to anyone. Without it, the post reads as usual.</p>
+</ob-reading-trail>
+</section>
+";
 /// The page data element holding what a reader may name in an evidence
 /// offer (ADR 0116): only what the site publishes.
 pub const EVIDENCE_DATA_ELEMENT_ID: &str = "ob-evidence-references";
@@ -2125,6 +2135,7 @@ impl<'a> Renderer<'a> {
         let reader_annotations = c.reader_annotations.enabled;
         if reader_annotations {
             body.push_str(READER_ANNOTATIONS_REGION);
+            body.push_str(READER_TRAIL_REGION);
         }
         // Approved Third Perspectives, each a reader's and never an author's,
         // are shown on the canonical page only (ADRs 0111 and 0115), apart
@@ -2320,6 +2331,7 @@ impl<'a> Renderer<'a> {
             participation_scripts: [
                 passage_feedback.as_ref().map(|_| "ob-passage-feedback.js"),
                 reader_annotations.then_some("ob-annotations.js"),
+                reader_annotations.then_some("ob-reading-trail.js"),
                 third_perspective
                     .as_ref()
                     .map(|_| "ob-third-perspective.js"),
