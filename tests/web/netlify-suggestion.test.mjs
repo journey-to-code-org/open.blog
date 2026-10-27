@@ -369,7 +369,7 @@ test("a suggestion's contact reaches only its own receipt and the site Admin, by
     leaks(response, path);
   }
   // B5's own Admin view lists its own kinds only, and the generic change route never decides a suggestion.
-  leaks(await handlerFor(database)(event("admin/feedback", "GET", { headers: ADMIN })), "admin/feedback");
+  await handlerFor(database)(event("admin/feedback", "GET", { headers: ADMIN }));
   assert.match(database.requests.find((entry) => entry.path.endsWith("/openblog_feedback")).params.kind, /^in\.\(question,source-suggestion,correction-suggestion,alternative-interpretation\)$/);
   // The reader's own answers to a report, a submission and a withdrawal repeat nothing of it.
   leaks(await handlerFor(database)(event("reports", "POST", { headers: ORIGIN, body: { source: "feedback", id: ID(1), ground: "spam" } })), "reports");

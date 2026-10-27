@@ -267,8 +267,23 @@ test("errors are announced on their field with focus there, and nothing is sent"
   await follow.uncheck();
   await form.getByLabel("Identifier", { exact: true }).selectOption({ label: "ISBN" });
   await send.click();
-  await expect(form.getByLabel("Title", { exact: true })).toBeFocused();
+  // The control left empty is the one marked, not the title.
+  await expect(form.getByLabel("Identifier value", { exact: true })).toBeFocused();
+  await expect(form.getByLabel("Identifier value", { exact: true })).toHaveAttribute("aria-invalid", "true");
+  await expect(form.getByLabel("Title", { exact: true })).not.toHaveAttribute("aria-invalid", "true");
   await expect(form.getByRole("alert")).toContainText("Choose the kind of identifier and give its value");
+  await form.getByLabel("Identifier", { exact: true }).selectOption({ label: "None" });
+  // A detail the shared rule refuses is marked on the first detail the reader filled in, and keeps its own description.
+  await form.getByLabel("Year", { exact: true }).fill("x".repeat(40));
+  await send.click();
+  const year = form.getByLabel("Year", { exact: true });
+  await expect(year).toBeFocused();
+  await expect(year).toHaveAttribute("aria-invalid", "true");
+  await expect(year).toHaveAccessibleDescription(/Check the details/);
+  await expect(form.getByLabel("Title", { exact: true })).not.toHaveAttribute("aria-invalid", "true");
+  await year.fill("");
+  // The optional article box is described by its hint.
+  await expect(form.getByRole("checkbox", { name: "It is about this article" })).toHaveAccessibleDescription(/which article led you/);
   expect(service.submissions).toEqual([]);
 });
 

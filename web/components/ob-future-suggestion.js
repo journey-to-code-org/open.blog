@@ -212,6 +212,7 @@ export class ObFutureSuggestion extends HTMLElement {
 
     const aboutArticle = input("checkbox");
     const aboutHint = hint("about", "Optional. Tells the editors which article led you to this.");
+    aboutArticle.setAttribute("aria-describedby", aboutHint.id);
 
     // A name and a way to reach the reader: each optional, each the reader's own choice.
     const identity = make("fieldset", "ob-future-suggestion-identity");
@@ -317,19 +318,37 @@ export class ObFutureSuggestion extends HTMLElement {
       if (ui.described[name]) control.setAttribute("aria-describedby", ui.described[name]);
       else control.removeAttribute("aria-describedby");
     }
+    // A detail control that was marked is cleared with the rest, whichever it was, and gets back its own description.
+    for (const control of [ui.title, ui.creators, ui.year, ui.publisher, ui.scheme, ui.identifier]) {
+      control.removeAttribute("aria-invalid");
+      if (control.dataset.described === undefined) continue;
+      if (control.dataset.described) control.setAttribute("aria-describedby", control.dataset.described);
+      else control.removeAttribute("aria-describedby");
+      delete control.dataset.described;
+    }
   }
 
   /** Marks one control invalid, describes it with the message, announces it and moves focus there. */
-  #showError(name, message) {
+  #showError(name, message, focus = null) {
     const ui = this.#ui;
     const error = ui.errors[name];
     error.textContent = message;
     error.hidden = false;
     ui.alert.textContent = message;
-    const control = ui.controls[name];
+    // A problem with the details is marked on the first detail the reader filled in (or the control
+    // the caller names), not on the title they may have left empty.
+    const control = focus ?? (name === "hints" ? this.#firstFilledHint() : ui.controls[name]);
     control.setAttribute("aria-invalid", "true");
-    control.setAttribute("aria-describedby", [ui.described[name], error.id].filter(Boolean).join(" "));
+    if (control !== ui.controls[name]) control.dataset.described = control.getAttribute("aria-describedby") ?? "";
+    control.setAttribute("aria-describedby", [control === ui.controls[name] ? ui.described[name] : control.dataset.described, error.id].filter(Boolean).join(" "));
     control.focus();
+  }
+
+  /** The first source-detail control that has something in it: title, creators, year, publisher, then the identifier. */
+  #firstFilledHint() {
+    const ui = this.#ui;
+    const filled = [ui.title, ui.creators, ui.year, ui.publisher, ui.scheme, ui.identifier].find((control) => control.value.trim() !== "");
+    return filled ?? ui.title;
   }
 
   /** The reader's choices as a submission value, before the shared validator reads it. */
@@ -364,7 +383,7 @@ export class ObFutureSuggestion extends HTMLElement {
     ui.status.textContent = "";
     // An identifier needs both its kind and its value, so a half-filled pair is the reader's to fix.
     if ((ui.scheme.value === "") !== (ui.identifier.value.trim() === "") && !ui.scheme.disabled) {
-      this.#showError("hints", "Choose the kind of identifier and give its value, or clear both.");
+      this.#showError("hints", "Choose the kind of identifier and give its value, or clear both.", ui.scheme.value === "" ? ui.scheme : ui.identifier);
       return;
     }
     const read = readSuggestionSubmissionJson(JSON.stringify(this.#value()));
