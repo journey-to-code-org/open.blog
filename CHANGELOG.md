@@ -24,6 +24,143 @@ All notable changes to open.blog are recorded here. Releases follow
   back; a repeated key is refused; messages never quote a value; and `readingPaths.publish` (off by
   default) is the switch that reserves `/paths/`.
 
+- `<ob-search>` accepts a `no-history` attribute that stops it from writing `?q=` to the page address,
+  for a search box that lives in a dialog or panel on another page.
+
+## [0.47.0] - 2026-10-27
+
+- Netlify builds only what it deploys: pull request previews and branch deploys (such as `develop`)
+  are skipped, and a production build is skipped when a change touches only tests, docs, top-level
+  Markdown files or GitHub workflows. GitHub CI still tests every change.
+
+- New `demo` fence: ```` ```demo <kind> ```` embeds an interactive lesson demo in a post. Kinds are
+  `git-sandbox` (an in-memory Git), `fetch-lab` (a simulated network and Web Storage inspector),
+  `component-lab` (a live custom element with a shadow root), `js-evolution` (older and newer JavaScript
+  run on the same data), `audio-lab` (a quiet Web Audio synth that plays only after Start) and
+  `native-lab` (View Transitions, Web Animations, the popover attribute and the observers, each reporting
+  browser support). The fence body is its authored fallback, plain Markdown shown to readers without
+  JavaScript and used as the portable representation: feeds, portable HTML, portable Markdown and
+  syndicated copies carry the caption, the description and a link to the live version on the original
+  article, never the element. The `interactive-demo` capability reports a graceful transformation, the
+  semantic-fact check fails an export that loses the description, label or link, and an unknown kind or a
+  body with raw HTML, images or non-https links fails the build. An empty body uses the kind's own summary.
+  The elements (`<ob-git-sandbox>`, `<ob-fetch-lab>`, `<ob-component-lab>`, `<ob-evolution-lab>`,
+  `<ob-audio-lab>`, `<ob-native-lab>`) share `web/components/ob-lab.js` and use only `--ob-*` tokens, so
+  any theme restyles them; they store and send nothing.
+- Series navigation on a lesson is now the same shape on every part and in every theme. The series box
+  always shows a previous and a next control: the first part's previous goes to the series overview
+  ("Start of series") and the last part's next goes back to it ("End of series"), instead of leaving an
+  empty slot. A decorative path of one cell per part shows where you are (`ol.ob-series-path`,
+  `aria-hidden`, since the position is already spoken in "Part N of M" and the list). On narrow screens
+  the controls stack, and all are at least 44px tall.
+- `openblog build`, `serve` and `check` no longer print a `graceful-transformation` or
+  `canonical-only-interaction` warning for every quiz, runnable example, sandbox and comment box. Those
+  blocks always export as their documented static fallback; `openblog export` and syndication dry runs
+  still list them for the post being published.
+
+- A new `code.playgroundLink` setting (default on) hides the **Open in Rust Playground** link from every
+  runnable Rust example, portable copy, and export at once. A fence can still override it with
+  `playgroundLink=true` or `playgroundLink=false`.
+
+- `openblog import hashnode` now imports each post's subtitle from the public page (the paragraph
+  after the title), as the GraphQL source already did.
+
+- `web runnable` examples no longer take keyboard focus when the page loads. Selecting each example's
+  first tab used to focus its editor, so the browser scrolled to the last example on the page. Choosing a
+  tab or pressing Reset still moves focus into the editor.
+
+## [0.46.0] - 2026-10-27
+
+- Portable copies carry the research context: portable HTML, Markdown and text, syndicated copies,
+  full-content feeds and `llms-full.txt` now include the research context you selected for a post, in
+  the same words as its page, with every attribution, doubt and piece of evidence, each item linked
+  back to its anchor on the canonical page. Summary-only feeds link to the section. A bibliography
+  export adds the references you selected and lists what it cannot carry. Copies say what a format
+  cannot carry, show an address that is not a link as text, and are refused for that post alone if
+  anything selected would be lost. With the switch off, or nothing selected, every copy is unchanged.
+  The page now also shows the passages and rights words of each compared version. Anchors on the page
+  moved into the reserved `ob-` family (`ob-research-context`, `ob-curated-<id>`) and
+  `curated-context.json` says `openblog-curated-context-file`. See
+  [ADR 0202](docs/adr/0202-portable-copies-carry-the-public-curated-context-as-labeled-sections-with-links-back-to-the-canonical-page.md).
+- Curated research context: a new private file, `.openblog/private/research/selections.json`,
+  holds which public research context readers may be given: references to sources, atlas entries,
+  relationships, datings and comparisons, and your own attributed comments on a source or an
+  entry. Each selection records the revision you saw and lists the public fields you chose;
+  attribution, doubt, dissent and evidence always travel with it. Selecting never approves
+  anything. Only what the atlas, comparisons and citations already publish can be selected, and a
+  source only when a published post cites it or the atlas or a comparison publishes it. A selection
+  may be for named published posts, in your order, or for the whole site. One that is withdrawn,
+  stale (what it selects changed), missing, unapproved, cyclic or for no published post is
+  withheld on its own, with a reason that names ids only. Imported metadata is published with the
+  origin you stated or as unrecorded, a missing detail is listed and never invented, and a
+  competing dating you did not select is a `boundary:` warning. In Admin, the Research panel beside
+  a post has a Selected for readers section to select, order, withdraw, select again and
+  unselect, with a preview of exactly what readers get, and the same report appears in What this
+  post makes public. `curatedContext.publish` (off by default) turns it on; while it is on, a
+  selections file that cannot be read refuses `build` and `check`, naming the file. While it is
+  off the file is not read and a site builds exactly as before. A post offered selections is given
+  its own order for each of them: ordering one post never moves an item in another, even one offered to
+  the whole site, and a draft previews its own selections as they will be when it is published.
+  A conflict keeps the half-filled form, and Escape closes only the confirmation or form it is in.
+- A site that publishes curated context now also publishes `curated-context.json`, a versioned public
+  data file of the selections you made (with who asserts each, how firmly, on what evidence, where
+  imported metadata came from, and the revision you selected), the context they need, and each post's
+  items in your order with a canonical anchor for each, so Reader Discovery and other tools can reuse it
+  without reading anything private. Each post you offered something also gets a static Research context
+  section after its text, complete without JavaScript, readable in order by a screen reader, kept whole
+  in print and reflowing at 320 pixels and at 400% zoom; what you wrote is shown as text, never markup.
+  Both are built from the one public value Admin's What will be public lists. A change in the Research
+  panel rebuilds the site you are previewing while curated context is published. With the switch off, or
+  nothing selected, a site builds exactly as before; a file over its bound is left out whole with a
+  `boundary:` warning. Portable copies carry it too. See the
+  [curated context format](docs/specs/curated-context.md).
+
+## [0.45.0] - 2026-10-27
+
+- A post's page now shows the reflections its editors chose to feature, in a "Community perspectives"
+  section after the Third Perspectives (RD14): a plain list, in the order each was featured, that says it
+  is the editors' choice and not a vote or a sign that anyone agrees, with each reflection's reader (or "a
+  reader"), where it came from and when, the words as the reader wrote them, the editors' optional
+  note labelled as theirs, and a link to the same reflection among the Third Perspectives. It counts, ranks
+  and orders nothing by popularity, needs no JavaScript, reads in print and at a 320px width, and is
+  absent when nothing is featured or a feature no longer stands (the reflection came down, its text
+  changed, or the post hides the kind). Feeds, portable copies, search and `llms` files carry only the
+  existing link to the page. A site with no `community-perspectives.json` is built exactly as before.
+- Fixed: Admin now refuses to feature a reflection on a post that hides or locks out the kind, as its
+  preview already did; reports a withdrawn, purged or declined feature by that reason even when its
+  article is also gone; checks the committed `third-perspectives.json` for the page's reasons; lets the
+  site Admin take a feature off or edit its note when the hosted service cannot be asked; and says
+  features could not be checked on any failure but a denial. The reader's wording now says taking a
+  feature down takes effect when the editors next update the site, that they can agree again from the
+  receipt, and that the editors' note is optional.
+- Admin can now feature an approved Third Perspective in its post's community section (RD14): a
+  "Feature on the post" section on the reflection's card, offered only when the reader agreed to
+  feature this exact text, with an optional editors' note (checked so it cannot claim popularity,
+  agreement or a count), a preview of what the page will show with the fixed notice that featuring is an
+  editorial choice and not a vote, and "Take the feature off". A banner on every tab lists features that
+  must come off (the reader withdrew or no longer agrees, or the text no longer stands) or are hidden
+  because their article is not published. Selections are kept in a new `content/community-perspectives.json`,
+  checked strictly when the site is built, and nothing counts or ranks reflections.
+- Readers can now agree, or decline, to let an editor feature their Third Perspective in a community
+  section: an unticked choice on the form (separate from publishing, with a note that copies already
+  published may remain) and a choice on their private receipt that works while the reflection is
+  waiting, being clarified or approved. Agreeing covers the text the reader sees, and a later change to
+  the text needs a fresh agreement. Nothing is featured by this alone.
+- Admin now shows "Republish without the name" on a published Third Perspective whose reader hid their
+  name after approval, on the card and in the banner on every tab. Until that reflection is published
+  again the committed `third-perspectives.json` still holds the name (RD10 never offered the action).
+  A feature keeps no name of its own.
+- Fixed: changing any other part of a reader's consent (such as whether they may be asked to clarify)
+  no longer renews their agreement to feature a Third Perspective for text they have since edited.
+  Only an explicit agreement for the text the reader sees binds feature consent. Stored consent
+  records are read exactly as before.
+- Featuring a reader's reflection in a community section is now defined (RD14):
+  it needs the reader's own separate consent for the exact text, a change to the text needs fresh
+  consent, withdrawal or a declined feature takes it off with no public tombstone, and a featured
+  reflection always says whose it is and that choosing it is an editorial choice, not a vote or
+  consensus. Nothing counts, ranks or orders features by popularity. Selections live in a new
+  public `community-perspectives.json`.
+
 ## [0.44.0] - 2026-10-26
 
 - A site that publishes its Knowledge Atlas now also publishes `atlas-query.json`, a small, bounded

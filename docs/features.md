@@ -45,6 +45,9 @@ an optional fallback link to the official Rust Playground.
 The original block remains visible without JavaScript. Source is sent directly to the
 Playground without cookies or referrer information and is never stored by open.blog.
 
+`demo` fences (`git-sandbox`, `fetch-lab`, `component-lab`, `js-evolution`, `audio-lab`, `native-lab`) embed a lesson demo whose
+authored Markdown body is the fallback for readers without JavaScript, feeds, and portable copies.
+
 `web runnable` fences provide dependency-free HTML, CSS, and JavaScript tabs with a local live
 preview. The iframe has an opaque origin and a restrictive CSP that blocks external resources and
 network APIs. Authored code can navigate its own preview, so the editor explicitly warns readers not

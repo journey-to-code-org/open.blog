@@ -27,6 +27,20 @@ The public intellectual or creative work represented by a document, independent 
 or presentation.
 _Avoid_: Page when identity rather than location is meant
 
+**Interactive demo**:
+A publishing capability in which a reader operates a small in-browser model of a mechanism (an
+in-memory Git, a simulated network and storage inspector, a live custom element) embedded in a post
+with a `demo` fence. It runs only on the canonical page and never stores or sends anything. It is
+not a Web sandbox (the reader edits code there) or a Rust Playground (an external service).
+_Avoid_: Widget, playground, sandbox when the reader is not writing code
+
+**Demo fallback**:
+The Markdown body of a `demo` fence, written by the author. It is the authored meaning of the demo
+for every reader who cannot run it (no JavaScript, feed readers, portable and syndicated copies,
+where a link to the live version follows it). It is plain Markdown with no raw HTML, no images, and
+only absolute https links, and is never generated from the demo's behavior.
+_Avoid_: Alt text, caption, placeholder
+
 ## Shared publication collaboration
 
 These terms describe private collaboration before publication. They do not replace the public
@@ -1259,6 +1273,106 @@ its ISBN-13, a PMCID with its prefix upper-cased). It is only compared, never wr
 record keeps the identifier as written.
 _Avoid_: Normalizing, deduplicating, merging
 
+## Curated research context
+
+These terms describe how an author chooses which already-publishable research context readers are
+given. They never describe whether research is true, agreed or fit to publish.
+
+**Curated selection**:
+The author's explicit choice of one publishable research item (or their own attributed words about
+one), kept in the private `selections.json` with the revision it was made against and the public
+fields it lists. A selection is one more projection under the publication boundary: it adds no
+approval, and publishes nothing the atlas, comparison and citation projections do not.
+_Avoid_: Approval, publishing a note, a second atlas
+
+**Selection kind**:
+What a selection selects: reference, contextual entry, relationship, timeline (one dating),
+comparison, source annotation or explanation. The kinds keep the research model's distinctions
+(work, edition, translation, witness, reference, citation, claim, evidence, interpretation,
+contextual entry) apart; selecting a work never selects its versions.
+_Avoid_: Treating a reference as a citation, a note as an annotation
+
+**Selected revision**:
+The fingerprint of the selected public item and of the public context it brings, recorded when it
+was selected. When it no longer matches, the selection is stale and is withheld until the author
+checks the item and selects it again.
+_Avoid_: Auto-updating a selection, publishing the old version
+
+**Selected fields**:
+The public fields a selection lists. Each kind always lists its attribution, uncertainty and
+evidence (a relationship always carries who asserts it, how firmly, on what evidence, and who
+disputes it); the rest are chosen one by one.
+_Avoid_: Dropping a dispute or a doubt to make a selection shorter
+
+**Context item**:
+An approved dependency published with a selection so a reader can understand it: a relationship's
+endpoint entries and cited sources, a dating's owner, a comparison's versions. It is the minimum
+the projections already publish and says which selections need it.
+_Avoid_: Publishing everything linked from a selection
+
+**Selection provenance**:
+Where the selected metadata came from, as the author states it: authored, imported (from a named
+origin) or unrecorded. Never inferred; a detail the source lacks is listed as missing, not filled.
+_Avoid_: Defaulting to authored, placeholder values
+
+**Withdrawn selection**:
+A selection the author withdrew: the record stays, nothing is published, and selecting it again
+records the current revision. Unselecting removes the record. Neither changes the research.
+_Avoid_: Deleting research to withdraw it
+
+**Selection requirement**:
+A selection that must be published with another (at most 32). A withheld or unknown requirement
+withholds the dependant, however far back the chain goes; a cycle withholds every selection on it.
+Each failure is scoped to its selection.
+_Avoid_: Cascading deletes
+
+**Public source**:
+A source that is already public: cited by a published post, or published by the atlas or a
+comparison. Only a public source can be selected as a reference or annotated, so selecting never
+approves a source the library merely holds.
+_Avoid_: Treating a library source as public because it exists
+
+**Selection scope**:
+Whom a selection is offered to: named published posts (`posts`), or the whole site when it names
+none, with optional `positions` (post slug to place) that order it among each post's items. A post's
+order is its own: ordering one post never moves an item in another, even a whole-site item both are
+offered. A record without them is for the whole site and unplaced. Only a published post is ever
+named in a public value; a draft previews as if it were published, labelled so, and the build does not.
+_Avoid_: Naming a draft, ordering by id alone, one number shared by every post
+
+**Selected for readers**:
+The section of the draft-side research panel where an author chooses, orders, withdraws and
+unselects research context for a post, and previews exactly what readers get. It lives in the
+Research panel; it is not a second panel or a second preview.
+_Avoid_: A curation page, a second approval
+
+**Selection notice**:
+A caveat that travels with a published curated item: a competing dating that is published but not
+selected, a selected detail the source lacks, or metadata whose origin is not recorded. A competing
+dating is also a `boundary:` warning. Never a judgement of the research.
+_Avoid_: Hiding a rival dating, filling in a missing detail
+
+**Portable research context**:
+The research-context section as a portable copy (HTML, Markdown, text, feed, syndicated copy) writes it:
+labeled sequential sections from the one public curated value, with links to the canonical section and
+each item's anchor, and a diagnostic for what the format cannot carry. A copy that would lose a selected
+fact is refused for that post alone.
+
+**Curated context file**:
+`curated-context.json`: the versioned public data file projected from the one public curated value,
+holding each published selection with its attribution, doubt, evidence, provenance and selected
+revision, the context it needs, and for each published post its items in that post's order with a
+canonical anchor for each. It is written only while the site publishes at least one selection, is
+bounded and refused whole when over a bound, and names nothing a reader's tool could query for more
+(ADRs 0197, 0200).
+_Avoid_: A query API, an export of the selections file
+
+**Research context section**:
+The static section of a post's page (`#research-context`) that renders the same public value for readers
+without JavaScript: a heading, an ordered list of attributed items with an anchor each (`#curated-` and
+the selection id), and a list of what they refer to. Authored text in it is text (ADR 0198).
+_Avoid_: A widget, a sidebar, a second page
+
 ## Reader participation
 
 These terms describe how readers point at published text, where their feedback came from, and
@@ -1787,8 +1901,9 @@ _Avoid_: Comment, author perspective, featured reflection
 
 **Featured reflection**:
 An approved response an editor chose to feature, covered by the reader's separate feature consent
-for that approved revision. Editorial, never chosen by counts, rank or reactions, and never a
-consensus claim (RD14).
+for that approved revision (Feature consent). Editorial, never chosen by counts, rank or reactions,
+and never a consensus claim (RD14, ADR 0176 to 0181). Shown in the Community section with its
+provenance and the editors' note, from a Feature record.
 _Avoid_: Top reflection, most liked, endorsed reflection
 
 **Submission consent**:
@@ -1916,6 +2031,41 @@ stores its responder, named by the name the section is published under, shown on
 Third Perspective it answers are both public and its stored responder is the section's contributor,
 and never nested or sent to the reader (ADR 0129, 0130).
 _Avoid_: Reply thread, discussion, notification
+
+**Feature consent**:
+A reader's separate agreement, recorded as `featureRevision` in their Submission consent, that an
+editor may feature exactly one text revision of their approved reflection. It is not implied by
+approval, by agreeing to publish or by showing a name; it is bound to the revision (and, in a
+Feature record, to a digest of the text), so a clarification that changes the text leaves it behind
+until the reader explicitly agrees again for the text they see: a change to anything else (a name, being
+asked to clarify) carries it forward unchanged and never renews it. Declining takes effect at once; revoking publication ends it for good
+(ADR 0176, 0177).
+_Avoid_: Terms acceptance, blanket permission, approval
+
+**Feature record**:
+An editor's selection of a published reflection, kept as a reference in `community-perspectives.json`:
+its id and post, the text revision agreed, a digest of that text, the day featured and an
+optional editors' note. It holds none of the reader's words, no name and no editor's name; the page
+reads the words and the name from the published reflection, so a name the reader hides is dropped by
+republishing that reflection. A reflection has at most one record (ADR 0176, 0177, 0181).
+_Avoid_: Copy of a reflection, featured flag, ranking entry
+
+**Community section**:
+The one section of a post's canonical page, `ob-community-perspectives`, after the Third Perspectives,
+that shows features with the fixed notice that selection is an editorial choice and not a vote or a
+consensus. It never counts, ranks or orders by anything but the day featured, and is absent when
+nothing is featured (ADR 0180). It is headed "Community perspectives" and is static HTML built from the
+one projection, with each item under an `ob-feature-<id>` anchor; portable copies and feeds carry only the
+canonical link (ADR 0184).
+_Avoid_: Top reflections, community voice, leaderboard
+
+**Feature take-off**:
+A feature stops showing and its record is removed because the source is gone, the copy is deleted or
+withdrawn, it is no longer approved, the reader declined, the text or name no longer matches what was
+agreed. A lost source article only hides it, and restoring the article restores it. It leaves no public
+tombstone and no audit action in the hosted store; copies already published may remain (ADR 0178, 0179,
+0183). Admin takes one off by choice or when its banner says it must come off.
+_Avoid_: Removal notice, tombstone, retraction banner
 
 ## Future suggestions
 

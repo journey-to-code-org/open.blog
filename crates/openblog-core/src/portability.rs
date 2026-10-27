@@ -205,6 +205,12 @@ pub struct PortableProjection<'a> {
     /// The published suggested sources and corrections with their outcome (ADR 0119): what a
     /// portable copy carries of reader notes, beside the link to the canonical discussion.
     outcomes: Vec<&'a crate::feedback_publication::PublicFeedback>,
+    /// The post's slug, which names it in the curated context.
+    slug: &'a str,
+    /// The public curated context this post is offered (ADR 0202), which every
+    /// portable artifact must carry whole. Only `for_site` attaches it, from
+    /// the site's public curated value and from nothing else.
+    curated: Option<std::sync::Arc<crate::curated_context::CuratedContext>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -619,7 +625,20 @@ impl<'a> PortableProjection<'a> {
     /// external copy of a part of a collaborative series names and links its series; any other
     /// post's projection is exactly `from_post`'s.
     pub fn for_site(site: &Site, post: &'a Post) -> Result<Self, String> {
-        Ok(Self::from_post(post, &site.config)?.with_series(site.series_context(post)))
+        Ok(Self::from_post(post, &site.config)?
+            .with_series(site.series_context(post))
+            .with_curated(site.curated_context_for(post)))
+    }
+
+    /// The same projection carrying `context`, the public curated context the
+    /// post is offered (ADR 0202). `None` removes it, and the copies are then
+    /// exactly what they were without it.
+    pub fn with_curated(
+        mut self,
+        context: Option<std::sync::Arc<crate::curated_context::CuratedContext>>,
+    ) -> Self {
+        self.curated = context;
+        self
     }
 
     /// The same projection stating `series` as the post's series context. `None` removes it.
@@ -691,6 +710,7 @@ impl<'a> PortableProjection<'a> {
                 code_runner: None,
                 // Portable copies show sandboxes as static code, so no libraries load.
                 web_libraries: None,
+                playground_link: config.code.playground_link,
                 // Generated notes are ordinary footnotes here, linked to the canonical article.
                 citation_notes: None,
                 // The section is ordinary content in a portable copy.
@@ -717,6 +737,8 @@ impl<'a> PortableProjection<'a> {
                 .iter()
                 .filter(|item| item.outcome.is_some())
                 .collect(),
+            slug: &post.slug,
+            curated: None,
         })
     }
 
@@ -863,6 +885,9 @@ impl<'a> PortableProjection<'a> {
             }
         }
         html.push_str(&rendered.html);
+        if let Some(section) = self.curated_section(RepresentationFormat::Html) {
+            html.push_str(&section.text);
+        }
         html.push_str(&self.outcomes_html());
         // A capability the canonical page offers without a portable fallback yet
         // (a planned or unknown structure) fails closed: its authored content
@@ -931,6 +956,7 @@ impl<'a> PortableProjection<'a> {
         self.ensure_semantics(RepresentationFormat::Html, &html)?;
         let mut diagnostics =
             portability_diagnostics(self.source_path, self.markdown, &capabilities);
+        diagnostics.extend(self.curated_diagnostics());
         // A layout places the same turns differently; no portable form can. Say so, once, rather
         // than let the placement disappear silently (ADR 0033).
         if let Some(arrangement) = self.arrangement() {
@@ -1139,6 +1165,13 @@ impl<'a> PortableProjection<'a> {
                     source.kind.label()
                 ));
             }
+        }
+
+        if let Some(section) = self.curated_section(RepresentationFormat::Markdown) {
+            if !output.ends_with("\n\n") {
+                output.push('\n');
+            }
+            output.push_str(&section.text);
         }
 
         output.push_str(&self.outcomes_markdown());
@@ -1730,6 +1763,17 @@ impl<'a> PortableProjection<'a> {
                 ));
             }
         }
+        // The research context fails closed the same way (ADR 0202): a copy
+        // that dropped an item, its anchor or any of its words would show a
+        // view without the doubt that came with it.
+        if let Some(section) = self.curated_section(format) {
+            if let Some(missing) = section.first_missing(artifact) {
+                return Err(format!(
+                    "{} [curated-context-lost] curated-research-context: the {format:?} copy does not carry every selected research-context item with its words and its link to the canonical page (it lacks {missing}); refusing to publish a partial copy",
+                    self.source_path
+                ));
+            }
+        }
         let diagnostics = self.analyze_portable_artifact(format, artifact)?;
         if diagnostics.is_empty() {
             return Ok(());
@@ -1791,6 +1835,110 @@ impl<'a> PortableProjection<'a> {
             series_clause(" This part is by ", &names(&series.part_authors)),
             series_clause(" Series contributors: ", &names(&series.contributors)),
         ))
+    }
+
+    /// The post's research context as a portable copy writes it (ADR 0202),
+    /// when the post is offered one: from the public curated value alone, with
+    /// every link absolute and a link back to the canonical page's anchors.
+    fn curated_section(
+        &self,
+        format: RepresentationFormat,
+    ) -> Option<crate::curated_context::CopySection> {
+        let context = self.curated.as_ref()?;
+        let absolute = |href: &str| self.resolve_link(href);
+        let links = crate::curated_context::CopyLinks {
+            canonical: &self.canonical_url,
+            absolute: &absolute,
+        };
+        match format {
+            RepresentationFormat::Html => context.copy_html(self.slug, &links),
+            // Plain text is derived from the Markdown, so it is checked as it.
+            RepresentationFormat::Markdown | RepresentationFormat::Text => {
+                context.copy_markdown(self.slug, &links)
+            }
+        }
+    }
+
+    /// The post's research context as Markdown, for the outputs that print
+    /// their own header (`llms-full.txt`), or `None` when it has none.
+    pub fn curated_context_markdown(&self) -> Option<String> {
+        self.curated_section(RepresentationFormat::Markdown)
+            .map(|section| section.text)
+    }
+
+    /// What a feed says of the post's research context without carrying it:
+    /// the canonical anchor of the section and of each item. No item's words.
+    pub fn curated_context_summary(&self) -> Option<serde_json::Value> {
+        self.curated
+            .as_ref()?
+            .feed_summary(self.slug, &self.canonical_url)
+    }
+
+    /// The post's research context for a bibliography export (ADR 0205).
+    pub fn curated_bibliography(&self) -> Option<crate::curated_context::BibliographyContext> {
+        self.curated.as_ref()?.bibliography_for_post(self.slug)
+    }
+
+    /// Loss diagnostics for the research context in a portable copy (ADR
+    /// 0202): what a format cannot carry as the page does, said once.
+    fn curated_diagnostics(&self) -> Vec<PortabilityDiagnostic> {
+        let Some(section) = self.curated_section(RepresentationFormat::Html) else {
+            return Vec::new();
+        };
+        let diagnostic = |code: &str,
+                          severity: DiagnosticSeverity,
+                          message: String,
+                          action: &str,
+                          affected: &str| PortabilityDiagnostic {
+            code: code.into(),
+            severity,
+            source_path: self.source_path.into(),
+            capability_id: Some("curated-research-context".into()),
+            message,
+            recommended_action: action.into(),
+            context: DiagnosticContext {
+                representation: Some("portable-html".into()),
+                destination: Some("portable-export".into()),
+                portability_level: Some(PortabilityLevel::GracefullyTransformed),
+                affected_semantics: Some(affected.into()),
+                source_range: None,
+            },
+        };
+        let mut found = vec![diagnostic(
+            "curated-context-sequenced",
+            DiagnosticSeverity::Info,
+            format!(
+                "The research context ({} item(s)) is carried as labeled sequential sections; anchors, links between its items and the data file are on the canonical page.",
+                section.items
+            ),
+            "No action needed: every item keeps its attribution, uncertainty, evidence and origin as text, and links to its anchor on the canonical article.",
+            "In-page anchors, links among items, the data file, and the page's layout; the items' words, attribution, doubt, evidence and origin are unchanged.",
+        )];
+        if section.unlinked > 0 {
+            found.push(diagnostic(
+                "curated-context-address-text",
+                DiagnosticSeverity::Warning,
+                format!(
+                    "{} address(es) in the research context are not safe links, so the copy shows them as plain text.",
+                    section.unlinked
+                ),
+                "Give the source an https address if readers should be able to follow it; the address is never dropped.",
+                "Links to addresses that are not this site's pages or https addresses.",
+            ));
+        }
+        if section.held_back > 0 {
+            found.push(diagnostic(
+                "curated-context-held-back",
+                DiagnosticSeverity::Warning,
+                format!(
+                    "The research context has {} more item(s) than a copy shows; they are on the canonical page, which the copy links to.",
+                    section.held_back
+                ),
+                "Select fewer items for this post, or read the rest on the canonical article.",
+                "Items beyond the per-copy bound.",
+            ));
+        }
+        found
     }
 
     /// The canonical page's own place for one published note.
@@ -2135,6 +2283,7 @@ fn portability_diagnostics(
             affected_semantics: Some(match capability.id.as_str() {
                 "knowledge-check" => "Question, choices, answer and explanation remain readable. Scoring, retries and saved attempts remain on the canonical article.".into(),
                 "runnable-code" | "web-sandbox" => "Source and authored results remain readable. Editing and execution remain on the canonical article; Rust may also link to Playground.".into(),
+                "interactive-demo" => "The authored description of the demo remains readable. The live demonstration and anything the reader does in it remain on the canonical article.".into(),
                 "comments" => "Discussion participation and live state remain on the canonical article; the portable copy provides its link.".into(),
                 _ => capability.authored_semantics.into(),
             }),
@@ -2210,6 +2359,9 @@ fn diagnostic_recommended_action(code: &str, capability: &str) -> String {
             "runnable-code" | "web-sandbox" => {
                 "Review the preserved source and keep the canonical link for editing or execution.".into()
             }
+            "interactive-demo" => {
+                "Review the authored description of the demo and keep the canonical link for the live version.".into()
+            }
             _ => "Review the static fallback in the destination preview.".into(),
         },
         "canonical-only-interaction" => {
@@ -2238,6 +2390,9 @@ fn transformation_summary(capability: &str) -> &'static str {
         }
         "web-sandbox" => {
             "The HTML, CSS, and JavaScript sources are preserved; the live preview remains on the canonical article"
+        }
+        "interactive-demo" => {
+            "The authored description of the demo is preserved; the live demonstration remains on the canonical article"
         }
         "raw-html" => {
             "Authored raw HTML is constrained by the portable allowlist and may be shown as literal source"
@@ -2355,7 +2510,7 @@ const OUTCOMES_INTRO: &str = "Suggested sources and corrections readers sent abo
 /// Markdown text for a public value (a title, a name, a fact): Markdown punctuation, `<` and `&`
 /// are escaped, so the value can never become a link, emphasis, an autolink, raw HTML or an
 /// entity when the export is read back.
-fn markdown_text(value: &str) -> String {
+pub(crate) fn markdown_text(value: &str) -> String {
     let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
     let mut escaped = String::new();
     for character in normalized.chars() {
@@ -2370,7 +2525,7 @@ fn markdown_text(value: &str) -> String {
     escaped
 }
 
-fn markdown_destination(value: &str) -> String {
+pub(crate) fn markdown_destination(value: &str) -> String {
     value
         .replace('\\', "\\\\")
         .replace('(', "\\(")
@@ -2620,6 +2775,18 @@ fn portable_fence_markdown(
             &crate::markdown::portable_quiz_markdown(source)
                 .map_err(|error| format!("portable knowledge-check fallback failed: {error}"))?,
         );
+    } else if language == "demo" {
+        let (kind, body) = crate::markdown::portable_demo_parts(&fence, source)
+            .map_err(|error| format!("portable interactive-demo fallback failed: {error}"))?;
+        if let Some(title) = fence.title.as_deref() {
+            output.push_str(&format!("**{}**\n\n", markdown_text(title)));
+        }
+        output.push_str(&body);
+        output.push_str(&format!(
+            "\n\n[Try the interactive {} on the canonical article]({}).\n",
+            kind.label,
+            markdown_destination(canonical_url)
+        ));
     } else if language.eq_ignore_ascii_case("web") && fence.runnable {
         output.push_str(&portable_web_markdown(
             source,
@@ -2637,7 +2804,11 @@ fn portable_fence_markdown(
         };
         output.push_str(&markdown_code_fence(normalized_language, source));
         if fence.runnable {
-            if language.eq_ignore_ascii_case("rust") && fence.playground_link != Some(false) {
+            if language.eq_ignore_ascii_case("rust")
+                && fence
+                    .playground_link
+                    .unwrap_or(projection.render_options.playground_link)
+            {
                 if let Some(url) = crate::markdown::rust_playground_url(&format!("{source}\n")) {
                     output.push_str(&format!("\n[Open in Rust Playground]({url}).\n"));
                 }
@@ -3798,6 +3969,46 @@ mod tests {
     }
 
     #[test]
+    fn portable_copies_follow_the_site_wide_playground_setting() {
+        let contents = "---
+title: Work
+date: 2026-10-01
+---
+```rust runnable
+fn main() {}
+```
+
+```rust runnable playgroundLink=true
+fn main() {}
+```
+";
+        let (mut config, site) = public_post(contents);
+        let linked = |config: &SiteConfig| {
+            let projection = PortableProjection::from_post(&site.posts[0], config).unwrap();
+            (
+                projection
+                    .portable_html()
+                    .unwrap()
+                    .html
+                    .matches("play.rust-lang.org")
+                    .count(),
+                projection
+                    .portable_markdown()
+                    .unwrap()
+                    .matches("play.rust-lang.org")
+                    .count(),
+            )
+        };
+        assert_eq!(linked(&config), (2, 2));
+        config.code.playground_link = false;
+        assert_eq!(
+            linked(&config),
+            (1, 1),
+            "only the fence that asks for the link keeps it"
+        );
+    }
+
+    #[test]
     fn portable_playground_links_honor_opt_out_and_keep_long_snippets_without_links() {
         for info in [
             "rust runnable playgroundLink=false",
@@ -3948,6 +4159,126 @@ mod tests {
         assert!(!output.html.contains("<button"));
         assert!(!output.html.contains("<ob-web-sandbox"));
         assert_eq!(output.capabilities[0].id, "web-sandbox");
+    }
+
+    #[test]
+    fn portable_demo_keeps_the_authored_description_and_links_to_the_live_version() {
+        let output = portable(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\n```demo fetch-lab title=\"Break fetch\"\nSend `/api/posts/99` and read `response.ok`: it is `false`, yet `fetch()` resolved.\n```\n",
+        );
+        assert!(output.html.contains(
+            "<figure class=\"ob-demo ob-portable-demo\" data-demo=\"fetch-lab\"><figcaption class=\"ob-code-title\">Break fetch</figcaption><p>Send <code>/api/posts/99</code> and read <code>response.ok</code>: it is <code>false</code>, yet <code>fetch()</code> resolved.</p>\n<p class=\"ob-portable-note\">Try the interactive Fetch and storage inspector on <a href=\"https://example.test/blog/work/\">the original article</a>.</p></figure>\n"
+        ), "{}", output.html);
+        assert!(!output.html.contains("<ob-fetch-lab"));
+        assert!(!output.html.contains("<script"));
+        assert_eq!(output.capabilities[0].id, "interactive-demo");
+        assert_eq!(
+            output.capabilities[0].portability,
+            PortabilityLevel::GracefullyTransformed
+        );
+        assert!(output
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "graceful-transformation"
+                && d.capability_id.as_deref() == Some("interactive-demo")));
+    }
+
+    #[test]
+    fn portable_markdown_demo_has_a_caption_the_description_and_a_canonical_link() {
+        let (config, site) = public_post(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\n```demo git-sandbox title=\"Merge it\"\nBranch, commit on both sides, then merge: Git makes a commit with two parents.\n```\n\n```demo component-lab\n```\n",
+        );
+        let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
+        let markdown = projection.portable_markdown().unwrap();
+        assert!(markdown.contains("**Merge it**\n\nBranch, commit on both sides, then merge: Git makes a commit with two parents.\n\n[Try the interactive Git sandbox on the canonical article](https://example.test/blog/work/).\n"), "{markdown}");
+        assert!(
+            markdown.contains("A live custom element with a real shadow root"),
+            "{markdown}"
+        );
+        assert!(markdown
+            .contains("[Try the interactive Web Components explorer on the canonical article]"));
+        assert!(!markdown.contains("```demo"));
+        assert!(markdown.contains("Portable fallback"));
+    }
+
+    #[test]
+    fn a_portable_copy_that_loses_a_demos_description_or_live_link_is_flagged() {
+        let (config, site) = public_post(
+            "---
+title: Work
+date: 2026-10-01
+---
+```demo git-sandbox title=\"Merge it\"
+Branch, commit on both sides, then merge.
+```
+",
+        );
+        let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
+        let html = projection.portable_html().unwrap().html;
+        let markdown = projection.portable_markdown().unwrap();
+        for (format, artifact) in [
+            (RepresentationFormat::Html, html.as_str()),
+            (RepresentationFormat::Markdown, markdown.as_str()),
+        ] {
+            let findings = projection
+                .analyze_portable_artifact(format, artifact)
+                .unwrap();
+            assert!(findings.is_empty(), "{format:?}: {findings:?}");
+        }
+        for (format, artifact) in [
+            (
+                RepresentationFormat::Html,
+                html.replace("Branch, commit on both sides, then merge.", ""),
+            ),
+            (
+                RepresentationFormat::Html,
+                html.replace("https://example.test/blog/work/", "https://wrong.example/"),
+            ),
+            (
+                RepresentationFormat::Markdown,
+                markdown.replace("Branch, commit on both sides, then merge.", ""),
+            ),
+            (
+                RepresentationFormat::Markdown,
+                markdown.replace("**Merge it**", ""),
+            ),
+            (
+                RepresentationFormat::Markdown,
+                markdown.replace("Git sandbox", "tool"),
+            ),
+        ] {
+            let findings = projection
+                .analyze_portable_artifact(format, &artifact)
+                .unwrap();
+            assert!(
+                findings
+                    .iter()
+                    .any(|finding| finding.code == "missing-semantic-fact"),
+                "{format:?}: a lost demo fact was accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn a_malformed_demo_fails_the_portable_markdown_for_its_source() {
+        let config = SiteConfig::from_json(
+            r#"{"title":"Blog","url":"https://example.test/blog/","postPath":"/{slug}/"}"#,
+        )
+        .unwrap();
+        let error = Site::load(
+            config,
+            Sources {
+                posts: vec![SourceFile {
+                    path: "posts/work.md".into(),
+                    contents: "---\ntitle: Work\ndate: 2026-10-01\n---\n```demo git-sandbox\n[x](http://insecure.test/)\n```\n".into(),
+                }],
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .map(|_| ())
+        .unwrap_err();
+        assert!(error[0].contains("absolute https URLs"), "{error:?}");
     }
 
     #[test]

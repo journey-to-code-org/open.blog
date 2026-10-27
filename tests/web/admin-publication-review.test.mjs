@@ -428,6 +428,8 @@ test("every finding links to its exact object and repair", () => {
   assert.equal(target({ object: "alignments-file" }).href, "#/research/compare");
   assert.equal(target({ object: "entry", id: "a b/../x" }).href, "#/research/atlas/a%20b%2F..%2Fx", "an id is one encoded segment");
   assert.equal(publicationReviewPlace({ scope: { object: "alignment", id: "cave", field: "members[1]" } }), "comparison cave, members[1]");
+  assert.equal(publicationReviewPlace({ scope: { object: "selections-file" } }), "the curated selections file");
+  assert.equal(target({ object: "selections-file" }), null, "the curated selections are repaired by hand, so there is nowhere to go");
   assert.equal(publicationReviewRelatedTarget({ check: "context-link", related: [{ kind: "alignment", id: "cave" }] }).href, "#/research/compare/cave");
   assert.equal(publicationReviewRelatedTarget({ check: "claim-anchoring", related: [{ kind: "claim", id: "c" }] }), null);
   assert.equal(publicationReviewCountsText({ counts: {}, groups: [] }), "Detected: 0. Potential: 0. Needs review: 0.");

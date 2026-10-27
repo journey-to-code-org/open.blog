@@ -281,7 +281,7 @@ fn main() {}
 | `showLineNumbers=10` | Number this block starting at 10. |
 | `showLineNumbers=false` | No numbers on this block. |
 | `runnable` | Make Rust, web, or an explicitly configured runner language editable and runnable. Unsupported languages stay static. |
-| `playgroundLink=false` | On a runnable Rust block, hide the separate **Open in Rust Playground** link. |
+| `playgroundLink=false` | On a runnable Rust block, hide the separate **Open in Rust Playground** link. `playgroundLink=true` shows it when the site setting `code.playgroundLink` is off. |
 
 Colours can be turned off for a post (`highlight: false`) or the whole blog, but not for
 one block; mark a block `text` to leave it plain. Copying a block, with the button or by
@@ -340,6 +340,38 @@ fetch("https://jsonplaceholder.typicode.com/users/1")
 
 `openblog check` reports a `libs=` name that is not configured. See the
 [web sandbox capabilities specification](specs/web-sandbox-capabilities.md) for the exact policy.
+
+#### Interactive demos
+
+A `demo` fence embeds one of the site's lesson demos in a post. Name the kind after `demo`;
+the fence body is the description a reader sees when the demo is not running:
+
+````markdown
+```demo git-sandbox title="Break Git on purpose"
+Branch, commit on both sides, then merge: Git creates a commit with **two parents**.
+If both sides edited the same file, Git stops with a conflict.
+```
+````
+
+| Kind | Demo |
+| --- | --- |
+| `git-sandbox` | An in-memory Git you can drive with commands or buttons: commits, branches, merges, conflicts. |
+| `fetch-lab` | A simulated network inspector and Web Storage panel: edit a request, see what `fetch()` and `response.json()` do, hit the quota. |
+| `component-lab` | A live custom element with a shadow root: change attributes, slots and CSS custom properties. |
+| `js-evolution` | Older and newer JavaScript for the same task, side by side, run on the same fixed data across three milestones (2015, 2017, 2020). |
+| `audio-lab` | A real, quiet Web Audio synth: oscillator, low-pass filter, live signal trace. Sound plays only after Start. |
+| `native-lab` | View Transitions, Web Animations, the popover attribute and the Intersection/Resize observers, each reporting browser support. |
+
+Everything the demo does runs in the reader's browser against pretend data; nothing is sent or
+stored. The body is plain Markdown, and the same text is used everywhere the demo cannot run:
+readers without JavaScript, feed readers, and portable HTML and Markdown copies for syndication.
+There it appears under the title with a link to the live version on the original article.
+Leave the body empty to use the kind's own one-paragraph description, but a body written for the
+lesson (a worked example, the result the demo shows) is the better fallback.
+
+The body cannot contain raw HTML or images, and links must be absolute `https://` URLs, because
+the same text is rendered into feeds and exports; `openblog build` and `openblog check` report
+an unknown kind or a body that breaks these rules.
 
 #### Runnable Rust examples
 

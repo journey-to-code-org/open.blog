@@ -128,7 +128,11 @@ and read in Admin's comparison workspace, which shows each version's places side
 one column with every place identified and its wording exact
 ([ADR 0090](adr/0090-the-comparison-workspace-reads-one-snapshot-and-identifies-every-place.md)),
 and copies only the places the author selects, with their rights statements
-([ADR 0091](adr/0091-copying-from-a-comparison-takes-only-selected-places-with-their-rights.md)).
+([ADR 0091](adr/0091-copying-from-a-comparison-takes-only-selected-places-with-their-rights.md)),
+and the [curated context format](specs/curated-context.md), the versioned public data file and the
+static section of each post that give readers the research context the author selected, built from
+one public value that no private note can reach
+([ADR 0197](adr/0197-the-curated-context-file-is-a-bounded-versioned-projection-of-the-one-public-curated-value.md)).
 
 ## Command reference
 

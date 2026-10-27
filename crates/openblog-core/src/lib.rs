@@ -31,6 +31,7 @@
 //! - [`atlas_query`]: the bounded query projection derived from the public atlas, for components and search
 //! - [`reading_path`]: author-curated reading paths of published steps with author-written transitions, resolved against what a build publishes
 //! - [`comparison_publication`]: the one public projection of approved passage alignments, rights-gated, for pages and `comparisons.json`
+//! - [`curated_selection`]: the author's explicit, revision-aware selection of already-publishable research context for readers
 //! - [`passage_target`]: stable passage targets in published text, resolved as current, re-anchored or stale
 //! - [`feedback_provenance`]: which revision a reader's feedback was about and when, with consent-gated attribution
 //! - [`scholarly_feedback`]: typed reader questions, suggested sources and corrections and other interpretations, as submitted and as received
@@ -43,6 +44,7 @@
 //! - [`perspective_publication`]: approved Third Perspectives as the site publishes and its canonical pages show them
 //! - [`attributed_perspective`]: stable targets at one author's section of a shared reflection, and who may answer a Third Perspective about it
 //! - [`future_suggestion`]: a reader's question or source suggestion for future work, kept private to the editors, never entering the Source Library by itself
+//! - [`community_feature`]: a reader's separate, revision-bound consent to feature an approved reflection on its page, and the editorial selection that is never a vote or a consensus
 //! - [`author_response`]: an author's answer to a Third Perspective as the hosted store keeps it, the request that stores it and the checks that it still belongs under its parent
 
 pub mod accessibility;
@@ -65,12 +67,15 @@ pub mod claim_publication;
 pub mod claim_review;
 pub mod claims;
 pub mod collaboration;
+pub mod community_feature;
 pub mod comparison_publication;
 pub mod concept_links;
 pub mod config;
 pub mod context_links;
 pub mod contributor;
 pub mod correction_decision;
+pub mod curated_context;
+pub mod curated_selection;
 pub mod date;
 pub mod draft;
 pub mod embed;

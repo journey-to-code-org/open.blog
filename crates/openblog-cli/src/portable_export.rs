@@ -1,8 +1,9 @@
 use std::path::{Path, PathBuf};
 
+use openblog_core::curated_context::BibliographyContext;
 use openblog_core::model::Post;
 use openblog_core::portability::PortableProjection;
-use openblog_core::source_interchange::{self, Export};
+use openblog_core::source_interchange::{self, Export, ExportLoss};
 use openblog_core::Site;
 
 use crate::{clock, fsutil, site};
@@ -56,14 +57,16 @@ pub fn run(
         println!("Dry run: no files will be written. Re-run with --write to create the export.");
     }
 
-    let (site, _) = site::load_site(root, false, Some(clock::now()))?;
+    let (mut site, _) = site::load_site(root, false, Some(clock::now()))?;
+    // The public curated context, while the site publishes it (ADR 0202).
+    crate::boundary::attach_public_curation(root, &mut site)?;
     let post = site
         .posts
         .iter()
         .find(|post| post.slug == slug)
         .ok_or_else(|| format!("published post `{slug}` was not found"))?;
     if format != Format::Markdown {
-        let export = bibliography_export(post, format)?;
+        let export = bibliography_export(post, curated_references(&site, post), format)?;
         for warning in crate::boundary::check_export(
             root,
             &site,
@@ -143,21 +146,55 @@ pub fn run(
 /// post as the site load published it, so the file holds exactly the public
 /// description its notes show (the one publication projection, ADR 0048 and
 /// ADR 0050), and every detail the format cannot carry is listed.
-pub fn bibliography_export(post: &Post, format: Format) -> Result<Export, String> {
-    let references = post
+pub fn bibliography_export(
+    post: &Post,
+    curated: Option<BibliographyContext>,
+    format: Format,
+) -> Result<Export, String> {
+    let cited = post
         .citations()
         .map(|summary| summary.references.as_slice())
-        .filter(|references| !references.is_empty())
-        .ok_or_else(|| {
-            format!(
-                "`{}` publishes no citations, so there are no references to export; add `citations: notes` or `citations: bibliography` and cite a source. No files were changed.",
-                post.source
-            )
-        })?;
-    Ok(match format {
-        Format::Bibtex => source_interchange::export_cited_bibtex(references),
-        _ => source_interchange::export_cited_csl_json(references),
-    })
+        .unwrap_or_default();
+    // The references the author selected for readers of this post join the
+    // cited ones, after them, once each (ADR 0205). Anything else they
+    // selected has no place in a bibliography, and the export says so.
+    let mut references = cited.to_vec();
+    let mut not_carried = Vec::new();
+    if let Some(curated) = curated {
+        for reference in curated.references {
+            if !references.iter().any(|known| known.key == reference.key) {
+                references.push(reference);
+            }
+        }
+        not_carried = curated.not_carried;
+    }
+    if references.is_empty() {
+        return Err(format!(
+            "`{}` publishes no citations, so there are no references to export; add `citations: notes` or `citations: bibliography` and cite a source. No files were changed.",
+            post.source
+        ));
+    }
+    let mut export = match format {
+        Format::Bibtex => source_interchange::export_cited_bibtex(&references),
+        _ => source_interchange::export_cited_csl_json(&references),
+    };
+    for (id, kind) in not_carried {
+        export.losses.push(ExportLoss {
+            source_id: id,
+            field: kind.to_string(),
+            reason: format!(
+                "a bibliography has no place for a {kind} the author selected for readers; it is in the portable article and on the canonical page"
+            ),
+        });
+    }
+    Ok(export)
+}
+
+/// What the post's curated context holds for a bibliography, when the site
+/// publishes one and offers the post something.
+fn curated_references(site: &Site, post: &Post) -> Option<BibliographyContext> {
+    site.curated_context_for(post)?
+        .bibliography_for_post(&post.slug)
 }
 
 fn run_bibliography(
@@ -168,7 +205,7 @@ fn run_bibliography(
     write: bool,
     json: bool,
 ) -> Result<(), String> {
-    let export = bibliography_export(post, format)?;
+    let export = bibliography_export(post, curated_references(site, post), format)?;
     let label = if format == Format::Bibtex {
         "BibTeX"
     } else {
@@ -267,6 +304,11 @@ pub fn build_diagnostics(site: &Site) -> Result<Vec<String>, String> {
     collect_diagnostics(site, true)
 }
 
+/// Interactive blocks always export as their documented static fallback, so the
+/// site-wide build and check report only problems. `export` and syndication
+/// dry runs still list these for the post being published.
+const EXPECTED_FALLBACKS: [&str; 2] = ["graceful-transformation", "canonical-only-interaction"];
+
 fn collect_diagnostics(site: &Site, optional: bool) -> Result<Vec<String>, String> {
     let mut warnings = Vec::new();
     for post in site.posts.iter().filter(|post| !post.draft) {
@@ -281,6 +323,9 @@ fn collect_diagnostics(site: &Site, optional: bool) -> Result<Vec<String>, Strin
             Err(error) => return Err(error),
         };
         for diagnostic in portable.diagnostics {
+            if EXPECTED_FALLBACKS.contains(&diagnostic.code.as_str()) {
+                continue;
+            }
             warnings.push(format!(
                 "{} [{}] {} Action: {}",
                 diagnostic.source_path,
@@ -385,6 +430,34 @@ mod tests {
                 .unwrap_err()
                 .contains("without `..`"));
         }
+    }
+
+    #[test]
+    fn site_wide_diagnostics_skip_expected_fallbacks_but_keep_them_in_the_export() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("examples")
+            .join("portable-publishing");
+        let (site, _) = site::load_site(&root, false, Some(clock::now())).unwrap();
+        let warnings = diagnostics(&site).unwrap();
+        assert!(warnings
+            .iter()
+            .all(|warning| !warning.contains("[graceful-transformation]")
+                && !warning.contains("[canonical-only-interaction]")));
+        let post = site
+            .posts
+            .iter()
+            .find(|post| post.slug == "portable-lesson")
+            .unwrap();
+        let portable = PortableProjection::from_post(post, &site.config)
+            .unwrap()
+            .portable_html()
+            .unwrap();
+        assert!(portable
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "graceful-transformation"));
     }
 
     #[test]
@@ -685,7 +758,7 @@ mod tests {
 
         let (site, _) = site::load_site(&directory, false, None).unwrap();
         let cited = site.posts.iter().find(|post| post.slug == "cited").unwrap();
-        let bibtex = bibliography_export(cited, Format::Bibtex).unwrap();
+        let bibtex = bibliography_export(cited, None, Format::Bibtex).unwrap();
         assert!(
             bibtex.content.starts_with("@misc{slings,\n"),
             "{}",
@@ -696,7 +769,7 @@ mod tests {
             "{}",
             bibtex.content
         );
-        let csl = bibliography_export(cited, Format::CslJson).unwrap();
+        let csl = bibliography_export(cited, None, Format::CslJson).unwrap();
         for content in [&bibtex.content, &csl.content] {
             assert!(!content.contains("PRIVATE-EXPORT"), "{content}");
             assert!(!content.contains("uncited"), "{content}");

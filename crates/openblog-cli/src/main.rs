@@ -25,6 +25,7 @@ mod reading_path_store;
 mod research_review;
 mod safe_http;
 mod scaffold;
+mod selection_store;
 mod serve;
 mod shared_publications;
 mod site;

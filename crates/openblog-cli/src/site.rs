@@ -55,6 +55,58 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
         include_str!("../../../web/components/ob-web-sandbox.js"),
     ),
     (
+        "components/ob-git-sandbox.js",
+        include_str!("../../../web/components/ob-git-sandbox.js"),
+    ),
+    (
+        "components/ob-git-model.js",
+        include_str!("../../../web/components/ob-git-model.js"),
+    ),
+    (
+        "components/ob-fetch-lab.js",
+        include_str!("../../../web/components/ob-fetch-lab.js"),
+    ),
+    (
+        "components/ob-fetch-model.js",
+        include_str!("../../../web/components/ob-fetch-model.js"),
+    ),
+    (
+        "components/ob-lab.js",
+        include_str!("../../../web/components/ob-lab.js"),
+    ),
+    (
+        "components/ob-component-lab.js",
+        include_str!("../../../web/components/ob-component-lab.js"),
+    ),
+    (
+        "components/ob-component-model.js",
+        include_str!("../../../web/components/ob-component-model.js"),
+    ),
+    (
+        "components/ob-evolution-lab.js",
+        include_str!("../../../web/components/ob-evolution-lab.js"),
+    ),
+    (
+        "components/ob-evolution-model.js",
+        include_str!("../../../web/components/ob-evolution-model.js"),
+    ),
+    (
+        "components/ob-audio-lab.js",
+        include_str!("../../../web/components/ob-audio-lab.js"),
+    ),
+    (
+        "components/ob-audio-core.js",
+        include_str!("../../../web/components/ob-audio-core.js"),
+    ),
+    (
+        "components/ob-native-lab.js",
+        include_str!("../../../web/components/ob-native-lab.js"),
+    ),
+    (
+        "components/ob-native-model.js",
+        include_str!("../../../web/components/ob-native-model.js"),
+    ),
+    (
         "components/ob-highlight.js",
         include_str!("../../../web/components/ob-highlight.js"),
     ),
@@ -361,6 +413,12 @@ pub fn read_sources_excluding(
         root,
         config,
         openblog_core::perspective_publication::THIRD_PERSPECTIVES_FILE,
+    )?;
+    // Featured reflections (ADR 0181), the same way.
+    sources.community_features = read_content_file(
+        root,
+        config,
+        openblog_core::community_feature::COMMUNITY_FEATURES_FILE,
     )?;
     // Claim evidence is read only while the site publishes it (ADR 0075).
     if config.claim_evidence.publish {
@@ -907,9 +965,19 @@ pub fn generate_site_with_boundary(
     if let Some(error) = &site.third_perspectives_error {
         return Err(error.clone());
     }
+    // And featured reflections (ADR 0181).
+    if let Some(error) = &site.community_features_error {
+        return Err(error.clone());
+    }
     // What the projections publish and withhold; a stale approval or an
     // unsafe web address withholds only what it affects, and is named.
     let stores = crate::boundary::Stores::read(root, &shared);
+    // The author's curated selections that cannot be read refuse the output
+    // rather than publishing the site without them, as a damaged claims file
+    // does. Only here: an Admin save's validation render is not stopped.
+    if let Some(error) = crate::boundary::selections_error(site, &stores) {
+        return Err(error);
+    }
     let mut manifest = crate::boundary::manifest(site, &stores, &blocked, None);
     site.warnings.extend(manifest.build_warnings());
     // Required destinations (including full-content feeds) must succeed before

@@ -96,6 +96,11 @@ pub struct SiteConfig {
     /// while it is off.
     #[serde(skip_serializing_if = "ReadingPathsConfig::is_off")]
     pub reading_paths: ReadingPathsConfig,
+    /// Opt-in publication of the author's curated selection of research
+    /// context for readers (ADR 0185). Omitted from the written file while
+    /// it is off.
+    #[serde(skip_serializing_if = "CuratedContextConfig::is_off")]
+    pub curated_context: CuratedContextConfig,
     /// The reading mode a post with supplements opens in when the post does
     /// not say (ADR 0142). Omitted from the written file while it is standard.
     #[serde(
@@ -168,6 +173,23 @@ pub struct ReadingPathsConfig {
 }
 
 impl ReadingPathsConfig {
+    fn is_off(&self) -> bool {
+        !self.publish
+    }
+}
+
+/// Whether builds publish the author's curated research context (ADR 0185).
+/// Off by default: nothing is curated and every output is exactly what it
+/// was. On, the Admin preview and the build's boundary manifest list what the
+/// private selections publish and why the rest is withheld. A selection only ever picks what the atlas, comparison
+/// and citation projections already publish.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CuratedContextConfig {
+    pub publish: bool,
+}
+
+impl CuratedContextConfig {
     fn is_off(&self) -> bool {
         !self.publish
     }
@@ -278,6 +300,9 @@ pub struct CodeConfig {
     pub line_numbers: Option<bool>,
     /// A "Copy" button on every code block.
     pub copy_button: bool,
+    /// An "Open in Rust Playground" link beside Rust examples. A fence can override it with
+    /// `playgroundLink=true` or `playgroundLink=false`.
+    pub playground_link: bool,
 }
 
 /// Browser-facing code execution gateway. The endpoint is public configuration;
@@ -326,6 +351,7 @@ impl Default for CodeConfig {
             highlight: None,
             line_numbers: None,
             copy_button: true,
+            playground_link: true,
         }
     }
 }
@@ -473,6 +499,7 @@ impl Default for SiteConfig {
             claim_evidence: ClaimEvidenceConfig::default(),
             comparisons: ComparisonsConfig::default(),
             reading_paths: ReadingPathsConfig::default(),
+            curated_context: CuratedContextConfig::default(),
             reading_modes: ReadingModesConfig::default(),
         }
     }
@@ -917,6 +944,7 @@ impl SiteConfig {
                 },
             ),
             web_libraries: Some(&self.web_sandbox.libraries),
+            playground_link: self.code.playground_link,
             citation_notes: None,
             claim_evidence_section: false,
             supplements: false,

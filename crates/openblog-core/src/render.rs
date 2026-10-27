@@ -110,6 +110,14 @@ struct QueryProjection {
     json: String,
 }
 
+/// The curated research context, projected once per build: the model the pages
+/// are rendered from and the JSON as written (base path applied, within its
+/// bound), so a page and the file agree.
+struct CuratedProjection {
+    context: crate::curated_context::CuratedContext,
+    json: String,
+}
+
 struct Renderer<'a> {
     site: &'a Site,
     themes: &'a HashMap<String, Theme>,
@@ -121,6 +129,11 @@ struct Renderer<'a> {
     /// or over its bound): the concept previews read that file and nothing
     /// else, and the file written is these bytes.
     atlas_query: std::cell::OnceCell<Option<QueryProjection>>,
+    /// The curated research context the pages and `curated-context.json` are
+    /// rendered from, projected once on first use (`None` when the site
+    /// publishes none, or the projection is refused or over its bound: the
+    /// pages' own sections then still render, the file is left out).
+    curated: std::cell::OnceCell<Option<CuratedProjection>>,
     /// How many steps out every entry page's trail goes, decided once for the
     /// whole site against [`TRAIL_BUDGET_BYTES`] (ADR 0175).
     trail_depth: std::cell::OnceCell<TrailDepth>,
@@ -147,6 +160,7 @@ pub fn atlas_trail_warning_with_budget(site: &Site, trail_budget: usize) -> Opti
         themes: &themes,
         site_references: Default::default(),
         atlas_query: Default::default(),
+        curated: Default::default(),
         trail_depth: Default::default(),
         trail_budget,
     };
@@ -502,6 +516,7 @@ pub fn generate_with_trail_budget(
         themes: &resolved,
         site_references: Default::default(),
         atlas_query: Default::default(),
+        curated: Default::default(),
         trail_depth: Default::default(),
         trail_budget,
     };
@@ -583,6 +598,17 @@ pub fn generate_with_trail_budget(
                 json.to_string(),
             )?;
         }
+    }
+    // The curated research context (ADR 0197): the data file readers' tools
+    // fetch, projected from the one public curated value the pages' sections
+    // are rendered from. A projection that is refused (over a bound, or not
+    // consistent) is left out whole; the pages stay the complete fallback and
+    // the build warns (`boundary:`).
+    if let Some(projection) = r.curated_projection() {
+        out.add(
+            crate::curated_context::CURATED_CONTEXT_JSON_FILE.into(),
+            projection.json.clone(),
+        )?;
     }
     // Passage comparisons, only when the site publishes them (ADR 0092): the
     // pages and the JSON artifact are both rendered from the one projection.
@@ -717,6 +743,7 @@ pub fn generate_document(
         themes: &resolved,
         site_references: Default::default(),
         atlas_query: Default::default(),
+        curated: Default::default(),
         trail_depth: Default::default(),
         trail_budget: TRAIL_BUDGET_BYTES,
     };
@@ -1086,6 +1113,65 @@ impl<'a> Renderer<'a> {
                     .then_some(QueryProjection { query, json })
             })
             .as_ref()
+    }
+
+    /// The curated context as the build writes it, projected once. `None`
+    /// when the site publishes no curated context at all, or the projection
+    /// is refused (over a bound, or not consistent); a post's section is
+    /// then rendered from the public value directly (see
+    /// [`Self::curated_section`]) and only the data file is left out.
+    fn curated_projection(&self) -> Option<&CuratedProjection> {
+        self.curated
+            .get_or_init(|| {
+                let c = &self.site.config;
+                let curation = self.site.curation.as_ref()?;
+                let base = c.base_path();
+                let posts: Vec<crate::curated_context::PostRef<'_>> = self
+                    .site
+                    .posts
+                    .iter()
+                    .map(|post| crate::curated_context::PostRef {
+                        slug: post.slug.as_str(),
+                        url: post.url.as_str(),
+                    })
+                    .collect();
+                let context =
+                    crate::curated_context::CuratedContext::project(curation, &posts, &base)
+                        .ok()?;
+                // Nothing published, nothing written: a site that curates but
+                // currently publishes no selection is built exactly as before.
+                if context.items.is_empty() {
+                    return None;
+                }
+                let json = c.apply_base_path(&context.to_json());
+                (json.len() <= crate::curated_context::MAX_BYTES)
+                    .then_some(CuratedProjection { context, json })
+            })
+            .as_ref()
+    }
+
+    /// The static research-context section of one post's page, rendered from
+    /// the public curated value alone; `None` when the post offers nothing,
+    /// so its page is exactly what it was.
+    fn curated_section(&self, post: &Post) -> Option<String> {
+        self.site.curation.as_ref()?;
+        if let Some(projection) = self.curated_projection() {
+            let data = format!("/{}", crate::curated_context::CURATED_CONTEXT_JSON_FILE);
+            return projection
+                .context
+                .post_section_html(&post.slug, Some(&data));
+        }
+        // The data file is not written (a bound, or an inconsistency): the
+        // page still carries what its post is offered, without a link to it.
+        let curation = self.site.curation.as_ref()?;
+        crate::curated_context::CuratedContext::for_one_post(
+            curation,
+            crate::curated_context::PostRef {
+                slug: &post.slug,
+                url: &post.url,
+            },
+        )?
+        .post_section_html(&post.slug, None)
     }
 
     /// The query file as the build writes it, when it is written.
@@ -1940,6 +2026,11 @@ impl<'a> Renderer<'a> {
         if let Some(source) = post.source_notice_html() {
             body.push_str(&source);
         }
+        // The author's curated research context for this post (#197): static,
+        // complete without JavaScript, from the public curated value only.
+        if let Some(section) = self.curated_section(post) {
+            body.push_str(&section);
+        }
         if c.share.enabled {
             body.push_str(&self.share_block(post));
         }
@@ -1976,6 +2067,11 @@ impl<'a> Renderer<'a> {
         body.push_str(&crate::perspective_publication::render_section(
             post.third_perspectives(),
             reports_endpoint,
+        ));
+        // Reflections the editors chose to feature, after the reflections they
+        // come from and framed as an editorial choice (ADR 0184).
+        body.push_str(&crate::community_feature::render_section(
+            post.community_features(),
         ));
         let third_perspective = self.third_perspective(post);
         if let Some(region) = &third_perspective {
@@ -2528,7 +2624,20 @@ impl<'a> Renderer<'a> {
             attr(&series.url),
             text(&series.name)
         ));
-        h.push_str("<div class=\"ob-series-nav\">");
+        // One cell per part, decorative: the position is already spoken in the eyebrow and the
+        // list below. A theme script may mark cells the reader has completed.
+        h.push_str("<ol class=\"ob-series-path\" aria-hidden=\"true\">");
+        for n in 0..series.posts.len() {
+            let here = if n == position { " data-current" } else { "" };
+            h.push_str(&format!("<li{here}></li>"));
+        }
+        h.push_str(
+            "</ol>
+<div class=\"ob-series-nav\">",
+        );
+        // Both slots are always links, so the control looks and behaves the same on every
+        // part. The first part's "previous" is the series overview; the last part's "next"
+        // is the way back to it.
         match prev {
             Some(p) => h.push_str(&format!(
                 "<a class=\"ob-series-prev\" rel=\"prev\" href=\"{}\"><span class=\"ob-meta\">Previous part</span><span>{}</span>{}</a>",
@@ -2536,7 +2645,10 @@ impl<'a> Renderer<'a> {
                 text(&p.title),
                 credit(p, "")
             )),
-            None => h.push_str("<span></span>"),
+            None => h.push_str(&format!(
+                "<a class=\"ob-series-prev ob-series-edge\" href=\"{}\"><span class=\"ob-meta\">Start of series</span><span>Series overview</span></a>",
+                attr(&series.url)
+            )),
         }
         match next {
             Some(n) => h.push_str(&format!(
@@ -2545,7 +2657,11 @@ impl<'a> Renderer<'a> {
                 text(&n.title),
                 credit(n, "")
             )),
-            None => h.push_str("<span></span>"),
+            None => h.push_str(&format!(
+                "<a class=\"ob-series-next ob-series-edge\" href=\"{}\"><span class=\"ob-meta\">End of series</span><span>Back to {}</span></a>",
+                attr(&series.url),
+                text(&series.name)
+            )),
         }
         h.push_str("</div>\n<details class=\"ob-series-parts-details\"><summary>All parts</summary><ol class=\"ob-series-parts\">");
         for &i in &series.posts {
@@ -4078,6 +4194,7 @@ mod tests {
                 claim_evidence: None,
                 reader_feedback: None,
                 third_perspectives: None,
+                community_features: None,
             },
             LoadOptions::default(),
         )
@@ -4139,6 +4256,32 @@ mod tests {
         ] {
             assert!(files.iter().any(|f| f.path == path), "missing {path}");
         }
+    }
+
+    #[test]
+    fn series_navigation_is_the_same_shape_on_every_part() {
+        let files = build(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/"}"#,
+            true,
+        );
+        let first = file(&files, "one/index.html");
+        let last = file(&files, "two/index.html");
+        for page in [first, last] {
+            assert!(page.contains("<ol class=\"ob-series-path\" aria-hidden=\"true\">"));
+            assert_eq!(page.matches("<li data-current></li>").count(), 1);
+            assert_eq!(page.matches("class=\"ob-series-prev").count(), 1);
+            assert_eq!(page.matches("class=\"ob-series-next").count(), 1);
+            assert!(!page.contains("<div class=\"ob-series-nav\"><span></span>"));
+        }
+        assert!(first.contains("<li data-current></li><li></li>"));
+        assert!(first.contains("Start of series"));
+        assert!(first.contains("rel=\"next\""));
+        assert!(!first.contains("End of series"));
+        assert!(last.contains("<li></li><li data-current></li>"));
+        assert!(last.contains("End of series"));
+        assert!(last.contains("rel=\"prev\""));
+        assert!(last.contains("Back to Series S"));
+        assert!(!last.contains("Start of series"));
     }
 
     #[test]

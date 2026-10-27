@@ -261,7 +261,11 @@ engagement protection above, then:
 digest and the reader's numbered consent records in `details`, and the same quotas and replay bound
 as passage feedback. Through `POST /receipt` the reader reads it (the category, never their consent
 records), agrees or declines to be asked (a new consent record, and a new version, so an approval
-made on the earlier consent is refused), answers a clarification (the text is replaced; the
+made on the earlier consent is refused), agrees or declines to let an editor feature the reflection
+(`action: "feature"`, `consent`, and for an agreement the `revisionSeen` they are looking at: a new
+consent record and version, allowed while the reflection is pending, in clarification or approved, and
+refused as a stale view when the revision is not the one in effect; no schema change, since consents
+live in `details`), answers a clarification (the text is replaced; the
 details stay) or withdraws it, which deletes its text and name at once. The inbox lists it with
 `approvedConsent`, and an approval names the text revision and consent record the moderator saw
 (`seenRevision`, `seenConsent`). B5's own `/admin/feedback` view lists only passage feedback and

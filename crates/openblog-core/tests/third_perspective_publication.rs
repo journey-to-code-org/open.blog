@@ -15,9 +15,9 @@ use openblog_core::perspective_publication::{
 };
 use openblog_core::portability::PortableProjection;
 use openblog_core::third_perspective::{
-    ConsentChange, ConsentChoices, HostedPerspective, Intake, LocalReflection, ModerationFacts,
-    ModerationState, PerspectiveTarget, PublishedWork, ReaderAttribution, ResponseCategory,
-    SubmittedCopy, TargetStatus,
+    ConsentChange, ConsentChoices, FeatureChange, HostedPerspective, Intake, LocalReflection,
+    ModerationFacts, ModerationState, PerspectiveTarget, PublishedWork, ReaderAttribution,
+    ResponseCategory, SubmittedCopy, TargetStatus,
 };
 use openblog_core::{
     generate, DateTime, LoadOptions, Site, SiteConfig, SourceFile, Sources, ThemeSet,
@@ -316,7 +316,7 @@ fn admin_publishes_only_what_the_projection_shows_now_and_never_a_private_field(
                 publish: true,
                 attribution: ReaderAttribution::named("Mina", false),
                 clarification: true,
-                feature: false,
+                feature: FeatureChange::Decline,
             },
             time("2026-10-28T10:00:00Z"),
         )

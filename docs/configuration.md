@@ -37,7 +37,7 @@ default, so you can edit values in place and delete the ones you do not need.
   "feeds": { "rss": true, "json": true, "sitemap": true, "llms": true, "portfolioSnapshot": true, "limit": 20, "fullContent": true },
   "seo": { "aiSearch": true, "aiTraining": true },
   "markdown": { "smartPunctuation": false, "headingAnchors": true, "tocDepth": 3, "tocMinHeadings": 3 },
-  "code": { "highlight": null, "lineNumbers": null, "copyButton": true },
+  "code": { "highlight": null, "lineNumbers": null, "copyButton": true, "playgroundLink": true },
   "codeRunner": { "endpoint": "", "languages": [] },
   "recipes": { "scaling": true, "checklists": true, "timers": true, "cookMode": true, "print": true, "jumpLink": true },
   "knowledgeChecks": { "generationEndpoint": "", "model": "" },
@@ -48,6 +48,7 @@ default, so you can edit values in place and delete the ones you do not need.
   "claimEvidence": { "publish": false },
   "comparisons": { "publish": false },
   "readingPaths": { "publish": false },
+  "curatedContext": { "publish": false },
   "readingModes": { "default": "standard" }
 }
 ```
@@ -158,6 +159,10 @@ for the publishing checklist and analytics limitations.
   Leave them `null` (or out) to follow the theme, which turns both on by default. Set
   `true` or `false` to decide for the whole blog whatever the theme says.
 - `copyButton` adds a Copy button to every code block.
+- `playgroundLink` offers an **Open in Rust Playground** link beside runnable Rust examples, in the
+  page, in portable copies, and in exports. Set it to `false` to hide the link everywhere; a single
+  fence can still choose with `playgroundLink=true` or `playgroundLink=false`. The **Run Rust**
+  button is separate and stays.
 
 A post can override `highlight` and `lineNumbers` in its front matter, and one code block
 can override line numbers with its fence options (see [Writing content](content.md#code-blocks)).
@@ -314,6 +319,40 @@ the ordered routes you curate in Admin under **Content → Reading paths**. Whil
 preview paths freely; nothing publishes them and `/paths/` is not reserved. Turning it on reserves
 `/paths/`, so a page named `paths` or a `postPath` that puts a post there is refused by the build and by
 `check`; while it is off, `check` warns when you have path files beside such a page or post.
+
+## Curated research context
+
+`curatedContext.publish` (off by default) turns on the curated-selection projection: Admin's
+**What will be public** (and the build's research summary) then lists what your private
+`.openblog/private/research/selections.json` would give readers and why anything is withheld.
+A selection can only pick what the atlas, comparison and source projections already publish (a
+source must already be cited by a published post or published by the atlas or a comparison); it
+never approves private research, never copies a note, and lists exactly the fields readers get. It
+may be for the whole site or for named posts, in your order. A selection goes stale when what it
+selects, or anything it needs, changes, and stays withheld until you check it and select it again.
+While the switch is on, a selections file that cannot be read refuses `build` and `check`, naming the
+file, and so also blocks publishing a shared reflection (an ordinary post save still succeeds, reporting
+the failed build); a selected dating whose competing datings are not selected is a `boundary:` warning. While the
+switch is off the file is never read and nothing changes. You choose what readers get from **Selected
+for readers** in the Research panel beside a post. The file is private and Git-ignored with the other
+research files. See
+[ADR 0185](adr/0185-curated-research-context-is-one-more-projection-that-selects-only-what-the-other-projections-publish.md).
+
+What readers get: while `curatedContext.publish` is on and at least one selection publishes, the build
+writes `curated-context.json`, a versioned public data file (the published selections with their
+attribution, doubt, evidence, provenance and the revision you selected, the context they need, and each
+post's items in your order with a canonical anchor for each), and each post you offered something gets a
+static **Research context** section after its text, complete without JavaScript. Both are read from the
+one public value that Admin's **What will be public** lists, so they never disagree and neither can reach
+a private note. With the switch off, or nothing selected, the site builds exactly as before; a file over
+its bound is left out whole with a `boundary:` warning and the pages are unaffected. Portable copies, syndicated copies, full-content feeds and `llms-full.txt` carry it too, with a link back to the
+canonical section ([ADR 0202](adr/0202-portable-copies-carry-the-public-curated-context-as-labeled-sections-with-links-back-to-the-canonical-page.md)).
+
+The comment you write for a selection is public, so the build's check for private text allows it: any
+words it shares with a private note are treated as public everywhere on the site, in every file, not
+only in the comment. The rest of that note stays protected, so write a comment fresh instead of pasting
+from a note. See the [curated context
+format](specs/curated-context.md).
 
 ## Reading modes
 

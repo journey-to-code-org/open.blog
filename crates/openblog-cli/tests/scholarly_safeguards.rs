@@ -242,7 +242,12 @@ fn every_case_reports_exactly_the_findings_it_names_and_changes_nothing() {
             assert!(scope["object"].is_string(), "{id}: {finding}");
             let whole_file = matches!(
                 scope["object"].as_str().unwrap(),
-                "source-library" | "notebook" | "atlas" | "claims-file" | "alignments-file"
+                "source-library"
+                    | "notebook"
+                    | "atlas"
+                    | "claims-file"
+                    | "alignments-file"
+                    | "selections-file"
             );
             assert!(
                 whole_file

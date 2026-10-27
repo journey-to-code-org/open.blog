@@ -248,7 +248,7 @@ test("status access by receipt cannot enumerate other readers' reflections", asy
   const own = fakeDatabase((entry) => (entry.method === "GET" && entry.path.endsWith("/openblog_feedback") ? [stored({ status: "approved", approved_revision: 1, approved_consent: 1, reader_name: "Private Ada", publish_name: false })] : []));
   const response = await receiptCall(own, { action: "read" });
   const { item } = JSON.parse(response.body);
-  assert.deepEqual(Object.keys(item).sort(), ["body", "clarification", "consent", "details", "kind", "published", "purged", "receivedAt", "status", "version", "work"]);
+  assert.deepEqual(Object.keys(item).sort(), ["body", "clarification", "consent", "details", "feature", "kind", "published", "purged", "receivedAt", "status", "version", "work"]);
   for (const secret of ["Private Ada", ID(1), digest(RECEIPT), RECEIPT, "consents", "approvedConsent", "approved_consent"]) assert.ok(!response.body.includes(secret), secret);
 });
 
@@ -278,6 +278,67 @@ test("agreeing to be asked through a receipt appends a consent record and raises
   assert.equal(patch.body.clarification_consent, true);
   assert.deepEqual(patch.body.details.consents.map((record) => [record.number, record.clarification]), [[1, false], [2, true]]);
   assert.equal(patch.body.details.intake.receiptDigest, digest(RECEIPT), "the intake stays");
+});
+
+const featuring = (extra = {}, consents = [{ number: 1, givenAt: "2026-10-26T10:00:00Z", publish: true, attribution: { publishName: false }, clarification: true }]) => stored({ reader_name: null, publish_name: false, details: { category: "connection", intake: { receiptDigest: digest(RECEIPT) }, consents }, ...extra });
+
+test("a reader agrees to feature the text they see through their receipt, and it is a new consent record", async () => {
+  const database = fakeDatabase((entry) => {
+    if (entry.method === "GET") return [featuring()];
+    if (entry.method === "PATCH") return [featuring({ version: 2 })];
+    return [];
+  });
+  const view = JSON.parse((await receiptCall(database, { action: "read" })).body).item;
+  assert.deepEqual(view.feature, { revision: 1, agreed: false, earlier: false });
+  const response = await receiptCall(database, { action: "feature", consent: true, revisionSeen: 1, expectedVersion: 1 });
+  assert.equal(response.statusCode, 200);
+  const patch = writes(database).find((entry) => entry.method === "PATCH");
+  assert.equal(patch.params.version, "eq.1");
+  assert.equal(patch.params.status, "in.(pending,clarification,approved)");
+  assert.equal(patch.body.version, 2);
+  assert.deepEqual(patch.body.details.consents.map((record) => [record.number, record.clarification, record.featureRevision]), [[1, true, undefined], [2, true, 1]]);
+  assert.ok(!("clarification_consent" in patch.body), "being asked to clarify is untouched");
+});
+
+test("featuring consent is bound to the revision the reader saw and never renewed by another change", async () => {
+  // Approved at revision 2; the reader agreed to feature revision 1 before a clarification.
+  const earlier = [{ number: 1, givenAt: "2026-10-26T10:00:00Z", publish: true, attribution: { publishName: false }, clarification: false, featureRevision: 1 }];
+  const row = featuring({ status: "approved", item_revision: 2, approved_revision: 2, approved_consent: 1, version: 3, details: { intake: { receiptDigest: digest(RECEIPT) }, consents: earlier, revisedAt: "2026-10-26T10:00:00Z" } });
+  const database = fakeDatabase((entry) => (entry.method === "GET" ? [row] : entry.method === "PATCH" ? [{ ...row, version: 4 }] : []));
+  const view = JSON.parse((await receiptCall(database, { action: "read" })).body).item;
+  assert.deepEqual(view.feature, { revision: 2, agreed: false, earlier: true }, "the old agreement covers the old text only");
+  // Agreeing for a revision the reader did not see is refused as a stale view, and writes nothing.
+  const stale = await receiptCall(database, { action: "feature", consent: true, revisionSeen: 1, expectedVersion: 3 });
+  assert.equal(stale.statusCode, 409);
+  assert.equal(writes(database).length, 0);
+  // Toggling whether they may be asked to clarify keeps the old revision.
+  const toggled = await receiptCall(database, { action: "consent", consent: true, expectedVersion: 3 });
+  assert.equal(toggled.statusCode, 422, "that change is for a waiting reflection only");
+  // Agreeing for the revision they see binds it; declining takes it back.
+  const agreed = await receiptCall(database, { action: "feature", consent: true, revisionSeen: 2, expectedVersion: 3 });
+  assert.equal(agreed.statusCode, 200);
+  assert.equal(writes(database).at(-1).body.details.consents.at(-1).featureRevision, 2);
+  const declined = await receiptCall(database, { action: "feature", consent: false, expectedVersion: 3 });
+  assert.equal(declined.statusCode, 200);
+  assert.equal("featureRevision" in writes(database).at(-1).body.details.consents.at(-1), false);
+});
+
+test("featuring is refused where there is nothing to agree to: rejected, withdrawn, purged, a bad body or the feature off", async () => {
+  for (const [name, row] of [["rejected", featuring({ status: "rejected" })], ["withdrawn", featuring({ status: "withdrawn" })], ["purged", featuring({ status: "approved", purged_at: "2026-10-26T10:00:00+00:00", approved_revision: 1 })]]) {
+    const database = fakeDatabase((entry) => (entry.method === "GET" ? [row] : []));
+    const response = await receiptCall(database, { action: "feature", consent: true, revisionSeen: 1, expectedVersion: 1 });
+    assert.ok([409, 422].includes(response.statusCode), name);
+    assert.equal(writes(database).length, 0, name);
+  }
+  const database = fakeDatabase((entry) => (entry.method === "GET" ? [featuring()] : []));
+  assert.equal((await receiptCall(database, { action: "feature", consent: "yes", expectedVersion: 1 })).statusCode, 422);
+  assert.equal((await receiptCall(database, { action: "feature", consent: true, expectedVersion: 1 })).statusCode, 422, "agreeing names the revision seen");
+  assert.equal(writes(database).length, 0);
+  const off = fakeDatabase((entry) => (entry.method === "GET" ? [featuring()] : []));
+  const without = createHandler({ env: { ...environment, OPENBLOG_THIRD_PERSPECTIVES_ENABLED: "false" }, fetchImpl: off.fetchImpl, siteFetchImpl: site(), now: () => NOW });
+  const refused = await without(event("receipt", "POST", { headers: ORIGIN, body: { receipt: RECEIPT, action: "feature", consent: true, revisionSeen: 1, expectedVersion: 1 } }));
+  assert.equal(refused.statusCode, 404);
+  assert.equal(writes(off).length, 0);
 });
 
 test("a clarification replaces the text and keeps the category, receipt and consent records", async () => {

@@ -339,7 +339,7 @@ test("every withheld item links to where it is changed, by its own address", () 
   assert.equal(boundaryItemHref({ kind: "claim", id: "c1", posts: ["elsewhere"] }, { postPaths }), null, "an unknown post has no link");
   assert.equal(boundaryItemHref({ kind: "claim", id: "c1" }), null);
   assert.equal(boundaryItemHref({ kind: "evidence-link", id: "l1", posts: ["cave"] }), null);
-  for (const reason of ["projection-off", "not-approved", "unsourced", "notebook-passage", "private-dependency", "contradiction-withheld", "post-not-published", "stale-approval", "unsafe-url", "private-identifier", "rights", "length", "stale-anchor", "page-not-published", "over-limit", "inconsistent"]) {
+  for (const reason of ["projection-off", "not-approved", "unsourced", "notebook-passage", "private-dependency", "contradiction-withheld", "post-not-published", "stale-approval", "unsafe-url", "private-identifier", "rights", "length", "stale-anchor", "page-not-published", "withdrawn", "stale-selection", "missing-target", "selection-cycle", "over-limit", "inconsistent"]) {
     assert.ok(BOUNDARY_REASONS[reason], `${reason} has words`);
     assert.doesNotMatch(BOUNDARY_REASONS[reason], /score|verdict|false|true|wrong/i, "no reason judges the research");
   }

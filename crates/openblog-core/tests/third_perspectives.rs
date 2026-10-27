@@ -4,7 +4,7 @@
 
 use openblog_core::participation::{ParticipationKind, ParticipationMode};
 use openblog_core::third_perspective::{
-    ApprovalRequest, ConsentChange, ConsentChoices, ConsentOutcome, ErrorCode, FeatureSelection,
+    ApprovalRequest, ConsentChange, ConsentChoices, ConsentOutcome, ErrorCode, FeatureChange,
     Intake, LifecycleError, LocalReflection, ModerationFacts, ModerationState, PerspectiveTarget,
     PublishedWork, ReaderAttribution, ResponseCategory, Stage, SubmissionRequest, SubmittedCopy,
     TargetStatus, KIND, MAX_BODY_CHARS, MAX_CONSENT_RECORDS, MAX_DETAILS_BYTES, MAX_JSON_BYTES,
@@ -45,6 +45,24 @@ fn local(attribution: ReaderAttribution) -> LocalReflection {
         attribution,
         seen_at: None,
     }
+}
+
+/// Whether a reflection could be featured at `revision`: the one projection
+/// shows it, that is its approved revision, and the reader's consent in effect
+/// agrees to feature exactly it. The editorial act itself is
+/// `community_feature::FeatureRecord::new`, which adds who may choose, the
+/// published file and the note.
+fn featurable(
+    copy: &SubmittedCopy,
+    facts: &ModerationFacts,
+    mode: ParticipationMode,
+    work: &PublishedWork,
+    target: &TargetStatus,
+    revision: u32,
+) -> bool {
+    copy.approved_response(facts, mode, work, target).is_some()
+        && facts.approved_revision == Some(revision)
+        && copy.feature_covers(revision)
 }
 
 fn consent(clarification: bool, feature: bool) -> ConsentChoices {
@@ -102,7 +120,7 @@ fn change(publish: bool, attribution: ReaderAttribution) -> ConsentChange {
         publish,
         attribution,
         clarification: true,
-        feature: false,
+        feature: FeatureChange::Decline,
     }
 }
 
@@ -270,19 +288,13 @@ fn state_fixtures_give_each_copy_its_stage_and_only_its_public_form() {
         }
 
         if let Some(feature) = case.get("feature") {
-            let selection = FeatureSelection {
-                selected_by: feature["selectedBy"].as_str().unwrap().into(),
-                revision: feature["revision"].as_u64().unwrap() as u32,
-            };
-            let featured = copy.featured(&facts, mode, &work, &target, &selection);
+            let revision = feature["revision"].as_u64().unwrap() as u32;
+            let featurable = featurable(&copy, &facts, mode, &work, &target, revision);
             assert_eq!(
-                featured.is_some(),
+                featurable,
                 expect["featured"].as_bool().unwrap(),
                 "{name}: featured"
             );
-            if let Some(featured) = featured {
-                assert_eq!(Some(&featured.response), public.as_ref());
-            }
         }
         if let Some(matches) = expect.get("nameMatchesCredit") {
             assert_eq!(
@@ -366,7 +378,8 @@ fn categories_are_optional_descriptive_prompts_never_scores_or_sides() {
 // Four distinct stages
 
 #[test]
-fn local_reflection_submitted_copy_approved_response_and_featured_publication_are_distinct() {
+fn local_reflection_submitted_copy_and_approved_response_are_distinct_and_consent_alone_makes_a_reflection_featurable(
+) {
     let draft = local(ReaderAttribution::named("Mina Okafor", true));
     assert_eq!(draft.stage(), Stage::Local);
 
@@ -406,26 +419,22 @@ fn local_reflection_submitted_copy_approved_response_and_featured_publication_ar
         "Third Perspective from Mina Okafor, a reader"
     );
 
-    let selection = FeatureSelection {
-        selected_by: "mikey".into(),
-        revision: 1,
-    };
-    assert_eq!(
-        copy.featured(
+    assert!(
+        !featurable(
+            &copy,
             &approved,
             ParticipationMode::Open,
             &tides(),
             &whole(),
-            &selection
+            1
         ),
-        None,
         "approval alone never features a reflection"
     );
     let outcome = copy
         .revise_consent(
             &approved,
             ConsentChange {
-                feature: true,
+                feature: FeatureChange::Agree { revision_seen: 1 },
                 ..change(true, ReaderAttribution::named("Mina Okafor", true))
             },
             time("2026-10-27T08:00:00Z"),
@@ -433,31 +442,25 @@ fn local_reflection_submitted_copy_approved_response_and_featured_publication_ar
         .unwrap();
     assert_eq!(outcome, ConsentOutcome::Recorded);
     assert_eq!(copy.consent().feature_revision, Some(1));
-    let featured = copy
-        .featured(
+    assert!(
+        featurable(
+            &copy,
             &approved,
             ParticipationMode::Open,
             &tides(),
             &whole(),
-            &selection,
-        )
-        .expect("featured with consent for the approved revision");
-    assert_eq!(featured.response, response);
-    assert!(featured.to_json().starts_with("{\"response\":{"));
-    assert_eq!(
-        copy.featured(
-            &approved,
-            ParticipationMode::Open,
-            &tides(),
-            &whole(),
-            &FeatureSelection {
-                selected_by: String::new(),
-                revision: 1
-            }
+            1
         ),
-        None,
-        "a feature names the editor who chose it"
+        "featurable with consent for the approved revision"
     );
+    assert!(!featurable(
+        &copy,
+        &approved,
+        ParticipationMode::Open,
+        &tides(),
+        &whole(),
+        2
+    ));
 }
 
 // ---------------------------------------------------------------------------
@@ -1065,10 +1068,11 @@ fn a_name_that_only_looks_like_a_credit_is_never_shown() {
 #[test]
 fn feature_consent_binds_to_one_approved_revision() {
     let later = time("2026-10-27T08:00:00Z");
-    let feature = ConsentChange {
-        feature: true,
+    let agree = |revision_seen| ConsentChange {
+        feature: FeatureChange::Agree { revision_seen },
         ..change(true, ReaderAttribution::anonymous())
     };
+    let feature = agree(1);
     let mut copy = submitted(ReaderAttribution::anonymous());
     assert_eq!(
         copy.revise_consent(&facts(ModerationState::Rejected), feature.clone(), later),
@@ -1086,41 +1090,14 @@ fn feature_consent_binds_to_one_approved_revision() {
         .unwrap();
     assert_eq!(revision, 2);
     let approved = approved_at(2, 2);
-    let selection = FeatureSelection {
-        selected_by: "mikey".into(),
-        revision: 2,
-    };
-    assert_eq!(
-        copy.featured(
-            &approved,
-            ParticipationMode::Open,
-            &tides(),
-            &whole(),
-            &selection
-        ),
-        None
-    );
-    copy.revise_consent(&approved, feature, time("2026-10-28T08:00:00Z"))
+    let can = |mode, copy: &SubmittedCopy| featurable(copy, &approved, mode, &tides(), &whole(), 2);
+    assert!(!can(ParticipationMode::Open, &copy));
+    copy.revise_consent(&approved, agree(2), time("2026-10-28T08:00:00Z"))
         .unwrap();
     assert_eq!(copy.consent().feature_revision, Some(2));
-    assert!(copy
-        .featured(
-            &approved,
-            ParticipationMode::Open,
-            &tides(),
-            &whole(),
-            &selection
-        )
-        .is_some());
-    assert_eq!(
-        copy.featured(
-            &approved,
-            ParticipationMode::Hidden,
-            &tides(),
-            &whole(),
-            &selection
-        ),
-        None,
+    assert!(can(ParticipationMode::Open, &copy));
+    assert!(
+        !can(ParticipationMode::Hidden, &copy),
         "never featured while the kind is hidden"
     );
 }
@@ -1310,7 +1287,7 @@ fn consent_history_is_append_only_numbered_and_bounded() {
             &pending,
             ConsentChange {
                 clarification: copy.consent().clarification,
-                feature: true,
+                feature: FeatureChange::Agree { revision_seen: 1 },
                 ..change(true, mina())
             },
             received()
@@ -1386,7 +1363,7 @@ fn narrowing_and_revoking_stay_possible_when_the_history_is_full() {
             &pending,
             ConsentChange {
                 clarification: false,
-                feature: true,
+                feature: FeatureChange::Agree { revision_seen: 1 },
                 ..change(true, hide)
             },
             received()
@@ -1864,7 +1841,13 @@ fn shared_submission_fixtures_read_and_receive_as_the_browser_and_function_do() 
                 publish: true,
                 attribution: current.attribution.clone(),
                 clarification: case["clarification"].as_bool().unwrap(),
-                feature: current.feature_revision.is_some(),
+                feature: match &case["feature"] {
+                    Value::Null => FeatureChange::Keep,
+                    Value::String(word) if word == "decline" => FeatureChange::Decline,
+                    seen => FeatureChange::Agree {
+                        revision_seen: seen.as_u64().unwrap() as u32,
+                    },
+                },
             },
             time(case["at"].as_str().unwrap()),
         );

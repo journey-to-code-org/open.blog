@@ -346,6 +346,13 @@ export class ObThirdPerspective extends HTMLElement {
     const clarificationHint = hint("clarification", "A moderator may ask you, through the private receipt you get after sending, to make it clearer. Nothing is e-mailed.");
     clarification.setAttribute("aria-describedby", clarificationHint.id);
 
+    // Permission for an editor to feature it, separate from publishing it and unticked until the reader
+    // chooses it (ADR 0176). It is for this text only, and the receipt takes it back.
+    const feature = make("input");
+    feature.type = "checkbox";
+    const featureHint = hint("feature", "Separate from publishing it. If a moderator approves your reflection, an editor may also choose it to be shown again in a community section of this page, with an optional short note from the editors saying why. It is shown whole, as you wrote it, and only this text: if you change it you are asked again. Featuring is the editors’ choice and does not mean anyone agrees with it. You can take this back, and agree again, from your receipt. Taking it down takes effect when the editors next update the site, and copies already published may remain.");
+    feature.setAttribute("aria-describedby", featureHint.id);
+
     const privacy = hint("privacy", this.#hosted
       ? "It goes to a moderator for review, and is never published without your yes and their approval. No account or e-mail address is asked for; keep the receipt you get to check on it or take it back."
       : "This site does not take reflections through the form: when you are ready, your reflection is prepared for you to copy and send to the author.");
@@ -361,6 +368,7 @@ export class ObThirdPerspective extends HTMLElement {
       publication,
       identity,
       choice(clarification, labelled(clarification, `${id}-clarification`, "You may ask me to clarify it"), clarificationHint),
+      choice(feature, labelled(feature, `${id}-feature`, "An editor may feature my reflection in a community section"), featureHint),
       privacy,
       actions,
     );
@@ -412,7 +420,7 @@ export class ObThirdPerspective extends HTMLElement {
 
     return {
       form, alert, about, work, section, sectionSelect, authorRadio, authorSelect, category, categories, body, publication, publishYes, publishNo, name, showName,
-      clarification, submit, status, done, fallback, fallbackMessage, copyArea, copyLabel, retry, copyButton, contactLink, errors, controls, hints,
+      clarification, feature, submit, status, done, fallback, fallbackMessage, copyArea, copyLabel, retry, copyButton, contactLink, errors, controls, hints,
     };
   }
 
@@ -487,7 +495,7 @@ export class ObThirdPerspective extends HTMLElement {
       revision: this.#passages.revision,
       target: this.#target(),
       body: ui.body.value,
-      consent: { publish, clarification: ui.clarification.checked },
+      consent: { publish, clarification: ui.clarification.checked, ...(publish && ui.feature.checked ? { feature: true } : {}) },
     };
     const category = ui.categories.find((radio) => radio.checked)?.value;
     if (category) value.category = category;
@@ -621,7 +629,7 @@ export class ObThirdPerspective extends HTMLElement {
       : "Thank you. Your reflection was sent for review. It is published only if a moderator approves it, as you chose.";
     ui.done.hidden = false;
     this.#receipt?.remove();
-    this.#receipt = receipt ? receiptPanel({ endpoint: this.#endpoint, receipt, consent: submission.consent.clarification, noun: "reflection" }) : null;
+    this.#receipt = receipt ? receiptPanel({ endpoint: this.#endpoint, receipt, consent: submission.consent.clarification, noun: "reflection", feature: { revision: 1, agreed: submission.consent.feature === true } }) : null;
     if (this.#receipt) ui.done.after(this.#receipt);
     ui.done.focus();
   }

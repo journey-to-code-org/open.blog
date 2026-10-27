@@ -269,10 +269,45 @@ impl PublishedPerspective {
         post.is_some_and(|post| Self::response_of(hosted, post, config).is_some())
     }
 
-    fn response_of(
+    /// Whether the published file still shows the reader's name as the hosted
+    /// copy shows it now. A reader may hide their name after approval (ADR
+    /// 0110), and the committed file keeps the name it was published with until
+    /// the reflection is published again, so Admin asks this on every inbox
+    /// load: [`NameStanding::Narrowed`] means `publish` it again from the hosted
+    /// copy, which is the one step that drops the name from the file. A copy
+    /// the projection no longer shows is [`NameStanding::Current`] here: taking
+    /// it off is the other check (`shown_now`).
+    pub fn name_standing(
+        &self,
+        hosted: &HostedPerspective,
+        post: Option<&Post>,
+        config: &SiteConfig,
+    ) -> NameStanding {
+        let shown = post.and_then(|post| Self::response_of(hosted, post, config));
+        match (shown, &self.name) {
+            (Some(response), Some(name)) if response.name.as_ref() != Some(name) => {
+                NameStanding::Narrowed
+            }
+            _ => NameStanding::Current,
+        }
+    }
+
+    pub(crate) fn response_of(
         hosted: &HostedPerspective,
         post: &Post,
         config: &SiteConfig,
+    ) -> Option<crate::third_perspective::ApprovedResponse> {
+        Self::response_in(hosted, post, config, ParticipationMode::Open)
+    }
+
+    /// The one projection of a hosted copy in `mode`: what a publication, a
+    /// feature and Admin's standing check all ask, so none can differ from
+    /// another about what is shown.
+    pub(crate) fn response_in(
+        hosted: &HostedPerspective,
+        post: &Post,
+        config: &SiteConfig,
+        mode: ParticipationMode,
     ) -> Option<crate::third_perspective::ApprovedResponse> {
         let copy = &hosted.copy;
         let work = PublishedWork::of_post(post, config);
@@ -288,7 +323,7 @@ impl PublishedPerspective {
             clarification_asked: hosted.clarification_asked,
             content_retained: true,
         };
-        copy.approved_response(&facts, ParticipationMode::Open, &work, &target)
+        copy.approved_response(&facts, mode, &work, &target)
     }
 
     fn validate(&self) -> Result<(), String> {
@@ -420,6 +455,16 @@ impl PublishedPerspective {
             target,
         )
     }
+}
+
+/// Whether a published reflection names the reader as the hosted copy does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NameStanding {
+    /// The file shows no name, or the name the copy shows now.
+    Current,
+    /// The file shows a name the copy no longer shows (the reader hid it, or
+    /// the stored name is not the file's): publish the reflection again.
+    Narrowed,
 }
 
 /// Every approved Third Perspective the site publishes.
@@ -801,7 +846,7 @@ fn shown_answer(
     })
 }
 
-fn paragraphs(value: &str) -> String {
+pub(crate) fn paragraphs(value: &str) -> String {
     value
         .split("\n\n")
         .map(str::trim)
@@ -863,13 +908,18 @@ pub fn split_by_section(
 /// What a reflection is about, in words and with a link to the section when
 /// the page has one.
 fn place_of(item: &PublicPerspective) -> String {
-    let response = &item.response;
+    place_line(&item.response, item.section_title.as_deref())
+}
+
+/// [`place_of`] for a reflection shown elsewhere than its own list (a
+/// feature, ADR 0184): the same words and the same link.
+pub(crate) fn place_line(response: &ApprovedResponse, section_title: Option<&str>) -> String {
     match (response.about, &response.section) {
         (About::Work, _) => "About the whole work".to_string(),
         (About::Section, Some(section)) => format!(
             "About <a href=\"#{}\">{}</a>{}",
             attr(section),
-            text(item.section_title.as_deref().unwrap_or(section)),
+            text(section_title.unwrap_or(section)),
             if response.stale {
                 ", since revised"
             } else {
@@ -879,9 +929,9 @@ fn place_of(item: &PublicPerspective) -> String {
         // One author's section the page gives no anchor: named by its author,
         // never linked, and never said to be revised when it may as well have
         // been removed.
-        (About::Section, None) if item.section_title.is_some() => format!(
+        (About::Section, None) if section_title.is_some() => format!(
             "About {}{}",
-            text(item.section_title.as_deref().unwrap_or_default()),
+            text(section_title.unwrap_or_default()),
             if response.stale {
                 ", since changed or removed"
             } else {
