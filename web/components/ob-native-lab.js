@@ -22,8 +22,9 @@ class ObNativeLab extends ObLab {
     this.layout = el("div", { class: "ob-native-layout", "data-layout": "compact" });
     this.layout.append(this.card);
 
+    const card = this.card;
     this.support = detectSupport({
-      document, probe: this.card, IntersectionObserver: globalThis.IntersectionObserver,
+      document, probe: card, IntersectionObserver: globalThis.IntersectionObserver,
       ResizeObserver: globalThis.ResizeObserver,
     });
     // Popover support is a property of any element, so probe one built for it.
@@ -97,10 +98,11 @@ class ObNativeLab extends ObLab {
       widthOut.textContent = `${width.value}%`;
     });
     if (this.support.intersection) {
+      const root = this.root;
       this.intersection = new IntersectionObserver(([entry]) => {
         this.intersectionOut.textContent = intersectionLabel(entry.intersectionRatio);
         this.target.classList.toggle("ob-native-in-view", entry.isIntersecting);
-      }, { root: this.root, threshold: [0, 0.25, 0.5, 0.75, 1] });
+      }, { root, threshold: [0, 0.25, 0.5, 0.75, 1] });
     }
     if (this.support.resize) {
       this.resize = new ResizeObserver(([entry]) => {

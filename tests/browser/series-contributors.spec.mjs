@@ -75,13 +75,15 @@ test("long credits wrap on a narrow screen without sideways scrolling", async ({
   const overflow = await tab.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
   // Previous and next never overlap.
+  // On a narrow screen they may stack, so check the boxes do not intersect.
   const [prev, next] = await tab.evaluate(() =>
     [".ob-series-prev", ".ob-series-next"].map((selector) => {
-      const { x, width } = document.querySelector(selector).getBoundingClientRect();
-      return { x, width };
+      const { x, y, width, height } = document.querySelector(selector).getBoundingClientRect();
+      return { x, y, width, height };
     }),
   );
-  expect(prev.x + prev.width).toBeLessThanOrEqual(next.x + 1);
+  const apart = prev.x + prev.width <= next.x + 1 || prev.y + prev.height <= next.y + 1;
+  expect(apart, "previous and next overlap").toBe(true);
   await context.close();
 });
 
