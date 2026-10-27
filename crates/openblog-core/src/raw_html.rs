@@ -397,7 +397,7 @@ fn atlas_address(name: &str, value: &str) -> bool {
 }
 
 /// `html` without any attribute that gives an element an `atlas:` address
-/// (ADR 0205), and how many were removed; `None` when it holds none. An
+/// (ADR 0173), and how many were removed; `None` when it holds none. An
 /// attribute is found as a browser reads it: its name in any case, quoted
 /// either way or not at all, character references decoded, and every
 /// candidate of a `srcset` checked. A tag that never ends and holds the

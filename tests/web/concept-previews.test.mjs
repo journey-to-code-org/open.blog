@@ -1,4 +1,4 @@
-// The data side of <ob-concept-previews> (ADR 0206): what it reads from the atlas query file, what
+// The data side of <ob-concept-previews> (ADR 0174): what it reads from the atlas query file, what
 // it refuses, and what each preview says. The same fixtures are checked against a real projection
 // by crates/openblog-core/tests/concept_links.rs, so the component and the Rust side cannot drift.
 // The keyboard, pointer, touch and layout behaviour is covered in a browser by

@@ -73,8 +73,8 @@ struct Meta<'a> {
     /// The `<ob-citation-previews>` element that enhances the markers with
     /// previews from that data (ADR 0061), present exactly when the data is.
     citation_previews: Option<String>,
-    /// Whether the page's concept links (ADR 0204) are enhanced with
-    /// previews (ADR 0206): it loads `<ob-concept-previews>` and its element.
+    /// Whether the page's concept links (ADR 0172) are enhanced with
+    /// previews (ADR 0174): it loads `<ob-concept-previews>` and its element.
     /// `false` on every other page, which is then written exactly as before.
     /// The address of the query file the previews read, with its content
     /// version (`atlas-query.json?v=...`), when the page is enhanced.
@@ -91,7 +91,7 @@ struct Meta<'a> {
     /// the `<ob-atlas-timeline>` component; `false` on every other page,
     /// which is then written exactly as before.
     atlas_timeline: bool,
-    /// The page has a relationship trail (ADR 0207) whose filters
+    /// The page has a relationship trail (ADR 0175) whose filters
     /// `<ob-atlas-trail>` adds.
     atlas_trail: bool,
     theme: &'a Theme,
@@ -104,7 +104,7 @@ struct Meta<'a> {
 
 /// The query projection of the published atlas, projected once per build: its
 /// JSON as written (base path applied, within its bound) and the model the
-/// relationship trails (ADR 0207) are read from, so a page and the file agree.
+/// relationship trails (ADR 0175) are read from, so a page and the file agree.
 struct QueryProjection {
     query: crate::atlas_query::AtlasQuery,
     json: String,
@@ -122,18 +122,18 @@ struct Renderer<'a> {
     /// else, and the file written is these bytes.
     atlas_query: std::cell::OnceCell<Option<QueryProjection>>,
     /// How many steps out every entry page's trail goes, decided once for the
-    /// whole site against [`TRAIL_BUDGET_BYTES`] (ADR 0207).
+    /// whole site against [`TRAIL_BUDGET_BYTES`] (ADR 0175).
     trail_depth: std::cell::OnceCell<TrailDepth>,
     trail_budget: usize,
 }
 
-/// The most trail markup the whole site may carry (ADR 0207). A site over it
+/// The most trail markup the whole site may carry (ADR 0175). A site over it
 /// shows every trail one step deep and says so in the build log.
 pub const TRAIL_BUDGET_BYTES: usize = 20 * 1024 * 1024;
 
 /// The build log's line for a site whose relationship trails together would
 /// take more than [`TRAIL_BUDGET_BYTES`], so every entry page shows its trail
-/// one step deep (ADR 0207); `None` when every trail keeps its full depth or
+/// one step deep (ADR 0175); `None` when every trail keeps its full depth or
 /// the site publishes no atlas.
 pub fn atlas_trail_warning(site: &Site) -> Option<String> {
     atlas_trail_warning_with_budget(site, TRAIL_BUDGET_BYTES)
@@ -486,7 +486,7 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
     generate_with_trail_budget(site, themes, TRAIL_BUDGET_BYTES)
 }
 
-/// [`generate`] with the site-wide trail budget (ADR 0207) set by the caller,
+/// [`generate`] with the site-wide trail budget (ADR 0175) set by the caller,
 /// so a test can cross it without a site of tens of megabytes.
 #[doc(hidden)]
 pub fn generate_with_trail_budget(
@@ -573,7 +573,7 @@ pub fn generate_with_trail_budget(
             atlas_publication::ATLAS_JSON_FILE.into(),
             c.apply_base_path(&atlas.to_json()),
         )?;
-        // The query projection (ADR 0200), derived from the projection above.
+        // The query projection (ADR 0168), derived from the projection above.
         // A projection that is refused (over a bound, or not consistent) is
         // left out and the pages and atlas.json stay the complete fallback;
         // the build warns (`boundary:`) and the boundary preview says so.
@@ -1024,7 +1024,7 @@ impl<'a> Renderer<'a> {
         if let Some(source) = &meta.concept_previews {
             h.push('\n');
             // The file's size in bytes lets a touch screen decide whether it
-            // may be fetched ahead of the first tap (ADR 0206).
+            // may be fetched ahead of the first tap (ADR 0174).
             let bytes = self.atlas_query_json().map_or(0, str::len);
             h.push_str(&format!(
                 "<ob-concept-previews src=\"/{}\" data-bytes=\"{bytes}\"></ob-concept-previews>",
@@ -1067,7 +1067,7 @@ impl<'a> Renderer<'a> {
             .map(|projection| projection.json.as_str())
     }
 
-    /// Where the post's concept links read their previews (ADR 0206), when
+    /// Where the post's concept links read their previews (ADR 0174), when
     /// they are enhanced: it has a resolved link and the build writes the one
     /// file the previews read, so a link never leads to a preview that cannot
     /// load. The address carries the file's content hash, so a browser never
@@ -1596,7 +1596,7 @@ impl<'a> Renderer<'a> {
                     ..Default::default()
                 },
             );
-            // An `atlas:` link is only its label here (ADR 0204).
+            // An `atlas:` link is only its label here (ADR 0172).
             let intro = if intro.html.contains(crate::concept_links::MARK_PREFIX) {
                 crate::concept_links::link_html(&intro.html, None).html
             } else {
@@ -3165,7 +3165,7 @@ impl<'a> Renderer<'a> {
         self.document(&meta, &body)
     }
 
-    /// The relationship trail from an entry (ADR 0207): the bounded walk of
+    /// The relationship trail from an entry (ADR 0175): the bounded walk of
     /// [`crate::atlas_query::AtlasQuery::trail`] over published relationships,
     /// as an ordered list of steps grouped by how far they are from the entry.
     /// It is complete without JavaScript; `<ob-atlas-trail>` only adds
@@ -3662,7 +3662,7 @@ impl<'a> Renderer<'a> {
 const ATLAS_LEDE: &str = "People, works, concepts, movements and events, and the relationships between them that the author has chosen to publish. Each relationship is one party's assertion on cited evidence; contested ones name who disagrees.";
 /// What the atlas timeline says before it lists anything (ADR 0100).
 const ATLAS_TIMELINE_NOTE: &str = "Every published dating in time order, grouped by the century in which each dated aspect's earliest dating begins. Each dating is one party's claim on cited evidence, at the precision it states. Competing datings of the same thing stand side by side; none is preferred, and nothing here resolves them. The order is for reading only: it never means that one thing caused or influenced another.";
-/// What an entry page says above its relationship trail (ADR 0207).
+/// What an entry page says above its relationship trail (ADR 0175).
 const ATLAS_TRAIL_NOTE: &str = "Each step below is one relationship that someone published, in the direction it was stated, with who asserts it, how firmly, and the evidence and doubt they gave. A trail follows published relationships outward from this entry, in either direction, one step at a time. It is not a line of influence: nothing here infers a relationship that was not published, joins steps into a new claim, or treats being near as being important.";
 /// What an entry page says above its datings.
 const ATLAS_DATES_NOTE: &str = "Each dating is one party's claim on cited evidence, at the precision it states. Competing datings stand side by side; none is preferred, and nothing here resolves them.";

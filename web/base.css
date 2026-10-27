@@ -783,7 +783,7 @@ h2.ob-title {
   outline: none;
 }
 
-/* A concept link (ADR 0204): a word the author tied to an atlas entry. The
+/* A concept link (ADR 0172): a word the author tied to an atlas entry. The
    dotted underline marks it as a link to an entry rather than to another
    page, and does not rely on colour; the visually hidden words after the
    label say the same to a screen reader. */
@@ -874,7 +874,7 @@ ob-citation-previews {
   }
 }
 
-/* <ob-concept-previews> (ADR 0206): one preview at a time, placed straight
+/* <ob-concept-previews> (ADR 0174): one preview at a time, placed straight
    after the concept link it describes (so Tab reaches its link next) and moved
    below or above the link, inside the viewport, by the offsets the component
    sets. It is the citation preview's box with the entry's own lines. */
@@ -2968,7 +2968,7 @@ ob-reading-modes { display: block; }
   .ob-atlas-dating { break-inside: avoid; }
 }
 
-/* Knowledge Atlas relationship trails (ADR 0207): a static ordered list of steps grouped by how
+/* Knowledge Atlas relationship trails (ADR 0175): a static ordered list of steps grouped by how
    far they are from the entry, readable without CSS or JavaScript. Each step is a bordered item
    whose facts stack on narrow screens and wrap anywhere, so a long label never overflows. Nothing
    moves. Print shows the whole trail without its filters, even where a filter hid steps. */

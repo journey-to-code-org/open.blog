@@ -1,4 +1,4 @@
-# ADR 0204: An article links a term to an atlas entry only where the author writes an `atlas:` link, and only if the entry is published
+# ADR 0172: An article links a term to an atlas entry only where the author writes an `atlas:` link, and only if the entry is published
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -8,8 +8,8 @@
 - Builds on: [ADR 0058](0058-publish-one-allowlisted-knowledge-atlas-projection.md),
   [ADR 0122](0122-the-draft-side-research-panel-inserts-only-checked-and-published-research.md),
   [ADR 0125](0125-one-publication-boundary-previewed-from-and-enforced-on-the-builds-own-projections.md),
-  [ADR 0200](0200-the-atlas-query-projection-is-derived-from-the-public-atlas-alone-and-is-one-more-listed-artifact.md),
-  [ADR 0203](0203-the-query-file-carries-the-pages-wording-and-a-works-source-and-its-lookup-is-one-shared-algorithm.md)
+  [ADR 0168](0168-the-atlas-query-projection-is-derived-from-the-public-atlas-alone-and-is-one-more-listed-artifact.md),
+  [ADR 0171](0171-the-query-file-carries-the-pages-wording-and-a-works-source-and-its-lookup-is-one-shared-algorithm.md)
 - Contract: [Knowledge Atlas format](../specs/knowledge-atlas.md#concept-links-in-articles)
 
 ## Context
@@ -29,7 +29,7 @@ rather than a broken or leaking link, and nothing changes for a site or post tha
   that does not know it, the words read as the author wrote them, and the destination is a short id.
   The id is the atlas entry's own id (a lowercase slug of at most 64 bytes). Every form of
   Markdown link works (inline, and reference in its full, collapsed and shortcut forms; an autolink has no
-  label and is refused, see ADR 0205); a code span or block is not a link. Nothing else
+  label and is refused, see ADR 0173); a code span or block is not a link. Nothing else
   is a concept link: prose is never scanned, a label is never matched to an entry, and a term the
   author does not link stays text however often it repeats. The author links the occurrences they
   choose.
@@ -39,7 +39,7 @@ rather than a broken or leaking link, and nothing changes for a site or post tha
 - **Resolved at build time against the public atlas alone.** The Markdown renderer marks each concept
   link with an inert element; `Site::link_concepts` replaces each mark once the atlas projection is
   attached, using `PublicAtlas::entry` and nothing else, so a link can only ever reach an entry the
-  atlas already publishes (ADR 0200). The Admin preview, `build`, `check` and `serve` attach the
+  atlas already publishes (ADR 0168). The Admin preview, `build`, `check` and `serve` attach the
   atlas in one place (`boundary::project_with`), which also resolves the links. A published entry
   becomes `<a class="ob-concept" href="/atlas/<id>/" data-atlas-entry data-atlas-kind>label</a>`, an
   ordinary link that works without JavaScript and that the context previews (#74) can enhance by

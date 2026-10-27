@@ -1,5 +1,5 @@
 {
-  "about": "Shared relationship trail fixtures (ADR 0207). `atlas` is the published atlas the Rust test renders; `start` is the entry whose page holds the trail; `steps` is what the real bounded walk (ADR 0202) and the page's data attributes say about it, which crates/openblog-core/tests/atlas_trail.rs checks against the real renderer; `filters` is read by tests/web/atlas-trail.test.mjs and checks the component's filterSteps against the ids each filter must show.",
+  "about": "Shared relationship trail fixtures (ADR 0175). `atlas` is the published atlas the Rust test renders; `start` is the entry whose page holds the trail; `steps` is what the real bounded walk (ADR 0170) and the page's data attributes say about it, which crates/openblog-core/tests/atlas_trail.rs checks against the real renderer; `filters` is read by tests/web/atlas-trail.test.mjs and checks the component's filterSteps against the ids each filter must show.",
   "library": { "version": 1, "sources": [{ "id": "plato-republic", "kind": "work", "title": "Politeia" }] },
   "atlas": {
     "version": 1,

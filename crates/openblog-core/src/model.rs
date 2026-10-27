@@ -272,7 +272,7 @@ pub struct Post {
     /// The approved Third Perspectives this post's canonical page shows, read
     /// through the one public projection (ADRs 0111 and 0115).
     pub(crate) third_perspectives: Vec<crate::perspective_publication::PublicPerspective>,
-    /// The body HTML. A concept link (ADR 0204) is the plain text of its
+    /// The body HTML. A concept link (ADR 0172) is the plain text of its
     /// label here until [`Site::link_concepts`] resolves it against the
     /// public atlas, so a post nobody resolved never carries a link that
     /// leads nowhere.
@@ -340,7 +340,7 @@ impl Post {
             .unwrap_or(&self.authored_markdown)
     }
 
-    /// Whether the post links an atlas entry with `atlas:` (ADR 0204), so it
+    /// Whether the post links an atlas entry with `atlas:` (ADR 0172), so it
     /// needs the public atlas attached before it is shown.
     pub fn has_concept_links(&self) -> bool {
         self.concept_html.is_some()
@@ -349,7 +349,7 @@ impl Post {
     /// The Markdown portable copies, feeds and exports are built from: the
     /// publication Markdown, with each atlas link written as its label and
     /// each raw concept mark removed, since a copy cannot resolve an atlas
-    /// entry (ADR 0205).
+    /// entry (ADR 0173).
     pub fn portable_markdown(&self) -> &str {
         self.portable_markdown
             .as_deref()
@@ -430,7 +430,7 @@ pub struct Series {
     pub slug: String,
     pub url: String,
     pub description_html: String,
-    /// What the renderer refused in the description (ADR 0205), for the
+    /// What the renderer refused in the description (ADR 0173), for the
     /// author's warnings written when the site loads.
     pub(crate) concept_refusals: Vec<crate::concept_links::Refusal>,
     pub description_text: String,
@@ -481,7 +481,7 @@ pub struct Page {
     pub url: String,
     pub description: String,
     pub html: String,
-    /// What the renderer refused in the page (ADR 0205), for the author's
+    /// What the renderer refused in the page (ADR 0173), for the author's
     /// warnings written when the site loads.
     pub(crate) concept_refusals: Vec<crate::concept_links::Refusal>,
     pub text: String,
@@ -545,7 +545,7 @@ pub struct Site {
 }
 
 impl Site {
-    /// Resolve every post's concept links (ADR 0204) against the public atlas
+    /// Resolve every post's concept links (ADR 0172) against the public atlas
     /// the caller attached, as it is now: a published entry becomes a link to
     /// its page, and anything else the label as plain text with a warning for
     /// the author, scoped to the post and the id. Safe to call again after the
@@ -1797,7 +1797,7 @@ fn load_post_in(
         capabilities.push(CapabilityDescriptor::describe("claim-evidence", None));
     }
 
-    // Concept links (ADR 0204): the page holds each as its label until the
+    // Concept links (ADR 0172): the page holds each as its label until the
     // build resolves it against the public atlas.
     let (html, concept_html) = if crate::concept_links::has_raw_mark(&rendered.html) {
         (
@@ -1933,7 +1933,7 @@ fn apply_credits(
 
 /// The options a page or a series is rendered with: its concept links are
 /// marked so they can be replaced by their labels with a warning, never left
-/// as an `atlas:` address (ADR 0204).
+/// as an `atlas:` address (ADR 0172).
 fn concept_options(options: RenderOptions<'_>) -> RenderOptions<'_> {
     RenderOptions {
         concept_links: true,

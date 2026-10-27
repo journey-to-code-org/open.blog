@@ -1,4 +1,4 @@
-# ADR 0201: The query projection is bounded, clips text visibly and is refused whole over a bound
+# ADR 0169: The query projection is bounded, clips text visibly and is refused whole over a bound
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -6,7 +6,7 @@
 - Parent story: [#27](https://github.com/journey-to-code-org/open.blog/issues/27)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
 - Builds on: [ADR 0058](0058-publish-one-allowlisted-knowledge-atlas-projection.md),
-  [ADR 0200](0200-the-atlas-query-projection-is-derived-from-the-public-atlas-alone-and-is-one-more-listed-artifact.md)
+  [ADR 0168](0168-the-atlas-query-projection-is-derived-from-the-public-atlas-alone-and-is-one-more-listed-artifact.md)
 
 ## Context
 

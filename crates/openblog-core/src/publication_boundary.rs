@@ -1044,7 +1044,7 @@ fn datings(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
     report
 }
 
-/// The query projection of the published atlas (ADR 0200): one item for each
+/// The query projection of the published atlas (ADR 0168): one item for each
 /// entry and relationship it holds, each copying only the query allowlist.
 /// It is derived from the published atlas, so it can name nothing the Atlas
 /// projection does not publish.

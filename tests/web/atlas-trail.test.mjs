@@ -1,4 +1,4 @@
-// The logic of <ob-atlas-trail> (ADR 0207): which steps a filter shows and what the status line
+// The logic of <ob-atlas-trail> (ADR 0175): which steps a filter shows and what the status line
 // says. The steps and filters are tests/fixtures/atlas-trail.json, whose steps crates/openblog-core
 // /tests/atlas_trail.rs checks against the real renderer and the real bounded walk, so the
 // component and the Rust side cannot drift. The keyboard, layout and print behaviour is covered in

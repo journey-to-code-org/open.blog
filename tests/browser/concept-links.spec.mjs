@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Concept links in an article (ADR 0204, #73), built and served by the real binary from a private
+// Concept links in an article (ADR 0172, #73), built and served by the real binary from a private
 // atlas and a post that links some words to atlas entries. A published entry is an ordinary link
 // that works without JavaScript and from the keyboard; an unknown, private, withdrawn or malformed
 // one is the author's own words as plain text; repeated words are linked only where the author

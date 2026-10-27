@@ -1,4 +1,4 @@
-# ADR 0207: A relationship trail is a static ordered list of published steps with direction and evidence, and only script adds filters
+# ADR 0175: A relationship trail is a static ordered list of published steps with direction and evidence, and only script adds filters
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -6,9 +6,9 @@
 - Parent story: [#27](https://github.com/journey-to-code-org/open.blog/issues/27)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
 - Builds on: [ADR 0100](0100-the-public-timeline-is-a-progressive-ordered-list-with-relative-trails.md),
-  [ADR 0200](0200-the-atlas-query-projection-is-derived-from-the-public-atlas-alone-and-is-one-more-listed-artifact.md),
-  [ADR 0202](0202-queries-are-exact-lookup-and-a-bounded-trail-that-infer-nothing.md),
-  [ADR 0206](0206-contextual-entry-previews-read-the-public-query-file-and-enhance-an-ordinary-link.md)
+  [ADR 0168](0168-the-atlas-query-projection-is-derived-from-the-public-atlas-alone-and-is-one-more-listed-artifact.md),
+  [ADR 0170](0170-queries-are-exact-lookup-and-a-bounded-trail-that-infer-nothing.md),
+  [ADR 0174](0174-contextual-entry-previews-read-the-public-query-file-and-enhance-an-ordinary-link.md)
 - Contract: [Knowledge Atlas format](../specs/knowledge-atlas.md#relationship-trails)
 
 ## Context
@@ -16,7 +16,7 @@
 #75 asks for explorable intellectual relationship trails: list-first static pages with optional
 progressive filtering, where every edge shows its type, direction, evidence and uncertainty, a
 cycle never traps navigation, any visual enhancement has a complete semantic-list equivalent, and
-nothing infers influence. ADR 0202 already defined the walk: bounded breadth first over published
+nothing infers influence. ADR 0170 already defined the walk: bounded breadth first over published
 relationships, each relationship crossed once and each entry expanded once, depth 3 and 200
 steps, with a flag when it was cut. ADR 0100 settled that the atlas chooses lists and words over a
 drawing, for the same reasons: a drawing flattens direction, competing claims and doubt, and is
@@ -36,7 +36,7 @@ hard to read without sight or a pointer.
   which continues the trail from there, so a reader moves through the atlas one ordinary page at a
   time and the browser's history is the way back.
 - **Static first, and complete.** The trail is an ordered list of distances ("One step from X",
-  "Two steps from X", "Three steps from X"), each an ordered list of steps in ADR 0202's fixed
+  "Two steps from X", "Three steps from X"), each an ordered list of steps in ADR 0170's fixed
   order (depth, then the order entries were reached, outgoing before incoming, each by id). The
   section is a labelled region with real headings and lists, readable without CSS or JavaScript.
   A skip link ends at a focusable "End of the relationship trail." line, so a keyboard reader can
@@ -63,7 +63,7 @@ hard to read without sight or a pointer.
   each reached entry is an ordinary link to its own page, following a loop is following links with
   a Back button, never a trap. The same step can be reached again from another page; nothing
   remembers where a reader has been.
-- **Bounded and says so.** At most 50 steps and three steps of distance, as ADR 0202 defines.
+- **Bounded and says so.** At most 50 steps and three steps of distance, as ADR 0170 defines.
   When more exist the page says "The trail stops after 50 relationships; more exist" and that an
   entry's own page continues it; when the distance bound ends it the page says to follow an
   entry's link to go further. An entry past the bound is not named, and nothing implies the trail
@@ -92,7 +92,7 @@ hard to read without sight or a pointer.
   later visual enhancement must reuse these steps (their ids, order, data attributes and
   words) and add nothing the list lacks.
 - **Private research stays out.** The trail is read from the published atlas projection alone, the
-  one source ADR 0200 allows, so a private or withdrawn entry or relationship cannot appear in it,
+  one source ADR 0168 allows, so a private or withdrawn entry or relationship cannot appear in it,
   be counted in it, or change what a visible step says. A test builds a private entry and
   relationship and scans every page.
 - **One component adds filters, loaded only where there is a trail.**
@@ -125,6 +125,6 @@ hard to read without sight or a pointer.
 - The trail wording is English until the fixed wording of the site is localised, like the rest of
   the atlas pages.
 - A reader who wants a longer walk follows links; there is deliberately no path search between two
-  entries, which ADR 0202 rules out.
+  entries, which ADR 0170 rules out.
 - Asking "who influenced whom" is answered only by the published `influenced` relationships, one
   stated step at a time, with their asserters and doubt.

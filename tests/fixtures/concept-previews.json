@@ -1,5 +1,5 @@
 {
-  "about": "Shared concept preview fixtures (ADR 0206). `query` is a small atlas-query.json in the shape crates/openblog-core writes (checked against a real projection by crates/openblog-core/tests/concept_links.rs); `cases` are what web/components/ob-concept-previews.js `previewModel` must say for each id, read by tests/web/concept-previews.test.mjs. `contract` lists the fields the component reads, which the Rust test checks the real projection writes.",
+  "about": "Shared concept preview fixtures (ADR 0174). `query` is a small atlas-query.json in the shape crates/openblog-core writes (checked against a real projection by crates/openblog-core/tests/concept_links.rs); `cases` are what web/components/ob-concept-previews.js `previewModel` must say for each id, read by tests/web/concept-previews.test.mjs. `contract` lists the fields the component reads, which the Rust test checks the real projection writes.",
   "contract": {
     "top": [
       "format",

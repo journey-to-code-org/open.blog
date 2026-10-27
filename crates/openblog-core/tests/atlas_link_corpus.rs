@@ -1,4 +1,4 @@
-//! The atlas-link leak guard (ADR 0205). Every Markdown form of a link or an
+//! The atlas-link leak guard (ADR 0173). Every Markdown form of a link or an
 //! image whose destination is `atlas:` and names an entry that is not
 //! published is written into a post, a page, a series description and the
 //! home introduction, and EVERY file the build writes, plus the portable

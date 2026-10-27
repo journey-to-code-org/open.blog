@@ -1,4 +1,4 @@
-# ADR 0200: The atlas query projection is derived from the public atlas alone and is one more listed artifact
+# ADR 0168: The atlas query projection is derived from the public atlas alone and is one more listed artifact
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -24,7 +24,7 @@ enforces rather than a property of where the data happens to live.
 ## Decision
 
 - **One input: the public atlas.** `openblog_core::atlas_query::AtlasQuery::project` takes a
-  `&PublicAtlas`, the site author's public name and the site's base path (ADR 0203), and nothing
+  `&PublicAtlas`, the site author's public name and the site's base path (ADR 0171), and nothing
   else: no private atlas, notebook, source library or other configuration. It
   therefore cannot name an unapproved entry, an unsourced or notebook-passage relationship, a
   relationship touching a private entry, or a source no published item cites. It also re-checks
@@ -35,7 +35,7 @@ enforces rather than a property of where the data happens to live.
   `label`, `aliases`, `source` (a work's), `preview`, `previewClipped`, `url`, and the ids of the relationships that start
   (`out`) and end (`in`) there. A relationship: `id`, `kind`, `from`, `to` (the stored direction),
   `label`, `inverseLabel`, `assertedBy`, `confidence`, `standing`, `dissents` (a count), `evidence`
-  (source id and locators), `uncertainty`, `uncertaintyClipped` and `url`; ADR 0203 adds the
+  (source id and locators), `uncertainty`, `uncertaintyClipped` and `url`; ADR 0171 adds the
   pages' own wording as text fields. A source: `id` and its
   public plain `text`. Datings, dissent text and entry summaries beyond the first paragraph are not
   copied: they stay on the pages and in `atlas.json`, which each entry and relationship links to.

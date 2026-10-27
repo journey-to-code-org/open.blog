@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Contextual entry previews on a published post (ADR 0206, #74), built and served by the real
+// Contextual entry previews on a published post (ADR 0174, #74), built and served by the real
 // binary from a private atlas and a post that links words to atlas entries. Without JavaScript the
 // links are ordinary links to the entry pages. With it, focusing or hovering a link (or a first
 // tap) shows the entry's type, provenance, approved summary and the relationships around it, from

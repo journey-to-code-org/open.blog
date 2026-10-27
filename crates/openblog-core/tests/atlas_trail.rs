@@ -1,5 +1,5 @@
-//! Relationship trails on an atlas entry page (ADR 0207, #75). The page holds
-//! a static, complete trail: the bounded walk of ADR 0202 as an ordered list
+//! Relationship trails on an atlas entry page (ADR 0175, #75). The page holds
+//! a static, complete trail: the bounded walk of ADR 0170 as an ordered list
 //! of steps, each one published relationship in the direction it was stated
 //! with its type, which way the walk crossed it, who asserts it, how firmly,
 //! its evidence and its uncertainty. A cycle ends the trail and is said in

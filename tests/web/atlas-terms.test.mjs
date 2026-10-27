@@ -1,4 +1,4 @@
-// The atlas term lookup is one algorithm in two languages (ADR 0203): these tests read the same
+// The atlas term lookup is one algorithm in two languages (ADR 0171): these tests read the same
 // fixtures as crates/openblog-core/tests/atlas_query.rs, including the cases where JavaScript's own
 // `\s` and Unicode White_Space disagree (U+0085, U+FEFF) and where composed and decomposed text
 // must stay different.
@@ -46,7 +46,7 @@ test("the white space set is Unicode White_Space, written out", () => {
   assert.equal(normalizeTerm("a\ufeffb"), "a\ufeffb");
 });
 
-// The concept link syntax (ADR 0204, #73): the same destination cases the Rust build resolves.
+// The concept link syntax (ADR 0172, #73): the same destination cases the Rust build resolves.
 const concepts = JSON.parse(readFileSync(new URL("../fixtures/concept-links.json", import.meta.url), "utf8"));
 
 test("conceptEntryId agrees with the shared concept link fixtures", () => {

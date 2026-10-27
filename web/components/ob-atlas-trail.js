@@ -1,5 +1,5 @@
 // <ob-atlas-trail> enhances the relationship trail on a Knowledge Atlas entry
-// page (ADR 0207). The page is complete without it: the static trail is an
+// page (ADR 0175). The page is complete without it: the static trail is an
 // ordered list of steps grouped by how far they are from the entry, and each
 // step is one published relationship in the direction it was stated, with its
 // type, who asserts it, how firmly, its standing, its evidence and its stated

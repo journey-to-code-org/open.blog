@@ -83,7 +83,7 @@ pub struct ContextLinkFinding {
 /// fragment, or `None` for any other address. Only one plain path segment of
 /// lowercase letters, digits and hyphens is an id.
 pub fn parse_context_href(href: &str) -> Option<(ContextKind, String)> {
-    // The author's explicit concept link, `atlas:<id>` (ADR 0204), in any
+    // The author's explicit concept link, `atlas:<id>` (ADR 0172), in any
     // letter case and with the padding a browser ignores, as the build reads it.
     if let Some((id, _)) = crate::concept_links::atlas_destination(href) {
         return crate::knowledge_atlas::valid_id(&id).then_some((ContextKind::AtlasEntry, id));

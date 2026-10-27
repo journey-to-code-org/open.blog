@@ -1,4 +1,4 @@
-# ADR 0206: Contextual entry previews read the public query file and enhance an ordinary link
+# ADR 0174: Contextual entry previews read the public query file and enhance an ordinary link
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -6,15 +6,15 @@
 - Parent story: [#27](https://github.com/journey-to-code-org/open.blog/issues/27)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
 - Builds on: [ADR 0061](0061-citation-previews-are-a-progressive-non-modal-component.md),
-  [ADR 0200](0200-the-atlas-query-projection-is-derived-from-the-public-atlas-alone-and-is-one-more-listed-artifact.md),
-  [ADR 0203](0203-the-query-file-carries-the-pages-wording-and-a-works-source-and-its-lookup-is-one-shared-algorithm.md),
-  [ADR 0204](0204-an-article-links-a-term-to-an-atlas-entry-only-where-the-author-writes-an-atlas-link-and-only-if-the-entry-is-published.md),
-  [ADR 0205](0205-a-concept-link-is-only-a-link-where-it-can-be-one-and-every-other-place-shows-its-words.md)
+  [ADR 0168](0168-the-atlas-query-projection-is-derived-from-the-public-atlas-alone-and-is-one-more-listed-artifact.md),
+  [ADR 0171](0171-the-query-file-carries-the-pages-wording-and-a-works-source-and-its-lookup-is-one-shared-algorithm.md),
+  [ADR 0172](0172-an-article-links-a-term-to-an-atlas-entry-only-where-the-author-writes-an-atlas-link-and-only-if-the-entry-is-published.md),
+  [ADR 0173](0173-a-concept-link-is-only-a-link-where-it-can-be-one-and-every-other-place-shows-its-words.md)
 - Contract: [Knowledge Atlas format](../specs/knowledge-atlas.md#entry-previews)
 
 ## Context
 
-A reader who meets a concept link (ADR 0204) should be able to see what the entry is, where that
+A reader who meets a concept link (ADR 0172) should be able to see what the entry is, where that
 comes from and how firmly the nearby relationships are held without leaving their place, and always
 be able to go to the complete static entry page. The citation previews (ADR 0061) already settled
 how such a card behaves for a keyboard, a pointer, a touch screen and a screen reader.
@@ -25,7 +25,7 @@ how such a card behaves for a keyboard, a pointer, a touch screen and a screen r
   the entry's page. The component only enhances a link that still leads to the entry's own page
   (its path equals the `url` the query file gives for that id), so a hand-written link cannot be
   made to preview something else.
-- **One public file, fetched at first interest.** The component reads `atlas-query.json` (ADR 0200), the public
+- **One public file, fetched at first interest.** The component reads `atlas-query.json` (ADR 0168), the public
   projection, from the site's own origin, and nothing else: not the page, not the private atlas, not
   another host. Inline per-post data was rejected: it would put copies of entry text, sources and
   relationships into every post page, which the publication boundary would then have to list and
@@ -37,7 +37,7 @@ how such a card behaves for a keyboard, a pointer, a touch screen and a screen r
   carries `data-bytes`, the written file's size; a larger or unknown size waits for the first
   tap), a concept link scrolling into view is the interest. A
   page without a concept link never loads the component. The build adds the element only when the
-  file is actually written (ADR 0201 can leave it out), so a link never waits for a file that is not
+  file is actually written (ADR 0169 can leave it out), so a link never waits for a file that is not
   there. The page names the file with its content hash (`/atlas-query.json?v=<16 hex digits>`, the
   BLAKE2s hash of the written bytes), so a browser never reads a stale copy after the atlas changes
   and the same atlas always makes the same page; the hash and the file come from one projection
@@ -66,8 +66,8 @@ how such a card behaves for a keyboard, a pointer, a touch screen and a screen r
   fits) and the animation is only played when the reader has not asked for reduced motion.
 - **A link in a heading keeps the heading's words.** The preview is placed after the heading, not
   inside it, so it is not part of the heading's name or the outline, and the link's hint is a
-  description (ADR 0205), not hidden text in the heading.
-- **No doubled hint.** The link already reads "label (atlas entry)" (ADR 0205). The preview is the
+  description (ADR 0173), not hidden text in the heading.
+- **No doubled hint.** The link already reads "label (atlas entry)" (ADR 0173). The preview is the
   link's description and starts with the type ("Person"), so a screen reader hears "Plato (atlas
   entry)", then "Person. From the author's approved Knowledge Atlas. ...".
 - **Fields are not HTMLElement properties.** The component keeps its card as `card` and its links as

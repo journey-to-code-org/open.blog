@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Relationship trails on a Knowledge Atlas entry page (ADR 0207, #75), built and served by the real
+// Relationship trails on a Knowledge Atlas entry page (ADR 0175, #75), built and served by the real
 // binary from a private atlas. Without JavaScript the trail is a complete, ordered, semantic list
 // of published relationships with their type, direction, evidence and uncertainty, and a cycle is a
 // sentence. With it, native controls filter whole steps and a status line says what is shown;

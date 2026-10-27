@@ -80,7 +80,7 @@ pub fn project_with(root: &Path, site: &mut Site, shared: &Shared) -> Blocked {
         Err(error) => blocked.comparisons = Some(error),
     }
     blocked.claims = site.claim_evidence_error.clone();
-    // The posts' concept links (ADR 0204) resolve against the atlas just
+    // The posts' concept links (ADR 0172) resolve against the atlas just
     // attached, and against nothing when it is not published or not readable.
     site.link_concepts();
     blocked

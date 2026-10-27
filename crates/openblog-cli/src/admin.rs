@@ -15855,7 +15855,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
         Ok(draft) => draft,
         Err(response) => return response,
     };
-    // A post that links atlas entries with `atlas:` (ADR 0204) is shown with
+    // A post that links atlas entries with `atlas:` (ADR 0172) is shown with
     // the links the build would make, resolved against the public atlas alone.
     // The draft is loaded, so the build lock is released before the atlas
     // store is read, and only the atlas is attached (never the comparisons or

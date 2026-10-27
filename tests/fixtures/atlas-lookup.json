@@ -1,5 +1,5 @@
 {
-  "about": "Shared atlas lookup fixtures (ADR 0203), read by crates/openblog-core/tests/atlas_query.rs and tests/web/atlas-terms.test.mjs. A term is its text split on Unicode White_Space (code points U+0009-000D, 0020, 0085, 00A0, 1680, 2000-200A, 2028, 2029, 202F, 205F, 3000), joined with one space and lowercased with the default Unicode case conversion; there is no normalization form, so a composed and a decomposed spelling are different terms.",
+  "about": "Shared atlas lookup fixtures (ADR 0171), read by crates/openblog-core/tests/atlas_query.rs and tests/web/atlas-terms.test.mjs. A term is its text split on Unicode White_Space (code points U+0009-000D, 0020, 0085, 00A0, 1680, 2000-200A, 2028, 2029, 202F, 205F, 3000), joined with one space and lowercased with the default Unicode case conversion; there is no normalization form, so a composed and a decomposed spelling are different terms.",
   "normalize": [
     { "name": "plain", "input": "Plato", "expected": "plato" },
     { "name": "outer and repeated spaces", "input": "  The   Republic ", "expected": "the republic" },

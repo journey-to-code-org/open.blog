@@ -1,13 +1,13 @@
-# ADR 0203: The query file carries the pages' wording and a work's source, and its lookup is one shared algorithm
+# ADR 0171: The query file carries the pages' wording and a work's source, and its lookup is one shared algorithm
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#72](https://github.com/journey-to-code-org/open.blog/issues/72)
 - Parent story: [#27](https://github.com/journey-to-code-org/open.blog/issues/27)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0200](0200-the-atlas-query-projection-is-derived-from-the-public-atlas-alone-and-is-one-more-listed-artifact.md),
-  [ADR 0201](0201-the-query-projection-is-bounded-clips-text-visibly-and-is-refused-whole-over-a-bound.md),
-  [ADR 0202](0202-queries-are-exact-lookup-and-a-bounded-trail-that-infer-nothing.md)
+- Builds on: [ADR 0168](0168-the-atlas-query-projection-is-derived-from-the-public-atlas-alone-and-is-one-more-listed-artifact.md),
+  [ADR 0169](0169-the-query-projection-is-bounded-clips-text-visibly-and-is-refused-whole-over-a-bound.md),
+  [ADR 0170](0170-queries-are-exact-lookup-and-a-bounded-trail-that-infer-nothing.md)
 - Contract: [Knowledge Atlas format](../specs/knowledge-atlas.md#query-projection)
 
 ## Context
@@ -59,7 +59,7 @@ as "whitespace and case", which JavaScript and Rust implement differently at U+0
   white space, which `\s` does match). NFC normalization of labels at validation was rejected for now:
   the tree has no direct normalization dependency (only transitive ones), a new dependency is not
   warranted for this, and an author who wants both spellings findable can add the second as an alias.
-- **The size bound is the size as published.** See ADR 0201: the 4 MiB limit counts the base path the
+- **The size bound is the size as published.** See ADR 0169: the 4 MiB limit counts the base path the
   build puts in front of every address.
 
 ## Consequences

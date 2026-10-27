@@ -1,4 +1,4 @@
-//! Concept links in an article (ADR 0204): an author's explicit
+//! Concept links in an article (ADR 0172): an author's explicit
 //! `[the Republic](atlas:republic)` ties a word in the prose to one published
 //! Knowledge Atlas entry, with no automatic recognition of anything.
 //!
@@ -242,7 +242,7 @@ pub(crate) fn mark_events(events: &mut [Event<'_>], marks: bool) -> Marked {
     found
 }
 
-/// Remove every `atlas:` address that raw HTML gives an element (ADR 0205):
+/// Remove every `atlas:` address that raw HTML gives an element (ADR 0173):
 /// `href`, `src`, every `srcset` candidate, `poster`, `data`, `action`,
 /// `formaction`, `cite`, `xlink:href` and `background`, quoted or not, in any
 /// letter case and with character references decoded. The consecutive lines

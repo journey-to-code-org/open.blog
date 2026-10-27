@@ -374,10 +374,10 @@ not include them.
 
 ### Query projection
 
-[ADR 0200](../adr/0200-the-atlas-query-projection-is-derived-from-the-public-atlas-alone-and-is-one-more-listed-artifact.md),
-[ADR 0201](../adr/0201-the-query-projection-is-bounded-clips-text-visibly-and-is-refused-whole-over-a-bound.md),
-[ADR 0202](../adr/0202-queries-are-exact-lookup-and-a-bounded-trail-that-infer-nothing.md) and
-[ADR 0203](../adr/0203-the-query-file-carries-the-pages-wording-and-a-works-source-and-its-lookup-is-one-shared-algorithm.md).
+[ADR 0168](../adr/0168-the-atlas-query-projection-is-derived-from-the-public-atlas-alone-and-is-one-more-listed-artifact.md),
+[ADR 0169](../adr/0169-the-query-projection-is-bounded-clips-text-visibly-and-is-refused-whole-over-a-bound.md),
+[ADR 0170](../adr/0170-queries-are-exact-lookup-and-a-bounded-trail-that-infer-nothing.md) and
+[ADR 0171](../adr/0171-the-query-file-carries-the-pages-wording-and-a-works-source-and-its-lookup-is-one-shared-algorithm.md).
 While the atlas is published the build also writes `/atlas-query.json`, derived by
 `openblog_core::atlas_query::AtlasQuery::project` from the public atlas above and nothing else, as
 bounded page data for components and search. It is not a page and is not in the sitemap.
@@ -423,7 +423,7 @@ bounded page data for components and search. It is not a page and is not in the 
   URLs that follow the base path and escapes `<`, `>` and `&`. It has no `version` key.
 - `formatVersion` stays 1 while the format is unreleased, and adding an optional field to it is not
   a version change (a reader ignores fields it does not know); removing or renaming a field, or
-  changing what one means, raises it (ADR 0203).
+  changing what one means, raises it (ADR 0171).
 - Display text is computed in Rust with the pages' own wording and is the only wording a component
   shows: `kindLabel` on an entry; on a relationship `assertedByText` (the site author's public name
   for an author-asserted position, a source's public title, or the named party), `confidenceText`
@@ -463,7 +463,7 @@ bounded page data for components and search. It is not a page and is not in the 
 
 ### Concept links in articles
 
-[ADR 0204](../adr/0204-an-article-links-a-term-to-an-atlas-entry-only-where-the-author-writes-an-atlas-link-and-only-if-the-entry-is-published.md).
+[ADR 0172](../adr/0172-an-article-links-a-term-to-an-atlas-entry-only-where-the-author-writes-an-atlas-link-and-only-if-the-entry-is-published.md).
 In a post, `[the allegory of the cave](atlas:allegory-of-the-cave)` links the words to the atlas entry
 with that id. It is an ordinary Markdown link, so the label reads as written in any editor or copy
 that does not know the syntax, and nothing is linked unless the author writes it: prose is never
@@ -495,7 +495,7 @@ scanned and a repeated term is linked only where the author linked it.
   destination rule, tested against `tests/fixtures/concept-links.json`.
 - A resolved link also carries visually hidden words after the label (` (atlas entry)`), and the
   theme underlines it with dots, so it reads and looks as a link to an entry
-  ([ADR 0205](../adr/0205-a-concept-link-is-only-a-link-where-it-can-be-one-and-every-other-place-shows-its-words.md)).
+  ([ADR 0173](../adr/0173-a-concept-link-is-only-a-link-where-it-can-be-one-and-every-other-place-shows-its-words.md)).
   An `atlas:` link inside an image's description keeps its label as the alt text and warns. Inside
   a heading the link is described by one hidden hint (`aria-describedby`) rather than carrying inline
   hidden words. In a
@@ -504,7 +504,7 @@ scanned and a repeated term is linked only where the author linked it.
 
 ### Entry previews
 
-[ADR 0206](../adr/0206-contextual-entry-previews-read-the-public-query-file-and-enhance-an-ordinary-link.md).
+[ADR 0174](../adr/0174-contextual-entry-previews-read-the-public-query-file-and-enhance-an-ordinary-link.md).
 A post that has a resolved concept link, on a site whose build writes `atlas-query.json`, ends with
 `<ob-concept-previews src="/atlas-query.json?v=<hash>" data-bytes="<size>"></ob-concept-previews>` (the address follows
 the base path, and `<hash>` is 16 hex digits of the file's own BLAKE2s hash, so the address changes
@@ -532,9 +532,9 @@ exactly when the file does) and loads `/assets/components/ob-concept-previews.js
 
 ### Relationship trails
 
-[ADR 0207](../adr/0207-a-relationship-trail-is-a-static-ordered-list-of-published-steps-with-direction-and-evidence-and-filters-only-by-script.md).
+[ADR 0175](../adr/0175-a-relationship-trail-is-a-static-ordered-list-of-published-steps-with-direction-and-evidence-and-filters-only-by-script.md).
 Every entry page with at least one published relationship ends its relationship lists with a
-"Relationship trail" region (`#atlas-section-trail`): the bounded walk of ADR 0202 (breadth first,
+"Relationship trail" region (`#atlas-section-trail`): the bounded walk of ADR 0170 (breadth first,
 either direction, each relationship crossed once, at most three steps away and 50 steps) as an
 ordered list of distances ("One step from X", ...), each an ordered list of steps, readable without
 CSS or JavaScript. It is rendered from the query projection that writes `atlas-query.json`; when

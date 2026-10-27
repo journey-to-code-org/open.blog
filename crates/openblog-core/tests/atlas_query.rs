@@ -1,4 +1,4 @@
-//! The public Knowledge Atlas query projection (ADR 0200): derived only from
+//! The public Knowledge Atlas query projection (ADR 0168): derived only from
 //! the public atlas, no private or draft data, direction and sources kept,
 //! cycles that end, unknown ids that answer nothing, unsafe addresses and
 //! size bounds refused, and deterministic output.

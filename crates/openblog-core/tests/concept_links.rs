@@ -1,4 +1,4 @@
-//! Concept links in an article (ADR 0204, #73): `[label](atlas:id)` is resolved
+//! Concept links in an article (ADR 0172, #73): `[label](atlas:id)` is resolved
 //! at build time against the public atlas alone. A published entry becomes an
 //! ordinary link to its page; an unknown, private, withdrawn or malformed id,
 //! or any link while the atlas is off, becomes the label as plain text and a
@@ -612,7 +612,7 @@ fn an_unclosed_or_block_spanning_mark_never_links_the_rest_of_the_post() {
     assert!(html.contains("<p>Middle.</p>"), "{html}");
 }
 
-// ---- Concept previews (ADR 0206, #74) --------------------------------------
+// ---- Concept previews (ADR 0174, #74) --------------------------------------
 
 fn rich_atlas() -> PublicAtlas {
     let library = SourceLibrary::parse(
@@ -785,7 +785,7 @@ fn only_a_post_with_a_resolved_concept_link_loads_the_previews_and_it_reads_one_
 
 #[test]
 fn a_query_that_is_not_written_means_no_previews_and_ordinary_links() {
-    // An atlas over the query's bounds is left out of the build (ADR 0201); the
+    // An atlas over the query's bounds is left out of the build (ADR 0169); the
     // links are still links, and no component waits for a file that is not there.
     let entries: Vec<Value> = (0..2_001)
         .map(|n| json!({"id": format!("e-{n}"), "kind": "concept", "label": format!("Entry {n}"), "visibility": "approved"}))

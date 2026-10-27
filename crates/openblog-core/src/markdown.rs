@@ -55,7 +55,7 @@ pub struct Rendered {
     /// reported about their markers.
     pub reading_depth: Option<crate::reading_depth::ReadingDepth>,
     /// Every `atlas:` link or image the renderer refused to show as a link
-    /// (ADR 0205), whatever its form, for the build to warn about. Its
+    /// (ADR 0173), whatever its form, for the build to warn about. Its
     /// destination, title and id never reach the HTML.
     pub concept_refusals: Vec<crate::concept_links::Refusal>,
 }
@@ -95,7 +95,7 @@ pub struct RenderOptions<'a> {
     /// supplements are wrapped in labelled groups and kept out of the post's
     /// own prose. `false` renders every block quote as before.
     pub supplements: bool,
-    /// Set for a post (ADR 0204): a link to `atlas:<entry id>` is marked so
+    /// Set for a post (ADR 0172): a link to `atlas:<entry id>` is marked so
     /// the build can resolve it against the public atlas. `false` renders
     /// every such link as the ordinary link it is written as.
     pub concept_links: bool,
@@ -1694,7 +1694,7 @@ fn assign_heading_ids(
         std::collections::HashSet::new()
     };
     // The one hint element a post's concept links inside headings describe
-    // themselves with (ADR 0205) owns its id: no heading takes it.
+    // themselves with (ADR 0173) owns its id: no heading takes it.
     let mut used_ids: std::collections::HashSet<String> =
         std::iter::once(crate::concept_links::HEADING_HINT_ID.to_string()).collect();
     let mut heading: Option<(usize, String)> = None;

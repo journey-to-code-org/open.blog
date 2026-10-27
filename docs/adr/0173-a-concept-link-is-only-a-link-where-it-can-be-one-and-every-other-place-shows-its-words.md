@@ -1,17 +1,17 @@
-# ADR 0205: A concept link is a link only where a link can be one, and every other place shows its words
+# ADR 0173: A concept link is a link only where a link can be one, and every other place shows its words
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#73](https://github.com/journey-to-code-org/open.blog/issues/73) (review findings)
 - Parent story: [#27](https://github.com/journey-to-code-org/open.blog/issues/27)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0204](0204-an-article-links-a-term-to-an-atlas-entry-only-where-the-author-writes-an-atlas-link-and-only-if-the-entry-is-published.md)
+- Builds on: [ADR 0172](0172-an-article-links-a-term-to-an-atlas-entry-only-where-the-author-writes-an-atlas-link-and-only-if-the-entry-is-published.md)
 - Contract: [Knowledge Atlas format](../specs/knowledge-atlas.md#concept-links-in-articles)
 
 ## Context
 
 Review of the first concept links found places where the author's `atlas:` syntax could still reach a
-reader as something other than the link or the plain words ADR 0204 promises: inside an image's
+reader as something other than the link or the plain words ADR 0172 promises: inside an image's
 alt text the mark was escaped onto the page with its id (private or not); the Admin document preview
 never resolved a link; a page, a series description or the home introduction left the raw `atlas:`
 address as a dead link; and an unclosed raw mark turned the rest of the post into a link. The link
@@ -103,7 +103,7 @@ also did not look or sound different from any other link.
   `<a class="ob-concept" ...>label<span class="ob-visually-hidden"> (atlas entry)</span></a>`: the
   theme draws a dotted underline (not colour alone, solid on hover and focus), and the hidden words
   tell a screen reader and a reader without styles what the link leads to. Copies that leave the site
-  still carry only the words. The context previews (ADR 0206) do not repeat these words.
+  still carry only the words. The context previews (ADR 0174) do not repeat these words.
 
 ## Consequences
 

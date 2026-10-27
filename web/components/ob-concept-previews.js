@@ -1,11 +1,11 @@
 // <ob-concept-previews> shows a short preview of the Knowledge Atlas entry that
-// each concept link of a post leads to (ADR 0206). The page is complete without
+// each concept link of a post leads to (ADR 0174). The page is complete without
 // it: every concept link is an ordinary link to the entry's own static page,
 // and the preview only adds the entry's type, its approved summary, where it
 // comes from and how firmly the relationships around it are held.
 //
-// The preview reads one file, the site's own atlas-query.json (ADR 0200,
-// 0203), the public projection of the approved atlas, and shows only fields
+// The preview reads one file, the site's own atlas-query.json (ADR 0168,
+// 0171), the public projection of the approved atlas, and shows only fields
 // that file already publishes, as text. Nothing the page holds, and nothing
 // private, is read; no wording is rebuilt here (kindLabel, assertedByText,
 // confidenceText and the rest are the page's own wording); nothing is stored.

@@ -1,4 +1,4 @@
-// The exact term lookup of the atlas query file (ADR 0202, ADR 0203), the same
+// The exact term lookup of the atlas query file (ADR 0170, ADR 0171), the same
 // algorithm as `openblog_core::atlas_query::normalize_term` and checked against
 // the same fixtures (tests/fixtures/atlas-lookup.json) by both sides.
 //
@@ -51,7 +51,7 @@ export function lookupTerm(query, text) {
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 /**
- * The entry id a concept link's destination names (ADR 0204), or null: `atlas:` and a lowercase
+ * The entry id a concept link's destination names (ADR 0172), or null: `atlas:` and a lowercase
  * slug of at most 64 bytes, the same rule as `openblog_core::concept_links::entry_id`, checked
  * against tests/fixtures/concept-links.json. The author writes `[label](atlas:the-id)`.
  */

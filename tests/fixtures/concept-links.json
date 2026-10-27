@@ -1,5 +1,5 @@
 {
-  "about": "Shared concept link fixtures (ADR 0204). `destinations` is read by crates/openblog-core/tests/concept_links.rs and tests/web/atlas-terms.test.mjs: a destination names an entry only when it is `atlas:` and a lowercase slug of at most 64 bytes. `plain` is read by the Rust test only: the Markdown a copy that leaves the site is built from.",
+  "about": "Shared concept link fixtures (ADR 0172). `destinations` is read by crates/openblog-core/tests/concept_links.rs and tests/web/atlas-terms.test.mjs: a destination names an entry only when it is `atlas:` and a lowercase slug of at most 64 bytes. `plain` is read by the Rust test only: the Markdown a copy that leaves the site is built from.",
   "destinations": [
     { "name": "a slug", "destination": "atlas:plato", "id": "plato" },
     { "name": "digits and hyphens", "destination": "atlas:the-republic-2", "id": "the-republic-2" },

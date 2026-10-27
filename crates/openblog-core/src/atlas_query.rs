@@ -1,4 +1,4 @@
-//! The public Knowledge Atlas query projection (ADR 0200).
+//! The public Knowledge Atlas query projection (ADR 0168).
 //!
 //! [`AtlasQuery`] is a bounded, deterministic reading of the one public atlas
 //! ([`PublicAtlas`], ADR 0058) shaped for components and search: entry
@@ -605,7 +605,7 @@ impl AtlasQuery {
     }
 }
 
-/// A term as the lookup compares it (ADR 0203): the text split on Unicode
+/// A term as the lookup compares it (ADR 0171): the text split on Unicode
 /// `White_Space` (what `char::is_whitespace` tests: U+0009 to U+000D, U+0020,
 /// U+0085, U+00A0, U+1680, U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F
 /// and U+3000), the words joined with one space, then `str::to_lowercase`
