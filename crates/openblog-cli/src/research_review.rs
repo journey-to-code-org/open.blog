@@ -30,9 +30,58 @@ use openblog_core::context_links::{self, ContextGap, ContextKind};
 use openblog_core::knowledge_atlas::{Atlas, Links, Visibility};
 use openblog_core::publication_review::{AcknowledgementSet, ObjectKind, ReviewFinding};
 use openblog_core::research::EvidenceFinding;
+use openblog_core::source_review::SourceReviewFinding;
 
 use crate::transaction::FileLock;
 use crate::{alignment_store, atlas_store, claims_store, notebook_store, source_store};
+
+/// The acknowledgements a report applies, and what to tell the reader about
+/// the file: its revision for the next change to name, or why it cannot be
+/// read. An unreadable file is never repaired and never partly applied.
+pub fn acknowledgements(
+    root: &Path,
+) -> (
+    Vec<openblog_core::publication_review::Acknowledgement>,
+    crate::readiness::Acknowledgements,
+) {
+    match load(root) {
+        Ok(snapshot) => (
+            snapshot.set.acknowledgements,
+            crate::readiness::Acknowledgements {
+                revision: Some(snapshot.revision),
+                error: None,
+            },
+        ),
+        Err(error) => (
+            Vec::new(),
+            crate::readiness::Acknowledgements {
+                revision: None,
+                error: Some(error.to_string()),
+            },
+        ),
+    }
+}
+
+/// A review as Admin and the command line receive it: the contract's
+/// findings, groups and counts, whether the review applies, what could not be
+/// reviewed, and the acknowledgements file's revision. There is no score,
+/// total, pass, ready or resolved field.
+pub fn view(
+    review: &openblog_core::publication_review::PublicationReview,
+    applies: bool,
+    not_reviewed: &[NotReviewed],
+    acknowledgements: &crate::readiness::Acknowledgements,
+) -> serde_json::Value {
+    let mut view = serde_json::to_value(review).unwrap_or_else(|_| serde_json::json!({}));
+    view["applies"] = serde_json::json!(applies);
+    view["notReviewed"] = serde_json::json!(not_reviewed);
+    view["acknowledgements"] = serde_json::json!({
+        "file": ACKNOWLEDGEMENTS_FILE,
+        "revision": acknowledgements.revision,
+        "error": acknowledgements.error,
+    });
+    view
+}
 
 /// Where the acknowledgements live, relative to the project root.
 pub const ACKNOWLEDGEMENTS_FILE: &str = ".openblog/private/research/acknowledgements.json";
@@ -51,6 +100,8 @@ pub struct DraftPost<'a> {
     pub body_line: usize,
     /// The research-profile and citation findings for this post, from the draft's site load.
     pub evidence: Vec<EvidenceFinding>,
+    /// The source-review findings for this post (ADR 0148), from the same load.
+    pub source_review: Vec<SourceReviewFinding>,
 }
 
 /// A part of the review that could not run, and why. It is never a finding
@@ -75,10 +126,17 @@ impl Gathered {
 }
 
 /// What the build that publishes the post would read, when it reads it.
-struct Published {
-    atlas: Option<Atlas>,
-    comparisons: Option<PublicComparisons>,
-    alignments: Option<alignment_store::Snapshot>,
+pub(crate) struct Published {
+    pub(crate) atlas: Option<Atlas>,
+    pub(crate) comparisons: Option<PublicComparisons>,
+    pub(crate) alignments: Option<alignment_store::Snapshot>,
+    /// Whether the library and notebook the other files are checked against
+    /// were read, or are not needed (the build reads no research).
+    pub(crate) ready: bool,
+    pub(crate) claims_stored: bool,
+    /// The build reads the claims file and cannot; its finding is already in
+    /// the report, scoped to the file.
+    pub(crate) claims_unreadable: bool,
 }
 
 /// Gather the review of one post. Reads only; nothing is written.
@@ -87,6 +145,41 @@ pub fn gather(root: &Path, config: &SiteConfig, post: &DraftPost<'_>) -> Gathere
     gathered
         .findings
         .extend(post.evidence.iter().map(ReviewFinding::from_evidence));
+    gathered.findings.extend(
+        post.source_review
+            .iter()
+            .map(ReviewFinding::from_source_review),
+    );
+    let published = read_published(root, config, &mut gathered, false);
+    if published.ready && published.claims_stored {
+        claims(root, config, post, &published, &mut gathered);
+    }
+    context(post, config, &published, &mut gathered);
+    gathered
+}
+
+/// Read each private file the build that publishes reads, once and on its
+/// own, through the build's own loaders: what stops the build from reading a
+/// file is a finding scoped to that file, and what depends on it is listed as
+/// not reviewed. Shared by the review of one post and of the whole site, so
+/// both see the same files in the same way.
+pub(crate) fn read_published(
+    root: &Path,
+    config: &SiteConfig,
+    gathered: &mut Gathered,
+    site_wide: bool,
+) -> Published {
+    // The wording follows what is reviewed: one post, or the whole site.
+    let claims_of = if site_wide {
+        "The claims"
+    } else {
+        "This post's claims"
+    };
+    let and_claims = if site_wide {
+        "the claims"
+    } else {
+        "this post's claims"
+    };
     let contributors = &config.contributors;
     let claims_stored = claims_store::claims_file_stored(root);
     let reads_research = config.knowledge_atlas.publish
@@ -106,7 +199,7 @@ pub fn gather(root: &Path, config: &SiteConfig, post: &DraftPost<'_>) -> Gathere
                     } else {
                         gathered.skip(
                             "claims",
-                            format!("This post's claims were not reviewed because the research notebook cannot be read. Repair {}.", notebook_store::NOTEBOOK_FILE),
+                            format!("{claims_of} were not reviewed because the research notebook cannot be read. Repair {}.", notebook_store::NOTEBOOK_FILE),
                         );
                     }
                 }
@@ -117,7 +210,7 @@ pub fn gather(root: &Path, config: &SiteConfig, post: &DraftPost<'_>) -> Gathere
                 } else {
                     gathered.skip(
                         "claims",
-                        format!("This post's claims were not reviewed because the source library cannot be read. Repair {}.", source_store::LIBRARY_FILE),
+                        format!("{claims_of} were not reviewed because the source library cannot be read. Repair {}.", source_store::LIBRARY_FILE),
                     );
                 }
             }
@@ -128,7 +221,7 @@ pub fn gather(root: &Path, config: &SiteConfig, post: &DraftPost<'_>) -> Gathere
         // that depends on them is blamed for it.
         gathered.skip(
             "published-research",
-            "The atlas, comparisons and claim evidence the build publishes, and this post's claims, were not reviewed while the source library or the notebook cannot be read.".into(),
+            format!("The atlas, comparisons and claim evidence the build publishes, and {and_claims}, were not reviewed while the source library or the notebook cannot be read."),
         );
     }
 
@@ -136,6 +229,9 @@ pub fn gather(root: &Path, config: &SiteConfig, post: &DraftPost<'_>) -> Gathere
         atlas: None,
         comparisons: None,
         alignments: None,
+        ready,
+        claims_stored,
+        claims_unreadable: false,
     };
     if ready && config.knowledge_atlas.publish {
         match atlas_store::load_for_build(root, contributors) {
@@ -186,25 +282,12 @@ pub fn gather(root: &Path, config: &SiteConfig, post: &DraftPost<'_>) -> Gathere
         }
     }
 
-    if ready && claims_stored {
-        claims(root, config, post, &mut gathered);
-    }
-
-    context(post, config, &published, &mut gathered);
-    gathered
-}
-
-/// This post's claim findings, against the saved drafts as Evidence Studio
-/// and `openblog check` review them, and, while the site publishes claim
-/// evidence, the claims file's projection notices about this post's claims
-/// and whatever stops the build from reading the file.
-fn claims(root: &Path, config: &SiteConfig, post: &DraftPost<'_>, gathered: &mut Gathered) {
-    use openblog_core::claim_publication::ClaimEvidenceSource;
-    let contributors = &config.contributors;
-    if config.claim_evidence.publish {
+    if ready && config.claim_evidence.publish && claims_stored {
+        use openblog_core::claim_publication::ClaimEvidenceSource;
         if let ClaimEvidenceSource::Unreadable(message) =
             claims_store::evidence_for_build(root, contributors)
         {
+            published.claims_unreadable = true;
             match claims_store::load(root, contributors) {
                 Err(claims_store::StoreError::Invalid(diagnostics)) => gathered
                     .findings
@@ -213,8 +296,29 @@ fn claims(root: &Path, config: &SiteConfig, post: &DraftPost<'_>, gathered: &mut
                     .findings
                     .push(ReviewFinding::unreadable(ObjectKind::ClaimsFile, message)),
             }
-            return;
         }
+    }
+
+    published.ready = ready;
+    published.claims_stored = claims_stored;
+    published
+}
+
+/// This post's claim findings, against the saved drafts as Evidence Studio
+/// and `openblog check` review them, and, while the site publishes claim
+/// evidence, the claims file's projection notices about this post's claims
+/// and whatever stops the build from reading the file.
+fn claims(
+    root: &Path,
+    config: &SiteConfig,
+    post: &DraftPost<'_>,
+    published: &Published,
+    gathered: &mut Gathered,
+) {
+    let contributors = &config.contributors;
+    if published.claims_unreadable {
+        // The report already says why, scoped to the file.
+        return;
     }
     let snapshot = match claims_store::load(root, contributors) {
         Ok(snapshot) => snapshot,
@@ -281,12 +385,26 @@ fn context(
     if links.is_empty() {
         return;
     }
+    gathered
+        .findings
+        .extend(link_findings(post.path, &links, config, published));
+    context_pages(&links, published, gathered);
+}
+
+/// The context links of a post that name a page the next build does not
+/// publish, each as the check owning them states it.
+pub(crate) fn link_findings(
+    path: &str,
+    links: &[context_links::ContextLink],
+    config: &SiteConfig,
+    published: &Published,
+) -> Vec<ReviewFinding> {
     let comparison_ids: BTreeSet<&str> = published
         .comparisons
         .iter()
         .flat_map(|projection| projection.comparisons.iter().map(|c| c.id.as_str()))
         .collect();
-    let findings = context_links::review_context_links(&links, |kind, id| match kind {
+    let findings = context_links::review_context_links(links, |kind, id| match kind {
         ContextKind::AtlasEntry => {
             if !config.knowledge_atlas.publish {
                 return Some(ContextGap::NotPublishing);
@@ -319,12 +437,24 @@ fn context(
             }
         }
     });
-    gathered.findings.extend(
-        findings
-            .iter()
-            .map(|finding| ReviewFinding::from_context_link(post.path, finding)),
-    );
+    findings
+        .iter()
+        .map(|finding| ReviewFinding::from_context_link(path, finding))
+        .collect()
+}
 
+/// For each published page the post's links name, what that page leaves out
+/// or asks the author to check.
+fn context_pages(
+    links: &[context_links::ContextLink],
+    published: &Published,
+    gathered: &mut Gathered,
+) {
+    let comparison_ids: BTreeSet<&str> = published
+        .comparisons
+        .iter()
+        .flat_map(|projection| projection.comparisons.iter().map(|c| c.id.as_str()))
+        .collect();
     let linked = |kind: ContextKind| -> BTreeSet<&str> {
         links
             .iter()
@@ -397,7 +527,7 @@ fn context(
     }
 }
 
-fn library_findings(error: source_store::StoreError) -> Vec<ReviewFinding> {
+pub(crate) fn library_findings(error: source_store::StoreError) -> Vec<ReviewFinding> {
     match error {
         source_store::StoreError::Invalid(diagnostics) => diagnostics
             .iter()
@@ -410,7 +540,7 @@ fn library_findings(error: source_store::StoreError) -> Vec<ReviewFinding> {
     }
 }
 
-fn notebook_findings(error: notebook_store::StoreError) -> Vec<ReviewFinding> {
+pub(crate) fn notebook_findings(error: notebook_store::StoreError) -> Vec<ReviewFinding> {
     match error {
         notebook_store::StoreError::Invalid(diagnostics) => diagnostics
             .iter()
@@ -423,7 +553,7 @@ fn notebook_findings(error: notebook_store::StoreError) -> Vec<ReviewFinding> {
     }
 }
 
-fn first_line(text: &str) -> String {
+pub(crate) fn first_line(text: &str) -> String {
     text.lines().next().unwrap_or_default().to_string()
 }
 

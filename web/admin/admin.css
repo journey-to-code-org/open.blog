@@ -3823,7 +3823,9 @@ a.oba-btn-primary {
   min-width: 0;
 }
 
-.oba-review > h2 {
+.oba-review > h2,
+.oba-review > h3,
+.oba-review > h4 {
   margin: 0;
 }
 
@@ -3833,8 +3835,24 @@ a.oba-btn-primary {
 }
 
 .oba-review-group > h3,
+.oba-review-group > h4,
+.oba-review-group > h5,
 .oba-review-group > p {
   margin: 0;
+}
+
+/* The research checks shown inside What will be public and the draft-side panel (#194, ADR 0150). */
+.oba-boundary-checks:not(:empty),
+.oba-review.is-embedded {
+  margin-top: 1rem;
+  min-width: 0;
+}
+
+.oba-draft-research-checks {
+  display: grid;
+  gap: 0.4rem;
+  padding-top: 0.6rem;
+  border-top: var(--ob-border-width) solid var(--oba-panel-border);
 }
 
 .oba-review-list {
