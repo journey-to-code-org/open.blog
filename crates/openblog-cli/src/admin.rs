@@ -25076,6 +25076,33 @@ What I read:
             assert!(!text.contains(private), "{private} in {text}");
         }
         assert_eq!(text, features.to_json(), "canonical, deterministic");
+        // Preview parity: what Admin previewed is exactly what the build shows,
+        // value for value, and the page's HTML is made from that same value.
+        let (loaded, _) = site::load_site(&f.dir, false, None).unwrap();
+        let shown = loaded.posts[0].community_features();
+        assert_eq!(shown.len(), 1);
+        assert_eq!(
+            serde_json::to_value(&shown[0]).unwrap(),
+            preview["preview"],
+            "the preview is the build's projection"
+        );
+        let out = f.dir.join("out-parity");
+        site::build(
+            &f.dir,
+            &site::BuildOptions {
+                include_drafts: false,
+                out_override: Some(out.clone()),
+                now: None,
+            },
+        )
+        .unwrap();
+        let page =
+            fs::read_to_string(out.join(post.url.trim_matches('/')).join("index.html")).unwrap();
+        assert!(
+            page.contains(&community_feature::render_section(shown)),
+            "the page carries the previewed feature"
+        );
+        assert!(page.contains(community_feature::COMMUNITY_FEATURES_ANCHOR));
         // Once is enough: a reflection has one placement.
         let again = apply_feature(
             &f.state,
@@ -25260,7 +25287,8 @@ What I read:
     }
 
     #[test]
-    fn a_featured_reflections_file_is_read_strictly_and_changes_no_output() {
+    fn a_featured_reflections_file_is_read_strictly_and_a_feature_that_does_not_stand_changes_no_output(
+    ) {
         let f = fixture("community-features-build");
         let build = |out: &str| {
             let out = f.dir.join(out);
@@ -25325,7 +25353,7 @@ What I read:
         assert_eq!(
             tree(&out_without),
             tree(&out_with),
-            "nothing reads the file into a page, feed or export yet"
+            "a feature whose reflection is not published shows nowhere and changes no byte"
         );
         // A file that cannot be read refuses the build rather than being dropped.
         fs::write(&features_path, r#"{"version":1,"items":[{}]}"#).unwrap();

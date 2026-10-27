@@ -1905,7 +1905,9 @@ _Avoid_: Copy of a reflection, featured flag, ranking entry
 The one section of a post's canonical page, `ob-community-perspectives`, after the Third Perspectives,
 that shows features with the fixed notice that selection is an editorial choice and not a vote or a
 consensus. It never counts, ranks or orders by anything but the day featured, and is absent when
-nothing is featured (ADR 0234).
+nothing is featured (ADR 0234). It is headed "Community perspectives" and is static HTML built from the
+one projection, with each item under an `ob-feature-<id>` anchor; portable copies and feeds carry only the
+canonical link (ADR 0238).
 _Avoid_: Top reflections, community voice, leaderboard
 
 **Feature take-off**:

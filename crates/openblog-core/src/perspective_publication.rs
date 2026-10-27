@@ -846,7 +846,7 @@ fn shown_answer(
     })
 }
 
-fn paragraphs(value: &str) -> String {
+pub(crate) fn paragraphs(value: &str) -> String {
     value
         .split("\n\n")
         .map(str::trim)
@@ -908,13 +908,18 @@ pub fn split_by_section(
 /// What a reflection is about, in words and with a link to the section when
 /// the page has one.
 fn place_of(item: &PublicPerspective) -> String {
-    let response = &item.response;
+    place_line(&item.response, item.section_title.as_deref())
+}
+
+/// [`place_of`] for a reflection shown elsewhere than its own list (a
+/// feature, ADR 0238): the same words and the same link.
+pub(crate) fn place_line(response: &ApprovedResponse, section_title: Option<&str>) -> String {
     match (response.about, &response.section) {
         (About::Work, _) => "About the whole work".to_string(),
         (About::Section, Some(section)) => format!(
             "About <a href=\"#{}\">{}</a>{}",
             attr(section),
-            text(item.section_title.as_deref().unwrap_or(section)),
+            text(section_title.unwrap_or(section)),
             if response.stale {
                 ", since revised"
             } else {
@@ -924,9 +929,9 @@ fn place_of(item: &PublicPerspective) -> String {
         // One author's section the page gives no anchor: named by its author,
         // never linked, and never said to be revised when it may as well have
         // been removed.
-        (About::Section, None) if item.section_title.is_some() => format!(
+        (About::Section, None) if section_title.is_some() => format!(
             "About {}{}",
-            text(item.section_title.as_deref().unwrap_or_default()),
+            text(section_title.unwrap_or_default()),
             if response.stale {
                 ", since changed or removed"
             } else {

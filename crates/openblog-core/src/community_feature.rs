@@ -42,6 +42,7 @@ use serde_json::{json, Value};
 
 use crate::config::SiteConfig;
 use crate::date::DateTime;
+use crate::escape::{attr, text};
 use crate::feedback_publication::{is_day, is_post_source};
 use crate::model::Post;
 use crate::participation::ParticipationMode;
@@ -1043,4 +1044,92 @@ pub fn project_post(
         .into_iter()
         .filter_map(|(_, result)| result.ok())
         .collect()
+}
+
+// ---------------------------------------------------------------------------
+// The canonical page's section (ADR 0238)
+
+/// The section of a post's canonical page that shows its features, or nothing
+/// when there are none. Static HTML that needs no script and no style:
+///
+/// - a labelled `<section>` with a heading and the fixed
+///   [`NON_CONSENSUS_NOTICE`], so the framing is never an editor's to leave out;
+/// - a `<ul>` (never an ordered list: an order here is the day each was
+///   featured, which the provenance says, and means no rank) of `<article>`s,
+///   each with its own `ob-feature-<id>` anchor, headed as a reader's, marked
+///   as chosen by the editors, with its provenance, the place it is about, the
+///   reader's words whole and the editors' note labelled as theirs;
+/// - a link from each to the same reflection among the Third Perspectives,
+///   where it stays listed (ADR 0236) with its report form and any answer.
+///
+/// No count, rank, score or popularity word is written by this function, the
+/// notice or the labels; every value is escaped.
+pub fn render_section(items: &[FeaturedPerspective]) -> String {
+    if items.is_empty() {
+        return String::new();
+    }
+    let anchor = COMMUNITY_FEATURES_ANCHOR;
+    let mut html = format!(
+        "<section id=\"{anchor}\" class=\"ob-community-perspectives\" aria-labelledby=\"{anchor}-title\">
+<h2 id=\"{anchor}-title\">Community perspectives</h2>
+<p class=\"ob-community-notice\">{}</p>
+<ul class=\"ob-community-perspectives-list\">
+",
+        text(NON_CONSENSUS_NOTICE)
+    );
+    for item in items {
+        let id = feature_anchor(&attr(&item.id));
+        let response = &item.response;
+        let mut meta = vec![crate::perspective_publication::place_line(
+            response,
+            item.section_title.as_deref(),
+        )];
+        if let Some(category) = response.category {
+            meta.push(format!("Prompt: {}", text(category.label())));
+        }
+        meta.push(format!(
+            "received <time datetime=\"{0}\">{0}</time>",
+            attr(&response.received)
+        ));
+        html.push_str(&format!(
+            "<li><article class=\"ob-feature\" id=\"{id}\" aria-labelledby=\"{id}-title\">
+<h3 id=\"{id}-title\">{}</h3>
+<p class=\"ob-feature-status\"><strong>Chosen by the editors</strong> to feature here</p>
+<p class=\"ob-feature-provenance\">{}</p>
+<p class=\"ob-perspective-meta\">{}</p>
+",
+            text(&response.heading()),
+            text(&item.provenance),
+            meta.join(" · ")
+        ));
+        html.push_str(
+            "<div class=\"ob-feature-body\">
+",
+        );
+        html.push_str(&crate::perspective_publication::paragraphs(&response.body));
+        html.push_str(
+            "
+</div>
+",
+        );
+        if let Some(context) = &item.context {
+            html.push_str(&format!(
+                "<p class=\"ob-feature-note\"><strong>Note from the editors:</strong> {}</p>
+",
+                text(context)
+            ));
+        }
+        html.push_str(&format!(
+            "<p class=\"ob-feature-original\"><a href=\"#ob-perspective-{}\">See this reflection among the Third Perspectives</a></p>
+</article></li>
+",
+            attr(&item.id)
+        ));
+    }
+    html.push_str(
+        "</ul>
+</section>
+",
+    );
+    html
 }

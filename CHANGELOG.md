@@ -5,6 +5,22 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- A post's page now shows the reflections its editors chose to feature, in a "Community perspectives"
+  section after the Third Perspectives (RD14): a plain list, in the order each was featured, that says it
+  is the editors' choice and not a vote or a sign that anyone agrees, with each reflection's reader (or "a
+  reader"), where it came from and when, the words as the reader wrote them, the editors' optional
+  note labelled as theirs, and a link to the same reflection among the Third Perspectives. It counts, ranks
+  and orders nothing by popularity, needs no JavaScript, reads in print and at a 320px width, and is
+  absent when nothing is featured or a feature no longer stands (the reflection came down, its text
+  changed, or the post hides the kind). Feeds, portable copies, search and `llms` files carry only the
+  existing link to the page. A site with no `community-perspectives.json` is built exactly as before.
+- Fixed: Admin now refuses to feature a reflection on a post that hides or locks out the kind, as its
+  preview already did; reports a withdrawn, purged or declined feature by that reason even when its
+  article is also gone; checks the committed `third-perspectives.json` for the page's reasons; lets the
+  site Admin take a feature off or edit its note when the hosted service cannot be asked; and says
+  features could not be checked on any failure but a denial. The reader's wording now says taking a
+  feature down takes effect when the editors next update the site, that they can agree again from the
+  receipt, and that the editors' note is optional.
 - Admin can now feature an approved Third Perspective in its post's community section (RD14): a
   "Feature on the post" section on the reflection's card, offered only when the reader agreed to
   feature this exact text, with an optional editors' note (checked so it cannot claim popularity,
@@ -12,8 +28,7 @@ All notable changes to open.blog are recorded here. Releases follow
   editorial choice and not a vote, and "Take the feature off". A banner on every tab lists features that
   must come off (the reader withdrew or no longer agrees, or the text no longer stands) or are hidden
   because their article is not published. Selections are kept in a new `content/community-perspectives.json`,
-  checked strictly when the site is built; no page, feed or export changes yet, and nothing counts or
-  ranks reflections.
+  checked strictly when the site is built, and nothing counts or ranks reflections.
 - Readers can now agree, or decline, to let an editor feature their Third Perspective in a community
   section: an unticked choice on the form (separate from publishing, with a note that copies already
   published may remain) and a choice on their private receipt that works while the reflection is
@@ -27,13 +42,12 @@ All notable changes to open.blog are recorded here. Releases follow
   no longer renews their agreement to feature a Third Perspective for text they have since edited.
   Only an explicit agreement for the text the reader sees binds feature consent. Stored consent
   records are read exactly as before.
-- Featuring a reader's reflection in a community section is now defined (RD14, no page change yet):
+- Featuring a reader's reflection in a community section is now defined (RD14):
   it needs the reader's own separate consent for the exact text, a change to the text needs fresh
   consent, withdrawal or a declined feature takes it off with no public tombstone, and a featured
   reflection always says whose it is and that choosing it is an editorial choice, not a vote or
-  consensus. Nothing counts, ranks or orders features by popularity. Selections will live in a new
-  public `community-perspectives.json`; nothing reads it yet, so every existing page, feed and export
-  is unchanged.
+  consensus. Nothing counts, ranks or orders features by popularity. Selections live in a new
+  public `community-perspectives.json`.
 
 ## [0.44.0] - 2026-10-26
 

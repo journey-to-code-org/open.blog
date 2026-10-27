@@ -200,7 +200,7 @@ test("an editor previews, chooses, annotates and takes off a feature from the ke
   const calls = [];
   const items = () => [reflection(1), reflection(2, { featureConsent: "not-agreed" }), reflection(3, { featureConsent: "earlier-text" })];
   await page.route(`${origin}/admin/api/engagement/moderation?**`, (route) => json(route, 200, page_(items())));
-  await page.route(`${origin}/admin/api/engagement/community/features`, (route) => json(route, 200, { checked: features.length, truncated: false, features }));
+  await page.route(`${origin}/admin/api/engagement/community/features`, (route) => json(route, 200, { truncated: false, features }));
   await page.route(`${origin}/admin/api/engagement/community/preview`, async (route) => { calls.push(["preview", route.request().postDataJSON()]); return json(route, 200, PREVIEW); });
   await page.route(`${origin}/admin/api/engagement/community/feature`, async (route) => {
     calls.push(["feature", route.request().postDataJSON()]);
@@ -234,7 +234,7 @@ test("an editor previews, chooses, annotates and takes off a feature from the ke
   await agreed.getByRole("button", { name: "Preview" }).focus();
   await page.keyboard.press("Enter");
   const preview = agreed.locator("[data-feature-preview]");
-  await expect(preview.getByRole("heading", { name: "Preview: how the post will show it", level: 5 })).toBeVisible();
+  await expect(preview.getByRole("heading", { name: "Preview: how the post’s Community perspectives section will show it", level: 5 })).toBeVisible();
   await expect(preview).toContainText("featuring a reflection is an editorial choice, not a vote");
   await expect(preview).toContainText("approved by the editors");
   await expect(preview.locator("blockquote")).toHaveText(`A reading of the tides. ${HOSTILE}`);
@@ -245,10 +245,10 @@ test("an editor previews, chooses, annotates and takes off a feature from the ke
   // Choose: with the version the editor saw.
   await agreed.getByRole("button", { name: "Feature on the post" }).focus();
   await page.keyboard.press("Enter");
-  await expect(queueStatus(page)).toContainText("Featured in the post’s community section.");
+  await expect(queueStatus(page)).toContainText("Featured in the post’s Community perspectives section.");
   expect(calls.at(-1)).toEqual(["feature", { id: ID(1), context: "Connects the tides to a rhythm.", expectedVersion: 5 }]);
   const featured = page.locator(`[data-moderation-id="${ID(1)}"] [data-feature-section]`);
-  await expect(featured.getByText("Featured on 2026-10-28 in the post’s community section.", { exact: false })).toBeVisible();
+  await expect(featured.getByText("Featured on 2026-10-28 in the post’s Community perspectives section.", { exact: false })).toBeVisible();
   await expect(featured.getByRole("button", { name: "Feature on the post" })).toHaveCount(0);
   // The note changes without the reader; the feature can be taken off by choice.
   await featured.getByLabel("The editors’ note").fill("A closer look at the tides.");
@@ -293,6 +293,69 @@ test("the banner on every tab lists features that must come off or are hidden, a
   await expect(page.locator('[data-feature-notice="hidden"]')).toBeVisible();
 });
 
+// ---- Rollback and a hosted service that cannot be asked
+
+test("when Third Perspectives are rolled back the banner says it could not check, the feature can still come off, and choosing is refused", async ({ page }) => {
+  let features = [{ id: ID(1), post: "posts/tides.md", featured: "2026-10-28", context: null, standing: "unknown" }];
+  const off = [];
+  await page.route(`${origin}/admin/api/engagement/moderation?**`, (route) => json(route, 200, page_([reflection(2)])));
+  await page.route(`${origin}/admin/api/engagement/community/features`, (route) => json(route, 200, { truncated: false, features }));
+  await page.route(`${origin}/admin/api/engagement/community/feature`, (route) => json(route, 409, { error: "Third Perspectives are switched off or rolled back on the hosted service, so the reader's consent cannot be checked", code: "rolledBack" }));
+  await page.route(`${origin}/admin/api/engagement/community/unfeature`, async (route) => {
+    off.push(route.request().postDataJSON().id);
+    features = [];
+    return json(route, 200, { featured: false, build: { ok: true } });
+  });
+  await signIn(page);
+  await page.goto(`${origin}/admin/#/moderation/approved?kind=third-perspective`);
+  const notice = page.locator('[data-feature-notice="unknown"]');
+  await expect(notice).toContainText("cannot be checked against the hosted copy");
+  const section = page.locator(`[data-moderation-id="${ID(2)}"] [data-feature-section]`);
+  await section.getByRole("button", { name: "Feature on the post" }).click();
+  await expect(section.getByRole("status")).toContainText("rolled back on the hosted service");
+  await expect(section.getByRole("button", { name: "Feature on the post" })).toBeEnabled();
+  // Removing is always safe, without the hosted service.
+  await notice.getByRole("button", { name: "Take the feature off" }).click();
+  await expect(queueStatus(page)).toContainText("The feature was taken off its post.");
+  expect(off).toEqual([ID(1)]);
+});
+
+test("an audit that fails says features could not be checked, except for a 403", async ({ page }) => {
+  let status = 502;
+  await page.route(`${origin}/admin/api/engagement/moderation?**`, (route) => json(route, 200, page_([])));
+  await page.route(`${origin}/admin/api/engagement/community/features`, (route) => json(route, status, { error: "The hosted service could not be asked" }));
+  await signIn(page);
+  await page.goto(`${origin}/admin/#/moderation/approved?kind=third-perspective`);
+  await expect(page.locator("[data-feature-banner]")).toContainText("Featured reflections could not be checked against the hosted copy.");
+  status = 403;
+  await page.reload();
+  await expect(page.locator("[data-feature-banner]")).toHaveText("");
+});
+
+// ---- Mixed prompts
+
+test("reflections of different prompts are each featured on their own, from their own card", async ({ page }) => {
+  const kinds = [[1, "connection"], [2, "question"], [3, null]];
+  let features = [];
+  const chosen = [];
+  await page.route(`${origin}/admin/api/engagement/moderation?**`, (route) => json(route, 200, page_(kinds.map(([n, category]) => reflection(n, { details: category ? { category } : {} })))));
+  await page.route(`${origin}/admin/api/engagement/community/features`, (route) => json(route, 200, { truncated: false, features }));
+  await page.route(`${origin}/admin/api/engagement/community/feature`, async (route) => {
+    const body = route.request().postDataJSON();
+    chosen.push(body.id);
+    features = [...features, { id: body.id, post: "posts/tides.md", featured: "2026-10-28", context: null, standing: "covered" }];
+    return json(route, 200, { featured: true, build: { ok: true } });
+  });
+  await signIn(page);
+  await page.goto(`${origin}/admin/#/moderation/approved?kind=third-perspective`);
+  for (const [n] of kinds) await expect(page.locator(`[data-moderation-id="${ID(n)}"] [data-feature-section]`).getByRole("button", { name: "Feature on the post" })).toBeVisible();
+  await page.locator(`[data-moderation-id="${ID(2)}"] [data-feature-section]`).getByRole("button", { name: "Feature on the post" }).click();
+  await expect(queueStatus(page)).toContainText("Featured in the post’s Community perspectives section.");
+  expect(chosen).toEqual([ID(2)]);
+  for (const n of [1, 3]) await expect(page.locator(`[data-moderation-id="${ID(n)}"] [data-feature-section]`).getByRole("button", { name: "Feature on the post" })).toBeVisible();
+  await expect(page.locator(`[data-moderation-id="${ID(2)}"] [data-feature-section]`).getByRole("button", { name: "Feature on the post" })).toHaveCount(0);
+});
+
 // ---- Reflow
 
 test("the reader's choice and the editor's section reflow at 320px and 400% zoom", async ({ browser }) => {
@@ -307,7 +370,7 @@ test("the reader's choice and the editor's section reflow at 320px and 400% zoom
     expect(form.offenders, `${viewport.width}px form`).toEqual([]);
     await signIn(page);
     await page.route(`${origin}/admin/api/engagement/moderation?**`, (route) => json(route, 200, page_([reflection(1, { body: "x".repeat(300) })])));
-    await page.route(`${origin}/admin/api/engagement/community/features`, (route) => json(route, 200, { checked: 1, truncated: false, features: [{ id: ID(4), post: "posts/a-very-long-post-name-that-goes-on-and-on.md", featured: "2026-10-28", context: null, standing: "mustComeOff", explanation: "the reader no longer agrees to have it featured" }] }));
+    await page.route(`${origin}/admin/api/engagement/community/features`, (route) => json(route, 200, { truncated: false, features: [{ id: ID(4), post: "posts/a-very-long-post-name-that-goes-on-and-on.md", featured: "2026-10-28", context: null, standing: "mustComeOff", explanation: "the reader no longer agrees to have it featured" }] }));
     await page.route(`${origin}/admin/api/engagement/community/preview`, (route) => json(route, 200, { ...PREVIEW, preview: { ...PREVIEW.preview, response: { ...PREVIEW.preview.response, body: "unbroken".repeat(40) } } }));
     await page.goto(`${origin}/admin/#/moderation/approved?kind=third-perspective`);
     const section = page.locator(`[data-moderation-id="${ID(1)}"] [data-feature-section]`);

@@ -14883,7 +14883,7 @@ export class ObAdmin extends AdminElement {
       if (offer.kind === "featured") {
         const feature = offer.feature;
         section.append(
-          h("p", { class: feature.standing === "mustComeOff" ? "oba-notice" : "oba-small", role: feature.standing === "mustComeOff" ? "alert" : null }, `Featured on ${feature.featured} in the post’s community section. ${featureStandingText(feature)}`),
+          h("p", { class: feature.standing === "mustComeOff" ? "oba-notice" : "oba-small", role: feature.standing === "mustComeOff" ? "alert" : null }, `Featured on ${feature.featured} in the post’s Community perspectives section. ${featureStandingText(feature)}`),
           noteLabel, " ", note, hint,
           h("button", { class: "oba-btn", type: "button", onClick: async (event) => {
             const button = event.currentTarget;
@@ -14910,13 +14910,13 @@ export class ObAdmin extends AdminElement {
           const request = featureRequest(item, note.value);
           if (choose) {
             await this.api.call("POST", "engagement/community/feature", { json: request });
-            await reloadAll("Featured in the post’s community section. Rebuild or publish to update the live site.", "ok");
+            await reloadAll("Featured in the post’s Community perspectives section. Rebuild or publish to update the live site.", "ok");
             return;
           }
           const result = await this.api.call("POST", "engagement/community/preview", { json: { id: request.id, context: request.context } });
           const shown = result.preview;
           preview.replaceChildren(
-            h("h5", {}, "Preview: how the post will show it"),
+            h("h5", {}, "Preview: how the post’s Community perspectives section will show it"),
             h("p", { class: "oba-small" }, result.notice),
             h("p", { class: "oba-small" }, shown.provenance),
             h("blockquote", { class: "oba-feedback-body" }, shown.response.body),

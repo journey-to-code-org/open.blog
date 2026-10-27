@@ -1950,6 +1950,11 @@ impl<'a> Renderer<'a> {
             post.third_perspectives(),
             reports_endpoint,
         ));
+        // Reflections the editors chose to feature, after the reflections they
+        // come from and framed as an editorial choice (ADR 0238).
+        body.push_str(&crate::community_feature::render_section(
+            post.community_features(),
+        ));
         let third_perspective = self.third_perspective(post);
         if let Some(region) = &third_perspective {
             body.push_str(region);
