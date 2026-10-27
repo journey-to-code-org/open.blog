@@ -159,6 +159,49 @@ pub(crate) struct FenceInfo {
     libs: Vec<String>,
     /// The kind named after `demo`, as in ```` ```demo git-sandbox ````.
     pub(crate) demo: Option<String>,
+    /// `check` on a `rust runnable` fence: the body continues after a `---checks` line with
+    /// hidden `#[test]` functions that the "Check my code" button runs against the reader's code.
+    pub(crate) check: bool,
+}
+
+/// The marker that ends a `rust runnable check` fence's starter code.
+const RUST_CHECKS_MARKER: &str = "---checks";
+/// The starter and its checks together must fit the Playground request budget.
+const MAX_RUST_CHECK_BYTES: usize = 40_000;
+/// What a copy of a `rust runnable check` fence says about the checks it cannot run.
+pub(crate) const RUST_CHECKS_SPOILER: &str = "Spoiler: the checks for this challenge";
+pub(crate) const RUST_CHECKS_SPOILER_NOTE: &str = "These tests run when you press Check my code on the original article. Reading them first gives away the answer.";
+
+/// Split a `rust runnable check` body into the starter code the reader sees and the hidden
+/// checks that follow the `---checks` line. Without the marker there are no checks.
+pub(crate) fn split_rust_checks(source: &str) -> (&str, Option<&str>) {
+    let mut offset = 0;
+    for line in source.split_inclusive('\n') {
+        if line.trim() == RUST_CHECKS_MARKER {
+            return (&source[..offset], Some(&source[offset + line.len()..]));
+        }
+        offset += line.len();
+    }
+    (source, None)
+}
+
+/// What is wrong with a `rust runnable check` body, if anything.
+fn rust_check_error(starter: &str, checks: Option<&str>) -> Option<&'static str> {
+    let Some(checks) = checks else {
+        return Some("a `rust runnable check` fence needs a `---checks` line followed by hidden `#[test]` functions");
+    };
+    if starter.trim().is_empty() {
+        return Some(
+            "a `rust runnable check` fence needs starter code before the `---checks` line",
+        );
+    }
+    if !checks.contains("#[test]") {
+        return Some("the `---checks` section of a `rust runnable check` fence needs at least one `#[test]` function");
+    }
+    if starter.len() + checks.len() > MAX_RUST_CHECK_BYTES {
+        return Some("a `rust runnable check` fence's starter and checks must stay under 40,000 bytes together");
+    }
+    None
 }
 
 pub(crate) fn parse_fence_info(info: &str) -> FenceInfo {
@@ -229,6 +272,8 @@ pub(crate) fn parse_fence_info(info: &str) -> FenceInfo {
             }
         } else if word == "runnable" {
             out.runnable = true;
+        } else if word == "check" {
+            out.check = true;
         } else if word == "module" {
             out.module = true;
         } else if word == "network" {
@@ -632,6 +677,13 @@ fn portable_code_html(
     canonical_url: &str,
     playground_link: bool,
 ) -> String {
+    // Copies cannot run the checks, so the starter is shown as the code and the checks follow
+    // as a collapsed spoiler: a reader on another platform can still see how it is checked.
+    let (source, spoiler) = if fence.check {
+        split_rust_checks(source)
+    } else {
+        (source, None)
+    };
     let code = |lang: &str, source: &str, lines: &str| {
         let class = if lang.is_empty() {
             String::new()
@@ -702,6 +754,12 @@ fn portable_code_html(
                     escape::attr(&url)
                 ));
             }
+        }
+        if let Some(checks) = spoiler {
+            html.push_str(&format!(
+                "<details class=\"ob-spoiler\"><summary>{RUST_CHECKS_SPOILER}</summary><p>{RUST_CHECKS_SPOILER_NOTE}</p>{}</details>",
+                code("rust", checks, "")
+            ));
         }
         "Run and edit this example on"
     };
@@ -922,6 +980,8 @@ fn transform_blocks<'a>(
     let mut runnable_code = false;
     let mut configured_runner = false;
     let mut web_sandbox = false;
+    // The whole body of an open `rust runnable check` fence: starter and hidden checks.
+    let mut rust_check: Option<String> = None;
     // Open containers (quotes, callouts, list items, tables, footnotes).
     let mut depth = 0usize;
     // An open recipe section: what it holds and the heading level that opened it.
@@ -1051,6 +1111,12 @@ fn transform_blocks<'a>(
             }
             continue;
         }
+        if let Some(source) = rust_check.as_mut() {
+            if let Event::Text(text) = event {
+                source.push_str(text);
+                continue;
+            }
+        }
         if web_sandbox {
             if let Event::Text(text) = event {
                 sandbox_source.push_str(text);
@@ -1115,6 +1181,11 @@ fn transform_blocks<'a>(
                 configured_runner = fence.runnable && runner.is_some();
                 runnable_code = fence.runnable && fence.lang.eq_ignore_ascii_case("rust");
                 web_sandbox = fence.runnable && fence.lang.eq_ignore_ascii_case("web");
+                if fence.check && !runnable_code {
+                    data.errors
+                        .push("`check` belongs on a `rust runnable` fence".into());
+                }
+                rust_check = (runnable_code && fence.check && portable.is_none()).then(String::new);
                 if fence.runnable {
                     let (id, renderer) = if web_sandbox {
                         ("web-sandbox", Some("ob-web-sandbox"))
@@ -1198,6 +1269,29 @@ fn transform_blocks<'a>(
                 if titled_code || runnable_code || configured_runner || web_sandbox =>
             {
                 let mut html = String::from("</code></pre>");
+                if let Some(source) = rust_check.take() {
+                    let (starter, checks) = split_rust_checks(&source);
+                    if let Some(error) = rust_check_error(starter, checks) {
+                        data.errors.push(error.into());
+                        if let Some(capability) = data.capabilities.last_mut() {
+                            capability.add_diagnostic(
+                                CapabilityDiagnosticCode::MalformedContent,
+                                "Malformed Rust check; see the source-scoped Markdown error.",
+                            );
+                        }
+                    }
+                    out.push(Event::Text(CowStr::from(starter.to_string())));
+                    if let Some(checks) = checks {
+                        // Hidden from the editor, present in the page data. `<` is escaped so the
+                        // text can never close the script element early.
+                        let json = serde_json::to_string(checks)
+                            .unwrap_or_else(|_| "\"\"".into())
+                            .replace('<', "\\u003c");
+                        html.push_str(&format!(
+                            "<script type=\"application/json\" data-ob-rust-checks>{json}</script>"
+                        ));
+                    }
+                }
                 if configured_runner {
                     html.push_str("</ob-code-runner>");
                 } else if runnable_code {
@@ -2415,6 +2509,21 @@ pub(crate) fn portable_semantic_facts(
                         "canonical link",
                         projection.canonical_url(),
                     ));
+                } else if fence.check {
+                    // The export carries the starter as the code and the checks as a spoiler.
+                    let (starter, checks) = split_rust_checks(&source);
+                    facts.push(SemanticFact::new(
+                        "runnable-code",
+                        "source",
+                        starter.to_string(),
+                    ));
+                    if let Some(checks) = checks {
+                        facts.push(SemanticFact::new(
+                            "runnable-code",
+                            "spoiler checks",
+                            checks.trim_end().to_string(),
+                        ));
+                    }
                 } else {
                     facts.push(SemanticFact::new("runnable-code", "source", source));
                 }
@@ -2927,6 +3036,86 @@ mod tests {
             "{}",
             plain.html
         );
+    }
+
+    #[test]
+    fn rust_check_fences_split_the_starter_from_the_hidden_checks() {
+        let source = "```rust runnable check title=\"Add them\"\nfn add(a: u32, b: u32) -> u32 {\n    // TODO <fill in> & \"go\"\n    0\n}\n---checks\n/// Add them together.\n#[test]\nfn adds() {\n    assert_eq!(add(2, 3), 5); // </script>\n}\n```\n";
+        let rendered = render(source, RenderOptions::default());
+        assert!(rendered.errors.is_empty(), "{:?}", rendered.errors);
+        let html = &rendered.html;
+        // The editor sees the starter, escaped, and none of the checks.
+        let pre = &html[html.find("<pre>").unwrap()..html.find("</pre>").unwrap()];
+        assert!(
+            pre.contains("// TODO &lt;fill in&gt; &amp; \"go\""),
+            "{pre}"
+        );
+        assert!(!pre.contains("assert_eq"), "{pre}");
+        assert!(!pre.contains("---checks"), "{pre}");
+        // The checks ride along as JSON that cannot close its own script element.
+        let script_start = html
+            .find("<script type=\"application/json\" data-ob-rust-checks>")
+            .unwrap();
+        let json =
+            &html[script_start + "<script type=\"application/json\" data-ob-rust-checks>".len()..];
+        let json = &json[..json.find("</script>").unwrap()];
+        assert!(!json.contains('<'), "{json}");
+        let checks: String = serde_json::from_str(json).unwrap();
+        assert!(checks.contains("fn adds()") && checks.contains("</script>"));
+        assert!(
+            html.contains("<ob-rust-playground>") && html.trim_end().ends_with("</figure>"),
+            "{html}"
+        );
+        // It is still an ordinary runnable-code capability.
+        assert_eq!(rendered.capabilities[0].id, "runnable-code");
+    }
+
+    #[test]
+    fn rust_check_fences_report_what_is_missing() {
+        for (source, expected) in [
+            (
+                "```rust runnable check\nfn a() {}\n```\n",
+                "needs a `---checks` line",
+            ),
+            (
+                "```rust runnable check\n---checks\n#[test]\nfn t() {}\n```\n",
+                "needs starter code",
+            ),
+            (
+                "```rust runnable check\nfn a() {}\n---checks\nfn helper() {}\n```\n",
+                "at least one `#[test]`",
+            ),
+            (
+                "```rust check\nfn a() {}\n---checks\n#[test]\nfn t() {}\n```\n",
+                "belongs on a `rust runnable` fence",
+            ),
+        ] {
+            let rendered = render(source, RenderOptions::default());
+            assert!(
+                rendered.errors.iter().any(|error| error.contains(expected)),
+                "{expected}: {:?}",
+                rendered.errors
+            );
+        }
+        let too_big = format!(
+            "```rust runnable check\nfn a() {{}}\n---checks\n#[test]\nfn t() {{}}\n// {}\n```\n",
+            "x".repeat(40_000)
+        );
+        assert!(render(&too_big, RenderOptions::default())
+            .errors
+            .iter()
+            .any(|e| e.contains("under 40,000 bytes")));
+    }
+
+    #[test]
+    fn split_rust_checks_finds_the_marker_line_only() {
+        assert_eq!(split_rust_checks("a\n---checks\nb\n"), ("a\n", Some("b\n")));
+        assert_eq!(split_rust_checks("a\n  ---checks  \nb"), ("a\n", Some("b")));
+        assert_eq!(
+            split_rust_checks("let s = \"---checks\";\n"),
+            ("let s = \"---checks\";\n", None)
+        );
+        assert_eq!(split_rust_checks("only starter"), ("only starter", None));
     }
 
     #[test]

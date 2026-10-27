@@ -2770,6 +2770,12 @@ fn portable_fence_markdown(
     let mut output = String::new();
     let fence = crate::markdown::parse_fence_info(info);
     let language = fence.lang.as_str();
+    // Copies cannot run the checks: the starter is the code, and the checks follow as a spoiler.
+    let (source, spoiler) = if fence.check {
+        crate::markdown::split_rust_checks(source)
+    } else {
+        (source, None)
+    };
     if info.trim() == "quiz" {
         output.push_str(
             &crate::markdown::portable_quiz_markdown(source)
@@ -2812,6 +2818,14 @@ fn portable_fence_markdown(
                 if let Some(url) = crate::markdown::rust_playground_url(&format!("{source}\n")) {
                     output.push_str(&format!("\n[Open in Rust Playground]({url}).\n"));
                 }
+            }
+            if let Some(checks) = spoiler {
+                output.push_str(&format!(
+                    "\n<details>\n<summary>{}</summary>\n\n{}\n\n{}</details>\n",
+                    crate::markdown::RUST_CHECKS_SPOILER,
+                    crate::markdown::RUST_CHECKS_SPOILER_NOTE,
+                    markdown_code_fence("rust", checks.trim_end())
+                ));
             }
             output.push_str(&format!(
                 "\n[Run and edit this example on the canonical article]({}).\n",
@@ -3931,6 +3945,51 @@ mod tests {
                 ("runnable-code", None)
             ]
         );
+    }
+
+    #[test]
+    fn portable_copies_of_a_rust_check_fence_show_the_starter_and_tuck_the_checks_in_a_spoiler() {
+        let contents = "---\ntitle: Work\ndate: 2026-10-01\n---\n```rust runnable check title=\"Add them\"\nfn add(a: u32, b: u32) -> u32 {\n    0\n}\n---checks\n/// Add them <together>.\n#[test]\nfn adds() {\n    assert_eq!(add(2, 3), 5);\n}\n```\n";
+        let (config, site) = public_post(contents);
+        let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
+        let html = projection.portable_html().unwrap().html;
+        let markdown = projection.portable_markdown().unwrap();
+        let label = "Spoiler: the checks for this challenge";
+        for (kind, text) in [("html", &html), ("markdown", &markdown)] {
+            let starter = text
+                .find("fn add(a: u32, b: u32)")
+                .unwrap_or_else(|| panic!("{kind}: {text}"));
+            let spoiler = text
+                .find(label)
+                .unwrap_or_else(|| panic!("{kind} has no spoiler label: {text}"));
+            let checks = text
+                .find("assert_eq!(add(2, 3), 5)")
+                .unwrap_or_else(|| panic!("{kind} lost the checks: {text}"));
+            assert!(
+                starter < spoiler && spoiler < checks,
+                "{kind}: starter, then the label, then the checks: {text}"
+            );
+            assert!(text.contains("<details"), "{kind}: {text}");
+            assert!(text.contains("gives away the answer"), "{kind}: {text}");
+            assert!(
+                !text[..spoiler].contains("assert_eq"),
+                "{kind}: nothing of the checks before the spoiler: {text}"
+            );
+            for internal in ["---checks", "ob_checks", "data-ob-rust-checks"] {
+                assert!(!text.contains(internal), "{kind} leaked {internal}: {text}");
+            }
+            assert!(
+                text.contains("original article") || text.contains("canonical article"),
+                "{kind}: {text}"
+            );
+        }
+        // The HTML escapes the checks like any other code, and the Markdown fences them.
+        assert!(html.contains("Add them &lt;together&gt;."), "{html}");
+        assert!(
+            markdown.contains("```rust\n/// Add them <together>."),
+            "{markdown}"
+        );
+        assert!(!html.contains("<ob-") && !markdown.contains("<ob-"));
     }
 
     #[test]

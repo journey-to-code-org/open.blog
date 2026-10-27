@@ -35,6 +35,10 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
         include_str!("../../../web/components/ob-rust-runner.js"),
     ),
     (
+        "components/ob-rust-check-model.js",
+        include_str!("../../../web/components/ob-rust-check-model.js"),
+    ),
+    (
         "components/ob-code-editor.js",
         include_str!("../../../web/components/ob-code-editor.js"),
     ),

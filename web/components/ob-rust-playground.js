@@ -1,8 +1,13 @@
 // Progressive enhancement for an author-opted-in `rust runnable` fence. The
 // original <pre><code> remains the no-JavaScript fallback; this component adds
 // an editor and sends only the reader's source to the official Rust Playground.
+//
+// A fence written `rust runnable check` also carries the author's hidden tests in a
+// <script data-ob-rust-checks> element. They never appear in the editor; "Check my code" appends
+// them to what the reader wrote and shows the author's own feedback for each one that fails.
 
-import { playgroundUrl, runRust } from "./ob-rust-runner.js";
+import { playgroundUrl, runRust, runRustChecks } from "./ob-rust-runner.js";
+import { summarise } from "./ob-rust-check-model.js";
 import { codeSettings, createCodeEditor } from "./ob-code-editor.js";
 
 function element(tag, className, text) {
@@ -18,6 +23,18 @@ function combinedOutput({ stdout, stderr }) {
   return `${stdout}${stdout.endsWith("\n") ? "" : "\n"}${stderr}`;
 }
 
+// The hidden checks the build wrote beside the code, or null when this fence has none.
+function authoredChecks(host) {
+  const script = host.querySelector?.("script[data-ob-rust-checks]");
+  if (!script) return null;
+  try {
+    const parsed = JSON.parse(script.textContent);
+    return typeof parsed === "string" && parsed.trim() ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 class ObRustPlayground extends HTMLElement {
   connectedCallback() {
     if (this.dataset.enhanced) return;
@@ -25,6 +42,7 @@ class ObRustPlayground extends HTMLElement {
     const code = pre?.querySelector("code");
     if (!code) return;
     pre.classList.add("ob-rust-source");
+    const checks = authoredChecks(this);
 
     const initial = code.textContent;
     const { shell, editor, refresh } = createCodeEditor({
@@ -39,9 +57,10 @@ class ObRustPlayground extends HTMLElement {
 
     const controls = element("div", "ob-code-editor-controls ob-rust-controls");
     const run = element("button", "ob-code-editor-run ob-rust-run", "Run Rust");
+    const check = checks ? element("button", "ob-code-editor-run ob-rust-check", "Check my code") : null;
     const reset = element("button", "ob-rust-reset", "Reset");
     const copy = element("button", "ob-rust-copy", "Copy");
-    for (const button of [run, reset, copy]) button.type = "button";
+    for (const button of [run, check, reset, copy]) if (button) button.type = "button";
     const external =
       this.dataset.playgroundLink === "false"
         ? null
@@ -50,7 +69,7 @@ class ObRustPlayground extends HTMLElement {
       external.target = "_blank";
       external.rel = "noopener noreferrer";
     }
-    controls.append(run, reset, copy, ...(external ? [external] : []));
+    controls.append(run, ...(check ? [check] : []), reset, copy, ...(external ? [external] : []));
 
     const notice = element(
       "p",
@@ -70,6 +89,19 @@ class ObRustPlayground extends HTMLElement {
     outputPanel.hidden = true;
     outputPanel.append(outputLabel, output);
 
+    const checkPanel = element("section", "ob-rust-check-panel");
+    const checkSummary = element("p", "ob-rust-check-summary");
+    const checkList = element("ul", "ob-rust-check-list");
+    checkPanel.hidden = true;
+    checkPanel.append(checkSummary, checkList);
+
+    function hideResults() {
+      output.textContent = "";
+      output.hidden = true;
+      outputPanel.hidden = true;
+      checkPanel.hidden = true;
+    }
+
     function updateExternal() {
       if (external) external.href = playgroundUrl(editor.value);
     }
@@ -78,9 +110,7 @@ class ObRustPlayground extends HTMLElement {
 
     reset.addEventListener("click", () => {
       editor.value = initial;
-      output.textContent = "";
-      output.hidden = true;
-      outputPanel.hidden = true;
+      hideResults();
       status.textContent = "Reset to the article's example.";
       refresh();
       updateExternal();
@@ -98,26 +128,22 @@ class ObRustPlayground extends HTMLElement {
       this.copyTimer = setTimeout(() => (copy.textContent = "Copy"), 1600);
     });
 
-    run.addEventListener("click", async () => {
+    // One request at a time, whether it is a run or a check.
+    const withPlayground = async (button, working, task, timeoutMessage) => {
       if (this.runController) return;
       const controller = new AbortController();
       this.runController = controller;
       this.runTimer = setTimeout(() => controller.abort(), 20_000);
-      run.setAttribute("aria-disabled", "true");
-      run.setAttribute("aria-busy", "true");
-      output.hidden = true;
-      outputPanel.hidden = true;
-      status.textContent = "Compiling and running on the Rust Playground…";
+      button.setAttribute("aria-disabled", "true");
+      button.setAttribute("aria-busy", "true");
+      hideResults();
+      status.textContent = working;
       try {
-        const result = await runRust(editor.value, { signal: controller.signal });
-        output.textContent = combinedOutput(result) || "Program finished without output.";
-        output.hidden = false;
-        outputPanel.hidden = false;
-        status.textContent = result.success ? "Finished." : "Compilation failed.";
+        await task(controller.signal);
       } catch (error) {
         output.textContent =
           error?.name === "AbortError"
-            ? "The Rust Playground did not respond within 20 seconds."
+            ? timeoutMessage
             : `${error?.message || "The Rust Playground request failed."}${external ? " You can still use the Open in Rust Playground link." : ""}`;
         output.hidden = false;
         outputPanel.hidden = false;
@@ -126,12 +152,53 @@ class ObRustPlayground extends HTMLElement {
         clearTimeout(this.runTimer);
         this.runController = null;
         this.runTimer = null;
-        run.removeAttribute("aria-disabled");
-        run.removeAttribute("aria-busy");
+        button.removeAttribute("aria-disabled");
+        button.removeAttribute("aria-busy");
       }
-    });
+    };
 
-    this.append(shell, controls, notice, status, outputPanel);
+    run.addEventListener("click", () =>
+      withPlayground(
+        run,
+        "Compiling and running on the Rust Playground…",
+        async (signal) => {
+          const result = await runRust(editor.value, { signal });
+          output.textContent = combinedOutput(result) || "Program finished without output.";
+          output.hidden = false;
+          outputPanel.hidden = false;
+          status.textContent = result.success ? "Finished." : "Compilation failed.";
+        },
+        "The Rust Playground did not respond within 20 seconds.",
+      ),
+    );
+
+    check?.addEventListener("click", () =>
+      withPlayground(
+        check,
+        "Checking your code on the Rust Playground…",
+        async (signal) => {
+          const outcome = await runRustChecks(editor.value, checks, { signal });
+          checkPanel.dataset.state = outcome.state;
+          checkSummary.textContent = summarise(outcome);
+          checkList.replaceChildren(
+            ...(outcome.state === "failed"
+              ? outcome.failures.map((failure) => element("li", "ob-rust-check-item", failure.feedback))
+              : []),
+          );
+          checkPanel.hidden = false;
+          // Compiler text helps when the code does not build; test output would only spoil the checks.
+          if (outcome.state === "compile-error" || outcome.state === "unknown") {
+            output.textContent = outcome.output || "The Rust Playground returned no output.";
+            output.hidden = false;
+            outputPanel.hidden = false;
+          }
+          status.textContent = summarise(outcome);
+        },
+        "The Rust Playground did not respond within 20 seconds.",
+      ),
+    );
+
+    this.append(shell, controls, notice, status, checkPanel, outputPanel);
     this.dataset.enhanced = "true";
   }
 

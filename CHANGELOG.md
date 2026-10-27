@@ -5,6 +5,14 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- New `rust runnable check` fence option: a `---checks` line inside a Rust runnable fence separates the
+  reader's starter code from hidden `#[test]` functions. **Check my code** sends both to the Rust Playground
+  with `tests: true`, reads `test ob_checks::name ... ok|FAILED` (the first line for a name wins, so a test
+  cannot be forged by printing), and shows the author's `///` feedback line for each failing check. Checks
+  live in a `data-ob-rust-checks` JSON script, never in the editor. Feeds, portable HTML and portable
+  Markdown show the starter and tuck the checks into a `<details>` block headed "Spoiler: the checks for
+  this challenge"; the semantic-fact check fails an export that loses either.
+
 ## [0.47.0] - 2026-10-27
 
 - Netlify builds only what it deploys: pull request previews and branch deploys (such as `develop`)
