@@ -2203,3 +2203,36 @@ notebook: labelled unverified reader text with the page it came from, the reader
 they said about the source as quoted statements, and no name, contact or time. It creates no passage,
 source, draft or link and changes nothing about the suggestion (ADR 0160).
 _Avoid_: Import, conversion, promotion to the library
+
+**Interpretation comparison**:
+An author's own public side-by-side of two or more attributed readings of one subject, kept as
+`content/comparisons/<slug>.json`, with neutral author-written relations between them and optional
+audience explanations. It is its own content type, not a source-library interpretation (which is
+private) and not a series. It never rules on which reading is right and has no verdict, score, rank,
+consensus or preferred field; a file that holds one is refused (ADRs 0300, 0301).
+_Avoid_: Debate, ranking, consensus view, fact check, versus page
+
+**Attributed interpretation**:
+One reading inside a comparison: who held it (a named person or tradition, a library source, or an
+explicitly anonymous author), its statement, the author's uncertainty note, evidence references and
+origin. It may be a translation of another reading of the same comparison. Attribution is required and
+its certainty is the author's own (ADR 0301).
+_Avoid_: Opinion, take, answer, theory
+
+**Audience explanation**:
+An author-written supplement to a comparison or one reading, for one fixed level (`beginner`, `student`,
+`scholarly`), one per level per subject. It never replaces canonical prose and is never evidence; the
+public value always says it is supplemental (ADR 0302).
+_Avoid_: Simplified version, rewrite, reading level setting, personalisation
+
+**AI draft**:
+Text whose `origin` the author states as drafted by a tool. It is labelled as such wherever it appears
+and is published only after a person's approval of its exact text; nothing here calls a model
+(ADR 0303).
+_Avoid_: AI answer, generated explanation, automatic summary
+
+**Approval**:
+A person's recorded statement (`by`, `at`, `digest`) that they read exactly this text and accept it.
+The digest binds it to the text, so editing the text makes the approval stale until it is given again
+(ADR 0303).
+_Avoid_: Sign-off flag, reviewed, verified

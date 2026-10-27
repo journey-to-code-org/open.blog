@@ -5,6 +5,13 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Interpretation comparisons now have a file format. `content/comparisons/<slug>.json` sets two or more
+  attributed readings of one subject side by side (a named person, a library source, or an explicitly
+  anonymous author), with neutral relations such as "differs from", an uncertainty note, evidence references,
+  translations and optional beginner, student and scholarly explanations. Nothing marks a reading correct,
+  and an explanation never replaces your prose. An AI-drafted reading or explanation is labelled and is
+  published only after you approve its exact text; editing it withdraws the approval. Nothing reads these
+  files on the site yet. See [ADR 0300](docs/adr/0300-a-comparison-is-its-own-public-content-type-and-one-versioned-file.md).
 - Reading paths are now easier to find and to move. A post or atlas entry that is a step of a listed path
   shows "Part of a reading path" with a link to that step; listed paths appear in site search; and
   `paths.json` lists the listed paths for tools. Unlisted paths are in none of these, feeds never carry
