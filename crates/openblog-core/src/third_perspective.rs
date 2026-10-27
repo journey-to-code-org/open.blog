@@ -19,7 +19,7 @@
 //!
 //! Featuring an approved response in a community section is an editor's
 //! choice that needs the reader's separate feature consent for that approved
-//! revision. It lives in [`crate::community_feature`] (ADR 0230), which
+//! revision. It lives in [`crate::community_feature`] (ADR 0176), which
 //! replaced the earlier `FeatureSelection` and `FeaturedPublication` types
 //! this module had no caller for.
 //!
@@ -731,7 +731,7 @@ pub struct ConsentChange {
     pub clarification: bool,
     /// What the change does to the reader's feature consent. Only an explicit
     /// [`FeatureChange::Agree`] for the revision the reader saw binds it; any
-    /// other change carries it forward unchanged (ADR 0231).
+    /// other change carries it forward unchanged (ADR 0177).
     pub feature: FeatureChange,
 }
 

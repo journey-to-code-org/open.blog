@@ -746,7 +746,7 @@ export function perspectiveAuditNotices(audit) {
   return notices;
 }
 
-// Featured reflections (#229, ADRs 0230 to 0236). The server decides what may be featured and says
+// Featured reflections (#229, ADRs 0176 to 0182). The server decides what may be featured and says
 // how each feature stands; these helpers only word and shape what it sent. Nothing here counts,
 // ranks or scores a reflection, and no reader's words are shown except the reflection itself.
 

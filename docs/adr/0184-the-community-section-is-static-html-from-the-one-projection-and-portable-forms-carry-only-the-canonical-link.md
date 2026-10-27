@@ -1,4 +1,4 @@
-# ADR 0238: The community section is static HTML from the one projection, and portable forms carry only the canonical link
+# ADR 0184: The community section is static HTML from the one projection, and portable forms carry only the canonical link
 
 - Status: Accepted
 - Date: 2026-10-27
@@ -6,11 +6,11 @@
 - Parent story: [#205](https://github.com/journey-to-code-org/open.blog/issues/205)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
 - Builds on: [ADR 0115](0115-approved-third-perspectives-publish-from-a-versioned-public-file-and-portable-copies-link-to-them.md),
-  [ADR 0232](0232-withdrawal-retention-and-a-lost-source-take-a-feature-off-for-a-stated-reason.md),
-  [ADR 0234](0234-a-feature-says-whose-reflection-it-is-and-why-it-is-shown-and-nothing-counts-ranks-or-claims-consensus.md),
-  [ADR 0235](0235-features-publish-from-community-perspectives-json-beside-third-perspectives-json-and-read-strictly.md),
-  [ADR 0236](0236-a-featured-reflection-stays-in-the-third-perspectives-list-under-its-own-anchor-and-that-lists-counts-stay.md),
-  [ADR 0237](0237-admin-features-a-reflection-only-on-the-readers-agreement-and-takes-it-off-for-a-stated-reason.md)
+  [ADR 0178](0178-withdrawal-retention-and-a-lost-source-take-a-feature-off-for-a-stated-reason.md),
+  [ADR 0180](0180-a-feature-says-whose-reflection-it-is-and-why-it-is-shown-and-nothing-counts-ranks-or-claims-consensus.md),
+  [ADR 0181](0181-features-publish-from-community-perspectives-json-beside-third-perspectives-json-and-read-strictly.md),
+  [ADR 0182](0182-a-featured-reflection-stays-in-the-third-perspectives-list-under-its-own-anchor-and-that-lists-counts-stay.md),
+  [ADR 0183](0183-admin-features-a-reflection-only-on-the-readers-agreement-and-takes-it-off-for-a-stated-reason.md)
 
 ## Context
 
@@ -21,7 +21,7 @@ must work with no script, in print, for screen readers and at 400% zoom.
 ## Decision
 
 - **The build attaches features through `resolve_post`.** `Site::load` reads `community-perspectives.json`
-  strictly (ADR 0235) and gives each post the features that still stand against the committed
+  strictly (ADR 0181) and gives each post the features that still stand against the committed
   `third-perspectives.json` (reflection present, digest equal, not misdated, kind shown). A feature that does
   not stand is absent from the page with no mark of a gap, and is only a build warning naming the id and a fixed
   reason, never content. A post that hides Third Perspectives shows none. A site with no file, an empty file or
@@ -32,10 +32,10 @@ must work with no script, in print, for screen readers and at 400% zoom.
   `<section id="ob-community-perspectives" aria-labelledby>` headed "Community perspectives", the fixed plural
   `NON_CONSENSUS_NOTICE` as the first paragraph, then a `<ul>` (never an `<ol>`: an order means a rank) of
   `<article id="ob-feature-<id>">`, each headed "Third Perspective from NAME, a reader" (or "from a reader"),
-  marked "Chosen by the editors to feature here", with its provenance line (ADR 0234), the place it is about
+  marked "Chosen by the editors to feature here", with its provenance line (ADR 0180), the place it is about
   (the same line and link as the list), the prompt, the received day, the reader's words whole and escaped, the
   editors' note labelled "Note from the editors", and a link to the same reflection in the Third Perspectives,
-  where it stays with its report form and any author's answer (ADR 0236). Items are in the order of the day
+  where it stays with its report form and any author's answer (ADR 0182). Items are in the order of the day
   featured, then id, so output is deterministic whatever the order of the file. There is no count, rank, score,
   reaction or tally anywhere, and no script, custom element or form: it is static HTML first, with no
   enhancement to fail.

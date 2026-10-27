@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// The community section of a canonical page (#230, ADRs 0234 to 0238), in the real site served from
+// The community section of a canonical page (#230, ADRs 0180 to 0184), in the real site served from
 // real content files. The section is static HTML from `community-perspectives.json`: it reads with no
 // JavaScript, as a labelled region with one list, with the fixed plural notice, each item marked as
 // chosen by the editors; it is keyboard operable and screen-reader named; it counts, ranks and orders
@@ -30,7 +30,7 @@ let server;
 let origin;
 let revision;
 
-/** The digest the build binds a feature to (ADR 0231): domain-separated BLAKE2s-256 of the exact text. */
+/** The digest the build binds a feature to (ADR 0177): domain-separated BLAKE2s-256 of the exact text. */
 function digestOf(body) {
   const bytes = Buffer.from(body, "utf8");
   const length = Buffer.alloc(8);

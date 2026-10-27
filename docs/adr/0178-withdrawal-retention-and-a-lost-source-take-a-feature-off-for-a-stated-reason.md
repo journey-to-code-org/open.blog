@@ -1,4 +1,4 @@
-# ADR 0232: Withdrawal, retention and a lost source take a feature off for a stated reason
+# ADR 0178: Withdrawal, retention and a lost source take a feature off for a stated reason
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -9,7 +9,7 @@
   [ADR 0110](0110-submission-consent-is-an-append-only-record-and-anonymous-display-keeps-provenance.md),
   [ADR 0111](0111-third-perspective-lifecycle-and-its-one-public-projection.md),
   [ADR 0115](0115-approved-third-perspectives-publish-from-a-versioned-public-file-and-portable-copies-link-to-them.md),
-  [ADR 0231](0231-feature-consent-binds-the-exact-text-and-the-name-and-a-material-edit-needs-renewed-consent.md)
+  [ADR 0177](0177-feature-consent-binds-the-exact-text-and-the-name-and-a-material-edit-needs-renewed-consent.md)
 
 ## Context
 

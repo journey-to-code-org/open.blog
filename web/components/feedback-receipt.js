@@ -6,7 +6,7 @@
 //
 // Untrusted text is only ever assigned through textContent.
 
-/** What a reader is told about letting an editor feature their reflection (ADR 0230, 0231, 0233). */
+/** What a reader is told about letting an editor feature their reflection (ADR 0176, 0177, 0179). */
 export const FEATURE_CONSENT_LABEL = "An editor may feature this reflection in a community section";
 export const FEATURE_CONSENT_HINT = "This is separate from publishing it. It covers the text as it is now, shown whole, with an optional short note from the editors, and is the editors’ choice, which does not mean anyone agrees with it. If your text changes you are asked again. Untick it to stop: the reflection stays published, and the feature is taken down when the editors next update the site. You can agree again from this receipt. Copies already published may remain.";
 
@@ -303,7 +303,7 @@ export function receiptManager({ endpoint, noun: managed = "note" }) {
       result.append(make("p", "ob-receipt-label", "What you wrote:"), make("blockquote", "ob-receipt-body", item.body));
     }
     if (item.kind === PERSPECTIVE && item.feature && !item.purged) {
-      // The reader's own choice about featuring, for the text they see (ADR 0230, 0231). An agreement
+      // The reader's own choice about featuring, for the text they see (ADR 0176, 0177). An agreement
       // for an earlier text is said plainly: it does not cover this one.
       const box = make("input");
       box.type = "checkbox";

@@ -1,4 +1,4 @@
-# ADR 0231: Feature consent binds the exact text and the name, and a material edit needs renewed consent
+# ADR 0177: Feature consent binds the exact text and the name, and a material edit needs renewed consent
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -8,7 +8,7 @@
 - Builds on: [ADR 0110](0110-submission-consent-is-an-append-only-record-and-anonymous-display-keeps-provenance.md),
   [ADR 0111](0111-third-perspective-lifecycle-and-its-one-public-projection.md),
   [ADR 0167](0167-a-readers-credit-is-opt-in-bound-to-the-text-it-was-agreed-for-and-shown-only-in-the-link-view.md),
-  [ADR 0230](0230-featuring-a-reflection-is-an-editorial-selection-of-one-approved-reflection-with-the-readers-own-consent.md)
+  [ADR 0176](0176-featuring-a-reflection-is-an-editorial-selection-of-one-approved-reflection-with-the-readers-own-consent.md)
 
 ## Context
 
@@ -49,7 +49,7 @@ match the text must not carry over to different text.
 - **The reader's words are shown whole or not at all.** A featured reflection is the approved text, byte
   for byte, never an excerpt, truncation, pull quote or edited version, because a cut can change what
   the reader said. The editor says why it is worth reading in their own note, labelled as theirs
-  (ADR 0234).
+  (ADR 0180).
 - **A name may only narrow, and it lives in one file.** A feature keeps no name: the page shows the name
   the published reflection shows (none when the reader kept it private or it matched a credited name),
   so a second committed copy of a name does not exist to forget. A reader who later hides their name
@@ -59,12 +59,12 @@ match the text must not carry over to different text.
   (`PublishedPerspective::name_standing`, `NameStanding::Narrowed`) and shows, on the card and in the
   banner on every tab, "Republish without the name", the one step that drops it (ADR 0115 promised
   this action; RD14 builds it). Until the owner commits and publishes, the name is still in the public
-  file and in git history (ADR 0233). A feature of a reflection whose published name is stale is refused
+  file and in git history (ADR 0179). A feature of a reflection whose published name is stale is refused
   (`publishedDiffers`) until it is republished. A reader cannot widen a name after approval at all
   (ADR 0110).
 - **Editing the note is not a material edit.** The note is the editors' own words about the reflection;
   changing it needs no consent from the reader and shows no new reader text. It must still pass
-  ADR 0234's rules.
+  ADR 0180's rules.
 - **Declining is immediate and renewing is explicit.** Declining to feature (a narrowing change,
   ADR 0110) takes effect at once and the reflection stays published; to be featured again the reader
   agrees again, explicitly, for the revision they see. A reader who revoked publication cannot be featured at all.

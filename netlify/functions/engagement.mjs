@@ -205,7 +205,7 @@ const perspectivePublic = (row) => {
 // state and version, their own words until they are purged, whether the
 // author asked them to clarify it and why, and whether they agreed to be
 // asked. Never anything about a moderator.
-// What a reader may do about featuring their reflection (ADR 0230, 0231): the revision they see (the
+// What a reader may do about featuring their reflection (ADR 0176, 0177): the revision they see (the
 // approved one once approved, else the current one), whether their agreement covers exactly it, and
 // whether it covers only an earlier text. null where there is nothing to agree to: not a kept
 // reflection in a state that can still be shown, or consent revoked.
@@ -898,7 +898,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
           }));
         }
         if (action === "feature") {
-          // A reader's own choice about featuring their reflection (ADR 0230, 0231): agree, for the text
+          // A reader's own choice about featuring their reflection (ADR 0176, 0177): agree, for the text
           // they see, or decline. Allowed while it is pending, asked to clarify or approved. The
           // change is appended as a new consent record and the version is raised, like any consent
           // change. Nothing here features anything: an editor still chooses, and a text that changes

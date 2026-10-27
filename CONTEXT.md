@@ -1753,7 +1753,7 @@ _Avoid_: Comment, author perspective, featured reflection
 **Featured reflection**:
 An approved response an editor chose to feature, covered by the reader's separate feature consent
 for that approved revision (Feature consent). Editorial, never chosen by counts, rank or reactions,
-and never a consensus claim (RD14, ADR 0230 to 0235). Shown in the Community section with its
+and never a consensus claim (RD14, ADR 0176 to 0181). Shown in the Community section with its
 provenance and the editors' note, from a Feature record.
 _Avoid_: Top reflection, most liked, endorsed reflection
 
@@ -1890,7 +1890,7 @@ approval, by agreeing to publish or by showing a name; it is bound to the revisi
 Feature record, to a digest of the text), so a clarification that changes the text leaves it behind
 until the reader explicitly agrees again for the text they see: a change to anything else (a name, being
 asked to clarify) carries it forward unchanged and never renews it. Declining takes effect at once; revoking publication ends it for good
-(ADR 0230, 0231).
+(ADR 0176, 0177).
 _Avoid_: Terms acceptance, blanket permission, approval
 
 **Feature record**:
@@ -1898,24 +1898,24 @@ An editor's selection of a published reflection, kept as a reference in `communi
 its id and post, the text revision agreed, a digest of that text, the day featured and an
 optional editors' note. It holds none of the reader's words, no name and no editor's name; the page
 reads the words and the name from the published reflection, so a name the reader hides is dropped by
-republishing that reflection. A reflection has at most one record (ADR 0230, 0231, 0235).
+republishing that reflection. A reflection has at most one record (ADR 0176, 0177, 0181).
 _Avoid_: Copy of a reflection, featured flag, ranking entry
 
 **Community section**:
 The one section of a post's canonical page, `ob-community-perspectives`, after the Third Perspectives,
 that shows features with the fixed notice that selection is an editorial choice and not a vote or a
 consensus. It never counts, ranks or orders by anything but the day featured, and is absent when
-nothing is featured (ADR 0234). It is headed "Community perspectives" and is static HTML built from the
+nothing is featured (ADR 0180). It is headed "Community perspectives" and is static HTML built from the
 one projection, with each item under an `ob-feature-<id>` anchor; portable copies and feeds carry only the
-canonical link (ADR 0238).
+canonical link (ADR 0184).
 _Avoid_: Top reflections, community voice, leaderboard
 
 **Feature take-off**:
 A feature stops showing and its record is removed because the source is gone, the copy is deleted or
 withdrawn, it is no longer approved, the reader declined, the text or name no longer matches what was
 agreed. A lost source article only hides it, and restoring the article restores it. It leaves no public
-tombstone and no audit action in the hosted store; copies already published may remain (ADR 0232, 0233,
-0237). Admin takes one off by choice or when its banner says it must come off.
+tombstone and no audit action in the hosted store; copies already published may remain (ADR 0178, 0179,
+0183). Admin takes one off by choice or when its banner says it must come off.
 _Avoid_: Removal notice, tombstone, retraction banner
 
 ## Future suggestions

@@ -1,4 +1,4 @@
-//! Featuring an approved reflection (#214, ADRs 0230 to 0235): a separate,
+//! Featuring an approved reflection (#214, ADRs 0176 to 0181): a separate,
 //! revision-bound consent; withdrawal that takes the feature off with no
 //! public tombstone; honest provenance; and nothing that counts, ranks or
 //! claims consensus.

@@ -1,4 +1,4 @@
-# ADR 0233: Taking a feature off leaves no public tombstone, and the moderation audit stays private
+# ADR 0179: Taking a feature off leaves no public tombstone, and the moderation audit stays private
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -7,7 +7,7 @@
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
 - Builds on: [ADR 0110](0110-submission-consent-is-an-append-only-record-and-anonymous-display-keeps-provenance.md),
   [ADR 0115](0115-approved-third-perspectives-publish-from-a-versioned-public-file-and-portable-copies-link-to-them.md),
-  [ADR 0232](0232-withdrawal-retention-and-a-lost-source-take-a-feature-off-for-a-stated-reason.md)
+  [ADR 0178](0178-withdrawal-retention-and-a-lost-source-take-a-feature-off-for-a-stated-reason.md)
 
 ## Context
 
@@ -40,7 +40,7 @@ because of the attention. It also invites a count of removals, which is a signal
   words: a featured reflection and a published name become part of the site's public record.
 - **A removal is final for that text.** A feature that came off because the reader declined, withdrew
   or the text changed is not restored by anything automatic. Featuring again is a new Admin act against
-  a consent that matches the text now (ADR 0231).
+  a consent that matches the text now (ADR 0177).
 - **No notification.** Nothing emails a reader that their reflection was featured or taken off. The
   reader sees only what their receipt already says about the reflection.
 

@@ -399,7 +399,7 @@ export function checkThirdPerspectiveApproval(row, seenRevision, seenConsent) {
  * records it: a new consent record appended to the stored `details`. `copy` is `{ body, revision,
  * provenance, details, state, approvedRevision, retained }`; `at` is the receiver's canonical time.
  * `change` is `{ clarification, feature }` where `feature` is the reader's own choice about feature
- * consent (ADR 0231) and never a flag: `"keep"` (or left out) carries the agreement forward bound to
+ * consent (ADR 0177) and never a flag: `"keep"` (or left out) carries the agreement forward bound to
  * the revision it was, `"decline"` takes it back, and `{ agree: n }` agrees for revision `n`, which
  * must be the revision the reader saw (the approved one, or before a decision the current one).
  * Only an explicit agreement binds a revision, so changing what the reader may be asked can never

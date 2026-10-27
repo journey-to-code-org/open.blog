@@ -1,4 +1,4 @@
-//! The community section of a canonical page (#230, ADRs 0234 to 0238): the
+//! The community section of a canonical page (#230, ADRs 0180 to 0184): the
 //! reflections the editors chose to feature, rendered as static HTML from
 //! `community-perspectives.json` through the one public projection, framed as
 //! an editorial choice and never counted, ranked or ordered by popularity.

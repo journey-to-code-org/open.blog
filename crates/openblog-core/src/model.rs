@@ -52,7 +52,7 @@ pub struct Sources {
     /// the content folder, ADR 0115), when the file exists.
     pub third_perspectives: Option<SourceFile>,
     /// The site's featured reflections (`community-perspectives.json` in the
-    /// content folder, ADR 0235), when the file exists. Read strictly; nothing
+    /// content folder, ADR 0181), when the file exists. Read strictly; nothing
     /// in a page, feed or export changes (the section is #230).
     pub community_features: Option<SourceFile>,
 }
@@ -277,7 +277,7 @@ pub struct Post {
     /// through the one public projection (ADRs 0111 and 0115).
     pub(crate) third_perspectives: Vec<crate::perspective_publication::PublicPerspective>,
     /// The reflections the editors chose to feature on this post's canonical
-    /// page, by the day they were featured (ADRs 0234 and 0238); empty for
+    /// page, by the day they were featured (ADRs 0180 and 0184); empty for
     /// most posts. Each is the one public projection of a reflection that is
     /// also in `third_perspectives`.
     pub(crate) community_features: Vec<crate::community_feature::FeaturedPerspective>,
@@ -394,7 +394,7 @@ impl Post {
         &self.third_perspectives
     }
 
-    /// The featured reflections this post's canonical page shows now (ADR 0238).
+    /// The featured reflections this post's canonical page shows now (ADR 0184).
     pub fn community_features(&self) -> &[crate::community_feature::FeaturedPerspective] {
         &self.community_features
     }
@@ -553,7 +553,7 @@ pub struct Site {
     /// Why the site's published Third Perspectives cannot be read (ADR 0115),
     /// refused like `reader_feedback_error`.
     pub third_perspectives_error: Option<String>,
-    /// Why the site's featured reflections cannot be read (ADR 0235), refused
+    /// Why the site's featured reflections cannot be read (ADR 0181), refused
     /// like `third_perspectives_error`.
     pub community_features_error: Option<String>,
     /// The time the site was loaded for (`LoadOptions::now`). A post dated after it is scheduled,
@@ -1397,11 +1397,11 @@ fn attach_third_perspectives(
     None
 }
 
-/// Read the site's featured reflections strictly (ADR 0235), or say why the
+/// Read the site's featured reflections strictly (ADR 0181), or say why the
 /// file cannot be read. Nothing is repaired or dropped. A feature is attached
 /// to its post only while everything that allowed it still holds, checked
 /// against the committed `third-perspectives.json` the page is built from
-/// (ADR 0232): a feature that does not stand is absent from the page with no
+/// (ADR 0178): a feature that does not stand is absent from the page with no
 /// mark of a gap, and is only warned about, naming the id and a fixed reason
 /// and never any content. A post whose Third Perspectives are hidden shows no
 /// feature. A post without a feature, and a site without the file, are

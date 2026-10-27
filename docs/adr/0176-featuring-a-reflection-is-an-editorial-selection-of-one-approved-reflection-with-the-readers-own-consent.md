@@ -1,4 +1,4 @@
-# ADR 0230: Featuring a reflection is an editorial selection of one approved reflection, with the reader's own consent
+# ADR 0176: Featuring a reflection is an editorial selection of one approved reflection, with the reader's own consent
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -26,7 +26,7 @@ system beside them: a new state, a new store, or a notion of "featured" that qui
 - **Featuring is not a moderation state.** It is an editorial act on a reflection the one policy has
   already approved and the one projection already shows. RD12's machine gains no state, action, role,
   audit action or hosted column. A reflection that is not approved, shown and about this work cannot be
-  featured, and one that stops being so stops being featured (ADR 0232).
+  featured, and one that stops being so stops being featured (ADR 0178).
 - **Neither approval nor publication features anything.** A reflection is featurable only when the
   reader's consent in effect agrees to feature exactly the approved text revision (`featureRevision`,
   agreed with the submission or later by the reader's own receipt). The agreement is separate from
@@ -54,7 +54,7 @@ system beside them: a new state, a new store, or a notion of "featured" that qui
   failure is a stable code (`notShownNow`, `consentMissing`, `consentForOtherRevision`,
   `publishedDiffers`, `invalidEditor`) and nothing is written.
 - **Featured is a place, not a promotion.** A feature has exactly one placement: the community section
-  of the canonical page of the work the reflection is about (ADR 0234). Where else the reflection may
+  of the canonical page of the work the reflection is about (ADR 0180). Where else the reflection may
   appear does not change: feeds, portable copies, search and `llms` files still carry no reflection
   (ADR 0115).
 

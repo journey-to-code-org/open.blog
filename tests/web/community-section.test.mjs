@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-// The community section (#230, ADRs 0234 to 0238) read from the fixtures the Rust tests share:
+// The community section (#230, ADRs 0180 to 0184) read from the fixtures the Rust tests share:
 // `tests/fixtures/community-features.json` (the fixed notice, every reason Admin states, and the
 // editors' notes the lint accepts and refuses) and `tests/fixtures/community-section.html` (the
 // section the build writes, byte for byte, for two reflections: one named, one anonymous).

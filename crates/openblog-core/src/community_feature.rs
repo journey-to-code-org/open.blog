@@ -1,5 +1,5 @@
 //! Featuring an approved reflection on its work's canonical page, with the
-//! reader's separate consent (#214, ADRs 0230 to 0235).
+//! reader's separate consent (#214, ADRs 0176 to 0181).
 //!
 //! A *feature* is an editor's choice to show one already-published Third
 //! Perspective again in a community section of the page it is about, with a
@@ -16,7 +16,7 @@
 //! was agreed, the day it was featured and the editor's note. The words and
 //! the name come from the published reflection, so a withdrawal or a deletion
 //! that takes the reflection off takes its feature off too, and a name the
-//! reader hides is hidden by republishing that one reflection (ADR 0231): a
+//! reader hides is hidden by republishing that one reflection (ADR 0177): a
 //! feature keeps no second copy of the name to forget.
 //!
 //! Everything here is pure and answers three questions:
@@ -72,7 +72,7 @@ pub const NON_CONSENSUS_NOTICE: &str = "The editors chose these reflections to f
 
 /// The id of the element that shows one feature. It is not the reflection's
 /// own `ob-perspective-<id>` in the Third Perspectives section, which keeps
-/// that id because a reflection stays listed there (ADR 0236), so one page
+/// that id because a reflection stays listed there (ADR 0182), so one page
 /// never repeats an id.
 pub fn feature_anchor(id: &str) -> String {
     format!("ob-feature-{id}")
@@ -481,7 +481,7 @@ fn claims_popularity(text: &str) -> bool {
 
 /// An editor's note as stored: whitespace collapsed, 1 to
 /// [`MAX_CONTEXT_CHARS`] characters of plain text. Blank is no note. The
-/// popularity check is a lint (ADR 0234).
+/// popularity check is a lint (ADR 0180).
 pub fn normalize_context(value: &str) -> Result<Option<String>, FeatureError> {
     let text = value.split_whitespace().collect::<Vec<_>>().join(" ");
     if text.is_empty() {
@@ -885,7 +885,7 @@ impl FeaturesFile {
 
     /// Change a feature's editors' note (blank clears it), under the same
     /// rules as when it was made. A note is the editors' own words, so no
-    /// consent from the reader is involved (ADR 0231); the reader's words and
+    /// consent from the reader is involved (ADR 0177); the reader's words and
     /// the feature's day are untouched. Whether the feature was there.
     pub fn set_context(&mut self, id: &str, context: &str) -> Result<bool, FeatureError> {
         let context = normalize_context(context)?;
@@ -899,7 +899,7 @@ impl FeaturesFile {
     }
 
     /// Take a feature off; whether it was there. Nothing remains: there is
-    /// no public tombstone (ADR 0233).
+    /// no public tombstone (ADR 0179).
     pub fn unfeature(&mut self, id: &str) -> bool {
         let before = self.items.len();
         self.items.retain(|item| item.id != id);
@@ -1031,7 +1031,7 @@ pub fn resolve_post(
 
 /// The features a post's canonical page shows now, by the day they were
 /// featured. A feature that does not stand is simply absent: the page keeps
-/// no count of them and no mark of a gap (ADR 0233).
+/// no count of them and no mark of a gap (ADR 0179).
 pub fn project_post(
     records: &[&FeatureRecord],
     published: &ThirdPerspectivesFile,
@@ -1047,7 +1047,7 @@ pub fn project_post(
 }
 
 // ---------------------------------------------------------------------------
-// The canonical page's section (ADR 0238)
+// The canonical page's section (ADR 0184)
 
 /// The section of a post's canonical page that shows its features, or nothing
 /// when there are none. Static HTML that needs no script and no style:
@@ -1060,7 +1060,7 @@ pub fn project_post(
 ///   as chosen by the editors, with its provenance, the place it is about, the
 ///   reader's words whole and the editors' note labelled as theirs;
 /// - a link from each to the same reflection among the Third Perspectives,
-///   where it stays listed (ADR 0236) with its report form and any answer.
+///   where it stays listed (ADR 0182) with its report form and any answer.
 ///
 /// No count, rank, score or popularity word is written by this function, the
 /// notice or the labels; every value is escaped.

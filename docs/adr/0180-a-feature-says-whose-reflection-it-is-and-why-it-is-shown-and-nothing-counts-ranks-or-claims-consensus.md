@@ -1,4 +1,4 @@
-# ADR 0234: A feature says whose reflection it is and why it is shown, and nothing counts, ranks or claims consensus
+# ADR 0180: A feature says whose reflection it is and why it is shown, and nothing counts, ranks or claims consensus
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -7,7 +7,7 @@
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
 - Builds on: [ADR 0111](0111-third-perspective-lifecycle-and-its-one-public-projection.md),
   [ADR 0156](0156-acceptance-means-editorial-interest-only-and-nothing-ranks-or-counts-suggestions.md),
-  [ADR 0230](0230-featuring-a-reflection-is-an-editorial-selection-of-one-approved-reflection-with-the-readers-own-consent.md)
+  [ADR 0176](0176-featuring-a-reflection-is-an-editorial-selection-of-one-approved-reflection-with-the-readers-own-consent.md)
 - Coordinates with: [#230](https://github.com/journey-to-code-org/open.blog/issues/230) (public section)
 
 ## Context
@@ -50,7 +50,7 @@ opposite: a short list reads as "the best" or "what people think".
 - **Placement is the page it is about.** One community section per canonical page, after the Third
   Perspectives section, anchored `ob-community-perspectives`. A reflection has at most one placement;
   a repeated id in the file is refused as a whole. Grouping features under editor headings is a later,
-  separate decision that needs its own consent wording and file version (ADR 0235).
+  separate decision that needs its own consent wording and file version (ADR 0181).
 - **The section is an unordered list (a note for #230).** Features are rendered as a `<ul>` of `<li>`,
   never an `<ol>`, a table with a rank column or numbered headings: a numbered list reads as a ranking, and
   the order (the day featured, then the id) means nothing else. The day a feature is dated is never

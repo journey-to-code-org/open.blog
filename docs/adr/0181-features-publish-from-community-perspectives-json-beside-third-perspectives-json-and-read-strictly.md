@@ -1,4 +1,4 @@
-# ADR 0235: Features publish from `community-perspectives.json`, beside `third-perspectives.json`, and are read strictly
+# ADR 0181: Features publish from `community-perspectives.json`, beside `third-perspectives.json`, and are read strictly
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -7,7 +7,7 @@
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
 - Builds on: [ADR 0083](0083-feedback-moderation-is-version-checked-and-approved-notes-publish-from-a-versioned-file.md),
   [ADR 0115](0115-approved-third-perspectives-publish-from-a-versioned-public-file-and-portable-copies-link-to-them.md),
-  [ADR 0230](0230-featuring-a-reflection-is-an-editorial-selection-of-one-approved-reflection-with-the-readers-own-consent.md)
+  [ADR 0176](0176-featuring-a-reflection-is-an-editorial-selection-of-one-approved-reflection-with-the-readers-own-consent.md)
 - Coordinates with: [#229](https://github.com/journey-to-code-org/open.blog/issues/229) (curation),
   [#230](https://github.com/journey-to-code-org/open.blog/issues/230) (public section),
   [#103](https://github.com/journey-to-code-org/open.blog/issues/103) (portability)
@@ -24,7 +24,7 @@ without breaking sites that already have it. It must not become a second copy of
   Admin under the same content lock and read by `FeaturesFile::from_json`: version 1, an `items` list,
   at most 500 items and 2 MiB, canonical output (items sorted by post, day and id, two-space
   indentation and a final line break) so a change is a small, deterministic diff. A reader refuses a
-  newer version, an unknown field, a repeated id, a malformed value or a note that fails ADR 0234,
+  newer version, an unknown field, a repeated id, a malformed value or a note that fails ADR 0180,
   naming the item by its position ("item 3") and never its contents. Nothing is repaired or dropped.
 - **Public fields only.** An item has `id`, `post`, `revision`, `digest`, `featured`
   and an optional `context`. It has no reader text, no receipt or its digest, no consent records, no

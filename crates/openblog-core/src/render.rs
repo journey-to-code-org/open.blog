@@ -1951,7 +1951,7 @@ impl<'a> Renderer<'a> {
             reports_endpoint,
         ));
         // Reflections the editors chose to feature, after the reflections they
-        // come from and framed as an editorial choice (ADR 0238).
+        // come from and framed as an editorial choice (ADR 0184).
         body.push_str(&crate::community_feature::render_section(
             post.community_features(),
         ));

@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 
-// Featuring an approved reflection (#229, ADRs 0230 to 0236). The reader's side, in the real site
+// Featuring an approved reflection (#229, ADRs 0176 to 0182). The reader's side, in the real site
 // with the hosted function mocked at its routes: an unticked feature choice on the form that says
 // copies may remain, and a choice on the private receipt for the text the reader sees, saying so
 // when an earlier agreement does not cover it. The editor's side, in the real Admin with the

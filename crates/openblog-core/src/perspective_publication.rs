@@ -912,7 +912,7 @@ fn place_of(item: &PublicPerspective) -> String {
 }
 
 /// [`place_of`] for a reflection shown elsewhere than its own list (a
-/// feature, ADR 0238): the same words and the same link.
+/// feature, ADR 0184): the same words and the same link.
 pub(crate) fn place_line(response: &ApprovedResponse, section_title: Option<&str>) -> String {
     match (response.about, &response.section) {
         (About::Work, _) => "About the whole work".to_string(),

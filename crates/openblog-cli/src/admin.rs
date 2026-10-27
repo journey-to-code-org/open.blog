@@ -5312,7 +5312,7 @@ fn unpublish_perspective(path: &Path, id: &str) -> Result<(), String> {
         "third-perspectives.json cannot be read; remove the reflection from it in source mode"
             .to_string()
     })?;
-    // A feature never outlives its reflection (ADR 0232): it comes off first.
+    // A feature never outlives its reflection (ADR 0178): it comes off first.
     unfeature_beside(path, id);
     if file.unpublish(id) {
         write_atomic_bytes(path, file.to_json().as_bytes())
@@ -5410,7 +5410,7 @@ fn perspective_must_come_off(
 
 /// Whether the published file still shows a name the hosted copy no longer
 /// shows (the reader hid it after approval): the one step that removes it from
-/// the committed file is publishing the reflection again (ADR 0115, 0231).
+/// the committed file is publishing the reflection again (ADR 0115, 0177).
 /// Only where the hosted function reads consent, else the copy cannot say.
 fn perspective_name_narrowed(
     site: &Site,
@@ -5759,7 +5759,7 @@ fn published_perspectives_audit(state: &AppState, session: &auth::Session) -> Re
     )
 }
 
-// ---- Featured reflections (#229, ADRs 0230 to 0236)
+// ---- Featured reflections (#229, ADRs 0176 to 0182)
 //
 // An editor's choice to show one approved reflection again in the community
 // section of its post lives in `community-perspectives.json` in the content
@@ -5909,7 +5909,7 @@ fn hosted_facts(
 /// a preview never promises what choosing would refuse: the one projection
 /// shows the reflection now, the reader agreed to feature exactly its approved
 /// text, the published file holds that text and name, the note passes ADR
-/// 0234's lint, the reflection is not already featured. The preview is the
+/// 0180's lint, the reflection is not already featured. The preview is the
 /// public form (`FeaturedPerspective`) the page will project, and writes
 /// nothing. Choosing also publishes the reflection first when it is not on
 /// `third-perspectives.json` yet, in the same step.
@@ -6085,7 +6085,7 @@ fn apply_feature(
 /// `POST engagement/community/unfeature`: take a feature off its post. An
 /// editor may do it by choice at any time, and it is the step for a feature
 /// the audit says must come off. The reflection stays published; the file keeps
-/// nothing of the feature (ADR 0233).
+/// nothing of the feature (ADR 0179).
 fn unfeature_reflection(state: &AppState, req: &Request, session: &auth::Session) -> Response {
     let body = match feedback_body(req) {
         Ok(body) => body,
@@ -6176,7 +6176,7 @@ fn apply_note(state: &AppState, id: &str, context: &str) -> Response {
 }
 
 /// Take a feature off beside its published reflection, before the reflection
-/// goes: a feature never outlives its reflection (ADR 0232). A features file
+/// goes: a feature never outlives its reflection (ADR 0178). A features file
 /// that cannot be read does not stop the take-off (a withdrawal comes first):
 /// the page hides a feature whose reflection is gone. The caller holds the
 /// content lock.
@@ -6200,7 +6200,7 @@ enum HostedCheck<'a> {
 }
 
 /// Whether one feature still stands, as the audit and a test ask it: against
-/// its hosted reflection (ADR 0232's order), then against the committed
+/// its hosted reflection (ADR 0178's order), then against the committed
 /// `third-perspectives.json` the page is built from, so a feature the page
 /// would not show is reported with the page's own reason (the reflection is not
 /// published, its text is not the agreed text, or it is dated before it was
@@ -6274,7 +6274,7 @@ fn feature_standing(
 const FEATURE_AUDIT_LIMIT: usize = 200;
 
 /// `GET engagement/community/features`: every feature the site makes, checked
-/// against its hosted copy on each load (ADR 0232), for the site Admin of each
+/// against its hosted copy on each load (ADR 0178), for the site Admin of each
 /// reflection's work. Each is `covered`, `hidden` (the article is not published
 /// now; the record stays), `mustComeOff` with a stated reason, or `unknown` when
 /// the hosted service does not read consent. Only ids, posts, days, the editors'

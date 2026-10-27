@@ -1864,7 +1864,7 @@ ob-comments {
   font-size: .9rem;
 }
 
-/* Featured reflections on a work's canonical page (ADR 0238): the editors' choice of reflections
+/* Featured reflections on a work's canonical page (ADR 0184): the editors' choice of reflections
    already shown above, in a plain list with its framing as text. Nothing here is a ranking: the
    marks are borders and words, never colour or size alone, and nothing moves. */
 .ob-community-perspectives {

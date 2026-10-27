@@ -362,7 +362,7 @@ pub fn read_sources_excluding(
         config,
         openblog_core::perspective_publication::THIRD_PERSPECTIVES_FILE,
     )?;
-    // Featured reflections (ADR 0235), the same way.
+    // Featured reflections (ADR 0181), the same way.
     sources.community_features = read_content_file(
         root,
         config,
@@ -913,7 +913,7 @@ pub fn generate_site_with_boundary(
     if let Some(error) = &site.third_perspectives_error {
         return Err(error.clone());
     }
-    // And featured reflections (ADR 0235).
+    // And featured reflections (ADR 0181).
     if let Some(error) = &site.community_features_error {
         return Err(error.clone());
     }
