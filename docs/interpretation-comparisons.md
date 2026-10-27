@@ -38,14 +38,17 @@ from, agrees with, builds on, responds to) describe how the readings relate, not
 
 Beginner, student and scholarly explanations are supplements for one audience. They never replace your
 prose, and every level sits on the page as a section reachable by link without JavaScript. The level
-selector only narrows what is shown, never the evidence, and printing shows every level.
+selector only narrows what is shown, never the evidence, and printing shows every level. An explanation
+adds no evidence of its own: any evidence it lists must already be cited by the reading it explains, and
+the page shows evidence only beside the readings.
 
 ## AI drafts and your responsibility
 
 If an AI tool drafted a reading or an explanation, mark it as such and name the tool. It stays a draft
 and no reader sees it until you read it and press **Approve this exact text**. The approval is bound to
-those exact words: edit them and it is withdrawn. A published page labels the text "Drafted with AI" and
-names who approved it. The approval is your statement that you read the text, checked it against the
+those exact words: edit them (for a reading, also its attribution, uncertainty note or language) and it is
+withdrawn. A published page labels the text "Drafted with AI" and says the author approved it; your
+Admin login name is never shown. The approval is your statement that you read the text, checked it against the
 evidence and take responsibility for it. It is not a verification by open.blog. Treat AI output, imported
 files and anything copied from the web as untrusted until you have read it.
 

@@ -5,6 +5,10 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Interpretation comparison fixes. An AI-drafted reading's approval now covers its attribution, uncertainty
+  note and language as well as its statement, so changing any of them withdraws the approval. A published
+  page says the author approved an AI draft and never shows the approving Admin login name. An explanation
+  may cite only evidence its reading already cites, so no level choice changes the evidence on the page.
 - Interpretation comparisons now have regression coverage and a guide. The publication boundary lists the
   comparisons a build publishes (Admin's **What will be public**, and the output check refuses a page for
   one it does not), published comparisons are found by site search from their approved text only, and

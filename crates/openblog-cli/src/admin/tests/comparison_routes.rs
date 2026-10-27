@@ -650,3 +650,74 @@ fn a_comparison_is_moved_to_the_trash_never_destroyed() {
     let trashed = body_json(&gone)["trashedTo"].as_str().unwrap().to_string();
     assert!(f.dir.join(".openblog/trash").join(trashed).exists());
 }
+
+#[test]
+fn editing_the_uncertainty_or_attribution_of_an_approved_ai_reading_withdraws_the_approval() {
+    let f = site("whole-item");
+    let s = login_ok(&f);
+    let mut reading = ai(named("one", "An AI-worded reading."));
+    reading["uncertainty"] = json!("Some doubt.");
+    let interpretations = json!([reading, named("two", "The second reading.")]);
+    let (_, created) = create(&f, &s, body_of("cave", "draft", interpretations, json!([])));
+    let digest = state_of(&created, "one")["digest"].clone();
+    let (status, approved) = decide(
+        &f,
+        &s,
+        "approve",
+        json!({"slug": "cave", "revision": created["revision"], "kind": "interpretation", "id": "one", "digest": digest}),
+    );
+    assert_eq!(status, 200, "{approved}");
+    let mut revision = approved["revision"].clone();
+    let mut comparison = approved["comparison"].clone();
+    for edit in ["uncertainty", "attribution"] {
+        let mut changed = comparison.clone();
+        if edit == "uncertainty" {
+            changed["interpretations"][0]["uncertainty"] = json!("No doubt at all.");
+        } else {
+            changed["interpretations"][0]["attribution"]["name"] = json!("Someone else");
+        }
+        let (status, resaved) = update(
+            &f,
+            &s,
+            json!({"slug": "cave", "comparison": changed}),
+            &revision,
+        );
+        assert_eq!(status, 200, "{resaved}");
+        assert_eq!(resaved["approvalsWithdrawn"], json!(["one"]), "{edit}");
+        assert_eq!(state_of(&resaved, "one")["standing"], "awaiting-approval");
+        assert!(!stored(&f, "cave").unwrap().contains("\"approval\""));
+        // Approve the edited item again so the next edit has an approval to lose.
+        let digest = state_of(&resaved, "one")["digest"].clone();
+        let (status, again) = decide(
+            &f,
+            &s,
+            "approve",
+            json!({"slug": "cave", "revision": resaved["revision"], "kind": "interpretation", "id": "one", "digest": digest}),
+        );
+        assert_eq!(status, 200, "{again}");
+        revision = again["revision"].clone();
+        comparison = again["comparison"].clone();
+    }
+}
+
+#[test]
+fn an_explanation_cannot_cite_evidence_its_interpretation_does_not() {
+    let f = site("evidence-subset");
+    let s = login_ok(&f);
+    let mut cited = named("one", "The first reading.");
+    cited["evidence"] = json!([{"source": "commentary"}]);
+    let interpretations = json!([cited, named("two", "The second reading.")]);
+    let (status, refused) = create(
+        &f,
+        &s,
+        body_of(
+            "cave",
+            "draft",
+            interpretations,
+            json!([{"id": "x", "level": "beginner", "about": "two", "text": "Plain words.",
+                    "evidence": [{"source": "commentary"}]}]),
+        ),
+    );
+    assert_eq!(status, 422, "{refused}");
+    assert!(refused.to_string().contains("adds no evidence of its own"));
+}

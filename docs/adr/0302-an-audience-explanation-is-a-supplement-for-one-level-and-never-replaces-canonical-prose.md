@@ -19,8 +19,11 @@
   unchanged.
 - **One per level per subject.** A second `student` explanation of the same interpretation is refused,
   so switching levels is a choice among alternatives, not a pile.
-- **Claims nothing of its own.** An explanation may carry the same evidence references but holds no
-  relation or attribution, so it never says more than the interpretations it explains.
+- **Claims nothing of its own.** An explanation holds no relation or attribution, and any evidence
+  reference it carries must already be cited by the interpretation it is about (or, for the whole
+  comparison, by some interpretation); validation refuses anything else. The page therefore shows
+  evidence only beside the interpretations, never inside a level, so it never says more than the
+  interpretations it explains and a level choice cannot change the evidence on view.
 
 ## Consequences
 

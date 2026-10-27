@@ -195,7 +195,7 @@ fn an_ai_draft_is_labelled_and_an_unapproved_one_is_absent() {
     let (files, diagnostics) = build(ON, &[c]);
     let page = &files["interpretations/cave/index.html"];
     assert!(page
-        .contains("Drafted with AI (an AI assistant); the exact text was approved by The author."));
+        .contains("Drafted with AI (an AI assistant); the exact text was approved by the author."));
     assert!(page.contains("Imagine people who only see shadows."));
     assert!(!page.contains(DRAFT_TEXT));
     assert!(!page.contains("id=\"level-scholarly\""));

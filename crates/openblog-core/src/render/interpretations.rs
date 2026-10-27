@@ -307,7 +307,6 @@ fn explanation_item(
             text(&label)
         ));
     }
-    evidence_list(body, public, &x.evidence, "Evidence for this explanation");
     body.push_str("</div>\n");
 }
 
@@ -316,8 +315,8 @@ fn explanation_item(
 fn provenance_label(provenance: &PublicProvenance) -> Option<String> {
     match provenance {
         PublicProvenance::Author => None,
-        PublicProvenance::AiDraft { tool, approved_by } => Some(format!(
-            "Drafted with AI ({tool}); the exact text was approved by {approved_by}."
+        PublicProvenance::AiDraft { tool } => Some(format!(
+            "Drafted with AI ({tool}); the exact text was approved by the author."
         )),
     }
 }

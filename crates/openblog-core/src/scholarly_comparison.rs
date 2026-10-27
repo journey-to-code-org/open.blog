@@ -370,9 +370,41 @@ impl Interpretation {
         }
     }
 
-    /// The digest an approval of this interpretation must carry.
+    /// The digest an approval of this interpretation must carry. It covers
+    /// everything a reader sees of the item: the statement, the attribution
+    /// and its certainty, the uncertainty note, the language and the
+    /// translation link. Origin, tool and dates stay out, so recording them
+    /// never withdraws an approval.
     pub fn digest(&self) -> String {
-        text_digest("interpretation", &self.id, &self.statement)
+        let (kind, who, certainty) = match &self.attribution {
+            Attribution::Named {
+                name, certainty, ..
+            } => ("named", name.as_str(), *certainty),
+            Attribution::Source {
+                source, certainty, ..
+            } => ("source", source.as_str(), *certainty),
+            Attribution::Anonymous {
+                description,
+                certainty,
+                ..
+            } => ("anonymous", description.as_str(), *certainty),
+        };
+        let mut text = String::new();
+        for part in [
+            kind,
+            who,
+            certainty.map_or("", Certainty::value),
+            self.uncertainty.as_deref().unwrap_or(""),
+            self.language.as_deref().unwrap_or(""),
+            self.translation_of.as_deref().unwrap_or(""),
+            &self.statement,
+        ] {
+            text.push_str(&part.len().to_string());
+            text.push(':');
+            text.push_str(part);
+            text.push(' ');
+        }
+        text_digest("interpretation", &self.id, &text)
     }
 
     pub fn standing(&self) -> Standing {
@@ -1172,6 +1204,24 @@ impl Comparison {
                 ));
             }
             check_evidence(&x.evidence, &mut at);
+            // An explanation never brings evidence of its own: what it cites
+            // is cited by the interpretation it explains (or, for the whole
+            // comparison, by some interpretation), so no level changes it.
+            for e in &x.evidence {
+                let held = |i: &Interpretation| i.evidence.iter().any(|h| same_evidence(h, e));
+                let known = match &x.about {
+                    Some(about) => self
+                        .interpretations
+                        .iter()
+                        .find(|i| &i.id == about)
+                        .is_some_and(held),
+                    None => self.interpretations.iter().any(held),
+                };
+                if !known {
+                    at("`evidence` cites something no interpretation it explains cites; an explanation adds no evidence of its own".into());
+                    break;
+                }
+            }
             check_provenance(
                 &x.origin,
                 x.approval.as_ref(),
@@ -1188,6 +1238,25 @@ impl Comparison {
                     .into(),
             });
         }
+    }
+}
+
+fn same_evidence(a: &EvidenceRef, b: &EvidenceRef) -> bool {
+    match (a, b) {
+        (EvidenceRef::Link { link: x, .. }, EvidenceRef::Link { link: y, .. }) => x == y,
+        (
+            EvidenceRef::Source {
+                source: x,
+                locator: lx,
+                ..
+            },
+            EvidenceRef::Source {
+                source: y,
+                locator: ly,
+                ..
+            },
+        ) => x == y && lx == ly,
+        _ => false,
     }
 }
 
@@ -1436,7 +1505,6 @@ pub enum PublicProvenance {
     #[serde(rename_all = "camelCase")]
     AiDraft {
         tool: String,
-        approved_by: String,
     },
 }
 
@@ -1501,13 +1569,11 @@ fn public_attribution(a: &Attribution) -> PublicAttribution {
     }
 }
 
-fn public_provenance(origin: &Origin, approval: Option<&Approval>) -> PublicProvenance {
+/// Names the tool and the fact of approval, never the account that gave it.
+fn public_provenance(origin: &Origin) -> PublicProvenance {
     match origin {
         Origin::Author { .. } => PublicProvenance::Author,
-        Origin::AiDraft { tool, .. } => PublicProvenance::AiDraft {
-            tool: tool.clone(),
-            approved_by: approval.map(|a| a.by.clone()).unwrap_or_default(),
-        },
+        Origin::AiDraft { tool, .. } => PublicProvenance::AiDraft { tool: tool.clone() },
     }
 }
 
@@ -1598,7 +1664,7 @@ impl PublicComparison {
                     .filter(|of| shown.contains(of.as_str())),
                 evidence: public_evidence(&i.evidence, public, &i.id, &mut withheld),
                 uncertainty: i.uncertainty.clone(),
-                provenance: public_provenance(&i.origin, i.approval.as_ref()),
+                provenance: public_provenance(&i.origin),
             });
         }
         if interpretations.len() < 2 {
@@ -1642,7 +1708,7 @@ impl PublicComparison {
                 about: x.about.clone(),
                 text: x.text.clone(),
                 evidence: public_evidence(&x.evidence, public, &x.id, &mut withheld),
-                provenance: public_provenance(&x.origin, x.approval.as_ref()),
+                provenance: public_provenance(&x.origin),
             });
         }
         // Readers are offered the whole-comparison explanations first, then

@@ -135,7 +135,7 @@ test("an AI draft stays a draft until Approve, editing withdraws the approval, a
   expect(stored("cave")).toContain('"approval"');
   expect(stored("cave")).toContain('"by": "writer"');
   await expect(page.locator(".oba-cmp-preview")).toContainText(AI_TEXT);
-  await expect(page.locator(".oba-cmp-preview")).toContainText("AI-assisted draft (a writing assistant), approved by writer");
+  await expect(page.locator(".oba-cmp-preview")).toContainText("AI-assisted draft (a writing assistant), approved by the author");
   // Editing the approved text withdraws the approval and says so.
   await explanation.getByLabel("Explanation (required)").fill(`${AI_TEXT} Edited.`);
   await page.getByRole("button", { name: "Save comparison", exact: true }).click();

@@ -32,7 +32,7 @@ const COMPARISON = {
   relations: [{ from: "political", to: "epistemic", kind: "differs-from", note: "Different scales." }],
   explanations: [
     { id: "x1", level: "beginner", text: "Imagine people who only see shadows." },
-    { id: "x2", level: "student", about: "political", text: "A student's view of the city reading." },
+    { id: "x2", level: "student", about: "political", text: "A student's view of the city reading.", evidence: [{ link: "l1" }] },
     { id: "x3", level: "scholarly", text: "Both readings are attested." },
   ],
 };
@@ -148,6 +148,11 @@ test.describe("with JavaScript", () => {
     await expect(group.getByRole("button", { name: "All levels" })).toHaveAttribute("aria-pressed", "true");
     await expect(levels(page)).toHaveCount(3);
     const evidenceBefore = await page.locator("#interpretations").innerText();
+    // Evidence is never inside a level, so no choice can swap one list for another.
+    await expect(page.locator("section.ob-level .ob-interp-evidence")).toHaveCount(0);
+    const allEvidence = () => page.locator(".ob-interp-evidence").evaluateAll((lists) => lists.filter((l) => l.offsetParent !== null).map((l) => l.innerText));
+    const evidenceLists = await allEvidence();
+    expect(evidenceLists.length).toBeGreaterThan(0);
 
     const student = group.getByRole("button", { name: "Student" });
     await student.focus();
@@ -164,6 +169,7 @@ test.describe("with JavaScript", () => {
     await expect(page.locator("#level-scholarly")).toBeVisible();
     await expect(page.locator("#level-student")).toBeHidden();
     expect(await page.locator("#interpretations").innerText()).toBe(evidenceBefore);
+    expect(await allEvidence()).toEqual(evidenceLists);
 
     await group.getByRole("button", { name: "All levels" }).click();
     await expect(levels(page)).toHaveCount(3);

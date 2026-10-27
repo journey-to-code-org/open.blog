@@ -239,7 +239,6 @@ fn the_public_value_carries_only_approved_text_and_labels_ai_origin() {
         ai.provenance,
         PublicProvenance::AiDraft {
             tool: "an AI writing assistant".into(),
-            approved_by: "The author".into(),
         }
     );
     let json = public.to_json();
@@ -424,4 +423,43 @@ fn an_attribution_to_a_source_the_build_does_not_publish_is_withheld_not_named()
     assert!(withheld
         .iter()
         .any(|w| w.id == "epistemic-fr" && w.reason == WithheldReason::AttributionNotPublic));
+}
+
+#[test]
+fn the_approval_digest_covers_every_reader_visible_field_of_an_interpretation() {
+    let base = Interpretation::new("a", named("A"), "Reading A.");
+    let mut note = base.clone();
+    note.uncertainty = Some("Doubtful.".into());
+    let mut who = base.clone();
+    who.attribution = named("B");
+    let mut lang = base.clone();
+    lang.language = Some("fr".into());
+    let mut origin = base.clone();
+    origin.origin = Origin::AiDraft {
+        tool: "a tool".into(),
+        drafted_at: Some("2026-10-20".into()),
+        extra: Default::default(),
+    };
+    for changed in [&note, &who, &lang] {
+        assert_ne!(changed.digest(), base.digest());
+    }
+    assert_eq!(origin.digest(), base.digest(), "origin never moves it");
+}
+
+#[test]
+fn an_explanation_adds_no_evidence_of_its_own() {
+    let mut c = published_pair();
+    c.interpretations[0].evidence = vec![openblog_core::scholarly_comparison::EvidenceRef::Link {
+        link: "link-political".into(),
+        extra: Default::default(),
+    }];
+    let mut x = Explanation::new("x", Level::Student, "Plain words.");
+    x.about = Some("b".into());
+    x.evidence = c.interpretations[0].evidence.clone();
+    c.explanations.push(x);
+    assert!(c.validate()[0].message.contains("adds no evidence"));
+    c.explanations[0].about = Some("a".into());
+    assert!(c.validate().is_empty());
+    c.explanations[0].about = None;
+    assert!(c.validate().is_empty());
 }

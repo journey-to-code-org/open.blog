@@ -1587,8 +1587,14 @@ The cave educates.
         write(AI_TEXT, Some("Dana"));
         let on = build_text();
         let page = String::from_utf8(on["interpretations/cave/index.html"].clone()).unwrap();
+        for (path, bytes) in &on {
+            assert!(
+                !String::from_utf8_lossy(bytes).contains("Dana"),
+                "an approver's login reached {path}"
+            );
+        }
         assert!(page.contains("AI-EXPLANATION-MARKER"), "{page}");
-        assert!(page.contains("Dana") && !page.contains("<script>alert(1)"));
+        assert!(page.contains("approved by the author") && !page.contains("<script>alert(1)"));
         assert!(!page.to_lowercase().contains("verified"), "{page}");
         // Search finds the comparison by its approved interpretation text.
         let search = String::from_utf8(on["search.json"].clone()).unwrap();

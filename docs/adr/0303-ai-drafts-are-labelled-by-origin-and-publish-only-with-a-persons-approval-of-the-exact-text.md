@@ -15,16 +15,20 @@
 - **Approval is explicit and bound to the text.** `approval` holds `by` (the person), `at` and
   `digest`, a Blake2s digest over the item's kind, id and the text approved (the statement or the
   explanation text). Editing the text changes the digest, so the approval is *stale* and the item is
-  withheld until a person approves again. The digest covers the text only: origin, tool and time are
-  the label, not the thing approved.
+  withheld until a person approves again. For an interpretation the digest covers everything a reader
+  sees of it: the statement, the attribution (kind, name, description or source, and certainty), the
+  uncertainty note, the language and the translation link. For an explanation it covers the text.
+  Origin, tool and time are the label, not the thing approved, so recording them withdraws nothing.
 - **Standing.** `Authored` (the author's own words; publishing the comparison is their approval),
   `Approved`, `AwaitingApproval`, `Stale`. In a published file an AI draft with no approval, or with a
   stale one, is refused. In a draft file both are allowed as work in progress.
 - **Withheld, not shown, not named.** The public projection (ADR 0304) omits an unapproved or stale
   item and everything depending on it. The author-facing `Withheld` list says which and why. The
   public value never says that something was omitted.
-- **The label travels.** An approved AI draft projects as `origin: ai-draft` with the tool and the
-  approver, so a renderer cannot present it as the author's own prose, and an AI explanation is never
+- **The label travels.** An approved AI draft projects as `origin: ai-draft` with the tool
+  only. The page says the author approved the exact text and never names the approving account:
+  `approval.by` is an Admin login name and, like the other approval fields (ADR 0304), never leaves the
+  file. So a renderer cannot present it as the author's own prose, and an AI explanation is never
   presented as evidence.
 
 ## Consequences

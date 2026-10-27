@@ -20,7 +20,8 @@
   server time as `at`, and the digest. A form or source-mode save may keep an approval the stored
   file already has for that item, byte for byte, and may never add or change one: that is a 422 naming
   the item. So no browser script or pasted source can approve on a person's behalf through Admin.
-- **Editing withdraws.** A save in which an item's text no longer matches its approval's digest drops
+- **Editing withdraws.** A save in which an item's approved content (the text; for an interpretation
+  also its attribution, uncertainty note, language and translation link) no longer matches its approval's digest drops
   that approval and reports which, so the author sees the loss and Admin never stores a stale
   approval. Marking an item as the author's own words removes its approval, since none is needed.
 - **Revoking is explicit about publishing.** `POST comparisons/revoke` removes one approval. A published

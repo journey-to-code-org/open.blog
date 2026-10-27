@@ -12082,7 +12082,7 @@ export class ObAdmin extends AdminElement {
       );
     };
     const publicAttribution = (a) => (a.kind === "anonymous" ? a.description : a.kind === "source" ? comparisonAttributionLabel({ kind: "source", source: a.source }, sources) : a.name);
-    const provenanceText = (p) => (p?.origin === "ai-draft" ? `AI-assisted draft (${p.tool}), approved by ${p.approvedBy}` : "Written by the author");
+    const provenanceText = (p) => (p?.origin === "ai-draft" ? `AI-assisted draft (${p.tool}), approved by the author` : "Written by the author");
     const renderPreview = () => {
       const kids = [h("h2", { id: "oba-cmp-preview-heading" }, "What readers will see")];
       if (notes.length) {
