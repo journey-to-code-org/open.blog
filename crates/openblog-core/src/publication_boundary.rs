@@ -70,6 +70,9 @@ pub enum Projection {
     /// The data file derived from the curated selections, for readers' tools
     /// (ADR 0197).
     CuratedContext,
+    /// The author's reading paths: their pages, `paths.json`, search entries
+    /// and the links to them from posts and atlas pages (ADR 0249).
+    ReadingPaths,
 }
 
 impl Projection {
@@ -83,6 +86,7 @@ impl Projection {
             Self::Comparisons => "comparisons.publish",
             Self::ContextLinks => "knowledgeAtlas.publish, comparisons.publish",
             Self::Curated | Self::CuratedContext => "curatedContext.publish",
+            Self::ReadingPaths => "readingPaths.publish",
         }
     }
 }
@@ -109,6 +113,8 @@ pub enum ItemKind {
     /// The curated context file as a whole: listed when it is written, and
     /// withheld whole when it is not.
     CuratedContext,
+    /// One published reading path.
+    Path,
 }
 
 /// Why an item, or one field of a published item, is withheld. Each is a
@@ -335,6 +341,7 @@ pub struct Switches {
     pub comparisons: bool,
     pub claim_evidence: bool,
     pub curated: bool,
+    pub reading_paths: bool,
 }
 
 impl Switches {
@@ -344,6 +351,7 @@ impl Switches {
             comparisons: config.comparisons.publish,
             claim_evidence: config.claim_evidence.publish,
             curated: config.curated_context.publish,
+            reading_paths: config.reading_paths.publish,
         }
     }
 }
@@ -363,6 +371,8 @@ pub struct BoundaryInputs<'a> {
     /// The comparison projection the build renders.
     pub public_comparisons: Option<&'a PublicComparisons>,
     pub comparisons_blocked: Option<&'a str>,
+    /// The reading paths the build renders, while it publishes them.
+    pub public_paths: Option<&'a crate::reading_path::PublicPaths>,
     /// Why claim evidence could not be read for the build, when it could not.
     pub claims_blocked: Option<&'a str>,
     pub library: Option<&'a SourceLibrary>,
@@ -521,6 +531,11 @@ impl BoundaryManifest {
             projections.push(curated(inputs, None));
             projections.push(curated_context(inputs));
         }
+        // Absent while the switch is off, so every other site is described
+        // exactly as before.
+        if inputs.switches.reading_paths {
+            projections.push(reading_paths(inputs));
+        }
         Self {
             version: BOUNDARY_FORMAT_VERSION,
             scope: Scope::Site,
@@ -630,6 +645,7 @@ impl BoundaryManifest {
                     Projection::Curated => "curated selections",
                     // The data file repeats what the selections already count.
                     Projection::CuratedContext => continue,
+                    Projection::ReadingPaths => "reading paths",
                 };
                 parts.push(format!("{count} {name}"));
             }
@@ -1214,6 +1230,68 @@ fn atlas_query(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
             posts: Vec::new(),
             url: None,
             fields: vec!["text".to_string()],
+            withheld_fields: Vec::new(),
+            notices: Vec::new(),
+        });
+    }
+    report
+}
+
+/// The reading paths the build publishes: each with the fields it copies, the
+/// posts it names and whether discovery lists it. Only the public value is
+/// read, so a draft, a step that is not published and a path file's other text
+/// are never here. Nothing is withheld by name: what a path leaves out is
+/// reported to the author at build time (ADR 0244).
+fn reading_paths(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
+    let mut report = report(Projection::ReadingPaths, inputs.switches.reading_paths);
+    let Some(public) = inputs.public_paths.filter(|_| report.enabled) else {
+        return report;
+    };
+    for path in &public.paths {
+        let mut fields: Vec<String> = [
+            "title",
+            "steps (target, title, address)",
+            "transitions (relationship, reason)",
+        ]
+        .iter()
+        .map(|field| field.to_string())
+        .collect();
+        present(&mut fields, "summary", path.summary.is_some());
+        present(
+            &mut fields,
+            "rationale",
+            path.steps.iter().any(|s| s.rationale.is_some()),
+        );
+        present(
+            &mut fields,
+            "prerequisites",
+            path.steps.iter().any(|s| s.prerequisites.is_some()),
+        );
+        present(
+            &mut fields,
+            "difficulty",
+            path.steps.iter().any(|s| s.difficulty.is_some()),
+        );
+        fields.push(if path.listed {
+            "listed: in /paths/, the sitemap, search, paths.json and links from its posts".into()
+        } else {
+            "unlisted: its page only".into()
+        });
+        let mut posts: Vec<String> = path
+            .steps
+            .iter()
+            .filter(|step| step.kind == "post")
+            .map(|step| step.target.clone())
+            .collect();
+        posts.sort();
+        posts.dedup();
+        report.published.push(PublishedItem {
+            kind: ItemKind::Path,
+            id: path.slug.clone(),
+            label: Some(path.title.clone()),
+            posts,
+            url: Some(path.url.clone()),
+            fields,
             withheld_fields: Vec::new(),
             notices: Vec::new(),
         });

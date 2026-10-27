@@ -34,7 +34,7 @@ leave their browser.
 - **The switch and discovery.** Pages exist only while `readingPaths.publish` is on; off, the folder
   is never read and the site builds byte for byte as before. `/paths/` lists only paths that are
   `listed`; an unlisted path has its page but is in neither the index nor the sitemap, and an index
-  is written only if some path is listed. Feeds, search and `paths.json` belong to #79.
+  is written only if some path is listed. Feeds, search and `paths.json` are decided in ADR 0249.
 - **Progress is optional, local and resettable.** `<ob-reading-path>` adds a labelled checkbox per
   step, a status line, a link to the first required step not yet read and a reset button. Progress is
   a list of step targets (`post:slug`, `atlas:id`) in the browser's `localStorage`, one key per path

@@ -11,7 +11,7 @@ before. It is owned by `openblog_core::reading_path`. Decisions are in
 [ADR 0245](../adr/0245-the-public-paths-value-is-an-allowlisted-deterministic-projection-and-nothing-reads-a-path-yet.md) (the public value).
 
 This task defines the contract and the core types. Admin editing (#77), pages and local progress
-(#78, [ADR 0248](../adr/0248-a-published-path-is-a-static-ordered-page-with-optional-progress-kept-only-in-the-readers-browser.md)) and discovery and export (#79) build on it. A site that does not turn
+(#78, [ADR 0248](../adr/0248-a-published-path-is-a-static-ordered-page-with-optional-progress-kept-only-in-the-readers-browser.md)) and discovery and export (#79, ADR 0249 and ADR 0250) build on it. A site that does not turn
 `readingPaths.publish` on builds exactly as before.
 
 ## File
@@ -48,7 +48,7 @@ hyphens, at most 64 characters. A path never changes a post or a series.
 | `title` | Required, at most 120 characters. |
 | `summary` | Optional, at most 600 characters. |
 | `status` | `draft` (the default) or `published`. A draft is never published. |
-| `listed` | Optional, `true` by default (written only when `false`): whether discovery (#79) may list a published path. It never publishes or hides a path by itself. |
+| `listed` | Optional, `true` by default (written only when `false`): whether discovery (ADR 0249) may list a published path. It never publishes or hides a path by itself. |
 | `steps` | At most 100. A published path has at least two. |
 
 Every text field is plain text on one line. Control and direction characters and an `atlas:` link
@@ -197,7 +197,35 @@ the path and step and never a value. Path slugs that Windows reserves for device
 
 100 steps, 200 path files, 256 KiB per file, 64 bytes per slug or id; text limits above.
 
-## Not defined here
+## Discovery
 
-Discovery links from posts, search, feeds policy, `paths.json`, the publication-manifest entry and
-export or import (#79).
+Decided in [ADR 0249](../adr/0249-reading-paths-are-discovered-only-through-listed-links-search-and-a-data-file-that-never-reorder-anything.md).
+Only `listed` paths take part in any of these; an unlisted path has its page and nothing else.
+
+- A post or atlas entry that is a step of a listed path ends with a "Part of a reading path" section:
+  the path's title, a link to `/paths/<slug>/#step-N` and "step N of M". Nothing else on the page changes.
+- Search (`search.json`) gains one entry per listed path after all post entries: the path's address, tag
+  `reading path`, the summary, and the shown steps' titles, rationales and reasons.
+- `paths.json` is the listed paths of the public value (no author step ids), with the base path applied. It
+  is written only when a path is listed, and the build refuses it if it names anything not published.
+- RSS, JSON Feed, `llms.txt`, `llms-full.txt` and the portfolio snapshot never carry paths and are
+  byte-identical with or without them. The sitemap lists `/paths/` and the listed paths, as before.
+- The publication manifest has a `reading-paths` projection (only while the switch is on) with a `path`
+  item per published path.
+- No order changes: home, archive, series, related and previous/next links, feeds and the post order in
+  search are computed from posts alone.
+
+## Export and import
+
+Decided in [ADR 0250](../adr/0250-reading-paths-travel-as-one-deterministic-export-and-an-import-that-checks-everything-before-writing-anything.md).
+
+`openblog paths export [--drafts] [--out <file> --write]` prints (or writes, never replacing a file) one
+`openblog-reading-paths-export` version 1 file: `{ "format", "version", "paths": [{ "slug", "path": <the
+canonical path file> }] }`, sorted by slug and deterministic. Drafts are left out unless `--drafts`.
+
+`openblog paths import <file> [--overwrite] [--write]` reads the whole file and reports `create`, `replace`
+or `unchanged` for each path. It is a dry run unless `--write`. If anything is invalid (file shape or
+version, slug, a path the parser or Admin's rules refuse, more than 200 paths, a duplicate slug, a stored
+path that differs without `--overwrite`, a stored file that does not parse) it writes nothing at all. A write
+holds the content lock, replaces files atomically and puts earlier files back if a later one fails. Problems
+name the file and step and never the text found; the file is at most 16 MiB and must not be a symlink.

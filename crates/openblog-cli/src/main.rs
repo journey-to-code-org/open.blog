@@ -17,6 +17,7 @@ mod git;
 mod hashnode;
 mod http;
 mod notebook_store;
+mod paths_exchange;
 mod portable_export;
 mod private_guard;
 mod publish;
@@ -58,6 +59,8 @@ COMMANDS
     check                      Validate content and themes without writing anything
     export <slug>              Preview or write a portable Markdown article, or the
                                post's cited references as CSL JSON or BibTeX
+    paths export|import        Export reading paths to one file, or check and import one
+                               (dry run unless --write)
     publish [summary]          Commit changed content with git and push (deploys via CI)
     publish setup              Create the repository and Pages workflow, report what is left
     syndicate <slug>           Plan cross-posting (add --write to create/update remote drafts)
@@ -94,6 +97,15 @@ export OPTIONS
     --out <path>               Output file for an explicit --write
     --write                    Write the export (otherwise print a dry-run preview)
     --json                     Print a versioned dry-run manifest with exact content
+
+paths OPTIONS
+    paths export [--out <file>] [--drafts] [--write]
+                               Print the published reading paths as one portable JSON file,
+                               or with --out and --write create that file (never replaces one)
+    paths import <file> [--overwrite] [--write]
+                               Check an export and say what would change; with --write apply
+                               it all or not at all. A stored path that differs is a conflict
+                               unless --overwrite
 
 new OPTIONS
     --series <slug>            Put the post in a series
@@ -306,6 +318,23 @@ fn run(raw: &[String]) -> Result<(), String> {
                     json: args.switches.contains("json"),
                 },
             )
+        }
+        "paths" => {
+            let options = paths_exchange::Options {
+                file: args
+                    .options
+                    .get("out")
+                    .map(String::as_str)
+                    .or_else(|| args.positional.get(1).map(String::as_str)),
+                write: args.switches.contains("write"),
+                drafts,
+                overwrite: args.switches.contains("overwrite"),
+            };
+            match args.positional.first().map(String::as_str) {
+                Some("export") => paths_exchange::export(&root, &options),
+                Some("import") => paths_exchange::import(&root, &options),
+                _ => Err("usage: openblog paths export|import (see `openblog help`)".into()),
+            }
         }
         "export" => {
             let slug = args.positional.first().ok_or(

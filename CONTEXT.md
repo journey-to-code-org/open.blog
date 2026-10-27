@@ -1068,6 +1068,19 @@ A reader's optional marks of which path steps they have read, kept as step targe
 optional step toward finishing and is not sent to anyone (ADR 0248).
 _Avoid_: Completion, certificate, enrolment, tracking
 
+**Path discovery**:
+The ways a reader or tool finds a published reading path: a "Part of a reading path" link on a post or atlas
+entry that is a step of it, an entry in site search, and `paths.json`. All three, and `/paths/` and the
+sitemap, include only listed paths; none changes the order of any post, and feeds never carry a path
+(ADR 0249).
+_Avoid_: Recommendation, related posts, trending
+
+**Path export**:
+`openblog paths export`'s single deterministic file of the author's path files, which `openblog paths import`
+checks as a whole and writes all-or-nothing, never replacing a different stored path without `--overwrite`
+(ADR 0250).
+_Avoid_: Backup, sync, migration
+
 **Concept link**:
 An author's explicit Markdown link to `atlas:<entry id>` in a post. The build resolves it against
 the public atlas projection alone: a published entry becomes an ordinary link to its page, and

@@ -387,6 +387,7 @@ pub fn manifest(
         atlas_blocked: blocked.atlas.as_deref(),
         public_comparisons: site.comparisons.as_ref(),
         comparisons_blocked: blocked.comparisons.as_deref(),
+        public_paths: site.reading_paths.as_ref(),
         claims_blocked: blocked.claims.as_deref(),
         library: stores.library,
         notebook: stores.notebook,
@@ -869,6 +870,7 @@ fn unlisted(manifest: &BoundaryManifest, site: &Site, files: &[OutputFile]) -> V
     let curated_edges = manifest.published_ids(Projection::Curated, ItemKind::Relationship);
     let curated_sources = manifest.published_ids(Projection::Curated, ItemKind::Source);
     let file_listed = manifest.published_ids(Projection::CuratedContext, ItemKind::CuratedContext);
+    let paths = manifest.published_ids(Projection::ReadingPaths, ItemKind::Path);
     let post_slugs: BTreeSet<&str> = site.posts.iter().map(|post| post.slug.as_str()).collect();
     // A post's address as the file carries it: the base path in front.
     let base_path = site.config.base_path();
@@ -957,6 +959,25 @@ fn unlisted(manifest: &BoundaryManifest, site: &Site, files: &[OutputFile]) -> V
             }
             for id in ids_at(&value, "sources") {
                 check(&file.path, "atlas query source", &id, &query_sources);
+            }
+        } else if file.path == openblog_core::reading_path::PATHS_JSON_FILE {
+            // The paths file may only name paths the manifest publishes, over
+            // posts this build publishes and public atlas entries.
+            let value = json();
+            for path in value["paths"].as_array().into_iter().flatten() {
+                if let Some(slug) = path["slug"].as_str() {
+                    check(&file.path, "reading path", slug, &paths);
+                }
+                for step in path["steps"].as_array().into_iter().flatten() {
+                    let Some(target) = step["target"].as_str() else {
+                        continue;
+                    };
+                    match step["kind"].as_str() {
+                        Some("post") => check(&file.path, "published post", target, &post_slugs),
+                        Some("atlas") => check(&file.path, "atlas entry", target, &atlas_entries),
+                        _ => check(&file.path, "step kind", "unknown", &BTreeSet::new()),
+                    }
+                }
             }
         } else if file.path == openblog_core::curated_context::CURATED_CONTEXT_JSON_FILE {
             // The curated context file may only name what the curated
@@ -1304,6 +1325,28 @@ mod tests {
             path: path.into(),
             contents: contents.into(),
         }
+    }
+
+    #[test]
+    fn the_paths_file_may_only_name_published_paths_and_published_targets() {
+        let root = project_with_note("paths-file", r#"{"readingPaths":{"publish":true}}"#);
+        let named = |slug: &str, kind: &str, target: &str| {
+            page(
+                "paths.json",
+                &serde_json::json!({"paths":[{"slug": slug, "steps":[{"kind": kind, "target": target}]}]})
+                    .to_string(),
+            )
+        };
+        // No path is published by this site, so any path the file names is refused.
+        let error = checked(&root, &[named("ghost", "post", "ghost-post")]).unwrap_err();
+        assert!(
+            error.contains("`paths.json`") && error.contains("reading path `ghost`"),
+            "{error}"
+        );
+        assert!(error.contains("published post `ghost-post`"), "{error}");
+        let error = checked(&root, &[named("ghost", "atlas", "nobody")]).unwrap_err();
+        assert!(error.contains("atlas entry `nobody`"), "{error}");
+        assert!(checked(&root, &[page("paths.json", r#"{"paths":[]}"#)]).is_ok());
     }
 
     #[test]

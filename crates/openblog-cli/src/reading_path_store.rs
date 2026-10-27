@@ -275,10 +275,19 @@ pub fn delete(
 
 fn write(target: &Path, path: &ReadingPath) -> Result<Saved, StoreError> {
     let text = path.to_canonical_json();
-    let bytes = text.as_bytes();
+    write_bytes(target, &path.slug, text.as_bytes())?;
+    Ok(Saved {
+        revision: source_store::revision(text.as_bytes()),
+        text,
+        path: path.clone(),
+    })
+}
+
+/// Atomically replace (or create) one path file with exactly `bytes`.
+fn write_bytes(target: &Path, slug: &str, bytes: &[u8]) -> Result<(), StoreError> {
     if bytes.len() > MAX_FILE_BYTES {
         return Err(StoreError::Invalid(vec![PathProblem {
-            file: format!("{PATHS_DIR}/{}.json", path.slug),
+            file: format!("{PATHS_DIR}/{slug}.json"),
             step: None,
             message: format!("is over {MAX_FILE_BYTES} bytes"),
         }]));
@@ -291,11 +300,7 @@ fn write(target: &Path, path: &ReadingPath) -> Result<Saved, StoreError> {
     let unique = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_nanos());
-    let temporary = directory.join(format!(
-        ".{}.{}-{unique}.tmp",
-        path.slug,
-        std::process::id()
-    ));
+    let temporary = directory.join(format!(".{slug}.{}-{unique}.tmp", std::process::id()));
     let result = (|| -> std::io::Result<()> {
         let mut file = fs::OpenOptions::new()
             .write(true)
@@ -312,9 +317,42 @@ fn write(target: &Path, path: &ReadingPath) -> Result<Saved, StoreError> {
             "could not save the reading path ({error}); the stored file is unchanged"
         )));
     }
-    Ok(Saved {
-        revision: source_store::revision(bytes),
-        text,
-        path: path.clone(),
-    })
+    Ok(())
+}
+
+/// Write several already-checked paths as one unit (an import, ADR 0250): if
+/// any write fails, every path written so far is put back to the bytes it had
+/// (or removed if it was new), so a failed import leaves the folder as it
+/// was. The caller holds the content lock.
+pub fn write_all(root: &Path, content: &str, paths: &[&ReadingPath]) -> Result<(), StoreError> {
+    let mut targets = Vec::new();
+    for path in paths {
+        check(path)?;
+        let target = file_path(root, content, &path.slug)?;
+        let before = match read_file(&target, &path.slug)? {
+            Some(stored) => Some(stored.text.into_bytes()),
+            None => None,
+        };
+        targets.push((target, path, before));
+    }
+    let mut done = 0;
+    let mut failure = None;
+    for (target, path, _) in &targets {
+        if let Err(error) = write(target, path) {
+            failure = Some(error);
+            break;
+        }
+        done += 1;
+    }
+    let Some(error) = failure else {
+        return Ok(());
+    };
+    for (target, path, before) in targets.iter().take(done).rev() {
+        let _ = match before {
+            Some(bytes) => write_bytes(target, &path.slug, bytes),
+            None => crate::fsutil::retry_transient(|| fs::remove_file(target))
+                .map_err(|error| StoreError::Storage(error.to_string())),
+        };
+    }
+    Err(error)
 }

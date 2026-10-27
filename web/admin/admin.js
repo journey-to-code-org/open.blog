@@ -8088,6 +8088,7 @@ export const BOUNDARY_PROJECTIONS = Object.freeze({
   "context-links": "Links to research pages",
   curated: "Curated for readers",
   "curated-context": "Curated context data",
+  "reading-paths": "Reading paths",
 });
 
 /** How each kind of research item is named. */
@@ -8104,6 +8105,7 @@ export const BOUNDARY_KINDS = Object.freeze({
   "comparison-page": "Comparison page",
   selection: "Curated selection",
   "curated-context": "Curated context file",
+  path: "Reading path",
 });
 
 /** Why an item or a field is withheld, in a few words. The server's message says exactly which. */

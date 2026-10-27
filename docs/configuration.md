@@ -320,6 +320,7 @@ preview paths freely; nothing publishes them and `/paths/` is not reserved. Turn
 `/paths/`, so a page named `paths` or a `postPath` that puts a post there is refused by the build and by
 `check`; while it is off, `check` warns when you have path files beside such a page or post.
 While it is on, each published path is a page at `/paths/<slug>/` (see [Pages and progress](specs/reading-paths.md#pages-and-progress)); `/paths/` lists the paths you leave `listed`.
+Listed paths are also linked from the posts and atlas entries they name, found by site search and listed in `paths.json` ([Discovery](specs/reading-paths.md#discovery)). `openblog paths export` and `openblog paths import <file>` move paths between sites ([Export and import](specs/reading-paths.md#export-and-import)).
 
 ## Curated research context
 

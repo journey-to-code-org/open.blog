@@ -1450,8 +1450,29 @@ Body.
             if path.starts_with("assets/") || path == "sitemap.xml" || path == "search.json" {
                 continue;
             }
+            // A post that is a step of a listed path gains one link section (ADR 0249).
+            let page = String::from_utf8_lossy(&on[path]).into_owned();
+            if path.starts_with("posts/") && page.contains("ob-in-paths") {
+                let start = page.find("<section class=\"ob-in-paths\"").unwrap();
+                let end = start
+                    + page[start..]
+                        .find(
+                            "</section>
+",
+                        )
+                        .unwrap()
+                    + "</section>
+"
+                    .len();
+                let stripped = format!("{}{}", &page[..start], &page[end..]);
+                assert_eq!(stripped.as_bytes(), bytes.as_slice(), "{path}");
+                continue;
+            }
             assert_eq!(on.get(path), Some(bytes), "{path}");
         }
+        assert!(on.contains_key("paths.json") && !off.contains_key("paths.json"));
+        assert!(!String::from_utf8_lossy(&on["paths.json"]).contains("secret"));
+        assert!(String::from_utf8_lossy(&on["search.json"]).contains("/paths/route/"));
         fs::remove_dir_all(root).unwrap();
     }
 

@@ -49,6 +49,8 @@ pub const PUBLIC_PATHS_FORMAT_VERSION: u64 = 1;
 pub const PATHS_DIR: &str = "paths";
 /// Where a path's page will live on the site (`/paths/<slug>/`).
 pub const PATHS_URL: &str = "/paths/";
+/// The data file listing the published, listed paths (ADR 0249).
+pub const PATHS_JSON_FILE: &str = "paths.json";
 /// The first segment of that address. Reserved only while
 /// `readingPaths.publish` is on.
 pub const PATHS_SEGMENT: &str = "paths";
@@ -1289,6 +1291,45 @@ impl PublicPaths {
     pub fn to_json(&self) -> String {
         escaped_json(self)
     }
+
+    /// Only the paths discovery may list (ADR 0249). An unlisted path is
+    /// published at its address and nowhere that advertises it: not the
+    /// index, the sitemap, search, `paths.json` or a link from a post.
+    pub fn listed_only(&self) -> PublicPaths {
+        PublicPaths {
+            format: self.format,
+            format_version: self.format_version,
+            paths: self.paths.iter().filter(|p| p.listed).cloned().collect(),
+        }
+    }
+
+    /// The listed paths a target is a step of, in slug order, with the
+    /// step's position and the number of steps. This is discovery only: it
+    /// reads the paths and changes no order anywhere.
+    pub fn memberships(&self, kind: &str, target: &str) -> Vec<Membership<'_>> {
+        self.paths
+            .iter()
+            .filter(|path| path.listed)
+            .filter_map(|path| {
+                path.steps
+                    .iter()
+                    .find(|step| step.kind == kind && step.target == target)
+                    .map(|step| Membership {
+                        path,
+                        position: step.position,
+                        total: path.steps.len(),
+                    })
+            })
+            .collect()
+    }
+}
+
+/// A listed path a post or atlas entry is a step of.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Membership<'a> {
+    pub path: &'a PublicPath,
+    pub position: usize,
+    pub total: usize,
 }
 
 type Found = (&'static str, &'static str, String, String, String);

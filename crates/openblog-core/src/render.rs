@@ -617,6 +617,15 @@ pub fn generate_with_trail_budget(
                 r.path_page(default_theme, paths, path),
             )?;
         }
+        // The data file lists only what discovery may list (ADR 0249); it is
+        // written from the same value the pages are, and only if one is listed.
+        let listed = paths.listed_only();
+        if !listed.paths.is_empty() {
+            out.add(
+                crate::reading_path::PATHS_JSON_FILE.into(),
+                c.apply_base_path(&listed.to_json()),
+            )?;
+        }
     }
     // The curated research context (ADR 0197): the data file readers' tools
     // fetch, projected from the one public curated value the pages' sections
@@ -2071,6 +2080,7 @@ impl<'a> Renderer<'a> {
         if let Some(section) = self.curated_section(post) {
             body.push_str(&section);
         }
+        body.push_str(&self.in_paths_section("post", &post.slug));
         if c.share.enabled {
             body.push_str(&self.share_block(post));
         }
@@ -3332,6 +3342,7 @@ impl<'a> Renderer<'a> {
         if let Some(trail) = &trail {
             body.push_str(trail);
         }
+        body.push_str(&self.in_paths_section("atlas", &entry.id));
         body.push_str(&format!(
             "<p class=\"ob-meta\">{}</p>\n</div>\n</article>\n</div>",
             text(ATLAS_NOTE)
@@ -3828,6 +3839,43 @@ impl<'a> Renderer<'a> {
             &comparison.url,
             &body,
         )
+    }
+
+    /// "Part of a reading path": a link from a post or an atlas entry to each
+    /// listed path that has it as a step (ADR 0249). Empty unless the site
+    /// publishes paths and one lists this target. It is a link and a position
+    /// only: it claims nothing about the item and moves nothing.
+    fn in_paths_section(&self, kind: &str, target: &str) -> String {
+        let Some(paths) = &self.site.reading_paths else {
+            return String::new();
+        };
+        let found = paths.memberships(kind, target);
+        if found.is_empty() {
+            return String::new();
+        }
+        let mut html = String::from(
+            "<section class=\"ob-in-paths\" aria-labelledby=\"in-reading-paths\">
+<h2 id=\"in-reading-paths\" class=\"ob-related-title\">Part of a reading path</h2>
+<ul>
+",
+        );
+        for found in found {
+            html.push_str(&format!(
+                "<li><a href=\"{}#step-{}\"><bdi>{}</bdi></a> <span class=\"ob-meta\">step {} of {}</span></li>
+",
+                attr(&found.path.url),
+                found.position,
+                text(&found.path.title),
+                found.position,
+                found.total
+            ));
+        }
+        html.push_str(
+            "</ul>
+</section>
+",
+        );
+        html
     }
 
     fn paths_index(&self, theme: &Theme, paths: &crate::reading_path::PublicPaths) -> String {

@@ -5,6 +5,13 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Reading paths are now easier to find and to move. A post or atlas entry that is a step of a listed path
+  shows "Part of a reading path" with a link to that step; listed paths appear in site search; and
+  `paths.json` lists the listed paths for tools. Unlisted paths are in none of these, feeds never carry
+  paths, and nothing about post order changes. `openblog paths export` writes your published paths to one
+  file (add `--drafts` for drafts) and `openblog paths import <file>` checks it and says what would change;
+  nothing is written unless `--write`, and any problem writes nothing at all. See
+  [Reading paths](docs/specs/reading-paths.md#discovery).
 - With `readingPaths.publish` on, a published reading path is now a page at `/paths/<slug>/`: its steps in
   the order you chose, each linking to its post or atlas entry with your reason and relationship (never
   more than you wrote; order alone is not influence), previous and next links, and your rationale and
