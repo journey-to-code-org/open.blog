@@ -29,15 +29,15 @@ If you are new, read these in order; each one stands alone otherwise.
 12. [Research posts and Evidence Studio](research-profile.md): DOI and license fields,
    visible references, contributor-credit demonstration, scholarly metadata, deterministic
    evidence checks, and their limits.
-12a. [Research checks](research-checks.md): what every finding in the research report means, how to
+13. [Research checks](research-checks.md): what every finding in the research report means, how to
    fix it, and what acknowledging one does and does not mean.
-13. [Video productions and release kits](video-production.md): YouTube embeds, transcripts,
+14. [Video productions and release kits](video-production.md): YouTube embeds, transcripts,
    chapter validation, structured data, and reusable release copy.
-14. [Field journals and private-by-default tracks](field-journal.md): local GPX analysis,
+15. [Field journals and private-by-default tracks](field-journal.md): local GPX analysis,
    trail facts, route drawings, and enforceable location-privacy modes.
-15. [Showing your posts on another site](integrations.md): feeds and the latest-posts JSON.
-16. [Migrating from Hashnode](hashnode-migration.md): with or without a paid plan.
-17. [Migrating inherited authorship](contributor-migration.md): dry-run-first contributor credits.
+16. [Showing your posts on another site](integrations.md): feeds and the latest-posts JSON.
+17. [Migrating from Hashnode](hashnode-migration.md): with or without a paid plan.
+18. [Migrating inherited authorship](contributor-migration.md): dry-run-first contributor credits.
 
 Architecture decisions and their supporting primary-source research live under
 [`docs/adr`](adr/) and [`docs/research`](research/).

@@ -80,7 +80,7 @@ The checks keep these apart so each can fail on its own:
 | Contextual entry | A person, work or concept in the atlas | possible dates, approval |
 
 A speaker's statement (a lecture at a timestamp), the source the speaker names, the source text, your
-interpretation and a scholarly disagreement are four different records, and none stands in for
+interpretation and a scholarly disagreement are five different records, and none stands in for
 another. Two passages that read alike, or two people alive at the same time, are never read as one
 influencing the other: an influence is recorded only when you record it, with its evidence.
 
@@ -143,6 +143,7 @@ influencing the other: an influence is recorded only when you record it, with it
 | `claim-locator-missing` | A link names a source but no place in it. | Add the page or other place. |
 | `claim-location-unreviewed` | A located link nobody recorded checking. | Compare it with the source and set its review state. |
 | `claim-rationale-missing` | A link does not say why you read the source that way. | Add a rationale. |
+| `undisclosed-contradiction` | Approved support sits beside a contradiction you kept private. | Approve the contradiction too, or withhold the support. |
 
 ### Atlas, chronology and context links
 
@@ -150,7 +151,6 @@ influencing the other: an influence is recorded only when you record it, with it
 | --- | --- | --- |
 | `private-endpoint` | An approved link or relationship reaches something still private, so it is left out. | Approve the other end, or leave it private. |
 | `unpublished-datings` | An approved entry whose datings are not approved. | Approve the datings, or publish without them. |
-| `undisclosed-contradiction` | Approved support sits beside a contradiction you kept private. | Approve the contradiction too, or withhold the support. |
 | `death-before-birth` | A death dated before a birth, as recorded. | Check the datings against their evidence. |
 | `composition-after-death` | A work composed after its author's death, as recorded. | Check the datings and the authorship. |
 | `composition-before-birth` | A work composed before its author's birth, as recorded. | Check the datings and the authorship. |
@@ -173,10 +173,14 @@ influencing the other: an influence is recorded only when you record it, with it
 
 ### Private files that cannot be used
 
-When one of your private research files cannot be read, or breaks its own rules, the next build is
-refused before anything public changes, the finding names that one file, and nothing is repaired for
-you. Fix the file by hand. These codes appear for the source library, notebook, atlas, claims and
-alignments files alike unless a row says otherwise.
+When one of your private research files cannot be read, or breaks its own rules, the finding names
+that one file and nothing is repaired for you. Fix the file by hand. A finding here refuses the next
+build, before anything public changes, only when the build reads that file: the library and notebook
+whenever the build reads any research, the atlas while `knowledgeAtlas.publish` is on, the claims
+file while `claimEvidence.publish` is on, and the alignments while `comparisons.publish` is on. When
+the build does not read a file, `openblog check` still reports it, and the report says the part that
+depends on it was not reviewed. These codes appear for the source library, notebook, atlas, claims
+and alignments files alike unless a row says otherwise.
 
 | Code | What it means |
 | --- | --- |
@@ -200,9 +204,6 @@ alignments files alike unless a row says otherwise.
 | `private-reference` | An approved record points at something private. |
 | `missing-evidence` | A relationship or link cites no evidence and is not marked as an unsourced draft. |
 | `shadowed-field` | An unknown field reuses the name of a defined one. |
-| `still-linked`, `still-used` | You tried to remove something other records still rest on. |
-| `kind-changed`, `source-changed` | You tried to change what a record is, or which source a passage quotes. |
-| `unknown-link`, `unknown-claim`, `unknown-alignment` | A change names a link, claim or comparison that does not exist. |
 | `duplicate-link` | Two evidence links on a claim cite the same evidence. |
 | `unknown-post` | A claim's anchor names a post that is not saved. |
 | `stale-anchor`, `ambiguous-anchor`, `anchor-mismatch` | A claim's anchor no longer fits its saved draft, or its offsets do not match its words. |
@@ -216,6 +217,17 @@ alignments files alike unless a row says otherwise.
 | `evidence-conflict` | An atlas relationship both cites evidence and is marked unsourced. |
 | `invalid-date`, `aspect-kind`, `duplicate-dating` | A dating is impossible, belongs to another kind of entry, or repeats one party's date. |
 | `unknown-interpretation`, `duplicate-member`, `conflicting-member`, `missing-counterpart`, `missing-locator`, `missing-original` | A comparison member names a missing interpretation, repeats itself, contradicts another member, lacks a counterpart or a place, or normalizes wording with no original. |
+
+### Changes that are refused
+
+These do not describe a file. They are the reasons Admin refuses a change you asked for, before it is
+saved, so nothing is written and no build is refused.
+
+| Code | What it means |
+| --- | --- |
+| `still-linked`, `still-used` | You tried to remove something other records still rest on. |
+| `kind-changed`, `source-changed` | You tried to change what a record is, or which source a passage quotes. |
+| `unknown-link`, `unknown-claim`, `unknown-alignment` | A change names a link, claim or comparison that does not exist. |
 
 ## Importing sources
 
