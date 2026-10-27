@@ -1361,6 +1361,10 @@ pub enum WithheldReason {
     SubjectWithheld,
     /// Evidence the build does not publish (dropped, the item kept).
     EvidenceNotPublic,
+    /// Its attribution names a source record the build does not publish. An
+    /// interpretation cannot be shown without saying who holds it, and the
+    /// id of a private source is never written to a public value.
+    AttributionNotPublic,
     /// The comparison is a draft.
     Draft,
     /// Fewer than two interpretations are public.
@@ -1553,10 +1557,16 @@ impl PublicComparison {
             });
             return (None, withheld);
         }
+        // An attribution to a source the build does not publish would put a
+        // private id in the public value, so that interpretation is withheld.
+        let attribution_public = |i: &Interpretation| match &i.attribution {
+            Attribution::Source { source, .. } => public.sources.contains(source),
+            _ => true,
+        };
         let shown: BTreeSet<&str> = comparison
             .interpretations
             .iter()
-            .filter(|i| i.standing().publishable())
+            .filter(|i| i.standing().publishable() && attribution_public(i))
             .map(|i| i.id.as_str())
             .collect();
         let mut interpretations = Vec::new();
@@ -1566,6 +1576,13 @@ impl PublicComparison {
                 withheld.push(Withheld {
                     id: i.id.clone(),
                     reason: standing.withheld(),
+                });
+                continue;
+            }
+            if !attribution_public(i) {
+                withheld.push(Withheld {
+                    id: i.id.clone(),
+                    reason: WithheldReason::AttributionNotPublic,
                 });
                 continue;
             }

@@ -311,10 +311,14 @@ fn evidence_is_a_reference_and_only_public_evidence_is_projected() {
     let (public, withheld) = PublicComparison::project(&c, &References::default());
     let public = public.unwrap();
     assert!(public.interpretations.iter().all(|i| i.evidence.is_empty()));
+    // The translation is attributed to a source that is not public, so it is
+    // withheld whole (ADR 0306); the other two keep their text and lose evidence.
     assert!(withheld
         .iter()
+        .filter(|w| w.id != "epistemic-fr")
         .all(|w| w.reason == WithheldReason::EvidenceNotPublic));
-    assert_eq!(withheld.len(), 2);
+    assert_eq!(withheld.len(), 3);
+    assert_eq!(public.interpretations.len(), 2);
 
     // Authoring checks against everything the author holds.
     let library = SourceLibrary::parse(
@@ -399,4 +403,25 @@ fn a_bad_file_fails_alone_and_a_draft_edit_is_validated_in_memory() {
         .interpretations
         .push(Interpretation::new("", named("A"), "x"));
     assert!(!draft.validate().is_empty());
+}
+
+#[test]
+fn an_attribution_to_a_source_the_build_does_not_publish_is_withheld_not_named() {
+    let c = parse(GOLDEN).unwrap();
+    let refs = References {
+        sources: Default::default(),
+        evidence_links: ["link-political".to_string()].into(),
+    };
+    let (public, withheld) = PublicComparison::project(&c, &refs);
+    let public = public.unwrap();
+    let json = public.to_json();
+    // The private source id appears nowhere in the public value.
+    assert!(!json.contains("commentary"), "{json}");
+    assert!(public
+        .interpretations
+        .iter()
+        .all(|i| i.id != "epistemic-fr"));
+    assert!(withheld
+        .iter()
+        .any(|w| w.id == "epistemic-fr" && w.reason == WithheldReason::AttributionNotPublic));
 }

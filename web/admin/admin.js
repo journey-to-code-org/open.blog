@@ -9901,6 +9901,7 @@ export function comparisonLeftOutText(entry) {
     "stale-approval": "AI draft edited after it was approved",
     "subject-withheld": "explains an interpretation readers do not see",
     "evidence-not-public": "some evidence is not public and was dropped",
+    "attribution-not-public": "it is attributed to a source the site does not publish",
     draft: "the comparison is a draft",
     "too-few-interpretations": "fewer than two interpretations can be shown",
   };
