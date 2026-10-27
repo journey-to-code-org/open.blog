@@ -41,6 +41,8 @@ All notable changes to open.blog are recorded here. Releases follow
 - `<ob-search>` accepts a `no-history` attribute that stops it from writing `?q=` to the page address,
   for a search box that lives in a dialog or panel on another page.
 
+- The home page now uses the configured `home.heading` as its one `<h1>` on every listing page (it was an `<h2>`, so the page had no primary heading). The "Series" heading stays an `<h2>`.
+
 ## [0.47.0] - 2026-10-27
 
 - Netlify builds only what it deploys: pull request previews and branch deploys (such as `develop`)

@@ -1731,10 +1731,10 @@ impl<'a> Renderer<'a> {
         body.push_str("<section class=\"ob-section\" aria-labelledby=\"latest\">\n");
         body.push_str(
             &self
-                .heading(theme, 2, &c.home.heading, "ob-section-heading")
+                .heading(theme, 1, &c.home.heading, "ob-section-heading")
                 .replace(
-                    "<h2 class=\"ob-title\"",
-                    "<h2 id=\"latest\" class=\"ob-title\"",
+                    "<h1 class=\"ob-title\"",
+                    "<h1 id=\"latest\" class=\"ob-title\"",
                 ),
         );
         body.push_str(&self.post_list(theme, &indices));
@@ -4296,6 +4296,22 @@ mod tests {
         let series = file(&files, "series/s/index.html");
         assert!(series.contains("<ob-theme-toggle"));
         assert!(series.contains("localStorage.getItem(\"ob-scheme\")"));
+    }
+
+    #[test]
+    fn home_uses_configured_primary_heading_on_every_page() {
+        let files = build(
+            r#"{"home":{"heading":"Field Notes"},"postsPerPage":2}"#,
+            true,
+        );
+        for path in ["index.html", "page/2/index.html"] {
+            let html = file(&files, path);
+            assert!(html.contains("<h1 id=\"latest\" class=\"ob-title\">"));
+            assert!(html.contains("Field Notes"));
+            assert!(!html.contains("<h2 id=\"latest\""));
+            assert_eq!(html.matches("<h1 ").count(), 1);
+        }
+        assert!(file(&files, "index.html").contains("<h2 id=\"series\""));
     }
 
     #[test]

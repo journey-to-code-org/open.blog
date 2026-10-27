@@ -323,7 +323,7 @@
 <main id="main" tabindex="-1">
 <div class="ob-container">
 <section class="ob-section" aria-labelledby="latest">
-<div class="ob-heading ob-section-heading"><h2 id="latest" class="ob-title">Latest posts</h2></div><ul class="ob-list ob-list-cards">
+<div class="ob-heading ob-section-heading"><h1 id="latest" class="ob-title">Latest posts</h1></div><ul class="ob-list ob-list-cards">
 <li class="ob-card"><a class="ob-card-link" href="/posts/soup/"><span class="ob-card-body"><span class="ob-meta"><time datetime="2026-09-04T00:00:00Z">Sep 4, 2026</time> · 1 min read</span><h3 class="ob-card-title">Soup</h3><span class="ob-card-summary">Ingredients Water [@plato-republic] Steps Boil.</span></span></a></li>
 <li class="ob-card"><a class="ob-card-link" href="/posts/essay/"><span class="ob-card-body"><span class="ob-meta"><time datetime="2026-09-03T00:00:00Z">Sep 3, 2026</time> · 1 min read</span><h3 class="ob-card-title">Essay</h3><span class="ob-card-summary">A claim [@plato-republic, page 3]. Notes Mine.</span></span></a></li>
 <li class="ob-card"><a class="ob-card-link" href="/posts/study/"><span class="ob-card-body"><span class="ob-meta"><time datetime="2026-09-02T00:00:00Z">Sep 2, 2026</time> · 1 min read</span><h3 class="ob-card-title">Study</h3><span class="ob-card-summary">Abstract Summary [@plato-republic] and a note. References Prior work A note [@inside].</span></span></a></li>
