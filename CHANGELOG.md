@@ -27,6 +27,15 @@ All notable changes to open.blog are recorded here. Releases follow
   a page, a series description or the home introduction is shown as its words with a warning,
   never as a raw address; and a stray unclosed link tag no longer links the rest of the post.
 
+- A concept link in a post now previews its entry. On a page with a concept link, focusing or
+  hovering the link (or a first tap on a touch screen) shows a small card with the entry's type,
+  that it comes from your approved atlas, the first paragraph of its summary, a work's source, and up
+  to two relationships with who asserts them, how firmly and what is uncertain, plus a link to the
+  full entry. It reads only the published `atlas-query.json`, works from the keyboard (Tab goes into
+  it, Escape closes it and returns focus, nothing traps focus), keeps your place in the page, respects
+  reduced motion and fits a 320px screen. Without JavaScript, or if the file cannot be read, the link
+  is the ordinary link to the entry page.
+
 ## [0.41.0] - 2026-10-26
 
 - A site can choose the reading mode its posts open in. Set `readingModes.default` in

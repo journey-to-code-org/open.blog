@@ -598,3 +598,199 @@ fn an_unclosed_or_block_spanning_mark_never_links_the_rest_of_the_post() {
     assert!(!html.contains("<a "), "{html}");
     assert!(html.contains("<p>Middle.</p>"), "{html}");
 }
+
+// ---- Concept previews (ADR 0206, #74) --------------------------------------
+
+fn rich_atlas() -> PublicAtlas {
+    let library = SourceLibrary::parse(
+        &json!({"version": 1, "sources": [
+            {"id": "plato-republic", "kind": "work", "title": "Politeia"}]})
+        .to_string(),
+        &BTreeMap::new(),
+    )
+    .unwrap();
+    let notebook = Notebook::parse(
+        &json!({"version": 1, "passages": [], "notes": []}).to_string(),
+        &library,
+    )
+    .unwrap();
+    let atlas = Atlas::parse(
+        &json!({"version": 1, "entries": [
+            {"id": "plato", "kind": "person", "label": "Plato", "visibility": "approved",
+             "aliases": ["Aristocles"], "summary": "An Athenian philosopher.\n\nHe wrote dialogues."},
+            {"id": "republic", "kind": "work", "label": "Republic", "visibility": "approved",
+             "source": "plato-republic"}],
+            "relationships": [{"id": "r-authored", "kind": "authored", "from": "plato",
+             "to": "republic", "assertedBy": {"kind": "author"}, "confidence": "plausible",
+             "evidence": [{"source": "plato-republic",
+                           "locators": [{"kind": "canonical", "value": "514a"}]}],
+             "uncertainty": "The dating is unsettled.",
+             "contestedBy": [{"by": {"kind": "named", "name": "A later editor"},
+                              "note": "Dates it later.", "evidence": [{"source": "plato-republic"}]}],
+             "visibility": "approved"}]})
+        .to_string(),
+        Links {
+            library: &library,
+            notebook: &notebook,
+        },
+    )
+    .expect("a valid atlas");
+    PublicAtlas::project(&atlas, &library).expect("a projection")
+}
+
+#[test]
+fn the_preview_component_reads_only_fields_the_query_file_really_writes() {
+    let fixtures: Value = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/concept-previews.json"
+    ))
+    .expect("fixtures");
+    let query = openblog_core::atlas_query::AtlasQuery::project(&rich_atlas(), "Site Author", "")
+        .expect("a query");
+    let real: Value = serde_json::from_str(&query.to_json()).expect("json");
+    let keys = |value: &Value| -> std::collections::BTreeSet<String> {
+        value.as_object().unwrap().keys().cloned().collect()
+    };
+    let wanted = |name: &str| -> Vec<String> {
+        fixtures["contract"][name]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|key| key.as_str().unwrap().to_string())
+            .collect()
+    };
+    // Every key the component reads is written, on a maximal item.
+    let top = keys(&real);
+    for key in wanted("top") {
+        assert!(top.contains(&key), "top-level `{key}`");
+    }
+    let mut entry_keys = std::collections::BTreeSet::new();
+    for entry in real["entries"].as_array().unwrap() {
+        entry_keys.extend(keys(entry));
+    }
+    // `moreOut` and `moreIn` are only written when relationships were left out.
+    entry_keys.insert("moreOut".to_string());
+    entry_keys.insert("moreIn".to_string());
+    for key in wanted("entry") {
+        assert!(entry_keys.contains(&key), "entry `{key}`");
+    }
+    let edge = &real["edges"][0];
+    // `uncertaintyClipped` is only written when the uncertainty was clipped.
+    let mut edge_keys = keys(edge);
+    edge_keys.insert("uncertaintyClipped".to_string());
+    for key in wanted("edge") {
+        assert!(edge_keys.contains(&key), "relationship `{key}`");
+    }
+    for key in wanted("evidence") {
+        assert!(
+            keys(&edge["evidence"][0]).contains(&key),
+            "evidence `{key}`"
+        );
+    }
+    for key in wanted("source") {
+        assert!(keys(&real["sources"][0]).contains(&key), "source `{key}`");
+    }
+    // And the fixture's own query uses no key the real file does not write.
+    let fixture = &fixtures["query"];
+    for entry in fixture["entries"].as_array().unwrap() {
+        for key in keys(entry) {
+            assert!(entry_keys.contains(&key), "the fixture's entry key `{key}`");
+        }
+    }
+    for key in keys(&fixture["edges"][0]) {
+        assert!(edge_keys.contains(&key), "the fixture's edge key `{key}`");
+    }
+    // The wording the component shows is the file's: nothing to rebuild.
+    assert_eq!(edge["assertedByText"], "Site Author (the site author)");
+    assert_eq!(edge["confidenceText"], "Plausible");
+    assert!(edge["evidence"][0]["text"]
+        .as_str()
+        .unwrap()
+        .starts_with("Politeia"));
+    assert_eq!(real["entries"][0]["kindLabel"], "Person");
+}
+
+#[test]
+fn only_a_post_with_a_resolved_concept_link_loads_the_previews_and_it_reads_one_file() {
+    let element = "<ob-concept-previews src=\"/atlas-query.json\"></ob-concept-previews>";
+    let script = "/assets/components/ob-concept-previews.js";
+    let site = site_with(BODY, Some(public_atlas()), "https://example.com");
+    let out = built(&site);
+    let page = &out["posts/cave/index.html"];
+    assert_eq!(page.matches(element).count(), 1, "{page}");
+    assert!(page.contains(script));
+    // The element follows the article, inside the main region, and carries no data of its own.
+    assert!(page.find(element).unwrap() > page.find("</article>").unwrap());
+    assert!(page.find(element).unwrap() < page.find("</main>").unwrap());
+    for (path, contents) in &out {
+        if path != "posts/cave/index.html" {
+            assert!(!contents.contains("ob-concept-previews"), "{path}");
+        }
+    }
+    // The page still has its ordinary links without the component.
+    assert!(page.contains("href=\"/atlas/plato/\""));
+
+    // No resolved link, no component: unavailable ids, the atlas off, and posts
+    // that do not use the syntax are written exactly as before.
+    let plain_only = site_with(
+        "A [x](atlas:secret).",
+        Some(public_atlas()),
+        "https://example.com",
+    );
+    let off = site_with(BODY, None, "https://example.com");
+    let none = site_with("No links.", Some(public_atlas()), "https://example.com");
+    for site in [&plain_only, &off, &none] {
+        let page = built(site)["posts/cave/index.html"].clone();
+        assert!(!page.contains("ob-concept-previews"), "{page}");
+    }
+
+    // A base path moves the file the component reads with every other address.
+    let blog = site_with(BODY, Some(public_atlas()), "https://example.com/blog");
+    let out = built(&blog);
+    assert!(out["posts/cave/index.html"]
+        .contains("<ob-concept-previews src=\"/blog/atlas-query.json\"></ob-concept-previews>"));
+    assert!(out["posts/cave/index.html"].contains("/blog/assets/components/ob-concept-previews.js"));
+    assert!(out.contains_key("atlas-query.json"));
+    // Deterministic.
+    assert_eq!(
+        out,
+        built(&site_with(
+            BODY,
+            Some(public_atlas()),
+            "https://example.com/blog"
+        ))
+    );
+}
+
+#[test]
+fn a_query_that_is_not_written_means_no_previews_and_ordinary_links() {
+    // An atlas over the query's bounds is left out of the build (ADR 0201); the
+    // links are still links, and no component waits for a file that is not there.
+    let entries: Vec<Value> = (0..2_001)
+        .map(|n| json!({"id": format!("e-{n}"), "kind": "concept", "label": format!("Entry {n}"), "visibility": "approved"}))
+        .collect();
+    let library = SourceLibrary::parse(
+        &json!({"version": 1, "sources": []}).to_string(),
+        &BTreeMap::new(),
+    )
+    .unwrap();
+    let notebook = Notebook::parse(
+        &json!({"version": 1, "passages": [], "notes": []}).to_string(),
+        &library,
+    )
+    .unwrap();
+    let atlas = Atlas::parse(
+        &json!({"version": 1, "entries": entries, "relationships": []}).to_string(),
+        Links {
+            library: &library,
+            notebook: &notebook,
+        },
+    )
+    .expect("a valid atlas");
+    let public = PublicAtlas::project(&atlas, &library).expect("a projection");
+    let site = site_with("A [one](atlas:e-1).", Some(public), "https://example.com");
+    let out = built(&site);
+    assert!(!out.contains_key("atlas-query.json"));
+    let page = &out["posts/cave/index.html"];
+    assert!(page.contains("href=\"/atlas/e-1/\""), "{page}");
+    assert!(!page.contains("ob-concept-previews"), "{page}");
+}

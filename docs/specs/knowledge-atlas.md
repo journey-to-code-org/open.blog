@@ -489,3 +489,35 @@ scanned and a repeated term is linked only where the author linked it.
   `page-not-published`.
 - `conceptEntryId` in `web/components/atlas-terms.js` and `concept_links::entry_id` apply the same
   destination rule, tested against `tests/fixtures/concept-links.json`.
+- A resolved link also carries visually hidden words after the label (` (atlas entry)`), and the
+  theme underlines it with dots, so it reads and looks as a link to an entry
+  ([ADR 0205](../adr/0205-a-concept-link-is-only-a-link-where-it-can-be-one-and-every-other-place-shows-its-words.md)).
+  An `atlas:` link inside an image's description keeps its label as the alt text and warns. In a
+  page, a series description or the home introduction the label is shown as plain text and the load
+  warns (``<file>: atlas link `atlas:id` is shown as plain text: ...``); only posts resolve links.
+
+### Entry previews
+
+[ADR 0206](../adr/0206-contextual-entry-previews-read-the-public-query-file-and-enhance-an-ordinary-link.md).
+A post that has a resolved concept link, on a site whose build writes `atlas-query.json`, ends with
+`<ob-concept-previews src="/atlas-query.json"></ob-concept-previews>` (the address follows the base
+path) and loads `/assets/components/ob-concept-previews.js`. No other page does.
+
+- Without JavaScript nothing changes: the link goes to the entry's page.
+- The component reads `atlas-query.json` from the site's own origin, once, when the page is idle
+  (or at the first interest in a link; not up front when the reader asked to save data), and
+  validates it: `format` `openblog-atlas-query`, `formatVersion` 1, each entry, relationship and
+  source on its own. A file it cannot fetch or read, or an entry whose page is not the link's own
+  destination, leaves that link an ordinary link.
+- A preview shows only that file's public fields, as text: the entry's `kindLabel` (its type), the
+  line "From the author's approved Knowledge Atlas" (its provenance), the first paragraph of its
+  summary and whether the page has more, a work's `source`, and up to two relationships with
+  `assertedByText`, `confidenceText`, `standingText`, `uncertainty` and the evidence `text`, and how
+  many more the page lists; and one link, "Read the full entry".
+- Keyboard and touch behave as the citation previews do: focus opens it and describes the link with
+  it, Tab continues into its link, there is no focus trap, Escape closes it and returns focus,
+  hovering opens it, the first tap opens it and a second follows the link, the page never scrolls,
+  and the animation is off under `prefers-reduced-motion`.
+- `previewModel` and `readQuery` in `web/components/ob-concept-previews.js` are tested against
+  `tests/fixtures/concept-previews.json`, whose fields a Rust test checks the real projection
+  writes.

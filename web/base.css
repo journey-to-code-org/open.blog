@@ -874,6 +874,113 @@ ob-citation-previews {
   }
 }
 
+/* <ob-concept-previews> (ADR 0206): one preview at a time, placed straight
+   after the concept link it describes (so Tab reaches its link next) and moved
+   below or above the link, inside the viewport, by the offsets the component
+   sets. It is the citation preview's box with the entry's own lines. */
+ob-concept-previews {
+  display: none;
+}
+
+.ob-concept-preview {
+  position: absolute;
+  z-index: 20;
+  display: block;
+  box-sizing: border-box;
+  inline-size: 28rem;
+  max-inline-size: var(--ob-concept-preview-max-inline-size, calc(100vw - 1rem));
+  max-block-size: min(24rem, 70vh);
+  overflow: auto;
+  padding: 0.75rem 1rem;
+  border: var(--ob-border-width, 1px) solid var(--ob-color-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+  color: var(--ob-color-text);
+  box-shadow: var(--ob-shadow);
+  font-size: 0.9rem;
+  font-style: normal;
+  font-weight: normal;
+  line-height: 1.5;
+  text-align: start;
+  text-indent: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  translate: var(--ob-concept-preview-x, 0) var(--ob-concept-preview-y, 1.5em);
+}
+
+.ob-concept-preview[hidden],
+.ob-concept-preview [hidden] {
+  display: none;
+}
+
+.ob-concept-preview-details,
+.ob-concept-preview-kind,
+.ob-concept-preview-provenance,
+.ob-concept-preview-summary,
+.ob-concept-preview-clipped,
+.ob-concept-preview-source,
+.ob-concept-preview-relationships,
+.ob-concept-preview-relationship,
+.ob-concept-preview-heading,
+.ob-concept-preview-statement,
+.ob-concept-preview-how,
+.ob-concept-preview-uncertainty,
+.ob-concept-preview-evidence,
+.ob-concept-preview-more {
+  display: block;
+}
+
+.ob-concept-preview-kind {
+  font-weight: 600;
+}
+
+.ob-concept-preview-provenance,
+.ob-concept-preview-clipped,
+.ob-concept-preview-source,
+.ob-concept-preview-how,
+.ob-concept-preview-evidence,
+.ob-concept-preview-more {
+  color: var(--ob-color-muted);
+}
+
+.ob-concept-preview-summary,
+.ob-concept-preview-source,
+.ob-concept-preview-relationships {
+  margin-block-start: 0.5rem;
+}
+
+.ob-concept-preview-heading {
+  font-weight: 600;
+}
+
+.ob-concept-preview-relationship {
+  margin-block-start: 0.25rem;
+}
+
+.ob-concept-preview-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin-block-start: 0.5rem;
+}
+
+.ob-concept-preview a:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ob-concept-preview:not([hidden]) {
+    animation: ob-concept-preview-in var(--ob-motion, 150ms) ease-out;
+  }
+}
+
+@keyframes ob-concept-preview-in {
+  from {
+    opacity: 0;
+  }
+}
+
 /* ---------- Syntax highlighting (tokens painted by <ob-code highlight>) ---------- */
 
 .tok-keyword { color: var(--ob-color-code-keyword); }
@@ -2476,6 +2583,11 @@ ob-back-to-top button:hover {
      back to a marker are for screens only. */
   .ob-citation-back,
   .ob-citation-preview {
+    display: none !important;
+  }
+
+  /* Entry previews are for screens; a printed concept link is its label. */
+  .ob-concept-preview {
     display: none !important;
   }
 

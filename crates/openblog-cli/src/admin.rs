@@ -27591,7 +27591,7 @@ What I read:
         // warning says why. No raw `atlas:` address reaches the page.
         let (json, html) = preview(body);
         assert!(
-            !html.contains("atlas:") && !html.contains("<ob-concept"),
+            !html.contains("atlas:") && !html.contains("<ob-concept "),
             "{html}"
         );
         assert!(html.contains("the Republic"));
@@ -27615,7 +27615,7 @@ What I read:
             "{html}"
         );
         assert!(
-            !html.contains("atlas:") && !html.contains("<ob-concept"),
+            !html.contains("atlas:") && !html.contains("<ob-concept "),
             "{html}"
         );
         let warnings = json["warnings"].to_string();

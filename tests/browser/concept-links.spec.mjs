@@ -96,10 +96,11 @@ const overflow = (page) =>
 async function expectLinksAndPlainText(page) {
   const links = prose(page).locator("a.ob-concept");
   await expect(links).toHaveCount(2);
-  await expect(links.nth(0)).toHaveText("Plato");
+  await expect(links.nth(0)).toHaveText("Plato (atlas entry)");
+  await expect(links.nth(0)).toHaveAccessibleName("Plato (atlas entry)");
   await expect(links.nth(0)).toHaveAttribute("href", "/atlas/plato/");
   await expect(links.nth(0)).toHaveAttribute("data-atlas-kind", "person");
-  await expect(links.nth(1)).toHaveText(LONG_LABEL);
+  await expect(links.nth(1)).toHaveText(`${LONG_LABEL} (atlas entry)`);
   await expect(links.nth(1)).toHaveAttribute("href", "/atlas/allegory-of-the-cave/");
   // Unavailable ids are the author's words, with no link, no scheme and no hint that an entry exists.
   for (const words of ["hidden idea", "lost cause", "typo"]) {

@@ -107,6 +107,10 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
         include_str!("../../../web/components/ob-atlas-timeline.js"),
     ),
     (
+        "components/ob-concept-previews.js",
+        include_str!("../../../web/components/ob-concept-previews.js"),
+    ),
+    (
         "components/ob-passage-feedback.js",
         include_str!("../../../web/components/ob-passage-feedback.js"),
     ),

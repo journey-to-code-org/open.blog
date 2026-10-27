@@ -71,6 +71,10 @@ struct Meta<'a> {
     /// The `<ob-citation-previews>` element that enhances the markers with
     /// previews from that data (ADR 0061), present exactly when the data is.
     citation_previews: Option<String>,
+    /// Whether the page's concept links (ADR 0204) are enhanced with
+    /// previews (ADR 0206): it loads `<ob-concept-previews>` and its element.
+    /// `false` on every other page, which is then written exactly as before.
+    concept_previews: bool,
     /// The published passage text of a post that offers passage feedback or
     /// Third Perspectives, as its `<script type="application/json">` element
     /// (ADRs 0082, 0114); `None` on every other page, which is then written
@@ -97,6 +101,9 @@ struct Renderer<'a> {
     /// What the site publishes about sources, read once on first use, for every post's evidence
     /// choices (ADR 0116).
     site_references: std::cell::OnceCell<crate::evidence_submission::SiteReferenceIndex>,
+    /// Whether the build writes `atlas-query.json`, decided on first use: the
+    /// concept previews read that file and nothing else.
+    atlas_query_listed: std::cell::OnceCell<bool>,
 }
 
 struct Output {
@@ -421,6 +428,7 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
         site,
         themes: &resolved,
         site_references: Default::default(),
+        atlas_query_listed: Default::default(),
     };
     let c = &site.config;
     let mut out = Output {
@@ -635,6 +643,7 @@ pub fn generate_document(
         site,
         themes: &resolved,
         site_references: Default::default(),
+        atlas_query_listed: Default::default(),
     };
     let (url, contents) = if let Some((index, post)) = site
         .posts
@@ -909,6 +918,10 @@ impl<'a> Renderer<'a> {
                 ));
             }
         }
+        if meta.concept_previews {
+            // The preview component is loaded only by a page that has a concept link.
+            h.push_str("<script type=\"module\" src=\"/assets/components/ob-concept-previews.js\"></script>\n");
+        }
         if meta.atlas_timeline {
             // The timeline's enhancement is loaded only by the page that has one.
             h.push_str("<script type=\"module\" src=\"/assets/components/ob-atlas-timeline.js\"></script>\n");
@@ -927,6 +940,13 @@ impl<'a> Renderer<'a> {
             h.push('\n');
             h.push_str(element);
         }
+        if meta.concept_previews {
+            h.push('\n');
+            h.push_str(&format!(
+                "<ob-concept-previews src=\"/{}\"></ob-concept-previews>",
+                crate::atlas_query::ATLAS_QUERY_JSON_FILE
+            ));
+        }
         h.push_str("\n</main>\n");
         h.push_str(&self.site_footer());
         h.push_str("<ob-back-to-top></ob-back-to-top>\n");
@@ -937,6 +957,24 @@ impl<'a> Renderer<'a> {
         h.push_str("</body>\n</html>\n");
         // CDN first (it matches site-relative asset paths), then the base path for everything else.
         c.apply_base_path(&c.cdn.apply(&h))
+    }
+
+    /// Whether the post's concept links are enhanced with previews (ADR
+    /// 0206): it has a resolved link and the build writes the one file the
+    /// previews read, so a link never leads to a preview that cannot load.
+    fn concept_previews(&self, post: &Post) -> bool {
+        if !post.has_concept_links() || !post.html.contains(crate::concept_links::LINK_CLASS) {
+            return false;
+        }
+        *self.atlas_query_listed.get_or_init(|| {
+            let c = &self.site.config;
+            self.site.atlas.as_ref().is_some_and(|atlas| {
+                crate::atlas_query::AtlasQuery::project(atlas, &c.author.name, &c.base_path())
+                    .is_ok_and(|query| {
+                        c.apply_base_path(&query.to_json()).len() <= crate::atlas_query::MAX_BYTES
+                    })
+            })
+        })
     }
 
     /// Passage feedback on one post (ADR 0082): the feedback region, whose
@@ -1445,6 +1483,7 @@ impl<'a> Renderer<'a> {
             }),
             reader_references: None,
             citation_previews: None,
+            concept_previews: false,
             passage_data: None,
             participation_scripts: Vec::new(),
             atlas_timeline: false,
@@ -1910,6 +1949,7 @@ impl<'a> Renderer<'a> {
                     attr(summary.locale.go_to_words(summary.style))
                 )
             }),
+            concept_previews: self.concept_previews(post),
             theme,
             published: Some(post.date.rfc3339()),
             modified: post.updated.map(|u| u.rfc3339()),
@@ -3046,6 +3086,7 @@ impl<'a> Renderer<'a> {
             json_ld: None,
             reader_references: None,
             citation_previews: None,
+            concept_previews: false,
             passage_data: None,
             participation_scripts: Vec::new(),
             atlas_timeline: false,

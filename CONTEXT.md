@@ -1013,8 +1013,18 @@ the public atlas projection alone: a published entry becomes an ordinary link to
 anything else (a malformed id, an unknown, unapproved or withdrawn entry, or an atlas that is not
 published) becomes the label as plain text with a diagnostic for the author. Prose is never scanned,
 so only the occurrences the author links are linked, and a copy that leaves the site keeps the words
-without the link (ADR 0204).
+without the link (ADR 0204). It is underlined with dots and read as "(atlas entry)" (ADR 0205),
+and an `atlas:` link in an image description, a page, a series description or the home introduction
+is its label with a warning, never an address.
 _Avoid_: Automatic link, auto-link, entity recognition, wiki link
+
+**Entry preview**:
+The short card a progressive component shows beside a concept link: the entry's type, the line that
+it comes from the author's approved atlas, the first paragraph of its summary, a work's source and
+up to two relationships with who asserts them, how firmly and what is uncertain. It reads the public
+`atlas-query.json` alone and shows its wording unchanged; without JavaScript, or if the file cannot
+be read, the link is an ordinary link to the entry's page (ADR 0206).
+_Avoid_: Tooltip, hover card, entry summary popup, atlas widget
 
 **Atlas trail**:
 A bounded walk over published relationships from one entry, across either direction, each
