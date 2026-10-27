@@ -21,6 +21,7 @@ mod portable_export;
 mod private_guard;
 mod publish;
 mod readiness;
+mod reading_path_store;
 mod research_review;
 mod safe_http;
 mod scaffold;
@@ -746,6 +747,21 @@ fn user_command_with(
 }
 
 /// The checks `openblog check` has always printed, for a site that loaded.
+/// While `readingPaths.publish` is off, warn when path files exist beside a
+/// page or post that would collide with `/paths/` once it is switched on, so
+/// the author learns before the build refuses (ADR 0245). With it on the build
+/// refuses the collision itself, so there is nothing more to say here.
+fn reading_paths_warning(root: &std::path::Path, site: &openblog_core::Site) -> Option<String> {
+    if site.config.reading_paths.publish {
+        return None;
+    }
+    let stored = reading_path_store::list(root, &site.config.paths.content).ok()?;
+    if stored.is_empty() {
+        return None;
+    }
+    openblog_core::render::reading_paths_address_conflict(site)
+}
+
 fn check_site(
     root: &std::path::Path,
     site: &mut openblog_core::Site,
@@ -779,6 +795,9 @@ fn check_site(
     }
     for warning in portable_export::diagnostics(site)? {
         eprintln!("warning: portability: {warning}");
+    }
+    if let Some(warning) = reading_paths_warning(root, site) {
+        eprintln!("warning: {warning}");
     }
     serve::print_accessibility_findings(&site.accessibility);
     if own_lines {
@@ -1224,6 +1243,46 @@ fn revoke_shared_publication_bindings(root: &std::path::Path, name: &str) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn check_warns_before_reading_paths_are_switched_on_over_a_colliding_page() {
+        let root = std::env::temp_dir().join(format!(
+            "openblog-check-paths-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        scaffold::init(&root, Some("T"), false).unwrap();
+        std::fs::write(
+            root.join("content/pages/paths.md"),
+            "---
+title: Paths
+---
+Mine.
+",
+        )
+        .unwrap();
+        let load = || site::load_site(&root, false, None).unwrap().0;
+        // No path files: nothing to warn about, and the page works.
+        assert_eq!(reading_paths_warning(&root, &load()), None);
+        std::fs::create_dir_all(root.join("content/paths")).unwrap();
+        std::fs::write(root.join("content/paths/tour.json"), "{}").unwrap();
+        let warning = reading_paths_warning(&root, &load()).expect("a warning");
+        assert!(warning.contains("pages/paths.md") && warning.contains("readingPaths.publish"));
+        // Switched on, the build itself refuses, and the warning steps aside.
+        let mut config = site::load_config(&root).unwrap();
+        config.reading_paths.publish = true;
+        let mut site = load();
+        site.config = config;
+        assert_eq!(reading_paths_warning(&root, &site), None);
+        let mut themes_site = site::load_site(&root, false, None).unwrap();
+        themes_site.0.config.reading_paths.publish = true;
+        let refused = site::generate_site(&root, &mut themes_site.0, &themes_site.1);
+        assert!(refused.unwrap_err().contains("reserved"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn check_reports_the_private_notebook_only_when_it_is_stored() {

@@ -80,6 +80,8 @@ use crate::assistant::{
     ReviewSkill, SkillDefinition, SkillOutputKind, SkillScope, ASSISTANT_SCHEMA_VERSION,
     BUILTIN_SKILL_SOURCES,
 };
+mod reading_paths;
+
 use crate::atlas_store;
 use crate::auth::{self, Sessions, Throttle, Users};
 use crate::claims_store;
@@ -670,6 +672,14 @@ fn authenticated_api(
         ("POST", "research/alignments") => save_alignment(state, req, true),
         ("PUT", "research/alignments") => save_alignment(state, req, false),
         ("DELETE", "research/alignments") => remove_alignment_item(state, req),
+        ("GET", "reading-paths") => reading_paths::list(state),
+        ("GET", "reading-paths/targets") => reading_paths::targets(state),
+        ("GET", "reading-paths/path") => reading_paths::get(state, req),
+        ("POST", "reading-paths/preview") => reading_paths::preview(state, req),
+        ("POST", "reading-paths/reorder") => reading_paths::reorder(state, req),
+        ("POST", "reading-paths") => reading_paths::save(state, req, true),
+        ("PUT", "reading-paths") => reading_paths::save(state, req, false),
+        ("DELETE", "reading-paths") => reading_paths::remove(state, req),
         ("GET", "assistant/status") => assistant_status(state),
         ("GET", "assistant/settings") => assistant_settings(state),
         ("PUT", "assistant/settings") => save_assistant_settings(state, req),
@@ -16480,6 +16490,8 @@ fn xml_attribute<'a>(tag: &'a str, key: &str) -> Option<&'a str> {
 
 #[cfg(test)]
 mod tests {
+    mod reading_path_routes;
+
     use super::*;
     use crate::scaffold;
     use std::collections::{BTreeSet, HashMap};

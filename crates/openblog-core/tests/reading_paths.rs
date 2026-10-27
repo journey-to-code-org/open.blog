@@ -949,3 +949,16 @@ Mine."
     let e = build(true).unwrap_err();
     assert!(e.contains("paths") && e.contains("reserved"), "{e}");
 }
+
+#[test]
+fn a_hostile_step_id_is_named_by_position_and_never_echoed() {
+    let e = errors(draft(json!([
+        post_step("<script>alert(1)</script>", "other"),
+        post_step("b", "other"),
+    ])));
+    assert!(e.contains("step `#1`") && !e.contains("script"), "{e}");
+    assert!(
+        e.contains("step `b`: points at the same post as step `#1`"),
+        "{e}"
+    );
+}

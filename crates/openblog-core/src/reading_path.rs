@@ -325,7 +325,13 @@ impl std::fmt::Display for PathProblem {
     }
 }
 
-pub(crate) fn is_ascii_slug(value: &str) -> bool {
+/// Whether `value` is a path slug or step id: lowercase ASCII letters, digits
+/// and single hyphens, at most [`MAX_ID_BYTES`] bytes.
+pub fn valid_slug(value: &str) -> bool {
+    is_ascii_slug(value)
+}
+
+fn is_ascii_slug(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= MAX_ID_BYTES
         && !value.starts_with('-')
@@ -864,10 +870,17 @@ fn check_steps(steps: &[Step], published: bool, file: &str, problems: &mut Vec<P
     let mut targets: BTreeMap<String, String> = BTreeMap::new();
     for (index, step) in steps.iter().enumerate() {
         let id = step.id.as_str();
+        // A step is named by its id only when that is a plain slug, so a
+        // hostile id is never echoed in a message.
+        let label = if is_ascii_slug(id) {
+            id.to_string()
+        } else {
+            format!("#{}", index + 1)
+        };
         let mut at = |message: String| {
             problems.push(PathProblem {
                 file: file.to_string(),
-                step: Some(id.to_string()),
+                step: Some(label.clone()),
                 message,
             })
         };
@@ -887,7 +900,7 @@ fn check_steps(steps: &[Step], published: bool, file: &str, problems: &mut Vec<P
             }
             _ => {}
         }
-        if let Some(first) = targets.insert(step.target.key(), id.to_string()) {
+        if let Some(first) = targets.insert(step.target.key(), label.clone()) {
             at(format!(
                 "points at the same {} as step `{first}`; a path never returns to a step",
                 step.target.noun()

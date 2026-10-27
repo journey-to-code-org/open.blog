@@ -744,6 +744,29 @@ pub fn generate_document(
     })
 }
 
+/// What stops `readingPaths.publish` from being switched on: a page or a post
+/// whose address is under `/paths/`. `None` when nothing collides. The build
+/// refuses the same collision while the switch is on; `check` uses this to
+/// warn before it is.
+pub fn reading_paths_address_conflict(site: &Site) -> Option<String> {
+    let segment = crate::reading_path::PATHS_SEGMENT;
+    if let Some(page) = site.pages.iter().find(|page| page.slug == segment) {
+        return Some(format!(
+            "{}: the page slug `{segment}` would collide with `/paths/`; rename the page before switching on `readingPaths.publish`",
+            page.source
+        ));
+    }
+    site.posts
+        .iter()
+        .find(|post| post.url.trim_start_matches('/').split('/').next() == Some(segment))
+        .map(|post| {
+            format!(
+                "{}: the post URL `{}` would collide with `/paths/`; adjust `postPath` or the slug before switching on `readingPaths.publish`",
+                post.source, post.url
+            )
+        })
+}
+
 fn validate_output_paths(site: &Site) -> Result<(), String> {
     // `atlas` is reserved only while the site publishes its atlas, so an
     // existing page or post at `/atlas/` keeps working until then. The switch,
