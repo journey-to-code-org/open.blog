@@ -1180,6 +1180,58 @@ its ISBN-13, a PMCID with its prefix upper-cased). It is only compared, never wr
 record keeps the identifier as written.
 _Avoid_: Normalizing, deduplicating, merging
 
+## Curated research context
+
+These terms describe how an author chooses which already-publishable research context readers are
+given. They never describe whether research is true, agreed or fit to publish.
+
+**Curated selection**:
+The author's explicit choice of one publishable research item (or their own attributed words about
+one), kept in the private `selections.json` with the revision it was made against and the public
+fields it lists. A selection is one more projection under the publication boundary: it adds no
+approval, and publishes nothing the atlas, comparison and citation projections do not.
+_Avoid_: Approval, publishing a note, a second atlas
+
+**Selection kind**:
+What a selection selects: reference, contextual entry, relationship, timeline (one dating),
+comparison, source annotation or explanation. The kinds keep the research model's distinctions
+(work, edition, translation, witness, reference, citation, claim, evidence, interpretation,
+contextual entry) apart; selecting a work never selects its versions.
+_Avoid_: Treating a reference as a citation, a note as an annotation
+
+**Selected revision**:
+The fingerprint of the selected public item and of the public context it brings, recorded when it
+was selected. When it no longer matches, the selection is stale and is withheld until the author
+checks the item and selects it again.
+_Avoid_: Auto-updating a selection, publishing the old version
+
+**Selected fields**:
+The public fields a selection lists. Each kind always lists its attribution, uncertainty and
+evidence (a relationship always carries who asserts it, how firmly, on what evidence, and who
+disputes it); the rest are chosen one by one.
+_Avoid_: Dropping a dispute or a doubt to make a selection shorter
+
+**Context item**:
+An approved dependency published with a selection so a reader can understand it: a relationship's
+endpoint entries and cited sources, a dating's owner, a comparison's versions. It is the minimum
+the projections already publish and says which selections need it.
+_Avoid_: Publishing everything linked from a selection
+
+**Selection provenance**:
+Where the selected metadata came from, as the author states it: authored, imported (from a named
+origin) or unrecorded. Never inferred; a detail the source lacks is listed as missing, not filled.
+_Avoid_: Defaulting to authored, placeholder values
+
+**Withdrawn selection**:
+A selection the author withdrew: the record stays, nothing is published, and selecting it again
+records the current revision. Unselecting removes the record. Neither changes the research.
+_Avoid_: Deleting research to withdraw it
+
+**Selection requirement**:
+A selection that must be published with another. A withheld or unknown requirement withholds the
+dependant; a cycle withholds every selection on it. Each failure is scoped to its selection.
+_Avoid_: Cascading deletes
+
 ## Reader participation
 
 These terms describe how readers point at published text, where their feedback came from, and

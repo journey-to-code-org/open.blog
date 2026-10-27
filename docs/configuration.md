@@ -47,6 +47,7 @@ default, so you can edit values in place and delete the ones you do not need.
   "knowledgeAtlas": { "publish": false },
   "claimEvidence": { "publish": false },
   "comparisons": { "publish": false },
+  "curatedContext": { "publish": false },
   "readingModes": { "default": "standard" }
 }
 ```
@@ -303,6 +304,18 @@ the alignments file; clearing an approval removes the comparison from the next b
 atlas, the alignments file is private and Git-ignored, so only a build that can read it publishes
 comparisons, and `build` and `check` warn when it cannot. See the
 [passage alignments format](specs/passage-alignments.md#publication).
+
+## Curated research context
+
+`curatedContext.publish` (off by default) turns on the curated-selection projection: Admin's
+**What will be public** (and the build's research summary) then lists what your private
+`.openblog/private/research/selections.json` would give readers and why anything is withheld.
+A selection can only pick what the atlas, comparison and source projections already publish; it
+never approves private research, never copies a note, and lists exactly the fields readers get.
+A selection goes stale when what it selects, or anything it needs, changes, and stays withheld
+until you check it and select it again. The file is private and Git-ignored with the other research
+files. While the switch and the file are both absent, nothing changes. See
+[ADR 0215](adr/0215-curated-research-context-is-one-more-projection-that-selects-only-what-the-other-projections-publish.md).
 
 ## Reading modes
 

@@ -3,6 +3,21 @@
 All notable changes to open.blog are recorded here. Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+- Curated research context: a new private file, `.openblog/private/research/selections.json`,
+  lets you select which approved sources, entries, relationships, datings and comparisons (and
+  your own attributed comments on a source or an entry) readers may be given, each with the
+  revision you saw and the public fields you list. Selecting never approves anything: only what
+  the atlas, comparison and citation projections already publish can be selected, a relationship
+  brings its endpoints and cited sources, its attribution, doubt and dissent always travel with
+  it, imported metadata is published with the origin you stated or as unrecorded, and a missing
+  detail is listed, never invented. A selection that is withdrawn, stale (what it selects changed),
+  missing, unapproved, cyclic or rights-restricted is withheld on its own with a reason naming ids
+  only. `curatedContext.publish` (off by default) adds a "Curated for readers" section to Admin's
+  What will be public; a site without it, or without the file, builds exactly as before. Pages and
+  the Admin curation surface follow in later releases.
+
 ## [0.42.0] - 2026-10-26
 
 - The research checks now have author documentation, [Research checks](docs/research-checks.md),
