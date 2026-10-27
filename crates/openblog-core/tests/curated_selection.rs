@@ -3,7 +3,7 @@
 //! relationship brings its approved endpoint context and provenance, and
 //! private research never reaches the curated projection.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use openblog_core::alignment::AlignmentSet;
 use openblog_core::atlas_publication::PublicAtlas;
@@ -35,7 +35,8 @@ fn library_value() -> Value {
         {"id": "grube", "kind": "translation", "of": "republic", "title": "Republic", "language": "en",
          "rights": {"status": "rightsReserved", "note": format!("{PRIVATE} rights note")}},
         {"id": "scholar", "kind": "work", "title": "A study of the dialogues"},
-        {"id": "undated", "kind": "work", "title": "Undated"}
+        {"id": "undated", "kind": "work", "title": "Undated"},
+        {"id": "diary", "kind": "work", "title": format!("{PRIVATE} diary")}
     ]})
 }
 
@@ -102,6 +103,9 @@ struct World {
     public_atlas: PublicAtlas,
     comparisons: PublicComparisons,
     existing: Existing,
+    /// Cited by a published post, atlas-published or comparison-published.
+    public_sources: BTreeSet<String>,
+    posts: BTreeSet<String>,
 }
 
 fn alignments_value() -> Value {
@@ -148,12 +152,22 @@ fn world_with(library_value: &Value, atlas_value: &Value) -> World {
     )
     .expect("comparisons");
     let existing = Existing::of(Some(&atlas), Some(&set));
+    // `undated` is public only because a published post cites it.
+    let public_sources = public_atlas
+        .sources
+        .iter()
+        .chain(&comparisons.sources)
+        .map(|source| source.reference.key.clone())
+        .chain(["undated".to_string()])
+        .collect();
     World {
         library,
         atlas,
         public_atlas,
         comparisons,
         existing,
+        public_sources,
+        posts: ["cave".to_string(), "other".to_string()].into(),
     }
 }
 
@@ -168,6 +182,8 @@ impl World {
             comparisons: Some(&self.comparisons),
             library: Some(&self.library),
             existing: Some(&self.existing),
+            public_sources: Some(&self.public_sources),
+            posts: Some(&self.posts),
         }
     }
 }
@@ -392,6 +408,8 @@ fn cycles_and_withheld_requirements_are_scoped_to_their_selections() {
             .find(|s| &s.id == id)
             .unwrap()
             .requires = vec![requires.clone()];
+        // Requirements are part of what was selected: check, then select again.
+        set.reselect(id, &w.basis()).unwrap();
     }
     let resolution = resolve(&set, &w.basis());
     let why = |id: &str| resolution.withheld.iter().find(|w| w.id == id).unwrap().why;
@@ -407,6 +425,7 @@ fn cycles_and_withheld_requirements_are_scoped_to_their_selections() {
         .find(|s| s.id == d)
         .unwrap()
         .requires = vec!["nope".into()];
+    set.reselect(&d, &w.basis()).unwrap();
     let resolution = resolve(&set, &w.basis());
     assert!(resolution
         .withheld
@@ -802,20 +821,18 @@ fn the_boundary_manifest_gains_one_projection_only_when_curating() {
     // The curated report names ids; never private labels or text.
     assert!(!serde_json::to_string(report).unwrap().contains(PRIVATE));
 
-    // The switch off: the file's selections are listed, all withheld.
+    // The switch off: whatever the file holds, the manifest does not mention it.
     let mut off = inputs(false);
     off.curation = Some(&curation);
     let manifest = BoundaryManifest::site(&off);
-    let report = manifest
+    assert!(manifest
         .projections
         .iter()
-        .find(|p| p.projection == Projection::Curated)
-        .unwrap();
-    assert!(!report.enabled && report.published.is_empty());
-    assert!(report
-        .withheld
+        .all(|p| p.projection != Projection::Curated));
+    assert!(manifest
+        .never
         .iter()
-        .all(|i| i.reason == Reason::ProjectionOff));
+        .all(|n| n.file != openblog_core::curated_selection::SELECTIONS_FILE));
 }
 
 #[test]
@@ -833,4 +850,823 @@ fn selection_ids_in_diagnostics_never_carry_private_text() {
     assert_eq!(resolution.withheld[0].why, Why::Stale);
     assert!(!resolution.withheld[0].message.contains(PRIVATE));
     assert!(resolution.withheld[0].message.contains(&sel.id));
+}
+
+// ---------------------------------------------------------------- review fixes (#192)
+
+fn mutate<'a>(set: &'a mut SelectionSet, id: &str) -> &'a mut Selection {
+    set.selections.iter_mut().find(|s| s.id == id).unwrap()
+}
+
+fn why_of(resolution: &openblog_core::curated_selection::Resolution, id: &str) -> Why {
+    resolution
+        .withheld
+        .iter()
+        .find(|w| w.id == id)
+        .unwrap_or_else(|| panic!("{id} is not withheld"))
+        .why
+}
+
+#[test]
+fn a_reference_or_annotation_may_select_only_a_source_that_is_already_public() {
+    let w = world();
+    assert!(!w.public_sources.contains("diary"));
+    let mut set = SelectionSet::default();
+    for (kind, text) in [
+        (SelectionKind::Reference, None),
+        (SelectionKind::SourceAnnotation, Some("A comment.")),
+    ] {
+        let problems = set
+            .select(
+                NewSelection {
+                    text: text.map(Into::into),
+                    by: text.map(|_| "The author".into()),
+                    ..pick(kind, "diary")
+                },
+                &w.basis(),
+            )
+            .unwrap_err();
+        assert_eq!(problems[0].code, Code::TargetNotPublished, "{kind:?}");
+        assert!(problems[0].message.contains("stays private"));
+        assert!(!problems[0].message.contains(PRIVATE));
+    }
+    assert!(set.selections.is_empty());
+    // Public through any of the three routes it is selectable.
+    for target in ["scholar", "grube", "undated"] {
+        assert!(w.public_sources.contains(target), "{target}");
+        set.select(pick(SelectionKind::Reference, target), &w.basis())
+            .unwrap();
+    }
+
+    // A source that stops being public withholds the selection, naming the
+    // rule, and nothing is published of it.
+    let mut stored = set.clone();
+    let mut later = w.public_sources.clone();
+    later.remove("undated");
+    let basis = openblog_core::curated_selection::Basis {
+        public_sources: Some(&later),
+        ..w.basis()
+    };
+    let resolution = resolve(&stored, &basis);
+    let id = stored
+        .selections
+        .iter()
+        .find(|s| s.target == "undated")
+        .unwrap()
+        .id
+        .clone();
+    assert_eq!(why_of(&resolution, &id), Why::SourcePrivate);
+    assert!(resolution
+        .curation
+        .items
+        .iter()
+        .all(|i| i.target != "undated"));
+    // With no known public sources nothing of a library is selectable.
+    let nothing = openblog_core::curated_selection::Basis {
+        public_sources: None,
+        ..w.basis()
+    };
+    assert!(stored
+        .select(pick(SelectionKind::Reference, "burnet"), &nothing)
+        .is_err());
+}
+
+#[test]
+fn caveats_that_are_not_withheld_fields_travel_with_the_published_item() {
+    let w = world();
+    let mut set = SelectionSet::default();
+    let dating = select(&mut set, &w, pick(SelectionKind::Timeline, "plato-birth-a"));
+    let reference = select(
+        &mut set,
+        &w,
+        NewSelection {
+            optional_fields: vec!["issued".into()],
+            ..pick(SelectionKind::Reference, "undated")
+        },
+    );
+    let resolution = resolve(&set, &w.basis());
+    let item = |id: &str| {
+        resolution
+            .curation
+            .items
+            .iter()
+            .find(|i| i.id == id)
+            .unwrap()
+    };
+    let codes = |id: &str| -> Vec<NoticeCode> { item(id).notices.iter().map(|n| n.code).collect() };
+    assert_eq!(codes(&dating), vec![NoticeCode::CompetingUnselected]);
+    assert!(item(&dating).notices[0].message.contains("plato-birth-b"));
+    assert!(codes(&reference).contains(&NoticeCode::MissingDetail));
+    assert!(codes(&reference).contains(&NoticeCode::ProvenanceUnrecorded));
+    // The withheld-field notices are not repeated on the item.
+    let mut with_identifiers = SelectionSet::default();
+    select(
+        &mut with_identifiers,
+        &w,
+        NewSelection {
+            optional_fields: vec!["identifiers".into()],
+            ..pick(SelectionKind::Reference, "republic")
+        },
+    );
+    let resolution = resolve(&with_identifiers, &w.basis());
+    assert!(resolution.curation.items[0]
+        .notices
+        .iter()
+        .all(|n| n.code.travels_with_item()));
+    assert!(!serde_json::to_string(&resolution.curation.items)
+        .unwrap()
+        .contains("localhost"));
+}
+
+#[test]
+fn the_manifest_lists_the_caveats_and_a_competing_dating_is_a_boundary_warning() {
+    let w = world();
+    let mut set = SelectionSet::default();
+    select(&mut set, &w, pick(SelectionKind::Timeline, "plato-birth-a"));
+    let resolution = resolve(&set, &w.basis());
+    let curation = CurationInput {
+        set: &set,
+        resolution: &resolution,
+    };
+    let inputs = BoundaryInputs {
+        switches: Switches {
+            curated: true,
+            ..Switches::default()
+        },
+        posts: &[],
+        public_atlas: Some(&w.public_atlas),
+        atlas_blocked: None,
+        public_comparisons: Some(&w.comparisons),
+        comparisons_blocked: None,
+        claims_blocked: None,
+        library: Some(&w.library),
+        notebook: None,
+        atlas: Some(&w.atlas),
+        claims: None,
+        alignments: None,
+        stale_comparisons: None,
+        acknowledgements: None,
+        curation: Some(&curation),
+        unavailable: &[],
+    };
+    let manifest = BoundaryManifest::site(&inputs);
+    let report = manifest
+        .projections
+        .iter()
+        .find(|p| p.projection == Projection::Curated)
+        .unwrap();
+    let item = report
+        .published
+        .iter()
+        .find(|i| i.kind == ItemKind::Selection)
+        .unwrap();
+    assert_eq!(item.notices.len(), 1);
+    let json = serde_json::to_value(item).unwrap();
+    assert_eq!(json["notices"][0]["code"], json!("competing-unselected"));
+    assert!(manifest
+        .build_warnings()
+        .iter()
+        .any(|w| w.starts_with("boundary: ") && w.contains("plato-birth-b")));
+    // The switch off: no curated projection and no mention of the file.
+    let off = BoundaryManifest::site(&BoundaryInputs {
+        switches: Switches::default(),
+        ..inputs
+    });
+    assert!(off
+        .projections
+        .iter()
+        .all(|p| p.projection != Projection::Curated));
+    assert!(off
+        .never
+        .iter()
+        .all(|n| n.file != openblog_core::curated_selection::SELECTIONS_FILE));
+}
+
+#[test]
+fn a_selection_is_for_the_site_or_for_named_published_posts_in_the_author_s_order() {
+    let w = world();
+    let mut set = SelectionSet::default();
+    let site_wide = select(
+        &mut set,
+        &w,
+        pick(SelectionKind::ContextualEntry, "academy"),
+    );
+    let third = select(
+        &mut set,
+        &w,
+        NewSelection {
+            posts: Some(vec!["cave".into()]),
+            position: Some(3),
+            ..pick(SelectionKind::ContextualEntry, "plato")
+        },
+    );
+    let first = select(
+        &mut set,
+        &w,
+        NewSelection {
+            posts: Some(vec!["cave".into(), "other".into()]),
+            position: Some(1),
+            ..pick(SelectionKind::Reference, "scholar")
+        },
+    );
+    let unplaced = select(
+        &mut set,
+        &w,
+        NewSelection {
+            posts: Some(vec!["cave".into()]),
+            ..pick(SelectionKind::ContextualEntry, "republic")
+        },
+    );
+    let elsewhere = select(
+        &mut set,
+        &w,
+        NewSelection {
+            posts: Some(vec!["other".into()]),
+            position: Some(1),
+            ..pick(SelectionKind::Reference, "undated")
+        },
+    );
+    let resolution = resolve(&set, &w.basis());
+    // Whole-site items first, then by (first post, position, id).
+    let order: Vec<&str> = resolution
+        .curation
+        .items
+        .iter()
+        .map(|i| i.id.as_str())
+        .collect();
+    assert_eq!(
+        order,
+        vec![
+            site_wide.as_str(),
+            first.as_str(),
+            third.as_str(),
+            unplaced.as_str(),
+            elsewhere.as_str()
+        ]
+    );
+    let ids = |post: &str| -> Vec<&str> {
+        resolution
+            .curation
+            .for_post(post)
+            .iter()
+            .map(|i| i.id.as_str())
+            .collect()
+    };
+    // A post gets the whole-site items and its own, by position then id; an
+    // unpositioned item is last.
+    assert_eq!(
+        ids("cave"),
+        vec![
+            first.as_str(),
+            third.as_str(),
+            site_wide.as_str(),
+            unplaced.as_str()
+        ]
+    );
+    assert_eq!(
+        ids("other"),
+        vec![first.as_str(), elsewhere.as_str(), site_wide.as_str()]
+    );
+    assert_eq!(ids("none").len(), 1, "only the whole-site item");
+    // Deterministic whatever the order of the file.
+    let mut shuffled = set.clone();
+    shuffled.selections.reverse();
+    assert_eq!(
+        serde_json::to_string(&resolve(&shuffled, &w.basis()).curation).unwrap(),
+        serde_json::to_string(&resolution.curation).unwrap()
+    );
+}
+
+#[test]
+fn a_record_without_posts_or_position_is_site_wide_and_written_unchanged() {
+    let w = world();
+    let mut set = SelectionSet::default();
+    select(&mut set, &w, pick(SelectionKind::ContextualEntry, "plato"));
+    let text = set.to_json();
+    assert!(
+        !text.contains("posts") && !text.contains("position"),
+        "{text}"
+    );
+    let parsed = SelectionSet::parse(&text).unwrap();
+    assert_eq!(parsed.selections[0].posts, None);
+    assert_eq!(parsed.to_json(), text, "byte for byte");
+    let resolution = resolve(&parsed, &w.basis());
+    let item = &resolution.curation.items[0];
+    assert!(item.posts.is_empty() && item.position.is_none());
+    let json = serde_json::to_value(item).unwrap();
+    assert!(json.get("posts").is_none() && json.get("position").is_none());
+    assert_eq!(resolution.curation.for_post("any-post").len(), 1);
+}
+
+#[test]
+fn a_selection_never_names_a_post_the_build_does_not_publish() {
+    let w = world();
+    let mut set = SelectionSet::default();
+    let id = select(
+        &mut set,
+        &w,
+        NewSelection {
+            posts: Some(vec!["cave".into(), "secret-draft".into()]),
+            ..pick(SelectionKind::ContextualEntry, "plato")
+        },
+    );
+    let resolution = resolve(&set, &w.basis());
+    assert_eq!(resolution.curation.items[0].posts, vec!["cave"]);
+    assert!(!serde_json::to_string(&resolution.curation)
+        .unwrap()
+        .contains("secret-draft"));
+    // When none of its posts is published it publishes nothing at all.
+    let mut drafts = BTreeSet::new();
+    drafts.insert("another".to_string());
+    let basis = openblog_core::curated_selection::Basis {
+        posts: Some(&drafts),
+        ..w.basis()
+    };
+    let resolution = resolve(&set, &basis);
+    assert!(resolution.curation.items.is_empty());
+    assert_eq!(why_of(&resolution, &id), Why::PostNotPublished);
+    assert!(!resolution.withheld[0].message.contains("secret-draft"));
+    // And with no known published post, a scoped selection waits.
+    let none = openblog_core::curated_selection::Basis {
+        posts: None,
+        ..w.basis()
+    };
+    assert!(resolve(&set, &none).curation.items.is_empty());
+
+    for bad in [
+        vec![],
+        vec!["a".to_string(), "a".to_string()],
+        vec!["../x".to_string()],
+    ] {
+        let problems = SelectionSet::default()
+            .select(
+                NewSelection {
+                    posts: Some(bad),
+                    ..pick(SelectionKind::ContextualEntry, "plato")
+                },
+                &w.basis(),
+            )
+            .unwrap_err();
+        assert_eq!(problems[0].code, Code::BadPosts);
+    }
+}
+
+#[test]
+fn the_revision_covers_every_choice_the_author_made() {
+    let w = world();
+    let mut set = SelectionSet::default();
+    let id = select(
+        &mut set,
+        &w,
+        NewSelection {
+            optional_fields: vec!["summary".into()],
+            ..pick(SelectionKind::ContextualEntry, "plato")
+        },
+    );
+    let other = select(
+        &mut set,
+        &w,
+        pick(SelectionKind::ContextualEntry, "academy"),
+    );
+    assert!(resolve(&set, &w.basis()).withheld.is_empty());
+    type Edit = Box<dyn Fn(&mut Selection)>;
+    let edits: Vec<(&str, Edit)> = vec![
+        ("fields", Box::new(|s| s.fields.retain(|f| f != "summary"))),
+        (
+            "provenance",
+            Box::new(|s| s.provenance = Provenance::Authored),
+        ),
+        ("requires", Box::new(|s| s.requires = vec!["other".into()])),
+        ("posts", Box::new(|s| s.posts = Some(vec!["cave".into()]))),
+        ("position", Box::new(|s| s.position = Some(2))),
+    ];
+    for (name, edit) in edits {
+        let mut changed = set.clone();
+        edit(mutate(&mut changed, &id));
+        let resolution = resolve(&changed, &w.basis());
+        assert_eq!(why_of(&resolution, &id), Why::Stale, "{name}");
+    }
+    // The pairs are explicit and length-prefixed: moving a character between
+    // two chosen values changes the revision.
+    let mut a = set.clone();
+    mutate(&mut a, &other).requires = vec![id.clone()];
+    a.reselect(&other, &w.basis()).unwrap();
+    let mut b = set.clone();
+    mutate(&mut b, &other).posts = Some(vec![id.clone()]);
+    b.reselect(&other, &w.basis()).unwrap();
+    assert_ne!(
+        a.get(&other).unwrap().revision,
+        b.get(&other).unwrap().revision
+    );
+}
+
+#[test]
+fn an_unlisted_locator_is_dropped_and_a_listed_one_is_published_and_revision_checked() {
+    let w = world();
+    let mut set = SelectionSet::default();
+    let plain = select(
+        &mut set,
+        &w,
+        NewSelection {
+            text: Some("A comment.".into()),
+            by: Some("The author".into()),
+            locator: Some("514a".into()),
+            ..pick(SelectionKind::SourceAnnotation, "burnet")
+        },
+    );
+    let with = select(
+        &mut set,
+        &w,
+        NewSelection {
+            id: Some("annotation-located".into()),
+            optional_fields: vec!["locator".into()],
+            text: Some("A comment.".into()),
+            by: Some("The author".into()),
+            locator: Some("514a".into()),
+            ..pick(SelectionKind::SourceAnnotation, "burnet")
+        },
+    );
+    let resolution = resolve(&set, &w.basis());
+    let content = |id: &str| {
+        &resolution
+            .curation
+            .items
+            .iter()
+            .find(|i| i.id == id)
+            .unwrap()
+            .content
+    };
+    assert!(!content(&plain).contains_key("locator"));
+    assert_eq!(content(&with)["locator"], json!("514a"));
+    // An unlisted locator is not part of the revision; a listed one is.
+    mutate(&mut set, &plain).locator = Some("515b".into());
+    mutate(&mut set, &with).locator = Some("515b".into());
+    let resolution = resolve(&set, &w.basis());
+    assert!(resolution.withheld.iter().all(|h| h.id != plain));
+    assert_eq!(why_of(&resolution, &with), Why::Stale);
+}
+
+#[test]
+fn a_relationship_owned_dating_names_a_relationship_not_an_entry() {
+    let mut atlas = atlas_value();
+    atlas["relationships"][1]["dates"] = json!([dating("member-span", "span", -387, "scholar")]);
+    let w = world_with(&library_value(), &atlas);
+    let mut set = SelectionSet::default();
+    let id = select(&mut set, &w, pick(SelectionKind::Timeline, "member-span"));
+    let resolution = resolve(&set, &w.basis());
+    let kinds: Vec<(ContextKind, &str)> = resolution
+        .curation
+        .context
+        .iter()
+        .map(|c| (c.kind, c.id.as_str()))
+        .collect();
+    assert!(
+        kinds.contains(&(ContextKind::Relationship, "r-member")),
+        "{kinds:?}"
+    );
+    assert!(kinds.contains(&(ContextKind::Entry, "plato")));
+    // Taking the relationship away says "relationship", not "entry".
+    let mut hidden = atlas.clone();
+    hidden["relationships"][1]["visibility"] = json!("private");
+    let h = world_with(&library_value(), &hidden);
+    let resolution = resolve(&set, &h.basis());
+    assert!(resolution.curation.items.is_empty());
+    let message = &resolution
+        .withheld
+        .iter()
+        .find(|w| w.id == id)
+        .unwrap()
+        .message;
+    assert!(!message.contains("entry `r-member`"), "{message}");
+}
+
+#[test]
+fn a_store_that_was_not_read_is_not_published_never_missing() {
+    let w = world();
+    let mut set = SelectionSet::default();
+    for (kind, target) in [
+        (SelectionKind::ContextualEntry, "plato"),
+        (SelectionKind::Relationship, "r-authored"),
+        (SelectionKind::Timeline, "plato-birth-a"),
+        (SelectionKind::Comparison, "cave"),
+        (SelectionKind::Reference, "scholar"),
+    ] {
+        select(&mut set, &w, pick(kind, target));
+    }
+    // Nothing was read: not the atlas, not the alignments, not the library.
+    let none = Existing::of(None, None);
+    let basis = openblog_core::curated_selection::Basis {
+        existing: Some(&none),
+        ..Basis::default()
+    };
+    let resolution = resolve(&set, &basis);
+    assert_eq!(resolution.withheld.len(), 5);
+    assert!(
+        resolution
+            .withheld
+            .iter()
+            .all(|h| h.why == Why::NotPublished),
+        "{:?}",
+        resolution.withheld
+    );
+    // One store read and another not: each is told on its own.
+    let atlas_only = Existing::of(Some(&w.atlas), None);
+    let basis = openblog_core::curated_selection::Basis {
+        existing: Some(&atlas_only),
+        library: Some(&w.library),
+        ..Basis::default()
+    };
+    let resolution = resolve(&set, &basis);
+    let why = |target: &str| {
+        resolution
+            .withheld
+            .iter()
+            .find(|h| h.target == target)
+            .unwrap()
+            .why
+    };
+    assert_eq!(why("plato"), Why::NotApproved, "read, and exists");
+    assert_eq!(why("cave"), Why::NotPublished, "alignments not read");
+    // Deleted from a store that was read is missing.
+    let mut gone = atlas_value();
+    gone["entries"].as_array_mut().unwrap().remove(0);
+    gone["relationships"] = json!([]);
+    let g = world_with(&library_value(), &gone);
+    let existing = Existing::of(Some(&g.atlas), None);
+    let basis = openblog_core::curated_selection::Basis {
+        existing: Some(&existing),
+        ..Basis::default()
+    };
+    let resolution = resolve(&set, &basis);
+    assert_eq!(
+        resolution
+            .withheld
+            .iter()
+            .find(|h| h.target == "plato")
+            .unwrap()
+            .why,
+        Why::TargetMissing
+    );
+}
+
+#[test]
+fn derived_ids_never_collide_and_stay_slugs() {
+    // Two long source ids that differ only at the end: the readable form is
+    // cut at the id limit, so only the appended hash tells them apart.
+    let (long_a, long_b) = (
+        format!("{}a", "q".repeat(63)),
+        format!("{}b", "q".repeat(63)),
+    );
+    let mut library = library_value();
+    library["sources"].as_array_mut().unwrap().extend([
+        json!({"id": long_a, "kind": "work", "title": "One"}),
+        json!({"id": long_b, "kind": "work", "title": "Two"}),
+    ]);
+    let w = world_with(&library, &atlas_value());
+    let mut public = w.public_sources.clone();
+    public.extend([long_a.clone(), long_b.clone()]);
+    let basis = openblog_core::curated_selection::Basis {
+        public_sources: Some(&public),
+        ..w.basis()
+    };
+    let mut set = SelectionSet::default();
+    let one = set
+        .select(pick(SelectionKind::Reference, &long_a), &basis)
+        .unwrap();
+    let two = set
+        .select(pick(SelectionKind::Reference, &long_b), &basis)
+        .unwrap();
+    assert_ne!(one, two, "the same readable form, different ids");
+    // Deterministic, and the same kind of id for a short target.
+    let again = SelectionSet::default()
+        .select(pick(SelectionKind::Reference, &long_a), &basis)
+        .unwrap();
+    assert_eq!(one, again);
+    let short = set
+        .select(pick(SelectionKind::Reference, "scholar"), &basis)
+        .unwrap();
+    assert!(short.starts_with("reference-scholar-"), "{short}");
+    for id in [&one, &two, &short] {
+        assert!(
+            id.len() <= 64
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+                && !id.starts_with('-')
+                && !id.contains("--"),
+            "{id}"
+        );
+    }
+    SelectionSet::parse(&set.to_json()).unwrap();
+}
+
+#[test]
+fn contributor_credits_stay_in_sidecars_in_every_store_including_this_one() {
+    let w = world();
+    let mut set = SelectionSet::default();
+    select(&mut set, &w, pick(SelectionKind::ContextualEntry, "plato"));
+    for key in ["credit", "credits", "contributor", "contributors"] {
+        let mut record: Value = serde_json::from_str(&set.to_json()).unwrap();
+        record["selections"][0][key] = json!([{"name": format!("{PRIVATE} person")}]);
+        let problems = SelectionSet::parse(&record.to_string()).unwrap_err();
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.code == Code::ContributorCredit && p.field.as_deref() == Some(key)),
+            "{key}: {problems:?}"
+        );
+        assert!(problems.iter().all(|p| !p.message.contains(PRIVATE)));
+        let mut root: Value = serde_json::from_str(&set.to_json()).unwrap();
+        root[key] = json!("someone");
+        assert!(SelectionSet::parse(&root.to_string())
+            .unwrap_err()
+            .iter()
+            .any(|p| p.code == Code::ContributorCredit));
+    }
+}
+
+#[test]
+fn requires_is_capped_and_a_hostile_file_resolves_in_linear_time() {
+    use openblog_core::curated_selection::MAX_REQUIRES;
+    let w = world();
+    let mut record = SelectionSet::default();
+    let id = select(
+        &mut record,
+        &w,
+        pick(SelectionKind::ContextualEntry, "plato"),
+    );
+    mutate(&mut record, &id).requires = (0..=MAX_REQUIRES).map(|n| format!("r{n}")).collect();
+    let problems = SelectionSet::parse(&record.to_json()).unwrap_err();
+    assert!(problems.iter().any(|p| p.code == Code::BadRequires));
+
+    // 5,000 current selections, each requiring the next 32 (the most the cap
+    // allows).
+    let count = openblog_core::curated_selection::MAX_SELECTIONS;
+    let chain = |closed: bool| {
+        let mut set = SelectionSet::default();
+        let mut template = {
+            let mut one = SelectionSet::default();
+            select(&mut one, &w, pick(SelectionKind::ContextualEntry, "plato"));
+            one.selections.remove(0)
+        };
+        for i in 0..count {
+            template.id = format!("s{i}");
+            template.requires = (1..=MAX_REQUIRES)
+                .filter_map(|d| {
+                    let next = i + d;
+                    if next < count {
+                        Some(next)
+                    } else {
+                        closed.then_some(next % count)
+                    }
+                })
+                .filter(|next| *next != i)
+                .map(|n| format!("s{n}"))
+                .collect();
+            // Requirements are part of what was selected: record the revision.
+            let mut probe = SelectionSet::default();
+            probe.selections.push(template.clone());
+            probe.reselect(&template.id, &w.basis()).unwrap();
+            template.revision = probe.selections[0].revision.clone();
+            set.selections.push(template.clone());
+        }
+        set.selections.sort_by(|a, b| a.id.cmp(&b.id));
+        SelectionSet::parse(&set.to_json()).unwrap()
+    };
+    let within = std::time::Duration::from_secs(5);
+
+    // An open chain whose last selection is withdrawn: each of the others is
+    // withheld in turn, however far back the chain goes.
+    let mut open = chain(false);
+    mutate(&mut open, &format!("s{}", count - 1)).state =
+        openblog_core::curated_selection::SelectionState::Withdrawn;
+    let started = std::time::Instant::now();
+    let resolution = resolve(&open, &w.basis());
+    assert!(started.elapsed() < within, "{:?}", started.elapsed());
+    assert_eq!(resolution.withheld.len(), count);
+    assert!(resolution.curation.items.is_empty());
+    assert_eq!(
+        resolution
+            .withheld
+            .iter()
+            .filter(|h| h.why == Why::DependencyWithheld)
+            .count(),
+        count - 1
+    );
+
+    // The same chain closed into one component of 5,000 selections.
+    let closed = chain(true);
+    let started = std::time::Instant::now();
+    let resolution = resolve(&closed, &w.basis());
+    assert!(started.elapsed() < within, "{:?}", started.elapsed());
+    assert_eq!(resolution.withheld.len(), count);
+    assert!(resolution.withheld.iter().all(|h| h.why == Why::Cycle));
+}
+
+#[test]
+fn cycles_are_exactly_the_components_of_more_than_one_selection_and_self_loops() {
+    // Real revisions, so that nothing is withheld as stale first.
+    let w = world();
+    let mut set = SelectionSet::default();
+    let ids: Vec<String> = ["plato", "republic", "academy"]
+        .iter()
+        .map(|t| select(&mut set, &w, pick(SelectionKind::ContextualEntry, t)))
+        .collect();
+    let (a, b, c) = (&ids[0], &ids[1], &ids[2]);
+    // a -> b -> a is a cycle; c -> a only depends on it; a self-loop is
+    // refused in the file but still a cycle if one were ever present.
+    mutate(&mut set, a).requires = vec![b.clone()];
+    mutate(&mut set, b).requires = vec![a.clone()];
+    mutate(&mut set, c).requires = vec![a.clone()];
+    for id in &ids {
+        set.reselect(id, &w.basis()).unwrap();
+    }
+    let resolution = resolve(&set, &w.basis());
+    assert_eq!(why_of(&resolution, a), Why::Cycle);
+    assert_eq!(why_of(&resolution, b), Why::Cycle);
+    assert_eq!(why_of(&resolution, c), Why::DependencyWithheld);
+
+    let mut looped = SelectionSet::default();
+    let s = select(
+        &mut looped,
+        &w,
+        pick(SelectionKind::ContextualEntry, "plato"),
+    );
+    mutate(&mut looped, &s).requires = vec![s.clone()];
+    looped.reselect(&s, &w.basis()).unwrap();
+    assert_eq!(why_of(&resolve(&looped, &w.basis()), &s), Why::Cycle);
+}
+
+#[test]
+fn reordering_never_refreshes_a_stale_selection() {
+    let w = world();
+    let mut set = SelectionSet::default();
+    let id = select(&mut set, &w, pick(SelectionKind::ContextualEntry, "plato"));
+    set.rescope(&id, Some(vec!["cave".into()]), Some(2), &w.basis())
+        .unwrap();
+    let kept = set.get(&id).unwrap().clone();
+    assert_eq!(
+        (kept.posts.clone(), kept.position),
+        (Some(vec!["cave".into()]), Some(2))
+    );
+    assert!(
+        resolve(&set, &w.basis()).withheld.is_empty(),
+        "revision followed the scope"
+    );
+    // The research changes: the selection is stale, and moving it is refused.
+    let mut atlas = atlas_value();
+    atlas["entries"][0]["summary"] = json!("A different summary.");
+    let changed = world_with(&library_value(), &atlas);
+    let before = set.clone();
+    let problems = set
+        .rescope(&id, Some(vec!["cave".into()]), Some(1), &changed.basis())
+        .unwrap_err();
+    assert_eq!(problems[0].code, Code::StaleSelection);
+    assert_eq!(set, before, "nothing changed");
+    assert_eq!(
+        why_of(&resolve(&set, &changed.basis()), &id),
+        Why::Stale,
+        "still withheld"
+    );
+    // Selecting it again is the author's act of checking.
+    set.reselect(&id, &changed.basis()).unwrap();
+    set.rescope(&id, None, None, &changed.basis()).unwrap();
+    assert_eq!(set.get(&id).unwrap().position, None);
+    assert!(
+        set.rescope("nope", None, None, &changed.basis())
+            .unwrap_err()[0]
+            .code
+            == Code::UnknownSelection
+    );
+}
+
+#[test]
+fn a_selections_copy_is_recognised_as_private_research_by_structure() {
+    let w = world();
+    let mut set = SelectionSet::default();
+    select(&mut set, &w, pick(SelectionKind::ContextualEntry, "plato"));
+    let root = |text: &str| -> serde_json::Map<String, Value> {
+        serde_json::from_str::<Value>(text)
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .clone()
+    };
+    assert!(openblog_core::curated_selection::looks_like_selections(
+        &root(&set.to_json())
+    ));
+    assert!(openblog_core::research_bundle::looks_like_private_research(
+        set.to_json().as_bytes()
+    ));
+    for harmless in [
+        r#"{"version":1,"selections":[]}"#,
+        r#"{"version":1,"selections":[{"id":"x","title":"a layout"}]}"#,
+        r#"{"selections":[{"id":"a","kind":"b","target":"c","revision":"d"}]}"#,
+        r#"{"version":1,"selections":"none"}"#,
+    ] {
+        assert!(
+            !openblog_core::research_bundle::looks_like_private_research(harmless.as_bytes()),
+            "{harmless}"
+        );
+    }
 }

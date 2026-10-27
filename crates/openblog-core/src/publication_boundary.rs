@@ -34,7 +34,7 @@ use crate::claims::{ClaimSet, Relation};
 use crate::comparison_publication::{PublicComparisons, Withheld};
 use crate::context_links::{find_context_links, ContextKind};
 use crate::curated_selection::{
-    ContextKind as CurationContext, NoticeCode, Resolution, SelectionSet, Why,
+    ContextKind as CurationContext, ItemNotice, NoticeCode, Resolution, SelectionSet, Why,
 };
 use crate::knowledge_atlas::{Atlas, Visibility};
 use crate::model::Post;
@@ -169,6 +169,11 @@ pub struct PublishedItem {
     pub fields: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub withheld_fields: Vec<WithheldField>,
+    /// Caveats on a curated item that are not a withheld field: a competing
+    /// dating that is not selected, a detail the source lacks, metadata
+    /// whose origin is not recorded. Only the curated projection has any.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub notices: Vec<ItemNotice>,
 }
 
 /// One research item a projection could publish but withholds, and why.
@@ -421,6 +426,7 @@ fn source_item(
         url: None,
         fields,
         withheld_fields,
+        notices: Vec::new(),
     }
 }
 
@@ -485,9 +491,9 @@ impl BoundaryManifest {
             comparisons(inputs),
         ];
         let mut projections = projections;
-        // Absent while the switch is off and nothing is selected, so a site
-        // that does not curate is described exactly as before.
-        if inputs.switches.curated || inputs.curation.is_some() {
+        // Absent while the switch is off, whatever the selections file
+        // holds, so a site that does not curate is described exactly as before.
+        if inputs.switches.curated {
             projections.push(curated(inputs));
         }
         Self {
@@ -533,6 +539,15 @@ impl BoundaryManifest {
             for item in &report.withheld {
                 if matches!(item.reason, Reason::StaleApproval | Reason::StaleSelection) {
                     warnings.push(format!("boundary: {}", item.message));
+                }
+            }
+            // A selected dating whose competitors are published but not
+            // selected shows readers one side of a disagreement.
+            for item in &report.published {
+                for notice in &item.notices {
+                    if notice.code == NoticeCode::CompetingUnselected {
+                        warnings.push(format!("boundary: {}", notice.message));
+                    }
                 }
             }
             for item in &report.published {
@@ -666,6 +681,7 @@ fn claim_evidence(
                 url: Some(claim.url.clone()),
                 fields,
                 withheld_fields,
+                notices: Vec::new(),
             });
             for (relation, links) in [
                 ("supports", &claim.supports),
@@ -690,6 +706,7 @@ fn claim_evidence(
                         url: None,
                         fields,
                         withheld_fields: Vec::new(),
+                        notices: Vec::new(),
                     });
                 }
             }
@@ -830,6 +847,7 @@ fn atlas(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
                 url: Some(entry.url.clone()),
                 fields,
                 withheld_fields: Vec::new(),
+                notices: Vec::new(),
             });
         }
         for relationship in &public.relationships {
@@ -860,6 +878,7 @@ fn atlas(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
                 url: None,
                 fields,
                 withheld_fields: Vec::new(),
+                notices: Vec::new(),
             });
         }
         report.published.extend(sources_of(
@@ -986,6 +1005,7 @@ fn datings(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
                 url: Some(public.owner_url(&dating.owner, dating.owner_type)),
                 fields,
                 withheld_fields: Vec::new(),
+                notices: Vec::new(),
             });
         }
     }
@@ -1124,6 +1144,7 @@ fn comparisons(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
                 url: Some(comparison.url.clone()),
                 fields,
                 withheld_fields,
+                notices: Vec::new(),
             });
         }
         report.published.extend(sources_of(
@@ -1174,19 +1195,6 @@ fn curated(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
         return report;
     };
     let resolution = curation.resolution;
-    if !report.enabled {
-        for selection in &curation.set.selections {
-            let mut item = withheld(
-                ItemKind::Selection,
-                &selection.id,
-                Reason::ProjectionOff,
-                off_message(Projection::Curated),
-            );
-            item.label = Some(selection.target.clone());
-            report.withheld.push(item);
-        }
-        return report;
-    }
     for item in &resolution.curation.items {
         let mut withheld_fields = Vec::new();
         for notice in resolution.notices.iter().filter(|n| n.id == item.id) {
@@ -1210,7 +1218,7 @@ fn curated(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
             kind: ItemKind::Selection,
             id: item.id.clone(),
             label,
-            posts: Vec::new(),
+            posts: item.posts.clone(),
             url: item
                 .content
                 .get("url")
@@ -1218,6 +1226,7 @@ fn curated(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
                 .map(str::to_string),
             fields: item.content.keys().cloned().collect(),
             withheld_fields,
+            notices: item.notices.clone(),
         });
     }
     for context in &resolution.curation.context {
@@ -1234,6 +1243,7 @@ fn curated(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
             url: context.url.clone(),
             fields: vec!["context for ".to_string() + &context.via.join(", ")],
             withheld_fields: Vec::new(),
+            notices: Vec::new(),
         });
     }
     for held in &resolution.withheld {
@@ -1241,6 +1251,8 @@ fn curated(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
             Why::Withdrawn => Reason::Withdrawn,
             Why::TargetMissing => Reason::MissingTarget,
             Why::NotApproved => Reason::NotApproved,
+            Why::SourcePrivate => Reason::NotApproved,
+            Why::PostNotPublished => Reason::PostNotPublished,
             Why::NotPublished | Why::DependencyMissing | Why::DependencyWithheld => {
                 Reason::PrivateDependency
             }
@@ -1297,6 +1309,7 @@ fn context_links(inputs: &BoundaryInputs<'_>, post: &Post) -> ProjectionReport {
                 url: Some(url),
                 fields: vec!["link".into()],
                 withheld_fields: Vec::new(),
+                notices: Vec::new(),
             }),
             None => {
                 let what = match link.kind {
@@ -1370,7 +1383,7 @@ fn never(inputs: &BoundaryInputs<'_>) -> Vec<NeverPublished> {
             "Visibility, place notes, notebook passage ids, normalizations not chosen for publication and unknown fields of every alignment.".into(),
         );
     }
-    if let Some(curation) = inputs.curation {
+    if let Some(curation) = inputs.curation.filter(|_| inputs.switches.curated) {
         push(
             Store::Selections,
             curation.set.selections.len(),

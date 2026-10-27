@@ -19,12 +19,12 @@
 //! (`unrecorded` otherwise). A missing detail is listed as missing, never
 //! filled in.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::atlas_publication::{PublicAtlas, PublicEvidence, PublicParty, PublicSource};
+use crate::atlas_publication::{OwnerType, PublicAtlas, PublicEvidence, PublicParty, PublicSource};
 use crate::citations::{format_reference, public_identifier, public_reference, public_url_problem};
 use crate::comparison_publication::{
     PublicComparison, PublicComparisons, MAX_PUBLIC_EXCERPT_CHARS,
@@ -46,7 +46,16 @@ pub const SELECTIONS_FILE: &str = ".openblog/private/research/selections.json";
 pub const MAX_TEXT_CHARS: usize = MAX_PUBLIC_EXCERPT_CHARS;
 /// The most selections one file holds.
 pub const MAX_SELECTIONS: usize = 5_000;
+/// The largest selections file, in bytes: the library's limit.
+pub const MAX_SELECTIONS_BYTES: usize = 4 * 1024 * 1024;
 
+/// The most selections one selection may require. A cap keeps resolving a
+/// hostile file linear in its size.
+pub const MAX_REQUIRES: usize = 32;
+/// The most posts one selection may be scoped to.
+pub const MAX_POSTS: usize = 50;
+
+const CREDIT_FIELDS: &[&str] = &["credit", "credits", "contributor", "contributors"];
 const MAX_ID: usize = 64;
 const MAX_TARGET: usize = 120;
 const MAX_SHORT: usize = 200;
@@ -224,6 +233,15 @@ pub struct Selection {
     /// unknown id or a withheld requirement withholds this selection.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub requires: Vec<String>,
+    /// The posts this selection is for, by slug. Absent means the whole site,
+    /// which is also what a record written without the field means: it is
+    /// offered to every post, exactly as it was before posts were named.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub posts: Option<Vec<String>>,
+    /// Where the selection sits among the items of a post, lowest first.
+    /// Absent sorts after every positioned item; ties break by id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position: Option<u32>,
     /// Fields this release does not understand, preserved verbatim and
     /// never published.
     #[serde(flatten)]
@@ -261,6 +279,7 @@ impl Default for SelectionSet {
 pub enum Code {
     InvalidJson,
     UnsupportedVersion,
+    TooLarge,
     TooMany,
     BadId,
     DuplicateId,
@@ -275,6 +294,11 @@ pub enum Code {
     AttributionRequired,
     BadProvenance,
     BadRequires,
+    BadPosts,
+    /// Changing where a stale selection appears; select it again first.
+    StaleSelection,
+    /// A contributor credit belongs in a `.credits.json` sidecar.
+    ContributorCredit,
     /// An attempt to select something the projections do not publish.
     TargetNotPublished,
     /// An attempt to select a selection that does not exist.
@@ -479,7 +503,15 @@ pub fn validate(selection: &Selection) -> Vec<Diagnostic> {
             &mut out,
         );
     }
-    for required in &selection.requires {
+    if selection.requires.len() > MAX_REQUIRES {
+        out.push(diag(
+            Code::BadRequires,
+            Some(id),
+            Some("requires"),
+            format!("Selection `{id}`: `requires` names at most {MAX_REQUIRES} other selections."),
+        ));
+    }
+    for required in selection.requires.iter().take(MAX_REQUIRES + 1) {
         if required == id || !safe_slug(required, MAX_ID) {
             out.push(diag(
                 Code::BadRequires,
@@ -490,6 +522,34 @@ pub fn validate(selection: &Selection) -> Vec<Diagnostic> {
             break;
         }
     }
+    if let Some(posts) = &selection.posts {
+        let mut seen = BTreeSet::new();
+        let bad = posts.is_empty()
+            || posts.len() > MAX_POSTS
+            || posts
+                .iter()
+                .any(|post| !safe_target(post) || !seen.insert(post));
+        if bad {
+            out.push(diag(
+                Code::BadPosts,
+                Some(id),
+                Some("posts"),
+                format!("Selection `{id}`: `posts` names 1 to {MAX_POSTS} different posts by slug; leave it out to offer the selection to the whole site."),
+            ));
+        }
+    }
+    for key in selection
+        .extra
+        .keys()
+        .filter(|k| CREDIT_FIELDS.contains(&k.as_str()))
+    {
+        out.push(diag(
+            Code::ContributorCredit,
+            Some(id),
+            Some(key),
+            "contributor credits stay in `.credits.json` sidecars".into(),
+        ));
+    }
     out
 }
 
@@ -497,6 +557,14 @@ impl SelectionSet {
     /// Read the private file. Every record is checked; the first problems
     /// are returned together, each naming its record.
     pub fn parse(text: &str) -> Result<Self, Vec<Diagnostic>> {
+        if text.len() > MAX_SELECTIONS_BYTES {
+            return Err(vec![diag(
+                Code::TooLarge,
+                None,
+                None,
+                format!("The selections file is larger than {MAX_SELECTIONS_BYTES} bytes."),
+            )]);
+        }
         let mut set: SelectionSet = serde_json::from_str(text).map_err(|error| {
             vec![diag(
                 Code::InvalidJson,
@@ -525,6 +593,18 @@ impl SelectionSet {
             )]);
         }
         let mut out = Vec::new();
+        for key in set
+            .extra
+            .keys()
+            .filter(|k| CREDIT_FIELDS.contains(&k.as_str()))
+        {
+            out.push(diag(
+                Code::ContributorCredit,
+                None,
+                Some(key),
+                "contributor credits stay in `.credits.json` sidecars".into(),
+            ));
+        }
         let mut seen = BTreeSet::new();
         for selection in &mut set.selections {
             selection.fields.sort();
@@ -594,31 +674,31 @@ fn first_words(text: &str) -> String {
 // ---------------------------------------------------------------- what is publishable
 
 /// The ids of private items that exist, approved or not, so a deleted item
-/// is told apart from one that is simply not approved.
+/// is told apart from one that is simply not approved. Each store is tracked
+/// on its own: a store that was not read (`None`) says nothing about what it
+/// holds, so an item of it is reported as not published, never as missing.
 #[derive(Clone, Debug, Default)]
 pub struct Existing {
-    pub entries: BTreeSet<String>,
-    pub relationships: BTreeSet<String>,
-    pub datings: BTreeSet<String>,
-    pub comparisons: BTreeSet<String>,
+    pub entries: Option<BTreeSet<String>>,
+    pub relationships: Option<BTreeSet<String>>,
+    pub datings: Option<BTreeSet<String>>,
+    pub comparisons: Option<BTreeSet<String>>,
 }
 
 impl Existing {
     pub fn of(atlas: Option<&Atlas>, alignments: Option<&crate::alignment::AlignmentSet>) -> Self {
-        let mut existing = Self::default();
-        if let Some(atlas) = atlas {
-            existing.entries = atlas.entries.iter().map(|e| e.id.clone()).collect();
-            existing.relationships = atlas.relationships.iter().map(|r| r.id.clone()).collect();
-            existing.datings = atlas
-                .all_datings()
-                .into_iter()
-                .map(|(_, dating)| dating.id.clone())
-                .collect();
+        Self {
+            entries: atlas.map(|a| a.entries.iter().map(|e| e.id.clone()).collect()),
+            relationships: atlas.map(|a| a.relationships.iter().map(|r| r.id.clone()).collect()),
+            datings: atlas.map(|a| {
+                a.all_datings()
+                    .into_iter()
+                    .map(|(_, dating)| dating.id.clone())
+                    .collect()
+            }),
+            comparisons: alignments
+                .map(|set| set.alignments.iter().map(|a| a.id.clone()).collect()),
         }
-        if let Some(set) = alignments {
-            existing.comparisons = set.alignments.iter().map(|a| a.id.clone()).collect();
-        }
-        existing
     }
 }
 
@@ -630,6 +710,15 @@ pub struct Basis<'a> {
     pub comparisons: Option<&'a PublicComparisons>,
     pub library: Option<&'a SourceLibrary>,
     pub existing: Option<&'a Existing>,
+    /// The ids of the sources that are already public: cited by a published
+    /// post, or published by the atlas or a comparison. A reference or a
+    /// source annotation may select only these (selecting never approves).
+    /// `None` means no source is known to be public.
+    pub public_sources: Option<&'a BTreeSet<String>>,
+    /// The slugs of the posts the build publishes. A selection scoped to
+    /// posts is offered only to those, and never names any other, so a draft
+    /// is not disclosed. `None` means no post is known to be published.
+    pub posts: Option<&'a BTreeSet<String>>,
 }
 
 /// Why a selection publishes nothing. Each is a rule, never a judgement.
@@ -647,6 +736,10 @@ pub enum Why {
     NotPublished,
     /// What was selected, or something it depends on, changed since.
     Stale,
+    /// A reference or annotation of a source that is not already public.
+    SourcePrivate,
+    /// It is scoped to posts and none of them is published.
+    PostNotPublished,
     /// A source, endpoint or required selection it needs is not there.
     DependencyMissing,
     /// A required selection is itself withheld.
@@ -716,6 +809,55 @@ pub struct CuratedItem {
     pub missing: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub requires: Vec<String>,
+    /// The published posts the item is scoped to; empty means the whole site.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub posts: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub position: Option<u32>,
+    /// What a reader or an author should know of the item that is not in its
+    /// fields: a competing dating that is not selected, a detail the source
+    /// lacks, metadata whose origin is not recorded.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub notices: Vec<ItemNotice>,
+}
+
+/// A caveat carried by a published item. Names ids and fields only.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemNotice {
+    pub code: NoticeCode,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
+    pub message: String,
+}
+
+impl NoticeCode {
+    /// Whether the caveat travels with the published item (and shows in the
+    /// preview). The others are already a withheld field of the item.
+    pub fn travels_with_item(self) -> bool {
+        matches!(
+            self,
+            Self::CompetingUnselected | Self::MissingDetail | Self::ProvenanceUnrecorded
+        )
+    }
+}
+
+impl PublicCuration {
+    /// The items a post is offered, in the order readers get them: the
+    /// whole-site items and those scoped to this post, by position then id.
+    pub fn for_post(&self, post: &str) -> Vec<&CuratedItem> {
+        let mut items: Vec<&CuratedItem> = self
+            .items
+            .iter()
+            .filter(|item| item.posts.is_empty() || item.posts.iter().any(|p| p == post))
+            .collect();
+        items.sort_by(|a, b| item_order(a).cmp(&item_order(b)).then(a.id.cmp(&b.id)));
+        items
+    }
+}
+
+fn item_order(item: &CuratedItem) -> u32 {
+    item.position.unwrap_or(u32::MAX)
 }
 
 /// What a context item is: the minimum a reader needs to understand an
@@ -752,7 +894,9 @@ pub struct ContextItem {
 pub struct PublicCuration {
     pub format: &'static str,
     pub format_version: u64,
-    /// Sorted by selection id.
+    /// Sorted by (first post, position, id): whole-site items first, then
+    /// each post's, each in the order its author set. [`Self::for_post`] gives
+    /// one post's order.
     pub items: Vec<CuratedItem>,
     /// Sorted by kind then id; never holds a selected item twice.
     pub context: Vec<ContextItem>,
@@ -783,12 +927,25 @@ struct Evaluated {
     missing: Vec<String>,
 }
 
-fn fnv(parts: &[String]) -> String {
+/// A short fingerprint of a canonical list of explicit name/value pairs.
+/// Every pair is length-prefixed, so no two lists feed the hash the same
+/// bytes. A fingerprint is only ever compared with another made by this same
+/// engine: an upgrade that changes how an item is projected may make
+/// selections stale, and the author selects them again (ADR 0216).
+fn fingerprint(pairs: &[(String, String)]) -> String {
     let mut hash = 0xcbf2_9ce4_8422_2325u64;
-    for part in parts {
-        for byte in part.bytes().chain([0xff]) {
-            hash = (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
+    let mut feed = |bytes: &[u8]| {
+        for byte in bytes {
+            hash = (hash ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3);
         }
+    };
+    for (name, value) in pairs {
+        feed(name.as_bytes());
+        feed(&[0x1f]);
+        feed(value.len().to_string().as_bytes());
+        feed(&[0x1e]);
+        feed(value.as_bytes());
+        feed(&[0xff]);
     }
     format!("{hash:016x}")
 }
@@ -820,15 +977,28 @@ type Failure = (Why, String);
 
 fn not_published(basis: &Basis<'_>, kind: SelectionKind, sel: &Selection) -> Failure {
     let (id, kind_name) = (&sel.target, kind.as_str());
-    let existing = basis.existing.map(|e| match kind {
-        SelectionKind::ContextualEntry | SelectionKind::Explanation => e.entries.contains(id),
-        SelectionKind::Relationship => e.relationships.contains(id),
-        SelectionKind::Timeline => e.datings.contains(id),
-        SelectionKind::Comparison => e.comparisons.contains(id),
+    // `None` when the store was not read: nothing is known of what it holds.
+    let existing = match kind {
+        SelectionKind::ContextualEntry | SelectionKind::Explanation => basis
+            .existing
+            .and_then(|e| e.entries.as_ref())
+            .map(|set| set.contains(id)),
+        SelectionKind::Relationship => basis
+            .existing
+            .and_then(|e| e.relationships.as_ref())
+            .map(|set| set.contains(id)),
+        SelectionKind::Timeline => basis
+            .existing
+            .and_then(|e| e.datings.as_ref())
+            .map(|set| set.contains(id)),
+        SelectionKind::Comparison => basis
+            .existing
+            .and_then(|e| e.comparisons.as_ref())
+            .map(|set| set.contains(id)),
         SelectionKind::Reference | SelectionKind::SourceAnnotation => {
-            basis.library.is_some_and(|l| l.get(id).is_some())
+            basis.library.map(|library| library.get(id).is_some())
         }
-    });
+    };
     match existing {
         Some(false) => (
             Why::TargetMissing,
@@ -845,6 +1015,17 @@ fn not_published(basis: &Basis<'_>, kind: SelectionKind, sel: &Selection) -> Fai
     }
 }
 
+/// A source that exists but is not already public.
+fn private_source(sel: &Selection) -> Failure {
+    (
+        Why::SourcePrivate,
+        format!(
+            "Selection `{}`: the source `{}` is not cited by a published post or published by the atlas or a comparison, so it stays private; selecting never approves it.",
+            sel.id, sel.target
+        ),
+    )
+}
+
 fn evaluate(sel: &Selection, basis: &Basis<'_>) -> Result<Evaluated, Failure> {
     let kind = sel.kind;
     let mut deps = Deps::default();
@@ -857,9 +1038,13 @@ fn evaluate(sel: &Selection, basis: &Basis<'_>) -> Result<Evaluated, Failure> {
             .atlas
             .and_then(|a| a.entries.iter().find(|e| e.id == id))
     };
+    let source_is_public = || basis.public_sources.is_some_and(|set| set.contains(target));
     let mut value = match kind {
         SelectionKind::Reference => {
             let record = basis.library.and_then(|l| l.get(target)).ok_or_else(miss)?;
+            if !source_is_public() {
+                return Err(private_source(sel));
+            }
             let reference = public_reference(record);
             for identifier in &record.identifiers {
                 let field = format!("identifiers.{}", identifier.scheme);
@@ -909,12 +1094,19 @@ fn evaluate(sel: &Selection, basis: &Basis<'_>) -> Result<Evaluated, Failure> {
                 .atlas
                 .and_then(|a| a.datings.iter().find(|d| d.id == target))
                 .ok_or_else(miss)?;
-            if let Some(owner) = basis.atlas.and_then(|a| a.relationship(&found.owner)) {
-                deps.relationships.insert(owner.id.clone());
-                deps.entries.insert(owner.from.clone());
-                deps.entries.insert(owner.to.clone());
-            } else {
-                deps.entries.insert(found.owner.clone());
+            // The dating says what it dates; an entry and a relationship may
+            // share an id, so the id alone never decides.
+            match found.owner_type {
+                OwnerType::Relationship => {
+                    deps.relationships.insert(found.owner.clone());
+                    if let Some(owner) = basis.atlas.and_then(|a| a.relationship(&found.owner)) {
+                        deps.entries.insert(owner.from.clone());
+                        deps.entries.insert(owner.to.clone());
+                    }
+                }
+                OwnerType::Entry => {
+                    deps.entries.insert(found.owner.clone());
+                }
             }
             if let Some(relative) = &found.date.relative {
                 deps.entries.insert(relative.entry.clone());
@@ -937,31 +1129,69 @@ fn evaluate(sel: &Selection, basis: &Basis<'_>) -> Result<Evaluated, Failure> {
         }
         SelectionKind::SourceAnnotation => {
             let record = basis.library.and_then(|l| l.get(target)).ok_or_else(miss)?;
+            if !source_is_public() {
+                return Err(private_source(sel));
+            }
             deps.sources.insert(record.id.clone());
             json(&public_reference(record))
         }
     };
-    // The text the author approved is part of the item for its revision.
+    // The text the author approved is part of the item for its revision. A
+    // locator is the author's wording like the rest, but only when listed.
     let subject_json = value.to_string();
+    let listed: BTreeSet<&str> = sel.fields.iter().map(String::as_str).collect();
+    let authored: Vec<(&str, &String)> = if kind.has_text() {
+        [
+            ("text", sel.text.as_ref()),
+            ("by", sel.by.as_ref()),
+            (
+                "locator",
+                sel.locator.as_ref().filter(|_| listed.contains("locator")),
+            ),
+        ]
+        .into_iter()
+        .filter_map(|(name, text)| text.map(|text| (name, text)))
+        .collect()
+    } else {
+        Vec::new()
+    };
     if kind.has_text() {
         let mut map = Map::new();
         map.insert("subject".into(), Value::String(sel.target.clone()));
-        for (name, text) in [
-            ("text", &sel.text),
-            ("by", &sel.by),
-            ("locator", &sel.locator),
-        ] {
-            if let Some(text) = text {
-                map.insert(name.into(), Value::String(text.clone()));
-            }
+        for (name, text) in &authored {
+            map.insert((*name).into(), Value::String((*text).clone()));
         }
         value = Value::Object(map);
     }
-    // Dependencies, each checked against what is published.
-    let mut parts = vec![subject_json];
-    if kind.has_text() {
-        parts.push(json(&(&sel.text, &sel.by, &sel.locator)).to_string());
+    // The revision: a canonical list of explicit name/value pairs. Everything
+    // the author chose and everything the item depends on is in it.
+    let mut pairs: Vec<(String, String)> = vec![
+        ("kind".into(), kind.as_str().into()),
+        ("target".into(), sel.target.clone()),
+        ("subject".into(), subject_json),
+        (
+            "fields".into(),
+            listed.iter().copied().collect::<Vec<_>>().join(","),
+        ),
+        ("provenance".into(), json(&sel.provenance).to_string()),
+    ];
+    for (name, text) in &authored {
+        pairs.push(((*name).into(), (*text).clone()));
     }
+    let sorted = |items: &[String]| {
+        let mut items = items.to_vec();
+        items.sort();
+        items.dedup();
+        items.join(",")
+    };
+    pairs.push(("requires".into(), sorted(&sel.requires)));
+    if let Some(posts) = &sel.posts {
+        pairs.push(("posts".into(), sorted(posts)));
+    }
+    if let Some(position) = sel.position {
+        pairs.push(("position".into(), position.to_string()));
+    }
+    // Dependencies, each checked against what is published.
     for id in &deps.entries {
         let found = entry(id).ok_or_else(|| {
             (
@@ -972,7 +1202,7 @@ fn evaluate(sel: &Selection, basis: &Basis<'_>) -> Result<Evaluated, Failure> {
                 ),
             )
         })?;
-        parts.push(json(found).to_string());
+        pairs.push((format!("entry:{id}"), json(found).to_string()));
     }
     for id in &deps.relationships {
         let found = basis
@@ -987,7 +1217,7 @@ fn evaluate(sel: &Selection, basis: &Basis<'_>) -> Result<Evaluated, Failure> {
                     ),
                 )
             })?;
-        parts.push(json(found).to_string());
+        pairs.push((format!("relationship:{id}"), json(found).to_string()));
     }
     for id in &deps.sources {
         let found = source_public(basis, id).ok_or_else(|| {
@@ -999,9 +1229,9 @@ fn evaluate(sel: &Selection, basis: &Basis<'_>) -> Result<Evaluated, Failure> {
                 ),
             )
         })?;
-        parts.push(json(&found).to_string());
+        pairs.push((format!("source:{id}"), json(&found).to_string()));
     }
-    let revision = fnv(&parts);
+    let revision = fingerprint(&pairs);
     // Keep identity and the selected fields; list what the source lacks.
     let spec = kind.spec();
     if let Value::Object(map) = &mut value {
@@ -1098,10 +1328,15 @@ fn note_withheld_wording(
 
 /// Resolve every selection against what the build publishes. Each failure
 /// is scoped to its selection: the others are resolved on their own, and
-/// nothing is changed. Output is deterministic (selection id order).
+/// nothing is changed. Output is deterministic (selection id order), and the
+/// work is linear in the size of the file: one strongly-connected-components
+/// pass finds every cycle and a worklist carries a withheld selection to
+/// those that require it.
 pub fn resolve(set: &SelectionSet, basis: &Basis<'_>) -> Resolution {
     let mut evaluated: BTreeMap<&str, Evaluated> = BTreeMap::new();
     let mut failed: BTreeMap<&str, Failure> = BTreeMap::new();
+    // The published posts of each post-scoped selection.
+    let mut scoped: BTreeMap<&str, Vec<String>> = BTreeMap::new();
     for sel in &set.selections {
         if sel.state == SelectionState::Withdrawn {
             failed.insert(
@@ -1116,23 +1351,47 @@ pub fn resolve(set: &SelectionSet, basis: &Basis<'_>) -> Resolution {
             );
             continue;
         }
-        match evaluate(sel, basis) {
-            Ok(done) if done.revision != sel.revision => {
+        let done = match evaluate(sel, basis) {
+            Ok(done) => done,
+            Err(failure) => {
+                failed.insert(&sel.id, failure);
+                continue;
+            }
+        };
+        if done.revision != sel.revision {
+            failed.insert(
+                &sel.id,
+                (
+                    Why::Stale,
+                    format!("Selection `{}` was selected before the {} `{}` or something it depends on changed. Check it, then select it again to publish it as it now stands.", sel.id, sel.kind.as_str(), sel.target),
+                ),
+            );
+            continue;
+        }
+        if let Some(posts) = &sel.posts {
+            // Only a published post is ever named: a draft is not disclosed.
+            let kept: BTreeSet<String> = posts
+                .iter()
+                .filter(|post| {
+                    basis
+                        .posts
+                        .is_some_and(|published| published.contains(*post))
+                })
+                .cloned()
+                .collect();
+            if kept.is_empty() {
                 failed.insert(
                     &sel.id,
                     (
-                        Why::Stale,
-                        format!("Selection `{}` was selected before the {} `{}` or something it depends on changed. Check it, then select it again to publish it as it now stands.", sel.id, sel.kind.as_str(), sel.target),
+                        Why::PostNotPublished,
+                        format!("Selection `{}` is scoped to posts and this build publishes none of them.", sel.id),
                     ),
                 );
+                continue;
             }
-            Ok(done) => {
-                evaluated.insert(&sel.id, done);
-            }
-            Err(failure) => {
-                failed.insert(&sel.id, failure);
-            }
+            scoped.insert(&sel.id, kept.into_iter().collect());
         }
+        evaluated.insert(&sel.id, done);
     }
     // Requirements: cycles first, then a withheld or missing requirement.
     let ids: BTreeSet<&str> = set.selections.iter().map(|s| s.id.as_str()).collect();
@@ -1150,44 +1409,7 @@ pub fn resolve(set: &SelectionSet, basis: &Basis<'_>) -> Resolution {
             ));
         }
     }
-    loop {
-        let mut changed = false;
-        for sel in &set.selections {
-            if !evaluated.contains_key(sel.id.as_str()) {
-                continue;
-            }
-            for required in &sel.requires {
-                let problem = if !ids.contains(required.as_str()) {
-                    Some((
-                        Why::DependencyMissing,
-                        format!(
-                            "Selection `{}` requires `{required}`, which is not a selection.",
-                            sel.id
-                        ),
-                    ))
-                } else if !evaluated.contains_key(required.as_str()) {
-                    Some((
-                        Why::DependencyWithheld,
-                        format!(
-                            "Selection `{}` requires `{required}`, which is withheld.",
-                            sel.id
-                        ),
-                    ))
-                } else {
-                    None
-                };
-                if let Some(problem) = problem {
-                    evaluated.remove(sel.id.as_str());
-                    failed.insert(&sel.id, problem);
-                    changed = true;
-                    break;
-                }
-            }
-        }
-        if !changed {
-            break;
-        }
-    }
+    propagate_withheld(set, &ids, &mut evaluated, &mut failed);
 
     let mut items = Vec::new();
     let mut notices = Vec::new();
@@ -1208,6 +1430,9 @@ pub fn resolve(set: &SelectionSet, basis: &Basis<'_>) -> Resolution {
             provenance: sel.provenance.clone(),
             missing: done.missing.clone(),
             requires: sel.requires.clone(),
+            posts: scoped.get(sel.id.as_str()).cloned().unwrap_or_default(),
+            position: sel.position,
+            notices: Vec::new(),
         });
         for (code, field, message) in &done.notices {
             notices.push(Notice {
@@ -1248,7 +1473,7 @@ pub fn resolve(set: &SelectionSet, basis: &Basis<'_>) -> Resolution {
         .filter(|((kind, id), _)| !selected_targets.contains(&(*kind, id.as_str())))
         .filter_map(|((kind, id), via)| context_item(basis, kind, id, via))
         .collect();
-    let withheld = set
+    let mut withheld = set
         .selections
         .iter()
         .filter_map(|sel| {
@@ -1263,10 +1488,26 @@ pub fn resolve(set: &SelectionSet, basis: &Basis<'_>) -> Resolution {
                 })
         })
         .collect::<Vec<_>>();
-    let mut withheld = withheld;
     withheld.sort_by(|a, b| a.id.cmp(&b.id));
-    items.sort_by(|a: &CuratedItem, b| a.id.cmp(&b.id));
     notices.sort_by(|a, b| (&a.id, a.code, &a.field).cmp(&(&b.id, b.code, &b.field)));
+    // The caveats that are not already a withheld field travel with the item.
+    let mut carried: BTreeMap<&str, Vec<ItemNotice>> = BTreeMap::new();
+    for notice in notices.iter().filter(|n| n.code.travels_with_item()) {
+        carried
+            .entry(notice.id.as_str())
+            .or_default()
+            .push(ItemNotice {
+                code: notice.code,
+                field: notice.field.clone(),
+                message: notice.message.clone(),
+            });
+    }
+    for item in &mut items {
+        item.notices = carried.remove(item.id.as_str()).unwrap_or_default();
+    }
+    items.sort_by(|a: &CuratedItem, b| {
+        (a.posts.first(), item_order(a), &a.id).cmp(&(b.posts.first(), item_order(b), &b.id))
+    });
     Resolution {
         curation: PublicCuration {
             format: CURATED_FORMAT,
@@ -1276,6 +1517,66 @@ pub fn resolve(set: &SelectionSet, basis: &Basis<'_>) -> Resolution {
         },
         withheld,
         notices,
+    }
+}
+
+/// Withhold every selection that requires an unknown selection or one that
+/// is withheld, however far back the chain goes. Each selection is removed
+/// at most once and each `requires` edge is looked at at most twice.
+fn propagate_withheld<'a>(
+    set: &'a SelectionSet,
+    ids: &BTreeSet<&str>,
+    evaluated: &mut BTreeMap<&'a str, Evaluated>,
+    failed: &mut BTreeMap<&'a str, Failure>,
+) {
+    let mut dependents: BTreeMap<&str, Vec<&Selection>> = BTreeMap::new();
+    for sel in &set.selections {
+        for required in &sel.requires {
+            dependents.entry(required.as_str()).or_default().push(sel);
+        }
+    }
+    let mut queue: VecDeque<&str> = VecDeque::new();
+    for sel in &set.selections {
+        if !evaluated.contains_key(sel.id.as_str()) {
+            queue.push_back(&sel.id);
+        } else if let Some(required) = sel.requires.iter().find(|r| !ids.contains(r.as_str())) {
+            evaluated.remove(sel.id.as_str());
+            failed.insert(
+                &sel.id,
+                (
+                    Why::DependencyMissing,
+                    format!(
+                        "Selection `{}` requires `{required}`, which is not a selection.",
+                        sel.id
+                    ),
+                ),
+            );
+            queue.push_back(&sel.id);
+        }
+    }
+    while let Some(gone) = queue.pop_front() {
+        for dependent in dependents.get(gone).map(Vec::as_slice).unwrap_or_default() {
+            if !evaluated.contains_key(dependent.id.as_str()) {
+                continue;
+            }
+            evaluated.remove(dependent.id.as_str());
+            let required = dependent
+                .requires
+                .iter()
+                .find(|r| !evaluated.contains_key(r.as_str()))
+                .map_or(gone, String::as_str);
+            failed.insert(
+                &dependent.id,
+                (
+                    Why::DependencyWithheld,
+                    format!(
+                        "Selection `{}` requires `{required}`, which is withheld.",
+                        dependent.id
+                    ),
+                ),
+            );
+            queue.push_back(&dependent.id);
+        }
     }
 }
 
@@ -1352,7 +1653,12 @@ fn competing_notices(
         let rivals: Vec<&str> = atlas
             .datings
             .iter()
-            .filter(|d| d.owner == own.owner && d.aspect == own.aspect && d.id != own.id)
+            .filter(|d| {
+                d.owner == own.owner
+                    && d.owner_type == own.owner_type
+                    && d.aspect == own.aspect
+                    && d.id != own.id
+            })
             .map(|d| d.id.as_str())
             .filter(|id| !selected.contains(id))
             .collect();
@@ -1371,31 +1677,82 @@ fn competing_notices(
     }
 }
 
-/// The ids of every selection that is on a cycle of `requires`.
+/// The ids of every selection that is on a cycle of `requires`: the members
+/// of each strongly connected component of more than one selection, and any
+/// selection that requires itself. One iterative Tarjan pass, so it is linear
+/// in the size of the file and cannot overflow the stack however long a
+/// chain of requirements is.
 fn cycle_members(set: &SelectionSet) -> BTreeSet<String> {
-    let graph: BTreeMap<&str, Vec<&str>> = set
+    let count = set.selections.len();
+    let index_of: BTreeMap<&str, usize> = set
+        .selections
+        .iter()
+        .enumerate()
+        .map(|(index, s)| (s.id.as_str(), index))
+        .collect();
+    let edges: Vec<Vec<usize>> = set
         .selections
         .iter()
         .map(|s| {
-            (
-                s.id.as_str(),
-                s.requires.iter().map(String::as_str).collect(),
-            )
+            s.requires
+                .iter()
+                .filter_map(|required| index_of.get(required.as_str()).copied())
+                .collect()
         })
         .collect();
+    const UNSEEN: usize = usize::MAX;
+    let mut number = vec![UNSEEN; count];
+    let mut low = vec![0usize; count];
+    let mut on_stack = vec![false; count];
+    let mut stack: Vec<usize> = Vec::new();
+    let mut next_number = 0;
     let mut members = BTreeSet::new();
-    for start in graph.keys() {
-        // Walk from `start`; it is on a cycle when it can reach itself.
-        let mut seen = BTreeSet::new();
-        let mut stack: Vec<&str> = graph[start].clone();
-        while let Some(next) = stack.pop() {
-            if next == *start {
-                members.insert(start.to_string());
-                break;
+    for root in 0..count {
+        if number[root] != UNSEEN {
+            continue;
+        }
+        // (node, next edge to look at)
+        let mut work: Vec<(usize, usize)> = vec![(root, 0)];
+        number[root] = next_number;
+        low[root] = next_number;
+        next_number += 1;
+        stack.push(root);
+        on_stack[root] = true;
+        while let Some(&(node, edge)) = work.last() {
+            if let Some(&next) = edges[node].get(edge) {
+                if let Some(top) = work.last_mut() {
+                    top.1 += 1;
+                }
+                if next == node {
+                    members.insert(set.selections[node].id.clone());
+                }
+                if number[next] == UNSEEN {
+                    number[next] = next_number;
+                    low[next] = next_number;
+                    next_number += 1;
+                    stack.push(next);
+                    on_stack[next] = true;
+                    work.push((next, 0));
+                } else if on_stack[next] {
+                    low[node] = low[node].min(number[next]);
+                }
+                continue;
             }
-            if seen.insert(next) {
-                if let Some(more) = graph.get(next) {
-                    stack.extend(more.iter().copied());
+            work.pop();
+            if let Some(&(parent, _)) = work.last() {
+                low[parent] = low[parent].min(low[node]);
+            }
+            if low[node] == number[node] {
+                let mut component = Vec::new();
+                while let Some(member) = stack.pop() {
+                    on_stack[member] = false;
+                    component.push(member);
+                    if member == node {
+                        break;
+                    }
+                }
+                if component.len() > 1 {
+                    members.extend(component.iter().map(|&m| set.selections[m].id.clone()));
                 }
             }
         }
@@ -1419,16 +1776,28 @@ pub struct NewSelection {
     pub locator: Option<String>,
     pub provenance: Provenance,
     pub requires: Vec<String>,
+    /// The posts it is for; absent means the whole site.
+    pub posts: Option<Vec<String>>,
+    pub position: Option<u32>,
 }
 
+/// An id derived from the kind and target. The readable part is lossy (a
+/// target's punctuation becomes `-`, and a long one is cut), so a short hash
+/// of the exact kind and target is appended: two different targets never
+/// derive the same id.
 fn derived_id(kind: SelectionKind, target: &str) -> String {
-    let mut id = format!("{}-{}", kind.as_str(), target.to_ascii_lowercase());
-    id = id
+    let hash = fingerprint(&[
+        ("kind".into(), kind.as_str().into()),
+        ("target".into(), target.into()),
+    ]);
+    let readable: String = format!("{}-{}", kind.as_str(), target.to_ascii_lowercase())
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect();
-    id.truncate(MAX_ID);
-    id.trim_end_matches('-').to_string()
+    let suffix = &hash[..8];
+    let mut id: String = readable.chars().take(MAX_ID - suffix.len() - 1).collect();
+    id = id.trim_end_matches('-').to_string();
+    format!("{id}-{suffix}")
 }
 
 impl SelectionSet {
@@ -1478,6 +1847,8 @@ impl SelectionSet {
             locator: new.locator,
             provenance: new.provenance,
             requires: new.requires,
+            posts: new.posts,
+            position: new.position,
             extra: BTreeMap::new(),
         };
         let problems = validate(&selection);
@@ -1537,6 +1908,67 @@ impl SelectionSet {
                 message,
             )]),
         }
+    }
+
+    /// Change the posts a selection is for and where it sits among them.
+    /// Refused while the selection is stale: ordering is not the author's
+    /// "checked, publish it as it now stands", so it never refreshes a
+    /// revision that no longer matches. Otherwise the revision is recomputed,
+    /// because the scope is part of what was selected.
+    pub fn rescope(
+        &mut self,
+        id: &str,
+        posts: Option<Vec<String>>,
+        position: Option<u32>,
+        basis: &Basis<'_>,
+    ) -> Result<(), Vec<Diagnostic>> {
+        let selection = self
+            .selections
+            .iter_mut()
+            .find(|s| s.id == id)
+            .ok_or_else(|| {
+                vec![diag(
+                    Code::UnknownSelection,
+                    Some(id),
+                    None,
+                    format!("There is no selection `{id}`."),
+                )]
+            })?;
+        let current = evaluate(selection, basis).map_err(|(_, message)| {
+            vec![diag(
+                Code::TargetNotPublished,
+                Some(id),
+                Some("target"),
+                message,
+            )]
+        })?;
+        if current.revision != selection.revision {
+            return Err(vec![diag(
+                Code::StaleSelection,
+                Some(id),
+                Some("revision"),
+                format!("Selection `{id}` is stale: check what it selects and select it again before changing where it appears."),
+            )]);
+        }
+        let mut changed = selection.clone();
+        changed.posts = posts;
+        changed.position = position;
+        let problems = validate(&changed);
+        if !problems.is_empty() {
+            return Err(problems);
+        }
+        changed.revision = evaluate(&changed, basis)
+            .map_err(|(_, message)| {
+                vec![diag(
+                    Code::TargetNotPublished,
+                    Some(id),
+                    Some("target"),
+                    message,
+                )]
+            })?
+            .revision;
+        *selection = changed;
+        Ok(())
     }
 
     /// Withdraw a selection, keeping the record. Returns whether it exists.
