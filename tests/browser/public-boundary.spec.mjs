@@ -147,7 +147,9 @@ async function signIn(page) {
 
 const preview = (page, scope = "site") => page.locator(`[data-boundary-preview="${scope}"]`);
 const projection = (page, key, scope = "site") => preview(page, scope).locator(`[data-boundary-projection="${key}"]`);
-const item = (page, key, scope = "site") => preview(page, scope).locator(`[data-boundary-item="${key}"]`);
+// The first item with the key: the projection listed first. The atlas query file lists the same entries
+// again, in a section of its own, so a key can be in two sections.
+const item = (page, key, scope = "site") => preview(page, scope).locator(`[data-boundary-item="${key}"]`).first();
 
 /** Elements of `region` whose box ends right of it, or a region that scrolls sideways, by name. */
 const overflowing = (region) =>
@@ -174,6 +176,7 @@ test("the site preview names what each projection publishes and why the rest is 
   await expect(preview(page).getByRole("heading", { level: 2 })).toHaveCount(0);
   await expect(item(page, "entry:plato-person")).toHaveAttribute("data-boundary-state", "published");
   await expect(item(page, "entry:plato-person")).toContainText("Publishes: kind, label.");
+  await expect(projection(page, "atlas-query").locator('[data-boundary-item="entry:plato-person"]')).toContainText("kindLabel");
   await expect(item(page, "entry:the-good")).toHaveAttribute("data-boundary-reason", "not-approved");
   await expect(item(page, "relationship:politeia-discusses-good")).toContainText("Depends on research that is not published");
   await expect(item(page, "comparison:cave-places")).toHaveAttribute("data-boundary-state", "published");

@@ -16427,10 +16427,31 @@ fn preview(state: &AppState, req: &Request) -> Response {
         Ok(b) => b,
         Err(_) => return Response::error(400, "Invalid JSON"),
     };
-    let draft = match load_draft_site(state, &body) {
+    let mut draft = match load_draft_site(state, &body) {
         Ok(draft) => draft,
         Err(response) => return response,
     };
+    // A post that links atlas entries with `atlas:` (ADR 0172) is shown with
+    // the links the build would make, resolved against the public atlas alone.
+    // The draft is loaded, so the build lock is released before the atlas
+    // store is read, and only the atlas is attached (never the comparisons or
+    // claims, which no concept link needs). Any other document is previewed
+    // exactly as before.
+    if draft.kind == "posts"
+        && draft
+            .site
+            .posts
+            .iter()
+            .any(|post| post.source == draft.rel && post.has_concept_links())
+    {
+        draft.release();
+        let mut notes = Vec::new();
+        if let Ok(atlas) = crate::site::published_atlas(&state.root, &draft.site.config, &mut notes)
+        {
+            draft.site.atlas = atlas;
+        }
+        draft.site.link_concepts();
+    }
     let DraftSite {
         site: preview_site,
         themes,
@@ -20878,11 +20899,13 @@ What I read:
         assert!(names.iter().any(|name| name.ends_with(".xml")), "a feed");
         for file in &files {
             let name = crate::fsutil::relative(&dist, file);
-            // The timeline component ships with every site like any other
-            // component; it holds no atlas data and no page loads it unless
-            // the site publishes datings.
+            // The timeline and trail components ship with every site like any
+            // other component; they hold no atlas data and no page loads one
+            // unless the site publishes datings or an entry has a trail.
             assert!(
-                (!name.contains("atlas") || name == "assets/components/ob-atlas-timeline.js")
+                (!name.contains("atlas")
+                    || name == "assets/components/ob-atlas-timeline.js"
+                    || name == "assets/components/ob-atlas-trail.js")
                     && (name == crate::fsutil::MARKER || !name.contains(".openblog")),
                 "{name}"
             );
@@ -22885,7 +22908,10 @@ What I read:
     ];
 
     fn atlas_surface(name: &str) -> bool {
-        name == "atlas.json" || name == "sitemap.xml" || name.starts_with("atlas/")
+        name == "atlas.json"
+            || name == "atlas-query.json"
+            || name == "sitemap.xml"
+            || name.starts_with("atlas/")
     }
 
     #[test]
@@ -22921,6 +22947,10 @@ What I read:
 
         f.state.rebuild().unwrap();
         let dist = f.dir.join("dist");
+        assert!(
+            dist.join("atlas-query.json").exists(),
+            "the query projection is written beside atlas.json"
+        );
         let never = |text: &str| -> Vec<&'static str> {
             let mut found: Vec<&'static str> = [8, 11, 12, 13, 17]
                 .iter()
@@ -30178,6 +30208,81 @@ What I read:
         // A preview writes nothing.
         assert_eq!(fs::read(&library).unwrap(), before);
         assert!(!f.dir.join("content/posts/cited.md").exists());
+    }
+
+    #[test]
+    fn the_preview_resolves_concept_links_against_the_public_atlas_and_reports_the_rest() {
+        let f = fixture_with_sources("preview-concept-links");
+        seeded_atlas(&f);
+        let session = login_ok(&f);
+        let preview = |body: &str| {
+            let response = handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "POST",
+                        "/admin/api/preview",
+                        json!({
+                            "kind": "posts",
+                            "path": "posts/cave.md",
+                            "fields": { "title": "Cave", "date": "2026-10-23" },
+                            "body": body,
+                        }),
+                    ),
+                    &session,
+                    true,
+                ),
+            );
+            assert_eq!(response.status, 200);
+            let json = body_json(&response);
+            let url = json["previewUrl"].as_str().unwrap().to_string();
+            let document = handle(&f.state, &authed(req("GET", &url), &session, false));
+            (json, String::from_utf8_lossy(&document.body).to_string())
+        };
+        let body = "See [the Republic](atlas:politeia), [a ghost](atlas:nobody) and [a private one](atlas:secret-thing).";
+
+        // The atlas is not published: every link is its label, and the
+        // warning says why. No raw `atlas:` address reaches the page.
+        let (json, html) = preview(body);
+        assert!(
+            !html.contains("atlas:") && !html.contains("<ob-concept "),
+            "{html}"
+        );
+        assert!(html.contains("the Republic"));
+        let warnings = json["warnings"].to_string();
+        assert!(
+            warnings.contains("`atlas:politeia`") && warnings.contains("is off"),
+            "{warnings}"
+        );
+
+        // Published: an approved entry is the ordinary link the build makes,
+        // and an entry the atlas does not publish is plain text and a warning.
+        let config_path = f.dir.join(site::CONFIG_FILE);
+        let mut config: Json = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+        config["knowledgeAtlas"] = json!({"publish": true});
+        fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+        let (json, html) = preview(body);
+        assert!(
+            html.contains(
+                "<a class=\"ob-concept\" href=\"/atlas/politeia/\" data-atlas-entry=\"politeia\""
+            ),
+            "{html}"
+        );
+        assert!(
+            !html.contains("atlas:") && !html.contains("<ob-concept "),
+            "{html}"
+        );
+        let warnings = json["warnings"].to_string();
+        assert!(
+            warnings.contains("`atlas:nobody`") && warnings.contains("`atlas:secret-thing`"),
+            "{warnings}"
+        );
+        assert!(!warnings.contains("`atlas:politeia`"), "{warnings}");
+        // A preview writes nothing, and a post without the syntax is unchanged.
+        assert!(!f.dir.join("content/posts/cave.md").exists());
+        let (json, html) = preview("Nothing linked.");
+        assert!(!html.contains("ob-concept"));
+        assert!(!json["warnings"].to_string().contains("concept link"));
     }
 
     #[test]

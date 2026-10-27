@@ -80,6 +80,9 @@ pub fn project_with(root: &Path, site: &mut Site, shared: &Shared) -> Blocked {
         Err(error) => blocked.comparisons = Some(error),
     }
     blocked.claims = site.claim_evidence_error.clone();
+    // The posts' concept links (ADR 0172) resolve against the atlas just
+    // attached, and against nothing when it is not published or not readable.
+    site.link_concepts();
     blocked
 }
 
@@ -268,6 +271,7 @@ pub fn manifest(
             },
         )
     });
+    let base_path = site.config.base_path();
     let inputs = BoundaryInputs {
         switches: Switches::of(&site.config),
         posts: &site.posts,
@@ -284,6 +288,8 @@ pub fn manifest(
         stale_comparisons: stale.as_ref(),
         acknowledgements: stores.acknowledgements,
         unavailable: &stores.unavailable,
+        author: &site.config.author.name,
+        base_path: &base_path,
     };
     match post {
         Some(post) => BoundaryManifest::post(&inputs, post),
@@ -623,6 +629,9 @@ fn unlisted(manifest: &BoundaryManifest, site: &Site, files: &[OutputFile]) -> V
     let atlas_entries = manifest.published_ids(Projection::Atlas, ItemKind::Entry);
     let relationships = manifest.published_ids(Projection::Atlas, ItemKind::Relationship);
     let datings = manifest.published_ids(Projection::Datings, ItemKind::Dating);
+    let query_entries = manifest.published_ids(Projection::AtlasQuery, ItemKind::Entry);
+    let query_edges = manifest.published_ids(Projection::AtlasQuery, ItemKind::Relationship);
+    let query_sources = manifest.published_ids(Projection::AtlasQuery, ItemKind::Source);
     let comparisons = manifest.published_ids(Projection::Comparisons, ItemKind::Comparison);
     let claims = manifest.published_ids(Projection::ClaimEvidence, ItemKind::Claim);
     let mut check = |file: &str, kind: &str, id: &str, known: &BTreeSet<&str>| {
@@ -656,6 +665,50 @@ fn unlisted(manifest: &BoundaryManifest, site: &Site, files: &[OutputFile]) -> V
             for id in ids_at(&value, "datings") {
                 check(&file.path, "dating", &id, &datings);
             }
+        } else if file.path == openblog_core::atlas_query::ATLAS_QUERY_JSON_FILE {
+            // The query file may only name what both the atlas and the query
+            // projection publish.
+            let value = json();
+            for id in ids_at(&value, "entries") {
+                check(&file.path, "atlas entry", &id, &atlas_entries);
+                check(&file.path, "atlas query entry", &id, &query_entries);
+            }
+            for id in ids_at(&value, "edges") {
+                check(&file.path, "relationship", &id, &relationships);
+                check(&file.path, "atlas query relationship", &id, &query_edges);
+            }
+            // Everything the file points at must be one of the items above,
+            // not only the items it lists itself.
+            for edge in value["edges"].as_array().into_iter().flatten() {
+                for end in ["from", "to"] {
+                    if let Some(id) = edge[end].as_str() {
+                        check(&file.path, "atlas query entry", id, &query_entries);
+                    }
+                }
+                for evidence in edge["evidence"].as_array().into_iter().flatten() {
+                    if let Some(id) = evidence["source"].as_str() {
+                        check(&file.path, "atlas query source", id, &query_sources);
+                    }
+                }
+                if let Some(id) = edge["assertedBy"]["source"].as_str() {
+                    check(&file.path, "atlas query source", id, &query_sources);
+                }
+            }
+            for entry in value["entries"].as_array().into_iter().flatten() {
+                if let Some(id) = entry["source"].as_str() {
+                    check(&file.path, "atlas query source", id, &query_sources);
+                }
+            }
+            for term in value["terms"].as_array().into_iter().flatten() {
+                for id in term["entries"].as_array().into_iter().flatten() {
+                    if let Some(id) = id.as_str() {
+                        check(&file.path, "atlas query entry", id, &query_entries);
+                    }
+                }
+            }
+            for id in ids_at(&value, "sources") {
+                check(&file.path, "atlas query source", &id, &query_sources);
+            }
         } else if file.path == openblog_core::comparison_publication::COMPARISONS_JSON_FILE {
             for id in ids_at(&json(), "comparisons") {
                 check(&file.path, "comparison", &id, &comparisons);
@@ -688,6 +741,7 @@ pub struct TextCheck {
 fn projection_data(path: &str) -> bool {
     [
         openblog_core::atlas_publication::ATLAS_JSON_FILE,
+        openblog_core::atlas_query::ATLAS_QUERY_JSON_FILE,
         openblog_core::comparison_publication::COMPARISONS_JSON_FILE,
         openblog_core::claim_publication::CLAIM_EVIDENCE_JSON_FILE,
     ]
@@ -1037,6 +1091,207 @@ date: 2026-01-07
             error.contains("`atlas.json` names the atlas entry `secret`"),
             "{error}"
         );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn the_atlas_query_file_may_only_name_what_the_manifest_publishes() {
+        let root = project_with_note("query-unlisted", r#"{"knowledgeAtlas":{"publish":true}}"#);
+        let (mut site, _) = crate::site::load_site(&root, false, None).unwrap();
+        let shared = Shared::read(&root, &site.config);
+        let blocked = project_with(&root, &mut site, &shared);
+        let stores = Stores::read(&root, &shared);
+        let manifest = manifest(&site, &stores, &blocked, None);
+        // The manifest lists what the query file publishes, by entry.
+        assert_eq!(
+            manifest.published_ids(Projection::AtlasQuery, ItemKind::Entry),
+            std::collections::BTreeSet::from(["plato-person"])
+        );
+        let query = openblog_core::atlas_query::AtlasQuery::project(
+            site.atlas.as_ref().unwrap(),
+            &site.config.author.name,
+            &site.config.base_path(),
+        )
+        .unwrap()
+        .to_json();
+        assert_eq!(
+            check_output(&root, &site, &manifest, &[page("atlas-query.json", &query)]),
+            Ok(Vec::new())
+        );
+        let error = check_output(
+            &root,
+            &site,
+            &manifest,
+            &[page(
+                "atlas-query.json",
+                r#"{"entries":[{"id":"plato-person"},{"id":"secret"}],"edges":[{"id":"r-hidden"}]}"#,
+            )],
+        )
+        .unwrap_err();
+        assert!(
+            error.contains("`atlas-query.json` names the atlas entry `secret`")
+                && error.contains("names the relationship `r-hidden`"),
+            "{error}"
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn the_atlas_query_file_may_only_point_at_published_entries_and_sources() {
+        let root = project_with_note("query-points", r#"{"knowledgeAtlas":{"publish":true}}"#);
+        // A work whose own source is the only thing the file cites.
+        fs::write(
+            root.join(".openblog/private/research/atlas.json"),
+            r#"{"version":2,"entries":[{"id":"republic","kind":"work","label":"Republic","source":"plato","visibility":"approved"}],"relationships":[]}"#,
+        )
+        .unwrap();
+        let (mut site, _) = crate::site::load_site(&root, false, None).unwrap();
+        let shared = Shared::read(&root, &site.config);
+        let blocked = project_with(&root, &mut site, &shared);
+        let stores = Stores::read(&root, &shared);
+        let manifest = manifest(&site, &stores, &blocked, None);
+        assert_eq!(
+            manifest.published_ids(Projection::AtlasQuery, ItemKind::Source),
+            std::collections::BTreeSet::from(["plato"]),
+            "the report lists the sources the file cites"
+        );
+        let real = openblog_core::atlas_query::AtlasQuery::project(
+            site.atlas.as_ref().unwrap(),
+            &site.config.author.name,
+            &site.config.base_path(),
+        )
+        .unwrap()
+        .to_json();
+        assert!(real.contains(r#""source":"plato""#), "{real}");
+        assert_eq!(
+            check_output(&root, &site, &manifest, &[page("atlas-query.json", &real)]),
+            Ok(Vec::new()),
+            "the real file passes"
+        );
+        // Ids the file points at, not only the ids it lists itself.
+        let forged = serde_json::json!({
+            "entries": [{"id": "republic", "source": "hidden-entry-source"}],
+            "edges": [{"id": "r-x", "from": "republic", "to": "hidden-end",
+                       "assertedBy": {"kind": "source", "source": "hidden-party"},
+                       "evidence": [{"source": "hidden-evidence"}]}],
+            "sources": [{"id": "hidden-listed"}],
+            "terms": [{"term": "t", "entries": ["hidden-term-entry"]}]
+        })
+        .to_string();
+        let error = check_output(
+            &root,
+            &site,
+            &manifest,
+            &[page("atlas-query.json", &forged)],
+        )
+        .unwrap_err();
+        for expected in [
+            "names the atlas query entry `hidden-end`",
+            "names the atlas query entry `hidden-term-entry`",
+            "names the atlas query source `hidden-evidence`",
+            "names the atlas query source `hidden-party`",
+            "names the atlas query source `hidden-entry-source`",
+            "names the atlas query source `hidden-listed`",
+        ] {
+            assert!(error.contains(expected), "{expected}: {error}");
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn private_text_in_the_atlas_query_file_refuses_the_build() {
+        let root = project_with_note("query-leak", r#"{"knowledgeAtlas":{"publish":true}}"#);
+        let leaked = page(
+            "atlas-query.json",
+            &serde_json::json!({"entries":[{"id":"plato-person","preview":format!("A PRIVATE reading of the allegory that only the author, {NOTE}")}]})
+                .to_string(),
+        );
+        let error = checked(&root, &[leaked]).unwrap_err();
+        for expected in [
+            "refusing to build",
+            "`atlas-query.json`",
+            "the research notebook",
+            "`n1`",
+            "nothing was written",
+        ] {
+            assert!(error.contains(expected), "{expected}: {error}");
+        }
+        assert!(!error.to_lowercase().contains("allegory"), "{error}");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_build_links_published_concepts_and_warns_for_the_rest() {
+        let root = project_with_note("concepts", r#"{"knowledgeAtlas":{"publish":true}}"#);
+        write_post(
+            &root,
+            "cave",
+            "",
+            "A [philosopher](atlas:plato-person), a [hidden idea](atlas:secret) and a [typo](atlas:Nobody). Plato again, unlinked.",
+        );
+        let out = root.join("out-concepts");
+        let report = build_into(&root, &out).unwrap();
+        let page = fs::read_to_string(out.join("posts/cave/index.html")).unwrap();
+        assert!(
+            page.contains("<a class=\"ob-concept\" href=\"/atlas/plato-person/\""),
+            "{page}"
+        );
+        assert!(page.contains("hidden idea") && page.contains("typo"));
+        assert!(
+            !page.contains("atlas:") && !page.contains("atlas/secret"),
+            "{page}"
+        );
+        let concept: Vec<&String> = report
+            .warnings
+            .iter()
+            .filter(|warning| warning.contains(": concept link `"))
+            .collect();
+        assert_eq!(concept.len(), 2, "{concept:?}");
+        assert!(concept
+            .iter()
+            .any(|w| w.contains("posts/cave") && w.contains("`atlas:secret`")));
+        assert!(concept.iter().any(|w| w.contains("`atlas:Nobody`")));
+        assert!(concept
+            .iter()
+            .all(|w| !w.contains("`atlas:plato-person`") && !w.contains("Secret")));
+        // The post's manifest lists what it links and what it could not.
+        let (mut site, _) = crate::site::load_site(&root, false, None).unwrap();
+        let shared = Shared::read(&root, &site.config);
+        let blocked = project_with(&root, &mut site, &shared);
+        let stores = Stores::read(&root, &shared);
+        let post = site
+            .posts
+            .iter()
+            .find(|p| p.slug == "cave")
+            .unwrap()
+            .clone();
+        let manifest = manifest(&site, &stores, &blocked, Some(&post));
+        assert_eq!(
+            manifest.published_ids(Projection::ContextLinks, ItemKind::AtlasPage),
+            std::collections::BTreeSet::from(["plato-person"])
+        );
+        // Building again gives the same bytes.
+        let again = root.join("out-concepts-2");
+        build_into(&root, &again).unwrap();
+        assert_eq!(tree(&out), tree(&again));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_site_that_does_not_publish_its_atlas_lists_no_query_items() {
+        let root = project_with_note("query-off", "");
+        let (mut site, _) = crate::site::load_site(&root, false, None).unwrap();
+        let shared = Shared::read(&root, &site.config);
+        let blocked = project_with(&root, &mut site, &shared);
+        let stores = Stores::read(&root, &shared);
+        let manifest = manifest(&site, &stores, &blocked, None);
+        let report = manifest
+            .projections
+            .iter()
+            .find(|report| report.projection == Projection::AtlasQuery)
+            .expect("the query projection is always listed");
+        assert!(!report.enabled && report.published.is_empty());
+        assert_eq!(report.switch, "knowledgeAtlas.publish");
         let _ = fs::remove_dir_all(root);
     }
 
