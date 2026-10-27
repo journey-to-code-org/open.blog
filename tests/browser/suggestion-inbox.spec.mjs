@@ -265,12 +265,12 @@ test("an accepted suggestion is copied into a private research note only when th
   expect(exports).toEqual([]);
   await button.focus();
   await page.keyboard.press("Enter");
-  await expect(card.locator('p[role="status"]')).toContainText("A private research note was made (suggestion-00000000). Nothing was published, fetched or e-mailed, and the suggestion is unchanged.");
+  await expect(card.locator('p[role="status"]:not([data-continuation-form] p)')).toContainText("A private research note was made (suggestion-00000000). Nothing was published, fetched or e-mailed, and the suggestion is unchanged.");
   expect(exports).toEqual([{ id: ID(5), version: 4 }]);
   // A refusal says why and keeps the card.
   answer = { status: 422, body: { error: "The id suggestion-00000000 is already used by a note.", code: "invalid" } };
   await button.click();
-  await expect(card.locator('p[role="status"]')).toContainText("already used");
+  await expect(card.locator('p[role="status"]:not([data-continuation-form] p)')).toContainText("already used");
   await expect(card).toBeVisible();
 });
 
@@ -333,11 +333,11 @@ test("an author records a link to future work from the keyboard, and the outcome
   // Nothing is sent until the author says so, and an incomplete form says what is missing and where.
   expect(sent).toEqual([]);
   await form.getByRole("button", { name: "Record this link" }).click();
-  await expect(item.locator('p[role="status"]')).toContainText("Choose what you made from this suggestion.");
+  await expect(item.locator('p[role="status"]:not([data-continuation-form] p)')).toContainText("Choose what you made from this suggestion.");
   await expect(kind).toBeFocused();
   await kind.selectOption({ label: "A draft (its slug)" });
   await form.getByRole("button", { name: "Record this link" }).click();
-  await expect(item.locator('p[role="status"]')).toContainText("Name it:");
+  await expect(item.locator('p[role="status"]:not([data-continuation-form] p)')).toContainText("Name it:");
   await expect(target).toBeFocused();
   expect(sent).toEqual([]);
   // From the keyboard.
@@ -356,7 +356,7 @@ test("an author records a link to future work from the keyboard, and the outcome
   await item.locator("[data-link-form]").getByLabel("What you made", { exact: true }).selectOption({ label: "A draft (its slug)" });
   await item.locator("[data-link-form]").getByLabel("Its slug or id", { exact: true }).fill("tide-tables");
   await item.locator("[data-link-form]").getByRole("button", { name: "Record this link" }).click();
-  await expect(item.locator('p[role="status"]').first()).toContainText("It is already linked to that.");
+  await expect(item.locator('p[role="status"]:not([data-continuation-form] p)').first()).toContainText("It is already linked to that.");
   answer = { status: 409, body: { error: "This item changed since you loaded it. Review it again before acting.", code: "conflict", item: null } };
   await item.locator("[data-link-form]").getByRole("button", { name: "Record this link" }).click();
   await expect(queueStatus(page)).toContainText("This item changed since you loaded it");
