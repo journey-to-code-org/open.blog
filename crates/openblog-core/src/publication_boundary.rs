@@ -1255,7 +1255,8 @@ fn context_links(inputs: &BoundaryInputs<'_>, post: &Post) -> ProjectionReport {
     let links = find_context_links(post.authored_markdown(), 1);
     let mut seen = BTreeSet::new();
     for link in links {
-        if !seen.insert((link.kind, link.id.clone())) {
+        // A form the build never shows as a link leads nowhere: not listed.
+        if !link.linked || !seen.insert((link.kind, link.id.clone())) {
             continue;
         }
         let (kind, page) = match link.kind {
