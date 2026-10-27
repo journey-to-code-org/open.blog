@@ -478,3 +478,73 @@ body
     fs::remove_dir_all(&root).unwrap();
     fs::remove_dir_all(&ok).unwrap();
 }
+
+#[test]
+fn a_production_build_counts_findings_in_unpublished_posts_and_never_names_them() {
+    let root = project("unpublished", true);
+    fs::write(
+        root.join("content/posts/wip.md"),
+        "---\ntitle: Work in progress\ndate: 2026-10-02\nprofile: research\ncitations: notes\ndraft: true\n---\n\nAn unfinished thought [@nobody].\n",
+    )
+    .unwrap();
+    let build = |args: &[&str]| {
+        let output = run(&root, args);
+        assert!(output.status.success(), "{}", text(&output.stderr));
+        text(&output.stderr)
+    };
+
+    let production = build(&["build"]);
+    assert!(
+        !production
+            .lines()
+            .any(|line| line.starts_with("research") && line.contains("wip")),
+        "the research report of a production build never names a draft: {production}"
+    );
+    assert!(
+        production.contains("finding(s) in posts not yet published; see `openblog check`"),
+        "{production}"
+    );
+    assert!(
+        production.contains("posts/cave.md"),
+        "a published post's findings stay: {production}"
+    );
+
+    let check = build(&["check"]);
+    assert!(check.contains("posts/wip.md"), "check lists it: {check}");
+    assert!(!check.contains("not yet published"), "{check}");
+
+    let preview = build(&["build", "--drafts"]);
+    assert!(
+        preview.contains("posts/wip.md"),
+        "a preview that holds drafts lists them: {preview}"
+    );
+    fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn a_library_the_build_reads_but_a_full_check_refuses_is_stated_not_dropped() {
+    // The build reads the sources it publishes; a reading with no source is
+    // refused only by the full check, so the report says the library was not
+    // reviewed rather than saying nothing.
+    let root = project("library-interpretation", true);
+    let mut library: Value =
+        serde_json::from_str(&fs::read_to_string(root.join(LIBRARY_FILE)).unwrap()).unwrap();
+    library["interpretations"] = json!([{"id": "my-reading", "kind": "reading", "text": "Words kept private.",
+            "interpreters": [{"name": "The author"}]}]);
+    fs::write(root.join(LIBRARY_FILE), library.to_string()).unwrap();
+    let output = run(&root, &["check", "--json"]);
+    assert!(!output.status.success(), "check refuses the library");
+    let view: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(view["applies"], true);
+    let not_reviewed = view["notReviewed"].to_string();
+    assert!(
+        not_reviewed.contains("source-review") && not_reviewed.contains("cannot be read"),
+        "{not_reviewed}"
+    );
+    let terminal = text(&run(&root, &["check"]).stderr);
+    assert!(
+        terminal.contains("research not reviewed:") && !terminal.contains("nothing to review"),
+        "{terminal}"
+    );
+    fs::remove_dir_all(&root).unwrap();
+}

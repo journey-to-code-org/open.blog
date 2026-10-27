@@ -45,6 +45,11 @@ pub struct Readiness {
     pub review: PublicationReview,
     pub not_reviewed: Vec<NotReviewed>,
     pub acknowledgements: Acknowledgements,
+    /// The posts a production build publishes, when the terminal text is for
+    /// one: a finding about any other post (a draft, a post waiting for its
+    /// date) is counted, never printed, so a build log does not name them.
+    /// `None` lists every finding, as `check`, Admin and `serve --drafts` do.
+    published: Option<std::collections::BTreeSet<String>>,
 }
 
 impl Readiness {
@@ -59,7 +64,15 @@ impl Readiness {
             ),
             not_reviewed: Vec::new(),
             acknowledgements: Acknowledgements::default(),
+            published: None,
         }
+    }
+
+    /// Print findings about posts outside `published` as a count only, so a
+    /// production build's log never names a draft or a scheduled post. The
+    /// report itself, `check`, Admin and `serve --drafts` keep every finding.
+    pub fn limit_text_to_published(&mut self, published: std::collections::BTreeSet<String>) {
+        self.published = Some(published);
     }
 
     /// How many findings block the next build: a failure of a private file it
@@ -99,7 +112,17 @@ impl Readiness {
     /// failed, an empty report is silent rather than saying there is nothing
     /// to review beside a failure.
     pub fn text_after(&self, checks_failed: bool) -> String {
-        let mut text = self.review.text();
+        let mut text = match &self.published {
+            None => self.review.text(),
+            Some(published) => self.review.text_hiding(|entry| {
+                let scope = &entry.finding.scope;
+                scope.object == openblog_core::publication_review::ObjectKind::Post
+                    && scope
+                        .path
+                        .as_ref()
+                        .is_some_and(|path| !published.contains(path))
+            }),
+        };
         if text.is_empty() && self.applies && self.not_reviewed.is_empty() && !checks_failed {
             // A research site that raised nothing says so, rather than nothing.
             text.push_str("Research checks: nothing to review\n");
@@ -147,16 +170,92 @@ pub fn applies(root: &Path, site: &Site) -> bool {
 /// Admin, `check`, `check --json`, `build` and `serve` all list the same
 /// codes in the same order whether or not they include drafts.
 ///
-/// When `site` was loaded without every saved post, they are read once more,
-/// and that load is kept for as long as the saved files stay as they are, so
-/// a rebuild of unchanged content or a second reader pays nothing again.
-/// Reads only; nothing is written.
+/// A site with no research anywhere, saved posts included, is reported
+/// without loading anything again. Otherwise, when `site` was loaded without
+/// every saved post, they are read once more, and that load is kept for as
+/// long as the saved files stay as they are, so a rebuild of unchanged
+/// content or a second reader pays nothing again. Reads only; nothing is
+/// written.
 pub fn report(root: &Path, site: &Site) -> Readiness {
-    match canonical(root) {
-        Some(all) => report_of_all(root, &all),
-        None => report_of_all(root, site),
+    report_of_held(root, site, false, None)
+}
+
+/// [`report`] for a caller that knows more about `site`: that it holds every
+/// saved post (`every_post`, so it is reported as it stands) and whether any
+/// saved post at all is a research post or cites (`research_in_posts`, `None`
+/// when the caller has not looked, and the content folder is read for it).
+pub fn report_of_held(
+    root: &Path,
+    site: &Site,
+    every_post: bool,
+    research_in_posts: Option<bool>,
+) -> Readiness {
+    if every_post {
+        return report_of_all(root, site);
+    }
+    let may_apply = applies(root, site)
+        || research_in_posts.unwrap_or_else(|| research_in_saved_posts(root, site));
+    if !may_apply {
+        // Nothing to report: the other saved posts add none.
+        return report_of_all(root, site);
+    }
+    match saved_site(root) {
+        Ok(all) => report_of_all(root, &all),
+        Err(_) => report_of_all(root, site),
     }
 }
+
+/// Whether a saved post's front matter makes it a research post or publishes
+/// citations, as far as its text can tell. It leans toward yes: a post it
+/// cannot read the front matter of counts, since the answer only decides
+/// whether the report loads the site.
+pub fn is_research_source(source: &str) -> bool {
+    match frontmatter::parse(source) {
+        Ok(document) => {
+            openblog_core::profile::resolve(&document.front_matter).behavior
+                == openblog_core::profile::ProfileBehavior::Research
+                || document.front_matter.get("citations").is_some()
+        }
+        Err(_) => true,
+    }
+}
+
+/// Whether any saved post in the content folder is a research post or cites,
+/// from the first bytes of each file only, so no post is rendered.
+fn research_in_saved_posts(root: &Path, site: &Site) -> bool {
+    use std::io::Read;
+    let content = root.join(&site.config.paths.content);
+    let Ok(files) = crate::site::content_files(&content) else {
+        return true;
+    };
+    for file in files {
+        let rel = crate::fsutil::relative(&content, &file);
+        if crate::site::not_content(&rel)
+            || openblog_core::classify_source(&rel) != Some(openblog_core::SourceKind::Post)
+        {
+            continue;
+        }
+        let mut head = Vec::new();
+        let read = std::fs::File::open(&file).and_then(|handle| {
+            handle
+                .take(FRONT_MATTER_BYTES as u64)
+                .read_to_end(&mut head)
+        });
+        if read.is_err() {
+            return true;
+        }
+        let text = String::from_utf8_lossy(&head);
+        // Front matter that runs past the part read cannot be told apart.
+        let closed = text.matches("---").count() >= 2;
+        let cut_short = head.len() == FRONT_MATTER_BYTES;
+        if (cut_short && !closed && text.starts_with("---")) || is_research_source(&text) {
+            return true;
+        }
+    }
+    false
+}
+
+const FRONT_MATTER_BYTES: usize = 8 * 1024;
 
 /// [`report`] for a site that already holds every saved post: one loaded
 /// with drafts and no clock, as `openblog check` does.
@@ -180,6 +279,7 @@ pub fn report_of_all(root: &Path, site: &Site) -> Readiness {
         review,
         not_reviewed,
         acknowledgements: info,
+        published: None,
     }
 }
 
@@ -188,7 +288,8 @@ pub fn report_of_all(root: &Path, site: &Site) -> Readiness {
 /// and order `check` and Admin show (ADR 0148). The error is unchanged, and
 /// a site without research gets exactly the error it always got.
 pub fn alongside(root: &Path, site: &Site, error: String) -> String {
-    let report = report(root, site);
+    let mut report = report(root, site);
+    report.limit_text_to_published(site.posts.iter().map(|post| post.source.clone()).collect());
     let text = report.text();
     if !report.applies || (report.review.findings.is_empty() && report.not_reviewed.is_empty()) {
         return error;
@@ -235,9 +336,13 @@ pub fn gather(root: &Path, site: &Site) -> Gathered {
                 );
             }
         }
-        // When the build reads research, the finding of why is already in the
-        // report, scoped to the file; otherwise nothing is blamed.
-        _ if reads_atlas || reads_comparisons || (reads_claims && published.claims_stored) => {}
+        // When the build reads research and cannot read these files, the
+        // finding of why is already in the report, scoped to the file. When it
+        // read them, because it reads less than a full check does (it never
+        // reads an interpretation it does not publish), the part that could
+        // not run is stated rather than dropped.
+        _ if !published.ready
+            && (reads_atlas || reads_comparisons || (reads_claims && published.claims_stored)) => {}
         _ if !exists(root, source_store::LIBRARY_FILE) && !exists(root, notebook_store::NOTEBOOK_FILE) => {}
         _ => gathered.not_reviewed.push(NotReviewed {
             part: "source-review",
@@ -380,47 +485,102 @@ fn unread(
     });
 }
 
-/// The site with every saved post, kept per project while its saved files are
-/// unchanged. `None` when it cannot be loaded, so the caller's own site is
-/// reported instead of nothing.
-fn canonical(root: &Path) -> Option<std::sync::Arc<Site>> {
+/// The site with every saved post, kept per project while its saved files
+/// are unchanged.
+pub fn saved_site(root: &Path) -> Result<std::sync::Arc<Site>, String> {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex, OnceLock};
     type Kept = HashMap<std::path::PathBuf, (u64, Arc<Site>)>;
     static KEPT: OnceLock<Mutex<Kept>> = OnceLock::new();
     let kept = KEPT.get_or_init(|| Mutex::new(HashMap::new()));
-    let revision = content_revision(root)?;
-    if let Some((held, site)) = kept.lock().ok()?.get(root) {
-        if *held == revision {
-            return Some(Arc::clone(site));
+    let revision = content_revision(root);
+    if let (Some(revision), Ok(kept)) = (revision, kept.lock()) {
+        if let Some((held, site)) = kept.get(root) {
+            if *held == revision {
+                return Ok(Arc::clone(site));
+            }
         }
     }
-    let (site, _) = crate::site::load_site(root, true, None).ok()?;
+    #[cfg(test)]
+    loads::note(root);
+    let (site, _) = crate::site::load_site(root, true, None)?;
     let site = Arc::new(site);
-    let mut kept = kept.lock().ok()?;
-    if kept.len() >= 8 {
-        kept.clear();
+    if let (Some(revision), Ok(mut kept)) = (revision, kept.lock()) {
+        if kept.len() >= 8 {
+            kept.clear();
+        }
+        kept.insert(root.to_path_buf(), (revision, Arc::clone(&site)));
     }
-    kept.insert(root.to_path_buf(), (revision, Arc::clone(&site)));
-    Some(site)
+    Ok(site)
 }
 
 /// A fingerprint of every saved file a site load reads for the research
 /// report: the configuration, the content folder and the private research
-/// files. Their bytes, not their times, so two edits in one clock tick are
-/// told apart.
+/// files. Each file's path, length and modification time, so nothing is read
+/// to tell whether it changed, and no link is followed: a link is told apart
+/// by its own path, length and time.
 fn content_revision(root: &Path) -> Option<u64> {
     use std::hash::{Hash, Hasher};
     let config = crate::site::load_config(root).ok()?;
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     let mut files = vec![root.join("openblog.json")];
-    files.extend(crate::fsutil::walk(&root.join(&config.paths.content)));
-    files.extend(crate::fsutil::walk(&root.join(".openblog").join("private")));
+    files.extend(files_without_links(&root.join(&config.paths.content)));
+    files.extend(files_without_links(&root.join(".openblog").join("private")));
     for file in files {
         file.strip_prefix(root).unwrap_or(&file).hash(&mut hasher);
-        std::fs::read(&file).ok().hash(&mut hasher);
+        match std::fs::symlink_metadata(&file) {
+            Ok(metadata) => {
+                metadata.len().hash(&mut hasher);
+                metadata
+                    .modified()
+                    .ok()
+                    .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|elapsed| elapsed.as_nanos())
+                    .hash(&mut hasher);
+            }
+            Err(_) => 0u8.hash(&mut hasher),
+        }
     }
     Some(hasher.finish())
+}
+
+/// Every file under `dir`, sorted, descending into real folders only: a link
+/// is listed as itself and never followed.
+fn files_without_links(dir: &Path) -> Vec<std::path::PathBuf> {
+    fn visit(dir: &Path, into: &mut Vec<std::path::PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            match entry.file_type() {
+                Ok(kind) if kind.is_dir() => visit(&path, into),
+                _ => into.push(path),
+            }
+        }
+    }
+    let mut files = Vec::new();
+    visit(dir, &mut files);
+    files.sort();
+    files
+}
+
+/// The projects whose saved posts were loaded again, so a test can show that
+/// a report loaded nothing more than it had to.
+#[cfg(test)]
+pub(crate) mod loads {
+    use std::path::{Path, PathBuf};
+    use std::sync::Mutex;
+
+    static LOADED: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+    pub fn note(root: &Path) {
+        LOADED.lock().unwrap().push(root.to_path_buf());
+    }
+
+    pub fn of(root: &Path) -> usize {
+        LOADED.lock().unwrap().iter().filter(|r| *r == root).count()
+    }
 }
 
 fn exists(root: &Path, file: &str) -> bool {
@@ -430,6 +590,189 @@ fn exists(root: &Path, file: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+
+    /// A plain project: one published article and one draft, no research.
+    fn plain_project(tag: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "ob-readiness-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        copy_dir(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/portable-publishing"),
+            &root,
+        );
+        std::fs::write(
+            root.join("content/posts/portable-lesson.md"),
+            "---
+title: A plain post
+date: 2026-10-24
+---
+
+Just an article.
+",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("content/posts/wip.md"),
+            "---
+title: Work in progress
+date: 2026-10-25
+draft: true
+---
+
+Soon.
+",
+        )
+        .unwrap();
+        root
+    }
+
+    fn copy_dir(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for entry in std::fs::read_dir(from).unwrap() {
+            let entry = entry.unwrap();
+            let target = to.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                copy_dir(&entry.path(), &target);
+            } else {
+                std::fs::copy(entry.path(), target).unwrap();
+            }
+        }
+    }
+
+    fn production(root: &Path) -> Site {
+        crate::site::load_site(root, false, Some(crate::clock::now()))
+            .unwrap()
+            .0
+    }
+
+    #[test]
+    fn a_site_without_research_is_reported_without_loading_every_post_again() {
+        let root = plain_project("no-research");
+        let site = production(&root);
+        assert_eq!(site.posts.len(), 1, "the draft is held back");
+        let report = report(&root, &site);
+        assert!(!report.applies);
+        assert_eq!(loads::of(&root), 0, "nothing was loaded a second time");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_draft_with_research_makes_the_site_load_every_post_once_and_keep_it() {
+        let root = plain_project("draft-research");
+        std::fs::write(
+            root.join("content/posts/wip.md"),
+            "---
+title: Work in progress
+date: 2026-10-25
+profile: research
+draft: true
+---
+
+Soon.
+",
+        )
+        .unwrap();
+        let site = production(&root);
+        assert!(report(&root, &site).applies, "the saved draft is research");
+        assert_eq!(loads::of(&root), 1);
+        let _ = report(&root, &site);
+        assert_eq!(loads::of(&root), 1, "an unchanged site is not loaded again");
+        // A same-length edit changes the modification time, and is noticed.
+        let file = root.join("content/posts/wip.md");
+        let changed = std::time::SystemTime::now() + std::time::Duration::from_secs(5);
+        std::fs::File::options()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_modified(changed)
+            .unwrap();
+        let _ = report(&root, &site);
+        assert_eq!(loads::of(&root), 2, "a changed file is read again");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_build_that_holds_every_post_reports_without_a_second_load() {
+        let root = plain_project("build-every");
+        std::fs::remove_file(root.join("content/posts/wip.md")).unwrap();
+        std::fs::write(
+            root.join("content/posts/portable-lesson.md"),
+            "---
+title: Research
+date: 2026-10-24
+profile: research
+---
+
+Text.
+",
+        )
+        .unwrap();
+        let out = root.join("out-build");
+        let built = crate::site::build(
+            &root,
+            &crate::site::BuildOptions {
+                include_drafts: false,
+                out_override: Some(out),
+                now: Some(crate::clock::now()),
+            },
+        )
+        .unwrap();
+        assert!(built.readiness.is_some(), "a research site is reported");
+        assert_eq!(loads::of(&root), 0, "the build's own site was reused");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_fingerprint_reads_no_file_and_follows_no_link() {
+        let root = plain_project("fingerprint");
+        let before = content_revision(&root).unwrap();
+        assert_eq!(
+            content_revision(&root),
+            Some(before),
+            "stable while unchanged"
+        );
+        let file = root.join("content/posts/wip.md");
+        std::fs::write(
+            &file,
+            "---
+title: Work in progress
+date: 2026-10-25
+draft: true
+---
+
+Late.
+",
+        )
+        .unwrap();
+        assert_ne!(content_revision(&root), Some(before), "a different length");
+
+        // A link is listed as itself and never entered.
+        let outside =
+            std::env::temp_dir().join(format!("ob-readiness-outside-{}", std::process::id()));
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.md"), "outside").unwrap();
+        let link = root.join("content/posts/linked");
+        #[cfg(unix)]
+        let made = std::os::unix::fs::symlink(&outside, &link).is_ok();
+        #[cfg(windows)]
+        let made = std::os::windows::fs::symlink_dir(&outside, &link).is_ok();
+        if made {
+            let files = files_without_links(&root.join("content"));
+            assert!(files.contains(&link), "the link is listed as itself");
+            assert!(
+                !files.iter().any(|file| file.ends_with("secret.md")),
+                "{files:?}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&outside);
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn an_empty_report_is_silent_beside_a_failed_check() {

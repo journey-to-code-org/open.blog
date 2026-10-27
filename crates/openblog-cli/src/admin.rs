@@ -14493,11 +14493,16 @@ fn boundary_site(state: &AppState) -> Response {
 /// preview print, from the same load. Read-only and Admin-only: it writes
 /// nothing, repairs nothing and publishes nothing.
 fn readiness_site(state: &AppState) -> Response {
+    // The report is of every saved post, so the site is loaded once, as that
+    // report reads it, and kept while the saved files stay as they are.
     let guard = lock(&state.build);
-    let loaded = site::load_site(&state.root, state.include_drafts, Some(clock::now()));
+    let loaded = crate::readiness::saved_site(&state.root);
     drop(guard);
     match loaded {
-        Ok((site, _)) => Response::json(200, &crate::readiness::report(&state.root, &site).view()),
+        Ok(site) => Response::json(
+            200,
+            &crate::readiness::report_of_all(&state.root, &site).view(),
+        ),
         Err(error) => Response::json(
             422,
             &json!({
@@ -16952,6 +16957,24 @@ mod tests {
         body_json(&response)
     }
 
+    #[test]
+    fn the_readiness_route_loads_the_saved_site_once_and_keeps_it() {
+        let f = boundary_fixture("readiness-one-load");
+        let session = login_ok(&f);
+        let first = readiness_of(&f, &session);
+        assert_eq!(
+            crate::readiness::loads::of(&f.dir),
+            1,
+            "one load of every saved post, not two"
+        );
+        assert_eq!(readiness_of(&f, &session), first, "deterministic");
+        assert_eq!(
+            crate::readiness::loads::of(&f.dir),
+            1,
+            "an unchanged site is not loaded again"
+        );
+    }
+
     /// The `[validator: code]` of each finding in the order a report lists
     /// them: its groups in turn, each in the contract's order.
     fn listed_codes(view: &Json) -> Vec<String> {
@@ -17075,7 +17098,29 @@ mod tests {
         let built = production(&f.dir);
         let readiness = built.readiness.as_ref().unwrap();
         assert_eq!(readiness.view(), admin);
-        assert_eq!(printed_codes(&readiness.text()), codes);
+        // A production build counts the draft's findings and never names it.
+        let findings = admin["findings"].as_array().unwrap();
+        let in_draft = |position: &Json| {
+            findings[position.as_u64().unwrap() as usize]["scope"]["path"] == "posts/wip.md"
+        };
+        let kept = admin["groups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|group| group["findings"].as_array().unwrap())
+            .filter(|position| !in_draft(position))
+            .count();
+        let hidden = findings.len() - kept;
+        assert!(hidden > 0 && kept > 0, "{codes:?}");
+        let text = readiness.text();
+        assert_eq!(printed_codes(&text).len(), kept, "{text}");
+        assert!(!text.contains("wip.md"), "{text}");
+        assert!(
+            text.contains(&format!(
+                "{hidden} finding(s) in posts not yet published; see `openblog check`"
+            )),
+            "{text}"
+        );
     }
 
     #[test]

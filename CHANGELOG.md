@@ -31,19 +31,23 @@ All notable changes to open.blog are recorded here. Releases follow
   checks for one post, with **Review research checks** opening the review before publishing.
   `openblog check`, `openblog build` and the preview server print the same findings, grouped the
   same way, and `openblog check --json` writes the report as deterministic JSON. `check --json`
-  always prints one JSON document on standard output, with an `error` field when the site could not
-  be loaded or its checks failed, and exits as `check` does: `openblog check` now also exits with an error, after printing the report, when a
-  failure of a private file the build reads would refuse the next build. `check` and `build` list each finding
-  once, in the report, instead of also printing it as an `evidence` line, and a research site that
-  raised nothing prints `Research checks: nothing to review`. The report covers every saved post,
-  drafts included, wherever you look, and a post's own review now includes its source-review
-  findings. A finding you
-  have considered can be acknowledged from the keyboard; it stays listed and counted, is never
-  called resolved, and the acknowledgement stops applying when the finding changes. Only a
-  failure of a private file the build reads stops a build, and it stops it before any public file
-  is written. Sites without research print exactly what they printed before. The review before
-  publication and the readiness report now share one contract, so acknowledgements you already
-  made keep working.
+  always prints one JSON document on standard output, with the full report shape (empty when the
+  site could not be loaded) and an `error` field when the site could not be loaded or its checks
+  failed, and exits as `check` does: `openblog check` now also exits with an error, after printing
+  the report, when a failure of a private file the build reads would refuse the next build.
+  `check` and `build` list each finding once, in the report, instead of also printing it as an
+  `evidence` line, and a research site that raised nothing prints `Research checks: nothing to
+  review`. The report covers every saved post, drafts included, wherever you look, and a post's
+  own review now includes its source-review findings. A finding you have considered can be
+  acknowledged from the keyboard; it stays listed and counted, is never called resolved, and the
+  acknowledgement stops applying when the finding changes. Only a failure of a private file the
+  build reads stops a build (an unreadable or invalid claims file included, while the site
+  publishes claim evidence), and it stops it before any public file is written. A production
+  `openblog build` counts findings about posts it does not publish yet, as "N finding(s) in posts
+  not yet published; see `openblog check`", rather than naming them; `check`, Admin and `serve
+  --drafts` list each one. Sites without research print exactly what they printed before. The
+  review before publication and the readiness report now share one contract, so acknowledgements
+  you already made keep working.
 
 ## [0.39.0] - 2026-10-26
 

@@ -192,10 +192,18 @@ impl PublicationReview {
     /// counts sentence. Deterministic: the same report prints the same bytes.
     /// An empty report prints nothing.
     pub fn text(&self) -> String {
+        self.text_hiding(|_| false)
+    }
+
+    /// [`PublicationReview::text`] without the lines of the findings `hide`
+    /// names, which are counted in one line instead, so their places are not
+    /// printed. The counts still cover every finding.
+    pub fn text_hiding(&self, hide: impl Fn(&ReviewEntry) -> bool) -> String {
         if self.findings.is_empty() {
             return String::new();
         }
         let mut lines = Vec::new();
+        let mut hidden = 0;
         for group in &self.groups {
             let label = match group.name {
                 ReviewGroupName::Blocking => "blocking",
@@ -204,8 +212,17 @@ impl PublicationReview {
                 ReviewGroupName::NeedsReview => "needs-review",
             };
             for &position in &group.findings {
-                lines.push(finding_line(label, &self.findings[position]));
+                if hide(&self.findings[position]) {
+                    hidden += 1;
+                } else {
+                    lines.push(finding_line(label, &self.findings[position]));
+                }
             }
+        }
+        if hidden > 0 {
+            lines.push(format!(
+                "research: {hidden} finding(s) in posts not yet published; see `openblog check`."
+            ));
         }
         lines.push(format!("Research checks: {}", self.counts_text()));
         let mut text = lines.join("\n");

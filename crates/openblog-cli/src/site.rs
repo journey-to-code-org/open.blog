@@ -898,6 +898,13 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
     // with the other evidence findings, never written to the output. They are
     // reviewed against the posts this build read, before the load takes them.
     let claim_findings = crate::claims_store::build_findings(root, &config.contributors, &sources);
+    // What the research report needs to know without loading the site again:
+    // how many posts there are to hold, and whether any is a research post.
+    let saved_posts = sources.posts.len();
+    let research_in_posts = sources
+        .posts
+        .iter()
+        .any(|post| crate::readiness::is_research_source(&post.contents));
     let (mut site, themes) = load_site_from_sources(
         root,
         config,
@@ -914,11 +921,12 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
     // private file the build reads refuses the build while the output folder is
     // still exactly as it was (ADR 0148). Every other finding is for the
     // author to decide and never stops anything.
-    let readiness = if options.include_drafts && options.now.is_none() {
-        crate::readiness::report_of_all(root, &site)
-    } else {
-        crate::readiness::report(root, &site)
-    };
+    let every_post = site.posts.len() == saved_posts;
+    let mut readiness =
+        crate::readiness::report_of_held(root, &site, every_post, Some(research_in_posts));
+    // A production build's log counts the findings about posts it does not
+    // publish and never names them; `check` and Admin list each one.
+    readiness.limit_text_to_published(site.posts.iter().map(|post| post.source.clone()).collect());
     if readiness.blocking() > 0 {
         return Err(format!(
             "research readiness: {} finding(s) refuse this build. Nothing was written.\n{}",
