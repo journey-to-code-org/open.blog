@@ -125,7 +125,9 @@ const notes = (page) => page.locator("#ob-reader-feedback");
 const note = (page, n) => page.locator(`#ob-reader-note-${ID(n)}`);
 
 test("without JavaScript each note says what the author decided, what changed and which evidence, by keyboard", async ({ browser }) => {
-  const context = await browser.newContext({ javaScriptEnabled: false });
+  // Reduced motion turns off the page's smooth scrolling, so landing on a target is checked without
+  // racing the scroll animation on a busy runner.
+  const context = await browser.newContext({ javaScriptEnabled: false, reducedMotion: "reduce" });
   const page = await context.newPage();
   await page.goto(`${origin}/tides/`);
   await expect(notes(page)).toBeVisible();
@@ -142,8 +144,8 @@ test("without JavaScript each note says what the author decided, what changed an
   await change.focus();
   await expect(change).toBeFocused();
   await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/#revision-notes/);
   await expect(page.getByRole("heading", { name: "Revision notes" })).toBeInViewport();
-  expect(new URL(page.url()).hash).toMatch(/^#revision-notes/);
   // Added as evidence: the recorded evidence link, linked to its claim, labelled by its relation.
   const added = note(page, 2);
   await expect(added.getByRole("heading", { level: 4, name: /^Author’s decision: Added as evidence/ })).toBeVisible();
