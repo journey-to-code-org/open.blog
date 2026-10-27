@@ -1605,6 +1605,34 @@ fn cycles_are_exactly_the_components_of_more_than_one_selection_and_self_loops()
 }
 
 #[test]
+fn an_ordering_is_not_refused_for_a_bound_reached_only_through_stale_posts() {
+    use openblog_core::curated_selection::MAX_POSITIONS;
+    let w = world();
+    let mut set = SelectionSet::default();
+    // A whole-site selection that once had a place among the items of the bound's worth of posts,
+    // all of which have since been deleted.
+    let stale: BTreeMap<String, u32> = (0..MAX_POSITIONS)
+        .map(|n| (format!("deleted-{n:03}"), 1))
+        .collect();
+    let id = set
+        .select(
+            NewSelection {
+                positions: stale,
+                ..pick(SelectionKind::ContextualEntry, "plato")
+            },
+            &w.basis(),
+        )
+        .expect("selected");
+    assert_eq!(set.get(&id).unwrap().positions.len(), MAX_POSITIONS);
+    // Ordering it for a post that exists is not refused, and drops the places of posts that are gone.
+    set.order_for_post("cave", std::slice::from_ref(&id), &w.basis())
+        .expect("a stale entry never refuses an ordering");
+    let kept = &set.get(&id).unwrap().positions;
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert_eq!(kept.get("cave"), Some(&1));
+}
+
+#[test]
 fn reordering_never_refreshes_a_stale_selection() {
     let w = world();
     let mut set = SelectionSet::default();

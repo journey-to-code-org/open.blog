@@ -2095,16 +2095,29 @@ impl SelectionSet {
         rest.sort();
         let mut next = self.clone();
         let place = |at: usize| u32::try_from(at + 1).unwrap_or(u32::MAX);
+        // Giving a place to one more post can take a selection over the bound
+        // on how many posts it orders. Places for posts that are no longer
+        // published are the first to go, so a bound reached only through
+        // stale entries never refuses an ordering; a selection that really
+        // orders that many posts still does.
+        let give = |selection: &mut Selection, at: usize| {
+            selection.positions.insert(post.to_string(), place(at));
+            if selection.positions.len() > MAX_POSITIONS {
+                if let Some(published) = basis.posts {
+                    selection
+                        .positions
+                        .retain(|slug, _| slug == post || published.contains(slug));
+                }
+            }
+        };
         for (index, id) in ids.iter().enumerate() {
             if let Some(selection) = next.selections.iter_mut().find(|s| &s.id == id) {
-                selection.positions.insert(post.to_string(), place(index));
+                give(selection, index);
             }
         }
         for (index, (_, id)) in rest.iter().enumerate() {
             if let Some(selection) = next.selections.iter_mut().find(|s| &s.id == id) {
-                selection
-                    .positions
-                    .insert(post.to_string(), place(ids.len() + index));
+                give(selection, ids.len() + index);
             }
         }
         let problems: Vec<Diagnostic> = next.selections.iter().flat_map(validate).collect();
