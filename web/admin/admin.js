@@ -641,8 +641,14 @@ export function moderationReaderLine(reader, source = "feedback", kind = "") {
     : `From ${reader.name}. The name stays private: the reader did not agree to show it.`;
 }
 
-/** What a decision did, for the status line after the list reloads. */
+/** What a decision did, for the status line after the list reloads. A failure to take the item's
+ *  continuation links off the pages is said plainly after it (ADR 0403). */
 export function moderationOutcome(item, action, result) {
+  const text = moderationDecisionText(item, action, result);
+  return result?.continuationsError ? `${text} ${result.continuationsError}` : text;
+}
+
+function moderationDecisionText(item, action, result) {
   const where = item.post ? `“${item.post.title}”` : item.work;
   if (action === "approve") {
     if (item.source === "comment") return `Approved. The comment is shown on ${where}.`;
@@ -15571,7 +15577,8 @@ export class ObAdmin extends AdminElement {
       button.disabled = true;
       try {
         const result = await this.api.call("POST", "engagement/continuations/sweep", { json: {} });
-        await reloadAll(result.dropped ? `${result.dropped} link${result.dropped === 1 ? "" : "s"} of withdrawn or removed submissions dropped. Rebuild or publish to update the live site.` : "Every link's submission is still approved or could not be checked.", "ok");
+        const dropped = result.dropped ? `${result.dropped} link${result.dropped === 1 ? "" : "s"} of withdrawn or removed submissions dropped. Rebuild or publish to update the live site.` : "Every link's submission is still approved or could not be checked.";
+        await reloadAll(result.error ? `${dropped} ${result.error}` : dropped, result.error ? "notice" : "ok");
       } catch (error) {
         announce(continuationStatus, error.message, "error");
         continuationStatus.focus();
@@ -15589,13 +15596,20 @@ export class ObAdmin extends AdminElement {
         const result = await this.api.call("GET", "engagement/continuations");
         continuationData = { links: result.links || [], works: result.works || [] };
       } catch (error) {
-        // Not the site Admin, or hosted engagement is off: the section is simply not offered.
+        // Not the site Admin, or hosted engagement is off: the section is simply not offered. A
+        // server fault or a lost connection is said, so the editor knows the list is missing.
         continuationData = { links: [], works: [] };
-        continuationSection.hidden = true;
         continuationList.replaceChildren();
+        if (!error.status || error.status >= 500) {
+          continuationSection.hidden = false;
+          announce(continuationStatus, "The continuation links could not be loaded. Reload the page to try again; nothing was changed.", "error");
+        } else {
+          continuationSection.hidden = true;
+        }
         return;
       }
       continuationSection.hidden = false;
+      announce(continuationStatus, "", "ok");
       continuationList.replaceChildren(...(continuationData.links.length
         ? continuationData.links.map((link) => h("li", { "data-continuation-id": link.id },
           `${link.from} to ${link.to} (${link.relation}, ${link.linked}). ${continuationStandingText(link)} `,
@@ -15989,7 +16003,7 @@ export class ObAdmin extends AdminElement {
         announce(line, `${(item.actions.find((option) => option.action === action)?.label) || action}…`);
         try {
           const result = await this.api.call("PATCH", "engagement/moderation", { json: moderationRequest(item, action, reason, acknowledge?.checked) });
-          await reloadAll(moderationOutcome(item, action, result), result.publishError ? "notice" : "ok");
+          await reloadAll(moderationOutcome(item, action, result), result.publishError || result.continuationsError ? "notice" : "ok");
         } catch (error) {
           busy(false);
           announce(line, error.message, "error");

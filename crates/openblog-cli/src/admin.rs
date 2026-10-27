@@ -7974,19 +7974,19 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
     // its continuation links off both pages (ADR 0403); so does the item an
     // upheld report took down.
     let mut continuations_dropped = 0;
-    let mut forgotten = Vec::new();
-    if erase || changed.state != ModerationState::Approved {
-        forgotten.push(id.clone());
-    }
-    if let (Some(target), Some(_)) = (&item.target, &removed_target) {
-        forgotten.push(target.id.clone());
-    }
+    let mut continuations_error: Option<&'static str> = None;
+    let removed_target_id = match (&item.target, &removed_target) {
+        (Some(target), Some(_)) => Some(target.id.as_str()),
+        _ => None,
+    };
+    let forgotten = continuation_origins_to_forget(erase, changed.state, &id, removed_target_id);
     for origin in forgotten {
-        let (count, rebuilt) = forget_continuations(state, &origin);
+        let (count, rebuilt, failed) = forget_continuations(state, &origin);
         continuations_dropped += count;
         if rebuilt.is_some() {
             build = rebuilt;
         }
+        continuations_error = continuations_error.or(failed);
     }
     let published = published_feedback_file(state);
     let perspectives = published_perspectives_file(state);
@@ -8002,6 +8002,7 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
             "build": build,
             "removedTarget": removed_target.is_some(),
             "continuationsDropped": continuations_dropped,
+            "continuationsError": continuations_error,
         }),
     )
 }
@@ -8101,6 +8102,67 @@ fn continuation_origin_kind(
 
 const CONTINUATION_AUDIT_LIMIT: usize = 100;
 
+/// What the hosted service says about the submission behind a link.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HostedStanding {
+    Approved,
+    /// Gone, or in any state but approved.
+    NotApproved,
+    /// The hosted service could not be asked, so nothing is judged.
+    Unknown,
+}
+
+impl HostedStanding {
+    fn id(self) -> &'static str {
+        match self {
+            Self::Approved => "approved",
+            Self::NotApproved => "notApproved",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+/// A lookup's answer as a standing: found and approved, found otherwise or not
+/// held, or not reachable.
+fn hosted_standing<E>(found: Result<Option<ModerationState>, E>) -> HostedStanding {
+    match found {
+        Ok(Some(ModerationState::Approved)) => HostedStanding::Approved,
+        Ok(_) => HostedStanding::NotApproved,
+        Err(_) => HostedStanding::Unknown,
+    }
+}
+
+/// The origins the sweep drops links for: those the hosted service says are
+/// not approved. An origin it could not be asked about is kept.
+fn origins_no_longer_approved(
+    origins: impl IntoIterator<Item = String>,
+    mut standing: impl FnMut(&str) -> HostedStanding,
+) -> Vec<String> {
+    origins
+        .into_iter()
+        .filter(|origin| standing(origin) == HostedStanding::NotApproved)
+        .collect()
+}
+
+/// Whose links a moderation decision takes off both pages (ADR 0403): the
+/// decided item when it is deleted or no longer approved, and the item an
+/// upheld report removed.
+fn continuation_origins_to_forget(
+    erase: bool,
+    state: ModerationState,
+    id: &str,
+    removed_target: Option<&str>,
+) -> Vec<String> {
+    let mut forgotten = Vec::new();
+    if erase || state != ModerationState::Approved {
+        forgotten.push(id.to_string());
+    }
+    if let Some(target) = removed_target {
+        forgotten.push(target.to_string());
+    }
+    forgotten
+}
+
 /// `GET engagement/continuations`: every link, checked on each load against
 /// the pages and the hosted submission, and the published works an editor may
 /// link to. `standing` is `approved`, `notApproved` (the submission is gone or
@@ -8152,11 +8214,11 @@ fn continuations_list(state: &AppState, session: &auth::Session) -> Response {
     let mut links = Vec::new();
     for edge in file.items.iter().take(CONTINUATION_AUDIT_LIMIT) {
         let origin = *standing.entry(edge.origin.clone()).or_insert_with(|| {
-            match hosted_inbox_lookup(state, moderation_inbox::Source::Feedback, &edge.origin) {
-                Ok(Some((_, _, item))) if item.state == ModerationState::Approved => "approved",
-                Ok(_) => "notApproved",
-                Err(_) => "unknown",
-            }
+            hosted_standing(
+                hosted_inbox_lookup(state, moderation_inbox::Source::Feedback, &edge.origin)
+                    .map(|found| found.map(|(_, _, item)| item.state)),
+            )
+            .id()
         });
         let shown = continuation::resolve(edge, continuation::OriginStanding::Approved, &view);
         links.push(json!({
@@ -8231,19 +8293,52 @@ fn continuations_link(
     if role != moderation::ActorRole::SiteAdmin {
         return continuation_denied();
     }
+    let expected_version = if preview {
+        None
+    } else {
+        Some(body["expectedVersion"].as_u64())
+    };
+    link_approved_item(
+        state,
+        &id,
+        &item,
+        &to,
+        relation,
+        note,
+        expected_version,
+        preview,
+    )
+}
+
+/// The checks and the write of one link, for an item already read from the
+/// hosted inbox and already known to belong to the site Admin. `expected_version`
+/// is `None` for a preview and `Some(version the editor saw)` otherwise.
+#[allow(clippy::too_many_arguments)]
+fn link_approved_item(
+    state: &AppState,
+    id: &str,
+    item: &moderation_inbox::InboxItem,
+    to: &str,
+    relation: continuation::Relation,
+    note: Option<String>,
+    expected_version: Option<Option<u64>>,
+    preview: bool,
+) -> Response {
+    let id = id.to_string();
+    let to = to.to_string();
     if item.state != ModerationState::Approved {
         return Response::error(
             409,
             "Only an approved submission can be linked to a later work",
         );
     }
-    let Some(kind) = continuation_origin_kind(&item) else {
+    let Some(kind) = continuation_origin_kind(item) else {
         return Response::error(
             409,
             "This item cannot start a continuation, or its text was deleted",
         );
     };
-    if !preview && body["expectedVersion"].as_u64() != Some(item.version) {
+    if expected_version.is_some_and(|seen| seen != Some(item.version)) {
         return Response::json(409, &json!({ "error": INBOX_CHANGED, "code": "stale" }));
     }
     let site = match feedback_site(state) {
@@ -8385,58 +8480,72 @@ fn continuations_sweep(state: &AppState, session: &auth::Session) -> Response {
         Ok(file) => file.items.iter().map(|edge| edge.origin.clone()).collect(),
         Err(response) => return response,
     };
-    let mut gone = Vec::new();
-    for origin in origins {
-        match hosted_inbox_lookup(state, moderation_inbox::Source::Feedback, &origin) {
-            Ok(Some((_, _, item))) if item.state == ModerationState::Approved => {}
-            Ok(_) => gone.push(origin),
-            Err(_) => {}
-        }
-    }
+    let gone = origins_no_longer_approved(origins, |origin| {
+        hosted_standing(
+            hosted_inbox_lookup(state, moderation_inbox::Source::Feedback, origin)
+                .map(|found| found.map(|(_, _, item)| item.state)),
+        )
+    });
     let mut dropped = 0;
     let mut build = Json::Null;
+    let mut error = None;
     for origin in &gone {
-        let (count, rebuilt) = forget_continuations(state, origin);
+        let (count, rebuilt, failed) = forget_continuations(state, origin);
         dropped += count;
         if let Some(rebuilt) = rebuilt {
             build = rebuilt;
         }
+        error = error.or(failed);
     }
-    Response::json(200, &json!({ "dropped": dropped, "build": build }))
+    Response::json(
+        200,
+        &json!({ "dropped": dropped, "build": build, "error": error }),
+    )
 }
 
+/// The words the moderator gets when a submission's continuation links could
+/// not be taken off (ADR 0403): the decision stands, the link may still show.
+const CONTINUATIONS_NOT_DROPPED: &str = "The submission's continuation links could not be removed, so a link may still show on the pages. Run \"Check for withdrawn submissions\" or remove the link by hand.";
+
 /// Drop every link of a submission that is removed, withdrawn or deleted, and
-/// rebuild when any went (ADR 0403). Returns how many went and the build. A
-/// file that cannot be read or written is reported on stderr and leaves the
-/// moderation decision as it was; the sweep route finishes the job.
-fn forget_continuations(state: &AppState, origin: &str) -> (usize, Option<Json>) {
+/// rebuild when any went (ADR 0403). Returns how many went, the build, and a
+/// plain message when the links could not be dropped (the content could not be
+/// locked, or the file could not be read or written). The moderation decision
+/// stands in that case, the message reaches the moderator, and the sweep route
+/// finishes the job.
+fn forget_continuations(
+    state: &AppState,
+    origin: &str,
+) -> (usize, Option<Json>, Option<&'static str>) {
     let Ok(path) = continuations_path(state) else {
-        return (0, None);
+        eprintln!("admin: continuations.json could not be located to drop the links of {origin}");
+        return (0, None, Some(CONTINUATIONS_NOT_DROPPED));
     };
     if !path.exists() {
-        return (0, None);
+        return (0, None, None);
     }
     let mut status = lock(&state.build);
     let Ok(_transaction) = content_transaction(state) else {
-        return (0, None);
+        eprintln!("admin: the content could not be locked to drop the links of {origin}");
+        return (0, None, Some(CONTINUATIONS_NOT_DROPPED));
     };
     let mut file = match load_continuations(&path) {
         Ok(file) => file,
         Err(_) => {
             eprintln!("admin: continuations.json could not be read to drop the links of {origin}");
-            return (0, None);
+            return (0, None, Some(CONTINUATIONS_NOT_DROPPED));
         }
     };
     let count = file.forget_origin(origin);
     if count == 0 {
-        return (0, None);
+        return (0, None, None);
     }
     if write_continuations(&path, &file).is_err() {
         eprintln!("admin: continuations.json could not be written to drop the links of {origin}");
-        return (0, None);
+        return (0, None, Some(CONTINUATIONS_NOT_DROPPED));
     }
     let build = feedback_build_json(&state.rebuild_locked(&mut status));
-    (count, Some(build))
+    (count, Some(build), None)
 }
 
 // ---- Suggestions for future work (RD13)
@@ -40546,5 +40655,275 @@ series: letters
             let text = artifact(path);
             assert!(!text.contains(&comment) && !text.contains(&public_text("relationshipdoubt")));
         }
+    }
+
+    // ---- Continuation links on the server (#231, ADRs 0400 to 0405)
+
+    const CONT_ORIGIN: &str = "00000000-0000-4000-8000-0000000000c1";
+
+    /// A fixture with an earlier page, a published later work, a scheduled one and a draft:
+    /// returns (fixture, earlier, later, scheduled, draft) as site paths.
+    fn continuation_fixture(tag: &str) -> (Fixture, String, String, String, String) {
+        let f = fixture(tag);
+        let posts = f.dir.join("content").join("posts");
+        for (name, text) in [
+            (
+                "zz-later.md",
+                "---\ntitle: Later work\ndate: 2026-01-02\nseries: ocean\n---\nBody.\n",
+            ),
+            (
+                "zz-soon.md",
+                "---\ntitle: Scheduled work\ndate: 2999-01-01\n---\nBody.\n",
+            ),
+            (
+                "zz-wip.md",
+                "---\ntitle: Draft work\ndate: 2026-01-03\ndraft: true\n---\nBody.\n",
+            ),
+        ] {
+            fs::write(posts.join(name), text).unwrap();
+        }
+        let (site, _) = site::load_site(&f.dir, true, None).unwrap();
+        let url = |title: &str| {
+            site.posts
+                .iter()
+                .find(|post| post.title == title)
+                .unwrap_or_else(|| panic!("no post {title}"))
+                .url
+                .clone()
+        };
+        let from = site
+            .posts
+            .iter()
+            .find(|post| {
+                !post.draft
+                    && post.date <= clock::now()
+                    && !["Later work", "Scheduled work", "Draft work"]
+                        .contains(&post.title.as_str())
+            })
+            .unwrap()
+            .url
+            .clone();
+        let (later, soon, wip) = (url("Later work"), url("Scheduled work"), url("Draft work"));
+        (f, from, later, soon, wip)
+    }
+
+    /// A reflection on `work`, as the hosted inbox reads it back in `status`.
+    fn hosted_reflection(
+        site: &Site,
+        work: &str,
+        id: &str,
+        status: &str,
+    ) -> moderation_inbox::InboxItem {
+        use openblog_core::third_perspective::{
+            ConsentChoices, Intake, LocalReflection, PerspectiveTarget, ReaderAttribution,
+        };
+        let post = site.posts.iter().find(|post| post.url == work).unwrap();
+        let document = PassageDocument::of_post(post, &site.config);
+        let copy = LocalReflection {
+            work: work.to_string(),
+            revision: document.revision.clone(),
+            target: PerspectiveTarget::work(),
+            category: None,
+            body: "A reader reading.".into(),
+            attribution: ReaderAttribution::named("Mina", false),
+            seen_at: None,
+        }
+        .submission(ConsentChoices {
+            publish: true,
+            clarification: false,
+            feature: false,
+        })
+        .receive(
+            openblog_core::DateTime::parse("2026-10-26T10:00:00Z").unwrap(),
+            Intake::Hosted {
+                receipt_digest: "5e".repeat(32),
+            },
+        )
+        .unwrap();
+        let record: Json = serde_json::from_str(&copy.to_json()).unwrap();
+        let approved = status == "approved";
+        moderation_inbox::InboxItem::from_value(&json!({
+            "source": "feedback", "id": id, "status": status, "version": 2,
+            "moderatedAt": "2026-10-27T09:00:00Z", "reason": null,
+            "feedback": {"version": 1, "kind": "third-perspective", "body": copy.body, "details": copy.stored_details(), "provenance": record["provenance"]},
+            "itemRevision": 1, "approvedRevision": if approved { json!(1) } else { Json::Null },
+            "clarificationAsked": null, "clarificationConsent": false,
+            "approvedConsent": if approved { json!(1) } else { Json::Null },
+        }))
+        .unwrap()
+    }
+
+    fn link(
+        f: &Fixture,
+        item: &moderation_inbox::InboxItem,
+        to: &str,
+        expected: Option<Option<u64>>,
+        preview: bool,
+    ) -> Response {
+        link_approved_item(
+            &f.state,
+            &item.id,
+            item,
+            to,
+            continuation::Relation::from_id("takes-up").unwrap(),
+            None,
+            expected,
+            preview,
+        )
+    }
+
+    fn continuations_file(f: &Fixture) -> PathBuf {
+        f.dir.join("content").join(continuation::CONTINUATIONS_FILE)
+    }
+
+    fn continuation_origins(f: &Fixture) -> Vec<String> {
+        load_continuations(&continuations_file(f))
+            .map(|file| file.items.iter().map(|edge| edge.origin.clone()).collect())
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn a_link_is_refused_unless_the_submission_and_the_later_work_can_carry_it() {
+        let (f, from, later, soon, wip) = continuation_fixture("continuation-link-refusals");
+        let (site, _) = site::load_site(&f.dir, true, None).unwrap();
+        let code = |response: &Response| body_json(response)["code"].clone();
+
+        // Not approved: a pending item is never linked, even in a preview.
+        let pending = hosted_reflection(&site, &from, CONT_ORIGIN, "pending");
+        assert_eq!(link(&f, &pending, &later, Some(Some(2)), false).status, 409);
+        assert_eq!(link(&f, &pending, &later, None, true).status, 409);
+
+        // An approved comment cannot start a continuation.
+        let mut approved_comment = inbox_page(&[true], 0, false).items.remove(0);
+        approved_comment.state = ModerationState::Approved;
+        let refused = link(&f, &approved_comment, &later, Some(Some(1)), false);
+        assert_eq!(refused.status, 409);
+
+        // The editor saw an older version of the item.
+        let approved = hosted_reflection(&site, &from, CONT_ORIGIN, "approved");
+        let stale = link(&f, &approved, &later, Some(Some(1)), false);
+        assert_eq!((stale.status, code(&stale)), (409, json!("stale")));
+        assert_eq!(
+            code(&link(&f, &approved, &later, Some(None), false)),
+            json!("stale")
+        );
+
+        // A scheduled, a draft and an unknown later work are not published now.
+        for target in [soon, wip.clone(), "/nope/".to_string()] {
+            let response = link(&f, &approved, &target, Some(Some(2)), false);
+            assert_eq!(
+                (response.status, code(&response)),
+                (409, json!("unpublished")),
+                "{target}"
+            );
+        }
+        // Nor is an earlier page that is not published.
+        let on_draft = hosted_reflection(&site, &wip, CONT_ORIGIN, "approved");
+        assert_eq!(
+            code(&link(&f, &on_draft, &later, Some(Some(2)), false)),
+            json!("unpublished")
+        );
+        assert!(!continuations_file(&f).exists(), "a refusal writes nothing");
+
+        // A preview checks everything and writes nothing; the real link writes once.
+        assert_eq!(link(&f, &approved, &later, None, true).status, 200);
+        assert!(!continuations_file(&f).exists());
+        assert_eq!(
+            link(&f, &approved, &later, Some(Some(2)), false).status,
+            200
+        );
+        assert_eq!(continuation_origins(&f), vec![CONT_ORIGIN.to_string()]);
+
+        // The same pair again is a duplicate, not a second edge.
+        assert_eq!(
+            link(&f, &approved, &later, Some(Some(2)), false).status,
+            409
+        );
+        assert_eq!(continuation_origins(&f).len(), 1);
+    }
+
+    #[test]
+    fn removing_a_linked_submission_takes_its_links_out_of_the_file_and_says_so() {
+        let (f, from, later, _, _) = continuation_fixture("continuation-forget");
+        let (site, _) = site::load_site(&f.dir, true, None).unwrap();
+        let other = "00000000-0000-4000-8000-0000000000c2";
+        for id in [CONT_ORIGIN, other] {
+            let item = hosted_reflection(&site, &from, id, "approved");
+            assert_eq!(link(&f, &item, &later, Some(Some(2)), false).status, 200);
+        }
+        assert_eq!(continuation_origins(&f).len(), 2);
+
+        // A removal, a rejection, a withdrawal or an erasure forgets the decided item; an
+        // approval forgets nothing; an upheld report forgets the item it took down.
+        let forgets = |erase, state, removed: Option<&str>| {
+            continuation_origins_to_forget(erase, state, "item", removed)
+        };
+        assert!(forgets(false, ModerationState::Approved, None).is_empty());
+        for state in [
+            ModerationState::Removed,
+            ModerationState::Rejected,
+            ModerationState::Withdrawn,
+        ] {
+            assert_eq!(forgets(false, state, None), vec!["item".to_string()]);
+        }
+        assert_eq!(
+            forgets(true, ModerationState::Approved, None),
+            vec!["item".to_string()]
+        );
+        assert_eq!(
+            forgets(false, ModerationState::Removed, Some("target")),
+            vec!["item".to_string(), "target".to_string()]
+        );
+        assert_eq!(
+            forgets(false, ModerationState::Approved, Some("target")),
+            vec!["target".to_string()]
+        );
+
+        let (count, build, failed) = forget_continuations(&f.state, CONT_ORIGIN);
+        assert_eq!((count, failed), (1, None));
+        assert!(build.is_some(), "the pages are rebuilt without the link");
+        assert_eq!(continuation_origins(&f), vec![other.to_string()]);
+        // Nothing left to drop is not a failure.
+        let (count, build, failed) = forget_continuations(&f.state, CONT_ORIGIN);
+        assert_eq!((count, build.is_some(), failed), (0, false, None));
+    }
+
+    #[test]
+    fn a_link_that_could_not_be_dropped_is_reported_not_swallowed() {
+        let (f, _, _, _, _) = continuation_fixture("continuation-forget-fails");
+        let path = continuations_file(&f);
+        // A file that cannot be read.
+        fs::write(&path, "not json").unwrap();
+        let (count, build, failed) = forget_continuations(&f.state, CONT_ORIGIN);
+        assert_eq!((count, build.is_some()), (0, false));
+        assert!(failed.is_some_and(|message| message.contains("Check for withdrawn submissions")));
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "not json",
+            "left as it was"
+        );
+        // A path that is not a regular file.
+        fs::remove_file(&path).unwrap();
+        fs::create_dir(&path).unwrap();
+        assert!(forget_continuations(&f.state, CONT_ORIGIN).2.is_some());
+    }
+
+    #[test]
+    fn the_sweep_drops_what_is_not_approved_and_keeps_what_could_not_be_asked() {
+        let origins = ["approved", "withdrawn", "unreachable", "missing"]
+            .map(str::to_string)
+            .to_vec();
+        let gone = origins_no_longer_approved(origins, |origin| match origin {
+            "approved" => hosted_standing::<()>(Ok(Some(ModerationState::Approved))),
+            "withdrawn" => hosted_standing::<()>(Ok(Some(ModerationState::Withdrawn))),
+            "missing" => hosted_standing::<()>(Ok(None)),
+            _ => hosted_standing::<()>(Err(())),
+        });
+        assert_eq!(gone, vec!["withdrawn".to_string(), "missing".to_string()]);
+        assert_eq!(hosted_standing::<()>(Err(())).id(), "unknown");
+        assert_eq!(
+            hosted_standing::<()>(Ok(Some(ModerationState::Rejected))).id(),
+            "notApproved"
+        );
     }
 }
