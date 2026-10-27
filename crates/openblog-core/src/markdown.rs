@@ -879,7 +879,10 @@ fn render_demo(
 ) -> Result<String, String> {
     let (kind, markdown) = portable_demo_parts(fence, source)?;
     let mut fallback = String::new();
-    pulldown_cmark::html::push_html(&mut fallback, Parser::new_ext(&markdown, parser_options(false)));
+    pulldown_cmark::html::push_html(
+        &mut fallback,
+        Parser::new_ext(&markdown, parser_options(false)),
+    );
     let caption = fence
         .title
         .as_deref()
@@ -1023,7 +1026,11 @@ fn transform_blocks<'a>(
                         "interactive-demo",
                         demo_kind_for(&fence).ok().map(|kind| kind.element),
                     ));
-                    match render_demo(&fence, &source, portable.map(|context| context.canonical_url)) {
+                    match render_demo(
+                        &fence,
+                        &source,
+                        portable.map(|context| context.canonical_url),
+                    ) {
                         Ok(html) => out.push(Event::Html(CowStr::from(html))),
                         Err(error) => {
                             data.errors.push(error.clone());
@@ -2984,7 +2991,11 @@ mod tests {
             ("git-sandbox", "ob-git-sandbox", "in-memory Git"),
             ("fetch-lab", "ob-fetch-lab", "network inspector"),
             ("component-lab", "ob-component-lab", "shadow root"),
-            ("js-evolution", "ob-evolution-lab", "Older and newer JavaScript"),
+            (
+                "js-evolution",
+                "ob-evolution-lab",
+                "Older and newer JavaScript",
+            ),
             ("audio-lab", "ob-audio-lab", "Web Audio synth"),
             ("native-lab", "ob-native-lab", "popover attribute"),
         ] {
@@ -2999,11 +3010,26 @@ mod tests {
     fn invalid_demo_fences_report_what_to_write() {
         for (source, expected) in [
             ("```demo\nText\n```\n", "needs a kind"),
-            ("```demo teleporter\nText\n```\n", "unknown kind `teleporter`"),
-            ("```demo git-sandbox\n<b>raw</b>\n```\n", "raw HTML is not supported"),
-            ("```demo git-sandbox\n![x](https://e.test/a.png)\n```\n", "cannot contain images"),
-            ("```demo git-sandbox\n[x](/relative/)\n```\n", "absolute https URLs"),
-            ("```demo git-sandbox\n[x](javascript:alert(1))\n```\n", "absolute https URLs"),
+            (
+                "```demo teleporter\nText\n```\n",
+                "unknown kind `teleporter`",
+            ),
+            (
+                "```demo git-sandbox\n<b>raw</b>\n```\n",
+                "raw HTML is not supported",
+            ),
+            (
+                "```demo git-sandbox\n![x](https://e.test/a.png)\n```\n",
+                "cannot contain images",
+            ),
+            (
+                "```demo git-sandbox\n[x](/relative/)\n```\n",
+                "absolute https URLs",
+            ),
+            (
+                "```demo git-sandbox\n[x](javascript:alert(1))\n```\n",
+                "absolute https URLs",
+            ),
         ] {
             let r = render(source, RenderOptions::default());
             assert!(

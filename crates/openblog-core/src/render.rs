@@ -2604,8 +2604,10 @@ impl<'a> Renderer<'a> {
             let here = if n == position { " data-current" } else { "" };
             h.push_str(&format!("<li{here}></li>"));
         }
-        h.push_str("</ol>
-<div class=\"ob-series-nav\">");
+        h.push_str(
+            "</ol>
+<div class=\"ob-series-nav\">",
+        );
         // Both slots are always links, so the control looks and behaves the same on every
         // part. The first part's "previous" is the series overview; the last part's "next"
         // is the way back to it.

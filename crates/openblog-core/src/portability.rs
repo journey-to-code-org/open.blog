@@ -4191,8 +4191,12 @@ fn main() {}
         let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
         let markdown = projection.portable_markdown().unwrap();
         assert!(markdown.contains("**Merge it**\n\nBranch, commit on both sides, then merge: Git makes a commit with two parents.\n\n[Try the interactive Git sandbox on the canonical article](https://example.test/blog/work/).\n"), "{markdown}");
-        assert!(markdown.contains("A live custom element with a real shadow root"), "{markdown}");
-        assert!(markdown.contains("[Try the interactive Web Components explorer on the canonical article]"));
+        assert!(
+            markdown.contains("A live custom element with a real shadow root"),
+            "{markdown}"
+        );
+        assert!(markdown
+            .contains("[Try the interactive Web Components explorer on the canonical article]"));
         assert!(!markdown.contains("```demo"));
         assert!(markdown.contains("Portable fallback"));
     }
@@ -4216,19 +4220,40 @@ Branch, commit on both sides, then merge.
             (RepresentationFormat::Html, html.as_str()),
             (RepresentationFormat::Markdown, markdown.as_str()),
         ] {
-            let findings = projection.analyze_portable_artifact(format, artifact).unwrap();
+            let findings = projection
+                .analyze_portable_artifact(format, artifact)
+                .unwrap();
             assert!(findings.is_empty(), "{format:?}: {findings:?}");
         }
         for (format, artifact) in [
-            (RepresentationFormat::Html, html.replace("Branch, commit on both sides, then merge.", "")),
-            (RepresentationFormat::Html, html.replace("https://example.test/blog/work/", "https://wrong.example/")),
-            (RepresentationFormat::Markdown, markdown.replace("Branch, commit on both sides, then merge.", "")),
-            (RepresentationFormat::Markdown, markdown.replace("**Merge it**", "")),
-            (RepresentationFormat::Markdown, markdown.replace("Git sandbox", "tool")),
+            (
+                RepresentationFormat::Html,
+                html.replace("Branch, commit on both sides, then merge.", ""),
+            ),
+            (
+                RepresentationFormat::Html,
+                html.replace("https://example.test/blog/work/", "https://wrong.example/"),
+            ),
+            (
+                RepresentationFormat::Markdown,
+                markdown.replace("Branch, commit on both sides, then merge.", ""),
+            ),
+            (
+                RepresentationFormat::Markdown,
+                markdown.replace("**Merge it**", ""),
+            ),
+            (
+                RepresentationFormat::Markdown,
+                markdown.replace("Git sandbox", "tool"),
+            ),
         ] {
-            let findings = projection.analyze_portable_artifact(format, &artifact).unwrap();
+            let findings = projection
+                .analyze_portable_artifact(format, &artifact)
+                .unwrap();
             assert!(
-                findings.iter().any(|finding| finding.code == "missing-semantic-fact"),
+                findings
+                    .iter()
+                    .any(|finding| finding.code == "missing-semantic-fact"),
                 "{format:?}: a lost demo fact was accepted"
             );
         }
