@@ -44,6 +44,13 @@ with optional line numbers and highlighted lines, Reset, Copy, Run, compiler out
 an optional fallback link to the official Rust Playground.
 The original block remains visible without JavaScript. Source is sent directly to the
 Playground without cookies or referrer information and is never stored by open.blog.
+A `rust runnable check` fence adds hidden `#[test]` functions after a `---checks` line and a
+"Check my code" button that shows the author's own feedback for each failing test (see
+[Rust checks](content.md)). The checks stay out of the editor; feeds and exports tuck them into a
+collapsed spoiler block.
+
+`demo` fences (`git-sandbox`, `git-practice`, `fetch-lab`, `component-lab`, `js-evolution`, `audio-lab`, `native-lab`) embed a lesson demo whose
+authored Markdown body is the fallback for readers without JavaScript, feeds, and portable copies.
 
 `demo` fences (`git-sandbox`, `fetch-lab`, `component-lab`, `js-evolution`, `audio-lab`, `native-lab`) embed a lesson demo whose
 authored Markdown body is the fallback for readers without JavaScript, feeds, and portable copies.
