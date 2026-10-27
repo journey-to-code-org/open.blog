@@ -303,7 +303,9 @@ it (a competing dating you did not select, a detail the source lacks, metadata w
 recorded). Every change names the revision it was based on, so a change made elsewhere reloads the
 section and changes nothing. Everything is reachable from the keyboard, each button names the item it
 acts on, and the section reflows at 320 pixels. Readers see none of it until the site publishes
-curated context (`curatedContext.publish`). See
+curated context (`curatedContext.publish`); then it is a data file and a section on the post's page (the
+[curated context format](specs/curated-context.md)), and a change you make here rebuilds the site you are
+previewing. See
 [ADR 0229](adr/0229-selected-for-readers-lives-in-the-draft-side-research-panel-and-previews-the-public-value.md).
 
 ### Move between research and your draft

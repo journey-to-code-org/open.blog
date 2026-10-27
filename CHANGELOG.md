@@ -21,8 +21,22 @@ All notable changes to open.blog are recorded here. Releases follow
   unselect, with a preview of exactly what readers get, and the same report appears in What this
   post makes public. `curatedContext.publish` (off by default) turns it on; while it is on, a
   selections file that cannot be read refuses `build` and `check`, naming the file. While it is
-  off the file is not read and a site builds exactly as before. Pages that show curated context
-  follow in a later release.
+  off the file is not read and a site builds exactly as before. A post offered selections is given
+  its own order for each of them: ordering one post never moves an item in another, even one offered to
+  the whole site, and a draft previews its own selections as they will be when it is published.
+  A conflict keeps the half-filled form, and Escape closes only the confirmation or form it is in.
+- A site that publishes curated context now also publishes `curated-context.json`, a versioned public
+  data file of the selections you made (with who asserts each, how firmly, on what evidence, where
+  imported metadata came from, and the revision you selected), the context they need, and each post's
+  items in your order with a canonical anchor for each, so Reader Discovery and other tools can reuse it
+  without reading anything private. Each post you offered something also gets a static Research context
+  section after its text, complete without JavaScript, readable in order by a screen reader, kept whole
+  in print and reflowing at 320 pixels and at 400% zoom; what you wrote is shown as text, never markup.
+  Both are built from the one public value Admin's What will be public lists. A change in the Research
+  panel rebuilds the site you are previewing while curated context is published. With the switch off, or
+  nothing selected, a site builds exactly as before; a file over its bound is left out whole with a
+  `boundary:` warning. Feeds and portable copies of a post do not carry the section yet. See the
+  [curated context format](docs/specs/curated-context.md).
 
 ## [0.44.0] - 2026-10-26
 

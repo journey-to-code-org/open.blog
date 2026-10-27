@@ -325,6 +325,17 @@ for readers** in the Research panel beside a post. The file is private and Git-i
 research files. See
 [ADR 0215](adr/0215-curated-research-context-is-one-more-projection-that-selects-only-what-the-other-projections-publish.md).
 
+What readers get: while `curatedContext.publish` is on and at least one selection publishes, the build
+writes `curated-context.json`, a versioned public data file (the published selections with their
+attribution, doubt, evidence, provenance and the revision you selected, the context they need, and each
+post's items in your order with a canonical anchor for each), and each post you offered something gets a
+static **Research context** section after its text, complete without JavaScript. Both are read from the
+one public value that Admin's **What will be public** lists, so they never disagree and neither can reach
+a private note. With the switch off, or nothing selected, the site builds exactly as before; a file over
+its bound is left out whole with a `boundary:` warning and the pages are unaffected. Feeds and portable
+copies of a post do not carry the section yet (#198). See the [curated context
+format](specs/curated-context.md).
+
 ## Reading modes
 
 `readingModes.default` (`standard` by default; `guided` or `deep-dive`) is the mode a post opens in

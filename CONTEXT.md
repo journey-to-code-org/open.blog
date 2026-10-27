@@ -1303,6 +1303,21 @@ selected, a selected detail the source lacks, or metadata whose origin is not re
 dating is also a `boundary:` warning. Never a judgement of the research.
 _Avoid_: Hiding a rival dating, filling in a missing detail
 
+**Curated context file**:
+`curated-context.json`: the versioned public data file projected from the one public curated value,
+holding each published selection with its attribution, doubt, evidence, provenance and selected
+revision, the context it needs, and for each published post its items in that post's order with a
+canonical anchor for each. It is written only while the site publishes at least one selection, is
+bounded and refused whole when over a bound, and names nothing a reader's tool could query for more
+(ADRs 0250, 0253).
+_Avoid_: A query API, an export of the selections file
+
+**Research context section**:
+The static section of a post's page (`#research-context`) that renders the same public value for readers
+without JavaScript: a heading, an ordered list of attributed items with an anchor each (`#curated-` and
+the selection id), and a list of what they refer to. Authored text in it is text (ADR 0251).
+_Avoid_: A widget, a sidebar, a second page
+
 ## Reader participation
 
 These terms describe how readers point at published text, where their feedback came from, and

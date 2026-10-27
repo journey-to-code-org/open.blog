@@ -39,5 +39,7 @@ a write that cannot half-happen.
   renamed over it; a failed write removes the temporary file and leaves the stored file byte for
   byte. Orderings are all or nothing. No route writes the research a selection points at, and
   none approves anything.
-- **Nothing is public by these routes.** They only edit private choices. The text an author
-  writes for a comment is guarded like every private store until a projection allows it.
+- **These routes only edit private choices.** The text an author writes for a comment is guarded like
+  every private store until the build publishes it. While the site publishes curated context, a
+  successful change rebuilds the served site, as an atlas change does, and returns the outcome as
+  `build` (ADR 0254); a site that does not publish it is not rebuilt.
