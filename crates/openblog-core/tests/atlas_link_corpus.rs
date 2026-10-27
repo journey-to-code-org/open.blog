@@ -62,6 +62,23 @@ const CORPUS: &[(&str, &str)] = &[
     ("raw mark unclosed", "A <ob-concept data-id=\"zsecretrawopen\">dangling label here."),
     ("raw mark closing tag only", "A stray </ob-concept> here."),
     ("raw mark in a raw block", "<div>\n<ob-concept data-id=\"zsecretrawblock\">block label</ob-concept>\n</div>"),
+    ("raw anchor", "A <a href=\"atlas:zsecretrawhref\">raw href label</a> here."),
+    ("raw anchor in capitals, unquoted", "A <A HREF=atlas:zsecretrawunquoted>raw unquoted label</A> here."),
+    ("raw anchor in single quotes with padding", "A <a\n  href = ' AtLaS:zsecretrawpadded '>raw padded label</a> here."),
+    ("raw anchor with entities in the scheme", "A <a href=\"atlas&#58;zsecretrawentity\">raw entity label</a> and <a href=\"&#x61;tlas&colon;zsecretrawcolon\">raw colon label</a> and <a href=\"at&Tab;las:zsecretrawtab\">raw tab label</a>."),
+    ("raw image", "An <img src=\"atlas:zsecretrawsrc\" alt=\"raw src alt\"> here."),
+    ("raw image srcset", "An <img src=\"/pic.png\" srcset=\"/a.png 1x, atlas:zsecretrawsrcset 2x\" alt=\"raw srcset alt\"> here."),
+    ("raw image srcset first candidate unquoted", "An <img srcset=atlas:zsecretrawsrcsetfirst alt=\"raw first alt\"> here."),
+    ("raw video poster", "<video poster=\"atlas:zsecretrawposter\" src=\"/v.mp4\">raw poster label</video>"),
+    ("raw object data", "<object data=\"atlas:zsecretrawdata\">raw data label</object>"),
+    ("raw form action", "<form action=\"atlas:zsecretrawaction\"><button formaction=\"atlas:zsecretrawformaction\">raw form label</button></form>"),
+    ("raw cite", "<blockquote cite=\"atlas:zsecretrawcite\">raw cite label</blockquote>"),
+    ("raw svg xlink", "<svg><a xlink:href=\"atlas:zsecretrawxlink\"><text>raw xlink label</text></a></svg>"),
+    ("raw background", "<table background=\"atlas:zsecretrawbackground\"><tr><td background=atlas:zsecretrawcellbackground>raw background label</td></tr></table>"),
+    ("raw tag split across the lines of a block", "<div\n  class=\"x\"\n  data-x=\"1\"\n  href=\"atlas:zsecretrawsplit\">\nraw split label\n</div>"),
+    ("raw anchor in a footnote", "A note[^zraw] here.\n\n[^zraw]: Footnote <a href=\"atlas:zsecretrawfootnote\">raw footnote label</a>."),
+    ("raw anchor in a list and a quote", "- <a href=\"atlas:zsecretrawlist\">raw list label</a>\n\n> <a href=\"atlas:zsecretrawquote\">raw quote label</a>"),
+    ("raw block tag never closed", "<div class=\"x\" href=\"atlas:zsecretrawunclosed\""),
 ];
 
 fn public_atlas() -> PublicAtlas {
@@ -153,6 +170,152 @@ fn has_raw_mark(lower: &str) -> bool {
     })
 }
 
+/// The character references a browser decodes in an attribute value, as far
+/// as the corpus uses them.
+fn decode(value: &str) -> String {
+    let mut out = String::new();
+    let mut rest = value;
+    while let Some(at) = rest.find('&') {
+        out.push_str(&rest[..at]);
+        rest = &rest[at..];
+        let end = rest.find(';').filter(|end| *end <= 10);
+        let decoded = end.and_then(|end| {
+            let name = &rest[1..end];
+            let character = match name {
+                "colon" => Some(':'),
+                "Tab" => Some('\t'),
+                "NewLine" => Some('\n'),
+                "amp" => Some('&'),
+                _ => name.strip_prefix('#').and_then(|number| {
+                    let code = match number.strip_prefix(['x', 'X']) {
+                        Some(hex) => u32::from_str_radix(hex, 16).ok(),
+                        None => number.parse().ok(),
+                    };
+                    code.and_then(char::from_u32)
+                }),
+            };
+            character.map(|character| (character, end + 1))
+        });
+        match decoded {
+            Some((character, length)) => {
+                out.push(character);
+                rest = &rest[length..];
+            }
+            None => {
+                out.push('&');
+                rest = &rest[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Whether an address value, after the trimming a browser does, has the
+/// `atlas:` scheme in any letter case.
+fn is_atlas(value: &str) -> bool {
+    let cleaned: String = value
+        .chars()
+        .filter(|c| !matches!(c, '\t' | '\n' | '\r'))
+        .collect();
+    cleaned
+        .trim_matches(|c: char| c.is_control() || c.is_whitespace())
+        .to_ascii_lowercase()
+        .starts_with("atlas:")
+}
+
+/// Every address attribute in `html` whose value has the `atlas:` scheme: the
+/// name in any case, the value quoted either way or not at all, with its
+/// character references decoded, and every candidate of a `srcset`.
+fn atlas_addresses(html: &str) -> Vec<String> {
+    const ADDRESSES: [&str; 11] = [
+        "href",
+        "src",
+        "srcset",
+        "poster",
+        "data",
+        "action",
+        "formaction",
+        "cite",
+        "xlink:href",
+        "background",
+        "imagesrcset",
+    ];
+    let bytes = html.as_bytes();
+    let mut found = Vec::new();
+    let mut at = 0;
+    while let Some(open) = html[at..].find('<') {
+        let mut i = at + open + 1;
+        at = i;
+        if !bytes.get(i).is_some_and(u8::is_ascii_alphabetic) {
+            continue;
+        }
+        while i < bytes.len() && !bytes[i].is_ascii_whitespace() && !matches!(bytes[i], b'>' | b'/')
+        {
+            i += 1;
+        }
+        loop {
+            while i < bytes.len() && (bytes[i].is_ascii_whitespace() || bytes[i] == b'/') {
+                i += 1;
+            }
+            if i >= bytes.len() || bytes[i] == b'>' {
+                break;
+            }
+            let start = i;
+            i += 1;
+            while i < bytes.len()
+                && !bytes[i].is_ascii_whitespace()
+                && !matches!(bytes[i], b'/' | b'>' | b'=')
+            {
+                i += 1;
+            }
+            let name = html[start..i].to_ascii_lowercase();
+            while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+                i += 1;
+            }
+            if bytes.get(i) != Some(&b'=') {
+                continue;
+            }
+            i += 1;
+            while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+                i += 1;
+            }
+            let value = match bytes.get(i) {
+                Some(&quote @ (b'"' | b'\'')) => {
+                    let end = html[i + 1..]
+                        .find(quote as char)
+                        .map_or(html.len(), |end| i + 1 + end);
+                    let value = &html[i + 1..end];
+                    i = (end + 1).min(html.len());
+                    value
+                }
+                _ => {
+                    let start = i;
+                    while i < bytes.len() && !bytes[i].is_ascii_whitespace() && bytes[i] != b'>' {
+                        i += 1;
+                    }
+                    &html[start..i]
+                }
+            };
+            if !ADDRESSES.contains(&name.as_str()) {
+                continue;
+            }
+            let value = decode(value);
+            let hit = if name.ends_with("srcset") {
+                value
+                    .split(|c: char| c == ',' || c.is_whitespace())
+                    .any(is_atlas)
+            } else {
+                is_atlas(&value)
+            };
+            if hit {
+                found.push(name);
+            }
+        }
+    }
+    found
+}
+
 /// What a file must never hold, named so a failure says which guard.
 fn leaks(path: &str, contents: &str) -> Vec<String> {
     let lower = contents.to_ascii_lowercase();
@@ -166,17 +329,19 @@ fn leaks(path: &str, contents: &str) -> Vec<String> {
     if has_raw_mark(&lower) {
         found.push(format!("{path}: a raw <ob-concept mark"));
     }
-    // An `atlas:` scheme in any link or image attribute value, quoted either
-    // way, with or without spaces around the equals sign.
-    for attribute in ["href", "src", "srcset", "poster", "data", "action", "cite"] {
-        for quote in ["\"", "'"] {
-            for gap in ["", " "] {
-                let needle = format!("{attribute}{gap}={gap}{quote}{gap}atlas:");
-                if lower.contains(&needle) {
-                    found.push(format!("{path}: `{needle}`"));
-                }
-            }
-        }
+    // An `atlas:` scheme in any address attribute, as a browser reads it. A
+    // JSON file holds HTML as an escaped string, so it is read unescaped.
+    let readable = if path.ends_with(".json") {
+        contents
+            .replace("\\\"", "\"")
+            .replace("\\u003c", "<")
+            .replace("\\u003e", ">")
+            .replace("\\u0026", "&")
+    } else {
+        contents.to_string()
+    };
+    for attribute in atlas_addresses(&readable) {
+        found.push(format!("{path}: an `atlas:` address in `{attribute}`"));
     }
     // The scheme as a Markdown destination in a portable copy.
     if lower.contains("](atlas:") || lower.contains("]: atlas:") || lower.contains("<atlas:") {
@@ -277,6 +442,27 @@ fn every_form_keeps_the_authors_label_and_the_author_hears_about_it() {
             "{source}: no warning in {warnings}"
         );
     }
+    // A raw HTML address is removed, and the warning names the document and
+    // never the address.
+    for source in [
+        "posts/cave.md",
+        "pages/about.md",
+        "series/greeks.md",
+        "openblog.json (home.intro)",
+    ] {
+        assert!(
+            site.warnings.iter().any(|w| w.starts_with(source)
+                && w.contains("raw HTML cannot carry an `atlas:` address")),
+            "{source}: no raw HTML warning in {warnings}"
+        );
+    }
+    assert!(
+        site.warnings
+            .iter()
+            .filter(|w| w.contains("raw HTML cannot carry"))
+            .all(|w| !w.contains("zsecret")),
+        "{warnings}"
+    );
     // An image is always refused.
     assert!(
         warnings.contains("an image cannot have an `atlas:` address"),

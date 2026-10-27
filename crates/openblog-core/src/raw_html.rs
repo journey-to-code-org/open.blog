@@ -358,6 +358,127 @@ pub(crate) fn semantic_content(html: &str) -> String {
     output
 }
 
+/// Attributes whose value is, or holds, an address a browser may follow or
+/// load. `srcset` and `imagesrcset` hold several, each a candidate.
+const ADDRESS_ATTRIBUTES: &[&str] = &[
+    "href",
+    "src",
+    "srcset",
+    "imagesrcset",
+    "poster",
+    "data",
+    "action",
+    "formaction",
+    "cite",
+    "xlink:href",
+    "background",
+    "ping",
+    "longdesc",
+    "codebase",
+    "manifest",
+    "lowsrc",
+];
+
+/// Whether an attribute's decoded value holds an address whose scheme is
+/// `atlas:` in any letter case, after the trimming a browser does. A set of
+/// candidates (`srcset`) is checked piece by piece.
+fn atlas_address(name: &str, value: &str) -> bool {
+    if !ADDRESS_ATTRIBUTES.contains(&name) {
+        return false;
+    }
+    let atlas = |piece: &str| crate::concept_links::atlas_destination(piece).is_some();
+    if name.ends_with("srcset") {
+        value
+            .split(|c: char| c == ',' || c.is_whitespace())
+            .any(atlas)
+    } else {
+        atlas(value)
+    }
+}
+
+/// `html` without any attribute that gives an element an `atlas:` address
+/// (ADR 0205), and how many were removed; `None` when it holds none. An
+/// attribute is found as a browser reads it: its name in any case, quoted
+/// either way or not at all, character references decoded, and every
+/// candidate of a `srcset` checked. A tag that never ends and holds the
+/// scheme is escaped to text, since a later fragment could end it.
+pub(crate) fn strip_atlas_addresses(html: &str) -> Option<(String, usize)> {
+    if !html.contains('<') {
+        return None;
+    }
+    let mut out = String::with_capacity(html.len());
+    let mut removed = 0;
+    let mut changed = false;
+    let mut at = 0;
+    while at < html.len() {
+        let (token, next) = next_token(html, at);
+        let tag = &html[at..next];
+        match token {
+            Token::Start { attributes, .. }
+                if attributes
+                    .iter()
+                    .any(|(name, value)| atlas_address(name, value)) =>
+            {
+                let mut spans = Vec::new();
+                if parse_tag_spans(tag, 1, &mut spans).is_none() {
+                    out.push_str(&tag.replace('<', "&lt;"));
+                    changed = true;
+                    at = next;
+                    continue;
+                }
+                let bytes = tag.as_bytes();
+                let mut cuts: Vec<std::ops::Range<usize>> = Vec::new();
+                for (name, value) in &attributes {
+                    if !atlas_address(name, value) {
+                        continue;
+                    }
+                    let Some((_, written)) = spans.iter().find(|(span, _)| span == name) else {
+                        continue;
+                    };
+                    let mut start = written.start;
+                    let mut end = written.end;
+                    if start > 0 && matches!(bytes[start - 1], b'"' | b'\'') {
+                        start -= 1;
+                        end += 1;
+                    }
+                    while start > 0 && is_space(bytes[start - 1]) {
+                        start -= 1;
+                    }
+                    start = start.saturating_sub(1);
+                    while start > 0 && is_space(bytes[start - 1]) {
+                        start -= 1;
+                    }
+                    start = start.saturating_sub(name.len());
+                    cuts.push(start..end.min(tag.len()));
+                    removed += 1;
+                }
+                cuts.sort_by_key(|range| range.start);
+                let mut cursor = 0;
+                for cut in cuts {
+                    if cut.start >= cursor {
+                        out.push_str(&tag[cursor..cut.start]);
+                        cursor = cut.end;
+                    }
+                }
+                out.push_str(&tag[cursor..]);
+                changed = true;
+            }
+            Token::Text(text)
+                if text.starts_with('<')
+                    && next == html.len()
+                    && parse_tag(text, 1).is_none()
+                    && decode(text).to_ascii_lowercase().contains("atlas:") =>
+            {
+                removed += 1;
+                changed = true;
+            }
+            _ => out.push_str(tag),
+        }
+        at = next;
+    }
+    changed.then_some((out, removed))
+}
+
 /// Where a comment that is open at the start of `text` ends: the length
 /// through its `-->` (or `--!>`), or `None` when `text` does not end it.
 pub(crate) fn comment_end(text: &str) -> Option<usize> {
@@ -1376,6 +1497,21 @@ mod tests {
         );
         assert_eq!(decode("&Tab;&NewLine;"), "\t\n");
         assert_eq!(decode("&#;&#x;&"), "&#;&#x;&");
+    }
+
+    #[test]
+    fn atlas_addresses_are_removed_from_every_address_attribute() {
+        let (clean, count) = strip_atlas_addresses(
+            "<a class=x HREF = ' AtLaS:a ' title=t>l</a><img src=atlas&#58;b srcset=\"/p 1x,atlas:c 2x\"><svg xlink:href=\"atlas:d\"></svg>",
+        )
+        .unwrap();
+        assert_eq!(count, 4);
+        assert!(!clean.to_ascii_lowercase().contains("atlas"), "{clean}");
+        assert!(
+            clean.contains("class=x") && clean.contains("title=t"),
+            "{clean}"
+        );
+        assert!(strip_atlas_addresses("<a href=\"/atlas:x\" data-href=\"atlas:y\">").is_none());
     }
 
     #[test]

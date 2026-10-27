@@ -96,7 +96,7 @@ pub(crate) struct Marked {
 /// trimmed), when that scheme is `atlas:` in any letter case. The flag is
 /// whether it is written exactly as `atlas:`, the only form that is a
 /// concept link.
-fn atlas_destination(dest: &str) -> Option<(String, bool)> {
+pub(crate) fn atlas_destination(dest: &str) -> Option<(String, bool)> {
     let cleaned: String = dest
         .chars()
         .filter(|c| !matches!(c, '\t' | '\n' | '\r'))
@@ -238,7 +238,55 @@ pub(crate) fn mark_events(events: &mut [Event<'_>], marks: bool) -> Marked {
             *event = replacement;
         }
     }
+    scrub_raw_addresses(events, &mut found);
     found
+}
+
+/// Remove every `atlas:` address that raw HTML gives an element (ADR 0205):
+/// `href`, `src`, every `srcset` candidate, `poster`, `data`, `action`,
+/// `formaction`, `cite`, `xlink:href` and `background`, quoted or not, in any
+/// letter case and with character references decoded. The consecutive lines
+/// of an HTML block are read as one, since a tag can span them. Each removal
+/// is one refusal with no id: the author is told the document, never the
+/// address.
+fn scrub_raw_addresses(events: &mut [Event<'_>], found: &mut Marked) {
+    let mut index = 0;
+    while index < events.len() {
+        match &events[index] {
+            Event::InlineHtml(html) => {
+                if let Some((clean, count)) = crate::raw_html::strip_atlas_addresses(html) {
+                    events[index] = Event::InlineHtml(CowStr::from(clean));
+                    note_raw_addresses(found, count);
+                }
+                index += 1;
+            }
+            Event::Html(_) => {
+                let start = index;
+                let mut joined = String::new();
+                while let Some(Event::Html(html)) = events.get(index) {
+                    joined.push_str(html);
+                    index += 1;
+                }
+                if let Some((clean, count)) = crate::raw_html::strip_atlas_addresses(&joined) {
+                    events[start] = Event::Html(CowStr::from(clean));
+                    for event in &mut events[start + 1..index] {
+                        *event = Event::Html(CowStr::from(""));
+                    }
+                    note_raw_addresses(found, count);
+                }
+            }
+            _ => index += 1,
+        }
+    }
+}
+
+fn note_raw_addresses(found: &mut Marked, count: usize) {
+    for _ in 0..count {
+        found.refused.push(Refusal {
+            id: String::new(),
+            why: Unlinked::RawAddress,
+        });
+    }
 }
 
 /// Why a concept link is shown as plain text.
@@ -262,6 +310,9 @@ pub enum Unlinked {
     /// The link is in a page, a series description or the home introduction,
     /// which do not resolve concept links.
     OutsidePost,
+    /// Raw HTML gave an element an `atlas:` address (`href`, `src`, `srcset`
+    /// and the like): the attribute was removed. It has no id to report.
+    RawAddress,
 }
 
 /// What became of the concept links that name one id in one post.
@@ -299,6 +350,7 @@ impl ConceptUse {
             Unlinked::Image => "an image cannot have an `atlas:` address, so it is not shown; its description is shown as plain text".to_string(),
             Unlinked::Autolink => "an autolink has no label, so it shows nothing: write `[label](atlas:id)`".to_string(),
             Unlinked::Dropped => "a raw `<ob-concept>` mark that is not closed in its own paragraph was removed (write `[label](atlas:id)` instead)".to_string(),
+            Unlinked::RawAddress => "raw HTML cannot carry an `atlas:` address (in `href`, `src`, `srcset`, `poster` and the like), so the attribute was removed: write `[label](atlas:id)` in Markdown, in a post".to_string(),
             Unlinked::OutsidePost => "concept links are resolved in posts only, not in pages, series descriptions or the home introduction".to_string(),
         };
         // The id as the author wrote it, cut by characters (never through an
@@ -316,7 +368,7 @@ impl ConceptUse {
         };
         let (verb, advice) = match self.unlinked? {
             Unlinked::Autolink | Unlinked::Dropped => ("is not shown", ""),
-            Unlinked::Image => ("is not shown", ""),
+            Unlinked::Image | Unlinked::RawAddress => ("is not shown", ""),
             _ => (
                 "is shown as plain text",
                 " Fix the id, approve the entry, or remove the link.",
@@ -669,11 +721,24 @@ fn plain_markdown_once(markdown: &str) -> Option<String> {
                 ),
             ),
             Event::Html(_) | Event::InlineHtml(_) => {
-                let raw = &markdown[range.clone()];
-                if has_raw_mark(raw) {
-                    edits.push((range.clone(), scrub_raw_marks(raw)));
+                // The lines of one HTML block are read together, as a tag
+                // can span them.
+                let mut span = range.clone();
+                let mut last = index;
+                if matches!(event, Event::Html(_)) {
+                    while let Some((Event::Html(_), next)) = events.get(last + 1) {
+                        span.end = next.end;
+                        last += 1;
+                    }
                 }
-                index += 1;
+                let raw = &markdown[span.clone()];
+                let marks_gone = scrub_raw_marks(raw);
+                let clean = crate::raw_html::strip_atlas_addresses(&marks_gone)
+                    .map_or(marks_gone, |(clean, _)| clean);
+                if clean != raw {
+                    edits.push((span, clean));
+                }
+                index = last + 1;
                 continue;
             }
             _ => {
