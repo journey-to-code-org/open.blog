@@ -710,6 +710,7 @@ impl<'a> PortableProjection<'a> {
                 code_runner: None,
                 // Portable copies show sandboxes as static code, so no libraries load.
                 web_libraries: None,
+                playground_link: config.code.playground_link,
                 // Generated notes are ordinary footnotes here, linked to the canonical article.
                 citation_notes: None,
                 // The section is ordinary content in a portable copy.
@@ -2784,7 +2785,11 @@ fn portable_fence_markdown(
         };
         output.push_str(&markdown_code_fence(normalized_language, source));
         if fence.runnable {
-            if language.eq_ignore_ascii_case("rust") && fence.playground_link != Some(false) {
+            if language.eq_ignore_ascii_case("rust")
+                && fence
+                    .playground_link
+                    .unwrap_or(projection.render_options.playground_link)
+            {
                 if let Some(url) = crate::markdown::rust_playground_url(&format!("{source}\n")) {
                     output.push_str(&format!("\n[Open in Rust Playground]({url}).\n"));
                 }
@@ -3942,6 +3947,46 @@ mod tests {
         assert!(markdown.contains(projection.canonical_url()));
         assert!(!html.contains("<script>"));
         assert!(site.posts[0].html.contains("<ob-rust-playground"));
+    }
+
+    #[test]
+    fn portable_copies_follow_the_site_wide_playground_setting() {
+        let contents = "---
+title: Work
+date: 2026-10-01
+---
+```rust runnable
+fn main() {}
+```
+
+```rust runnable playgroundLink=true
+fn main() {}
+```
+";
+        let (mut config, site) = public_post(contents);
+        let linked = |config: &SiteConfig| {
+            let projection = PortableProjection::from_post(&site.posts[0], config).unwrap();
+            (
+                projection
+                    .portable_html()
+                    .unwrap()
+                    .html
+                    .matches("play.rust-lang.org")
+                    .count(),
+                projection
+                    .portable_markdown()
+                    .unwrap()
+                    .matches("play.rust-lang.org")
+                    .count(),
+            )
+        };
+        assert_eq!(linked(&config), (2, 2));
+        config.code.playground_link = false;
+        assert_eq!(
+            linked(&config),
+            (1, 1),
+            "only the fence that asks for the link keeps it"
+        );
     }
 
     #[test]

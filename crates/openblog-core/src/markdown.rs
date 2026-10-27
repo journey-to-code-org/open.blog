@@ -83,6 +83,8 @@ pub struct RenderOptions<'a> {
     pub code_runner: Option<CodeRunnerRenderOptions<'a>>,
     /// Site-hosted libraries `web runnable` fences may name with `libs=`.
     pub web_libraries: Option<&'a BTreeMap<String, Vec<String>>>,
+    /// Offer "Open in Rust Playground" beside Rust examples. A fence's `playgroundLink=` overrides it.
+    pub playground_link: bool,
     /// Set for a post whose citations were published as notes: the native
     /// page gives those generated notes accessible citation anchors and links
     /// back to each citation. `None` renders every footnote as before.
@@ -111,6 +113,7 @@ impl Default for RenderOptions<'_> {
             recipe: false,
             code_runner: None,
             web_libraries: None,
+            playground_link: true,
             citation_notes: None,
             claim_evidence_section: false,
             supplements: false,
@@ -621,6 +624,7 @@ fn portable_code_html(
     source: &str,
     web_sandbox: bool,
     canonical_url: &str,
+    playground_link: bool,
 ) -> String {
     let code = |lang: &str, source: &str, lines: &str| {
         let class = if lang.is_empty() {
@@ -683,7 +687,9 @@ fn portable_code_html(
         "Open the live preview on"
     } else {
         html.push_str(&code(&fence.lang, source, &line_attributes(fence)));
-        if fence.lang.eq_ignore_ascii_case("rust") && fence.playground_link != Some(false) {
+        if fence.lang.eq_ignore_ascii_case("rust")
+            && fence.playground_link.unwrap_or(playground_link)
+        {
             if let Some(url) = rust_playground_url(source) {
                 html.push_str(&format!(
                     "<p class=\"ob-playground-link\"><a href=\"{}\">Open in Rust Playground</a>.</p>",
@@ -743,6 +749,7 @@ fn transform_blocks<'a>(
     recipe: bool,
     code_runner: Option<CodeRunnerRenderOptions<'_>>,
     web_libraries: Option<&BTreeMap<String, Vec<String>>>,
+    playground_link: bool,
     portable: Option<PortableContext<'_>>,
 ) -> (Vec<Event<'a>>, BlockData) {
     let mut out = Vec::with_capacity(events.len());
@@ -867,6 +874,7 @@ fn transform_blocks<'a>(
                         source,
                         web_sandbox,
                         context.canonical_url,
+                        playground_link,
                     ))));
                     portable_code = None;
                     titled_code = false;
@@ -926,7 +934,7 @@ fn transform_blocks<'a>(
                     ));
                 } else if runnable_code {
                     html.push_str("<ob-rust-playground");
-                    if fence.playground_link == Some(false) {
+                    if !fence.playground_link.unwrap_or(playground_link) {
                         html.push_str(" data-playground-link=\"false\"");
                     }
                     html.push('>');
@@ -2454,6 +2462,7 @@ fn render_events<'a>(
         options.recipe,
         options.code_runner,
         options.web_libraries,
+        options.playground_link,
         portable,
     );
     // After block transforms, which track footnote containers by their events.
@@ -2982,6 +2991,55 @@ mod tests {
         assert_eq!(
             r.code_languages,
             vec!["rust".to_string(), "python".to_string()]
+        );
+    }
+
+    #[test]
+    fn the_site_setting_hides_the_playground_link_unless_a_fence_asks_for_it() {
+        let source = "```rust runnable
+fn main() {}
+```
+
+```rust runnable playgroundLink=true
+fn main() {}
+```
+
+```rust runnable playgroundLink=false
+fn main() {}
+```
+";
+        let shown = render(source, RenderOptions::default());
+        assert_eq!(
+            shown.html.matches("<ob-rust-playground>").count(),
+            2,
+            "{}",
+            shown.html
+        );
+        assert_eq!(
+            shown.html.matches("data-playground-link=\"false\"").count(),
+            1
+        );
+
+        let hidden = render(
+            source,
+            RenderOptions {
+                playground_link: false,
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            hidden
+                .html
+                .matches("data-playground-link=\"false\"")
+                .count(),
+            2,
+            "{}",
+            hidden.html
+        );
+        assert_eq!(
+            hidden.html.matches("<ob-rust-playground>").count(),
+            1,
+            "an explicit playgroundLink=true still wins"
         );
     }
 

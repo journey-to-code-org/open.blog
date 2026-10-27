@@ -5,6 +5,10 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- A new `code.playgroundLink` setting (default on) hides the **Open in Rust Playground** link from every
+  runnable Rust example, portable copy, and export at once. A fence can still override it with
+  `playgroundLink=true` or `playgroundLink=false`.
+
 - `openblog import hashnode` now imports each post's subtitle from the public page (the paragraph
   after the title), as the GraphQL source already did.
 
