@@ -892,3 +892,14 @@ fn the_query_files_address_changes_with_its_content_and_is_the_same_otherwise() 
         )))
     );
 }
+
+#[test]
+fn no_heading_can_take_the_id_of_the_concept_hint() {
+    // A heading whose slug is the hint's id, and one that writes it.
+    let body = "## About [Plato](atlas:plato)\n\n## Ob concept hint\n\n## Another {#ob-concept-hint}\n\nProse.";
+    let site = site_with(body, Some(public_atlas()), "https://example.com");
+    let html = &site.posts[0].html;
+    assert_eq!(html.matches("id=\"ob-concept-hint\"").count(), 1, "{html}");
+    assert!(html.contains("id=\"ob-concept-hint-2\""), "{html}");
+    assert!(html.contains("<span id=\"ob-concept-hint\" hidden>"), "{html}");
+}

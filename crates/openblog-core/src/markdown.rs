@@ -1693,7 +1693,10 @@ fn assign_heading_ids(
     } else {
         std::collections::HashSet::new()
     };
-    let mut used_ids = std::collections::HashSet::new();
+    // The one hint element a post's concept links inside headings describe
+    // themselves with (ADR 0205) owns its id: no heading takes it.
+    let mut used_ids: std::collections::HashSet<String> =
+        std::iter::once(crate::concept_links::HEADING_HINT_ID.to_string()).collect();
     let mut heading: Option<(usize, String)> = None;
     for index in 0..events.len() {
         match &events[index] {
@@ -1753,9 +1756,10 @@ fn assign_heading_ids(
                 // An id the author wrote in the reserved space is replaced by
                 // the heading's own slug: only a section's real author may
                 // own an `ob-by-` anchor.
-                let reserved = existing
-                    .as_deref()
-                    .is_some_and(|written| written.starts_with(RESERVED_ANCHOR_PREFIX));
+                let reserved = existing.as_deref().is_some_and(|written| {
+                    written.starts_with(RESERVED_ANCHOR_PREFIX)
+                        || written == crate::concept_links::HEADING_HINT_ID
+                });
                 if generated || reserved {
                     *existing = Some(CowStr::from(id));
                 }
