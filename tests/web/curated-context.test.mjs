@@ -17,10 +17,10 @@ const data = () => JSON.parse(FILE);
 
 test("the file is versioned, escaped for embedding and says where its sections and anchors are", () => {
   const file = data();
-  assert.equal(file.format, "openblog-curated-context");
+  assert.equal(file.format, "openblog-curated-context-file");
   assert.equal(file.formatVersion, 1);
-  assert.equal(file.section, "research-context");
-  assert.equal(file.anchorPrefix, "curated-");
+  assert.equal(file.section, "ob-research-context");
+  assert.equal(file.anchorPrefix, "ob-curated-");
   // Nothing in it can close a script element it is later embedded in.
   assert.doesNotMatch(FILE, /[<>&]/);
   assert.ok(FILE.endsWith("\n") && !FILE.includes("\r"), "LF only, one trailing newline");
@@ -61,7 +61,7 @@ test("every post lists its items in order with the canonical anchor of each, and
     assert.ok(post.items.length > 0, "a post that offers nothing is not listed");
     for (const item of post.items) {
       assert.ok(ids.has(item.id), `${item.id} is an item of the file`);
-      assert.equal(item.url, `${post.url}#curated-${item.id}`);
+      assert.equal(item.url, `${post.url}#ob-curated-${item.id}`);
     }
     for (const ref of post.context) {
       assert.ok(context.some((entry) => entry.kind === ref.kind && entry.id === ref.id), `${ref.kind} ${ref.id} is context of the file`);
@@ -79,14 +79,14 @@ test("every post lists its items in order with the canonical anchor of each, and
 
 test("the page section reads in order without JavaScript and every anchor the file names is on it", () => {
   assert.doesNotMatch(SECTION, /<script|\son[a-z]+=|<iframe|javascript:/i);
-  assert.match(SECTION, /^<section class="ob-curated" id="research-context" aria-labelledby="research-context-title"/);
+  assert.match(SECTION, /^<section class="ob-curated" id="ob-research-context" aria-labelledby="ob-research-context-title"/);
   // Reading order is document order: the section's heading, each item's heading, then what they refer to.
   const headings = [...SECTION.matchAll(/<h([23])[^>]*>/g)].map((match) => Number(match[1]));
   assert.equal(headings[0], 2, "one section heading first");
   assert.ok(headings.slice(1).every((level) => level === 3), "items and the reference list follow it");
   const { posts } = data();
   const cave = posts.find((post) => post.post === "cave");
-  const order = cave.items.map((item) => SECTION.indexOf(`id="curated-${item.id}"`));
+  const order = cave.items.map((item) => SECTION.indexOf(`id="${data().anchorPrefix}${item.id}"`));
   assert.ok(order.every((at) => at > 0), "every anchor of the file is on the page");
   assert.deepEqual(order, [...order].sort((a, b) => a - b), "and they sit in the order the file lists");
   // Ids are unique and every in-page link lands on one.
@@ -98,6 +98,11 @@ test("the page section reads in order without JavaScript and every anchor the fi
     assert.ok(SECTION.includes(words), words);
   }
   assert.match(SECTION, /none of it is a verdict/);
+  // A notice reads as a sentence for a reader: no backticks, selection words or ids.
+  for (const [, notice] of SECTION.matchAll(/<li data-curated-notice="[^"]+">([^<]*)<\/li>/g)) {
+    assert.ok(!/[`]|Selection|plato-birth-b/.test(notice), notice);
+  }
+  assert.match(SECTION, /<ol class="ob-curated-items" role="list">/);
   // Authored markup is text.
   assert.ok(!SECTION.includes("<b>x</b>") && SECTION.includes("&lt;b&gt;x&lt;/b&gt;"));
   // Only this site's pages and https addresses are links.

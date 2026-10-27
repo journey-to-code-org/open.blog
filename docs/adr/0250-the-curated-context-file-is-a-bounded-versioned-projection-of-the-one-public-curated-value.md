@@ -19,7 +19,7 @@ nothing yet wrote it where a reader's tool can fetch it.
   projected from `PublicCuration` and the published posts' slugs and addresses, and from nothing else:
   it takes no selections file, library, notebook or atlas, so it cannot name or reach a private object.
   An addition to what a selection publishes reaches the file only through the selection projection.
-- **Versioned and self-describing.** `format` is `openblog-curated-context` and `formatVersion` is 1;
+- **Versioned and self-describing.** `format` is `openblog-curated-context-file`, distinct from the public value's own `openblog-curated-context` and `formatVersion` is 1;
   `section` and `anchorPrefix` say where a post's section and an item's fragment are, so a consumer never
   guesses either. Each item carries the revision that was selected (the one published), its attribution,
   doubt, dissent and evidence, its provenance, the fields the source lacks (never invented) and its

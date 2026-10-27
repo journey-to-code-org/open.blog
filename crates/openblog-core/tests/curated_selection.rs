@@ -2129,7 +2129,7 @@ mod context {
         let (resolution, context) = project(&w, &set);
         let json = context.to_json();
         let value: Value = serde_json::from_str(&json).unwrap();
-        assert_eq!(value["format"], CURATED_FORMAT);
+        assert_eq!(value["format"], openblog_core::curated_context::FILE_FORMAT);
         assert_eq!(value["formatVersion"], CURATED_FORMAT_VERSION);
         assert_eq!(value["anchorPrefix"], ANCHOR_PREFIX);
         // Every published selection, exactly as the selection projection publishes it.
@@ -2234,10 +2234,10 @@ mod context {
             !cave.contains("<script") && !cave.contains(" onclick") && !cave.contains("<table")
         );
         assert!(cave.contains(
-            "<h2 class=\"ob-curated-title\" id=\"research-context-title\">Research context</h2>"
+            "<h2 class=\"ob-curated-title\" id=\"ob-research-context-title\">Research context</h2>"
         ));
         assert!(
-            cave.contains("<ol class=\"ob-curated-items\">")
+            cave.contains("<ol class=\"ob-curated-items\" role=\"list\">")
                 && cave.contains("<dl class=\"ob-curated-fields\">")
         );
         assert!(cave.contains("href=\"/curated-context.json\""));
@@ -2245,7 +2245,7 @@ mod context {
         for expected in [
             "Relationship: Plato authored Republic",
             "Who asserts it",
-            "the source <a class=\"ob-curated-source\" href=\"#curated_ref_source_scholar\"><cite>A study of the dialogues</cite></a>",
+            "the source <a class=\"ob-curated-source\" href=\"#ob-curated-ref_source_scholar\"><cite>A study of the dialogues</cite></a>",
             "How firmly",
             "plausible",
             "What is doubtful",
@@ -2263,8 +2263,8 @@ mod context {
         assert!(cave.contains("Who wrote it") && cave.contains("The author"));
         assert!(cave.contains("Where in the source it applies") && cave.contains("514a"));
         // The sources and entries these refer to are listed, with anchors the items link to.
-        assert!(cave.contains("id=\"curated_ref_source_burnet\""));
-        assert!(cave.contains("id=\"curated_ref_entry_republic\""));
+        assert!(cave.contains("id=\"ob-curated-ref_source_burnet\""));
+        assert!(cave.contains("id=\"ob-curated-ref_entry_republic\""));
         assert!(!cave.contains(PRIVATE) && !cave.contains("p-burnet"));
         // The reference of `other` says where its metadata came from and what is missing.
         let other = context.post_section_html("other", None).unwrap();
@@ -2278,15 +2278,20 @@ mod context {
         );
         // A competing dating that is not selected is said beside the dating.
         assert!(cave.contains(
-            "competing datings of the same aspect are published but not selected: plato-birth-b"
+            "Other datings of the same aspect exist on this site and were not chosen here."
         ));
+        assert!(
+            !cave.contains("plato-birth-b"),
+            "a reader is not shown the ids"
+        );
         // Reading order is the document order: the title, then each item in turn, then what they refer to.
         let at = |needle: &str| cave.find(needle).unwrap_or_else(|| panic!("{needle}"));
         assert!(
             at("research-context-title")
-                < at("id=\"curated-entry-plato\"").min(at("id=\"curated-relationship-authored\""))
+                < at("id=\"ob-curated-entry-plato\"")
+                    .min(at("id=\"ob-curated-relationship-authored\""))
         );
-        assert!(at("id=\"curated-relationship-authored\"") < at("id=\"curated_refs\""));
+        assert!(at("id=\"ob-curated-relationship-authored\"") < at("id=\"ob-curated-ref_list\""));
         // Each kind keeps its own name.
         for noun in [
             "Atlas entry: Plato",
@@ -2351,6 +2356,10 @@ mod context {
         for (url, linked) in [
             ("javascript:alert(1)", false),
             ("//evil.example/x", false),
+            ("/\\evil.example/x", false),
+            ("/ok\u{7}bell", false),
+            ("/ok\nnewline", false),
+            ("http://example.org/plain", false),
             ("data:text/html,<b>", false),
             ("/atlas/plato/", true),
             ("https://example.org/a", true),
@@ -2362,7 +2371,100 @@ mod context {
                 .unwrap();
             let has_link = page.contains(&format!("href=\"{}\"", url.replace('&', "&amp;")));
             assert_eq!(has_link, linked, "{url}");
+            // An address that is not a link is still shown, as plain text (never dropped).
+            if !linked && url.starts_with("http://") {
+                assert!(page.contains("Address (not a link)"), "{url}");
+                assert!(page.contains(&format!("<dd>{url}</dd>")), "{url}");
+            }
         }
+    }
+
+    #[test]
+    fn a_notice_reads_as_a_sentence_from_its_code_and_field_with_no_ids_or_backticks() {
+        use openblog_core::curated_selection::ItemNotice;
+        let mut noted = item("noted", &["cave"]);
+        noted.notices = vec![
+            ItemNotice {
+                code: NoticeCode::MissingDetail,
+                field: Some("issued".into()),
+                message: "Selection `noted`: `issued` is selected but the source has none.".into(),
+            },
+            ItemNotice {
+                code: NoticeCode::CompetingUnselected,
+                field: None,
+                message: "Selection `noted`: competing datings are published but not selected: rival-dating-1.".into(),
+            },
+            ItemNotice {
+                code: NoticeCode::ProvenanceUnrecorded,
+                field: Some("provenance".into()),
+                message: "Selection `noted`: where this came from is not recorded.".into(),
+            },
+        ];
+        let context =
+            CuratedContext::project(&curation_of(vec![noted], Vec::new()), &POSTS, "").unwrap();
+        let html = context.post_section_html("cave", None).unwrap();
+        let notices = html.split("ob-curated-notices").nth(1).unwrap();
+        let notices = notices.split("</ul>").next().unwrap();
+        assert!(
+            notices.contains("does not record the date issued"),
+            "{notices}"
+        );
+        assert!(
+            notices.contains("Other datings of the same aspect"),
+            "{notices}"
+        );
+        for private in ["`", "Selection", "noted", "rival-dating-1", "issued`"] {
+            assert!(!notices.contains(private), "{private}: {notices}");
+        }
+        // The data file keeps the author's own message, for the tools that read it.
+        assert!(context.to_json().contains("rival-dating-1"));
+    }
+
+    #[test]
+    fn a_post_with_a_large_selection_renders_a_bounded_page_by_index() {
+        use openblog_core::curated_context::MAX_PAGE_ITEMS;
+        let total = MAX_PAGE_ITEMS + 120;
+        let items: Vec<CuratedItem> = (0..total)
+            .map(|n| item(&format!("entry-{n:04}"), &["cave"]))
+            .collect();
+        let context = (0..total)
+            .map(|n| ContextItem {
+                kind: ContextKind::Entry,
+                id: format!("entry-{n:04}"),
+                label: Some(format!("Entry {n}")),
+                url: None,
+                source: None,
+                via: vec![format!("entry-{n:04}")],
+            })
+            .collect();
+        let context = CuratedContext::project(&curation_of(items, context), &POSTS, "").unwrap();
+        let started = std::time::Instant::now();
+        let html = context.post_section_html("cave", None).unwrap();
+        assert!(
+            started.elapsed().as_secs() < 5,
+            "rendering must not be quadratic"
+        );
+        assert_eq!(
+            html.matches("<li class=\"ob-curated-item\"").count(),
+            MAX_PAGE_ITEMS
+        );
+        assert!(
+            html.contains("This page shows the first 1000 items. 120 more are in the data file")
+        );
+        // The data file still holds every item.
+        let value: Value = serde_json::from_str(&context.to_json()).unwrap();
+        assert_eq!(value["items"].as_array().unwrap().len(), total);
+        // A post of few items has no such note.
+        let small = CuratedContext::project(
+            &curation_of(vec![item("only", &["cave"])], Vec::new()),
+            &POSTS,
+            "",
+        )
+        .unwrap();
+        assert!(!small
+            .post_section_html("cave", None)
+            .unwrap()
+            .contains("ob-curated-more"));
     }
 
     fn item(id: &str, posts: &[&str]) -> CuratedItem {
@@ -2498,9 +2600,12 @@ mod context {
         assert_eq!(first.to_json(), again.to_json());
         assert!(first.to_json().len() <= MAX_BYTES);
         assert_eq!(first.for_post("cave").unwrap().items.len(), 2_000);
-        // The page section renders them all, in that order, once each.
+        // The page section renders them in that order, once each, up to its own bound.
         let html = first.post_section_html("cave", None).unwrap();
-        assert_eq!(html.matches("class=\"ob-curated-item\"").count(), 2_000);
+        assert_eq!(
+            html.matches("class=\"ob-curated-item\"").count(),
+            openblog_core::curated_context::MAX_PAGE_ITEMS
+        );
     }
 
     #[test]

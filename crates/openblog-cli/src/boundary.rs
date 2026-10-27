@@ -808,6 +808,19 @@ fn unlisted(manifest: &BoundaryManifest, site: &Site, files: &[OutputFile]) -> V
     let curated_sources = manifest.published_ids(Projection::Curated, ItemKind::Source);
     let file_listed = manifest.published_ids(Projection::CuratedContext, ItemKind::CuratedContext);
     let post_slugs: BTreeSet<&str> = site.posts.iter().map(|post| post.slug.as_str()).collect();
+    // A post's address as the file carries it: the base path in front.
+    let base_path = site.config.base_path();
+    let post_url_strings: Vec<String> = site
+        .posts
+        .iter()
+        .flat_map(|post| {
+            [
+                post.url.clone(),
+                format!("{}{}", base_path.trim_end_matches('/'), post.url),
+            ]
+        })
+        .collect();
+    let post_urls: BTreeSet<&str> = post_url_strings.iter().map(String::as_str).collect();
     let mut check = |file: &str, kind: &str, id: &str, known: &BTreeSet<&str>| {
         if !known.contains(id) {
             problems.push(format!(
@@ -892,7 +905,34 @@ fn unlisted(manifest: &BoundaryManifest, site: &Site, files: &[OutputFile]) -> V
             for id in ids_at(&value, "items") {
                 check(&file.path, "curated selection", &id, &selections);
             }
+            // What an item points at: the posts it is scoped to, the posts
+            // whose order it has a place in, and the items it requires.
+            for item in value["items"].as_array().into_iter().flatten() {
+                for slug in item["posts"].as_array().into_iter().flatten() {
+                    if let Some(slug) = slug.as_str() {
+                        check(&file.path, "published post", slug, &post_slugs);
+                    }
+                }
+                for slug in item["positions"]
+                    .as_object()
+                    .into_iter()
+                    .flatten()
+                    .map(|(slug, _)| slug)
+                {
+                    check(&file.path, "published post", slug, &post_slugs);
+                }
+                for id in item["requires"].as_array().into_iter().flatten() {
+                    if let Some(id) = id.as_str() {
+                        check(&file.path, "curated selection", id, &selections);
+                    }
+                }
+            }
             for context in value["context"].as_array().into_iter().flatten() {
+                for id in context["via"].as_array().into_iter().flatten() {
+                    if let Some(id) = id.as_str() {
+                        check(&file.path, "curated selection", id, &selections);
+                    }
+                }
                 let Some(id) = context["id"].as_str() else {
                     continue;
                 };
@@ -918,9 +958,28 @@ fn unlisted(manifest: &BoundaryManifest, site: &Site, files: &[OutputFile]) -> V
                 if let Some(slug) = post["post"].as_str() {
                     check(&file.path, "published post", slug, &post_slugs);
                 }
+                // The address of a post and of each item's anchor on it must
+                // be a published post's address and that item's own fragment.
+                if let Some(url) = post["url"].as_str() {
+                    check(&file.path, "post address", url, &post_urls);
+                }
                 for item in post["items"].as_array().into_iter().flatten() {
                     if let Some(id) = item["id"].as_str() {
                         check(&file.path, "curated selection", id, &selections);
+                    }
+                    if let Some(url) = item["url"].as_str() {
+                        let (page, fragment) = url.split_once('#').unwrap_or((url, ""));
+                        check(&file.path, "post address", page, &post_urls);
+                        let expected: Vec<String> = item["id"]
+                            .as_str()
+                            .map(|id| {
+                                format!("{}{id}", openblog_core::curated_context::ANCHOR_PREFIX)
+                            })
+                            .into_iter()
+                            .collect();
+                        let expected: BTreeSet<&str> =
+                            expected.iter().map(String::as_str).collect();
+                        check(&file.path, "item anchor", fragment, &expected);
                     }
                 }
             }
@@ -2331,7 +2390,7 @@ date: 2026-01-07
         let json =
             String::from_utf8(file(&first, "curated-context.json").unwrap().clone()).unwrap();
         let value: Value = serde_json::from_str(&json).unwrap();
-        assert_eq!(value["format"], "openblog-curated-context");
+        assert_eq!(value["format"], "openblog-curated-context-file");
         assert_eq!(value["formatVersion"], 1);
         assert_eq!(value["items"].as_array().unwrap().len(), 3);
         assert!(json.contains(APPROVED_WORDS));
@@ -2365,7 +2424,7 @@ date: 2026-01-07
         // The page carries the section without JavaScript; a post that is offered nothing is unchanged.
         let cave_page =
             String::from_utf8_lossy(file(&first, "posts/cave/index.html").unwrap()).to_string();
-        assert!(cave_page.contains("id=\"research-context\""));
+        assert!(cave_page.contains("id=\"ob-research-context\""));
         assert!(cave_page.contains("Plato taught at the Academy"));
         assert!(cave_page.contains("href=\"/curated-context.json\""));
         assert!(!cave_page.contains(WITHDRAWN_WORDS));
@@ -2542,6 +2601,64 @@ date: 2026-01-07
         assert!(
             error.contains("names the curated entry `secret`"),
             "{error}"
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn the_file_may_name_only_published_posts_selections_and_addresses_in_every_field() {
+        let root = context_site("context-references");
+        let built = tempdir_build(&root, "legit");
+        let legit =
+            String::from_utf8(file(&built, "curated-context.json").unwrap().clone()).unwrap();
+        assert_eq!(
+            checked(&root, &[page("curated-context.json", &legit)]),
+            Ok(Vec::new())
+        );
+        let refused = |edit: &dyn Fn(&mut Value), expected: &str| {
+            let mut value: Value = serde_json::from_str(&legit).unwrap();
+            edit(&mut value);
+            let error =
+                checked(&root, &[page("curated-context.json", &value.to_string())]).unwrap_err();
+            assert!(error.contains(expected), "{expected}: {error}");
+        };
+        refused(
+            &|v| v["items"][0]["posts"] = serde_json::json!(["a-draft"]),
+            "names the published post `a-draft`",
+        );
+        refused(
+            &|v| v["items"][0]["positions"] = serde_json::json!({ "a-draft": 0 }),
+            "names the published post `a-draft`",
+        );
+        refused(
+            &|v| v["items"][0]["requires"] = serde_json::json!(["ghost-selection"]),
+            "names the curated selection `ghost-selection`",
+        );
+        refused(
+            &|v| v["context"][0]["via"] = serde_json::json!(["ghost-selection"]),
+            "names the curated selection `ghost-selection`",
+        );
+        refused(
+            &|v| v["posts"][0]["url"] = Value::String("/posts/a-draft/".into()),
+            "names the post address `/posts/a-draft/`",
+        );
+        refused(
+            &|v| {
+                v["posts"][0]["items"][0]["url"] =
+                    Value::String("/posts/a-draft/#ob-curated-x".into())
+            },
+            "names the post address `/posts/a-draft/`",
+        );
+        refused(
+            &|v| {
+                let url = v["posts"][0]["items"][0]["url"]
+                    .as_str()
+                    .unwrap()
+                    .to_string();
+                let page = url.split('#').next().unwrap().to_string();
+                v["posts"][0]["items"][0]["url"] = Value::String(format!("{page}#a-heading"));
+            },
+            "names the item anchor `a-heading`",
         );
         let _ = fs::remove_dir_all(root);
     }

@@ -27,9 +27,9 @@ whole and the build says why (`boundary:`); the pages are unaffected.
 
 | Member | Meaning |
 | --- | --- |
-| `format`, `formatVersion` | `openblog-curated-context` and `1`. A reader of another version declines. |
-| `section` | The id of the section on a post's page (`research-context`). |
-| `anchorPrefix` | The prefix of each item's fragment (`curated-`). |
+| `format`, `formatVersion` | `openblog-curated-context-file` and `1` (distinct from the public value's own `openblog-curated-context`: the file is a projection of it). A reader of another version declines. |
+| `section` | The id of the section on a post's page (`ob-research-context`). |
+| `anchorPrefix` | The prefix of each item's fragment (`ob-curated-`). |
 | `items` | Every published selection, whole-site first, then by first post and the author's order there. Each carries `id`, `kind`, `target`, `revision` (the revision that was selected, which is the one published), `content` (only the fields the author listed, plus the attribution, doubt, dissent and evidence the kind always carries), `provenance` (`authored`, `imported` with where from, or `unrecorded`), `missing` (selected details the source lacks: never invented), `requires`, `posts`, `positions` and `notices`. |
 | `context` | The approved sources, entries and relationships a published item needs to be understood, sorted by kind then id, each with the ids it is `via`. |
 | `posts` | For each published post that offers anything, sorted by slug: `post`, its `url`, its `items` in that post's own order (`id` and the canonical `url` of the item's anchor on the post's page) and the `context` it needs. |
@@ -41,8 +41,8 @@ public pages. Relationships keep their stored direction and assertion; nothing s
 
 ## The page section
 
-A `<section id="research-context" aria-labelledby="research-context-title">` after the post's text. It
-holds an `<h2>`, a note that nothing in it is a verdict, an ordered list with one `<li id="curated-ID">`
+A `<section id="ob-research-context" aria-labelledby="ob-research-context-title">` after the post's text. It
+holds an `<h2>`, a note that nothing in it is a verdict, an ordered list with one `<li id="ob-curated-ID">`
 per item (an `<h3>`, then a definition list of the selected fields), and a "What these refer to" list of
 the sources and entries the items cite, which the items link to. Every string is escaped; the only links
 are to this site's pages and to a source's own `https` address. The order in the document is the reading

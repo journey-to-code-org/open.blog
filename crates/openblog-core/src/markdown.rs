@@ -1670,6 +1670,21 @@ pub fn render(markdown: &str, options: RenderOptions<'_>) -> Rendered {
 /// (the same text as `attributed_perspective::ANCHOR_PREFIX`).
 const RESERVED_ANCHOR_PREFIX: &str = crate::attributed_perspective::ANCHOR_PREFIX;
 
+/// Every start of an anchor the build itself writes on a post's page, which no
+/// heading id may have: attributed sections (ADR 0126) and the research-context
+/// section and its items (ADR 0250). Local to this function by design.
+const RESERVED_ANCHOR_PREFIXES: [&str; 3] = [
+    RESERVED_ANCHOR_PREFIX,
+    crate::curated_context::ANCHOR_PREFIX,
+    crate::curated_context::SECTION_ID,
+];
+
+fn reserved_anchor(id: &str) -> bool {
+    RESERVED_ANCHOR_PREFIXES
+        .iter()
+        .any(|prefix| id.starts_with(prefix))
+}
+
 /// Give every heading its id: the `{#id}` the author wrote, or a slug of its
 /// text made unique among the post's slugs. Written ids are not consulted, so
 /// existing native anchors keep their targets; the portable projection makes
@@ -1737,7 +1752,7 @@ fn assign_heading_ids(
                 }
                 // `ob-by-` belongs to attributed sections (ADR 0126). A
                 // heading whose text begins "OB by" must not take it.
-                if id.starts_with(RESERVED_ANCHOR_PREFIX) {
+                if reserved_anchor(&id) {
                     id = format!("heading-{id}");
                 }
                 let Event::Start(Tag::Heading { id: existing, .. }) = &mut events[start] else {
@@ -1757,8 +1772,7 @@ fn assign_heading_ids(
                 // the heading's own slug: only a section's real author may
                 // own an `ob-by-` anchor.
                 let reserved = existing.as_deref().is_some_and(|written| {
-                    written.starts_with(RESERVED_ANCHOR_PREFIX)
-                        || written == crate::concept_links::HEADING_HINT_ID
+                    reserved_anchor(written) || written == crate::concept_links::HEADING_HINT_ID
                 });
                 if generated || reserved {
                     *existing = Some(CowStr::from(id));

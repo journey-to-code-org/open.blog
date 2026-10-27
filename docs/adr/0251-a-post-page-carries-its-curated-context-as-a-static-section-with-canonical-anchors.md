@@ -16,7 +16,7 @@ with who holds each view and how firmly.
 ## Decision
 
 - **A section rendered from the same value.** After the post's text, a post offered at least one item
-  gets `<section id="research-context">`: an `<h2>`, a note that nothing in it is a verdict, an ordered
+  gets `<section id="ob-research-context">`: an `<h2>`, a note that nothing in it is a verdict, an ordered
   list with one item per selection (an `<h3>` and a definition list of the selected fields), and a
   "What these refer to" list of the cited sources and entries. It is rendered from the public curated
   value alone, so the page, the data file and the Admin preview of what readers get cannot disagree.
@@ -25,12 +25,18 @@ with who holds each view and how firmly.
   reading order, a screen reader gets the headings in sequence, print keeps every item whole, and
   nothing is hidden behind a control. Attribution, confidence, doubt, dissent, evidence, the origin of
   imported metadata and the details a source lacks are text, never colour or position alone.
-- **Canonical anchors.** Each item is `id="curated-" + selection id`, and a selection id is a lowercase
+- **Canonical anchors.** Each item is `id="ob-curated-" + selection id`, and a selection id is a lowercase
   slug, so the fragment is valid and stable. The data file gives each post's items their full address
-  (`/post/#curated-id`), the section's id and the prefix, so #25 and #27 link to a real anchor. The
-  entries and sources the items cite are anchored with an underscore (`curated_ref_source_id`), which a
+  (`/post/#ob-curated-id`), the section's id and the prefix, so #25 and #27 link to a real anchor. The
+  entries and sources the items cite are anchored with an underscore (`ob-curated-ref_source_id`), which a
   selection id never holds, so no anchor can collide with a selection's; a reference to something
   selected on its own links to that item instead.
+- **A reserved family.** Every anchor the section writes starts with `ob-` (`ob-research-context`,
+  `ob-research-context-title`, `ob-curated-<id>`, `ob-curated-ref_...`, `ob-curated-ref_list`), and
+  `assign_heading_ids` reserves `ob-curated-` and `ob-research-context` the way it reserves `ob-by-`: a
+  generated heading id that would start with one becomes `heading-...`, and an id the author wrote in that
+  space is replaced by the heading's own slug. A `## Research context` heading therefore keeps the slug
+  `research-context` and can never take the section's anchor.
 - **Authored text is text.** Every string is escaped; the author's comment is shown as written, in an
   attributed item, never as markup. A value is a link only when it is a root-relative page of this site
   or an `https` address, so `javascript:`, protocol-relative and `data:` addresses are plain text.

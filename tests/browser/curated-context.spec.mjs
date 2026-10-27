@@ -142,7 +142,7 @@ test.afterAll(async () => {
   if (root) rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });
 
-const section = (page) => page.locator("section#research-context");
+const section = (page) => page.locator("section#ob-research-context");
 const fileJson = async () => (await fetch(`${origin}/curated-context.json`)).json();
 
 /** Elements of `region` whose box ends right of it, or a page that scrolls sideways. */
@@ -201,9 +201,9 @@ test("every item has a canonical anchor that lands on it, and the data file name
     await page.goto(`${origin}${item.url}`);
     const target = await page.evaluate(() => document.querySelector(":target")?.id || "");
     expect(target).toBe(`curated-${item.id}`);
-    const box = await page.locator(`#curated-${item.id}`).boundingBox();
+    const box = await page.locator(`#ob-curated-${item.id}`).boundingBox();
     expect(box).not.toBeNull();
-    await expect(page.locator(`#curated-${item.id}`)).toBeInViewport();
+    await expect(page.locator(`#ob-curated-${item.id}`)).toBeInViewport();
   }
   // The page of a post that has only the whole-site item says so, and a fragment from one post is not on another's.
   await page.goto(`${origin}/other/`);
@@ -218,7 +218,7 @@ test("the data file is versioned, deterministic, holds only the selected revisio
   const text = await response.text();
   expect(text).toBe(await (await fetch(`${origin}/curated-context.json`)).text());
   const file = JSON.parse(text);
-  expect(file.format).toBe("openblog-curated-context");
+  expect(file.format).toBe("openblog-curated-context-file");
   expect(file.formatVersion).toBe(1);
   expect(file.items.length).toBe(5);
   // Each item carries the revision that was selected, which is the stored one.

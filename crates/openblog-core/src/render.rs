@@ -1137,44 +1137,14 @@ impl<'a> Renderer<'a> {
         // The data file is not written (a bound, or an inconsistency): the
         // page still carries what its post is offered, without a link to it.
         let curation = self.site.curation.as_ref()?;
-        let view = curation.view_for(Some(&post.slug));
-        if view.items.is_empty() {
-            return None;
-        }
-        let one = crate::curated_context::CuratedContext {
-            format: crate::curated_selection::CURATED_FORMAT,
-            format_version: crate::curated_selection::CURATED_FORMAT_VERSION,
-            section: crate::curated_context::SECTION_ID,
-            anchor_prefix: crate::curated_context::ANCHOR_PREFIX,
-            items: curation.items.clone(),
-            context: curation.context.clone(),
-            posts: vec![crate::curated_context::PostContext {
-                post: post.slug.clone(),
-                url: post.url.clone(),
-                items: view
-                    .items
-                    .iter()
-                    .map(|item| crate::curated_context::ItemRef {
-                        id: item.id.clone(),
-                        url: format!(
-                            "{}#{}{}",
-                            post.url,
-                            crate::curated_context::ANCHOR_PREFIX,
-                            item.id
-                        ),
-                    })
-                    .collect(),
-                context: view
-                    .context
-                    .iter()
-                    .map(|item| crate::curated_context::ContextRef {
-                        kind: item.kind,
-                        id: item.id.clone(),
-                    })
-                    .collect(),
-            }],
-        };
-        one.post_section_html(&post.slug, None)
+        crate::curated_context::CuratedContext::for_one_post(
+            curation,
+            crate::curated_context::PostRef {
+                slug: &post.slug,
+                url: &post.url,
+            },
+        )?
+        .post_section_html(&post.slug, None)
     }
 
     /// The query file as the build writes it, when it is written.

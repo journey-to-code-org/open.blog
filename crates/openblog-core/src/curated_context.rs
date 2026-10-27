@@ -33,23 +33,32 @@ use serde_json::Value;
 use crate::atlas_publication::escaped_json;
 pub use crate::atlas_query::RefusalKind;
 use crate::curated_selection::{
-    ContextItem, ContextKind, CuratedItem, PublicCuration, SelectionKind, CURATED_FORMAT,
-    CURATED_FORMAT_VERSION,
+    ContextItem, ContextKind, CuratedItem, PublicCuration, SelectionKind, CURATED_FORMAT_VERSION,
 };
 use crate::escape::{attr, text};
 
+/// The `format` of the artifact. It is not the public curated value's own
+/// format ([`crate::curated_selection::CURATED_FORMAT`]): the file is a projection of that value (the
+/// selected items plus the posts' anchors), not the value itself, so a reader
+/// told one is never handed the other (ADR 0250).
+pub const FILE_FORMAT: &str = "openblog-curated-context-file";
 /// The artifact, relative to the site root.
 pub const CURATED_CONTEXT_JSON_FILE: &str = "curated-context.json";
 /// The prefix of the anchor each curated item has on a post's page, followed
 /// by the selection id. A selection id is a lowercase slug, so the anchor is
-/// a valid, stable fragment.
-pub const ANCHOR_PREFIX: &str = "curated-";
+/// a valid, stable fragment. It is in the reserved `ob-` family: no heading id
+/// of the post can have it (ADR 0250).
+pub const ANCHOR_PREFIX: &str = "ob-curated-";
 /// The id of the section on a post's page that holds the curated context.
-pub const SECTION_ID: &str = "research-context";
+pub const SECTION_ID: &str = "ob-research-context";
 /// Largest serialized artifact, in bytes, after the base path.
 pub const MAX_BYTES: usize = 1024 * 1024;
 /// Most posts the artifact lists.
 pub const MAX_LISTED_POSTS: usize = 2_000;
+/// Most items one post's page section shows. A post offered more has the rest
+/// in the data file, and its page says so (ADR 0251): the page stays bounded
+/// however large the selections file is.
+pub const MAX_PAGE_ITEMS: usize = 1_000;
 /// Deepest nesting of a field value shown on a page.
 const MAX_DEPTH: usize = 4;
 
@@ -119,6 +128,38 @@ pub struct CuratedContext {
     pub context: Vec<ContextItem>,
     /// Sorted by post slug; only posts that offer at least one item.
     pub posts: Vec<PostContext>,
+    /// Lookups by id and by (kind, id or target), so rendering a post never
+    /// scans the whole file for each reference.
+    #[serde(skip)]
+    index: Index,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Index {
+    items: BTreeMap<String, usize>,
+    context: BTreeMap<(ContextKind, String), usize>,
+    /// The first selected item of each (kind, target).
+    targets: BTreeMap<(SelectionKind, String), usize>,
+}
+
+impl Index {
+    fn of(items: &[CuratedItem], context: &[ContextItem]) -> Self {
+        let mut index = Self::default();
+        for (at, item) in items.iter().enumerate() {
+            index.items.entry(item.id.clone()).or_insert(at);
+            index
+                .targets
+                .entry((item.kind, item.target.clone()))
+                .or_insert(at);
+        }
+        for (at, item) in context.iter().enumerate() {
+            index
+                .context
+                .entry((item.kind, item.id.clone()))
+                .or_insert(at);
+        }
+        index
+    }
 }
 
 fn refuse(kind: RefusalKind, message: String) -> ContextRefusal {
@@ -223,10 +264,11 @@ impl CuratedContext {
             ));
         }
         let file = Self {
-            format: CURATED_FORMAT,
+            format: FILE_FORMAT,
             format_version: CURATED_FORMAT_VERSION,
             section: SECTION_ID,
             anchor_prefix: ANCHOR_PREFIX,
+            index: Index::of(&curation.items, &curation.context),
             items: curation.items.clone(),
             context: curation.context.clone(),
             posts: listed,
@@ -251,7 +293,7 @@ impl CuratedContext {
     }
 
     pub fn item(&self, id: &str) -> Option<&CuratedItem> {
-        self.items.iter().find(|item| item.id == id)
+        self.index.items.get(id).map(|at| &self.items[*at])
     }
 
     /// What one post offers, when it offers anything.
@@ -263,9 +305,57 @@ impl CuratedContext {
     }
 
     fn context_item(&self, kind: ContextKind, id: &str) -> Option<&ContextItem> {
-        self.context
-            .iter()
-            .find(|item| item.kind == kind && item.id == id)
+        self.index
+            .context
+            .get(&(kind, id.to_string()))
+            .map(|at| &self.context[*at])
+    }
+
+    /// The first selected item of a kind about a target.
+    fn selected(&self, kind: SelectionKind, target: &str) -> Option<&CuratedItem> {
+        self.index
+            .targets
+            .get(&(kind, target.to_string()))
+            .map(|at| &self.items[*at])
+    }
+
+    /// The projection for one post alone, when the whole file is not written
+    /// (a bound, or an inconsistency): the page still carries what its post
+    /// is offered, from the same public value.
+    pub fn for_one_post(curation: &PublicCuration, post: PostRef<'_>) -> Option<Self> {
+        let view = curation.view_for(Some(post.slug));
+        if view.items.is_empty() {
+            return None;
+        }
+        Some(Self {
+            format: FILE_FORMAT,
+            format_version: CURATED_FORMAT_VERSION,
+            section: SECTION_ID,
+            anchor_prefix: ANCHOR_PREFIX,
+            index: Index::of(&curation.items, &curation.context),
+            items: curation.items.clone(),
+            context: curation.context.clone(),
+            posts: vec![PostContext {
+                post: post.slug.to_string(),
+                url: post.url.to_string(),
+                items: view
+                    .items
+                    .iter()
+                    .map(|item| ItemRef {
+                        id: item.id.clone(),
+                        url: format!("{}#{ANCHOR_PREFIX}{}", post.url, item.id),
+                    })
+                    .collect(),
+                context: view
+                    .context
+                    .iter()
+                    .map(|context| ContextRef {
+                        kind: context.kind,
+                        id: context.id.clone(),
+                    })
+                    .collect(),
+            }],
+        })
     }
 }
 
@@ -349,8 +439,10 @@ fn str_of<'a>(item: &'a CuratedItem, field: &str) -> Option<&'a str> {
 /// A root-relative address of a page of this site, or an absolute `https`
 /// address: nothing else is ever made a link.
 fn safe_href(url: &str) -> bool {
-    (url.starts_with('/') && !url.starts_with("//") && !url.contains(char::is_whitespace))
-        || (url.starts_with("https://") && !url.contains(char::is_whitespace))
+    // No whitespace, control character or backslash: a browser reads `/\evil`
+    // as `//evil`, and a control character can be stripped to something else.
+    let plain = !url.contains(|c: char| c.is_whitespace() || c.is_control() || c == '\\');
+    plain && ((url.starts_with('/') && !url.starts_with("//")) || url.starts_with("https://"))
 }
 
 /// What a reference on the page points at: its public name, and the anchor on
@@ -362,9 +454,9 @@ struct Named {
 
 struct Page<'a> {
     context: &'a CuratedContext,
-    /// The post whose section this is: a reference links only to something
-    /// this post's section carries.
-    post: &'a PostContext,
+    /// The ids of the items this post offers, and the context it lists.
+    offered: BTreeSet<&'a str>,
+    listed: BTreeSet<(ContextKind, &'a str)>,
 }
 
 impl Page<'_> {
@@ -373,11 +465,7 @@ impl Page<'_> {
     /// and so is not repeated as context, the selected item itself.
     fn named(&self, kind: ContextKind, id: &str) -> Option<Named> {
         if let Some(item) = self.context.context_item(kind, id) {
-            let listed = self
-                .post
-                .context
-                .iter()
-                .any(|reference| reference.kind == kind && reference.id == id);
+            let listed = self.listed.contains(&(kind, id));
             return Some(Named {
                 label: item.label.clone().unwrap_or_else(|| id.to_string()),
                 anchor: listed.then(|| anchor(context_noun(kind), id)),
@@ -388,17 +476,9 @@ impl Page<'_> {
             ContextKind::Entry => (SelectionKind::ContextualEntry, "label"),
             ContextKind::Relationship => return None,
         };
-        let item = self
-            .context
-            .items
-            .iter()
-            .find(|item| item.kind == selection && item.target == id)?;
+        let item = self.context.selected(selection, id)?;
         let label = str_of(item, field)?.to_string();
-        let offered = self
-            .post
-            .items
-            .iter()
-            .any(|reference| reference.id == item.id);
+        let offered = self.offered.contains(item.id.as_str());
         Some(Named {
             label,
             anchor: offered.then(|| format!("{ANCHOR_PREFIX}{}", item.id)),
@@ -657,6 +737,12 @@ impl Page<'_> {
         rest.sort_unstable();
         names.extend(rest);
         let dated = item.kind == SelectionKind::Timeline;
+        // An address that cannot be a link (an `http` one, say) is still the
+        // source's public address: it is shown as plain text, never dropped.
+        let unlinked = str_of(item, "url")
+            .filter(|url| !url.is_empty() && !safe_href(url))
+            .map(|url| format!("<dt>Address (not a link)</dt>\n<dd>{}</dd>\n", text(url)))
+            .unwrap_or_default();
         let rows: String = names
             .into_iter()
             .filter(|name| !HIDDEN_FIELDS.contains(name))
@@ -684,6 +770,7 @@ impl Page<'_> {
                 (!value.is_empty())
                     .then(|| format!("<dt>{}</dt>\n<dd>{value}</dd>\n", text(&label)))
             })
+            .chain(std::iter::once(unlinked))
             .collect();
         if !rows.is_empty() {
             html.push_str(&format!("<dl class=\"ob-curated-fields\">\n{rows}</dl>\n"));
@@ -716,7 +803,7 @@ impl Page<'_> {
                             .and_then(Value::as_str)
                             .unwrap_or("notice")
                     ),
-                    text(&notice.message)
+                    text(&notice_text(notice))
                 ));
             }
             html.push_str("</ul>\n");
@@ -726,8 +813,8 @@ impl Page<'_> {
     }
 
     fn context_html(&self, listed: &[&ContextItem]) -> String {
-        let mut html = String::from(
-            "<h3 class=\"ob-curated-heading\" id=\"curated_refs\">What these refer to</h3>\n<ul class=\"ob-curated-context\">\n",
+        let mut html = format!(
+            "<h3 class=\"ob-curated-heading\" id=\"{REFS_HEADING_ID}\">What these refer to</h3>\n<ul class=\"ob-curated-context\" role=\"list\">\n",
         );
         for item in listed {
             let name = item.label.as_deref().unwrap_or(&item.id);
@@ -737,6 +824,17 @@ impl Page<'_> {
                 (None, ContextKind::Source) => format!("<cite>{}</cite>", text(name)),
                 (None, _) => text(name),
             };
+            let unlinked = item
+                .url
+                .as_deref()
+                .filter(|url| !url.is_empty() && !safe_href(url))
+                .map(|url| {
+                    format!(
+                        " <span class=\"ob-curated-address\">(address, not a link: {})</span>",
+                        text(url)
+                    )
+                })
+                .unwrap_or_default();
             let detail = match (&item.source, item.kind) {
                 (Some(source), ContextKind::Source) if source.text != name => {
                     format!(" — {}", text(&source.text))
@@ -744,11 +842,12 @@ impl Page<'_> {
                 _ => String::new(),
             };
             html.push_str(&format!(
-                "<li id=\"{}\" data-curated-context-kind=\"{}\">{}{} <span class=\"ob-curated-via\">({})</span></li>\n",
+                "<li id=\"{}\" data-curated-context-kind=\"{}\">{}{}{} <span class=\"ob-curated-via\">({})</span></li>\n",
                 attr(&id),
                 attr(context_noun(item.kind)),
                 named,
                 detail,
+                unlinked,
                 text(context_noun(item.kind))
             ));
         }
@@ -758,7 +857,7 @@ impl Page<'_> {
 
     /// The whole section, or `None` when the post offers nothing.
     fn section(&self, post: &PostContext, data_url: Option<&str>) -> Option<String> {
-        let items: Vec<&CuratedItem> = post
+        let mut items: Vec<&CuratedItem> = post
             .items
             .iter()
             .filter_map(|reference| self.context.item(&reference.id))
@@ -766,6 +865,8 @@ impl Page<'_> {
         if items.is_empty() {
             return None;
         }
+        let held_back = items.len().saturating_sub(MAX_PAGE_ITEMS);
+        items.truncate(MAX_PAGE_ITEMS);
         let listed: Vec<&ContextItem> = post
             .context
             .iter()
@@ -787,11 +888,17 @@ impl Page<'_> {
                 attr(url)
             ));
         }
-        html.push_str("</p>\n<ol class=\"ob-curated-items\">\n");
+        html.push_str("</p>\n<ol class=\"ob-curated-items\" role=\"list\">\n");
         for item in items {
             html.push_str(&self.item_html(item));
         }
         html.push_str("</ol>\n");
+        if held_back > 0 {
+            html.push_str(&format!(
+                "<p class=\"ob-curated-more\">This page shows the first {MAX_PAGE_ITEMS} items. {held_back} more {} in the data file for this post.</p>\n",
+                if held_back == 1 { "is" } else { "are" }
+            ));
+        }
         if !listed.is_empty() {
             html.push_str(&self.context_html(&listed));
         }
@@ -800,11 +907,47 @@ impl Page<'_> {
     }
 }
 
+/// The id of the "what these refer to" heading.
+const REFS_HEADING_ID: &str = "ob-curated-ref_list";
+
+/// What a notice says to a reader, from its `code` and `field` alone: the
+/// author's own message names selection ids and fields in the words of the
+/// Admin, which a reader of the page should not see.
+fn notice_text(notice: &crate::curated_selection::ItemNotice) -> String {
+    use crate::curated_selection::NoticeCode;
+    let field = notice
+        .field
+        .as_deref()
+        .map(|field| label_of(field.split(['.', '[']).next().unwrap_or(field)).to_lowercase());
+    match (notice.code, field) {
+        (NoticeCode::CompetingUnselected, _) => {
+            "Other datings of the same aspect exist on this site and were not chosen here."
+                .to_string()
+        }
+        (NoticeCode::MissingDetail, Some(field)) => {
+            format!("The source does not record the {field}; it is left out, not invented.")
+        }
+        (NoticeCode::MissingDetail, None) => {
+            "A detail the source does not record is left out, not invented.".to_string()
+        }
+        (NoticeCode::ProvenanceUnrecorded, _) => {
+            "Where this metadata came from is not recorded.".to_string()
+        }
+        (NoticeCode::RightsRestricted, _) => {
+            "Some wording is identified and located but not shown, because of its rights statement or length."
+                .to_string()
+        }
+        (NoticeCode::UnsafeUrl, _) | (NoticeCode::PrivateIdentifier, _) => {
+            "An address or identifier is not published.".to_string()
+        }
+    }
+}
+
 /// The anchor of one thing in the "what these refer to" list. It uses an
 /// underscore, which a selection id (a lowercase slug) never holds, so it can
 /// never be the anchor of a selection.
 fn anchor(kind: &str, id: &str) -> String {
-    format!("curated_ref_{kind}_{id}")
+    format!("{ANCHOR_PREFIX}ref_{kind}_{id}")
 }
 
 impl CuratedContext {
@@ -818,7 +961,12 @@ impl CuratedContext {
         let post = self.for_post(slug)?;
         Page {
             context: self,
-            post,
+            offered: post.items.iter().map(|item| item.id.as_str()).collect(),
+            listed: post
+                .context
+                .iter()
+                .map(|context| (context.kind, context.id.as_str()))
+                .collect(),
         }
         .section(post, data_url)
     }
