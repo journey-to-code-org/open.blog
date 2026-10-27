@@ -2234,5 +2234,6 @@ _Avoid_: AI answer, generated explanation, automatic summary
 **Approval**:
 A person's recorded statement (`by`, `at`, `digest`) that they read exactly this text and accept it.
 The digest binds it to the text, so editing the text makes the approval stale until it is given again
-(ADR 0303).
+(ADR 0303). In Admin only the Approve action records one: a save can keep an approval but never add or
+change it, and editing the text withdraws it (ADR 0305).
 _Avoid_: Sign-off flag, reviewed, verified

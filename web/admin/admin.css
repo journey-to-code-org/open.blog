@@ -4383,3 +4383,50 @@ a.oba-btn-primary {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Interpretation comparisons (ADR 0305, #89) reuse the reading-path regions above. Evidence and
+   provenance sit in fieldsets that wrap, and every state is words, never colour alone. */
+.oba-cmp-evidence {
+  margin: 0 0 0.75rem;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-cmp-evidence-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+  padding: 0.35rem 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.oba-cmp-evidence-name,
+.oba-cmp-evidence-state,
+.oba-cmp-item-heading {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.oba-cmp-item-heading {
+  flex: 1 1 14rem;
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.oba-cmp-evidence-set,
+.oba-cmp-provenance {
+  min-width: 0;
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+}
+
+.oba-cmp-form textarea,
+.oba-cmp-form select,
+.oba-cmp-form input[type="text"] {
+  max-width: 100%;
+  box-sizing: border-box;
+}

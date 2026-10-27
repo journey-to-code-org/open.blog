@@ -9686,6 +9686,227 @@ export function readingPathListText(item) {
   return `${status} · ${steps}${shown}`;
 }
 
+// Interpretation comparisons (ADR 0305, #89). A comparison is the public file
+// `content/comparisons/<slug>.json`; these helpers turn the file's JSON into an editor draft and
+// back without losing a field the editor does not show, and word what the server reports. The
+// server owns every rule, the canonical form and every approval; nothing here decides whether a
+// comparison is valid or an AI draft is approved, it only avoids sending what it already knows
+// will be refused.
+
+const CMP_ID = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+/** An editor draft from the file's JSON (as the server sends it). Unknown fields travel inside the copies. */
+export function comparisonDraft(comparison = null, slug = "") {
+  const source = comparison && typeof comparison === "object" ? structuredClone(comparison) : {};
+  delete source.format;
+  delete source.version;
+  const list = (value) => (Array.isArray(value) ? value : []);
+  return {
+    ...source,
+    slug,
+    title: typeof source.title === "string" ? source.title : "",
+    subject: typeof source.subject === "string" ? source.subject : "",
+    status: source.status === "published" ? "published" : "draft",
+    interpretations: list(source.interpretations).map((item) => ({ ...item, evidence: list(item.evidence) })),
+    relations: list(source.relations),
+    explanations: list(source.explanations).map((item) => ({ ...item, evidence: list(item.evidence) })),
+  };
+}
+
+const blank = (value) => value === undefined || value === null || (typeof value === "string" && value.trim() === "");
+
+function itemPayload(item, optional) {
+  const out = { ...item };
+  for (const key of optional) if (blank(out[key])) delete out[key];
+  if (Array.isArray(out.evidence)) {
+    if (out.evidence.length) {
+      out.evidence = out.evidence.map((ref) => {
+        const copy = { ...ref };
+        if (blank(copy.locator)) delete copy.locator;
+        return copy;
+      });
+    } else delete out.evidence;
+  }
+  if (out.origin?.kind !== "ai-draft" && Object.keys(out.origin || {}).length <= 1) delete out.origin;
+  else if (blank(out.origin.draftedAt)) {
+    out.origin = { ...out.origin };
+    delete out.origin.draftedAt;
+  }
+  if (!out.approval) delete out.approval;
+  return out;
+}
+
+/** The JSON a save sends: the draft without its slug, empty optional fields left out. */
+export function comparisonPayload(draft) {
+  const { slug: _slug, interpretations, relations, explanations, ...rest } = draft;
+  const out = { ...rest };
+  out.interpretations = interpretations.map((item) => {
+    const copy = itemPayload(item, ["uncertainty", "language", "translationOf"]);
+    if (copy.attribution && blank(copy.attribution.certainty)) {
+      copy.attribution = { ...copy.attribution };
+      delete copy.attribution.certainty;
+    }
+    return copy;
+  });
+  if (relations.length) {
+    out.relations = relations.map((relation) => {
+      const copy = { ...relation };
+      if (blank(copy.note)) delete copy.note;
+      return copy;
+    });
+  }
+  if (explanations.length) out.explanations = explanations.map((item) => itemPayload(item, ["about"]));
+  return out;
+}
+
+/** Whether two drafts would save the same file. */
+export function comparisonSame(a, b) {
+  return JSON.stringify(comparisonPayload(a)) === JSON.stringify(comparisonPayload(b));
+}
+
+/** A unique item id (lowercase slug, at most 64 characters) built from `base`. */
+export function comparisonNewId(items, base) {
+  const stem =
+    String(base)
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 56)
+      .replace(/-+$/g, "") || "item";
+  const used = new Set(items.map((item) => item.id));
+  if (!used.has(stem)) return stem;
+  for (let n = 2; ; n += 1) if (!used.has(`${stem}-${n}`)) return `${stem}-${n}`;
+}
+
+/** A new interpretation. Attribution is chosen by the author; there is no default name. */
+export function comparisonNewInterpretation(items) {
+  return { id: comparisonNewId(items, "reading"), attribution: { kind: "named", name: "" }, statement: "", evidence: [] };
+}
+
+/** A new explanation at a level, about the whole comparison unless `about` names an interpretation. */
+export function comparisonNewExplanation(items, level = "beginner", about = "") {
+  const item = { id: comparisonNewId(items, `${level}${about ? `-${about}` : ""}`), level, text: "", evidence: [] };
+  if (about) item.about = about;
+  return item;
+}
+
+/** The attribution with a different kind, keeping only the certainty the author recorded. */
+export function comparisonAttributionAs(attribution, kind) {
+  const next = { kind, ...(kind === "named" ? { name: "" } : kind === "source" ? { source: "" } : { description: "" }) };
+  if (attribution?.certainty) next.certainty = attribution.certainty;
+  return next;
+}
+
+/** Mark an item as an AI draft (with the author's label for the tool) or as the author's own words; its approval goes with the change. */
+export function comparisonSetOrigin(item, ai, tool = "") {
+  if (ai) item.origin = { kind: "ai-draft", tool: item.origin?.tool || tool };
+  else delete item.origin;
+  delete item.approval;
+  return item;
+}
+
+/** A name for an attribution, for headings and the relation pickers. */
+export function comparisonAttributionLabel(attribution, sources = []) {
+  if (!attribution) return "";
+  if (attribution.kind === "source") {
+    const found = sources.find((source) => source.id === attribution.source);
+    return found ? found.title : attribution.source || "";
+  }
+  return (attribution.kind === "anonymous" ? attribution.description : attribution.name) || "";
+}
+
+/** How an item stands, in words (never colour alone). */
+export function comparisonStandingText(state) {
+  if (!state) return "Not checked";
+  switch (state.standing) {
+    case "authored":
+      return "Your own words: no approval needed";
+    case "approved":
+      return "AI draft, approved by a person: readers see it labelled as an AI draft";
+    case "awaiting-approval":
+      return "AI draft, not approved: readers do not see it";
+    case "stale":
+      return "AI draft edited after it was approved: readers do not see it until you approve it again";
+    default:
+      return "Not checked";
+  }
+}
+
+/** One evidence reference, in words. Missing evidence is shown, never blocking. */
+export function comparisonEvidenceText(state) {
+  switch (state?.state) {
+    case "public":
+      return "Public: readers can see this evidence";
+    case "private":
+      return "Private: it exists in your research but readers will not see it";
+    case "missing":
+      return "Not found in your research library";
+    default:
+      return "Not checked";
+  }
+}
+
+/** Problems found without the server, so a save is not sent when it is certain to be refused. */
+export function comparisonProblems(draft) {
+  const problems = [];
+  const add = (item, message) => problems.push({ item, message });
+  if (!String(draft.title || "").trim()) add(null, "Give the comparison a title.");
+  if (!String(draft.subject || "").trim()) add(null, "Say what the interpretations are about.");
+  if (!CMP_ID.test(draft.slug || "") || draft.slug.length > 64) add(null, "The address name is lowercase letters, digits and single hyphens, at most 64 characters.");
+  const seen = new Set();
+  const check = (item) => {
+    if (seen.has(item.id)) add(item.id, "Another item already has this id.");
+    seen.add(item.id);
+  };
+  for (const item of draft.interpretations) {
+    check(item);
+    const a = item.attribution || {};
+    const who = a.kind === "source" ? a.source : a.kind === "anonymous" ? a.description : a.name;
+    if (!String(who || "").trim()) add(item.id, "Say who held this reading, or choose Unknown author and describe them.");
+    if (!String(item.statement || "").trim()) add(item.id, "Write what this reading holds.");
+    if (item.origin?.kind === "ai-draft" && !String(item.origin.tool || "").trim()) add(item.id, "Name the AI tool that drafted this text.");
+  }
+  for (const item of draft.explanations) {
+    check(item);
+    if (!String(item.text || "").trim()) add(item.id, "Write the explanation.");
+    if (item.origin?.kind === "ai-draft" && !String(item.origin.tool || "").trim()) add(item.id, "Name the AI tool that drafted this text.");
+  }
+  return problems;
+}
+
+/** The message for a failed call: what the server said, scoped to the item when it says which. */
+export function comparisonErrorText(error) {
+  const data = error?.data || {};
+  if (data.conflict) return "This comparison changed somewhere else since you opened it. Nothing was saved.";
+  if (data.exists) return "A comparison with that address name already exists. Choose another.";
+  if (data.stale) return "The text changed since you read it. Nothing was approved. Read it again and approve what you see.";
+  return data.error || error?.message || "The request failed. Nothing was changed.";
+}
+
+/** The list's words for one comparison. */
+export function comparisonListText(item) {
+  if (!item.valid) return `Cannot be read: ${item.firstProblem || "see the problems"}`;
+  const status = item.status === "published" ? "Published" : "Draft";
+  const counts = `${item.interpretations} ${item.interpretations === 1 ? "interpretation" : "interpretations"}, ${item.explanations} ${item.explanations === 1 ? "explanation" : "explanations"}`;
+  const waiting = item.awaitingApproval ? `; ${item.awaitingApproval} ${item.awaitingApproval === 1 ? "AI draft is" : "AI drafts are"} waiting for your approval` : "";
+  const hidden = item.status === "published" && item.shown === false ? "; not shown to readers yet (two approved interpretations are needed)" : "";
+  return `${status} · ${counts}${waiting}${hidden}`;
+}
+
+/** The words for something the public projection left out, for the author only. */
+export function comparisonLeftOutText(entry) {
+  const reasons = {
+    "awaiting-approval": "AI draft not approved",
+    "stale-approval": "AI draft edited after it was approved",
+    "subject-withheld": "explains an interpretation readers do not see",
+    "evidence-not-public": "some evidence is not public and was dropped",
+    draft: "the comparison is a draft",
+    "too-few-interpretations": "fewer than two interpretations can be shown",
+  };
+  return `${entry.id}: ${reasons[entry.reason] || entry.reason}`;
+}
+
 const KINDS = {
   posts: { label: "Posts", single: "post", titleKey: "title" },
   pages: { label: "Pages", single: "page", titleKey: "title" },
@@ -10178,6 +10399,7 @@ export class ObAdmin extends AdminElement {
       ),
       h("a", { class: "oba-tab", "aria-current": active === "shared" ? "page" : null, href: "#/shared" }, "Shared reflections"),
       h("a", { class: "oba-tab", "aria-current": active === "paths" ? "page" : null, href: "#/paths" }, "Reading paths"),
+      h("a", { class: "oba-tab", "aria-current": active === "comparisons" ? "page" : null, href: "#/comparisons" }, "Comparisons"),
     ];
     const activeInfo = active === "analytics"
       ? { title: "Analytics", detail: "Understand readership without tracking individual readers." }
@@ -10189,6 +10411,8 @@ export class ObAdmin extends AdminElement {
         ? { title: "Contributors", detail: "Manage reusable public identities for bylines and contribution credits." }
       : active === "paths"
         ? { title: "Reading paths", detail: "Curate ordered routes through published posts and Knowledge Atlas entries, with your own reason for each step." }
+      : active === "comparisons"
+        ? { title: "Interpretation comparisons", detail: "Set attributed readings side by side and approve audience-level explanations, with your own approval for any AI-drafted text." }
       : active === "shared"
         ? { title: "Shared reflections", detail: "Start a private draft with other writers from a video, article, podcast, book, or other source." }
       : active === "overview"
@@ -10665,6 +10889,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "moderation" || head === "feedback") await this.showModeration(tail, params);
       else if (head === "contributors") await this.showContributors();
       else if (head === "paths") await this.showReadingPaths(tail);
+      else if (head === "comparisons") await this.showComparisons(tail);
       else if (head === "research") await this.showResearchPanel(tail);
       else if (head === "shared" && tail === "new") await this.showSharedReflectionForm();
       else if (head === "shared" && tail.startsWith("accept/")) await this.showInvitationAccept(invitationTokenFromHash(location.hash));
@@ -11718,6 +11943,936 @@ export class ObAdmin extends AdminElement {
         "paths",
         h("p", {}, h("a", { href: "#/paths" }, "← All reading paths")),
         h("section", { class: "oba-contributor-intro" }, h("p", {}, "Steps are published posts and public atlas entries. Each step after the first says why it follows, in your own words."), loaded?.publish === false ? h("p", { class: "oba-small" }, "This site does not publish reading paths yet (readingPaths.publish is off); you can still write and preview them.") : null),
+        h("div", { class: "oba-toolbar" }, modeBar, h("span", { class: "oba-spacer" }), refreshButton, deleteButton, saveButton),
+        status,
+        conflictBox,
+        problemsBox,
+        h("div", { class: "oba-paths-layout" }, h("div", { class: "oba-paths-edit" }, formPanel, sourcePanel), previewBox),
+      ),
+    );
+    mountedView = this.viewVersion;
+    this.viewDirty = () => dirty;
+    this.viewBusy = () => busy;
+  }
+
+  // ---- interpretation comparisons (ADR 0305, #89)
+
+  /** `#/comparisons` lists them, `#/comparisons/new` starts one and `#/comparisons/edit/<slug>` edits one. */
+  async showComparisons(tail) {
+    const [head, ...rest] = String(tail || "").split("/");
+    if (head === "new") return this.showComparisonEditor(null);
+    if (head === "edit" && rest.length) return this.showComparisonEditor(safeDecodeURIComponent(rest.join("/")));
+    return this.showComparisonList();
+  }
+
+  async showComparisonList() {
+    let list;
+    try {
+      list = await this.api.call("GET", "comparisons");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) throw error;
+      this.mount(this.shell("comparisons", h("p", { class: "oba-error", role: "alert" }, comparisonErrorText(error))));
+      return;
+    }
+    const rows = list.items.map((item) =>
+      h(
+        "li",
+        { class: "oba-paths-item", "data-comparison": item.slug },
+        h("a", { class: "oba-paths-link", href: `#/comparisons/edit/${encodeURIComponent(item.slug)}` }, h("bdi", {}, item.title)),
+        h("span", { class: "oba-small oba-paths-meta" }, comparisonListText(item)),
+      ),
+    );
+    this.mount(
+      this.shell(
+        "comparisons",
+        h(
+          "section",
+          { class: "oba-contributor-intro" },
+          h("p", {}, "A comparison sets several attributed readings of one subject side by side, without ruling between them, and may carry beginner, student and scholarly explanations. Text an AI tool drafted stays a draft until you approve it here."),
+        ),
+        h("div", { class: "oba-toolbar" }, h("a", { class: "oba-btn oba-btn-primary", href: "#/comparisons/new" }, "New comparison")),
+        rows.length
+          ? h("ul", { class: "oba-paths-list", "aria-label": "Comparisons" }, rows)
+          : h("p", { class: "oba-notice", "data-comparisons-empty": "true" }, "No comparisons yet. Start one from two readings of the same subject."),
+      ),
+    );
+  }
+
+  async showComparisonEditor(slug) {
+    const isNew = slug === null;
+    let refs;
+    let loaded = null;
+    try {
+      refs = await this.api.call("GET", "comparisons/references");
+      if (!isNew) loaded = await this.api.call("GET", `comparisons/item?slug=${encodeURIComponent(slug)}`);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) throw error;
+      this.mount(
+        this.shell(
+          "comparisons",
+          h("p", { class: "oba-error", role: "alert" }, comparisonErrorText(error)),
+          h("p", {}, h("a", { href: "#/comparisons" }, "Back to comparisons")),
+        ),
+      );
+      return;
+    }
+    const limits = refs.limits || {};
+    const sources = refs.sources || [];
+    let draft = loaded?.valid === false ? null : comparisonDraft(loaded?.comparison || null, slug || "");
+    let revision = loaded?.revision || null;
+    let states = loaded?.states || [];
+    let projection = loaded?.projection || null;
+    let problems = loaded?.problems || [];
+    let notes = loaded?.notes || [];
+    let sourceText = loaded?.source || "";
+    let mode = draft ? "form" : "source";
+    let dirty = false;
+    let busy = false;
+    let creating = isNew;
+    let sequence = 0;
+    let timer = null;
+    let mountedView = 0;
+
+    const status = h("p", { class: "oba-small oba-paths-status", role: "status", "aria-live": "polite" });
+    const say = (text, kind = "small") => {
+      status.className = kind === "error" ? "oba-error oba-paths-status" : kind === "ok" ? "oba-ok oba-paths-status" : kind === "notice" ? "oba-notice oba-paths-status" : "oba-small oba-paths-status";
+      status.textContent = text;
+    };
+    const conflictBox = h("div", { class: "oba-paths-conflict", hidden: true });
+    const problemsBox = h("section", { class: "oba-paths-problems", "aria-labelledby": "oba-cmp-problems-heading", hidden: true });
+    const previewBox = h("section", { class: "oba-paths-preview", "aria-labelledby": "oba-cmp-preview-heading" });
+    const formPanel = h("div", { class: "oba-paths-form oba-cmp-form" });
+    const sourcePanel = h("div", { class: "oba-paths-source" });
+    const modeBar = h("div", { class: "oba-toolbar oba-paths-modes", role: "group", "aria-label": "Editing mode" });
+    const stateOf = (id) => states.find((state) => state.id === id) || null;
+    const labelOf = (item) => comparisonAttributionLabel(item.attribution, sources) || item.id;
+
+    const schedulePreview = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => refresh(), 400);
+    };
+    const markDirty = () => {
+      dirty = true;
+      if (mode === "form") schedulePreview();
+      for (const button of formPanel.querySelectorAll("[data-decide]")) button.disabled = true;
+      for (const hint of formPanel.querySelectorAll("[data-decide-hint]")) hint.hidden = false;
+    };
+
+    // ---- problems, notes and the preview
+    const renderProblems = () => {
+      problemsBox.hidden = problems.length === 0;
+      problemsBox.replaceChildren(
+        h("h2", { id: "oba-cmp-problems-heading", tabindex: "-1" }, `${problems.length} ${problems.length === 1 ? "problem" : "problems"} to fix`),
+        h(
+          "ul",
+          { class: "oba-paths-problem-list" },
+          problems.map((problem) =>
+            h(
+              "li",
+              { "data-problem-item": problem.item || "" },
+              problem.item ? h("span", {}, `${problem.item}: `) : null,
+              problem.message || problem.text,
+              problem.item && draft ? h("button", { class: "oba-link", type: "button", onClick: () => formPanel.querySelector(`[data-item-id="${CSS.escape(problem.item)}"] .oba-cmp-item-heading`)?.focus() }, "Go to item") : null,
+            ),
+          ),
+        ),
+      );
+    };
+    const publicAttribution = (a) => (a.kind === "anonymous" ? a.description : a.kind === "source" ? comparisonAttributionLabel({ kind: "source", source: a.source }, sources) : a.name);
+    const provenanceText = (p) => (p?.origin === "ai-draft" ? `AI-assisted draft (${p.tool}), approved by ${p.approvedBy}` : "Written by the author");
+    const renderPreview = () => {
+      const kids = [h("h2", { id: "oba-cmp-preview-heading" }, "What readers will see")];
+      if (notes.length) {
+        kids.push(
+          h(
+            "div",
+            { class: "oba-notice", "data-cmp-notes": "true" },
+            h("p", {}, "Evidence to check (this does not stop you saving):"),
+            h("ul", {}, notes.map((note) => h("li", {}, `${note.item ? `${note.item}: ` : ""}${note.message}`))),
+          ),
+        );
+      }
+      if (!projection) {
+        kids.push(h("p", { class: "oba-small", "data-cmp-no-preview": "true" }, "Fix the problems listed to preview this comparison."));
+      } else {
+        if (projection.asPublished) kids.push(h("p", { class: "oba-small", "data-cmp-draft-note": "true" }, "This comparison is a draft. The preview shows how it would read once published."));
+        const pub = projection.public;
+        if (!pub) {
+          kids.push(h("p", { class: "oba-notice", "data-cmp-withheld": "true" }, "As it stands this comparison would not be published: it needs at least two interpretations that are your own words or approved AI drafts."));
+        } else {
+          kids.push(
+            h(
+              "div",
+              { class: "oba-cmp-preview" },
+              h("h3", {}, h("bdi", {}, pub.title)),
+              h("p", {}, h("bdi", {}, pub.subject)),
+              h(
+                "ul",
+                { class: "oba-paths-preview-list", "aria-label": "Interpretations as readers see them" },
+                pub.interpretations.map((i) =>
+                  h(
+                    "li",
+                    { class: "oba-paths-preview-step", "data-preview-item": i.id },
+                    h("p", { class: "oba-paths-preview-title" }, h("strong", {}, h("bdi", {}, publicAttribution(i.attribution))), i.attribution.certainty ? h("span", { class: "oba-small" }, ` (${i.attribution.certainty})`) : null),
+                    h("p", {}, h("bdi", {}, i.statement)),
+                    i.uncertainty ? h("p", { class: "oba-small" }, "Uncertainty: ", h("bdi", {}, i.uncertainty)) : null,
+                    h("p", { class: "oba-small" }, provenanceText(i.provenance)),
+                    i.evidence?.length ? h("p", { class: "oba-small" }, `${i.evidence.length} public evidence ${i.evidence.length === 1 ? "reference" : "references"}`) : null,
+                  ),
+                ),
+              ),
+              pub.explanations.length
+                ? h(
+                    "div",
+                    {},
+                    h("h4", {}, "Explanations (supplemental)"),
+                    h(
+                      "ul",
+                      { class: "oba-paths-preview-list", "aria-label": "Explanations as readers see them" },
+                      pub.explanations.map((x) =>
+                        h(
+                          "li",
+                          { class: "oba-paths-preview-step", "data-preview-explanation": x.id },
+                          h("p", { class: "oba-paths-preview-title" }, h("strong", {}, x.level), x.about ? ` · about ${x.about}` : " · about the whole comparison"),
+                          h("p", {}, h("bdi", {}, x.text)),
+                          h("p", { class: "oba-small" }, provenanceText(x.provenance)),
+                        ),
+                      ),
+                    ),
+                  )
+                : null,
+            ),
+          );
+        }
+        const leftOut = projection.leftOut || [];
+        if (leftOut.length) {
+          kids.push(
+            h(
+              "div",
+              { class: "oba-paths-diagnostics", "data-cmp-left-out": "true" },
+              h("h3", {}, "For you only: what readers do not see"),
+              h("p", { class: "oba-small" }, "Readers are never told that something was left out."),
+              h("ul", {}, leftOut.map((entry) => h("li", {}, comparisonLeftOutText(entry)))),
+            ),
+          );
+        }
+      }
+      previewBox.replaceChildren(...kids);
+    };
+    const applyChecked = (result) => {
+      if (result.states) states = result.states;
+      projection = result.projection || null;
+      notes = result.notes || [];
+    };
+    const refresh = async () => {
+      if (!draft || mode !== "form") return;
+      const mine = ++sequence;
+      try {
+        const result = await this.api.call("POST", "comparisons/preview", { json: { slug: draft.slug || "draft", comparison: comparisonPayload(draft) } });
+        if (mine !== sequence || this.viewVersion !== mountedView) return;
+        applyChecked(result);
+        problems = result.valid ? [] : result.problems?.length ? result.problems : comparisonProblems(draft);
+        renderBadges();
+        renderPreview();
+        renderProblems();
+      } catch (error) {
+        if (mine !== sequence || this.viewVersion !== mountedView) return;
+        say(comparisonErrorText(error), "error");
+      }
+    };
+
+    // ---- the form
+    const field = (id, label, control, hint) =>
+      h("div", { class: "oba-field" }, h("label", { for: id }, label), control, hint ? h("small", { class: "oba-small", id: `${id}-hint` }, hint) : null);
+    const bindText = (control, owner, key) =>
+      control.addEventListener("input", () => {
+        owner[key] = control.value;
+        markDirty();
+      });
+    const focusItem = (id, selector = ".oba-cmp-item-heading") => requestAnimationFrame(() => formPanel.querySelector(`[data-item-id="${CSS.escape(id)}"] ${selector}`)?.focus());
+    const badges = new Map();
+    const renderBadges = () => {
+      for (const [id, nodes] of badges) {
+        const state = stateOf(id);
+        nodes.standing.textContent = comparisonStandingText(state);
+        nodes.standing.dataset.standing = state?.standing || "";
+        nodes.standing.className = `oba-paths-state${state && state.standing !== "authored" && state.standing !== "approved" ? " oba-paths-state-warn" : ""}`;
+        nodes.evidence?.();
+      }
+    };
+
+    /** The evidence list of one item: each reference with its state in words, a picker to add one. */
+    const evidenceEditor = (item, prefix) => {
+      const list = h("ul", { class: "oba-cmp-evidence", "aria-label": "Evidence" });
+      const render = () => {
+        const state = stateOf(item.id);
+        list.replaceChildren(
+          ...item.evidence.map((ref, index) => {
+            const name = ref.link ? `Evidence link ${ref.link}` : `Source ${sources.find((s) => s.id === ref.source)?.title || ref.source}${ref.locator ? `, ${ref.locator}` : ""}`;
+            return h(
+              "li",
+              { class: "oba-cmp-evidence-item", "data-evidence": ref.link || ref.source },
+              h("span", { class: "oba-cmp-evidence-name" }, name),
+              h("span", { class: "oba-small oba-cmp-evidence-state" }, ` ${comparisonEvidenceText(state?.evidence?.[index])}`),
+              h(
+                "button",
+                {
+                  class: "oba-btn",
+                  type: "button",
+                  "aria-label": `Remove ${name}`,
+                  onClick: () => {
+                    item.evidence.splice(index, 1);
+                    markDirty();
+                    render();
+                    say(`Removed ${name}.`);
+                  },
+                },
+                "Remove",
+              ),
+            );
+          }),
+        );
+        if (!item.evidence.length) list.append(h("li", { class: "oba-small", "data-no-evidence": "true" }, "No evidence linked yet. You can still save: say so in the uncertainty note if that is the honest position."));
+      };
+      const picker = h(
+        "select",
+        { id: `${prefix}-evidence-pick` },
+        h("option", { value: "" }, "Choose evidence to link…"),
+        (refs.links || []).length ? h("optgroup", { label: "Evidence links" }, refs.links.map((l) => h("option", { value: `link:${l.id}` }, `${l.id} (${l.relation}, ${l.source})`))) : null,
+        sources.length ? h("optgroup", { label: "Sources" }, sources.map((s) => h("option", { value: `source:${s.id}` }, s.title))) : null,
+      );
+      const locator = h("input", { id: `${prefix}-evidence-locator`, type: "text", maxlength: String(limits.short || 200), autocapitalize: "none" });
+      const add = h("button", { class: "oba-btn", type: "button", "data-add-evidence": "true" }, "Link evidence");
+      add.addEventListener("click", () => {
+        const [kind, ...rest] = picker.value.split(":");
+        const id = rest.join(":");
+        if (!kind || !id) {
+          say("Choose the evidence to link.", "error");
+          picker.focus();
+          return;
+        }
+        if (item.evidence.length >= (limits.evidence || 20)) {
+          say(`An item holds at most ${limits.evidence || 20} evidence references.`, "error");
+          return;
+        }
+        item.evidence.push(kind === "link" ? { link: id } : { source: id, ...(locator.value.trim() ? { locator: locator.value.trim() } : {}) });
+        picker.value = "";
+        locator.value = "";
+        markDirty();
+        render();
+        say("Linked the evidence.");
+      });
+      const nodes = badges.get(item.id);
+      if (nodes) nodes.evidence = render;
+      render();
+      return h(
+        "fieldset",
+        { class: "oba-cmp-evidence-set" },
+        h("legend", {}, "Evidence"),
+        list,
+        field(`${prefix}-evidence-pick`, "Link evidence", picker, "Missing evidence never blocks saving."),
+        field(`${prefix}-evidence-locator`, "Where in the source (optional, sources only)", locator),
+        add,
+      );
+    };
+
+    /** Origin and approval controls shared by interpretations and explanations. */
+    const provenanceEditor = (item, kind, prefix) => {
+      const state = stateOf(item.id);
+      const ai = h("input", { id: `${prefix}-ai`, type: "checkbox", checked: item.origin?.kind === "ai-draft" });
+      const tool = h("input", { id: `${prefix}-tool`, type: "text", value: item.origin?.tool || "", maxlength: String(limits.short || 200), "aria-required": "true" });
+      const toolField = field(`${prefix}-tool`, "Which AI tool drafted this text (required)", tool);
+      toolField.hidden = item.origin?.kind !== "ai-draft";
+      ai.addEventListener("change", () => {
+        comparisonSetOrigin(item, ai.checked, tool.value);
+        toolField.hidden = !ai.checked;
+        markDirty();
+        renderItems();
+        focusItem(item.id, `#${prefix}-ai`);
+        say(ai.checked ? "Marked as an AI draft. Readers will not see it until you approve it." : "Marked as your own words. Any approval was removed because none is needed.");
+      });
+      tool.addEventListener("input", () => {
+        if (item.origin) {
+          item.origin.tool = tool.value;
+          markDirty();
+        }
+      });
+      const standing = h("p", { class: "oba-paths-state", id: `${prefix}-standing`, role: "status" }, comparisonStandingText(state));
+      const nodes = { standing };
+      badges.set(item.id, Object.assign(badges.get(item.id) || {}, nodes));
+      const controls = [];
+      if (item.origin?.kind === "ai-draft" && state && loaded?.valid !== false && !creating) {
+        const approved = state.standing === "approved";
+        const decide = (approve) => async () => {
+          if (busy) return;
+          if (dirty) {
+            say("Save your changes first: an approval covers the saved text.", "error");
+            return;
+          }
+          const unpublish = !approve && draft.status === "published";
+          if (unpublish && !confirm("Withdrawing this approval returns the whole comparison to draft, because a published comparison cannot hold AI text nobody has approved. Continue?")) return;
+          busy = true;
+          try {
+            const result = await this.api.call("POST", `comparisons/${approve ? "approve" : "revoke"}`, {
+              json: { slug, revision, kind, id: item.id, ...(approve ? { digest: state.digest } : { unpublish }) },
+            });
+            if (this.viewVersion !== mountedView) return;
+            applySaved(result);
+            renderAll();
+            say(approve ? `Approved the exact text of ${labelOf(item)}.` : "Withdrew the approval.", "ok");
+            focusItem(item.id, `[data-decide]`);
+          } catch (error) {
+            if (this.viewVersion !== mountedView) return;
+            if (error.status === 409 && error.data?.conflict) showConflict(error);
+            else say(comparisonErrorText(error), "error");
+          } finally {
+            busy = false;
+          }
+        };
+        controls.push(
+          approved
+            ? h("button", { class: "oba-btn", type: "button", "data-decide": "revoke", disabled: dirty, onClick: decide(false), "aria-describedby": `${prefix}-standing` }, "Withdraw approval")
+            : h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-decide": "approve", disabled: dirty, onClick: decide(true), "aria-describedby": `${prefix}-standing` }, "Approve this exact text"),
+          h("small", { class: "oba-small", "data-decide-hint": "true", hidden: !dirty }, "Save your changes to approve or withdraw: an approval covers the saved text."),
+        );
+        if (state.standing === "approved" || state.standing === "stale") {
+          const approval = item.approval;
+          if (approval) controls.push(h("p", { class: "oba-small" }, `Approval by ${approval.by} at ${approval.at}.`));
+        }
+      } else if (item.origin?.kind === "ai-draft") {
+        controls.push(h("small", { class: "oba-small" }, "Save the comparison first; then you can read the saved text and approve it."));
+      }
+      return h(
+        "fieldset",
+        { class: "oba-cmp-provenance" },
+        h("legend", {}, "Where this text came from"),
+        h("div", { class: "oba-field oba-paths-optional" }, ai, h("label", { for: `${prefix}-ai` }, "An AI tool drafted this text")),
+        toolField,
+        standing,
+        h("div", { class: "oba-toolbar" }, controls.filter(Boolean)),
+      );
+    };
+
+    const moveItem = (list, index, delta, label) => {
+      const target = index + delta;
+      if (target < 0 || target >= list.length) return;
+      const [moved] = list.splice(index, 1);
+      list.splice(target, 0, moved);
+      markDirty();
+      renderItems();
+      say(`Moved ${label} to position ${target + 1} of ${list.length}.`);
+      focusItem(moved.id, `[data-move="${delta < 0 ? (target > 0 ? "up" : "down") : target < list.length - 1 ? "down" : "up"}"]`);
+    };
+    const itemControls = (list, index, label, noun) =>
+      h(
+        "div",
+        { class: "oba-paths-step-controls", role: "group", "aria-label": `Order of ${noun} ${index + 1}` },
+        h("button", { class: "oba-btn", type: "button", "data-move": "up", disabled: index === 0, "aria-label": `Move ${label} up`, onClick: () => moveItem(list, index, -1, label) }, "Move up"),
+        h("button", { class: "oba-btn", type: "button", "data-move": "down", disabled: index === list.length - 1, "aria-label": `Move ${label} down`, onClick: () => moveItem(list, index, 1, label) }, "Move down"),
+        h(
+          "button",
+          {
+            class: "oba-btn oba-btn-danger",
+            type: "button",
+            "data-remove": "true",
+            "aria-label": `Remove ${label}`,
+            onClick: () => {
+              const removed = list.splice(index, 1)[0];
+              if (list === draft.interpretations) {
+                draft.relations = draft.relations.filter((r) => r.from !== removed.id && r.to !== removed.id);
+                for (const x of draft.explanations) if (x.about === removed.id) delete x.about;
+                for (const i of draft.interpretations) if (i.translationOf === removed.id) delete i.translationOf;
+              }
+              markDirty();
+              renderItems();
+              say(`Removed ${label}.`);
+              const next = list[Math.min(index, list.length - 1)];
+              if (next) focusItem(next.id);
+              else requestAnimationFrame(() => formPanel.querySelector("[data-add]")?.focus());
+            },
+          },
+          "Remove",
+        ),
+      );
+
+    const interpretationEditor = (item, index) => {
+      const prefix = `oba-cmp-i-${index}`;
+      const label = labelOf(item) === item.id ? `interpretation ${index + 1}` : labelOf(item);
+      const a = item.attribution || (item.attribution = { kind: "named", name: "" });
+      const kind = h(
+        "select",
+        { id: `${prefix}-kind`, "aria-required": "true" },
+        h("option", { value: "named", selected: a.kind === "named" }, "A named person, school or tradition"),
+        h("option", { value: "source", selected: a.kind === "source" }, "A source in your library"),
+        h("option", { value: "anonymous", selected: a.kind === "anonymous" }, "Unknown author (describe them)"),
+      );
+      const who =
+        a.kind === "source"
+          ? h("select", { id: `${prefix}-who`, "aria-required": "true" }, h("option", { value: "" }, "Choose a source…"), sources.map((s) => h("option", { value: s.id, selected: a.source === s.id }, s.title)))
+          : h("input", { id: `${prefix}-who`, type: "text", value: (a.kind === "anonymous" ? a.description : a.name) || "", maxlength: String(limits.short || 200), "aria-required": "true" });
+      const whoLabel = a.kind === "source" ? "Source (required)" : a.kind === "anonymous" ? "Describe the unknown author (required)" : "Name (required)";
+      kind.addEventListener("change", () => {
+        item.attribution = comparisonAttributionAs(item.attribution, kind.value);
+        markDirty();
+        renderItems();
+        focusItem(item.id, `#${prefix}-kind`);
+      });
+      who.addEventListener("input", () => {
+        const key = a.kind === "source" ? "source" : a.kind === "anonymous" ? "description" : "name";
+        a[key] = who.value;
+        markDirty();
+      });
+      who.addEventListener("change", () => {
+        if (a.kind === "source") {
+          a.source = who.value;
+          markDirty();
+        }
+      });
+      const certainty = h("select", { id: `${prefix}-certainty` }, h("option", { value: "" }, "Not stated"), (refs.certainties || []).map((c) => h("option", { value: c, selected: a.certainty === c }, c.charAt(0).toUpperCase() + c.slice(1))));
+      certainty.addEventListener("change", () => {
+        if (certainty.value) a.certainty = certainty.value;
+        else delete a.certainty;
+        markDirty();
+      });
+      const statement = h("textarea", { id: `${prefix}-statement`, rows: "4", maxlength: String(limits.statement || 4000), "aria-required": "true" }, item.statement || "");
+      const uncertainty = h("textarea", { id: `${prefix}-uncertainty`, rows: "2", maxlength: String(limits.note || 1000) }, item.uncertainty || "");
+      const language = h("input", { id: `${prefix}-language`, type: "text", value: item.language || "", autocapitalize: "none", spellcheck: "false", maxlength: "35" });
+      bindText(statement, item, "statement");
+      bindText(uncertainty, item, "uncertainty");
+      bindText(language, item, "language");
+      badges.set(item.id, badges.get(item.id) || {});
+      const heading = h("h3", { class: "oba-cmp-item-heading", id: `${prefix}-heading`, tabindex: "-1" }, `Interpretation ${index + 1} of ${draft.interpretations.length}: `, h("bdi", {}, label));
+      const body = [
+        field(`${prefix}-kind`, "Who held this reading", kind),
+        field(`${prefix}-who`, whoLabel, who),
+        field(`${prefix}-certainty`, "How firmly the name is tied to the reading (optional)", certainty),
+        field(`${prefix}-statement`, "What this reading holds, in your words (required)", statement),
+        field(`${prefix}-uncertainty`, "What is uncertain about it (optional)", uncertainty, "Honest uncertainty is welcome, with or without evidence."),
+        field(`${prefix}-language`, "Language, if not the site's (optional)", language),
+        evidenceEditor(item, prefix),
+        provenanceEditor(item, "interpretation", prefix),
+      ];
+      return h("li", { class: "oba-paths-step", "data-item-id": item.id }, h("section", { "aria-labelledby": `${prefix}-heading` }, h("header", { class: "oba-paths-step-header" }, heading, itemControls(draft.interpretations, index, label, "interpretation")), ...body));
+    };
+
+    const explanationEditor = (item, index) => {
+      const prefix = `oba-cmp-x-${index}`;
+      const label = `${item.level} explanation ${index + 1}`;
+      const level = h("select", { id: `${prefix}-level`, "aria-required": "true" }, (refs.levels || []).map((l) => h("option", { value: l, selected: item.level === l }, l.charAt(0).toUpperCase() + l.slice(1))));
+      const about = h(
+        "select",
+        { id: `${prefix}-about` },
+        h("option", { value: "", selected: !item.about }, "The whole comparison"),
+        draft.interpretations.map((i) => h("option", { value: i.id, selected: item.about === i.id }, labelOf(i))),
+      );
+      const text = h("textarea", { id: `${prefix}-text`, rows: "5", maxlength: String(limits.explanation || 6000), "aria-required": "true" }, item.text || "");
+      level.addEventListener("change", () => {
+        item.level = level.value;
+        markDirty();
+      });
+      about.addEventListener("change", () => {
+        if (about.value) item.about = about.value;
+        else delete item.about;
+        markDirty();
+      });
+      bindText(text, item, "text");
+      badges.set(item.id, badges.get(item.id) || {});
+      const heading = h("h3", { class: "oba-cmp-item-heading", id: `${prefix}-heading`, tabindex: "-1" }, `Explanation ${index + 1} of ${draft.explanations.length}: `, h("bdi", {}, `${item.level}`));
+      return h(
+        "li",
+        { class: "oba-paths-step", "data-item-id": item.id },
+        h(
+          "section",
+          { "aria-labelledby": `${prefix}-heading` },
+          h("header", { class: "oba-paths-step-header" }, heading, itemControls(draft.explanations, index, label, "explanation")),
+          h("p", { class: "oba-small" }, "An explanation supplements your prose for one audience. It never replaces it."),
+          field(`${prefix}-level`, "Audience level", level),
+          field(`${prefix}-about`, "What it explains", about),
+          field(`${prefix}-text`, "Explanation (required)", text),
+          evidenceEditor(item, prefix),
+          provenanceEditor(item, "explanation", prefix),
+        ),
+      );
+    };
+
+    const relationEditor = (relation, index) => {
+      const prefix = `oba-cmp-r-${index}`;
+      const pick = (id, value, none) =>
+        h("select", { id, "aria-required": "true" }, h("option", { value: "" }, none), draft.interpretations.map((i) => h("option", { value: i.id, selected: value === i.id }, labelOf(i))));
+      const from = pick(`${prefix}-from`, relation.from, "Choose a reading…");
+      const to = pick(`${prefix}-to`, relation.to, "Choose another reading…");
+      const kind = h("select", { id: `${prefix}-kind` }, (refs.relations || []).map((k) => h("option", { value: k.value, selected: relation.kind === k.value }, k.value.replace(/-/g, " "))));
+      const note = h("input", { id: `${prefix}-note`, type: "text", value: relation.note || "", maxlength: String(limits.note || 1000) });
+      from.addEventListener("change", () => {
+        relation.from = from.value;
+        markDirty();
+      });
+      to.addEventListener("change", () => {
+        relation.to = to.value;
+        markDirty();
+      });
+      kind.addEventListener("change", () => {
+        relation.kind = kind.value;
+        markDirty();
+      });
+      bindText(note, relation, "note");
+      return h(
+        "li",
+        { class: "oba-paths-step", "data-relation": String(index) },
+        h(
+          "fieldset",
+          {},
+          h("legend", {}, `Relation ${index + 1}`),
+          field(`${prefix}-from`, "This reading", from),
+          field(`${prefix}-kind`, "relates to the next reading by (no relation says which is right)", kind),
+          field(`${prefix}-to`, "That reading", to),
+          field(`${prefix}-note`, "Note (optional)", note),
+          h(
+            "button",
+            {
+              class: "oba-btn oba-btn-danger",
+              type: "button",
+              "aria-label": `Remove relation ${index + 1}`,
+              onClick: () => {
+                draft.relations.splice(index, 1);
+                markDirty();
+                renderItems();
+                say(`Removed relation ${index + 1}.`);
+                requestAnimationFrame(() => formPanel.querySelector("[data-add-relation]")?.focus());
+              },
+            },
+            "Remove",
+          ),
+        ),
+      );
+    };
+
+    const itemsBox = h("div", { class: "oba-cmp-items" });
+    const renderItems = () => {
+      badges.clear();
+      const interpretations = h("ol", { class: "oba-paths-steps", "aria-label": "Interpretations" }, draft.interpretations.map(interpretationEditor));
+      if (!draft.interpretations.length) interpretations.append(h("li", { class: "oba-notice" }, "No interpretations yet. A comparison needs at least two readings to show side by side."));
+      const relations = h("ol", { class: "oba-paths-steps", "aria-label": "Relations" }, draft.relations.map(relationEditor));
+      const explanations = h("ol", { class: "oba-paths-steps", "aria-label": "Explanations" }, draft.explanations.map(explanationEditor));
+      const addInterpretation = h(
+        "button",
+        {
+          class: "oba-btn",
+          type: "button",
+          "data-add": "interpretation",
+          onClick: () => {
+            if (draft.interpretations.length >= (limits.interpretations || 50)) return say(`A comparison holds at most ${limits.interpretations || 50} interpretations.`, "error");
+            const item = comparisonNewInterpretation(draft.interpretations);
+            draft.interpretations.push(item);
+            markDirty();
+            renderItems();
+            say(`Added interpretation ${draft.interpretations.length}.`);
+            focusItem(item.id);
+          },
+        },
+        "Add an interpretation",
+      );
+      const addRelation = h(
+        "button",
+        {
+          class: "oba-btn",
+          type: "button",
+          "data-add-relation": "true",
+          disabled: draft.interpretations.length < 2,
+          onClick: () => {
+            if (draft.relations.length >= (limits.relations || 200)) return say(`A comparison holds at most ${limits.relations || 200} relations.`, "error");
+            draft.relations.push({ from: "", to: "", kind: "differs-from" });
+            markDirty();
+            renderItems();
+            say(`Added relation ${draft.relations.length}.`);
+            requestAnimationFrame(() => formPanel.querySelector(`#oba-cmp-r-${draft.relations.length - 1}-from`)?.focus());
+          },
+        },
+        "Add a relation",
+      );
+      const levelPick = h("select", { id: "oba-cmp-new-level" }, (refs.levels || []).map((l) => h("option", { value: l }, l.charAt(0).toUpperCase() + l.slice(1))));
+      const addExplanation = h(
+        "button",
+        {
+          class: "oba-btn",
+          type: "button",
+          "data-add": "explanation",
+          onClick: () => {
+            if (draft.explanations.length >= (limits.explanations || 150)) return say(`A comparison holds at most ${limits.explanations || 150} explanations.`, "error");
+            const item = comparisonNewExplanation(draft.explanations, levelPick.value);
+            draft.explanations.push(item);
+            markDirty();
+            renderItems();
+            say(`Added explanation ${draft.explanations.length}.`);
+            focusItem(item.id);
+          },
+        },
+        "Add an explanation",
+      );
+      itemsBox.replaceChildren(
+        h("h2", { id: "oba-cmp-interpretations-heading" }, "Interpretations"),
+        h("p", { class: "oba-small" }, "Attribute every reading to someone, or say the author is unknown. Nothing here ranks one reading above another."),
+        interpretations,
+        addInterpretation,
+        h("h2", { id: "oba-cmp-relations-heading" }, "How the readings relate"),
+        relations,
+        addRelation,
+        h("h2", { id: "oba-cmp-explanations-heading" }, "Explanations by audience"),
+        explanations,
+        field("oba-cmp-new-level", "Level of the explanation to add", levelPick),
+        addExplanation,
+      );
+    };
+
+    const renderForm = () => {
+      const title = h("input", { id: "oba-cmp-title", type: "text", value: draft.title, required: true, "aria-required": "true", maxlength: String(limits.title || 120) });
+      const address = h("input", { id: "oba-cmp-slug", type: "text", value: draft.slug, disabled: !creating, autocapitalize: "none", spellcheck: "false", "aria-describedby": "oba-cmp-slug-hint", required: creating });
+      const subject = h("textarea", { id: "oba-cmp-subject", rows: "2", maxlength: String(limits.short || 200), "aria-required": "true" }, draft.subject || "");
+      const state = h(
+        "select",
+        { id: "oba-cmp-status" },
+        h("option", { value: "draft", selected: draft.status !== "published" }, "Draft: not published"),
+        h("option", { value: "published", selected: draft.status === "published" }, "Published"),
+      );
+      bindText(title, draft, "title");
+      bindText(address, draft, "slug");
+      bindText(subject, draft, "subject");
+      state.addEventListener("change", () => {
+        draft.status = state.value;
+        markDirty();
+      });
+      renderItems();
+      formPanel.replaceChildren(
+        h(
+          "fieldset",
+          { class: "oba-paths-meta-fields" },
+          h("legend", {}, "About this comparison"),
+          field("oba-cmp-title", "Title (required)", title),
+          h("div", { class: "oba-field" }, h("label", { for: "oba-cmp-slug" }, "Address name"), address, h("small", { class: "oba-small", id: "oba-cmp-slug-hint" }, creating ? "Lowercase letters, digits and single hyphens. It cannot be changed later." : "The address name is the file name and cannot be changed.")),
+          field("oba-cmp-subject", "What the readings are about, in neutral words (required)", subject),
+          field("oba-cmp-status", "Status", state, "A published comparison cannot hold AI text nobody has approved."),
+        ),
+        itemsBox,
+      );
+    };
+
+    // ---- source mode
+    const renderSource = () => {
+      const text = h("textarea", { id: "oba-cmp-source-text", rows: "24", spellcheck: "false", autocapitalize: "none", wrap: "off", class: "oba-paths-source-text" }, sourceText);
+      text.addEventListener("input", () => {
+        sourceText = text.value;
+        dirty = true;
+      });
+      sourcePanel.replaceChildren(
+        h("p", { class: "oba-small" }, "This is the file itself. Saving writes it in the canonical form, keeps any field this release does not know, and refuses anything invalid without changing the file. An approval can be kept but never added here."),
+        field("oba-cmp-source-text", "Comparison source (JSON)", text),
+        h(
+          "div",
+          { class: "oba-toolbar" },
+          h("button", { class: "oba-btn", type: "button", "data-action": "check-source", onClick: () => checkSource() }, "Check source"),
+          h("button", { class: "oba-btn", type: "button", "data-action": "to-form", onClick: () => toForm() }, "Back to the form"),
+        ),
+      );
+    };
+    const sourceRequest = () => ({ slug: draft?.slug || slug || "", source: sourceText });
+    const checkSource = async () => {
+      say("Checking the source…");
+      try {
+        const result = await this.api.call("POST", "comparisons/preview", { json: sourceRequest() });
+        problems = result.problems || [];
+        applyChecked(result);
+        renderProblems();
+        renderPreview();
+        if (result.valid) {
+          say("The source is valid.", "ok");
+          return result;
+        }
+        say(`${problems.length} ${problems.length === 1 ? "problem" : "problems"} in the source.`, "error");
+        problemsBox.querySelector("h2")?.focus();
+      } catch (error) {
+        say(comparisonErrorText(error), "error");
+      }
+      return null;
+    };
+    const toForm = async () => {
+      const result = await checkSource();
+      if (!result?.comparison) return;
+      draft = comparisonDraft(result.comparison, draft?.slug || slug || "");
+      mode = "form";
+      renderForm();
+      renderModes();
+      showMode();
+      markDirty();
+      say("Showing the form. Your source is checked and unchanged until you save.");
+    };
+    const toSource = async () => {
+      if (!draft) return;
+      clearTimeout(timer);
+      try {
+        const result = await this.api.call("POST", "comparisons/preview", { json: { slug: draft.slug || "draft", comparison: comparisonPayload(draft) } });
+        sourceText = result.source || JSON.stringify(comparisonPayload(draft), null, 2);
+        applyChecked(result);
+        problems = result.valid ? [] : result.problems || [];
+      } catch (error) {
+        say(comparisonErrorText(error), "error");
+        return;
+      }
+      mode = "source";
+      renderSource();
+      renderModes();
+      showMode();
+      renderProblems();
+      renderPreview();
+    };
+    const showMode = () => {
+      formPanel.hidden = mode !== "form";
+      sourcePanel.hidden = mode !== "source";
+    };
+    const renderModes = () => {
+      modeBar.replaceChildren(
+        h("button", { class: "oba-btn", type: "button", "aria-pressed": String(mode === "form"), "data-mode": "form", onClick: () => (mode === "form" ? null : toForm()) }, "Edit as a form"),
+        h("button", { class: "oba-btn", type: "button", "aria-pressed": String(mode === "source"), "data-mode": "source", onClick: () => (mode === "source" ? null : toSource()) }, "Edit as source"),
+      );
+    };
+
+    // ---- saving
+    const applySaved = (result) => {
+      revision = result.revision;
+      slug = result.slug;
+      loaded = result;
+      draft = comparisonDraft(result.comparison, result.slug);
+      sourceText = result.source;
+      states = result.states || [];
+      projection = result.projection || null;
+      notes = result.notes || [];
+      problems = [];
+      dirty = false;
+    };
+    const showConflict = (error) => {
+      const current = error.data?.current?.comparison ? error.data.current : null;
+      conflictBox.hidden = false;
+      conflictBox.replaceChildren(
+        h("p", { class: "oba-error", role: "alert" }, comparisonErrorText(error)),
+        h(
+          "div",
+          { class: "oba-toolbar" },
+          current
+            ? h("button", { class: "oba-btn", type: "button", "data-action": "load-newer", onClick: () => {
+                applySaved(current);
+                conflictBox.hidden = true;
+                renderAll();
+                say("Loaded the newer version. Your unsaved edits were discarded.", "notice");
+              } }, "Load the newer version and discard my edits")
+            : null,
+          error.data?.revision
+            ? h("button", { class: "oba-btn", type: "button", "data-action": "keep-mine", onClick: () => {
+                revision = error.data.revision;
+                conflictBox.hidden = true;
+                say("Kept your edits. Save again to replace the newer version with them.", "notice");
+              } }, "Keep my edits")
+            : null,
+        ),
+      );
+      conflictBox.querySelector("button")?.focus();
+    };
+    const save = async () => {
+      if (busy) return;
+      conflictBox.hidden = true;
+      const bySource = mode === "source";
+      if (!bySource) {
+        const local = comparisonProblems(draft);
+        if (local.length) {
+          problems = local;
+          renderProblems();
+          say(`Fix ${local.length} ${local.length === 1 ? "problem" : "problems"} before saving. Nothing was saved.`, "error");
+          problemsBox.querySelector("h2")?.focus();
+          return;
+        }
+      }
+      busy = true;
+      saveButton.disabled = true;
+      say("Saving…");
+      const request = bySource ? sourceRequest() : { slug: draft.slug, comparison: comparisonPayload(draft) };
+      try {
+        const wasNew = creating;
+        const result = wasNew
+          ? await this.api.call("POST", "comparisons", { json: request })
+          : await this.api.call("PUT", "comparisons", { json: { ...request, revision } });
+        if (this.viewVersion !== mountedView) return;
+        applySaved(result);
+        if (wasNew) {
+          creating = false;
+          const hash = `#/comparisons/edit/${encodeURIComponent(result.slug)}`;
+          history.replaceState(null, "", hash);
+          this.currentHash = hash;
+        }
+        renderAll();
+        const withdrawn = result.approvalsWithdrawn || [];
+        say(withdrawn.length ? `Saved. You edited ${withdrawn.join(", ")} after approving it, so the approval was withdrawn: approve the new text to publish it.` : "Saved.", withdrawn.length ? "notice" : "ok");
+      } catch (error) {
+        if (this.viewVersion !== mountedView) return;
+        if (error.status === 409 && error.data?.conflict) showConflict(error);
+        else {
+          if (error.data?.problems) {
+            problems = error.data.problems;
+            renderProblems();
+            problemsBox.querySelector("h2")?.focus();
+          }
+          say(comparisonErrorText(error), "error");
+        }
+      } finally {
+        busy = false;
+        saveButton.disabled = false;
+      }
+    };
+    const saveButton = h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": "save", onClick: save }, "Save comparison");
+    const deleteButton = h(
+      "button",
+      {
+        class: "oba-btn oba-btn-danger",
+        type: "button",
+        "data-action": "delete",
+        hidden: isNew,
+        onClick: async () => {
+          if (busy || creating) return;
+          if (!confirm("Move this comparison to the trash? It is kept in .openblog/trash.")) return;
+          busy = true;
+          try {
+            await this.api.call("DELETE", `comparisons?slug=${encodeURIComponent(slug)}&revision=${encodeURIComponent(revision)}`);
+            dirty = false;
+            location.hash = "#/comparisons";
+          } catch (error) {
+            if (error.status === 409 && error.data?.conflict) showConflict(error);
+            else say(comparisonErrorText(error), "error");
+          } finally {
+            busy = false;
+          }
+        },
+      },
+      "Move to trash",
+    );
+    const refreshButton = h("button", { class: "oba-btn", type: "button", "data-action": "refresh-preview", onClick: () => (mode === "form" ? refresh() : checkSource()) }, "Refresh preview");
+
+    const renderAll = () => {
+      if (draft) renderForm();
+      renderSource();
+      renderModes();
+      showMode();
+      renderProblems();
+      renderPreview();
+    };
+    if (!draft) problemsBox.hidden = false;
+    renderAll();
+    this.mount(
+      this.shell(
+        "comparisons",
+        h("p", {}, h("a", { href: "#/comparisons" }, "← All comparisons")),
+        h(
+          "section",
+          { class: "oba-contributor-intro" },
+          h("p", {}, "Readings are attributed and set side by side without a ruling. Text an AI tool drafted is labelled and stays a draft until you approve its exact words."),
+          refs.problem ? h("p", { class: "oba-notice" }, refs.problem) : null,
+        ),
         h("div", { class: "oba-toolbar" }, modeBar, h("span", { class: "oba-spacer" }), refreshButton, deleteButton, saveButton),
         status,
         conflictBox,

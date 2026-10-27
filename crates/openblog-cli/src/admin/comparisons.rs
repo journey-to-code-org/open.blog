@@ -300,23 +300,24 @@ fn body(req: &Request) -> Result<Json, Response> {
 /// disk and never echoes a value.
 fn requested(request: &Json, slug: &str) -> Result<Comparison, Vec<ComparisonProblem>> {
     let file = format!("{COMPARISONS_DIR}/{slug}.json");
-    let text =
-        match (request["source"].as_str(), request.get("comparison")) {
-            (Some(source), None | Some(Json::Null)) => source.to_string(),
-            (None, Some(Json::Object(object))) => {
-                let mut object = object.clone();
-                object.insert("format".into(), json!(COMPARISON_FORMAT));
-                object.insert("version".into(), json!(COMPARISON_VERSION));
-                Json::Object(object).to_string()
-            }
-            _ => return Err(vec![ComparisonProblem {
+    let text = match (request["source"].as_str(), request.get("comparison")) {
+        (Some(source), None | Some(Json::Null)) => source.to_string(),
+        (None, Some(Json::Object(object))) => {
+            let mut object = object.clone();
+            object.insert("format".into(), json!(COMPARISON_FORMAT));
+            object.insert("version".into(), json!(COMPARISON_VERSION));
+            Json::Object(object).to_string()
+        }
+        _ => {
+            return Err(vec![ComparisonProblem {
                 file,
                 item: None,
                 message:
                     "send the comparison as `comparison` (an object) or `source` (text), not both"
                         .into(),
-            }]),
-        };
+            }])
+        }
+    };
     Comparison::parse(&file, &text)
 }
 

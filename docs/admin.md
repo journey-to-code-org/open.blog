@@ -545,6 +545,27 @@ says when the path would not be published as it stands and why. Saving is refuse
 elsewhere, offering the newer copy, and **Edit as source** shows the file itself, in its canonical form,
 keeping any field this release does not know.
 
+### Author an interpretation comparison
+
+A comparison sets several attributed readings of one subject side by side, without ruling between them.
+Open **Content → Comparisons** and choose **New comparison**. Give it a title, an address name (the file
+name, `content/comparisons/<name>.json`, which cannot change later) and a neutral description of the
+subject. Add each interpretation with who held it: a named person, school or tradition, a source from your
+library, or **Unknown author** with a description. Write what the reading holds, an optional uncertainty
+note, and link evidence from your evidence links and sources; each reference says in words whether readers
+can see it, whether it is private, or whether it is not in your library. Missing evidence is shown and
+never stops a save. Relations (differs from, agrees with, builds on, responds to) never say which reading
+is right. Explanations are written for a beginner, student or scholarly audience, about the whole
+comparison or one reading, and supplement your prose.
+
+If an AI tool drafted a reading or an explanation, tick **An AI tool drafted this text** and name the
+tool. It stays a draft: readers do not see it until you save the comparison and press **Approve this exact
+text**, which records you and the time against those exact words. Editing the text withdraws the approval
+when you save. **Withdraw approval** on a published comparison asks before returning the whole comparison
+to draft. The preview is what readers would see, and a list for you alone says what they would not. Saving
+is refused when the file changed elsewhere, offering the newer copy, and **Edit as source** shows the file
+itself, keeping any field this release does not know (an approval can be kept there but not added).
+
 ### Start a shared reflection
 
 A shared reflection is a private draft that several writers answer from the same source. Open

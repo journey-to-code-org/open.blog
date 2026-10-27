@@ -5,6 +5,15 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Admin Studio can author interpretation comparisons: **Content → Comparisons** lists, creates, edits and
+  moves comparisons to the trash. Every reading needs an attribution (or an explicit unknown author), you can
+  link evidence and see in words whether it is public, private or not found, and missing evidence never
+  blocks saving honest uncertainty. Text an AI tool drafted stays a draft until you press **Approve this
+  exact text**; only that action records an approval, a save can never add one, and editing the text
+  withdraws it. Withdrawing an approval in a published comparison asks before returning it to draft. The
+  preview is the public projection with a list, for you alone, of what readers will not see. Saves are
+  refused when the file changed elsewhere, and source mode keeps fields the release does not know. Nothing
+  publishes a comparison on the site yet. See [ADR 0305](docs/adr/0305-comparisons-are-edited-in-admin-with-an-approve-action-that-only-the-server-can-give.md).
 - Interpretation comparisons now have a file format. `content/comparisons/<slug>.json` sets two or more
   attributed readings of one subject side by side (a named person, a library source, or an explicitly
   anonymous author), with neutral relations such as "differs from", an uncertainty note, evidence references,
