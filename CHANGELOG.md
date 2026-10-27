@@ -5,6 +5,13 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- A new `colorSchemeToggle` setting (`null` follows each page's theme, `true` shows the public light/dark button,
+  `false` hides it and follows the visitor's system preference, ignoring any saved manual choice) overrides the
+  theme for the whole site. **Admin → Appearance** edits it with the same authentication, CSRF and ETag conflict
+  checks as other settings, and rebuilds the site. Theme authors can set the inherited default with
+  `options.colorSchemeToggle` in `theme.json`; it is also reported in the theme JSON, so the citation golden
+  fixture gained that one field. Existing sites are unchanged until they set it.
+
 ## [0.47.0] - 2026-10-27
 
 - Netlify builds only what it deploys: pull request previews and branch deploys (such as `develop`)

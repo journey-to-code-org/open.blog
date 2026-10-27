@@ -974,7 +974,9 @@ impl<'a> Renderer<'a> {
             ));
         }
         // Restore a visitor's saved color scheme before first paint.
-        h.push_str("<script>try{var s=localStorage.getItem(\"ob-scheme\");if(s===\"light\"||s===\"dark\")document.documentElement.dataset.theme=s}catch(e){}</script>\n");
+        if c.color_scheme_toggle.unwrap_or(theme.color_scheme_toggle) {
+            h.push_str("<script>try{var s=localStorage.getItem(\"ob-scheme\");if(s===\"light\"||s===\"dark\")document.documentElement.dataset.theme=s}catch(e){}</script>\n");
+        }
         // Order matters: structure, then tokens, then the theme's own rules.
         h.push_str("<link rel=\"stylesheet\" href=\"/assets/base.css\">\n");
         h.push_str(&format!(
@@ -1476,7 +1478,9 @@ impl<'a> Renderer<'a> {
             ));
         }
         h.push_str("</ul>\n</nav>\n");
-        h.push_str("<ob-theme-toggle hidden><button type=\"button\" class=\"ob-icon-button\" aria-label=\"Toggle light and dark mode\"><span aria-hidden=\"true\">◐</span></button></ob-theme-toggle>\n");
+        if c.color_scheme_toggle.unwrap_or(theme.color_scheme_toggle) {
+            h.push_str("<ob-theme-toggle hidden><button type=\"button\" class=\"ob-icon-button\" aria-label=\"Toggle light and dark mode\"><span aria-hidden=\"true\">◐</span></button></ob-theme-toggle>\n");
+        }
         h.push_str("</div>\n</header>\n");
         h
     }
@@ -4193,6 +4197,89 @@ mod tests {
             .find(|f| f.path == path)
             .unwrap_or_else(|| panic!("missing {path}"))
             .contents
+    }
+
+    #[test]
+    fn site_color_scheme_toggle_overrides_every_page_theme() {
+        for enabled in [false, true] {
+            let (site, mut themes) = model(
+                &format!(
+                    r#"{{"theme":"system","postPath":"/{{slug}}/","colorSchemeToggle":{enabled}}}"#
+                ),
+                true,
+            );
+            themes.insert(
+                "system",
+                ThemeFile::from_json(r#"{"extends":"base","options":{"colorSchemeToggle":false}}"#)
+                    .unwrap(),
+            );
+            let files = generate(&site, &themes).unwrap();
+            for path in [
+                "index.html",
+                "solo/index.html",
+                "series/s/index.html",
+                "search/index.html",
+                "404.html",
+            ] {
+                let html = file(&files, path);
+                assert_eq!(html.contains("<ob-theme-toggle"), enabled, "{path}");
+                assert_eq!(
+                    html.contains("localStorage.getItem(\"ob-scheme\")"),
+                    enabled,
+                    "{path}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn system_color_scheme_omits_toggle_and_saved_override_on_every_page() {
+        let (site, mut themes) = model(
+            r#"{"theme":"system","postsPerPage":2,"postPath":"/{slug}/"}"#,
+            true,
+        );
+        themes.insert(
+            "system",
+            ThemeFile::from_json(r#"{"extends":"base","options":{"colorSchemeToggle":false}}"#)
+                .unwrap(),
+        );
+        let files = generate(&site, &themes).unwrap();
+        for path in [
+            "index.html",
+            "page/2/index.html",
+            "solo/index.html",
+            "series/index.html",
+            "search/index.html",
+            "about/index.html",
+            "404.html",
+        ] {
+            let html = file(&files, path);
+            assert!(!html.contains("<ob-theme-toggle"), "{path}");
+            assert!(
+                !html.contains("localStorage.getItem(\"ob-scheme\")"),
+                "{path}"
+            );
+        }
+        // Per-series themes keep their existing manual override by default.
+        let series = file(&files, "series/s/index.html");
+        assert!(series.contains("<ob-theme-toggle"));
+        assert!(series.contains("localStorage.getItem(\"ob-scheme\")"));
+    }
+
+    #[test]
+    fn home_uses_configured_primary_heading_on_every_page() {
+        let files = build(
+            r#"{"home":{"heading":"Field Notes"},"postsPerPage":2}"#,
+            true,
+        );
+        for path in ["index.html", "page/2/index.html"] {
+            let html = file(&files, path);
+            assert!(html.contains("<h1 id=\"latest\" class=\"ob-title\">"));
+            assert!(html.contains("Field Notes"));
+            assert!(!html.contains("<h2 id=\"latest\""));
+            assert_eq!(html.matches("<h1 ").count(), 1);
+        }
+        assert!(file(&files, "index.html").contains("<h2 id=\"series\""));
     }
 
     #[test]

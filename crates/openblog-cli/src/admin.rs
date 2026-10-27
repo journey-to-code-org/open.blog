@@ -633,6 +633,8 @@ fn authenticated_api(
             &json!({ "user": session.user, "csrf": session.csrf, "now": clock::now().rfc3339() }),
         ),
         ("GET", "meta") => meta(state),
+        ("GET", "appearance") => appearance_settings(state),
+        ("PUT", "appearance") => save_appearance_settings(state, req),
         ("GET", "preferences") => admin_preferences(state, &session.user),
         ("PUT", "preferences") => save_admin_preferences(state, req, &session.user),
         ("GET", "sources") => list_sources(state),
@@ -4501,6 +4503,82 @@ fn engagement_credential_summary(root: &Path, endpoint: &str) -> Result<Json, St
         "originEnvironmentName": ENGAGEMENT_ORIGIN_ENVIRONMENT_NAME,
         "boundToEndpoint": environment_bound || (!environment && private_bound),
     }))
+}
+
+fn appearance_json(root: &Path, bytes: &[u8]) -> Result<Json, String> {
+    let source = std::str::from_utf8(bytes).map_err(|error| error.to_string())?;
+    let config = SiteConfig::from_json(source)?;
+    let theme = site::load_themes(root, &config)?.resolve(&config.theme)?;
+    Ok(json!({
+        "colorSchemeToggle": config.color_scheme_toggle,
+        "themeColorSchemeToggle": theme.color_scheme_toggle,
+        "etag": etag_bytes(bytes),
+    }))
+}
+
+fn appearance_settings(state: &AppState) -> Response {
+    let _transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    match fs::read(state.root.join(site::CONFIG_FILE))
+        .map_err(|error| format!("cannot read openblog.json: {error}"))
+        .and_then(|bytes| appearance_json(&state.root, &bytes))
+    {
+        Ok(settings) => Response::json(200, &settings),
+        Err(error) => Response::error(500, &error),
+    }
+}
+
+fn save_appearance_settings(state: &AppState, req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid JSON"),
+    };
+    let choice = match body.get("colorSchemeToggle") {
+        Some(value) if value.is_null() || value.is_boolean() => value.clone(),
+        _ => return Response::error(422, "colorSchemeToggle must be true, false, or null"),
+    };
+    let mut build = lock(&state.build);
+    let _transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let path = state.root.join(site::CONFIG_FILE);
+    let current = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) => return Response::error(500, &format!("cannot read openblog.json: {error}")),
+    };
+    if body["etag"].as_str() != Some(etag_bytes(&current).as_str()) {
+        return Response::error(409, "Site settings changed on disk; reload before saving");
+    }
+    let mut config: Json = match serde_json::from_slice(&current) {
+        Ok(Json::Object(object)) => Json::Object(object),
+        _ => return Response::error(500, "openblog.json must contain a valid JSON object"),
+    };
+    config["colorSchemeToggle"] = choice;
+    let candidate = match serde_json::to_string_pretty(&config) {
+        Ok(json) => format!("{json}\n"),
+        Err(error) => {
+            return Response::error(500, &format!("cannot serialize openblog.json: {error}"))
+        }
+    };
+    let mut settings = match appearance_json(&state.root, candidate.as_bytes()) {
+        Ok(settings) => settings,
+        Err(error) => return Response::error(422, &error),
+    };
+    if let Err(error) = write_atomic(&path, &candidate) {
+        return Response::error(500, &error);
+    }
+    // Report the saved revision even when an unrelated content error blocks rebuilding.
+    settings["buildError"] = match state.rebuild_locked(&mut build) {
+        Ok(_) => Json::Null,
+        Err(error) => Json::String(error),
+    };
+    Response::json(200, &settings)
 }
 
 fn engagement_settings_etag(root: &Path, config: &[u8]) -> Result<String, String> {
@@ -24289,6 +24367,132 @@ What I read:
         assert!(!configured_body.contains("endpoint-user"));
         assert!(!configured_body.contains("endpoint-password"));
         assert!(!configured_body.contains("query-secret"));
+    }
+
+    #[test]
+    fn appearance_settings_are_authenticated_conflict_safe_and_rebuild_public_pages() {
+        let f = fixture("appearance-settings");
+        let path = "/admin/api/appearance";
+        assert_eq!(handle(&f.state, &req("GET", path)).status, 401);
+        assert_eq!(
+            handle(&f.state, &json_req("PUT", path, json!({}))).status,
+            401
+        );
+        let session = login_ok(&f);
+        let initial = body_json(&handle(
+            &f.state,
+            &authed(req("GET", path), &session, false),
+        ));
+        assert!(initial["colorSchemeToggle"].is_null());
+        assert_eq!(initial["themeColorSchemeToggle"], true);
+        let save = json!({"colorSchemeToggle": false, "etag": initial["etag"]});
+        assert_eq!(
+            handle(
+                &f.state,
+                &authed(json_req("PUT", path, save.clone()), &session, false)
+            )
+            .status,
+            403
+        );
+        for invalid in [
+            json!({}),
+            json!({"colorSchemeToggle":"false"}),
+            json!({"colorSchemeToggle":0}),
+        ] {
+            assert_eq!(
+                handle(
+                    &f.state,
+                    &authed(json_req("PUT", path, invalid), &session, true)
+                )
+                .status,
+                422
+            );
+        }
+        let config_path = f.dir.join(site::CONFIG_FILE);
+        let mut config: Json =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        config["futureSetting"] = json!({"keep": true});
+        fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
+        assert_eq!(
+            handle(
+                &f.state,
+                &authed(json_req("PUT", path, save), &session, true)
+            )
+            .status,
+            409
+        );
+        let mut settings = body_json(&handle(
+            &f.state,
+            &authed(req("GET", path), &session, false),
+        ));
+        for choice in [json!(false), json!(true), Json::Null] {
+            let saved = handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "PUT",
+                        path,
+                        json!({
+                            "colorSchemeToggle": choice, "etag": settings["etag"]
+                        }),
+                    ),
+                    &session,
+                    true,
+                ),
+            );
+            assert_eq!(
+                saved.status,
+                200,
+                "{}",
+                String::from_utf8_lossy(&saved.body)
+            );
+            settings = body_json(&saved);
+            assert!(settings["buildError"].is_null());
+            let value: Json =
+                serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+            assert_eq!(value["colorSchemeToggle"], choice);
+            assert_eq!(value["futureSetting"]["keep"], true);
+            let html = fs::read_to_string(f.dir.join("dist/index.html")).unwrap();
+            assert_eq!(html.contains("<ob-theme-toggle"), choice != false);
+            assert_eq!(
+                html.contains("localStorage.getItem(\"ob-scheme\")"),
+                choice != false
+            );
+        }
+        // Report that the setting was saved even if unrelated content prevents rebuilding.
+        fs::write(
+            f.dir.join("content/posts/broken.md"),
+            "---\ntitle: Broken\ndate: invalid\n---\n",
+        )
+        .unwrap();
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    path,
+                    json!({
+                        "colorSchemeToggle": false, "etag": settings["etag"]
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(saved.status, 200);
+        let result = body_json(&saved);
+        assert!(result["buildError"]
+            .as_str()
+            .is_some_and(|error| !error.is_empty()));
+        assert_eq!(
+            site::load_config(&f.dir).unwrap().color_scheme_toggle,
+            Some(false)
+        );
+        let reloaded = body_json(&handle(
+            &f.state,
+            &authed(req("GET", path), &session, false),
+        ));
+        assert_eq!(result["etag"], reloaded["etag"]);
     }
 
     #[test]

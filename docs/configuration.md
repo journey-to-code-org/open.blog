@@ -16,6 +16,7 @@ default, so you can edit values in place and delete the ones you do not need.
   "favicon": "",
   "ogImage": "",                                 // social card image for pages without a cover
   "theme": "base",                               // default theme (a folder under themes/)
+  "colorSchemeToggle": null,                     // null follows theme; true shows button; false uses system preference
   "postPath": "/posts/{slug}/",                  // "/{slug}/" puts posts at the root
   "postsPerPage": 10,                            // 0 shows every post on the home page
   "nav": [
@@ -54,6 +55,12 @@ default, so you can edit values in place and delete the ones you do not need.
 
 ## Site
 
+- **`colorSchemeToggle`** controls the public light/dark button across all pages.
+  `null` (or omitted) follows each page's theme, `true` shows the button and restores
+  saved visitor choices, and `false` hides it and follows the system preference,
+  ignoring old manual choices. Edit this under **Admin → Appearance**; it does not
+  change the Admin's own color scheme. Theme authors can set the inherited
+  `options.colorSchemeToggle` default in `theme.json`.
 - **`url`** is used for canonical links, feeds, the sitemap, and social cards, so set it to
   the real public address. If it includes a path (`https://user.github.io/blog`), the site
   is built to live under that path. See [Deploying](deploy.md).

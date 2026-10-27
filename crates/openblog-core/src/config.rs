@@ -30,6 +30,8 @@ pub struct SiteConfig {
     pub og_image: String,
     /// Default theme name (a directory under `themes/`). Series and posts can override it.
     pub theme: String,
+    /// Override the theme's light/dark button. None follows each page's theme.
+    pub color_scheme_toggle: Option<bool>,
     /// URL pattern for posts. `{slug}` is replaced. `/{slug}/` keeps Hashnode-style URLs.
     pub post_path: String,
     /// Posts per listing page. `0` disables pagination.
@@ -432,6 +434,7 @@ impl Default for SiteConfig {
             favicon: String::new(),
             og_image: String::new(),
             theme: "base".to_string(),
+            color_scheme_toggle: None,
             post_path: "/posts/{slug}/".to_string(),
             posts_per_page: 10,
             nav: vec![
