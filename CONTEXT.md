@@ -2236,3 +2236,37 @@ message was sent, and a single-use link in it, followed within 48 hours, makes i
 unused request is erased. Every request is answered alike so the answer never reveals who is
 subscribed (ADR 0225).
 _Avoid_: Verification, activation email
+
+**Reader annotation document**:
+One versioned JSON document (`openblog.reader-annotations`) holding a reader's highlights, notes, saved
+sources and reading trails, kept in that reader's own browser. It is reader-private, never public, never
+read by the build, Admin or a hosted service, and unrelated to the author's research notebook (ADRs 0450,
+0453).
+_Avoid_: Research notebook, comments, bookmarks file
+
+**Highlight**:
+A reader's marked quotation in a published work: a passage target of the quoted text with its context,
+the passage revision the reader saw and a time, and no words of the reader's own. Its stale state is
+worked out when it is read, not stored (ADR 0451).
+_Avoid_: Citation, claim, quote of record
+
+**Reader note**:
+A reader's own private text attached to a quotation, a section or a whole work. Left out of an export
+unless the reader includes it, and never a research note or a comment (ADRs 0450, 0452).
+_Avoid_: Comment, research note, feedback
+
+**Saved source**:
+A source a reader keeps in their annotation document: a title and either an http(s) link or a work on a
+site, with an optional note. It is not an entry in the source library or a reference (ADR 0450).
+_Avoid_: Reference, source library entry, bibliography
+
+**Reading trail**:
+A reader's own ordered line of up to 200 highlights, notes and saved sources, each once. Unlike an
+author's reading path it is private, local and implies no relationship between steps (ADR 0453).
+_Avoid_: Reading path, history
+
+**Annotation privacy scope**:
+The statement every annotation document and export carries: `reader-private`, and whether the reader's own
+note text is `included` or `omitted`. It is checked, so a file cannot claim to omit notes while holding
+them (ADR 0452).
+_Avoid_: Visibility, sharing setting
