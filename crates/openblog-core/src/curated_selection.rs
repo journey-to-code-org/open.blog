@@ -2114,6 +2114,43 @@ pub struct Candidates {
     pub sources: Vec<Candidate>,
 }
 
+/// What a kind of selection always publishes and what the author may add,
+/// so no client restates the rules of ADR 0217.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KindView {
+    pub kind: SelectionKind,
+    /// Always published with the item: attribution, uncertainty, evidence.
+    pub required: Vec<&'static str>,
+    /// Published only when the author lists them.
+    pub optional: Vec<&'static str>,
+    /// Whether the author writes the text (a comment or an explanation).
+    pub text: bool,
+}
+
+impl SelectionKind {
+    pub const ALL: [SelectionKind; 7] = [
+        Self::Reference,
+        Self::ContextualEntry,
+        Self::Relationship,
+        Self::Timeline,
+        Self::Comparison,
+        Self::SourceAnnotation,
+        Self::Explanation,
+    ];
+
+    /// The fields this kind lists and may list.
+    pub fn view(self) -> KindView {
+        let spec = self.spec();
+        KindView {
+            kind: self,
+            required: spec.required.to_vec(),
+            optional: spec.optional.to_vec(),
+            text: self.has_text(),
+        }
+    }
+}
+
 /// The author's curation surface for one post, or for the whole site.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -2129,6 +2166,7 @@ pub struct CurationView<'a> {
     /// What readers get, exactly.
     pub preview: PostCuration<'a>,
     pub candidates: Candidates,
+    pub kinds: Vec<KindView>,
 }
 
 fn candidates_of(basis: &Basis<'_>) -> Candidates {
@@ -2315,5 +2353,6 @@ pub fn curation_view<'a>(
         selections,
         preview: resolution.curation.view_for(post),
         candidates,
+        kinds: SelectionKind::ALL.iter().map(|kind| kind.view()).collect(),
     }
 }

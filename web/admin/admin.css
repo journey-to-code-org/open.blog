@@ -3812,6 +3812,131 @@ a.oba-btn-primary {
   border-top: var(--ob-border-width) solid var(--oba-panel-border);
 }
 
+/* Selected for readers (#196, ADR 0229): inside the draft-side research panel, so it reflows with
+   it. Everything wraps, nothing scrolls sideways, and controls stack at 320 pixels or 400% zoom. */
+.oba-draft-research-curate {
+  display: grid;
+  gap: 0.4rem;
+  padding-top: 0.4rem;
+  border-top: var(--ob-border-width) solid var(--oba-panel-border);
+}
+
+.oba-curation {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  padding-top: 0.6rem;
+  border-top: var(--ob-border-width) solid var(--oba-panel-border);
+  overflow-wrap: anywhere;
+}
+
+.oba-curation h4,
+.oba-curation h5,
+.oba-curation p,
+.oba-curation dl,
+.oba-curation dd {
+  margin: 0;
+}
+
+.oba-curation fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0.4rem 0.6rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius-sm);
+}
+
+.oba-curation textarea,
+.oba-curation input[type="text"] {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.oba-curation-new {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.75rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface-raised);
+}
+
+.oba-curation-new[hidden],
+.oba-curation-form[hidden] {
+  display: none;
+}
+
+.oba-curation-items,
+.oba-curation-previews {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-curation-item,
+.oba-curation-previewed {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 0.5rem 0.6rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-page);
+}
+
+.oba-curation-item[data-curation-status="withheld"] {
+  border-style: dashed;
+}
+
+.oba-curation-item .oba-toolbar,
+.oba-curation-confirm .oba-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.oba-curation-notices {
+  margin: 0;
+  padding-inline-start: 1.1rem;
+}
+
+.oba-curation-rows {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.1rem;
+}
+
+.oba-curation-rows dt {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.oba-curation-rows dd {
+  white-space: pre-wrap;
+}
+
+.oba-curation-exact pre {
+  max-width: 100%;
+  margin: 0.4rem 0 0;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 24rem) {
+  .oba-curation-item .oba-toolbar .oba-btn,
+  .oba-curation-confirm .oba-toolbar .oba-btn,
+  .oba-curation-new .oba-toolbar .oba-btn {
+    flex: 1 1 100%;
+  }
+}
+
 /* Research review before publication (#62, ADR 0123) */
 .oba-review-dialog {
   width: min(48rem, calc(100vw - 2rem));

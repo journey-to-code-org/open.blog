@@ -1670,3 +1670,164 @@ fn a_selections_copy_is_recognised_as_private_research_by_structure() {
         );
     }
 }
+
+// ---------------------------------------------------------------- the author's view, shared with the Admin tests
+
+fn fixture_path(name: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/curated-selections")
+        .join(name)
+}
+
+fn check_fixture(name: &str, actual: &str) {
+    let path = fixture_path(name);
+    if std::env::var_os("OPENBLOG_UPDATE_FIXTURES").is_some() {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, actual).unwrap();
+    }
+    let expected = std::fs::read_to_string(&path)
+        .unwrap_or_default()
+        .replace("\r\n", "\n");
+    assert_eq!(
+        expected, actual,
+        "{name} is out of date; rerun with OPENBLOG_UPDATE_FIXTURES=1"
+    );
+}
+
+/// One set that shows every state the author's view has to tell apart: a
+/// published relationship with its context, an entry with a chosen field, a
+/// dating whose rival is not selected, a reference with a missing detail and
+/// no recorded origin, an annotation for another post, a stale selection, a
+/// withdrawn one, and an unpositioned whole-site entry.
+fn view_set(w: &World) -> SelectionSet {
+    let mut set = SelectionSet::default();
+    let place = |set: &mut SelectionSet, new: NewSelection, id: &str| {
+        let id = id.to_string();
+        set.select(
+            NewSelection {
+                id: Some(id.clone()),
+                ..new
+            },
+            &w.basis(),
+        )
+        .unwrap();
+        id
+    };
+    place(
+        &mut set,
+        NewSelection {
+            posts: Some(vec!["cave".into()]),
+            position: Some(1),
+            ..pick(SelectionKind::Relationship, "r-authored")
+        },
+        "relationship-authored",
+    );
+    place(
+        &mut set,
+        NewSelection {
+            optional_fields: vec!["summary".into()],
+            posts: Some(vec!["cave".into()]),
+            position: Some(2),
+            ..pick(SelectionKind::ContextualEntry, "plato")
+        },
+        "entry-plato",
+    );
+    place(
+        &mut set,
+        NewSelection {
+            posts: Some(vec!["cave".into()]),
+            position: Some(3),
+            ..pick(SelectionKind::Timeline, "plato-birth-a")
+        },
+        "dating-birth-a",
+    );
+    place(
+        &mut set,
+        NewSelection {
+            optional_fields: vec!["issued".into()],
+            posts: Some(vec!["cave".into()]),
+            ..pick(SelectionKind::Reference, "undated")
+        },
+        "reference-undated",
+    );
+    place(
+        &mut set,
+        NewSelection {
+            text: Some("A comment for another post.".into()),
+            by: Some("The author".into()),
+            posts: Some(vec!["other".into()]),
+            ..pick(SelectionKind::SourceAnnotation, "burnet")
+        },
+        "annotation-other",
+    );
+    place(
+        &mut set,
+        pick(SelectionKind::ContextualEntry, "academy"),
+        "entry-academy",
+    );
+    let stale = place(
+        &mut set,
+        NewSelection {
+            posts: Some(vec!["cave".into()]),
+            ..pick(SelectionKind::ContextualEntry, "republic")
+        },
+        "entry-republic",
+    );
+    mutate(&mut set, &stale).revision = "0123456789abcdef".into();
+    let withdrawn = place(
+        &mut set,
+        NewSelection {
+            posts: Some(vec!["cave".into()]),
+            ..pick(SelectionKind::Comparison, "cave")
+        },
+        "comparison-cave",
+    );
+    set.withdraw(&withdrawn, Some("rethinking the wording".into()));
+    set
+}
+
+#[test]
+fn the_authors_view_matches_the_shared_fixture_and_shows_only_public_items() {
+    let w = world();
+    let set = view_set(&w);
+    let resolution = resolve(&set, &w.basis());
+    let revision = "f".repeat(64);
+    let view = openblog_core::curated_selection::curation_view(
+        &set,
+        &resolution,
+        &w.basis(),
+        Some("cave"),
+        &revision,
+        true,
+    );
+    let mut text = serde_json::to_string_pretty(&view).unwrap();
+    text.push('\n');
+    check_fixture("view.json", &text);
+    assert!(!text.contains(PRIVATE), "nothing private reaches the view");
+    // Readers of the post get the whole-site entry last (unpositioned) after
+    // this post's positioned items, in the author's order.
+    let order: Vec<&str> = view.preview.items.iter().map(|i| i.id.as_str()).collect();
+    assert_eq!(
+        order,
+        [
+            "relationship-authored",
+            "entry-plato",
+            "dating-birth-a",
+            "entry-academy",
+            "reference-undated"
+        ]
+    );
+    // The annotation for another post is listed, not previewed.
+    let other = view
+        .selections
+        .iter()
+        .find(|s| s.id == "annotation-other")
+        .unwrap();
+    assert!(!other.applies_to_post);
+    assert!(!serde_json::to_string(&view.preview)
+        .unwrap()
+        .contains("another post"));
+    // The preview is the public value, not a second rendering of it.
+    let public = serde_json::to_value(resolution.curation.view_for(Some("cave"))).unwrap();
+    assert_eq!(serde_json::to_value(&view.preview).unwrap(), public);
+}

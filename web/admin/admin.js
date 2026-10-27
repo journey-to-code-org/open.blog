@@ -2094,7 +2094,7 @@ const DRAFT_RESEARCH_TYPE = Object.freeze({ passage: "Passage", source: "Source"
  * anything in the browser. `insert({ kind, markdown, label })` applies a checked insertion to
  * the draft and returns "" or why it could not.
  */
-export function createDraftResearchPanel({ api, insert, onClose, onClaim, onClaims, onChecks, onReview, onSessionEnded, idPrefix = "oba-draft-research" }) {
+export function createDraftResearchPanel({ api, insert, onClose, onClaim, onClaims, onChecks, onReview, onSessionEnded, getPost = () => "", idPrefix = "oba-draft-research" }) {
   let data = null;
   let filter = "all";
   let query = "";
@@ -2114,6 +2114,8 @@ export function createDraftResearchPanel({ api, insert, onClose, onClaim, onClai
   const refresh = h("button", { class: "oba-btn", type: "button", "data-draft-research-refresh": "true", onClick: () => void load() }, "Refresh");
   const close = h("button", { class: "oba-btn", type: "button", "aria-label": "Close the research panel", "data-draft-research-close": "true", onClick: () => onClose?.() }, "Close");
   const checksLine = h("p", { class: "oba-small", id: `${idPrefix}-checks-line`, role: "status", "aria-live": "polite", "data-draft-research-checks-line": "true" });
+  // What readers are given beside this post lives in this panel, not in a second one (#196).
+  const curation = createCurationSection({ api, getPost, onSessionEnded, idPrefix: `${idPrefix}-curation` });
 
   const sources = () => (Array.isArray(data?.library?.sources) ? data.library.sources : []);
   const sourceById = (id) => sources().find((source) => source.id === id) || null;
@@ -2139,6 +2141,7 @@ export function createDraftResearchPanel({ api, insert, onClose, onClaim, onClai
     problems,
     results,
     detail,
+    curation.element,
     onChecks
       ? h(
           "section",
@@ -2263,6 +2266,26 @@ export function createDraftResearchPanel({ api, insert, onClose, onClaim, onClai
   const errorBox = () => h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true, "data-draft-research-error": "true" });
   const heading = (text) => h("h4", { id: `${idPrefix}-detail-title`, tabindex: "-1" }, text);
   const workspaceLink = (href, text) => h("a", { href, class: "oba-small", "data-draft-research-open": "true" }, text);
+  /**
+   * The controls that offer one public item to readers (#196). An item the build does not publish
+   * says so instead: selecting never approves it.
+   */
+  const curateBlock = (entries, { why = "" } = {}) => {
+    const available = entries.filter((entry) => entry.ok);
+    const blocked = entries.filter((entry) => !entry.ok);
+    const already = entries.flatMap((entry) => curation.selectedFor(entry.kind, entry.target));
+    return h(
+      "div",
+      { class: "oba-draft-research-curate", "data-draft-research-curate": "true" },
+      h("h5", {}, "For readers"),
+      already.length ? h("p", { class: "oba-small", "data-draft-research-selected": "true" }, `Already selected for readers: ${already.map((selection) => curationSelectionName(selection)).join("; ")}.`) : null,
+      why ? h("p", { class: "oba-notice", "data-draft-research-curate-why": "true" }, why) : null,
+      available.length
+        ? h("div", { class: "oba-toolbar" }, available.map((entry) => h("button", { class: "oba-btn", type: "button", "data-curation-start": `${entry.kind}:${entry.target}`, onClick: (event) => curation.start({ kind: entry.kind, target: entry.target, label: entry.label, opener: event.currentTarget }) }, entry.text)))
+        : null,
+      blocked.length && !why ? h("p", { class: "oba-small" }, "Not selectable yet: it is not made public by a published post, the atlas or a comparison. Selecting never approves it.") : null,
+    );
+  };
   const rightsLine = (source) => h("p", { class: "oba-small", "data-draft-research-rights": rightsOf(source?.rightsStatus).status }, h("bdi", {}, `Rights: ${rightsText(source?.rightsStatus)}`));
 
   const passageDetail = (passage) => {
@@ -2339,6 +2362,10 @@ export function createDraftResearchPanel({ api, insert, onClose, onClaim, onClai
       h("p", { class: "oba-small" }, "Citation: ", preview),
       errorBox(),
       h("div", { class: "oba-toolbar" }, cite),
+      curateBlock([
+        { kind: "reference", target: source.id, label: sourceLabel(source), ok: curation.isCandidate("sources", source.id), text: "Select as a reference for readers" },
+        { kind: "source-annotation", target: source.id, label: sourceLabel(source), ok: curation.isCandidate("sources", source.id), text: "Add my comment on this source for readers" },
+      ]),
       workspaceLink(researchHref("sources"), "Open Sources"),
     ];
   };
@@ -2376,6 +2403,14 @@ export function createDraftResearchPanel({ api, insert, onClose, onClaim, onClai
             h("ul", {}, datings.map((dating) => h("li", {}, h("span", {}, `${dating.aspect}: `, h("bdi", {}, dating.text)), " ", linkButton(`Insert “${dating.text}” linked to the entry`, dating.text, item.url, "dating")))),
           )
         : null,
+      area === "atlas"
+        ? curateBlock([
+            { kind: "contextual-entry", target: item.id, label: item.label, ok: curation.isCandidate("entries", item.id), text: "Select this entry for readers" },
+            { kind: "explanation", target: item.id, label: item.label, ok: curation.isCandidate("entries", item.id), text: "Add my explanation of this entry for readers" },
+            ...datings.map((dating) => ({ kind: "timeline", target: dating.id, label: `${dating.aspect}: ${dating.text}`, ok: curation.isCandidate("datings", dating.id), text: `Select the dating “${dating.text}” for readers` })),
+            ...curation.relationshipsAbout(item.id).map((relationship) => ({ kind: "relationship", target: relationship.id, label: relationship.label, ok: true, text: `Select the relationship “${relationship.label}” for readers` })),
+          ])
+        : curateBlock([{ kind: "comparison", target: item.id, label: title, ok: curation.isCandidate("comparisons", item.id), text: "Select this comparison for readers" }]),
       workspaceLink(researchHref(area === "atlas" ? "atlas" : "compare", item.id), area === "atlas" ? "Open in the Atlas" : "Open in Compare"),
     ];
   };
@@ -2491,6 +2526,7 @@ export function createDraftResearchPanel({ api, insert, onClose, onClaim, onClai
   /** Read the research for the panel. A part that cannot be read is reported and the rest still works. */
   const load = async () => {
     void loadChecks();
+    void curation.load();
     say("Loading your research…");
     refresh.disabled = true;
     try {
@@ -2517,7 +2553,543 @@ export function createDraftResearchPanel({ api, insert, onClose, onClaim, onClai
     load,
     focus: () => search.focus(),
     open,
+    curation,
   };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Selected for readers (#196, ADR 0228, ADR 0229)
+// ---------------------------------------------------------------------------------------------
+
+/** What a selection selects, in the author's words. The distinctions of the research model stay apart. */
+export const CURATION_KINDS = Object.freeze({
+  reference: "Source reference",
+  "contextual-entry": "Atlas entry",
+  relationship: "Relationship",
+  timeline: "Dating",
+  comparison: "Comparison",
+  "source-annotation": "Your comment on a source",
+  explanation: "Your explanation of an entry",
+});
+
+/** Why a selection gives readers nothing, as a rule and never as a judgement of the research. */
+export const CURATION_WHY = Object.freeze({
+  withdrawn: "Withdrawn by you. Nothing is published until you select it again.",
+  stale: "What it selects changed after you selected it. Check it, then select it again to publish it as it now stands.",
+  "target-missing": "What it selects no longer exists.",
+  "not-approved": "Not published: the item is private research, or its projection is off. Selecting never approves it.",
+  "not-published": "It is not in what the build publishes.",
+  "source-private": "The source is not cited by a published post or published by the atlas or a comparison, so it stays private. Selecting never approves it.",
+  "post-not-published": "None of the posts it is for is published yet.",
+  "dependency-missing": "Something it requires is not there.",
+  "dependency-withheld": "Something it requires is withheld.",
+  cycle: "The selections it requires lead back to it.",
+});
+
+/** The names of the optional fields an author may list, and of the fields every selection carries. */
+export const CURATION_FIELDS = Object.freeze({
+  creators: "Creators",
+  title: "Title",
+  csl: "Full citation data",
+  identifiers: "Public identifiers",
+  issued: "Date issued",
+  language: "Language",
+  aliases: "Other names",
+  source: "The work it stands for",
+  summary: "Summary",
+  assertedBy: "Who asserts it",
+  confidence: "How firmly",
+  contestedBy: "Who disputes it",
+  evidence: "The evidence",
+  standing: "Whether it is contested",
+  uncertainty: "What is doubtful",
+  date: "The date as its party states it",
+  note: "The party's note",
+  placement: "How it is placed in time",
+  text: "The words",
+  startYear: "First year",
+  endYear: "Last year",
+  correspondence: "How the passages correspond",
+  correspondenceLabel: "The correspondence in words",
+  rationale: "The reasoning",
+  recordedBy: "Who recorded it",
+  versions: "The versions compared",
+  wording: "The compared wording (only where each version's rights allow)",
+  by: "Who wrote it",
+  locator: "Where in the source it applies",
+});
+
+const CURATION_ROW_NAMES = Object.freeze({ ...CURATION_FIELDS, label: "Name", url: "Address", key: "Key", kind: "Kind", from: "From", to: "To", inverseLabel: "Read the other way", id: "Id", owner: "Dates", ownerType: "Dates a", aspect: "Aspect" });
+
+/** A plain-text reading of one public value: a party, an evidence item, a list, a date. */
+export function curationValueText(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.map(curationValueText).filter(Boolean).join("; ");
+  if (typeof value === "object") {
+    if (value.kind === "author") return "the site author";
+    if (value.kind === "named" && value.name) return String(value.name);
+    if (value.kind === "source" && value.source) return `the source ${value.source}`;
+    if (value.name && Object.keys(value).every((key) => ["name", "role", "family", "given"].includes(key))) return value.role ? `${value.name} (${value.role})` : String(value.name);
+    if (value.source) {
+      const where = Array.isArray(value.locators) ? value.locators.map((l) => `${l.kind} ${l.value}${l.to ? ` to ${l.to}` : ""}`).join(", ") : "";
+      return `${value.source}${where ? `, ${where}` : ""}`;
+    }
+    if (value.scheme && value.value) return `${value.scheme}: ${value.value}`;
+    return JSON.stringify(value);
+  }
+  return String(value);
+}
+
+/**
+ * What readers get of one published item, as readable rows (name, value), in the order its fields
+ * are listed. Identity fields come first. The exact public value is shown beside it.
+ */
+export function curationItemRows(item) {
+  const content = item?.content && typeof item.content === "object" ? item.content : {};
+  const first = ["title", "label", "by", "text", "key", "id", "kind", "from", "to", "url"];
+  const names = [...first.filter((name) => name in content), ...Object.keys(content).filter((name) => !first.includes(name))];
+  return names
+    .map((name) => ({ name, label: CURATION_ROW_NAMES[name] || name, value: curationValueText(content[name]) }))
+    .filter((row) => row.value !== "");
+}
+
+/** A selection's name for the author: what it selects, by its public name when it has one. */
+export function curationSelectionName(selection) {
+  const kind = CURATION_KINDS[selection?.kind] || "Selection";
+  return `${kind}: ${selection?.label || selection?.target || selection?.id}`;
+}
+
+/** One selection's status in words: the rule that withholds it, or that it publishes. */
+export function curationStatusText(selection) {
+  if (selection?.status !== "withheld") return "Published to readers";
+  return CURATION_WHY[selection.why] || "Withheld";
+}
+
+/** The ids with `id` moved by `delta` places, or the same order when it cannot move that way. */
+export function curationMove(ids, id, delta) {
+  const from = ids.indexOf(id);
+  const to = from + delta;
+  if (from < 0 || to < 0 || to >= ids.length) return ids.slice();
+  const next = ids.slice();
+  next.splice(from, 1);
+  next.splice(to, 0, id);
+  return next;
+}
+
+/** The slug a post will have, as the server writes one, or "" while it has none. */
+export function curationPostSlug(value) {
+  return String(value ?? "").trim().toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 200);
+}
+
+/**
+ * The "Selected for readers" section of the draft-side research panel (#196): choose which
+ * already-public research context readers are given beside this post, see exactly what they
+ * will get, put it in order, withdraw it, select it again when it changed, and unselect it.
+ * Selecting never approves anything; the server refuses a private item and says why. Every
+ * change names the revision it was based on, so a change made elsewhere is a conflict that
+ * reloads and writes nothing. Nothing here touches the draft or the research itself.
+ */
+export function createCurationSection({ api, getPost = () => "", onSessionEnded, idPrefix = "oba-curation" }) {
+  let view = null;
+  let busy = false;
+  let draft = null; // { kind, target, label } while the author is choosing fields
+  let open = null; // { id, what } while a withdraw or unselect is being confirmed
+  const root = h("section", { class: "oba-curation", "aria-labelledby": `${idPrefix}-title`, "data-curation": "true" });
+  const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-curation-status": "true" });
+  const problem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true, "data-curation-error": "true" });
+  const form = h("div", { class: "oba-curation-form", "data-curation-form": "true" });
+  const list = h("div", { class: "oba-curation-list" });
+  const preview = h("div", { class: "oba-curation-preview" });
+  const say = (text) => {
+    status.textContent = text;
+  };
+  const fail = (message) => {
+    problem.textContent = message;
+    problem.hidden = false;
+    problem.focus();
+  };
+  const clearProblem = () => {
+    problem.hidden = true;
+    problem.textContent = "";
+  };
+  const post = () => curationPostSlug(getPost());
+  const selections = () => (Array.isArray(view?.selections) ? view.selections : []);
+  const applies = (selection) => selection.appliesToPost !== false;
+  const orderedIds = () => (Array.isArray(view?.preview?.items) ? view.preview.items.map((item) => item.id) : []);
+  const byId = (id) => selections().find((selection) => selection.id === id);
+  const kindInfo = (kind) => (Array.isArray(view?.kinds) ? view.kinds.find((info) => info.kind === kind) : null);
+
+  root.append(
+    h("h4", { id: `${idPrefix}-title` }, "Selected for readers"),
+    h("p", { class: "oba-small", "data-curation-intro": "true" }, "Choose which public research context readers are given beside this post. Selecting never approves research: only what the atlas, comparisons and sources already make public can be selected, and only the fields you list reach readers. Your private notes never do."),
+    status,
+    problem,
+    form,
+    list,
+    preview,
+  );
+
+  // Controls are found again after a redraw by key, never by a selector into the page.
+  const controls = new Map();
+  const remember = (key, element) => {
+    controls.set(key, element);
+    return element;
+  };
+  const focusLater = (key) => controls.get(key)?.focus();
+
+  /** One request. A conflict reloads and changes nothing; a refusal stays with this section. */
+  const send = async (method, path, body, done, after) => {
+    if (busy) return false;
+    busy = true;
+    clearProblem();
+    try {
+      const result = await api.call(method, `research/curation${path}`, { json: { revision: view?.revision, post: post() || undefined, ...body } });
+      view = result;
+      draft = null;
+      open = null;
+      render();
+      say(typeof done === "function" ? done(result) : done);
+      if (after) focusLater(after(result));
+      return true;
+    } catch (error) {
+      if (error?.status === 401) {
+        onSessionEnded?.();
+        return false;
+      }
+      if (error?.status === 409) {
+        busy = false;
+        await load();
+        fail("Your selections were changed elsewhere since you read them. They are reloaded; nothing was changed. Choose again.");
+        return false;
+      }
+      fail(`${error?.data?.error || error?.message || "The change could not be saved."}${/Nothing was changed/.test(error?.data?.error || "") ? "" : " Nothing was changed."}`);
+      return false;
+    } finally {
+      busy = false;
+    }
+  };
+
+  const button = (text, attrs, onClick, key = "") => {
+    const control = h("button", { class: "oba-btn", type: "button", ...attrs }, text);
+    // The handler's promise is returned so a test (or an assistive script) can wait for the change.
+    control.addEventListener("click", () => onClick());
+    return key ? remember(key, control) : control;
+  };
+
+  // ------------------------------------------------------------------ the form for one selection
+  const fieldLabel = (name) => CURATION_FIELDS[name] || name;
+  const renderForm = () => {
+    if (!draft) {
+      form.replaceChildren();
+      form.hidden = true;
+      return;
+    }
+    form.hidden = false;
+    const info = kindInfo(draft.kind) || { required: [], optional: [], text: false };
+    const slug = post();
+    const name = `${idPrefix}-form`;
+    const scope = h(
+      "fieldset",
+      { class: "oba-curation-scope" },
+      h("legend", {}, "Who is offered it"),
+      h("div", { class: "oba-capture-check" }, h("input", { type: "radio", id: `${name}-post`, name: `${name}-scope`, value: "post", checked: Boolean(slug), disabled: !slug }), h("label", { for: `${name}-post` }, slug ? "This post only" : "This post only (give the post a slug first)")),
+      h("div", { class: "oba-capture-check" }, h("input", { type: "radio", id: `${name}-site`, name: `${name}-scope`, value: "site", checked: !slug }), h("label", { for: `${name}-site` }, "Every post on the site")),
+    );
+    const always = info.required.length
+      ? h("p", { class: "oba-small", "data-curation-always": "true" }, `Always included, so it cannot be left out: ${info.required.map(fieldLabel).join(", ")}.`)
+      : null;
+    const optional = info.optional.map((field) => ({ field, input: h("input", { type: "checkbox", id: `${name}-field-${field}`, value: field }) }));
+    const optionalSet = optional.length
+      ? h("fieldset", { class: "oba-curation-fields" }, h("legend", {}, "Also include"), optional.map(({ field, input }) => h("div", { class: "oba-capture-check" }, input, h("label", { for: input.id }, fieldLabel(field)))))
+      : null;
+    const text = info.text ? h("textarea", { id: `${name}-text`, rows: 4, maxlength: 1000, "aria-describedby": `${name}-text-hint` }) : null;
+    const by = info.text ? h("input", { id: `${name}-by`, type: "text", maxlength: 200, autocomplete: "off" }) : null;
+    const locator = info.text ? h("input", { id: `${name}-locator`, type: "text", maxlength: 200, autocomplete: "off" }) : null;
+    const origin = draft.kind === "reference"
+      ? h(
+          "fieldset",
+          { class: "oba-curation-provenance" },
+          h("legend", {}, "Where this metadata came from"),
+          h("div", { class: "oba-capture-check" }, h("input", { type: "radio", id: `${name}-origin-unrecorded`, name: `${name}-origin`, value: "unrecorded", checked: true }), h("label", { for: `${name}-origin-unrecorded` }, "Not recorded (published as unrecorded)")),
+          h("div", { class: "oba-capture-check" }, h("input", { type: "radio", id: `${name}-origin-authored`, name: `${name}-origin`, value: "authored" }), h("label", { for: `${name}-origin-authored` }, "Written by me")),
+          h("div", { class: "oba-capture-check" }, h("input", { type: "radio", id: `${name}-origin-imported`, name: `${name}-origin`, value: "imported" }), h("label", { for: `${name}-origin-imported` }, "Imported from")),
+          h("input", { id: `${name}-origin-from`, type: "text", maxlength: 200, "aria-label": "Where it was imported from", autocomplete: "off" }),
+        )
+      : null;
+    const submit = h("button", { class: "oba-btn oba-btn-primary", type: "submit" }, "Select for readers");
+    const cancel = button("Cancel", { "data-curation-cancel": "true" }, () => {
+      const opener = draft?.opener;
+      draft = null;
+      render();
+      say("Nothing was selected.");
+      opener?.focus?.();
+    });
+    const element = h(
+      "form",
+      { class: "oba-curation-new", novalidate: true, "aria-labelledby": `${name}-title` },
+      remember("form-title", h("h5", { id: `${name}-title`, tabindex: "-1" }, `Select for readers: ${draft.label || draft.target}`)),
+      h("p", { class: "oba-small" }, `${CURATION_KINDS[draft.kind] || "Selection"}. It is published only when the build already publishes what it selects.`),
+      scope,
+      always,
+      optionalSet,
+      info.text
+        ? h("div", { class: "oba-field" }, h("label", { for: text.id }, "Your words"), text, h("p", { class: "oba-small", id: `${name}-text-hint` }, "Up to 1,000 characters. A comment, never a quotation: a source's own words go through a comparison. Plain text, shown as written."))
+        : null,
+      info.text ? h("div", { class: "oba-field" }, h("label", { for: by.id }, "Who the words are attributed to"), by) : null,
+      info.text ? h("div", { class: "oba-field" }, h("label", { for: locator.id }, "Where in the source it applies (optional)"), locator) : null,
+      origin,
+      h("div", { class: "oba-toolbar" }, submit, cancel),
+    );
+    element.addEventListener("submit", (event) => {
+      event.preventDefault();
+      return (async () => {
+        const chosen = optional.filter(({ input }) => input.checked).map(({ field }) => field);
+        if (info.text && locator.value.trim()) chosen.push("locator");
+        const selection = { kind: draft.kind, target: draft.target, optionalFields: chosen };
+        const siteWide = element.querySelector(`#${name}-site`)?.checked;
+        if (!siteWide && slug) selection.posts = [slug];
+        if (info.text) {
+          selection.text = text.value;
+          selection.by = by.value;
+          if (locator.value.trim()) selection.locator = locator.value.trim();
+        }
+        if (origin) {
+          if (element.querySelector(`#${name}-origin-imported`)?.checked) selection.provenance = { origin: "imported", from: element.querySelector(`#${name}-origin-from`).value };
+          else if (element.querySelector(`#${name}-origin-authored`)?.checked) selection.provenance = { origin: "authored" };
+        }
+        await send("POST", "/selections", { selection }, (result) => `Selected ${draft ? "" : ""}${curationSelectionName(byId(result.changed) || selection)} for readers. It is published only as the build publishes what it selects.`, (result) => `item:${result.changed}`);
+      })();
+    });
+    form.replaceChildren(element);
+  };
+
+  // ------------------------------------------------------------------ the list
+  const noticeList = (notices) =>
+    notices?.length
+      ? h("ul", { class: "oba-curation-notices", "aria-label": "Notices" }, notices.map((notice) => h("li", { "data-curation-notice": notice.code }, h("strong", {}, `${notice.code.replace(/-/g, " ")}: `), notice.message)))
+      : null;
+
+  const itemRow = (selection, position, total, ordered) => {
+    const published = selection.status === "published";
+    const name = curationSelectionName(selection);
+    const at = ordered.indexOf(selection.id);
+    const controls = [];
+    if (published && post() && applies(selection)) {
+      controls.push(
+        button("Move up", { "aria-label": `Move ${name} up`, disabled: at <= 0, "data-curation-move": `${selection.id}:up` }, () => {
+          const next = curationMove(ordered, selection.id, -1);
+          return send("PUT", "/order", { order: next }, `${name} is now ${next.indexOf(selection.id) + 1} of ${next.length}.`, () => `move:${selection.id}:${next.indexOf(selection.id) === 0 ? "down" : "up"}`);
+        }, `move:${selection.id}:up`),
+        button("Move down", { "aria-label": `Move ${name} down`, disabled: at < 0 || at >= ordered.length - 1, "data-curation-move": `${selection.id}:down` }, () => {
+          const next = curationMove(ordered, selection.id, 1);
+          return send("PUT", "/order", { order: next }, `${name} is now ${next.indexOf(selection.id) + 1} of ${next.length}.`, () => `move:${selection.id}:${next.indexOf(selection.id) === next.length - 1 ? "up" : "down"}`);
+        }, `move:${selection.id}:down`),
+      );
+    }
+    if (selection.state === "withdrawn" || selection.why === "stale") {
+      controls.push(
+        button("Select again", { "aria-label": `Select ${name} again`, "data-curation-reselect": selection.id }, () =>
+          send("PUT", "/selections", { action: "reselect", id: selection.id }, `${name} is selected again as it stands now.`, () => `item:${selection.id}`),
+        `item:${selection.id}`),
+      );
+    } else {
+      controls.push(
+        button("Withdraw", { "aria-label": `Withdraw ${name}`, "aria-expanded": String(open?.id === selection.id && open.what === "withdraw"), "data-curation-withdraw": selection.id }, () => {
+          open = { id: selection.id, what: "withdraw" };
+          render();
+          focusLater(`reason:${selection.id}`);
+        }, `item:${selection.id}`),
+      );
+    }
+    if (post()) {
+      const wide = !selection.posts;
+      controls.push(
+        button(wide ? "Offer to this post only" : "Offer to the whole site", { "aria-label": `${wide ? "Offer to this post only" : "Offer to the whole site"}: ${name}`, "data-curation-scope": selection.id }, () =>
+          send("PUT", "/selections", { action: "scope", id: selection.id, posts: wide ? [post()] : null }, `${name} is now offered to ${wide ? "this post only" : "the whole site"}.`, () => `scope:${selection.id}`),
+        `scope:${selection.id}`),
+      );
+    }
+    controls.push(
+      button("Unselect", { "aria-label": `Unselect ${name}`, "aria-expanded": String(open?.id === selection.id && open.what === "unselect"), "data-curation-unselect": selection.id }, () => {
+        open = { id: selection.id, what: "unselect" };
+        render();
+        focusLater(`confirm:${selection.id}`);
+      }, `unselect:${selection.id}`),
+    );
+    let confirm = null;
+    if (open?.id === selection.id && open.what === "withdraw") {
+      const reason = remember(`reason:${selection.id}`, h("input", { id: `${idPrefix}-reason-${selection.id}`, type: "text", maxlength: 500, autocomplete: "off", "data-curation-reason": "true" }));
+      confirm = h(
+        "form",
+        { class: "oba-curation-confirm", "data-curation-confirm-form": "withdraw" },
+        h("div", { class: "oba-field" }, h("label", { for: reason.id }, `Why withdraw ${name}? (optional, private)`), reason),
+        h("div", { class: "oba-toolbar" }, h("button", { class: "oba-btn", type: "submit", "data-curation-confirm": "true" }, "Withdraw"), button("Keep it", {}, () => {
+          open = null;
+          render();
+          focusLater(`item:${selection.id}`);
+        })),
+      );
+      confirm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        return send("PUT", "/selections", { action: "withdraw", id: selection.id, reason: reason.value || undefined }, `${name} is withdrawn. Nothing is published of it; the record is kept.`, () => `item:${selection.id}`);
+      });
+      confirm.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        event.stopPropagation();
+        open = null;
+        render();
+        focusLater(`item:${selection.id}`);
+      });
+    } else if (open?.id === selection.id && open.what === "unselect") {
+      confirm = h(
+        "div",
+        { class: "oba-curation-confirm", "data-curation-confirm-form": "unselect", role: "group", "aria-label": `Unselect ${name}?` },
+        h("p", { class: "oba-small" }, "This removes your selection only. The research it selects is not changed."),
+        h("div", { class: "oba-toolbar" }, button("Unselect", { "data-curation-confirm": "true" }, () => send("DELETE", "/selections", { id: selection.id }, `${name} is unselected. The research it selected is unchanged.`, () => "given-title"), `confirm:${selection.id}`), button("Keep it", {}, () => {
+          open = null;
+          render();
+          focusLater(`unselect:${selection.id}`);
+        })),
+      );
+    }
+    return h(
+      "li",
+      { class: "oba-curation-item", "data-curation-item": selection.id, "data-curation-status": selection.status, ...(selection.why ? { "data-curation-why": selection.why } : {}) },
+      h("p", {}, h("span", { class: "oba-visibility", "data-visibility": published ? "publishable" : "private" }, published ? "Published" : "Withheld"), " ", h("strong", {}, h("bdi", {}, name))),
+      published && ordered.length && post() && applies(selection) ? h("p", { class: "oba-small" }, `Place ${at + 1} of ${ordered.length} for this post.`) : null,
+      h("p", { class: "oba-small" }, curationStatusText(selection)),
+      h("p", { class: "oba-small" }, selection.posts ? `Offered to: ${selection.posts.join(", ")}.` : "Offered to every post on the site."),
+      selection.state === "withdrawn" && selection.withdrawnReason ? h("p", { class: "oba-small" }, `Your reason: ${selection.withdrawnReason}`) : null,
+      noticeList(selection.notices),
+      selection.message && !published ? h("p", { class: "oba-small", "data-curation-message": "true" }, selection.message) : null,
+      h("div", { class: "oba-toolbar" }, controls),
+      confirm,
+    );
+  };
+
+  const renderList = () => {
+    if (!view) {
+      list.replaceChildren();
+      return;
+    }
+    const mine = selections().filter(applies);
+    const others = selections().filter((selection) => !applies(selection));
+    const ordered = orderedIds();
+    const live = mine.filter((selection) => selection.status === "published");
+    const held = mine.filter((selection) => selection.status !== "published");
+    const parts = [];
+    parts.push(
+      remember("given-title", h("h5", { id: `${idPrefix}-given`, tabindex: "-1", "data-curation-title": "true" }, `Given to readers (${live.length})`)),
+      live.length
+        ? h("ol", { class: "oba-curation-items", "aria-labelledby": `${idPrefix}-given`, "data-curation-given": "true" }, live.map((selection, index) => itemRow(selection, index, live.length, ordered)))
+        : h("p", { class: "oba-small" }, "Nothing is selected for readers of this post. Readers are given no curated context until you select some."),
+    );
+    if (held.length) {
+      parts.push(
+        h("h5", { id: `${idPrefix}-held` }, `Withheld (${held.length})`),
+        h("ul", { class: "oba-curation-items", "aria-labelledby": `${idPrefix}-held`, "data-curation-held": "true" }, held.map((selection, index) => itemRow(selection, index, held.length, ordered))),
+      );
+    }
+    if (others.length) {
+      parts.push(
+        h(
+          "details",
+          { class: "oba-curation-others", "data-curation-others": "true" },
+          h("summary", {}, `Selected for other posts (${others.length})`),
+          h("ul", { class: "oba-curation-items" }, others.map((selection, index) => itemRow(selection, index, others.length, ordered))),
+        ),
+      );
+    }
+    if (view.publish === false) parts.push(h("p", { class: "oba-notice", "data-curation-switch": "off" }, "Readers are given none of this yet: this site does not publish curated context. Turn on curatedContext.publish in openblog.json when you are ready. Nothing changes until then."));
+    list.replaceChildren(...parts);
+  };
+
+  const renderPreview = () => {
+    if (!view) {
+      preview.replaceChildren();
+      return;
+    }
+    const items = Array.isArray(view.preview?.items) ? view.preview.items : [];
+    const context = Array.isArray(view.preview?.context) ? view.preview.context : [];
+    const slug = post();
+    preview.replaceChildren(
+      h("h5", { id: `${idPrefix}-preview` }, slug ? "What readers of this post get" : "What readers get"),
+      h("p", { class: "oba-small", "data-curation-preview-note": "true" }, "This is exactly the public value readers' pages are built from: only the fields you listed, with the attribution, doubt and evidence that always travel with them. It adds nothing you did not select."),
+      items.length
+        ? h(
+            "ol",
+            { class: "oba-curation-previews", "aria-labelledby": `${idPrefix}-preview`, "data-curation-preview": "true" },
+            items.map((item) =>
+              h(
+                "li",
+                { class: "oba-curation-previewed", "data-curation-previewed": item.id },
+                h("p", {}, h("strong", {}, h("bdi", {}, `${CURATION_KINDS[item.kind] || item.kind}`))),
+                h("dl", { class: "oba-curation-rows" }, curationItemRows(item).flatMap((row) => [h("dt", {}, row.label), h("dd", {}, h("bdi", {}, row.value))])),
+                item.missing?.length ? h("p", { class: "oba-small", "data-curation-missing": "true" }, `Not recorded, so left out and never invented: ${item.missing.map(fieldLabel).join(", ")}.`) : null,
+                h("p", { class: "oba-small" }, `Origin of the metadata: ${item.provenance?.origin === "imported" ? `imported from ${item.provenance.from}` : item.provenance?.origin === "authored" ? "written by you" : "not recorded"}.`),
+                noticeList(item.notices),
+                h("details", { class: "oba-curation-exact" }, h("summary", {}, "The public data, exactly"), h("pre", {}, h("code", {}, JSON.stringify(item, null, 2)))),
+              ),
+            ),
+          )
+        : h("p", { class: "oba-small" }, "No curated context for this post yet."),
+      context.length
+        ? h(
+            "div",
+            { "data-curation-context": "true" },
+            h("h5", {}, "Context that comes with it"),
+            h("p", { class: "oba-small" }, "Public items a reader needs to understand what you selected. Nothing else from your research comes with it."),
+            h("ul", {}, context.map((item) => h("li", { "data-curation-context-item": `${item.kind}:${item.id}` }, h("bdi", {}, item.label || item.id), ` (${item.kind}, needed by ${item.via.join(", ")})`))),
+          )
+        : null,
+    );
+  };
+
+  const render = () => {
+    controls.clear();
+    renderForm();
+    renderList();
+    renderPreview();
+  };
+
+  /** Read the author's view of the selections for this post. */
+  const load = async () => {
+    const slug = post();
+    try {
+      view = await api.call("GET", `research/curation${slug ? `?post=${encodeURIComponent(slug)}` : ""}`);
+      render();
+      const given = orderedIds().length;
+      say(`${selections().filter(applies).length} selection${selections().filter(applies).length === 1 ? "" : "s"} for this post, ${given} given to readers.`);
+    } catch (error) {
+      if (error?.status === 401) {
+        onSessionEnded?.();
+        return;
+      }
+      view = null;
+      render();
+      say(`Your selections could not be read. ${error?.data?.error || error?.message || ""} Nothing was changed.`.trim());
+    }
+  };
+
+  /** Open the form to select one public item; the item says what it is. */
+  const start = ({ kind, target, label, opener = null }) => {
+    clearProblem();
+    draft = { kind, target, label, opener };
+    render();
+    focusLater("form-title");
+    say(`Choose what readers are given of ${label || target}.`);
+  };
+
+  /** The selections that already exist for one target, so a detail can say it is selected. */
+  const selectedFor = (kind, target) => selections().filter((selection) => selection.kind === kind && selection.target === target);
+
+  /** What can be selected that is about one atlas entry: its published relationships. */
+  const relationshipsAbout = (entryId) => (Array.isArray(view?.candidates?.relationships) ? view.candidates.relationships.filter((candidate) => candidate.about?.includes(entryId)) : []);
+  const isCandidate = (list, id) => Array.isArray(view?.candidates?.[list]) && view.candidates[list].some((candidate) => candidate.id === id);
+
+  return { element: root, load, start, selectedFor, relationshipsAbout, isCandidate, view: () => view };
 }
 
 /** Child indexes from `root` down to `node`, so a caret can be found again in a restored copy of the editor. */
@@ -7445,6 +8017,13 @@ export function createBoundaryPreview({ manifest, idPrefix = "oba-boundary", lev
                 h("p", { class: "oba-small" }, `Publishes: ${(item.fields || []).join(", ") || "nothing but its identity"}.`),
                 item.posts?.length ? h("p", { class: "oba-small" }, `With ${item.posts.length === 1 ? "the post" : "the posts"} `, item.posts.flatMap((slug, index) => [index ? ", " : "", h("code", {}, slug)])) : null,
                 item.url ? h("p", { class: "oba-small" }, "Public address: ", h("code", {}, item.url)) : null,
+                item.notices?.length
+                  ? h(
+                      "ul",
+                      { class: "oba-boundary-fields", "aria-label": `Notices on ${item.label || item.id}` },
+                      item.notices.map((notice) => h("li", { "data-boundary-notice": notice.code }, h("strong", {}, `${String(notice.code).replace(/-/g, " ")}: `), notice.message)),
+                    )
+                  : null,
                 item.withheldFields?.length
                   ? h(
                       "ul",
@@ -18687,6 +19266,7 @@ export class Editor {
         onClaims: () => this.activatePane?.("evidence", true),
         onChecks: this.kind === "posts" ? () => this.readResearchChecks() : null,
         onReview: () => void this.reviewResearch("check"),
+        getPost: () => (this.kind === "posts" ? this.ui?.slug?.value || "" : ""),
         onSessionEnded: () => this.app.showSessionEnded?.("Your session ended. Sign in again to return to your unsaved draft."),
       });
       this.draftResearch.element.addEventListener("keydown", (event) => {
