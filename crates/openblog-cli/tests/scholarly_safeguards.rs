@@ -226,9 +226,9 @@ fn every_case_reports_exactly_the_findings_it_names_and_changes_nothing() {
         assert_eq!(report["error"].is_null(), !blocking, "{id}: error field");
 
         // Nothing is silently left unreviewed: a part that could not run is stated.
-        let unreadable = strings(&case["emits"]).iter().any(|row| {
-            row == "source-library: file-unreadable" || row == "notebook: file-unreadable"
-        });
+        let unreadable = strings(&case["emits"])
+            .iter()
+            .any(|row| row.starts_with("source-library: ") || row.starts_with("notebook: "));
         assert_eq!(
             report["notReviewed"].as_array().map(Vec::len),
             Some(usize::from(unreadable)),
@@ -304,42 +304,129 @@ fn built_text(out: &Path) -> String {
     all
 }
 
+/// The words a case keeps private even when it approves something: the
+/// statement, rationale, uncertainty, note, text and label of each item that
+/// is not itself approved. What an approved item says of itself is published
+/// on purpose, so a sentence an approved item also says is left out.
+fn unapproved_words(case: &Value) -> BTreeSet<String> {
+    /// The passages an approved comparison quotes: published on purpose.
+    fn quoted(value: &Value, into: &mut BTreeSet<String>) {
+        match value {
+            Value::Object(map) => {
+                if map.get("visibility").is_some_and(|v| v == "approved") {
+                    for member in map
+                        .get("members")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                    {
+                        if let Some(passage) = member["passage"].as_str() {
+                            into.insert(passage.to_string());
+                        }
+                    }
+                }
+                map.values().for_each(|child| quoted(child, into));
+            }
+            Value::Array(items) => items.iter().for_each(|item| quoted(item, into)),
+            _ => {}
+        }
+    }
+    fn collect(
+        value: &Value,
+        quoted: &BTreeSet<String>,
+        under_anchor: bool,
+        into: &mut (BTreeSet<String>, BTreeSet<String>),
+    ) {
+        match value {
+            Value::Object(map) => {
+                let approved = map.get("visibility").is_some_and(|v| v == "approved")
+                    || (map.contains_key("excerpt")
+                        && map
+                            .get("id")
+                            .and_then(Value::as_str)
+                            .is_some_and(|id| quoted.contains(id)));
+                for (key, child) in map {
+                    let anchor = under_anchor || key == "anchor";
+                    let said = matches!(
+                        key.as_str(),
+                        "statement" | "rationale" | "uncertainty" | "note" | "text" | "label"
+                    );
+                    if !anchor && said {
+                        if let Some(words) = child.as_str() {
+                            let side = if approved { &mut into.1 } else { &mut into.0 };
+                            side.insert(words.to_string());
+                        }
+                    }
+                    // The excerpt of a quoted passage is that passage's own words.
+                    if !(key == "excerpt" && approved) {
+                        collect(child, quoted, anchor, into);
+                    }
+                }
+            }
+            Value::Array(items) => items
+                .iter()
+                .for_each(|item| collect(item, quoted, under_anchor, into)),
+            _ => {}
+        }
+    }
+    let mut words = (BTreeSet::new(), BTreeSet::new());
+    let mut quoted_passages = BTreeSet::new();
+    for (path, content) in case["files"].as_object().into_iter().flatten() {
+        if path.starts_with(".openblog/private/") {
+            quoted(content, &mut quoted_passages);
+        }
+    }
+    for (path, content) in case["files"].as_object().into_iter().flatten() {
+        if path.starts_with(".openblog/private/") {
+            collect(content, &quoted_passages, false, &mut words);
+        }
+    }
+    let (private, public) = words;
+    private.difference(&public).cloned().collect()
+}
+
 #[test]
 fn a_build_never_publishes_what_a_case_keeps_private() {
     let corpus = corpus();
+    let mut approving = 0;
     for case in cli_cases(&corpus) {
         let id = case["id"].as_str().unwrap();
-        // A case that approves something publishes that on purpose; the others publish none of it.
-        if serde_json::to_string(&case["files"])
+        // A case that approves something publishes that on purpose; what it
+        // leaves unapproved, and every rationale, uncertainty and note, stays out.
+        let approves = serde_json::to_string(&case["files"])
             .unwrap()
-            .contains("\"approved\"")
-        {
-            continue;
-        }
+            .contains("\"approved\"");
+        let words = if approves {
+            approving += 1;
+            unapproved_words(case)
+        } else {
+            private_words(case)
+        };
         let root = project(&corpus, "build", case);
         let out = root.join("scholarly-out");
         let built = run(&root, &["build", "--out", out.to_str().unwrap()]);
         // A refused build writes nothing; a build that ran prints no private word.
         if built.status.success() {
             let site = built_text(&out);
-            for words in private_words(case) {
-                assert!(
-                    !site.contains(&words),
-                    "{id} published private words: {words}"
-                );
+            for word in &words {
+                assert!(!site.contains(word), "{id} published private words: {word}");
             }
         } else {
             assert!(!out.exists(), "{id}: a refused build wrote files");
         }
         let printed = format!("{}{}", text(&built.stdout), text(&built.stderr));
-        for words in private_words(case) {
+        for word in &words {
             assert!(
-                !printed.contains(&words),
-                "{id} printed private words: {words}"
+                !printed.contains(word),
+                "{id} printed private words: {word}"
             );
         }
         fs::remove_dir_all(root).unwrap();
     }
+    assert!(
+        approving >= 4,
+        "the cases that approve something are scanned too"
+    );
 }
 
 #[test]
@@ -347,10 +434,11 @@ fn each_distinction_can_fail_independently_and_can_pass() {
     let corpus = corpus();
     let distinctions = strings(&corpus["distinctions"]);
     assert!(distinctions.len() >= 13, "{distinctions:?}");
-    let cases = corpus["cases"].as_array().unwrap();
+    let cases: Vec<&Value> = corpus["cases"].as_array().unwrap().iter().collect();
     for distinction in &distinctions {
         let of: Vec<&Value> = cases
             .iter()
+            .copied()
             .filter(|case| strings(&case["distinction"]).contains(distinction))
             .collect();
         assert!(
@@ -364,17 +452,107 @@ fn each_distinction_can_fail_independently_and_can_pass() {
             "{distinction} has no case that passes"
         );
     }
-    // A case that fails names findings of its own: the single-distinction cases
-    // never share a finding across distinctions they do not name.
-    for case in cases {
-        for tag in strings(&case["distinction"]) {
+    // A case that tags one distinction fails within that distinction alone: the
+    // findings it names come from the validators that own it, and no other.
+    let owners = owners();
+    for distinction in &distinctions {
+        assert!(
+            owners.contains_key(distinction.as_str()),
+            "{distinction} has no owner"
+        );
+        let single: Vec<&&Value> = of_one(&cases, distinction);
+        assert!(
+            single
+                .iter()
+                .any(|case| !case["emits"].as_array().unwrap().is_empty()),
+            "{distinction} has no failing case that tags it alone"
+        );
+    }
+    for case in &cases {
+        let tags = strings(&case["distinction"]);
+        for tag in &tags {
             assert!(
-                distinctions.contains(&tag),
+                distinctions.contains(tag),
                 "{} names an unknown distinction {tag}",
                 case["id"]
             );
         }
+        if tags.len() != 1 {
+            continue;
+        }
+        let owned = &owners[tags.iter().next().unwrap().as_str()];
+        for row in strings(&case["emits"]) {
+            let validator = row.split(": ").next().unwrap();
+            assert!(
+                owned.contains(&validator),
+                "{} fails only {tags:?} but names {row}, which {owned:?} do not own",
+                case["id"]
+            );
+        }
     }
+}
+
+/// The cases that tag exactly one distinction.
+fn of_one<'a>(cases: &'a [&'a Value], distinction: &str) -> Vec<&'a &'a Value> {
+    cases
+        .iter()
+        .filter(|case| strings(&case["distinction"]) == BTreeSet::from([distinction.to_string()]))
+        .collect()
+}
+
+/// The validators that report on each distinction, by the name each finding
+/// carries. A distinction fails on its own when its findings come from these
+/// alone.
+fn owners() -> BTreeMap<&'static str, Vec<&'static str>> {
+    BTreeMap::from([
+        (
+            "original-work",
+            vec!["research-profile", "source-review", "source-library"],
+        ),
+        (
+            "edition",
+            vec![
+                "source-review",
+                "citation-review",
+                "source-library",
+                "comparison-projection",
+            ],
+        ),
+        (
+            "translation",
+            vec!["source-review", "source-library", "comparison-projection"],
+        ),
+        ("witness", vec!["source-review", "source-library"]),
+        ("reference", vec!["citation-review", "research-profile"]),
+        ("citation", vec!["citation-review", "source-review"]),
+        (
+            "source-location",
+            vec![
+                "citation-review",
+                "source-review",
+                "claim-review",
+                "alignments",
+            ],
+        ),
+        (
+            "research-note",
+            vec!["source-review", "notebook", "alignments"],
+        ),
+        ("claim", vec!["claim-review", "claims"]),
+        ("evidence", vec!["claim-review", "claims"]),
+        (
+            "interpretation",
+            vec!["source-library", "claim-review", "alignments"],
+        ),
+        (
+            "contextual-entry",
+            vec!["atlas", "chronology-index", "publication-context"],
+        ),
+        (
+            "scholarly-disagreement",
+            vec!["atlas", "claim-review", "claims"],
+        ),
+    ])
 }
 
 #[test]

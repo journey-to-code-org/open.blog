@@ -36,6 +36,9 @@ entry, scholarly disagreement) fail independently, or that none of it leaks priv
   no case, or a case names a row the matrix lacks.
 - **Each distinction fails independently and can pass.** Every distinction has a case that emits
   findings and a case that emits none, and a case emits exactly what it names, in either direction.
+  Every distinction also has a failing case that tags it alone, and each such case names only
+  findings from the validators that own that distinction, so one distinction cannot fail through
+  another's rows.
 - **No fixture implies influence from similarity alone.** Passages that read alike and people born a
   year apart are recorded with no relationship; an `influenced` relationship must cite evidence;
   neither the findings nor a built page speaks of influence.
@@ -43,7 +46,9 @@ entry, scholarly disagreement) fail independently, or that none of it leaks priv
   lists what the library cannot hold, never imports private notes, and stays bare when it is bare.
   The hostile import fixture changes nothing in a corpus library.
 - **Non-destructive and private.** Running `check` writes nothing; no finding, terminal line, JSON
-  or (for cases that approve nothing) built file repeats a statement, rationale, note or excerpt.
+  or built file repeats a statement, rationale, note or excerpt. A case that approves something is
+  scanned for the words of every item it did not approve, and for the rationale, uncertainty and
+  notes of those items.
 - **A pinned list of what v0.39.0 let an author acknowledge** stays acknowledgeable, so no stored
   acknowledgement silently stops matching; additions are the source-review rows of ADR 0146.
 - **Documentation** (`docs/research-checks.md`) explains each code in plain language with its fix,

@@ -428,6 +428,76 @@
       ]
     },
     {
+      "id": "reference-edition-undated",
+      "distinction": [
+        "reference"
+      ],
+      "summary": "A cited edition with no date is named as incomplete, and no date is guessed.",
+      "files": {
+        ".openblog/private/research/sources.json": {
+          "version": 1,
+          "sources": [
+            {
+              "id": "lanterns",
+              "kind": "work",
+              "title": "A Treatise of Lanterns",
+              "creators": [
+                {
+                  "name": "Ida Vale",
+                  "role": "author"
+                }
+              ]
+            },
+            {
+              "id": "lanterns-first",
+              "kind": "edition",
+              "of": "lanterns",
+              "title": "The Treatise of Lanterns, first printing",
+              "creators": [
+                {
+                  "name": "Ned Orrin",
+                  "role": "editor"
+                }
+              ],
+              "rights": {
+                "status": "publicDomain"
+              },
+              "csl": {
+                "publisher": "Orrin and Sons"
+              }
+            },
+            {
+              "id": "lanterns-en",
+              "kind": "translation",
+              "of": "lanterns",
+              "basedOn": "lanterns-first",
+              "language": "en",
+              "title": "The Lantern Treatise",
+              "issued": "1902",
+              "creators": [
+                {
+                  "name": "Mara Quill",
+                  "role": "translator"
+                }
+              ]
+            },
+            {
+              "id": "lanterns-ms",
+              "kind": "witness",
+              "of": "lanterns",
+              "title": "The Tower codex",
+              "repository": "Tower Archive",
+              "shelfmark": "T 12"
+            }
+          ]
+        },
+        "content/posts/lanterns.md": "---\ntitle: Lanterns\ndate: 2026-10-01\nprofile: research\ncitations: notes\n---\n\n## Abstract\n\nA note on lanterns [@lanterns-first].\n\n## References\n"
+      },
+      "emits": [
+        "citation-review: citation-reference-incomplete"
+      ]
+    },
+    {
       "id": "translation-translator-missing",
       "distinction": [
         "translation"
@@ -1107,6 +1177,76 @@
       ]
     },
     {
+      "id": "interpretation-missing-record",
+      "distinction": [
+        "interpretation"
+      ],
+      "summary": "A comparison member that names an interpretation the library does not hold stops the next build, and no rendering is invented in its place.",
+      "files": {
+        ".openblog/private/research/notebook.json": {
+          "version": 1,
+          "passages": [
+            {
+              "id": "p-first",
+              "source": "lanterns-first",
+              "excerpt": {
+                "text": "Synthetic passage p-first."
+              },
+              "locators": [
+                {
+                  "kind": "page",
+                  "value": "3"
+                }
+              ]
+            },
+            {
+              "id": "p-en",
+              "source": "lanterns-en",
+              "excerpt": {
+                "text": "Synthetic passage p-en."
+              },
+              "locators": [
+                {
+                  "kind": "page",
+                  "value": "9"
+                }
+              ]
+            }
+          ],
+          "notes": []
+        },
+        ".openblog/private/research/alignments.json": {
+          "version": 1,
+          "alignments": [
+            {
+              "id": "lamp",
+              "label": "The lamp",
+              "correspondence": "partial",
+              "members": [
+                {
+                  "source": "lanterns-first",
+                  "passage": "p-first"
+                },
+                {
+                  "interpretation": "ghost-rendering"
+                }
+              ],
+              "rationale": "Synthetic rationale.",
+              "confidence": "plausible"
+            }
+          ]
+        }
+      },
+      "config": {
+        "comparisons": {
+          "publish": true
+        }
+      },
+      "emits": [
+        "alignments: unknown-interpretation"
+      ]
+    },
+    {
       "id": "claim-contradiction-undiscussed",
       "distinction": [
         "evidence",
@@ -1146,6 +1286,51 @@
       },
       "emits": [
         "claim-review: claim-contradiction-undiscussed"
+      ]
+    },
+    {
+      "id": "disagreement-private-endpoint",
+      "distinction": [
+        "scholarly-disagreement"
+      ],
+      "summary": "An approved dispute with a person who stays private is left out of the atlas, and says so.",
+      "files": {
+        ".openblog/private/research/atlas.json": {
+          "version": 2,
+          "entries": [
+            {
+              "id": "ida",
+              "kind": "person",
+              "label": "Ida Vale",
+              "visibility": "approved"
+            },
+            {
+              "id": "rival",
+              "kind": "person",
+              "label": "A private rival"
+            }
+          ],
+          "relationships": [
+            {
+              "id": "ida-disputes-rival",
+              "kind": "disputes",
+              "from": "ida",
+              "to": "rival",
+              "assertedBy": {
+                "kind": "author"
+              },
+              "evidence": [
+                {
+                  "source": "lanterns"
+                }
+              ],
+              "visibility": "approved"
+            }
+          ]
+        }
+      },
+      "emits": [
+        "atlas: private-endpoint"
       ]
     },
     {
