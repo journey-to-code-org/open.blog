@@ -1447,6 +1447,78 @@ pub fn convert(
     })
 }
 
+/// What an author may copy into a private research note by their own explicit
+/// action: the reader's suggestion as plain, labelled, unverified text. It
+/// keeps where the suggestion came from and that nothing in it was checked or
+/// fetched, so it can never be mistaken for the author's own finding, and it
+/// leaves out the reader's name, contact and the time they sent it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResearchDraft {
+    /// A question for a future piece becomes a research question; anything
+    /// else an observation.
+    pub question: bool,
+    pub text: String,
+}
+
+/// Offer the accepted suggestion to its author as a research note draft. This
+/// returns text and writes nowhere: the notebook is changed only by the
+/// author's own save. The same actors and the same accepted suggestions as
+/// [`library_candidate`].
+pub fn research_draft(
+    suggestion: &Suggestion,
+    actor: &Actor<'_>,
+    item: &ItemFacts<'_>,
+) -> Result<ResearchDraft, ConversionError> {
+    gate(actor, item)?;
+    let submission = &suggestion.submission;
+    let mut lines = vec![
+        "A reader's suggestion for future work, copied here as they sent it. It is unverified reader text: nothing in it has been checked, nothing was fetched, and the editors have only said they are interested.".to_string(),
+        format!(
+            "Sent from {}. Suggested as: {}.",
+            suggestion.receipt.work,
+            submission.suggestion_type.label()
+        ),
+        "What they wrote:".to_string(),
+        submission.text.clone(),
+    ];
+    if let Some(url) = &submission.url {
+        lines.push(format!("Link they gave (not opened or checked): {url}"));
+    }
+    let hints = &submission.hints;
+    if let Some(title) = &hints.title {
+        lines.push(format!("Title they gave: {title}"));
+    }
+    if !hints.creators.is_empty() {
+        lines.push(format!("Creators they gave: {}", hints.creators.join("; ")));
+    }
+    if let Some(year) = &hints.year {
+        lines.push(format!("Year they gave: {year}"));
+    }
+    if let Some(publisher) = &hints.publisher {
+        lines.push(format!("Publisher they gave: {publisher}"));
+    }
+    for identifier in &hints.identifiers {
+        lines.push(format!(
+            "{} they gave (not checked): {}",
+            identifier.scheme.to_ascii_uppercase(),
+            identifier.value
+        ));
+    }
+    match &submission.about {
+        Some(About::Series(slug)) => {
+            lines.push(format!("They said it is about the series {slug}."))
+        }
+        Some(About::Article(path)) => {
+            lines.push(format!("They said it is about the article {path}."));
+        }
+        None => {}
+    }
+    Ok(ResearchDraft {
+        question: submission.suggestion_type == SuggestionType::Question,
+        text: lines.join("\n\n"),
+    })
+}
+
 /// The unverified hints an author may copy into a Source Library record by
 /// their own action. Never the reader's text, name or contact, and always
 /// marked unverified: a reader's statement is not a bibliographic fact.

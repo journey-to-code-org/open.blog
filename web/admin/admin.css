@@ -3491,6 +3491,16 @@ a.oba-btn-primary {
   margin: 0.25rem 0;
 }
 
+/* A suggestion for future work (RD13): the reader's statements, wrapped, never forcing a sideways scroll. */
+.oba-suggestion p {
+  overflow-wrap: anywhere;
+}
+
+.oba-suggestion-notice,
+.oba-suggestion-contact {
+  margin-block-start: .5rem;
+}
+
 .oba-feedback-reason {
   display: inline-flex;
   flex-wrap: wrap;

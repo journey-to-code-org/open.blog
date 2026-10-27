@@ -683,6 +683,9 @@ fn authenticated_api(
         ("POST", "engagement/moderation/decision") => {
             record_correction_decision(state, req, session)
         }
+        ("POST", "engagement/suggestions/export") => {
+            export_suggestion_to_research(state, req, session)
+        }
         ("GET", "engagement/retention") => retention_dry_run(state, session),
         ("POST", "engagement/retention") => run_retention(state, req, session),
         ("POST", "engagement/feedback/publish") => publish_feedback(state, req),
@@ -6376,6 +6379,10 @@ fn inbox_view(
                     Some(must) => json!(!must),
                     None => Json::Null,
                 };
+        } else if item.kind == ParticipationKind::FutureSuggestion {
+            // A suggestion is never published, in any file, whatever its state:
+            // accepting it admits it to the editors' private list (ADR 0190).
+            view["published"] = json!(false);
         } else if item.kind == ParticipationKind::AuthorResponse {
             // An author response is published under its reflection in the same
             // file (ADR 0137); the card says whether it is, and whether the
@@ -6653,6 +6660,7 @@ fn retention_step_id(step: moderation::RetentionStep) -> &'static str {
     match step {
         moderation::RetentionStep::Expire => "expire",
         moderation::RetentionStep::PurgeContent => "purge-content",
+        moderation::RetentionStep::ScrubIdentity => "scrub-identity",
     }
 }
 
@@ -6660,7 +6668,6 @@ fn retention_plan(
     state: &AppState,
     policy: &moderation::ModerationPolicy,
     as_of: DateTime,
-        moderation::RetentionStep::ScrubIdentity => "scrub-identity",
 ) -> Result<RetentionPlan, Response> {
     let cutoffs = policy.cutoffs(as_of);
     let wire = cutoffs.to_json();
@@ -6707,7 +6714,7 @@ fn retention_plan(
         let step = item
             .as_ref()
             .ok()
-            .and_then(|item| policy.retention_due(&item.facts(), as_of));
+            .and_then(|item| item.retention_step(policy, as_of));
         match (item, step) {
             (Ok(item), Some(step)) if retention_step_id(step) == hosted_step => {
                 if item.source != moderation_inbox::Source::Comment || cutoffs.comments {
@@ -6860,6 +6867,7 @@ fn run_retention(state: &AppState, req: &Request, session: &auth::Session) -> Re
         &json!({
             "expired": count("expired"),
             "purged": count("purged"),
+            "scrubbed": count("scrubbed"),
             "skipped": count("skipped") as usize + plan.disagreed,
             "auditDeleted": result["auditDeleted"].as_object().map(|counts| counts.values().filter_map(Json::as_u64).sum::<u64>()),
             "more": plan.truncated || plan.items.len() > 200,
@@ -7161,8 +7169,10 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
         )),
         // An author response is published nowhere by this change (ADR 0132), so
         // there is no file to take it off.
+        // Nor is a suggestion, which was never on a post to take off.
         _ if source == moderation_inbox::Source::Feedback
             && item.kind != ParticipationKind::AuthorResponse
+            && item.kind != ParticipationKind::FutureSuggestion
             && (erase || action == Some(moderation::ModerationAction::Remove)) =>
         {
             Some((id.clone(), item.kind == ParticipationKind::ThirdPerspective))
@@ -7293,6 +7303,165 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
             "removedTarget": removed_target.is_some(),
         }),
     )
+}
+
+// ---- Suggestions for future work (RD13)
+
+/// The id a note made from a suggestion gets when the author names none: the
+/// start of the hosted item's id, which names no reader and no time.
+fn suggestion_note_id(item_id: &str) -> String {
+    let short: String = item_id
+        .chars()
+        .filter(char::is_ascii_hexdigit)
+        .take(8)
+        .collect();
+    format!("suggestion-{short}")
+}
+
+/// `POST engagement/suggestions/export`: the author's own, explicit copy of
+/// one accepted suggestion into a note of the private research notebook
+/// (RD13, ADR 0195). The request names the item and the version the author
+/// saw; the item is read again from the hosted store, the one view and grant
+/// rules decide whether this account may act on it (the site Admin or a
+/// coordinator of its work, on an accepted suggestion still kept), and the
+/// note is the draft the core builds: labelled unverified reader text and
+/// where it came from, with no name, no contact and no time. Nothing is
+/// fetched, nothing is published and the hosted suggestion is not changed, so
+/// a refusal or a failed write leaves both exactly as they were.
+fn export_suggestion_to_research(
+    state: &AppState,
+    req: &Request,
+    session: &auth::Session,
+) -> Response {
+    let body = match feedback_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let id = match feedback_id(&body["id"]) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let Some(version) = body["version"]
+        .as_u64()
+        .filter(|version| (1..=i32::MAX as u64).contains(version))
+    else {
+        return Response::error(422, "Send the suggestion's version as you loaded it");
+    };
+    let note_id = match &body["noteId"] {
+        Json::Null => None,
+        Json::String(note_id) if openblog_core::knowledge_atlas::valid_id(note_id) => {
+            Some(note_id.clone())
+        }
+        _ => {
+            return Response::error(
+                422,
+                "Name the note with a lowercase slug of at most 64 characters",
+            )
+        }
+    };
+    let (protocol, third_perspectives, item) =
+        match hosted_inbox_item(state, moderation_inbox::Source::Feedback, &id) {
+            Ok(found) => found,
+            Err(response) => return response,
+        };
+    let sources = match inbox_sources(state) {
+        Ok(sources) => sources,
+        Err(response) => return response,
+    };
+    export_suggestion_with(
+        state,
+        &sources,
+        session,
+        protocol,
+        third_perspectives,
+        &item,
+        version,
+        note_id,
+    )
+}
+
+/// The export once the hosted item is read: everything that decides it, apart
+/// from reaching the hosted function.
+#[allow(clippy::too_many_arguments)]
+fn export_suggestion_with(
+    state: &AppState,
+    sources: &InboxSources,
+    session: &auth::Session,
+    protocol: moderation_inbox::Protocol,
+    third_perspectives: bool,
+    item: &moderation_inbox::InboxItem,
+    version: u64,
+    note_id: Option<String>,
+) -> Response {
+    let id = item.id.clone();
+    if item.suggestion().is_none() {
+        return Response::error(404, "No such suggestion");
+    }
+    let published = published_feedback_file(state);
+    let perspectives = published_perspectives_file(state);
+    let (draft, view) = sources.inbox(session, protocol, third_perspectives, |inbox| {
+        (
+            inbox.research_draft(item),
+            inbox_view(inbox, item, published.as_ref(), perspectives.as_ref()),
+        )
+    });
+    let draft = match draft {
+        Ok(draft) => draft,
+        Err(openblog_core::future_suggestion::ConversionError::Denied) => {
+            return Response::json(
+                403,
+                &json!({ "error": "You cannot copy this suggestion into your research.", "code": "denied" }),
+            )
+        }
+        Err(openblog_core::future_suggestion::ConversionError::WrongKind) => {
+            return Response::error(404, "No such suggestion")
+        }
+        Err(error) => {
+            return Response::json(
+                422,
+                &json!({ "error": format!("{}.", capitalize(&error.to_string())), "code": error.code() }),
+            )
+        }
+    };
+    if item.version != version {
+        return Response::json(
+            409,
+            &json!({ "error": INBOX_CHANGED, "code": "conflict", "item": view }),
+        );
+    }
+    let note_id = note_id.unwrap_or_else(|| suggestion_note_id(&item.id));
+    let note = match ResearchNote::from_json(json!({
+        "id": note_id,
+        "kind": if draft.question { "question" } else { "observation" },
+        "text": draft.text,
+        "visibility": "private",
+    })) {
+        Ok(note) => note,
+        Err(diagnostics) => return notebook_diagnostics(diagnostics),
+    };
+    let contributors = source_contributors(state);
+    let snapshot = match notebook_store::load(&state.root, &contributors) {
+        Ok(snapshot) => snapshot,
+        Err(error) => return notebook_store_error(state, error, None),
+    };
+    match notebook_store::create_note(&state.root, &snapshot.revision, note, &contributors) {
+        Ok(saved) => {
+            eprintln!(
+                "admin: suggestion {id} copied into research note {note_id} by {}",
+                session.user
+            );
+            Response::json(
+                201,
+                &json!({
+                    "ok": true,
+                    "note": { "id": note_id },
+                    "revision": saved.revision,
+                    "item": view,
+                }),
+            )
+        }
+        Err(error) => notebook_store_error(state, error, Some((false, &note_id))),
+    }
 }
 
 // ---- Correction decisions (ADR 0117)
@@ -22920,8 +23089,9 @@ What I read:
         fs::write(&path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
     }
 
-    fn feedback_routes() -> [(&'static str, &'static str); 18] {
+    fn feedback_routes() -> [(&'static str, &'static str); 19] {
         [
+            ("POST", "/admin/api/engagement/suggestions/export"),
             ("POST", "/admin/api/engagement/author-responses/publish"),
             ("POST", "/admin/api/engagement/author-responses/unpublish"),
             ("POST", "/admin/api/engagement/author-response"),
@@ -24169,6 +24339,191 @@ What I read:
                 "itemRevision": 1, "approvedRevision": Json::Null,
                 "clarificationAsked": null, "clarificationConsent": false,
             })
+        }
+    }
+
+    /// A suggestion as the hosted inbox returns it.
+    fn suggestion_item(status: &str, version: u64, details: Json) -> moderation_inbox::InboxItem {
+        moderation_inbox::InboxItem::from_value(&json!({
+            "source": "feedback", "id": FEEDBACK_ITEM_ID, "status": status, "version": version,
+            "moderatedAt": if status == "approved" { json!("2026-10-27T10:00:00Z") } else { Json::Null },
+            "reason": null,
+            "feedback": {
+                "version": 1, "kind": "future-suggestion",
+                "body": "Her letters <b>would</b> help.",
+                "details": details,
+                "provenance": {
+                    "version": 1, "work": "/hello-world/", "revision": null, "target": null,
+                    "receivedAt": "2026-10-26T10:00:00Z", "channel": "hosted",
+                    "attribution": {"name": "Private Person", "publishName": false},
+                },
+            },
+            "itemRevision": 1, "approvedRevision": if status == "approved" { json!(1) } else { Json::Null },
+            "clarificationAsked": null, "clarificationConsent": true,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_suggestion_is_copied_into_the_private_notebook_only_by_the_authors_explicit_request() {
+        let f = fixture("suggestion-export");
+        let sources = inbox_sources(&f.state).unwrap();
+        let author = auth::Session {
+            user: "mikey".into(),
+            credential: String::new(),
+            csrf: String::new(),
+            expires: std::time::Instant::now() + Duration::from_secs(3600),
+        };
+        let details = json!({
+            "type": "video", "url": "https://example.org/watch",
+            "hints": {"title": "The survey", "creators": ["A. Surveyor"], "identifiers": [{"scheme": "doi", "value": "10.1234/abc"}]},
+            "about": {"series": "tides"},
+            "contact": {"address": "ada@example.org", "followUp": true},
+        });
+        let export = |item: &moderation_inbox::InboxItem, version: u64, note: Option<&str>| {
+            export_suggestion_with(
+                &f.state,
+                &sources,
+                &author,
+                moderation_inbox::Protocol::Protected,
+                false,
+                item,
+                version,
+                note.map(str::to_string),
+            )
+        };
+        let notebook =
+            || notebook_store::load(&f.state.root, &source_contributors(&f.state)).unwrap();
+        let before = notebook().revision;
+        // A suggestion nobody accepted is not offered, and nothing is written.
+        let pending = suggestion_item("pending", 2, details.clone());
+        let refused = export(&pending, 2, None);
+        assert_eq!(refused.status, 422);
+        assert_eq!(body_json(&refused)["code"], "notAccepted");
+        // Something that is not a suggestion is not found.
+        let mut question = json!({"source": "feedback", "id": FEEDBACK_ITEM_ID, "status": "approved", "version": 2, "moderatedAt": null, "reason": null,
+            "feedback": {"version": 1, "kind": "question", "body": "Why?", "details": {}, "provenance": {"version": 1, "work": "/hello-world/", "revision": "p1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "target": {"version": 1, "kind": "work"}, "receivedAt": "2026-10-26T10:00:00Z", "channel": "hosted", "attribution": {"publishName": false}}},
+            "itemRevision": 1, "approvedRevision": 1, "clarificationAsked": null, "clarificationConsent": false});
+        question["feedback"]["details"] = json!({});
+        let other = moderation_inbox::InboxItem::from_value(&question).unwrap();
+        assert_eq!(export(&other, 2, None).status, 404);
+        assert_eq!(notebook().revision, before, "a refusal writes nothing");
+
+        // An accepted one is copied, once, when the author asks.
+        let accepted = suggestion_item("approved", 4, details.clone());
+        assert_eq!(
+            export(&accepted, 3, None).status,
+            409,
+            "a view the item has moved past"
+        );
+        assert_eq!(notebook().revision, before, "a stale view writes nothing");
+        let made = export(&accepted, 4, None);
+        assert_eq!(made.status, 201, "{}", String::from_utf8_lossy(&made.body));
+        let body = body_json(&made);
+        assert_eq!(body["note"]["id"], "suggestion-00000000");
+        let snapshot = notebook();
+        let note = snapshot
+            .notebook
+            .note("suggestion-00000000")
+            .expect("the note");
+        assert_eq!(
+            note.kind,
+            openblog_core::research_notes::NoteKind::Observation
+        );
+        // It is labelled unverified reader text with where it came from, and carries nothing of the reader.
+        assert!(
+            note.text.contains("unverified reader text"),
+            "{}",
+            note.text
+        );
+        assert!(note.text.contains("nothing was fetched"));
+        assert!(note.text.contains("Sent from /hello-world/."));
+        assert!(note
+            .text
+            .contains("Link they gave (not opened or checked): https://example.org/watch"));
+        assert!(note
+            .text
+            .contains("DOI they gave (not checked): 10.1234/abc"));
+        assert!(
+            note.text.contains("Her letters <b>would</b> help."),
+            "reader text stays text"
+        );
+        for private in ["Private Person", "ada@example.org", "2026-10-26", "10:00"] {
+            assert!(!note.text.contains(private), "{private}");
+        }
+        assert_eq!(snapshot.notebook.passages.len(), 0, "no quotation is made");
+        // Nothing else changed: the notebook is private, and the hosted item was never written to.
+        assert_ne!(snapshot.revision, before);
+        // Again with the same id is refused, and the notebook is as the first export left it.
+        let after = snapshot.revision.clone();
+        let again = export(&accepted, 4, None);
+        assert_eq!(again.status, 422);
+        assert_eq!(
+            notebook().revision,
+            after,
+            "a failed export leaves the notebook unchanged"
+        );
+        // A named note, and a question for a future piece becomes a research question.
+        let question_details = json!({"type": "question"});
+        let asked = suggestion_item("approved", 4, question_details);
+        let named = export(&asked, 4, Some("tide-question"));
+        assert_eq!(named.status, 201);
+        let snapshot = notebook();
+        let note = snapshot.notebook.note("tide-question").unwrap();
+        assert_eq!(note.kind, openblog_core::research_notes::NoteKind::Question);
+        assert_eq!(
+            note.question_state(),
+            Some(openblog_core::research_notes::QuestionState::Open)
+        );
+        // Deterministic: the same suggestion gives the same text.
+        let same = suggestion_item("approved", 4, json!({"type": "question"}));
+        let draft = |item: &moderation_inbox::InboxItem| {
+            sources.inbox(
+                &author,
+                moderation_inbox::Protocol::Protected,
+                false,
+                |inbox| inbox.research_draft(item).unwrap(),
+            )
+        };
+        assert_eq!(draft(&same), draft(&asked));
+    }
+
+    #[test]
+    fn the_export_reads_its_request_strictly_before_any_hosted_request() {
+        let f = fixture("suggestion-export-request");
+        let session = login_ok(&f);
+        let post = |body: Json| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req("POST", "/admin/api/engagement/suggestions/export", body),
+                    &session,
+                    true,
+                ),
+            )
+        };
+        // Off: it says how to turn hosted engagement on, asking nothing of it.
+        let off = post(json!({"id": FEEDBACK_ITEM_ID, "version": 2}));
+        assert_eq!(off.status, 404);
+        assert!(body_json(&off)["error"]
+            .as_str()
+            .unwrap()
+            .contains("Hosted engagement is not turned on"));
+        for body in [
+            json!({"id": "../x", "version": 2}),
+            json!({"id": FEEDBACK_ITEM_ID}),
+            json!({"id": FEEDBACK_ITEM_ID, "version": 0}),
+            json!({"id": FEEDBACK_ITEM_ID, "version": "2"}),
+            json!({"id": FEEDBACK_ITEM_ID, "version": 2, "noteId": "Not A Slug"}),
+            json!({"id": FEEDBACK_ITEM_ID, "version": 2, "noteId": 5}),
+            json!("not an object"),
+        ] {
+            let refused = post(body.clone());
+            assert!(
+                matches!(refused.status, 400 | 422),
+                "{body}: {}",
+                refused.status
+            );
         }
     }
 

@@ -50,10 +50,10 @@ const isBidiControl = (character) => {
   const point = codePoint(character);
   return (point >= 0x202a && point <= 0x202e) || (point >= 0x2066 && point <= 0x2069);
 };
-const utf8Length = (text) => new TextEncoder().encode(text).length;
-const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+export const utf8Length = (text) => new TextEncoder().encode(text).length;
+export const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const isLoneSurrogate = (character) => character.length === 1 && character.charCodeAt(0) >= 0xd800 && character.charCodeAt(0) <= 0xdfff;
-const hasLoneSurrogate = (value) => {
+export const hasLoneSurrogate = (value) => {
   if (typeof value === "string") return Array.from(value).some(isLoneSurrogate);
   if (value && typeof value === "object") return Object.entries(value).some(([key, inner]) => hasLoneSurrogate(key) || hasLoneSurrogate(inner));
   return false;
@@ -66,7 +66,7 @@ const malformed = (message) => failure("malformed", message);
  * The raw source of each top-level value of valid JSON text (the last one wins for a repeated key,
  * as in JSON.parse), the deepest nesting, and whether a number is too large to hold.
  */
-function scan(text) {
+export function scan(text) {
   const spans = new Map();
   let depth = 0;
   let deepest = 0;
@@ -115,7 +115,7 @@ function scan(text) {
 /** Whether a top-level `version` token is the canonical unsigned integer `wanted`. */
 const versionIs = (token, wanted) => token !== undefined && /^(?:0|[1-9][0-9]*)$/.test(token) && BigInt(token) === BigInt(wanted);
 /** The version a token names when it is a canonical unsigned 64-bit integer, or null. */
-const versionOf = (token) => (token !== undefined && /^(?:0|[1-9][0-9]*)$/.test(token) && BigInt(token) < 2n ** 64n ? BigInt(token) : null);
+export const versionOf = (token) => (token !== undefined && /^(?:0|[1-9][0-9]*)$/.test(token) && BigInt(token) < 2n ** 64n ? BigInt(token) : null);
 
 /** A site-relative path to a published page, as B5 checks it. */
 export function isWorkPath(path) {

@@ -430,6 +430,7 @@ export const MODERATION_KINDS = [
   ["correction-suggestion", "Suggested corrections"],
   ["alternative-interpretation", "Other interpretations"],
   ["third-perspective", "Third Perspectives"],
+  ["future-suggestion", "Suggestions for future work"],
   ["author-response", "Author responses"],
   ["abuse-report", "Abuse reports"],
 ];
@@ -552,6 +553,28 @@ export function answerOffer(item) {
 }
 
 /** What the signed-in account can do with an item, from the role the server resolved. */
+/**
+ * What a suggestion for future work says about its source, as lines of plain text for the editors,
+ * and what is still to find out. Every line is the reader's statement, never checked: nothing is
+ * called verified, and the link is offered only as a link to open yourself.
+ */
+export function suggestionLines(suggestion) {
+  if (!suggestion) return [];
+  const lines = [{ text: `Kind: ${suggestion.typeLabel}.` }];
+  if (suggestion.url) lines.push({ label: "The reader’s link", link: suggestion.url });
+  const hints = suggestion.hints || {};
+  if (hints.title) lines.push({ text: `Title (the reader’s words): ${hints.title}` });
+  if (hints.creators?.length) lines.push({ text: `Creators (the reader’s words): ${hints.creators.join("; ")}` });
+  if (hints.year) lines.push({ text: `Year (the reader’s words): ${hints.year}` });
+  if (hints.publisher) lines.push({ text: `Publisher (the reader’s words): ${hints.publisher}` });
+  for (const identifier of hints.identifiers || []) lines.push({ text: `${identifier.scheme.toUpperCase()} (not checked): ${identifier.value}` });
+  if (suggestion.about?.series) lines.push({ text: `About the series: ${suggestion.about.series}` });
+  if (suggestion.about?.article) lines.push({ text: `About the article: ${suggestion.about.article}` });
+  if (suggestion.missing?.length) lines.push({ text: `Still to find: ${suggestion.missing.join(", ")}.` });
+  lines.push({ text: `Stands as: ${suggestion.standing.label}.` });
+  return lines;
+}
+
 export function moderationRoleLine(role) {
   if (role === "coordinator") return "You moderate this as a coordinator of its shared publication. Only the site Admin sees a reader’s private name or reopens a decision.";
   if (role === "contributing-author") return "You can read this as a contributing author of the work. A coordinator or the site Admin decides.";
@@ -568,6 +591,11 @@ export function moderationReaderLine(reader, source = "feedback", kind = "") {
   if (source === "comment") return reader?.name ? `From ${reader.name}, shown with the comment.` : "From an unnamed commenter.";
   if (reader?.private) return "The reader gave a name that only the site Admin can see.";
   if (!reader?.name) return "From an anonymous reader.";
+  if (kind === "future-suggestion") {
+    return reader.publishName
+      ? `From ${reader.name}, who agreed that you may thank them by this name if you use the suggestion.`
+      : `From ${reader.name}. The name stays private: the reader did not agree to be thanked by it.`;
+  }
   const what = kind === "third-perspective" ? "reflection" : "note";
   return reader.publishName
     ? `From ${reader.name}, who agreed to show this name if you publish the ${what}.`
@@ -579,12 +607,15 @@ export function moderationOutcome(item, action, result) {
   const where = item.post ? `“${item.post.title}”` : item.work;
   if (action === "approve") {
     if (item.source === "comment") return `Approved. The comment is shown on ${where}.`;
+    if (item.suggestion) return "Accepted into the editors’ list. Nothing was published or e-mailed. Accepted means you are interested in exploring it, not that you agree with it, have checked it or may use it.";
     if (item.perspective) {
       const approved = `Approved this text under the reader’s consent record ${item.perspective.consent.number}, as a reader’s reflection on ${where}. Nothing was e-mailed.`;
       return result.published ? `${approved} It is published on the post; rebuild or publish to update the live site.` : `${approved} ${result.publishError || ""}`.trim();
     }
     return result.published ? `Approved and published on ${where}. Rebuild or publish to update the live site.` : `Approved. ${result.publishError || ""}`.trim();
   }
+  if (action === "reject" && item.suggestion) return "Not taken forward. Nothing was published or e-mailed.";
+  if (action === "remove" && item.suggestion) return "Closed. It was never shown on the site, and nothing was e-mailed.";
   if (action === "reject") return "Rejected. Nothing was published.";
   if (action === "request-clarification") return "Asked the reader to clarify. Nothing was published or e-mailed.";
   if (action === "reopen") return `Reopened. It is ${result.item?.status === "clarification" ? "waiting for clarification" : "pending"} again.`;
@@ -609,6 +640,8 @@ export function moderationOutcome(item, action, result) {
  * unknown.
  */
 export function feedbackPublicationMismatch(item) {
+  // A suggestion for future work is never published, so there is nothing for the post to disagree with.
+  if (item.kind === "future-suggestion") return null;
   if (item.kind === "third-perspective") return perspectivePublicationMismatch(item);
   if (item.kind === "author-response") return answerPublicationMismatch(item);
   if (item.status === "approved" && item.published === false) return { notice: "Approved, but not on the site yet.", action: "publish", label: "Publish on the post" };
@@ -674,7 +707,7 @@ export function perspectiveAuditNotices(audit) {
 /** The retention dry run's summary, in words: what would expire or be purged, by kind. */
 export function retentionSummaryLines(report) {
   const lines = (report?.summary || []).map((entry) => {
-    const what = entry.step === "expire" ? "expire without a decision" : "have their text, details and names deleted";
+    const what = entry.step === "expire" ? "expire without a decision" : entry.step === "scrub-identity" ? "have their private contact and unshown name cleared, and nothing else" : "have their text, details and names deleted";
     return `${entry.count} ${entry.kindLabel.toLowerCase()} ${entry.count === 1 ? "item" : "items"} would ${what}.`;
   });
   const audit = Object.values(report?.audit || {}).reduce((total, count) => total + (Number(count) || 0), 0);
@@ -14623,6 +14656,18 @@ export class ObAdmin extends AdminElement {
           : null,
       );
     };
+    // A suggestion for future work (ADRs 0190 to 0195): the reader's own statements as plain text, what is
+    // still missing, what acceptance means, and, only for the site Admin, the contact the server sent.
+    const suggestionSection = (item) => h(
+      "div",
+      { class: "oba-feedback-passage oba-suggestion" },
+      h("h4", {}, "About this suggestion"),
+      ...suggestionLines(item.suggestion).map((line) => h("p", { class: line.link ? "oba-suggestion-link" : "" }, ...(line.link
+        ? [`${line.label}: `, h("a", { href: line.link, target: "_blank", rel: "noopener noreferrer nofollow" }, line.link), " (check it yourself: nothing fetched it for you)"]
+        : [line.text]))),
+      item.suggestion.contact ? h("p", { class: "oba-small oba-suggestion-contact" }, `Contact the reader agreed to: ${item.suggestion.contact}. Only you can see it, it is cleared automatically after a while, and this site never e-mails it.`) : null,
+      h("p", { class: "oba-small oba-suggestion-notice" }, item.suggestion.notice),
+    );
     const similarSection = (item) => {
       if (!item.similar?.length) return null;
       return h(
@@ -14784,12 +14829,13 @@ export class ObAdmin extends AdminElement {
         feedbackPassage(item.passage),
         item.purged ? h("p", { class: "oba-notice" }, "Its text, details and any name were deleted. Only the private record of decisions remains.") : null,
         item.report ? h("p", {}, h("strong", {}, "Ground: "), item.report.groundLabel) : null,
-        item.purged || (item.source === "report" && !item.body) ? null : h("h4", {}, item.source === "comment" ? "The comment" : item.source === "report" ? "What the reader wrote" : item.perspective ? "The reader’s reflection" : item.response ? "The author’s answer" : "The reader’s note"),
+        item.purged || (item.source === "report" && !item.body) ? null : h("h4", {}, item.source === "comment" ? "The comment" : item.source === "report" ? "What the reader wrote" : item.perspective ? "The reader’s reflection" : item.response ? "The author’s answer" : item.suggestion ? "The reader’s suggestion" : "The reader’s note"),
         item.purged || (item.source === "report" && !item.body) ? null : h("p", { class: "oba-feedback-body" }, item.body),
         item.source === "report" ? reportedItem(item.target) : null,
         item.details?.sourceUrl ? h("p", {}, "Suggested source: ", h("a", { href: item.details.sourceUrl, target: "_blank", rel: "noopener noreferrer nofollow" }, item.details.sourceUrl)) : null,
         item.details?.suggestedText ? h("div", {}, h("p", {}, "Suggested wording:"), h("blockquote", { class: "oba-feedback-body" }, item.details.suggestedText)) : null,
         item.perspective && !item.purged ? h("div", { class: "oba-feedback-passage" }, h("h4", {}, "About this reflection"), perspectiveLines(item).map((line) => h("p", {}, line))) : null,
+        item.suggestion && !item.purged ? suggestionSection(item) : null,
         item.response && !item.purged ? h("div", { class: "oba-feedback-passage" }, h("h4", {}, "About this answer"), answerLines(item).map((line) => h("p", {}, line))) : null,
         h("p", { class: "oba-small" }, moderationReaderLine(item.reader, item.source, item.kind)),
         feedbackPreview(item.publicPreview),
@@ -14949,6 +14995,26 @@ export class ObAdmin extends AdminElement {
             }
           } }, "Take my answer back")));
       }
+      if (item.suggestion?.export) {
+        // The author's own, explicit copy of an accepted suggestion into a private research note: labelled
+        // unverified reader text, no name, no contact, nothing fetched or published (ADR 0195).
+        const guidanceId = `oba-moderation-${key}-export-guidance`;
+        actions.append(h("div", { class: "oba-moderation-action", "data-export-suggestion": "" },
+          h("button", { class: "oba-btn", type: "button", "aria-describedby": guidanceId, onClick: async () => {
+            busy(true);
+            announce(line, "Copying into your research notebook…");
+            try {
+              const result = await this.api.call("POST", "engagement/suggestions/export", { json: { id: item.id, version: item.version } });
+              busy(false);
+              announce(line, `A private research note was made (${result.note.id}). Nothing was published, fetched or e-mailed, and the suggestion is unchanged.`, "ok");
+            } catch (error) {
+              busy(false);
+              announce(line, error.message, "error");
+              if (error.status === 409) await reloadAll(`${error.message} The list was reloaded.`, "error");
+            }
+          } }, item.suggestion.export.label),
+          h("p", { class: "oba-small oba-moderation-guidance", id: guidanceId }, item.suggestion.export.guidance)));
+      }
       const decision = decisionForm(item, key, line, busy);
       card.append(actions, ...(decision ? [decision] : []), line);
       return card;
@@ -15063,6 +15129,7 @@ export class ObAdmin extends AdminElement {
           try {
             const result = await this.api.call("POST", "engagement/retention", { json: { asOf: report.asOf, audit: auditBox.checked } });
             const parts = [`${result.expired} expired`, `${result.purged} purged`];
+            if (result.scrubbed) parts.push(`${result.scrubbed} had their private contact and name cleared`);
             if (result.auditDeleted) parts.push(`${result.auditDeleted} old records deleted`);
             if (result.skipped) parts.push(`${result.skipped} skipped because they changed or were not due`);
             retentionReport.replaceChildren();
@@ -15078,7 +15145,7 @@ export class ObAdmin extends AdminElement {
         retentionReport.replaceChildren(
           h("ul", {}, retentionSummaryLines(report).map((text) => h("li", {}, text))),
           report.items?.length ? h("details", {}, h("summary", {}, `The ${report.items.length} item${report.items.length === 1 ? "" : "s"} due`),
-            h("ul", {}, report.items.map((entry) => h("li", {}, `${entry.kindLabel}, ${entry.statusLabel.toLowerCase()} since ${formatWhen(entry.since)}, on ${entry.work}: ${entry.step === "expire" ? "expires" : "text deleted"}`)))) : null,
+            h("ul", {}, report.items.map((entry) => h("li", {}, `${entry.kindLabel}, ${entry.statusLabel.toLowerCase()} since ${formatWhen(entry.since)}, on ${entry.work}: ${entry.step === "expire" ? "expires" : entry.step === "scrub-identity" ? "contact and private name cleared" : "text deleted"}`)))) : null,
           due ? h("p", { class: "oba-feedback-acknowledge" }, confirmBox, " ", h("label", { for: "oba-retention-confirm" }, "I understand that purged text, details and names cannot be recovered.")) : null,
           due ? h("p", { class: "oba-feedback-acknowledge" }, auditBox, " ", h("label", { for: "oba-retention-audit" }, `Also delete private records of decisions older than ${report.periods.auditDays} days`)) : null,
           due ? run : null,

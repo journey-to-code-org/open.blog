@@ -484,8 +484,14 @@ pub fn published_mode(
 }
 
 /// Steps 2 and 3 of [`effective_mode`]: the kind's mode from the site and
-/// post settings alone.
-fn configured_mode(config: &SiteConfig, post: &Post, kind: ParticipationKind) -> ParticipationMode {
+/// post settings alone, whether or not there is a hosted transport. A page
+/// that offers a static way to take part without one (a contact link) reads
+/// this, never [`effective_mode`].
+pub fn configured_mode(
+    config: &SiteConfig,
+    post: &Post,
+    kind: ParticipationKind,
+) -> ParticipationMode {
     if kind == ParticipationKind::Comment {
         return if config.engagement.comments {
             post.comments.into()
@@ -510,7 +516,10 @@ fn configured_mode(config: &SiteConfig, post: &Post, kind: ParticipationKind) ->
 /// The public `openblog-participation.json` manifest: for each post, the
 /// kinds that are not hidden and their modes. Missing means hidden. `None`
 /// unless the site has a transport and switched on a kind beyond comments,
-/// so every other site's output is unchanged.
+/// so every other site's output is unchanged. It names every kind the site
+/// has switched on, `future-suggestion` among them (RD13): the hosted function
+/// accepts a suggestion only for a page whose entry says `open`, and the
+/// entry is a mode, never the suggestion or anything about a reader.
 pub fn manifest(site: &Site) -> Option<String> {
     let config = &site.config;
     if !transport_available(config) || !config.participation.any_enabled() {
