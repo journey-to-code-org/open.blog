@@ -17355,6 +17355,10 @@ mod tests {
         "claimstatement",
         "linkrationale",
         "ackpath",
+        "selectionreason",
+        "selectionunknown",
+        "selectionstaletext",
+        "selectionwithdrawntext",
     ];
     const PUBLICS: &[&str] = &[
         "passagewording",
@@ -17372,7 +17376,7 @@ mod tests {
     fn research_store_files(f: &Fixture) -> Vec<Vec<u8>> {
         openblog_core::publication_boundary::Store::ALL
             .iter()
-            .filter_map(|store| fs::read(f.dir.join(store.file())).ok())
+            .map(|store| fs::read(f.dir.join(store.file())).unwrap())
             .collect()
     }
 
@@ -17472,6 +17476,19 @@ mod tests {
                     "fingerprint": "0123456789abcdef0123456789abcdef"}
             ]}),
         );
+        write(
+            openblog_core::curated_selection::SELECTIONS_FILE,
+            json!({"version": 1, "selections": [
+                {"id": "annotation-stale", "kind": "source-annotation", "target": "slings",
+                    "revision": "0000000000000000", "fields": ["by", "text"],
+                    "by": "The author", "text": leak("selectionstaletext"),
+                    "shelf": leak("selectionunknown")},
+                {"id": "explanation-withdrawn", "kind": "explanation", "target": "plato-person",
+                    "revision": "0000000000000000", "fields": ["by", "text"], "state": "withdrawn",
+                    "by": "The author", "text": leak("selectionwithdrawntext"),
+                    "withdrawnReason": leak("selectionreason")}
+            ]}),
+        );
         fs::write(
             f.dir.join("content/posts/cave.md"),
             "---\ntitle: Cave\ndate: 2026-10-01\nprofile: research\ncitations: notes\n---\n\n## Abstract\n\nThe cave educates [@slings, page 514].\n\nSee [Plato](/atlas/plato-person/), [the Good](/atlas/the-good/) and [the places](/comparisons/cave-places/).\n\n## References\n",
@@ -17483,6 +17500,7 @@ mod tests {
         config["knowledgeAtlas"] = json!({"publish": true});
         config["comparisons"] = json!({"publish": true});
         config["claimEvidence"] = json!({"publish": true});
+        config["curatedContext"] = json!({"publish": true});
         fs::write(&config_path, config.to_string()).unwrap();
         f
     }
