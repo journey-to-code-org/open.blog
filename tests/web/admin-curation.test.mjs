@@ -488,3 +488,148 @@ test("the page ships the styles that keep the section inside 320 pixels", () => 
   assert.match(css, /\.oba-curation-exact pre \{[^}]*white-space: pre-wrap;[^}]*overflow-wrap: anywhere;/s);
   assert.match(css, /@media \(max-width: 24rem\)[^{]*\{[^}]*\.oba-curation-item \.oba-toolbar \.oba-btn/s);
 });
+
+// ---------------------------------------------------------------- review fixes for #196
+
+test("a conflict keeps what was typed in the half-filled form and reloads the list and preview", withDom(async () => {
+  const data = view();
+  const newer = structuredClone(data);
+  newer.revision = "8".repeat(64);
+  newer.preview.items = newer.preview.items.slice(1);
+  let conflict = true;
+  const api = server(data, (method, path) => {
+    if (method !== "POST") return null;
+    if (conflict) {
+      conflict = false;
+      api.state.view = newer;
+      return new ApiError("changed", 409, { conflict: true, revision: newer.revision });
+    }
+    return { ...newer, revision: "7".repeat(64), changed: "annotation-new" };
+  });
+  const { section, root } = await mount(api);
+  section.start({ kind: "reference", target: "scholar", label: "A study", opener: { focus() {} } });
+  const form = all(root, "form")[0];
+  form.querySelector("#oba-curation-form-origin-imported").checked = true;
+  form.querySelector("#oba-curation-form-origin-unrecorded").checked = false;
+  form.querySelector("#oba-curation-form-origin-from").value = "the library catalogue";
+  await form.dispatch("submit");
+  assert.match(alertText(root), /changed elsewhere since you read them/);
+  assert.equal(api.calls.filter((entry) => entry.method === "GET").length, 2, "the view was read again");
+  assert.deepEqual(previewed(root), newer.preview.items.map((item) => item.id), "the preview shows the newer view");
+  // The same form, with what was chosen, is still there.
+  const kept = all(root, "form")[0];
+  assert.equal(kept, form, "the form was not rebuilt");
+  assert.equal(kept.querySelector("#oba-curation-form-origin-imported").checked, true);
+  assert.equal(kept.querySelector("#oba-curation-form-origin-from").value, "the library catalogue");
+  // Choosing again sends the same values against the newer revision.
+  await kept.dispatch("submit");
+  const posts = api.calls.filter((entry) => entry.method === "POST");
+  assert.equal(posts[1].body.revision, newer.revision);
+  assert.deepEqual(posts[1].body.selection.provenance, { origin: "imported", from: "the library catalogue" });
+}));
+
+test("a conflict also keeps a comment text, who it is by and where it applies", withDom(async () => {
+  const data = view();
+  const newer = structuredClone(data);
+  newer.revision = "6".repeat(64);
+  const api = server(data, (method) => {
+    if (method !== "POST") return null;
+    api.state.view = newer;
+    return new ApiError("changed", 409, { conflict: true, revision: newer.revision });
+  });
+  const { section, root } = await mount(api);
+  section.start({ kind: "source-annotation", target: "burnet", label: "Platonis Opera" });
+  const form = all(root, "form")[0];
+  form.querySelector("#oba-curation-form-text").value = "A long comment I would hate to retype.";
+  form.querySelector("#oba-curation-form-by").value = "The author";
+  form.querySelector("#oba-curation-form-locator").value = "514a";
+  form.querySelector("#oba-curation-form-site").checked = true;
+  await form.dispatch("submit");
+  const kept = all(root, "form")[0];
+  assert.equal(kept.querySelector("#oba-curation-form-text").value, "A long comment I would hate to retype.");
+  assert.equal(kept.querySelector("#oba-curation-form-by").value, "The author");
+  assert.equal(kept.querySelector("#oba-curation-form-locator").value, "514a");
+  assert.equal(kept.querySelector("#oba-curation-form-site").checked, true);
+}));
+
+test("Escape in the unselect confirmation and in the new-selection form closes only that, never the panel", withDom(async () => {
+  const api = server();
+  const { section, root } = await mount(api);
+  const name = "Atlas entry: Plato";
+  await click(named(root, `Unselect ${name}`));
+  const confirm = all(root, "div").find((node) => node.dataset.curationConfirmForm === "unselect");
+  let stopped = 0;
+  await confirm.dispatch("keydown", { key: "Escape", stopPropagation() { stopped += 1; } });
+  assert.equal(stopped, 1, "the event went no further");
+  assert.ok(!all(root, "div").some((node) => node.dataset.curationConfirmForm === "unselect"), "the confirmation closed");
+  assert.equal(document.activeElement.getAttribute("aria-label"), `Unselect ${name}`, "focus is back on the control");
+  // Another key does nothing.
+  await click(named(root, `Unselect ${name}`));
+  await all(root, "div").find((node) => node.dataset.curationConfirmForm === "unselect").dispatch("keydown", { key: "a", stopPropagation() { stopped += 1; } });
+  assert.equal(stopped, 1);
+  // The new-selection form.
+  const opener = { focus() { document.activeElement = this; } };
+  section.start({ kind: "reference", target: "scholar", label: "A study", opener });
+  await all(root, "form")[0].dispatch("keydown", { key: "Escape", stopPropagation() { stopped += 1; } });
+  assert.equal(stopped, 2);
+  assert.equal(all(root, "form").length, 0, "the form closed");
+  assert.equal(document.activeElement, opener);
+  assert.equal(api.calls.filter((entry) => entry.method !== "GET").length, 0, "nothing was sent");
+}));
+
+test("a draft's own selections are labelled as for when the post is published, and can still be ordered", withDom(async () => {
+  const data = view();
+  data.whenPublished = true;
+  const { root } = await mount(server(data));
+  assert.match(text(root), /This post is not published yet\. Its selections are shown as they will be when this post is published/);
+  assert.match(text(all(root, "h5").find((node) => /^What readers of this post get/.test(node.textContent))), /when this post is published$/);
+  assert.match(text(itemNode(root, "entry-plato")), /Published with this post/);
+  assert.equal(named(root, "Move Relationship: Plato authored Republic down").disabled, false, "ordering is allowed");
+}));
+
+test("a published post is not labelled as unpublished", withDom(async () => {
+  const { root } = await mount(server());
+  assert.doesNotMatch(text(root), /not published yet/);
+  assert.match(text(all(root, "h5").find((node) => /^What readers of this post get/.test(node.textContent))), /^What readers of this post get$/);
+}));
+
+test("the section reads its view again when the post address changes, and never changes another post", withDom(async () => {
+  let slug = "cave";
+  const data = view();
+  const api = server(data, () => null);
+  const section = createCurationSection({ api, getPost: () => slug });
+  document.body.append(section.element);
+  await section.load();
+  assert.equal(api.calls.filter((entry) => entry.method === "GET").length, 1);
+  await section.sync();
+  assert.equal(api.calls.filter((entry) => entry.method === "GET").length, 1, "nothing to do while the address is the same");
+  slug = "the-cave";
+  const other = structuredClone(data);
+  other.post = "the-cave";
+  api.state.view = other;
+  await section.sync();
+  assert.equal(api.calls.filter((entry) => entry.method === "GET").at(-1).path, "research/curation?post=the-cave");
+  slug = "renamed-again";
+  // A change made before it is reread is refused locally and sends nothing.
+  await click(named(section.element, "Move Relationship: Plato authored Republic down"));
+  assert.equal(api.calls.filter((entry) => entry.method !== "GET").length, 0);
+  assert.match(alertText(section.element), /address changed since you read its selections/);
+}));
+
+test("the research panel redraws an open item when the selections load or change", withDom(async () => {
+  const api = panelServer();
+  const panel = createDraftResearchPanel({ api, insert: () => "", getPost: () => "cave" });
+  document.body.append(panel.element);
+  await panel.load();
+  const open = (key) => all(panel.element, "button").find((node) => node.dataset.draftItem === key).dispatch("click");
+  await open("atlas:plato");
+  const selectedLine = () => panel.element.querySelector("[data-draft-research-selected]");
+  assert.match(text(selectedLine()), /Already selected for readers: .*Atlas entry: Plato/, "selected as the view loaded");
+  // The view changes (here, reloaded without the selection): the open item follows it.
+  const fewer = view();
+  fewer.selections = fewer.selections.filter((selection) => selection.target !== "plato");
+  const original = api.call.bind(api);
+  api.call = async (method, path, options) => (method === "GET" && path.startsWith("research/curation") ? structuredClone(fewer) : original(method, path, options));
+  await panel.curation.load();
+  assert.doesNotMatch(text(selectedLine()), /Atlas entry: Plato/, "the line follows the selections");
+}));

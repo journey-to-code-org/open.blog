@@ -2187,7 +2187,8 @@ export function createDraftResearchPanel({ api, insert, onClose, onClaim, onClai
   const close = h("button", { class: "oba-btn", type: "button", "aria-label": "Close the research panel", "data-draft-research-close": "true", onClick: () => onClose?.() }, "Close");
   const checksLine = h("p", { class: "oba-small", id: `${idPrefix}-checks-line`, role: "status", "aria-live": "polite", "data-draft-research-checks-line": "true" });
   // What readers are given beside this post lives in this panel, not in a second one (#196).
-  const curation = createCurationSection({ api, getPost, onSessionEnded, idPrefix: `${idPrefix}-curation` });
+  // A change to the selections (loaded, or made here) redraws the open item, so its "already selected" line never goes stale.
+  const curation = createCurationSection({ api, getPost, onSessionEnded, idPrefix: `${idPrefix}-curation`, onChange: () => { if (data && selected) open(selected.type, selected.id, false); } });
 
   const sources = () => (Array.isArray(data?.library?.sources) ? data.library.sources : []);
   const sourceById = (id) => sources().find((source) => source.id === id) || null;
@@ -2763,7 +2764,7 @@ export function curationPostSlug(value) {
  * change names the revision it was based on, so a change made elsewhere is a conflict that
  * reloads and writes nothing. Nothing here touches the draft or the research itself.
  */
-export function createCurationSection({ api, getPost = () => "", onSessionEnded, idPrefix = "oba-curation" }) {
+export function createCurationSection({ api, getPost = () => "", onSessionEnded, onChange, idPrefix = "oba-curation" }) {
   let view = null;
   let busy = false;
   let draft = null; // { kind, target, label } while the author is choosing fields
@@ -2787,6 +2788,8 @@ export function createCurationSection({ api, getPost = () => "", onSessionEnded,
     problem.textContent = "";
   };
   const post = () => curationPostSlug(getPost());
+  /** Whether the view on screen was read for another post than the one being edited now. */
+  const outdated = () => (view?.post || "") !== post();
   const selections = () => (Array.isArray(view?.selections) ? view.selections : []);
   const applies = (selection) => selection.appliesToPost !== false;
   const orderedIds = () => (Array.isArray(view?.preview?.items) ? view.preview.items.map((item) => item.id) : []);
@@ -2814,6 +2817,12 @@ export function createCurationSection({ api, getPost = () => "", onSessionEnded,
   /** One request. A conflict reloads and changes nothing; a refusal stays with this section. */
   const send = async (method, path, body, done, after) => {
     if (busy) return false;
+    if (outdated()) {
+      // The post's address changed since this was read: reread rather than change another post's selections.
+      await load();
+      fail("This post's address changed since you read its selections. They are reloaded; nothing was changed. Choose again.");
+      return false;
+    }
     busy = true;
     clearProblem();
     try {
@@ -2822,6 +2831,7 @@ export function createCurationSection({ api, getPost = () => "", onSessionEnded,
       draft = null;
       open = null;
       render();
+      onChange?.();
       say(typeof done === "function" ? done(result) : done);
       if (after) focusLater(after(result));
       return true;
@@ -2859,8 +2869,13 @@ export function createCurationSection({ api, getPost = () => "", onSessionEnded,
       return;
     }
     form.hidden = false;
-    const info = kindInfo(draft.kind) || { required: [], optional: [], text: false };
     const slug = post();
+    // A reload (after a conflict, say) keeps the form as the author filled it; only a change of the post's address rebuilds it.
+    if (draft.element && draft.slug === slug) {
+      form.replaceChildren(draft.element);
+      return;
+    }
+    const info = kindInfo(draft.kind) || { required: [], optional: [], text: false };
     const name = `${idPrefix}-form`;
     const scope = h(
       "fieldset",
@@ -2931,9 +2946,21 @@ export function createCurationSection({ api, getPost = () => "", onSessionEnded,
           if (element.querySelector(`#${name}-origin-imported`)?.checked) selection.provenance = { origin: "imported", from: element.querySelector(`#${name}-origin-from`).value };
           else if (element.querySelector(`#${name}-origin-authored`)?.checked) selection.provenance = { origin: "authored" };
         }
-        await send("POST", "/selections", { selection }, (result) => `Selected ${draft ? "" : ""}${curationSelectionName(byId(result.changed) || selection)} for readers. It is published only as the build publishes what it selects.`, (result) => `item:${result.changed}`);
+        await send("POST", "/selections", { selection }, (result) => `Selected ${curationSelectionName(byId(result.changed) || selection)} for readers. It is published only as the build publishes what it selects.`, (result) => `item:${result.changed}`);
       })();
     });
+    // Escape closes this form alone, never the research panel around it.
+    element.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      const opener = draft?.opener;
+      draft = null;
+      render();
+      say("Nothing was selected.");
+      opener?.focus?.();
+    });
+    draft.element = element;
+    draft.slug = slug;
     form.replaceChildren(element);
   };
 
@@ -3025,11 +3052,18 @@ export function createCurationSection({ api, getPost = () => "", onSessionEnded,
           focusLater(`unselect:${selection.id}`);
         })),
       );
+      confirm.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        event.stopPropagation();
+        open = null;
+        render();
+        focusLater(`unselect:${selection.id}`);
+      });
     }
     return h(
       "li",
       { class: "oba-curation-item", "data-curation-item": selection.id, "data-curation-status": selection.status, ...(selection.why ? { "data-curation-why": selection.why } : {}) },
-      h("p", {}, h("span", { class: "oba-visibility", "data-visibility": published ? "publishable" : "private" }, published ? "Published" : "Withheld"), " ", h("strong", {}, h("bdi", {}, name))),
+      h("p", {}, h("span", { class: "oba-visibility", "data-visibility": published ? "publishable" : "private" }, published ? (view?.whenPublished ? "Published with this post" : "Published") : "Withheld"), " ", h("strong", {}, h("bdi", {}, name))),
       published && ordered.length && post() && applies(selection) ? h("p", { class: "oba-small" }, `Place ${at + 1} of ${ordered.length} for this post.`) : null,
       h("p", { class: "oba-small" }, curationStatusText(selection)),
       h("p", { class: "oba-small" }, selection.posts ? `Offered to: ${selection.posts.join(", ")}.` : "Offered to every post on the site."),
@@ -3052,6 +3086,7 @@ export function createCurationSection({ api, getPost = () => "", onSessionEnded,
     const live = mine.filter((selection) => selection.status === "published");
     const held = mine.filter((selection) => selection.status !== "published");
     const parts = [];
+    if (view.whenPublished) parts.push(h("p", { class: "oba-notice", "data-curation-when-published": "true" }, "This post is not published yet. Its selections are shown as they will be when this post is published; the build gives readers none of them until then."));
     parts.push(
       remember("given-title", h("h5", { id: `${idPrefix}-given`, tabindex: "-1", "data-curation-title": "true" }, `Given to readers (${live.length})`)),
       live.length
@@ -3087,7 +3122,7 @@ export function createCurationSection({ api, getPost = () => "", onSessionEnded,
     const context = Array.isArray(view.preview?.context) ? view.preview.context : [];
     const slug = post();
     preview.replaceChildren(
-      h("h5", { id: `${idPrefix}-preview` }, slug ? "What readers of this post get" : "What readers get"),
+      h("h5", { id: `${idPrefix}-preview` }, slug ? (view.whenPublished ? "What readers of this post get when this post is published" : "What readers of this post get") : "What readers get"),
       h("p", { class: "oba-small", "data-curation-preview-note": "true" }, "This is exactly the public value readers' pages are built from: only the fields you listed, with the attribution, doubt and evidence that always travel with them. It adds nothing you did not select."),
       items.length
         ? h(
@@ -3132,6 +3167,7 @@ export function createCurationSection({ api, getPost = () => "", onSessionEnded,
     try {
       view = await api.call("GET", `research/curation${slug ? `?post=${encodeURIComponent(slug)}` : ""}`);
       render();
+      onChange?.();
       const given = orderedIds().length;
       say(`${selections().filter(applies).length} selection${selections().filter(applies).length === 1 ? "" : "s"} for this post, ${given} given to readers.`);
     } catch (error) {
@@ -3141,6 +3177,7 @@ export function createCurationSection({ api, getPost = () => "", onSessionEnded,
       }
       view = null;
       render();
+      onChange?.();
       say(`Your selections could not be read. ${error?.data?.error || error?.message || ""} Nothing was changed.`.trim());
     }
   };
@@ -3148,6 +3185,7 @@ export function createCurationSection({ api, getPost = () => "", onSessionEnded,
   /** Open the form to select one public item; the item says what it is. */
   const start = ({ kind, target, label, opener = null }) => {
     clearProblem();
+    if (view && outdated()) void load();
     draft = { kind, target, label, opener };
     render();
     focusLater("form-title");
@@ -3161,7 +3199,11 @@ export function createCurationSection({ api, getPost = () => "", onSessionEnded,
   const relationshipsAbout = (entryId) => (Array.isArray(view?.candidates?.relationships) ? view.candidates.relationships.filter((candidate) => candidate.about?.includes(entryId)) : []);
   const isCandidate = (list, id) => Array.isArray(view?.candidates?.[list]) && view.candidates[list].some((candidate) => candidate.id === id);
 
-  return { element: root, load, start, selectedFor, relationshipsAbout, isCandidate, view: () => view };
+  /** Read the view again when the post's address is no longer the one it was read for. */
+  const sync = () => (outdated() && !busy ? load() : Promise.resolve());
+  root.addEventListener("focusin", () => void sync());
+
+  return { element: root, load, sync, start, selectedFor, relationshipsAbout, isCandidate, view: () => view };
 }
 
 /** Child indexes from `root` down to `node`, so a caret can be found again in a restored copy of the editor. */

@@ -79,6 +79,7 @@ const reset = () => {
   writeFileSync(research("alignments.json"), JSON.stringify(ALIGNMENTS));
   rmSync(selectionsPath(), { force: true });
   writeFileSync(post("cave.md"), POST);
+  rmSync(post("wip.md"), { force: true });
 };
 
 test.beforeAll(async () => {
@@ -416,3 +417,121 @@ for (const [name, setup] of [
     }
   });
 }
+
+// ---------------------------------------------------------------- review fixes for #196
+
+const WIP = "---\ntitle: Wip\ndate: 2026-10-02\nprofile: research\ncitations: notes\ndraft: true\n---\n\n## Abstract\n\nAn unfinished thought [@slings, page 514].\n\n## References\n";
+
+async function openPost(page, slug, title) {
+  await signIn(page);
+  await page.goto(`${origin}/admin/#/edit/posts%2F${slug}.md`);
+  await expect(page.getByRole("textbox", { name: "Title", exact: true })).toHaveValue(title);
+  await page.getByRole("button", { name: "Research", exact: true }).click();
+  await expect(panel(page)).toBeVisible();
+  await expect(curation(page).locator("[data-curation-status]")).toContainText(/selections? for this post/);
+}
+
+test("a draft previews and orders its own selections as they will be when it is published, while the build publishes none of them", async ({ page }) => {
+  writeFileSync(post("wip.md"), WIP);
+  try {
+    await openPost(page, "wip", "Wip");
+    await expect(curation(page).locator("[data-curation-when-published]")).toContainText("This post is not published yet");
+    await selectEntry(page);
+    await expect(given(page)).toHaveCount(1);
+    await sourceItem(page, "comparison:cave-places").click();
+    await panel(page).getByRole("button", { name: "Select this comparison for readers" }).click();
+    await curation(page).locator("form.oba-curation-new").getByRole("button", { name: "Select for readers" }).click();
+    await expect(given(page)).toHaveCount(2);
+    await expect(curation(page).getByRole("heading", { level: 5, name: "What readers of this post get when this post is published" })).toBeVisible();
+    await expect(curation(page).locator("[data-curation-preview] li[data-curation-previewed]")).toHaveCount(2);
+    await expect(given(page).first()).toContainText("Published with this post");
+    // Ordering works there, from the keyboard.
+    const first = await given(page).first().getAttribute("data-curation-item");
+    const down = given(page).first().getByRole("button", { name: /^Move .* down$/ });
+    await down.focus();
+    await page.keyboard.press("Enter");
+    await expect(status(page)).toContainText("is now 2 of 2.");
+    await expect(given(page).last()).toHaveAttribute("data-curation-item", first);
+    const served = await view(page, "wip");
+    expect(served.json.whenPublished).toBe(true);
+    expect(served.json.preview.items.at(-1).id).toBe(first);
+    // The build's rule is unchanged: a post that is not published is given nothing.
+    const out = join(root, "dist-wip");
+    const built = spawnSync(binary, ["build", "--root", root, "--out", out], { encoding: "utf8" });
+    expect(built.status).toBe(0);
+    const stored = JSON.parse(readFileSync(selectionsPath(), "utf8"));
+    expect(stored.selections.find((s) => s.id === first).positions).toEqual({ wip: 2 });
+    rmSync(out, { recursive: true, force: true });
+    // A published post is not labelled so.
+    await page.goto(`${origin}/admin/#/edit/posts%2Fcave.md`);
+    await expect(page.getByRole("textbox", { name: "Title", exact: true })).toHaveValue("Cave");
+    await expect(curation(page).locator("[data-curation-when-published]")).toHaveCount(0);
+  } finally {
+    rmSync(post("wip.md"), { force: true });
+  }
+});
+
+test("a conflict keeps the half-filled form: the comment, who it is by and where it applies", async ({ page }) => {
+  await openCave(page);
+  await sourceItem(page, "source:slings").click();
+  await panel(page).getByRole("button", { name: "Add my comment on this source for readers" }).click();
+  const form = curation(page).locator("form.oba-curation-new");
+  await form.getByLabel("Your words").fill("A careful comment I would hate to retype.");
+  await form.getByLabel("Who the words are attributed to").fill("The author");
+  await form.getByLabel("Where in the source it applies (optional)").fill("514a");
+  // Someone else changes the selections first.
+  const csrf = await page.evaluate(async () => (await (await fetch("/admin/api/session")).json()).csrf);
+  const current = await view(page);
+  const theirs = await page.request.post(`${origin}/admin/api/research/curation/selections`, {
+    headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
+    data: { revision: current.json.revision, post: "cave", selection: { kind: "contextual-entry", target: "politeia", posts: ["cave"] } },
+  });
+  expect(theirs.status()).toBe(201);
+  await form.getByRole("button", { name: "Select for readers" }).click();
+  await expect(curation(page).locator("[data-curation-error]")).toContainText("changed elsewhere since you read them");
+  // The list and the preview are the newer ones, and the form still holds every value.
+  await expect(given(page)).toHaveCount(1);
+  await expect(curation(page).locator("[data-curation-preview] li[data-curation-previewed]")).toHaveCount(1);
+  await expect(form.getByLabel("Your words")).toHaveValue("A careful comment I would hate to retype.");
+  await expect(form.getByLabel("Who the words are attributed to")).toHaveValue("The author");
+  await expect(form.getByLabel("Where in the source it applies (optional)")).toHaveValue("514a");
+  // Choosing again, now against the newer revision, saves it as typed.
+  await form.getByRole("button", { name: "Select for readers" }).click();
+  await expect(given(page)).toHaveCount(2);
+  const stored = JSON.parse(readFileSync(selectionsPath(), "utf8"));
+  expect(stored.selections.some((s) => s.text === "A careful comment I would hate to retype." && s.by === "The author" && s.locator === "514a")).toBe(true);
+});
+
+test("Escape closes the unselect confirmation or the new-selection form and leaves the research panel open", async ({ page }) => {
+  await openCave(page);
+  await selectEntry(page);
+  await expect(given(page)).toHaveCount(1);
+  const id = await given(page).first().getAttribute("data-curation-item");
+  await row(page, id).getByRole("button", { name: /^Unselect/ }).click();
+  await expect(row(page, id)).toContainText("The research it selects is not changed.");
+  await row(page, id).getByRole("button", { name: "Unselect", exact: true }).focus();
+  await page.keyboard.press("Escape");
+  await expect(row(page, id)).not.toContainText("The research it selects is not changed.");
+  await expect(panel(page)).toBeVisible();
+  await expect(row(page, id).getByRole("button", { name: /^Unselect/ })).toBeFocused();
+  // The new-selection form.
+  await sourceItem(page, "comparison:cave-places").click();
+  await panel(page).getByRole("button", { name: "Select this comparison for readers" }).click();
+  const form = curation(page).locator("form.oba-curation-new");
+  await expect(form).toBeVisible();
+  await expect(form.getByRole("heading", { name: /^Select for readers/ })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(form).toHaveCount(0);
+  await expect(panel(page)).toBeVisible();
+  await expect(given(page)).toHaveCount(1);
+});
+
+test("an open item shows the selection made from it without reopening it", async ({ page }) => {
+  await openCave(page);
+  await sourceItem(page, "atlas:plato-person").click();
+  await expect(panel(page).locator("[data-draft-research-selected]")).toHaveCount(0);
+  await panel(page).getByRole("button", { name: "Select this entry for readers" }).click();
+  await curation(page).locator("form.oba-curation-new").getByRole("button", { name: "Select for readers" }).click();
+  await expect(given(page)).toHaveCount(1);
+  await expect(panel(page).locator("[data-draft-research-selected]")).toContainText("Atlas entry: Plato");
+});
