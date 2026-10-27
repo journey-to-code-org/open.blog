@@ -83,9 +83,11 @@ pub const MAX_SUBMISSION_BYTES: usize = 12 * 1024;
 pub const MAX_JSON_BYTES: usize = 16 * 1024;
 /// The most a suggestion's stored `details` may measure, as Postgres measures
 /// them (`octet_length(details::text)`: jsonb text puts one space after every
-/// `:` and `,`). It is below the 16 KiB of the column's check, so a link that
-/// percent-encoding made longer can never make the insert fail.
-pub const MAX_STORED_DETAILS_BYTES: usize = 15 * 1024;
+/// `:` and `,`). It is below the 16 KiB of the column's check by the room
+/// [`MAX_CONVERSIONS`] links at their largest need (about 5 KiB), so neither a
+/// link that percent-encoding made longer nor an author's links can ever make
+/// a write fail (ADR 0210).
+pub const MAX_STORED_DETAILS_BYTES: usize = 11 * 1024;
 /// The most conversion references one suggestion keeps.
 pub const MAX_CONVERSIONS: usize = 8;
 /// The longest admin account name a conversion records.
@@ -765,6 +767,10 @@ pub struct Suggestion {
     pub submission: Submission,
     pub receipt: Receipt,
     pub revision: u32,
+    /// What an author has linked this suggestion to (ADR 0195), newest last.
+    /// Kept in the row's `details` beside the suggestion, holding nothing of
+    /// the reader, and never part of what the reader sent.
+    pub conversions: Vec<Conversion>,
 }
 
 impl Suggestion {
@@ -785,6 +791,7 @@ impl Suggestion {
             submission,
             receipt,
             revision: 1,
+            conversions: Vec::new(),
         })
     }
 
@@ -848,6 +855,10 @@ impl Suggestion {
         let receipt = object
             .remove("receipt")
             .ok_or_else(|| malformed("a suggestion record needs a `receipt`"))?;
+        let conversions = match object.remove("conversions") {
+            None => Vec::new(),
+            Some(value) => read_conversions(&value)?,
+        };
         let revision = object
             .remove("revision")
             .and_then(|revision| revision.as_u64())
@@ -858,6 +869,7 @@ impl Suggestion {
             submission: Submission::from_value(&value)?,
             receipt: Receipt::from_value(&receipt)?,
             revision,
+            conversions,
         })
     }
 
@@ -868,11 +880,14 @@ impl Suggestion {
         let object = value.as_object_mut().expect("a submission is an object");
         object.insert("receipt".into(), self.receipt.to_value());
         object.insert("revision".into(), self.revision.into());
+        if !self.conversions.is_empty() {
+            object.insert("conversions".into(), conversions_value(&self.conversions));
+        }
         value.to_string()
     }
 
     /// What one `openblog_feedback` row keeps in `details` (ADR 0192):
-    /// `{type, url?, hints?, about?, contact?}`. The text is the row's `body`,
+    /// `{type, url?, hints?, about?, contact?, conversions?}`. The text is the row's `body`,
     /// its revision `item_revision`, the page `work` (with no passage
     /// `revision` or `target`: the one hosted schema change is the loosened
     /// check that allows that), the receipt time `received_at` and the
@@ -881,11 +896,14 @@ impl Suggestion {
         let mut object = Map::new();
         object.insert("type".into(), self.submission.suggestion_type.id().into());
         object.extend(self.submission.details());
+        if !self.conversions.is_empty() {
+            object.insert("conversions".into(), conversions_value(&self.conversions));
+        }
         Value::Object(object)
     }
 
     /// Read a suggestion back from the parts of a stored row. `details` is
-    /// read as exactly `{type, url?, hints?, about?, contact?}`: a field of
+    /// read as exactly `{type, url?, hints?, about?, contact?, conversions?}`: a field of
     /// any other shape or name, the reader's text or name among them, is
     /// refused, never read as part of the suggestion.
     pub fn from_stored(
@@ -898,7 +916,7 @@ impl Suggestion {
         let invalid = || {
             SuggestionError::new(
                 ErrorCode::InvalidDetails,
-                "stored details are `{type, url?, hints?, about?, contact?}` and nothing else",
+                "stored details are `{type, url?, hints?, about?, contact?, conversions?}` and nothing else",
             )
         };
         let details: StoredDetails =
@@ -926,6 +944,9 @@ impl Suggestion {
         }
         record.insert("receipt".into(), receipt.clone());
         record.insert("revision".into(), revision.into());
+        if let Some(conversions) = details.conversions {
+            record.insert("conversions".into(), conversions);
+        }
         Suggestion::from_json(&Value::Object(record).to_string())
     }
 
@@ -1001,6 +1022,35 @@ struct StoredDetails {
     about: Option<Value>,
     #[serde(default)]
     contact: Option<Value>,
+    #[serde(default)]
+    conversions: Option<Value>,
+}
+
+/// The stored list of what a suggestion was linked to: at most
+/// [`MAX_CONVERSIONS`], each valid, none twice, and not an empty list (an
+/// unlinked suggestion has no field at all).
+fn read_conversions(value: &Value) -> Result<Vec<Conversion>, SuggestionError> {
+    let invalid = |message: &str| SuggestionError::new(ErrorCode::InvalidDetails, message);
+    let items = value
+        .as_array()
+        .filter(|items| (1..=MAX_CONVERSIONS).contains(&items.len()))
+        .ok_or_else(|| invalid("`conversions` is one to eight links"))?;
+    let mut links: Vec<Conversion> = Vec::with_capacity(items.len());
+    for item in items {
+        let link = Conversion::from_value(item)?;
+        if links
+            .iter()
+            .any(|seen| seen.kind == link.kind && seen.id == link.id)
+        {
+            return Err(invalid("a suggestion is linked to one target only once"));
+        }
+        links.push(link);
+    }
+    Ok(links)
+}
+
+fn conversions_value(conversions: &[Conversion]) -> Value {
+    Value::Array(conversions.iter().map(Conversion::to_value).collect())
 }
 
 /// Whether a kept suggestion owes the clearing of its private identity now:
@@ -1277,6 +1327,102 @@ impl Standing {
     }
 }
 
+/// What the reader's receipt says about a link between their suggestion and
+/// work the editors are doing. It is not a promise.
+pub const LINK_NOTICE: &str = "An editor has recorded a link between it and work they are doing. That is a record, not a promise to publish, and it says nothing about who is right.";
+
+/// What it says when the editors did not take a suggestion forward.
+pub const DECLINE_NOTICE: &str = "Not taking an idea forward is about this site's plans. It is not a judgement of the idea or of you.";
+
+impl Standing {
+    /// What a reader's receipt says about their own suggestion, beyond the
+    /// stage's label: the one honest sentence, in the words of
+    /// [`ACCEPTANCE_NOTICE`]. It never ranks, counts or compares, never says
+    /// the suggestion was checked, endorsed or will be published, and never
+    /// names what it was linked to.
+    pub fn reader_note(self) -> Option<&'static str> {
+        match self {
+            Standing::Received | Standing::NeedsClarification | Standing::Withdrawn => None,
+            Standing::Interested => Some(ACCEPTANCE_NOTICE),
+            Standing::Converted | Standing::ClosedConverted => Some(LINK_NOTICE),
+            Standing::Declined => Some(DECLINE_NOTICE),
+        }
+    }
+
+    /// Whether the receipt adds [`ACCEPTANCE_NOTICE`] to the stage: every
+    /// stage in which the editors showed interest.
+    pub fn shows_acceptance_notice(self) -> bool {
+        matches!(
+            self,
+            Standing::Interested | Standing::Converted | Standing::ClosedConverted
+        )
+    }
+}
+
+/// How the editors have dealt with a suggestion, once they have: the four
+/// outcomes an editor records. Derived from the moderation state and the
+/// recorded links, never stored as a state of its own; every change of state
+/// is already in the private audit trail, and so is every link.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Outcome {
+    /// Accepted and kept, not yet linked to anything.
+    Held,
+    /// Linked to future work an author made from it, whether or not it has
+    /// since been closed: the idea was used and the link stays.
+    Converted,
+    /// Not taken forward: rejected before it was accepted, or expired
+    /// unanswered.
+    Declined,
+    /// Accepted once, then removed by the editors without ever being linked:
+    /// the moderation machine removes only what was approved, so removal is
+    /// a close, not a decline.
+    Closed,
+}
+
+impl Outcome {
+    pub const ALL: [Outcome; 4] = [
+        Outcome::Held,
+        Outcome::Converted,
+        Outcome::Declined,
+        Outcome::Closed,
+    ];
+
+    /// The outcome a suggestion has now, or `None` while it is still
+    /// undecided (received, waiting for the reader) or was withdrawn by the
+    /// reader, which is theirs and not an editorial outcome.
+    pub fn of(state: ModerationState, conversions: &[Conversion]) -> Option<Self> {
+        match state {
+            ModerationState::Pending
+            | ModerationState::Clarification
+            | ModerationState::Withdrawn => None,
+            ModerationState::Approved if conversions.is_empty() => Some(Outcome::Held),
+            ModerationState::Approved => Some(Outcome::Converted),
+            ModerationState::Removed if !conversions.is_empty() => Some(Outcome::Converted),
+            ModerationState::Removed => Some(Outcome::Closed),
+            ModerationState::Rejected => Some(Outcome::Declined),
+        }
+    }
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Outcome::Held => "held",
+            Outcome::Converted => "converted",
+            Outcome::Declined => "declined",
+            Outcome::Closed => "closed",
+        }
+    }
+
+    /// A word for the stage, never a verdict.
+    pub fn label(self) -> &'static str {
+        match self {
+            Outcome::Held => "Held",
+            Outcome::Converted => "Converted",
+            Outcome::Declined => "Declined",
+            Outcome::Closed => "Closed",
+        }
+    }
+}
+
 /// Whether `id` can name what a conversion of `kind` points at: a draft or a
 /// series by its slug as the site writes slugs ([`valid_slug`]), a library
 /// source by its source id, which the Source Library keeps lowercase ASCII.
@@ -1481,6 +1627,35 @@ pub fn convert(
         at,
         by: by.to_string(),
     })
+}
+
+impl Suggestion {
+    /// The suggestion with one more link recorded: the author's explicit act,
+    /// decided by [`convert`] (the same actors, the same accepted suggestions).
+    /// It creates nothing and sends nothing; the caller stores the result.
+    pub fn linked(
+        &self,
+        actor: &Actor<'_>,
+        item: &ItemFacts<'_>,
+        kind: ConversionKind,
+        target: &str,
+        at: DateTime,
+    ) -> Result<Self, ConversionError> {
+        let link = convert(actor, item, &self.conversions, kind, target, at)?;
+        let mut next = self.clone();
+        next.conversions.push(link);
+        Ok(next)
+    }
+
+    /// The outcome now, from the moderation state and the recorded links.
+    pub fn outcome(&self, state: ModerationState) -> Option<Outcome> {
+        Outcome::of(state, &self.conversions)
+    }
+
+    /// The reader-facing standing now.
+    pub fn standing(&self, state: ModerationState) -> Standing {
+        Standing::of(state, &self.conversions)
+    }
 }
 
 /// What an author may copy into a private research note by their own explicit

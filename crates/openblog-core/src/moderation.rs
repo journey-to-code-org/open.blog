@@ -741,6 +741,10 @@ pub enum AuditAction {
     /// Retention cleared a kept editorial item's private contact and
     /// unpublished name and nothing else (ADR 0193).
     ScrubIdentity,
+    /// An author linked an accepted suggestion for future work to something
+    /// they made from it (ADR 0210). The item's state is unchanged, so the
+    /// event's `from` and `to` are the same state; it holds no link target.
+    Convert,
     /// The author recorded a correction decision on an evidence submission
     /// (ADR 0117). It is not a moderation action: the item's state, version
     /// and approval are unchanged, so the event's `from` and `to` are the
@@ -755,6 +759,7 @@ impl AuditAction {
             AuditAction::Moderate(action) => action.id(),
             AuditAction::PurgeContent => "purge-content",
             AuditAction::ScrubIdentity => "scrub-identity",
+            AuditAction::Convert => "convert",
             AuditAction::Decide => "decide",
         }
     }

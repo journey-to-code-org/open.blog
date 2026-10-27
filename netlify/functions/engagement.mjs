@@ -2,7 +2,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { FEEDBACK_KINDS, canonicalTime, readFeedbackSubmissionJson, readSubmissionJson, receiveFeedback } from "../../web/components/passage-feedback.js";
 import { AUTHOR_RESPONSE_KIND, PARENT_UNAVAILABLE, checkAnswerParent, mayDecideResponse, parentFactsOfRow, readAuthorResponseRequest, receiveAuthorResponse } from "../lib/author-response.mjs";
 import { EVIDENCE_KINDS, decisionsOf, emptyLog, planDecision } from "../lib/correction-decisions.mjs";
-import { FUTURE_SUGGESTION_KIND, holdsIdentity, readClarification, readSuggestionSubmissionJson, receiveSuggestion, scrubbedIdentity } from "../../web/components/future-suggestion.js";
+import { FUTURE_SUGGESTION_KIND, holdsIdentity, planConversion, readClarification, readConversions, readerStanding, readSuggestionSubmissionJson, receiveSuggestion, scrubbedIdentity } from "../../web/components/future-suggestion.js";
 import { isWorkPath } from "../../web/components/passage-feedback.js";
 import { MODERATION_STATES, auditActor, planModeration } from "../lib/feedback-moderation.mjs";
 import {
@@ -179,6 +179,12 @@ const inboxItem = (source, row, targets) => {
 // reader sees only the prompt category they chose, and whether they may be asked, as `consent`.
 const receiptDetails = (row) => {
   const details = row.details || {};
+  // The links an author recorded name their account and their own drafts, series and sources: the
+  // reader sees none of them, only the standing the receipt derives from them (ADR 0211).
+  if (row.kind === FUTURE_SUGGESTION_KIND) {
+    const { conversions, ...own } = details;
+    return own;
+  }
   if (row.kind !== THIRD_PERSPECTIVE_KIND) return details;
   return typeof details.category === "string" ? { category: details.category } : {};
 };
@@ -218,6 +224,9 @@ const receiptViewOf = (row, hidden = false) => {
     published: !isPublishable(row.kind) ? false : row.kind === THIRD_PERSPECTIVE_KIND ? (hidden ? false : perspectivePublic(row)) : row.status === "approved" && row.approved_revision === revision,
     purged,
     ...(purged ? {} : { body: row.body, details: receiptDetails(row) }),
+    // Where a suggestion stands, honestly and in the words of ACCEPTANCE_NOTICE: a stage and one
+    // sentence, never a rank, a count, a promise or what it was linked to (ADR 0211).
+    ...(row.kind === FUTURE_SUGGESTION_KIND && !purged ? { standing: readerStanding(row.status, readConversions(row.details) ?? []) } : {}),
   };
 };
 
@@ -393,7 +402,8 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         // An approved suggestion is kept, but its private contact and unpublished name are not
         // (ADR 0193): only one that holds some is a candidate, or the batch could fill with
         // suggestions already cleared.
-        `and(status.eq.approved,kind.eq.${FUTURE_SUGGESTION_KIND},purged_at.is.null,${since(cutoffs.closedUntil)},or(details->contact.not.is.null,and(reader_name.not.is.null,publish_name.eq.false)))`,
+        // One an author linked to future work owes it at once, whatever its age (ADR 0211).
+        `and(status.eq.approved,kind.eq.${FUTURE_SUGGESTION_KIND},purged_at.is.null,or(${since(cutoffs.closedUntil)},details->conversions.not.is.null),or(details->contact.not.is.null,and(reader_name.not.is.null,publish_name.eq.false)))`,
       ],
       report: [
         `and(status.eq.pending,${since(cutoffs.pendingUntil)})`,
@@ -488,7 +498,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
       parent: source === "report" ? String(row.target_id).toLowerCase() : null,
       since: row.moderated_at || row[rowTimeColumn(source)],
       // A kept suggestion owes retention only the clearing of what is private to it (ADR 0193).
-      ...(source === "feedback" && row.kind === FUTURE_SUGGESTION_KIND ? { identityHeld: holdsIdentity(row) } : {}),
+      ...(source === "feedback" && row.kind === FUTURE_SUGGESTION_KIND ? { identityHeld: holdsIdentity(row), linked: (readConversions(row.details) ?? []).length > 0 } : {}),
     };
   };
   // Apply one planned change, only while the row still has the state and
@@ -1053,8 +1063,10 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
           const version = body.expectedVersion;
           const role = body.actorRole === undefined ? "site-admin" : body.actorRole;
           const protectedAction = settings.protection && (body.action === "erase" || (body.action === "uphold-report" && source === "report"));
+          // Linking a suggestion to future work is not a moderation transition: the state is unchanged (ADR 0210).
+          const linkAction = body.action === "convert" && source === "feedback";
           if (!source || !UUID.test(id) || !Number.isInteger(version) || version < 1 || version > 2147483647 || !MODERATION_STATES.includes(body.from)
-            || !(INBOX_ACTIONS.includes(body.action) || protectedAction) || !MODERATOR_ROLES.includes(role)) {
+            || !(INBOX_ACTIONS.includes(body.action) || protectedAction || linkAction) || !MODERATOR_ROLES.includes(role)) {
             return json(422, { error: "Invalid moderation change.", code: "invalid" }, corsOrigin);
           }
           const row = await inboxRow(settings, source, id);
@@ -1070,6 +1082,39 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
             if (!current) return json(404, { error: "No such item.", code: "notFound" }, corsOrigin);
             return conflict(current);
           };
+          if (body.action === "convert") {
+            // An author's record that an accepted suggestion became, or is becoming, future work
+            // (ADR 0210): only the Admin's chosen role and the stored row decide, and the row is
+            // changed only while it still has the version and approval Admin saw. It creates,
+            // fetches and publishes nothing; the link is kept in the row's details, and the audit
+            // event holds neither the target nor anything the reader wrote.
+            if (row.kind !== FUTURE_SUGGESTION_KIND) return json(422, { error: "Only a suggestion for future work can be linked to future work.", code: "wrongKind" }, corsOrigin);
+            if (!settings.moderation) return json(422, { error: INBOX_UNAVAILABLE, code: "notAllowed" }, corsOrigin);
+            const at = canonicalTime(now());
+            const actor = auditActor(body.actor);
+            const plan = planConversion(row, { role, kind: body.conversion?.kind, target: body.conversion?.id, actor, at });
+            if (!plan.ok) return plan.code === "denied" ? refused("denied") : json(422, { error: "This link is not allowed.", code: plan.code }, corsOrigin);
+            const params = new URLSearchParams({
+              site_id: `eq.${settings.siteId}`, id: `eq.${id}`, version: `eq.${facts.version}`, status: "eq.approved",
+              approved_revision: `eq.${facts.revision}`, kind: `eq.${FUTURE_SUGGESTION_KIND}`, purged_at: "is.null", select: FEEDBACK_PROTECTED_COLUMNS,
+            });
+            const rows = await database(settings, `/rest/v1/openblog_feedback?${params}`, {
+              method: "PATCH",
+              headers: { Prefer: "return=representation" },
+              body: JSON.stringify({ details: plan.details, version: facts.version + 1 }),
+            });
+            if (Array.isArray(rows) && rows.length === 1) {
+              await database(settings, "/rest/v1/openblog_feedback_events", {
+                method: "POST",
+                headers: { Prefer: "return=minimal" },
+                body: JSON.stringify({
+                  site_id: settings.siteId, feedback_id: id, action: "convert", from_status: "approved", to_status: "approved", reason: null,
+                  actor, at, version: facts.version + 1, kind: FUTURE_SUGGESTION_KIND, item_revision: facts.revision, actor_role: role,
+                }),
+              }).catch((error) => console.error("open.blog engagement: could not record a link event:", error.message));
+            }
+            return changed(rows);
+          }
           if (body.action === "erase") {
             // A deletion request taken by the site Admin (ADR 0107).
             const plan = planErasure(facts, role, version);

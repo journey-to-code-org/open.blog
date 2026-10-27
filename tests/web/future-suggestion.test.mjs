@@ -5,7 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-  ACCEPTANCE_NOTICE, FUTURE_SUGGESTION_KIND, MAX_STORED_DETAILS_BYTES, MAX_SUBMISSION_BYTES, storedDetailsBytes, holdsIdentity, isPlainAddress, isSlug, normalizeSuggestionUrl, readClarification, readSuggestionSubmissionJson,
+  ACCEPTANCE_NOTICE, DECLINE_NOTICE, FUTURE_SUGGESTION_KIND, LINK_NOTICE, MAX_ACTOR_CHARS, MAX_CONVERSIONS, MAX_STORED_DETAILS_BYTES, MAX_SUBMISSION_BYTES, identityScrubDue, outcomeOf, planConversion, readConversions, readerStanding, standingOf, storedDetailsBytes, holdsIdentity, isPlainAddress, isSlug, normalizeSuggestionUrl, readClarification, readSuggestionSubmissionJson,
   receiveSuggestion, scrubbedIdentity, slugify, suggestionCopyText, suggestionDetails,
 } from "../../web/components/future-suggestion.js";
 import { publicUrlProblem } from "../../web/components/public-url.js";
@@ -120,4 +120,121 @@ test("stored details are measured as Postgres measures jsonb text, below the col
   const result = readSuggestionSubmissionJson(text);
   assert.equal(result.ok, false);
   assert.equal(result.error.code, "tooLarge");
+});
+
+// ---- Standing, outcomes, links and the clearing of private identity (#228, ADRs 0210 to 0212)
+
+const outcomes = read("../fixtures/future-suggestion-outcomes.json");
+
+test("standing, outcome and the reader's receipt text are the build's, state by state", () => {
+  assert.equal(outcomes.standings.length, 12);
+  for (const entry of outcomes.standings) {
+    const links = entry.linked ? [{ kind: "draft", id: "tide-tables", at: "2026-10-27T10:00:00Z", by: "owner" }] : [];
+    const label = `${entry.state} linked=${entry.linked}`;
+    assert.deepEqual(standingOf(entry.state, links), entry.expect.standing, label);
+    assert.deepEqual(outcomeOf(entry.state, links), entry.expect.outcome, label);
+    const reader = readerStanding(entry.state, links);
+    assert.equal(reader.note, entry.expect.reader.note, label);
+    assert.equal(reader.acceptance, entry.expect.reader.acceptance, label);
+  }
+  assert.equal(standingOf("nonsense"), null);
+  assert.equal(outcomeOf("nonsense"), null);
+  assert.equal(readerStanding("nonsense"), null);
+});
+
+test("every outcome the editors can record is named, and none is a count, a rank or a verdict", () => {
+  const seen = new Set(outcomes.standings.map((entry) => entry.expect.outcome?.id).filter(Boolean));
+  assert.deepEqual([...seen].sort(), ["closed", "converted", "declined", "held"]);
+  const words = JSON.stringify(outcomes.standings.map((entry) => [entry.expect.standing, entry.expect.outcome, entry.expect.reader]));
+  for (const forbidden of [/\bscore\b/i, /\brank/i, /\bvotes?\b/i, /\bpopular/i, /\bmost requested\b/i, /\btrending\b/i, /\bverified\b/i, /\bendorse(d|ment)\b/i, /\bpromise[ds]? to publish\b/i, /\d/]) {
+    // The notices may say what a link is not ("not a promise to publish"); nothing else may use these words.
+    const text = words.replace(/not a promise to publish/g, "").replace(/or have permission to use it/g, "");
+    assert.doesNotMatch(text, forbidden);
+  }
+  // The receipt's acceptance sentence is exactly the one the editors' screens use.
+  assert.equal(readerStanding("approved").note, ACCEPTANCE_NOTICE);
+  // A decline is never a verdict on the idea, and a withdrawal says nothing.
+  assert.match(readerStanding("rejected").note, /not a judgement of the idea/);
+  assert.equal(readerStanding("withdrawn").note, null);
+  assert.equal(readerStanding("pending").note, null);
+});
+
+test("a link is recorded exactly as the build decides it", () => {
+  assert.ok(outcomes.links.length > 25);
+  for (const entry of outcomes.links) {
+    const plan = planConversion(entry.row, entry.request);
+    if (entry.expect.code) {
+      assert.equal(plan.ok, false, `${entry.name}: should be refused`);
+      assert.equal(plan.code, entry.expect.code, entry.name);
+      continue;
+    }
+    assert.equal(plan.ok, true, `${entry.name}: ${plan.code}`);
+    assert.deepEqual(plan.details.conversions, entry.expect.conversions, entry.name);
+    assert.deepEqual(plan.conversion, entry.expect.conversions.at(-1), entry.name);
+    // The link and the details hold nothing the reader wrote.
+    const stored = JSON.stringify(plan.details.conversions);
+    for (const private_ of ["Ada", "ada@example.org", "letters"]) assert.ok(!stored.includes(private_), entry.name);
+    // The details are otherwise as they were.
+    const { conversions, ...rest } = plan.details;
+    const { conversions: before, ...was } = entry.row.details;
+    assert.deepEqual(rest, was, entry.name);
+  }
+});
+
+test("stored links are read as the build reads them", () => {
+  assert.ok(outcomes.details.length > 12);
+  for (const entry of outcomes.details) {
+    const read = readConversions(entry.details);
+    if (entry.expect.code) assert.equal(read, null, entry.name);
+    else assert.deepEqual(read, entry.expect.conversions, entry.name);
+  }
+});
+
+test("private identity is cleared when the period has passed and at once when linked, as the build decides", () => {
+  assert.ok(outcomes.scrub.length > 100);
+  for (const entry of outcomes.scrub) {
+    assert.equal(identityScrubDue(entry.row, entry.periodPassed), entry.expect, `${entry.status} ${entry.identity} linked=${entry.linked} passed=${entry.periodPassed} purged=${entry.purged}`);
+  }
+});
+
+test("the worst a suggestion and its links can store fits the column with room to spare", () => {
+  const links = Array.from({ length: MAX_CONVERSIONS }, (_, index) => ({ kind: "library-source", id: `${"x".repeat(60)}-${index}`.slice(0, 64), at: "2026-10-27T10:00:00Z", by: "\u{1F600}".repeat(MAX_ACTOR_CHARS) }));
+  const largest = { type: "source", hints: { title: "x" }, conversions: links };
+  // The submission side is held to MAX_STORED_DETAILS_BYTES; the links are the rest of the 16 KiB.
+  const linksOnly = storedDetailsBytes({ conversions: links });
+  assert.ok(MAX_STORED_DETAILS_BYTES + linksOnly < 16 * 1024, `${MAX_STORED_DETAILS_BYTES} + ${linksOnly}`);
+  assert.ok(storedDetailsBytes(largest) < 16 * 1024);
+  const slugs = Array.from({ length: MAX_CONVERSIONS }, (_, index) => ({ kind: "draft", id: `${"\u{6F22}".repeat(60)}-${index}`.slice(0, 64), at: "2026-10-27T10:00:00Z", by: "\u{1F600}".repeat(MAX_ACTOR_CHARS) }));
+  assert.ok(MAX_STORED_DETAILS_BYTES + storedDetailsBytes({ conversions: slugs }) < 16 * 1024);
+});
+
+test("scrubbing a linked suggestion keeps its links, and a receipt's details never carry them", () => {
+  const row = { details: { type: "text", contact: { address: "ada@example.org", followUp: true }, conversions: [{ kind: "draft", id: "tide-tables", at: "2026-10-27T10:00:00Z", by: "owner" }] }, reader_name: "Ada", publish_name: false };
+  const cleared = scrubbedIdentity(row);
+  assert.deepEqual(cleared.details, { type: "text", conversions: row.details.conversions });
+  assert.equal(cleared.reader_name, null);
+});
+
+test("a reader's receipt words an accepted, linked, closed or declined suggestion honestly and never as published", async () => {
+  const { receiptStateText } = await import("../../web/components/feedback-receipt.js");
+  const say = (status, standing, extra = {}) => receiptStateText({ kind: "future-suggestion", status, standing: standing === null ? undefined : readerStanding(status, standing), ...extra });
+  const link = [{ kind: "draft", id: "tide-tables", at: "2026-10-27T10:00:00Z", by: "owner" }];
+  const accepted = say("approved", []);
+  assert.ok(accepted.includes(ACCEPTANCE_NOTICE));
+  assert.ok(!accepted.includes("Linked to future work"));
+  const converted = say("approved", link);
+  assert.match(converted, /^Linked to future work\. Accepted means the editors are interested/);
+  assert.ok(converted.includes(LINK_NOTICE));
+  assert.match(say("removed", link), /closed it, after linking it to future work/);
+  assert.match(say("removed", []), /closed it\. Not taking an idea forward is about this site/);
+  assert.match(say("rejected", []), /decided not to take it forward\. Not taking an idea forward/);
+  assert.equal(say("pending", []), "Waiting for the editors’ review. It is private to them: nothing about it is shown on the site.");
+  // Nothing in any of them says published, ranks, counts or names what it was linked to.
+  for (const text of [accepted, converted, say("removed", link), say("removed", []), say("rejected", []), say("withdrawn", [])]) {
+    assert.doesNotMatch(text.replace(/is not shown on the site/g, "").replace(/not a promise to publish/g, ""), /published|shown on the site|rank|popular|vote|tide-tables|\d/i);
+  }
+  // A receipt from a service that does not send the standing reads exactly as it did.
+  assert.equal(say("approved", null), "Accepted means the editors are interested in exploring this. It does not mean they agree with it, have checked it, or have permission to use it. It is private to them and is not shown on the site.");
+  assert.equal(say("rejected", null), "The editors decided not to take it forward.");
+  assert.equal(say("removed", null, { purged: true }).startsWith("The editors closed it."), true);
 });

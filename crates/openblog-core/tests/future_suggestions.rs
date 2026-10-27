@@ -7,8 +7,9 @@ use openblog_core::date::DateTime;
 use openblog_core::feedback_provenance::FeedbackChannel;
 use openblog_core::future_suggestion::{
     convert, duplicate_groups, identity_scrub_due, library_candidate, normalize_suggestion_url,
-    source_keys, About, Conversion, ConversionError, ConversionKind, ErrorCode, ReaderAttribution,
-    Standing, Submission, Suggestion, SuggestionType, ACCEPTANCE_NOTICE, KIND, MAX_CONVERSIONS,
+    source_keys, About, Conversion, ConversionError, ConversionKind, ErrorCode, Outcome,
+    ReaderAttribution, Standing, Submission, Suggestion, SuggestionType, ACCEPTANCE_NOTICE,
+    DECLINE_NOTICE, KIND, LINK_NOTICE, MAX_ACTOR_CHARS, MAX_CONVERSIONS, MAX_STORED_DETAILS_BYTES,
     MAX_SUBMISSION_BYTES, MAX_TEXT_CHARS,
 };
 use openblog_core::moderation::{
@@ -1562,5 +1563,218 @@ fn series_and_conversion_ids_accept_the_sites_own_slugs() {
             ConversionError::InvalidTarget,
             "{id:?}"
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Outcomes and persisted links (RD13.3, ADRs 0210 to 0212)
+
+fn link(kind: ConversionKind, id: &str) -> Conversion {
+    Conversion {
+        kind,
+        id: id.into(),
+        at: time("2026-10-27T10:00:00Z"),
+        by: "owner".into(),
+    }
+}
+
+#[test]
+fn an_outcome_is_derived_from_the_state_and_the_links_and_never_stored() {
+    let none: [Conversion; 0] = [];
+    let one = [link(ConversionKind::Draft, "tide-tables")];
+    let expect = |state, links: &[Conversion], outcome: Option<Outcome>| {
+        assert_eq!(
+            Outcome::of(state, links),
+            outcome,
+            "{state:?} {}",
+            links.len()
+        );
+    };
+    expect(ModerationState::Pending, &none, None);
+    expect(ModerationState::Clarification, &none, None);
+    expect(ModerationState::Withdrawn, &none, None);
+    expect(ModerationState::Withdrawn, &one, None);
+    expect(ModerationState::Approved, &none, Some(Outcome::Held));
+    expect(ModerationState::Approved, &one, Some(Outcome::Converted));
+    expect(ModerationState::Removed, &one, Some(Outcome::Converted));
+    expect(ModerationState::Removed, &none, Some(Outcome::Closed));
+    expect(ModerationState::Rejected, &none, Some(Outcome::Declined));
+    // The four are all there is, with plain ids and labels that name a stage.
+    let ids: Vec<_> = Outcome::ALL.iter().map(|o| (o.id(), o.label())).collect();
+    assert_eq!(
+        ids,
+        [
+            ("held", "Held"),
+            ("converted", "Converted"),
+            ("declined", "Declined"),
+            ("closed", "Closed")
+        ]
+    );
+    // Closing a linked suggestion keeps its outcome and is not a decline; it still stands as linked.
+    assert_eq!(
+        Standing::of(ModerationState::Removed, &one),
+        Standing::ClosedConverted
+    );
+}
+
+#[test]
+fn a_reader_is_told_the_honest_standing_in_the_words_of_the_acceptance_notice() {
+    for standing in [
+        Standing::Received,
+        Standing::NeedsClarification,
+        Standing::Interested,
+        Standing::Converted,
+        Standing::ClosedConverted,
+        Standing::Declined,
+        Standing::Withdrawn,
+    ] {
+        let words = format!(
+            "{} {}",
+            standing.label(),
+            standing.reader_note().unwrap_or("")
+        );
+        let lower = words.to_lowercase();
+        for forbidden in [
+            "rank",
+            "score",
+            "vote",
+            "popular",
+            "most requested",
+            "trending",
+            "verified",
+            "endorse",
+        ] {
+            assert!(!lower.contains(forbidden), "{standing:?}: {forbidden}");
+        }
+        assert!(
+            !words.chars().any(|c| c.is_ascii_digit()),
+            "no counts: {words}"
+        );
+        // The reader is never promised publication.
+        assert!(!lower.contains("will be published"), "{words}");
+    }
+    assert_eq!(Standing::Interested.reader_note(), Some(ACCEPTANCE_NOTICE));
+    assert!(Standing::Interested.shows_acceptance_notice());
+    assert!(Standing::Converted.shows_acceptance_notice());
+    assert!(!Standing::Declined.shows_acceptance_notice());
+    assert_eq!(Standing::Converted.reader_note(), Some(LINK_NOTICE));
+    assert_eq!(Standing::Declined.reader_note(), Some(DECLINE_NOTICE));
+    assert_eq!(Standing::Withdrawn.reader_note(), None);
+    assert!(LINK_NOTICE.contains("not a promise"));
+    assert!(DECLINE_NOTICE.contains("not a judgement of the idea"));
+}
+
+#[test]
+fn links_are_kept_in_the_stored_details_and_the_record_and_read_back_strictly() {
+    let plain = receive(&submission(json!({
+        "type": "video",
+        "url": "https://example.org/watch",
+        "contact": { "address": "ada@example.org", "followUp": true },
+    })));
+    let linked = plain
+        .linked(
+            &ADMIN,
+            &facts(ModerationState::Approved),
+            ConversionKind::Draft,
+            "tide-tables",
+            time("2026-11-01T09:00:00Z"),
+        )
+        .unwrap();
+    // A suggestion with no link has no `conversions` field at all, so what a site stored before this
+    // reads and writes byte for byte as it did.
+    assert!(plain.stored_details().get("conversions").is_none());
+    assert!(!plain.to_json().contains("conversions"));
+    let details = linked.stored_details();
+    assert_eq!(details["conversions"][0]["id"], "tide-tables");
+    assert_eq!(details["conversions"][0]["by"], "owner");
+    // The link is the only difference.
+    let mut without = details.clone();
+    without.as_object_mut().unwrap().remove("conversions");
+    assert_eq!(without, plain.stored_details());
+    // It reads back from a stored row and from the record.
+    let back = Suggestion::from_stored(
+        &linked.submission.text,
+        1,
+        &details,
+        &json!({ "work": WORK, "receivedAt": "2026-10-26T10:00:00Z", "channel": "hosted" }),
+        &ReaderAttribution::default(),
+    )
+    .unwrap();
+    assert_eq!(back, linked);
+    assert_eq!(Suggestion::from_json(&linked.to_json()).unwrap(), linked);
+    // Deterministic: the same suggestion and the same link always write the same bytes.
+    assert_eq!(linked.to_json(), linked.clone().to_json());
+    assert_eq!(linked.stored_details().to_string(), details.to_string());
+    // Linking changes neither the reader's words nor their contact; clearing the identity keeps the link.
+    assert_eq!(linked.submission, plain.submission);
+    let scrubbed = linked.scrubbed();
+    assert!(scrubbed.submission.contact.is_none());
+    assert_eq!(scrubbed.conversions, linked.conversions);
+    // A suggestion cannot be linked to the same target twice, in the stored form either.
+    let twice = json!([
+        link(ConversionKind::Draft, "a").to_value(),
+        link(ConversionKind::Draft, "a").to_value()
+    ]);
+    let mut bad = plain.stored_details();
+    bad["conversions"] = twice;
+    assert!(Suggestion::from_stored(
+        "x",
+        1,
+        &bad,
+        &json!({ "work": WORK, "receivedAt": "2026-10-26T10:00:00Z", "channel": "hosted" }),
+        &ReaderAttribution::default(),
+    )
+    .is_err());
+    assert_eq!(
+        openblog_core::moderation::AuditAction::Convert.id(),
+        "convert"
+    );
+}
+
+/// How many bytes Postgres writes a jsonb value as text: compact, with one more byte after every `:` and `,`.
+fn postgres_text_bytes(value: &Value) -> usize {
+    let compact = value.to_string();
+    let mut extra = 0;
+    let mut in_string = false;
+    let mut escaped = false;
+    for byte in compact.bytes() {
+        if in_string {
+            match (escaped, byte) {
+                (true, _) => escaped = false,
+                (false, b'\\') => escaped = true,
+                (false, b'"') => in_string = false,
+                _ => {}
+            }
+        } else if byte == b'"' {
+            in_string = true;
+        } else if byte == b':' || byte == b',' {
+            extra += 1;
+        }
+    }
+    compact.len() + extra
+}
+
+#[test]
+fn the_largest_suggestion_and_eight_largest_links_fit_the_hosted_column() {
+    // Links at their widest: non-ASCII slugs and the longest account name, each character four bytes.
+    let widest: Vec<Conversion> = (0..MAX_CONVERSIONS)
+        .map(|n| Conversion {
+            kind: ConversionKind::Draft,
+            id: format!("{}-{n}", "\u{6F22}".repeat(62))
+                .chars()
+                .take(64)
+                .collect(),
+            at: time("2026-10-27T10:00:00Z"),
+            by: "\u{1F600}".repeat(MAX_ACTOR_CHARS),
+        })
+        .collect();
+    let links = Value::Array(widest.iter().map(Conversion::to_value).collect());
+    let room = postgres_text_bytes(&json!({ "conversions": links }));
+    assert!(
+        MAX_STORED_DETAILS_BYTES + room < 16 * 1024,
+        "{MAX_STORED_DETAILS_BYTES} + {room} must stay under the column's 16 KiB"
+    );
+    for link in &widest {
+        assert_eq!(Conversion::from_value(&link.to_value()).unwrap(), *link);
     }
 }

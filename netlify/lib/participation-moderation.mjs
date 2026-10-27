@@ -199,8 +199,8 @@ export function timeKey(value) {
  * the site set retention itself; an approved item is kept while it can be published. An approved
  * editorial item (a suggestion for future work) is kept too, but owes `scrub-identity`, the
  * clearing of its private contact and unpublished name, once the closed-item period has passed
- * since its approval (ADR 0193); `item.identityHeld === false` says it holds none, so it owes
- * nothing (a fixture row, which says nothing of it, is due as the policy decides).
+ * since its approval (ADR 0193), or at once when `item.linked` says an author linked it to future
+ * work; `item.identityHeld === false` says it holds none, so it owes nothing (a fixture row, which says nothing of it, is due as the policy decides).
  */
 export function retentionStep(item, cutoffs) {
   const kind = Object.hasOwn(KIND_RULES, item?.kind) ? item.kind : null;
@@ -214,7 +214,8 @@ export function retentionStep(item, cutoffs) {
   if (item.state === "withdrawn") return retained ? "purge-content" : null;
   if (item.state === "approved" && KIND_RULES[kind].publishable) return null;
   if (item.state === "approved" && KIND_RULES[kind].editorial === true) {
-    return retained && item.identityHeld !== false && due(cutoffs.closedUntil) ? "scrub-identity" : null;
+    // One an author linked to future work (`item.linked`) owes the clearing at once (ADR 0211).
+    return retained && item.identityHeld !== false && (item.linked === true || due(cutoffs.closedUntil)) ? "scrub-identity" : null;
   }
   return retained && due(cutoffs.closedUntil) ? "purge-content" : null;
 }

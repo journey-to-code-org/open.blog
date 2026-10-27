@@ -31,8 +31,9 @@ use crate::feedback_moderation::{feedback_review, post_for_work};
 use crate::feedback_moderation::{review_passage, PassageCheck};
 use crate::feedback_provenance::{FeedbackChannel, ReaderAttribution};
 use crate::future_suggestion::{
-    research_draft, source_keys, ConversionError, ResearchDraft, Standing as SuggestionStanding,
-    Suggestion,
+    identity_scrub_due, library_candidate, research_draft, source_keys, Conversion,
+    ConversionError, ConversionKind, LibraryCandidate, ResearchDraft,
+    Standing as SuggestionStanding, Suggestion,
 };
 use crate::invitation::Identities;
 use crate::model::Site;
@@ -926,12 +927,21 @@ impl InboxItem {
         policy: &ModerationPolicy,
         now: DateTime,
     ) -> Option<RetentionStep> {
-        let step = policy.retention_due(&self.facts(), now)?;
-        match (&self.content, step) {
-            (Content::Suggestion(suggestion), RetentionStep::ScrubIdentity) => {
-                suggestion.holds_identity().then_some(step)
+        // A kept suggestion an author has linked to future work owes the
+        // clearing at once, not only after the closed-item period (ADR 0193
+        // and ADR 0211): the core's `identity_scrub_due` is the one rule.
+        if let Content::Suggestion(suggestion) = &self.content {
+            let facts = self.facts();
+            if identity_scrub_due(policy, &facts, suggestion, &suggestion.conversions, now) {
+                return Some(RetentionStep::ScrubIdentity);
             }
-            (_, RetentionStep::ScrubIdentity) => None,
+            return policy
+                .retention_due(&facts, now)
+                .filter(|step| *step != RetentionStep::ScrubIdentity);
+        }
+        let step = policy.retention_due(&self.facts(), now)?;
+        match step {
+            RetentionStep::ScrubIdentity => None,
             _ => Some(step),
         }
     }
@@ -1335,6 +1345,55 @@ impl<'a> Inbox<'a> {
         research_draft(suggestion, &self.actor(item), &item.facts())
     }
 
+    /// Record that the author linked an accepted suggestion to future work
+    /// they made (ADR 0195 and ADR 0210), for the viewer who may (the site
+    /// Admin, or a coordinator of its work): the link. Nothing is created,
+    /// fetched or sent; the caller stores the link where the hosted row keeps
+    /// it.
+    pub fn link_to_future_work(
+        &self,
+        item: &InboxItem,
+        kind: ConversionKind,
+        target: &str,
+    ) -> Result<Conversion, ConversionError> {
+        let suggestion = item.suggestion().ok_or(ConversionError::WrongKind)?;
+        crate::future_suggestion::convert(
+            &self.actor(item),
+            &item.facts(),
+            &suggestion.conversions,
+            kind,
+            target,
+            self.now,
+        )
+    }
+
+    /// The unverified hints of an accepted suggestion, for the author to copy
+    /// into a Source Library record they choose to make. Written nowhere.
+    pub fn library_candidate(&self, item: &InboxItem) -> Result<LibraryCandidate, ConversionError> {
+        let suggestion = item.suggestion().ok_or(ConversionError::WrongKind)?;
+        library_candidate(suggestion, &self.actor(item), &item.facts())
+    }
+
+    /// The offer to record a link to future work, for a viewer who may and an
+    /// item that can still take one; `None` otherwise.
+    fn link_offer(&self, item: &InboxItem, suggestion: &Suggestion) -> Option<Value> {
+        let probe = crate::future_suggestion::convert(
+            &self.actor(item),
+            &item.facts(),
+            &[],
+            ConversionKind::Draft,
+            "a",
+            self.now,
+        );
+        // Whether this viewer may link at all, whatever the target.
+        probe.ok()?;
+        Some(json!({
+            "kinds": ConversionKind::ALL.iter().map(|kind| json!({"id": kind.id(), "label": conversion_kind_label(*kind)})).collect::<Vec<_>>(),
+            "full": suggestion.conversions.len() >= crate::future_suggestion::MAX_CONVERSIONS,
+            "guidance": "Records that you made, or are making, something from this suggestion: the slug of a draft or series, or the id of a source you added to your library. It creates, fetches and publishes nothing, and tells the reader only that it is linked to future work. The reader’s contact and unpublished name are cleared the next time you run retention.",
+        }))
+    }
+
     /// The post with the item's address now, its passage check and passage
     /// revision, for a feedback item: what a correction decision records
     /// about the passage the author read.
@@ -1677,7 +1736,8 @@ impl<'a> Inbox<'a> {
                     None => {}
                 }
                 view["reader"] = reader;
-                let stands = SuggestionStanding::of(item.state, &[]);
+                let stands = SuggestionStanding::of(item.state, &suggestion.conversions);
+                let outcome = suggestion.outcome(item.state);
                 view["suggestion"] = json!({
                     "type": shown.suggestion_type.id(),
                     "typeLabel": shown.suggestion_type.label(),
@@ -1696,10 +1756,41 @@ impl<'a> Inbox<'a> {
                     "missing": shown.missing,
                     "notice": shown.notice,
                     "standing": {"id": stands.id(), "label": stands.label()},
+                    // How the editors dealt with it, once they have; never a
+                    // count, a rank or a verdict on the idea (ADR 0211).
+                    "outcome": outcome.map(|outcome| json!({"id": outcome.id(), "label": outcome.label()})),
+                    // What an author linked it to: ids and dates only, never
+                    // anything of the reader. The target is the author's own
+                    // record and is never opened or checked.
+                    "conversions": suggestion.conversions.iter().map(|link| json!({
+                        "kind": link.kind.id(),
+                        "kindLabel": conversion_kind_label(link.kind),
+                        "id": link.id,
+                        "at": link.at.rfc3339(),
+                        "by": link.by,
+                    })).collect::<Vec<_>>(),
                     "received": shown.received,
                     // Only a viewer who may see a reader's private identity is
                     // sent it; nobody else is told whether there is one.
                     "contact": shown.contact.as_ref().map(|contact| contact.address()),
+                    // Offered only to those who may act on an accepted suggestion,
+                    // and only while it can still be linked.
+                    "link": self.link_offer(item, suggestion),
+                    // The hints an author may copy into a Source Library
+                    // record of their own making: unverified, never written
+                    // to the library by anything here (ADR 0212).
+                    "libraryCandidate": self.library_candidate(item).ok().map(|candidate| json!({
+                        "label": "Show hints for a Source Library record",
+                        "guidance": "Shows the link and details the reader gave, marked unverified, to copy into a source record you make yourself. Nothing is written to your library, fetched or published, and rights stay your own declaration.",
+                        "type": candidate.suggestion_type.id(),
+                        "url": candidate.url,
+                        "title": candidate.hints.title,
+                        "creators": candidate.hints.creators,
+                        "year": candidate.hints.year,
+                        "publisher": candidate.hints.publisher,
+                        "identifiers": candidate.hints.identifiers.iter().map(|identifier| json!({"scheme": identifier.scheme, "value": identifier.value})).collect::<Vec<_>>(),
+                        "unverified": candidate.unverified,
+                    })),
                     // Offered only to those who may act on an accepted suggestion.
                     "export": self.research_draft(item).ok().map(|_| json!({
                         "label": "Copy into a private research note",
@@ -1973,5 +2064,14 @@ pub fn guidance(policy: &ModerationPolicy, item: &InboxItem, action: ModerationA
             format!("{target} The report itself is never published. {retention}")
         }
         _ => String::new(),
+    }
+}
+
+/// What an author calls what a link points at.
+pub fn conversion_kind_label(kind: ConversionKind) -> &'static str {
+    match kind {
+        ConversionKind::Draft => "A draft (its slug)",
+        ConversionKind::Series => "A series (its slug)",
+        ConversionKind::LibrarySource => "A Source Library record (its id)",
     }
 }

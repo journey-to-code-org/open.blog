@@ -686,6 +686,9 @@ fn authenticated_api(
         ("POST", "engagement/suggestions/export") => {
             export_suggestion_to_research(state, req, session)
         }
+        ("POST", "engagement/suggestions/link") => {
+            link_suggestion_to_future_work(state, req, session)
+        }
         ("GET", "engagement/retention") => retention_dry_run(state, session),
         ("POST", "engagement/retention") => run_retention(state, req, session),
         ("POST", "engagement/feedback/publish") => publish_feedback(state, req),
@@ -7462,6 +7465,190 @@ fn export_suggestion_with(
         }
         Err(error) => notebook_store_error(state, error, Some((false, &note_id))),
     }
+}
+
+/// `POST engagement/suggestions/link`: the author's own, explicit record that
+/// an accepted suggestion became, or is becoming, future work they made: a
+/// draft or series by its slug, or a Source Library record by its id (RD13,
+/// ADRs 0195 and 0210). The request names the item, the version the author
+/// saw and the target; the item is read again from the hosted store, the one
+/// grant rule decides whether this account may act on it (the site Admin or a
+/// coordinator of its work, on an accepted suggestion still kept), and the
+/// hosted function decides again from its stored row and keeps the link in
+/// the row's details with a private audit event. Nothing is created, fetched,
+/// published or sent: the draft, series or source must already be the
+/// author's own, and none of them is read, opened or checked.
+fn link_suggestion_to_future_work(
+    state: &AppState,
+    req: &Request,
+    session: &auth::Session,
+) -> Response {
+    let body = match feedback_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let id = match feedback_id(&body["id"]) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let Some(version) = body["version"]
+        .as_u64()
+        .filter(|version| (1..=i32::MAX as u64).contains(version))
+    else {
+        return Response::error(422, "Send the suggestion's version as you loaded it");
+    };
+    let (Some(kind), Some(target)) = (
+        body["conversion"]["kind"]
+            .as_str()
+            .and_then(openblog_core::future_suggestion::ConversionKind::from_id),
+        body["conversion"]["id"].as_str(),
+    ) else {
+        return Response::json(
+            422,
+            &json!({ "error": "Choose what it was linked to and name it.", "code": "invalidTarget" }),
+        );
+    };
+    let (protocol, third_perspectives, item) =
+        match hosted_inbox_item(state, moderation_inbox::Source::Feedback, &id) {
+            Ok(found) => found,
+            Err(response) => return response,
+        };
+    let sources = match inbox_sources(state) {
+        Ok(sources) => sources,
+        Err(response) => return response,
+    };
+    link_suggestion_with(
+        state,
+        &sources,
+        session,
+        protocol,
+        third_perspectives,
+        &item,
+        version,
+        kind,
+        target,
+        |request| hosted_moderation_call(state, &[], Some(request)),
+    )
+}
+
+/// The link once the hosted item is read: everything that decides it, and
+/// the one hosted call, which a test replaces.
+#[allow(clippy::too_many_arguments)]
+fn link_suggestion_with(
+    state: &AppState,
+    sources: &InboxSources,
+    session: &auth::Session,
+    protocol: moderation_inbox::Protocol,
+    third_perspectives: bool,
+    item: &moderation_inbox::InboxItem,
+    version: u64,
+    kind: openblog_core::future_suggestion::ConversionKind,
+    target: &str,
+    hosted: impl FnOnce(&Json) -> Result<(u16, Json), Response>,
+) -> Response {
+    let id = item.id.clone();
+    let published = published_feedback_file(state);
+    let perspectives = published_perspectives_file(state);
+    let (link, view, role) = sources.inbox(session, protocol, third_perspectives, |inbox| {
+        (
+            inbox.link_to_future_work(item, kind, target),
+            inbox_view(inbox, item, published.as_ref(), perspectives.as_ref()),
+            inbox.actor(item).role(),
+        )
+    });
+    let link = match link {
+        Ok(link) => link,
+        Err(openblog_core::future_suggestion::ConversionError::Denied) => {
+            return Response::json(
+                403,
+                &json!({ "error": "You cannot link this suggestion to future work.", "code": "denied" }),
+            )
+        }
+        Err(openblog_core::future_suggestion::ConversionError::WrongKind) => {
+            return Response::error(404, "No such suggestion")
+        }
+        Err(error) => {
+            return Response::json(
+                422,
+                &json!({ "error": format!("{}.", capitalize(&error.to_string())), "code": error.code() }),
+            )
+        }
+    };
+    if item.version != version {
+        return Response::json(
+            409,
+            &json!({ "error": INBOX_CHANGED, "code": "conflict", "item": view }),
+        );
+    }
+    let request = json!({
+        "source": "feedback",
+        "id": id,
+        "action": "convert",
+        "from": item.state.id(),
+        "expectedVersion": version,
+        "actor": session.user,
+        "actorRole": role.id(),
+        "conversion": { "kind": link.kind.id(), "id": link.id },
+    });
+    let reread = |value: &Json| moderation_inbox::InboxItem::from_value(&value["item"]).ok();
+    let changed = match hosted(&request) {
+        Ok((200, value)) => match reread(&value) {
+            Some(changed)
+                if changed.id == id
+                    && changed.state == item.state
+                    && changed.suggestion().is_some_and(|suggestion| {
+                        suggestion
+                            .conversions
+                            .iter()
+                            .any(|stored| stored.kind == link.kind && stored.id == link.id)
+                    }) =>
+            {
+                changed
+            }
+            _ => {
+                return Response::error(
+                    502,
+                    "hosted engagement returned an invalid moderation response",
+                )
+            }
+        },
+        Ok((409, value)) => {
+            let current = reread(&value).and_then(|current| {
+                sources.inbox(session, protocol, third_perspectives, |inbox| {
+                    inbox_view(inbox, &current, published.as_ref(), perspectives.as_ref())
+                })
+            });
+            return Response::json(
+                409,
+                &json!({ "error": INBOX_CHANGED, "code": "conflict", "item": current }),
+            );
+        }
+        Ok((403, _)) => {
+            return Response::json(
+                403,
+                &json!({ "error": "You cannot link this suggestion to future work.", "code": "denied" }),
+            )
+        }
+        Ok(_) => return Response::error(404, "No such suggestion"),
+        Err(response) => return response,
+    };
+    eprintln!(
+        "admin: suggestion {id} linked to a {} by {} as {}",
+        link.kind.id(),
+        session.user,
+        role.id()
+    );
+    let view = sources.inbox(session, protocol, third_perspectives, |inbox| {
+        inbox_view(inbox, &changed, published.as_ref(), perspectives.as_ref())
+    });
+    Response::json(
+        200,
+        &json!({
+            "ok": true,
+            "item": view,
+            "published": false,
+        }),
+    )
 }
 
 // ---- Correction decisions (ADR 0117)
@@ -23089,9 +23276,10 @@ What I read:
         fs::write(&path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
     }
 
-    fn feedback_routes() -> [(&'static str, &'static str); 19] {
+    fn feedback_routes() -> [(&'static str, &'static str); 20] {
         [
             ("POST", "/admin/api/engagement/suggestions/export"),
+            ("POST", "/admin/api/engagement/suggestions/link"),
             ("POST", "/admin/api/engagement/author-responses/publish"),
             ("POST", "/admin/api/engagement/author-responses/unpublish"),
             ("POST", "/admin/api/engagement/author-response"),
@@ -24516,6 +24704,418 @@ What I read:
             json!({"id": FEEDBACK_ITEM_ID, "version": "2"}),
             json!({"id": FEEDBACK_ITEM_ID, "version": 2, "noteId": "Not A Slug"}),
             json!({"id": FEEDBACK_ITEM_ID, "version": 2, "noteId": 5}),
+            json!("not an object"),
+        ] {
+            let refused = post(body.clone());
+            assert!(
+                matches!(refused.status, 400 | 422),
+                "{body}: {}",
+                refused.status
+            );
+        }
+    }
+
+    /// A suggestion as the hosted inbox returns it, as JSON.
+    fn suggestion_value(status: &str, version: u64, details: Json) -> Json {
+        json!({
+            "source": "feedback", "id": FEEDBACK_ITEM_ID, "status": status, "version": version,
+            "moderatedAt": if status == "approved" { json!("2026-10-27T10:00:00Z") } else { Json::Null },
+            "reason": null,
+            "feedback": {
+                "version": 1, "kind": "future-suggestion",
+                "body": "Her letters <b>would</b> help.",
+                "details": details,
+                "provenance": {
+                    "version": 1, "work": "/hello-world/", "revision": null, "target": null,
+                    "receivedAt": "2026-10-26T10:00:00Z", "channel": "hosted",
+                    "attribution": {"name": "Private Person", "publishName": false},
+                },
+            },
+            "itemRevision": 1, "approvedRevision": if status == "approved" { json!(1) } else { Json::Null },
+            "clarificationAsked": null, "clarificationConsent": true,
+        })
+    }
+
+    fn link_details(links: &[(&str, &str)], contact: bool) -> Json {
+        let mut details = json!({
+            "type": "video", "url": "https://example.org/watch",
+            "hints": {"title": "The survey", "creators": ["A. Surveyor"]},
+        });
+        if contact {
+            details["contact"] = json!({"address": "ada@example.org", "followUp": true});
+        }
+        if !links.is_empty() {
+            details["conversions"] = Json::Array(
+                links
+                    .iter()
+                    .map(|(kind, id)| json!({"kind": kind, "id": id, "at": "2026-10-28T10:00:00Z", "by": "mikey"}))
+                    .collect(),
+            );
+        }
+        details
+    }
+
+    fn mikey() -> auth::Session {
+        auth::Session {
+            user: "mikey".into(),
+            credential: String::new(),
+            csrf: String::new(),
+            expires: std::time::Instant::now() + Duration::from_secs(3600),
+        }
+    }
+
+    #[test]
+    fn a_suggestion_is_linked_to_future_work_only_by_the_authors_explicit_request() {
+        use openblog_core::future_suggestion::ConversionKind;
+        let f = fixture("suggestion-link");
+        let sources = inbox_sources(&f.state).unwrap();
+        let author = mikey();
+        let protocol = moderation_inbox::Protocol::Protected;
+        let accepted = suggestion_item("approved", 4, link_details(&[], true));
+        let sent = std::cell::RefCell::new(Vec::<Json>::new());
+        let link = |item: &moderation_inbox::InboxItem,
+                    version: u64,
+                    kind: ConversionKind,
+                    target: &str,
+                    answer: (u16, Json)| {
+            sent.borrow_mut().clear();
+            let response = link_suggestion_with(
+                &f.state,
+                &sources,
+                &author,
+                protocol,
+                false,
+                item,
+                version,
+                kind,
+                target,
+                |request| {
+                    sent.borrow_mut().push(request.clone());
+                    Ok(answer)
+                },
+            );
+            let calls = sent.borrow().len();
+            (response, calls)
+        };
+        let linked_answer = |links: &[(&str, &str)]| {
+            (
+                200,
+                json!({ "item": suggestion_value("approved", 5, link_details(links, true)) }),
+            )
+        };
+
+        // An accepted suggestion is linked, and the hosted function is asked once, naming the account and role
+        // and nothing the reader wrote.
+        let (made, calls) = link(
+            &accepted,
+            4,
+            ConversionKind::Draft,
+            "tide-tables",
+            linked_answer(&[("draft", "tide-tables")]),
+        );
+        assert_eq!(made.status, 200, "{}", String::from_utf8_lossy(&made.body));
+        assert_eq!(calls, 1);
+        let request = sent.borrow()[0].clone();
+        assert_eq!(request["action"], "convert");
+        assert_eq!(request["actor"], "mikey");
+        assert_eq!(request["actorRole"], "site-admin");
+        assert_eq!(request["from"], "approved");
+        assert_eq!(request["expectedVersion"], 4);
+        assert_eq!(
+            request["conversion"],
+            json!({"kind": "draft", "id": "tide-tables"})
+        );
+        let text = request.to_string();
+        for private in ["Private Person", "ada@example.org", "letters", "survey"] {
+            assert!(!text.contains(private), "{private}");
+        }
+        let body = body_json(&made);
+        assert_eq!(body["published"], false);
+        let shown = &body["item"]["suggestion"];
+        assert_eq!(shown["standing"]["id"], "converted");
+        assert_eq!(shown["outcome"]["id"], "converted");
+        assert_eq!(shown["conversions"][0]["id"], "tide-tables");
+        assert_eq!(shown["conversions"][0]["by"], "mikey");
+
+        // Refusals ask nothing of the hosted function.
+        for (name, item, version, kind, target, status, code) in [
+            (
+                "pending",
+                suggestion_item("pending", 2, link_details(&[], false)),
+                2,
+                ConversionKind::Draft,
+                "tide-tables",
+                422,
+                "notAccepted",
+            ),
+            (
+                "removed",
+                suggestion_item("removed", 2, link_details(&[], false)),
+                2,
+                ConversionKind::Draft,
+                "tide-tables",
+                422,
+                "notAccepted",
+            ),
+            (
+                "a duplicate",
+                suggestion_item(
+                    "approved",
+                    4,
+                    link_details(&[("draft", "tide-tables")], true),
+                ),
+                4,
+                ConversionKind::Draft,
+                "tide-tables",
+                422,
+                "alreadyLinked",
+            ),
+            (
+                "not a slug",
+                accepted.clone(),
+                4,
+                ConversionKind::Draft,
+                "Tide Tables",
+                422,
+                "invalidTarget",
+            ),
+            (
+                "not a library id",
+                accepted.clone(),
+                4,
+                ConversionKind::LibrarySource,
+                "Survey 1850",
+                422,
+                "invalidTarget",
+            ),
+            (
+                "stale",
+                accepted.clone(),
+                3,
+                ConversionKind::Series,
+                "tides",
+                409,
+                "conflict",
+            ),
+        ] {
+            let (response, calls) = link(&item, version, kind, target, linked_answer(&[]));
+            assert_eq!(response.status, status, "{name}");
+            assert_eq!(body_json(&response)["code"], code, "{name}");
+            assert_eq!(calls, 0, "{name}");
+        }
+        let nine: Vec<(&str, String)> = (0..8).map(|n| ("draft", format!("draft-{n}"))).collect();
+        let nine_refs: Vec<(&str, &str)> = nine.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        let full = suggestion_item("approved", 4, link_details(&nine_refs, false));
+        let (response, calls) = link(
+            &full,
+            4,
+            ConversionKind::Series,
+            "tides",
+            linked_answer(&[]),
+        );
+        assert_eq!((response.status, calls), (422, 0));
+        assert_eq!(body_json(&response)["code"], "tooMany");
+        // Something that is not a suggestion is not found.
+        let other = moderation_inbox::InboxItem::from_value(&json!({
+            "source": "feedback", "id": FEEDBACK_ITEM_ID, "status": "approved", "version": 2, "moderatedAt": null, "reason": null,
+            "feedback": {"version": 1, "kind": "question", "body": "Why?", "details": {}, "provenance": {"version": 1, "work": "/hello-world/", "revision": "p1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "target": {"version": 1, "kind": "work"}, "receivedAt": "2026-10-26T10:00:00Z", "channel": "hosted", "attribution": {"publishName": false}}},
+            "itemRevision": 1, "approvedRevision": 1, "clarificationAsked": null, "clarificationConsent": false,
+        }))
+        .unwrap();
+        let (response, calls) = link(
+            &other,
+            2,
+            ConversionKind::Draft,
+            "tide-tables",
+            linked_answer(&[]),
+        );
+        assert_eq!((response.status, calls), (404, 0));
+
+        // The hosted function's own answers are passed on honestly: a conflict is a conflict with the current item,
+        // a refusal is a refusal, and an answer that does not hold the link is not believed.
+        let (response, calls) = link(
+            &accepted,
+            4,
+            ConversionKind::Draft,
+            "tide-tables",
+            (
+                409,
+                json!({ "item": suggestion_value("approved", 6, link_details(&[], true)) }),
+            ),
+        );
+        assert_eq!((response.status, calls), (409, 1));
+        assert_eq!(body_json(&response)["code"], "conflict");
+        assert_eq!(body_json(&response)["item"]["version"], 6);
+        let (response, _) = link(
+            &accepted,
+            4,
+            ConversionKind::Draft,
+            "tide-tables",
+            (403, Json::Null),
+        );
+        assert_eq!(response.status, 403);
+        let (response, _) = link(
+            &accepted,
+            4,
+            ConversionKind::Draft,
+            "tide-tables",
+            linked_answer(&[]),
+        );
+        assert_eq!(
+            response.status, 502,
+            "an answer without the link is not believed"
+        );
+        let (response, _) = link(
+            &accepted,
+            4,
+            ConversionKind::Draft,
+            "tide-tables",
+            linked_answer(&[("draft", "another")]),
+        );
+        assert_eq!(
+            response.status, 502,
+            "an answer with another link is not believed"
+        );
+    }
+
+    #[test]
+    fn the_inbox_view_offers_the_link_and_the_library_hints_only_to_whom_may_act_and_shows_the_outcome(
+    ) {
+        let f = fixture("suggestion-link-view");
+        let sources = inbox_sources(&f.state).unwrap();
+        let author = mikey();
+        let protocol = moderation_inbox::Protocol::Protected;
+        let view = |item: &moderation_inbox::InboxItem| {
+            sources
+                .inbox(&author, protocol, false, |inbox| inbox.view(item))
+                .unwrap()
+        };
+        let accepted = view(&suggestion_item("approved", 4, link_details(&[], true)));
+        let shown = &accepted["suggestion"];
+        assert_eq!(shown["outcome"], json!({"id": "held", "label": "Held"}));
+        assert_eq!(shown["standing"]["id"], "interested");
+        assert_eq!(shown["conversions"], json!([]));
+        assert_eq!(shown["link"]["kinds"].as_array().unwrap().len(), 3);
+        assert_eq!(shown["link"]["full"], false);
+        let candidate = &shown["libraryCandidate"];
+        assert_eq!(candidate["unverified"], true);
+        assert_eq!(candidate["title"], "The survey");
+        assert_eq!(candidate["url"], "https://example.org/watch");
+        // The candidate holds nothing the reader wrote beyond the hints they gave, and never their name or contact.
+        let text = candidate.to_string();
+        for private in ["Private Person", "ada@example.org", "letters"] {
+            assert!(!text.contains(private), "{private}");
+        }
+        // Each outcome is named and nothing counts.
+        let outcome = |status: &str, links: &[(&str, &str)]| {
+            view(&suggestion_item(status, 4, link_details(links, false)))["suggestion"]["outcome"]
+                .clone()
+        };
+        assert_eq!(
+            outcome("approved", &[("series", "tides")])["id"],
+            "converted"
+        );
+        assert_eq!(
+            outcome("removed", &[("series", "tides")])["id"],
+            "converted"
+        );
+        assert_eq!(outcome("removed", &[])["id"], "closed");
+        assert_eq!(outcome("rejected", &[])["id"], "declined");
+        assert_eq!(outcome("pending", &[]), Json::Null);
+        let pending = view(&suggestion_item("pending", 4, link_details(&[], false)));
+        assert_eq!(
+            pending["suggestion"]["link"],
+            Json::Null,
+            "nothing is offered before it is accepted"
+        );
+        assert_eq!(pending["suggestion"]["libraryCandidate"], Json::Null);
+        let full: Vec<(&str, String)> = (0..8).map(|n| ("draft", format!("draft-{n}"))).collect();
+        let refs: Vec<(&str, &str)> = full.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        let filled = view(&suggestion_item("approved", 4, link_details(&refs, false)));
+        assert_eq!(filled["suggestion"]["link"]["full"], true);
+        for json in [&accepted, &pending, &filled] {
+            let text = json.to_string().to_lowercase();
+            for word in ["rank", "popular", "most requested", "votes", "trending"] {
+                assert!(!text.contains(word), "{word}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_linked_suggestion_owes_the_clearing_of_its_private_identity_at_once_in_the_hosted_run() {
+        let policy = moderation::ModerationPolicy::default();
+        // Linked yesterday: not due on the clock (closedDays has not passed), due because it is linked.
+        let now = DateTime::parse("2026-10-28T12:00:00Z").unwrap();
+        let held =
+            |links: &[(&str, &str)]| suggestion_item("approved", 4, link_details(links, true));
+        let step = |item: &moderation_inbox::InboxItem| item.retention_step(&policy, now);
+        assert_eq!(step(&held(&[])), None, "unlinked and young");
+        assert_eq!(
+            step(&held(&[("draft", "tide-tables")])),
+            Some(moderation::RetentionStep::ScrubIdentity)
+        );
+        // Nothing private to clear, nothing owed.
+        let bare = suggestion_item("approved", 4, {
+            let mut details = link_details(&[("draft", "tide-tables")], false);
+            details["type"] = json!("video");
+            details
+        });
+        let mut value = suggestion_value(
+            "approved",
+            4,
+            link_details(&[("draft", "tide-tables")], false),
+        );
+        value["feedback"]["provenance"]["attribution"] = json!({"publishName": false});
+        let anonymous = moderation_inbox::InboxItem::from_value(&value).unwrap();
+        assert_eq!(step(&anonymous), None);
+        // A name the reader agreed to show stays, and a suggestion that is not accepted is not cleared.
+        assert_eq!(
+            step(&suggestion_item(
+                "pending",
+                2,
+                link_details(&[("draft", "tide-tables")], true)
+            )),
+            None
+        );
+        let _ = bare;
+        // After the period an unlinked one is due too.
+        let late = DateTime::parse("2026-12-01T00:00:00Z").unwrap();
+        assert_eq!(
+            held(&[]).retention_step(&policy, late),
+            Some(moderation::RetentionStep::ScrubIdentity)
+        );
+    }
+
+    #[test]
+    fn the_link_reads_its_request_strictly_before_any_hosted_request() {
+        let f = fixture("suggestion-link-request");
+        let session = login_ok(&f);
+        let post = |body: Json| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req("POST", "/admin/api/engagement/suggestions/link", body),
+                    &session,
+                    true,
+                ),
+            )
+        };
+        let good = json!({"id": FEEDBACK_ITEM_ID, "version": 2, "conversion": {"kind": "draft", "id": "tide-tables"}});
+        // Off: it says how to turn hosted engagement on, asking nothing of it.
+        let off = post(good.clone());
+        assert_eq!(off.status, 404);
+        assert!(body_json(&off)["error"]
+            .as_str()
+            .unwrap()
+            .contains("Hosted engagement is not turned on"));
+        for body in [
+            json!({"id": "../x", "version": 2, "conversion": {"kind": "draft", "id": "a"}}),
+            json!({"id": FEEDBACK_ITEM_ID, "conversion": {"kind": "draft", "id": "a"}}),
+            json!({"id": FEEDBACK_ITEM_ID, "version": 0, "conversion": {"kind": "draft", "id": "a"}}),
+            json!({"id": FEEDBACK_ITEM_ID, "version": 2}),
+            json!({"id": FEEDBACK_ITEM_ID, "version": 2, "conversion": {"kind": "page", "id": "a"}}),
+            json!({"id": FEEDBACK_ITEM_ID, "version": 2, "conversion": {"kind": "draft", "id": 5}}),
+            json!({"id": FEEDBACK_ITEM_ID, "version": 2, "conversion": "draft"}),
             json!("not an object"),
         ] {
             let refused = post(body.clone());

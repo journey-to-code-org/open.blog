@@ -11,6 +11,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createHandler } from "../../netlify/functions/engagement.mjs";
 import { isPublishable } from "../../netlify/lib/participation-moderation.mjs";
+import { ACCEPTANCE_NOTICE, DECLINE_NOTICE, LINK_NOTICE } from "../../web/components/future-suggestion.js";
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 const fixture = JSON.parse(read("../fixtures/future-suggestion-submissions.json"));
@@ -451,4 +452,205 @@ test("a retention run lists and clears only suggestions that still hold a contac
   // A step the function does not owe is skipped, not applied.
   const refused = await handler(event("admin/retention", "POST", { headers: { ...ADMIN, ...ORIGIN }, body: { ...cutoffs, items: [{ source: "feedback", id: ID(21), version: 3, step: "purge-content" }] } }));
   assert.deepEqual(JSON.parse(refused.body).purged, 0);
+});
+
+// ---- Editorial outcomes and links to future work (#228, ADRs 0210 to 0212)
+
+const approvedRow = (extra = {}) => stored({ status: "approved", approved_revision: 1, version: 3, moderated_at: "2026-10-26T12:00:00+00:00", ...extra });
+const LINK = { kind: "draft", id: "tide-tables", at: "2026-10-26T10:00:00Z", by: "mikey" };
+const convertBody = (extra = {}) => ({ source: "feedback", id: ID(1), action: "convert", from: "approved", expectedVersion: 3, actor: "mikey", actorRole: "site-admin", conversion: { kind: "draft", id: "tide-tables" }, ...extra });
+const convertCall = (database, body, options) => handlerFor(database, options)(event("admin/moderation", "PATCH", { headers: ADMIN, body }));
+// A database that holds one row and applies a PATCH to it as the version predicate allows.
+const holding = (row) => {
+  const current = { ...row };
+  const database = fakeDatabase((entry) => {
+    if (entry.method === "PATCH" && entry.path.endsWith("/openblog_feedback")) {
+      if (entry.params.version !== `eq.${current.version}` || entry.params.status !== `eq.${current.status}`) return [];
+      Object.assign(current, entry.body);
+      return [{ ...current }];
+    }
+    if (entry.path.endsWith("/openblog_feedback")) return [{ ...current }];
+    return [];
+  });
+  return { database, current };
+};
+
+test("an accepted suggestion is linked to future work by the Admin's explicit act, with an audit event and nothing published", async () => {
+  const { database, current } = holding(approvedRow());
+  const response = await convertCall(database, convertBody());
+  assert.equal(response.statusCode, 200, response.body);
+  const patch = writes(database).find((entry) => entry.method === "PATCH");
+  assert.deepEqual(patch.params, {
+    site_id: "eq.lantern", id: `eq.${ID(1)}`, version: "eq.3", status: "eq.approved", approved_revision: "eq.1", kind: "eq.future-suggestion", purged_at: "is.null",
+    select: patch.params.select,
+  });
+  assert.deepEqual(Object.keys(patch.body).sort(), ["details", "version"], "only the details and the version change");
+  assert.equal(patch.body.version, 4, "a view from before can no longer act");
+  assert.deepEqual(patch.body.details.conversions, [LINK]);
+  assert.equal(patch.body.details.url, "https://example.org/letters", "the rest of the details are as they were");
+  assert.deepEqual(current.details.contact, { address: "ada@example.org", followUp: true }, "linking does not itself clear the contact; the next retention run does");
+  const [logged] = writes(database).filter((entry) => entry.method === "POST" && entry.path.endsWith("/openblog_feedback_events"));
+  assert.deepEqual({ ...logged.body, at: undefined }, {
+    site_id: "lantern", feedback_id: ID(1), action: "convert", from_status: "approved", to_status: "approved", reason: null, actor: "mikey", at: undefined,
+    version: 4, kind: "future-suggestion", item_revision: 1, actor_role: "site-admin",
+  });
+  assert.doesNotMatch(JSON.stringify(logged), /tide-tables|ada|Ada|letters/, "the event names neither the target nor anything the reader wrote");
+  // Nothing was published, fetched or sent: only the database was called, and no row other than this one changed.
+  assert.ok(database.requests.every((entry) => entry.path.startsWith("/rest/v1/")));
+  assert.equal(writes(database).filter((entry) => entry.method === "PATCH").length, 1);
+  // The inbox now shows it as an item with a link, never as published.
+  const item = JSON.parse(response.body).item;
+  assert.equal(item.feedback.details.conversions[0].id, "tide-tables");
+});
+
+test("a link is refused by every rule the build gives, and stores nothing", async () => {
+  const refusals = [
+    ["a coordinator-less contributing author", approvedRow(), convertBody({ actorRole: "contributing-author" }), 422],
+    ["no role", approvedRow(), convertBody({ actorRole: "public" }), 422],
+    ["a pending suggestion", approvedRow({ status: "pending", approved_revision: null }), convertBody({ from: "pending" }), 422, "notAccepted"],
+    ["a removed suggestion", approvedRow({ status: "removed", approved_revision: null }), convertBody({ from: "removed" }), 422, "notAccepted"],
+    ["a waiting suggestion", approvedRow({ status: "clarification", approved_revision: null }), convertBody({ from: "clarification" }), 422, "notAccepted"],
+    ["a text the reader was asked about", approvedRow({ clarification_asked: 1 }), convertBody(), 422, "notAccepted"],
+    ["an older approval", approvedRow({ item_revision: 2, approved_revision: 1 }), convertBody(), 422, "notAccepted"],
+    ["a purged suggestion", approvedRow({ purged_at: "2026-10-26T13:00:00+00:00" }), convertBody(), 422, "notAccepted"],
+    ["a target that is not a slug", approvedRow(), convertBody({ conversion: { kind: "draft", id: "Tide Tables" } }), 422, "invalidTarget"],
+    ["an unknown kind", approvedRow(), convertBody({ conversion: { kind: "page", id: "tides" } }), 422, "invalidTarget"],
+    ["no conversion", approvedRow(), convertBody({ conversion: undefined }), 422, "invalidTarget"],
+    ["a duplicate", approvedRow({ details: { type: "text", conversions: [LINK] } }), convertBody(), 422, "alreadyLinked"],
+    ["a ninth link", approvedRow({ details: { type: "text", conversions: Array.from({ length: 8 }, (_, n) => ({ ...LINK, id: `draft-${n}` })) } }), convertBody(), 422, "tooMany"],
+    ["details that were already malformed", approvedRow({ details: { type: "text", conversions: [] } }), convertBody(), 422, "invalidDetails"],
+    ["a stale version", approvedRow({ version: 4 }), convertBody(), 409, "conflict"],
+    ["another state than the one Admin saw", approvedRow(), convertBody({ from: "pending" }), 409, "conflict"],
+    ["another kind", approvedRow({ kind: "question" }), convertBody(), 422, "wrongKind"],
+  ];
+  for (const [name, row, body, status, code] of refusals) {
+    const { database } = holding(row);
+    const response = await convertCall(database, body);
+    assert.equal(response.statusCode, status, `${name}: ${response.body}`);
+    if (code) assert.equal(JSON.parse(response.body).code, code, name);
+    assert.equal(writes(database).length, 0, `${name}: nothing is stored`);
+  }
+  // Without the moderation schema nothing can be audited, so nothing is linked.
+  const { database } = holding(approvedRow());
+  const off = await convertCall(database, convertBody(), { env: { ...environment, OPENBLOG_MODERATION_ENABLED: "" } });
+  assert.notEqual(off.statusCode, 200);
+  assert.equal(writes(database).length, 0);
+  // Without Admin authorization it never reaches the store.
+  const anonymous = await handlerFor(database)(event("admin/moderation", "PATCH", { headers: ORIGIN, body: convertBody() }));
+  assert.equal(anonymous.statusCode, 401);
+  assert.equal(writes(database).length, 0);
+});
+
+test("a second Admin acting on the old version cannot link twice, and a repeat is a duplicate", async () => {
+  const { database } = holding(approvedRow());
+  const first = await convertCall(database, convertBody());
+  assert.equal(first.statusCode, 200);
+  const again = await convertCall(database, convertBody({ expectedVersion: 3 }));
+  assert.equal(again.statusCode, 409, "the version moved on");
+  const fresh = await convertCall(database, convertBody({ expectedVersion: 4 }));
+  assert.equal(fresh.statusCode, 422);
+  assert.equal(JSON.parse(fresh.body).code, "alreadyLinked");
+  const other = await convertCall(database, convertBody({ expectedVersion: 4, conversion: { kind: "series", id: "tide-tables" } }));
+  assert.equal(other.statusCode, 200, "the same id as another kind is another link");
+});
+
+test("a suggestion about a renamed page can still be linked, and keeps the page it was sent from", async () => {
+  const { database, current } = holding(approvedRow({ work: "/posts/old-name/" }));
+  const response = await convertCall(database, convertBody());
+  assert.equal(response.statusCode, 200);
+  assert.equal(current.work, "/posts/old-name/", "the page is never rewritten by a link");
+  assert.deepEqual(Object.keys(writes(database).find((entry) => entry.method === "PATCH").body).sort(), ["details", "version"]);
+});
+
+test("the reader's receipt shows the honest standing and never what it was linked to", async () => {
+  const read = async (extra) => {
+    const database = fakeDatabase((entry) => (entry.method === "GET" && entry.path.endsWith("/openblog_feedback") ? [stored(extra)] : []));
+    return JSON.parse((await receiptCall(database, { action: "read" })).body).item;
+  };
+  const linked = { details: { type: "text", url: "https://example.org/letters", conversions: [LINK] } };
+  const expectations = [
+    [{}, "received", null],
+    [{ status: "clarification", clarification_asked: 1 }, "needs-clarification", null],
+    [{ status: "approved", approved_revision: 1 }, "interested", ACCEPTANCE_NOTICE],
+    [{ status: "approved", approved_revision: 1, ...linked }, "converted", LINK_NOTICE],
+    [{ status: "removed", ...linked }, "closed-converted", LINK_NOTICE],
+    [{ status: "removed" }, "declined", DECLINE_NOTICE],
+    [{ status: "rejected", moderation_reason: "off-topic" }, "declined", DECLINE_NOTICE],
+    [{ status: "withdrawn" }, "withdrawn", null],
+  ];
+  for (const [extra, id, note] of expectations) {
+    const item = await read(extra);
+    assert.equal(item.standing.id, id, id);
+    assert.equal(item.standing.note, note, id);
+    assert.equal(item.published, false, "never published");
+    // The links are the editors': their account, their drafts and their series are not the reader's to see.
+    const text = JSON.stringify(item);
+    assert.doesNotMatch(text, /conversions|tide-tables|mikey/, id);
+    // No ranking, no counts, no reason an editor gave.
+    assert.doesNotMatch(JSON.stringify(item.standing), /\d|rank|score|vote|popular/i, id);
+    assert.ok(!("moderation_reason" in item) && !("reason" in item), id);
+  }
+  // The reader's own contact is still theirs to see.
+  assert.equal((await read(linked)).details.contact?.address ?? "ada@example.org", "ada@example.org");
+  // Another kind's receipt has no standing, and is unchanged.
+  const question = await read({ kind: "question", status: "approved", approved_revision: 1 });
+  assert.ok(!("standing" in question));
+});
+
+test("a withdrawal after a link keeps the reader's choice, and a changed consent changes only what it covers", async () => {
+  // The reader withdraws a linked suggestion: the withdrawal purges it, links included, and the receipt
+  // says it is gone rather than guessing at a standing from what was erased.
+  const linkedRow = approvedRow({ details: { type: "text", conversions: [LINK] } });
+  const withdrawn = fakeDatabase((entry) => {
+    if (entry.method === "GET" && entry.path.endsWith("/openblog_feedback")) return [linkedRow];
+    if (entry.path.endsWith("/rpc/openblog_erase_feedback")) return [{ ...linkedRow, status: "withdrawn", version: 4, body: "-", details: {}, reader_name: null, publish_name: false, purged_at: "2026-10-26T10:00:00+00:00" }];
+    return [];
+  });
+  const response = await receiptCall(withdrawn, { action: "withdraw", expectedVersion: 3 });
+  assert.equal(response.statusCode, 200, response.body);
+  const gone = JSON.parse(response.body).item;
+  assert.equal(gone.status, "withdrawn");
+  assert.equal(gone.purged, true);
+  assert.ok(!("standing" in gone) && !JSON.stringify(gone).includes("tide-tables"));
+  // A linked suggestion with an unshown name owes the clearing at once; one whose name the reader agreed to show keeps it.
+  const shown = approvedRow({ details: { type: "text", conversions: [LINK] }, publish_name: true });
+  const hidden = approvedRow({ id: ID(2), details: { type: "text", conversions: [LINK] }, publish_name: false, reader_name: "Ada" });
+  const recent = new Date("2026-10-27T10:00:00.000Z");
+  const database = fakeDatabase((entry) => (entry.method === "GET" && entry.path.endsWith("/openblog_feedback") ? [shown, hidden] : []));
+  const dry = await handlerFor(database, { now: () => recent })(event("admin/retention", "GET", { headers: ADMIN, query: { ...cutoffs, comments: "false" } }));
+  const listed = JSON.parse(dry.body).items.filter((item) => item.feedback?.kind === "future-suggestion");
+  assert.deepEqual(listed.map((item) => [item.id, item.step]), [[ID(2), "scrub-identity"]], "linked an hour ago, and still due at once");
+});
+
+test("a retention run lists a linked suggestion at once and clears its identity, keeping its links", async () => {
+  const young = stored({ id: ID(31), status: "approved", approved_revision: 1, version: 3, moderated_at: "2026-10-26T12:00:00+00:00", details: { type: "text", contact: { address: "ada@example.org", followUp: true }, conversions: [LINK] } });
+  const youngUnlinked = stored({ id: ID(32), status: "approved", approved_revision: 1, version: 3, moderated_at: "2026-10-26T12:00:00+00:00" });
+  const rows = { [young.id]: young, [youngUnlinked.id]: youngUnlinked };
+  const database = fakeDatabase((entry) => {
+    if (entry.method === "PATCH" && entry.path.endsWith("/openblog_feedback")) return [{ id: entry.params.id.slice(3), version: entry.body.version }];
+    if (entry.path.endsWith("/openblog_feedback")) return entry.params.id ? [rows[entry.params.id.slice(3)]].filter(Boolean) : Object.values(rows);
+    return [];
+  });
+  const handler = handlerFor(database, { now: () => protectedNow });
+  const dry = await handler(event("admin/retention", "GET", { headers: ADMIN, query: { ...cutoffs, comments: "false" } }));
+  const listed = JSON.parse(dry.body).items.filter((item) => item.feedback?.kind === "future-suggestion");
+  assert.deepEqual(listed.map((item) => [item.id, item.step]), [[ID(31), "scrub-identity"]], "the linked one only: the other is young and unlinked");
+  assert.match(database.requests.find((entry) => entry.method === "GET" && entry.path.endsWith("/openblog_feedback")).params.or, /details->conversions\.not\.is\.null/);
+  const run = await handler(event("admin/retention", "POST", { headers: { ...ADMIN, ...ORIGIN }, body: { ...cutoffs, items: [{ source: "feedback", id: ID(31), version: 3, step: "scrub-identity" }] } }));
+  assert.equal(JSON.parse(run.body).scrubbed, 1);
+  const patch = writes(database).find((entry) => entry.method === "PATCH");
+  assert.deepEqual(patch.body.details, { type: "text", conversions: [LINK] }, "the contact goes; the link stays");
+  assert.equal(patch.body.reader_name, null);
+});
+
+test("no public route and no inbox of another kind ever shows a link", async () => {
+  const row = approvedRow({ details: { type: "text", conversions: [LINK] } });
+  const database = fakeDatabase((entry) => (entry.method === "GET" ? [row] : []));
+  for (const path of ["comments", "feedback", "views"]) {
+    const response = await handlerFor(database)(event(path, "GET", { query: { path: WORK, work: WORK } }));
+    assert.doesNotMatch(response.body, /tide-tables|mikey|conversions/, path);
+  }
+  const unauthorized = await handlerFor(database)(event("admin/moderation", "GET", {}));
+  assert.equal(unauthorized.statusCode, 401);
+  assert.doesNotMatch(unauthorized.body, /tide-tables|mikey/);
 });

@@ -8,8 +8,10 @@ use openblog_core::citations::public_url_problem;
 use openblog_core::date::DateTime;
 use openblog_core::feedback_provenance::{FeedbackChannel, ReaderAttribution};
 use openblog_core::future_suggestion::{
-    normalize_suggestion_url, ErrorCode, Submission, Suggestion, MAX_SUBMISSION_BYTES,
+    identity_scrub_due, normalize_suggestion_url, Conversion, ConversionKind, ErrorCode, Outcome,
+    Standing, Submission, Suggestion, MAX_SUBMISSION_BYTES,
 };
+use openblog_core::moderation::{Actor, ItemFacts, ModerationPolicy, ModerationState};
 use serde_json::{json, Value};
 
 const URLS_PATH: &str = "../../tests/fixtures/public-urls.json";
@@ -700,6 +702,566 @@ fn the_submission_format_is_the_one_the_hosted_function_reads() {
             "work": WORK,
             "receivedAt": RECEIVED_AT,
             "cases": cases,
+        }),
+    );
+}
+
+// ---- Standing, outcomes, links and the clearing of private identity (RD13.3, ADRs 0210 to 0212)
+
+const OUTCOMES_PATH: &str = "../../tests/fixtures/future-suggestion-outcomes.json";
+const WORKS: [&str; 1] = [WORK];
+
+fn link_value(kind: &str, id: &str, by: &str) -> Value {
+    json!({ "kind": kind, "id": id, "at": "2026-10-27T10:00:00Z", "by": by })
+}
+
+fn stored_row(status: &str, details: Value, extra: Value) -> Value {
+    let mut row = json!({
+        "kind": "future-suggestion",
+        "status": status,
+        "item_revision": 1,
+        "approved_revision": if status == "approved" { json!(1) } else { Value::Null },
+        "clarification_asked": null,
+        "purged_at": null,
+        "body": "Her letters from the 1850 survey would help with the tide tables.",
+        "details": details,
+        "reader_name": null,
+        "publish_name": false,
+    });
+    for (key, field) in extra.as_object().unwrap() {
+        row[key] = field.clone();
+    }
+    row
+}
+
+fn suggestion_of(
+    row: &Value,
+) -> Result<Suggestion, openblog_core::future_suggestion::SuggestionError> {
+    Suggestion::from_stored(
+        row["body"].as_str().unwrap(),
+        row["item_revision"].as_u64().unwrap() as u32,
+        &row["details"],
+        &json!({ "work": WORK, "receivedAt": RECEIVED_AT, "channel": "hosted" }),
+        &ReaderAttribution {
+            name: row["reader_name"].as_str().map(str::to_string),
+            publish_name: row["publish_name"].as_bool().unwrap(),
+        },
+    )
+}
+
+fn facts_of(row: &Value) -> ItemFacts<'_> {
+    ItemFacts {
+        id: "item",
+        kind: openblog_core::future_suggestion::KIND,
+        work: Some(WORK),
+        parent: None,
+        state: ModerationState::from_id(row["status"].as_str().unwrap()).unwrap(),
+        version: 3,
+        revision: row["item_revision"].as_u64().unwrap() as u32,
+        approved_revision: row["approved_revision"].as_u64().map(|r| r as u32),
+        clarification_asked: row["clarification_asked"].as_u64().map(|r| r as u32),
+        clarification_consent: false,
+        content_retained: row["purged_at"].is_null(),
+        state_since: DateTime::parse(RECEIVED_AT).unwrap(),
+    }
+}
+
+fn link_case(
+    links: &mut Vec<Value>,
+    name: &str,
+    role: &str,
+    row: Value,
+    kind: &str,
+    target: &str,
+    actor: &str,
+) {
+    let at = DateTime::parse("2026-11-01T09:00:00Z").unwrap();
+    let request =
+        json!({ "role": role, "kind": kind, "target": target, "actor": actor, "at": at.rfc3339() });
+    let expect = (|| {
+        let suggestion = match suggestion_of(&row) {
+            Ok(suggestion) => suggestion,
+            Err(error) => return json!({ "code": serde_json::to_value(error.code).unwrap() }),
+        };
+        let item = facts_of(&row);
+        let acting = match role {
+            "site-admin" => Actor::SiteAdmin { admin_user: actor },
+            "coordinator" => Actor::Coordinator {
+                admin_user: actor,
+                works: &WORKS,
+            },
+            "contributing-author" => Actor::ContributingAuthor {
+                admin_user: actor,
+                works: &WORKS,
+            },
+            "submitter" => Actor::Submitter,
+            _ => Actor::Public,
+        };
+        let Some(kind) = ConversionKind::from_id(kind) else {
+            return json!({ "code": "invalidTarget" });
+        };
+        match suggestion.linked(&acting, &item, kind, target, at) {
+            Ok(next) => json!({ "conversions": next.stored_details()["conversions"] }),
+            Err(error) => json!({ "code": error.code() }),
+        }
+    })();
+    links.push(json!({ "name": name, "row": row, "request": request, "expect": expect }));
+}
+
+fn details_case(details: &mut Vec<Value>, name: &str, value: Value) {
+    let row = stored_row("approved", value.clone(), json!({}));
+    let expect = match suggestion_of(&row) {
+        Ok(suggestion) => json!({
+            "conversions": suggestion.conversions.iter().map(Conversion::to_value).collect::<Vec<_>>()
+        }),
+        Err(error) => json!({ "code": serde_json::to_value(error.code).unwrap() }),
+    };
+    details.push(json!({ "name": name, "details": value, "expect": expect }));
+}
+
+#[test]
+fn standing_outcomes_links_and_clearing_are_the_ones_the_hosted_function_reads() {
+    // Standing, outcome and the reader's receipt text, for every state with and without a link.
+    let mut standings = Vec::new();
+    for state in ModerationState::ALL {
+        for linked in [false, true] {
+            let links = if linked {
+                vec![Conversion::from_value(&link_value("draft", "tide-tables", "owner")).unwrap()]
+            } else {
+                Vec::new()
+            };
+            let standing = Standing::of(state, &links);
+            let outcome = Outcome::of(state, &links);
+            standings.push(json!({
+                "state": state.id(),
+                "linked": linked,
+                "expect": {
+                    "standing": { "id": standing.id(), "label": standing.label() },
+                    "outcome": outcome.map(|o| json!({ "id": o.id(), "label": o.label() })),
+                    "reader": {
+                        "note": standing.reader_note(),
+                        "acceptance": standing.shows_acceptance_notice(),
+                    },
+                },
+            }));
+        }
+    }
+
+    // Links: who may record one, on what, and what the stored details become.
+    let mut links = Vec::new();
+    let approved = || stored_row("approved", json!({ "type": "text" }), json!({}));
+    let one = json!([link_value("draft", "tide-tables", "owner")]);
+    let l = &mut links;
+    link_case(
+        l,
+        "the site Admin links an accepted suggestion to a draft",
+        "site-admin",
+        approved(),
+        "draft",
+        "tide-tables",
+        "owner",
+    );
+    link_case(
+        l,
+        "a coordinator links it to a series",
+        "coordinator",
+        approved(),
+        "series",
+        "the-tides",
+        "coord",
+    );
+    link_case(
+        l,
+        "a library source is its lowercase ascii id",
+        "site-admin",
+        approved(),
+        "library-source",
+        "survey-1850",
+        "owner",
+    );
+    link_case(
+        l,
+        "a library source id is not a slug with capitals",
+        "site-admin",
+        approved(),
+        "library-source",
+        "Survey-1850",
+        "owner",
+    );
+    link_case(
+        l,
+        "a slug may keep a non-ascii letter",
+        "site-admin",
+        approved(),
+        "draft",
+        "mar\u{e9}es-hautes",
+        "owner",
+    );
+    link_case(
+        l,
+        "a slug is not words",
+        "site-admin",
+        approved(),
+        "draft",
+        "Tide Tables",
+        "owner",
+    );
+    link_case(
+        l,
+        "a slug is not empty",
+        "site-admin",
+        approved(),
+        "series",
+        "",
+        "owner",
+    );
+    link_case(
+        l,
+        "a slug is at most 64 characters",
+        "site-admin",
+        approved(),
+        "series",
+        &"a".repeat(65),
+        "owner",
+    );
+    link_case(
+        l,
+        "an unknown kind",
+        "site-admin",
+        approved(),
+        "post",
+        "tide-tables",
+        "owner",
+    );
+    link_case(
+        l,
+        "a contributing author may not",
+        "contributing-author",
+        approved(),
+        "draft",
+        "tide-tables",
+        "writer",
+    );
+    link_case(
+        l,
+        "a submitter may not",
+        "submitter",
+        approved(),
+        "draft",
+        "tide-tables",
+        "owner",
+    );
+    link_case(
+        l,
+        "the public may not",
+        "public",
+        approved(),
+        "draft",
+        "tide-tables",
+        "owner",
+    );
+    for status in [
+        "pending",
+        "clarification",
+        "rejected",
+        "removed",
+        "withdrawn",
+    ] {
+        link_case(
+            l,
+            &format!("a {status} suggestion cannot be linked"),
+            "site-admin",
+            stored_row(status, json!({ "type": "text" }), json!({})),
+            "draft",
+            "tide-tables",
+            "owner",
+        );
+    }
+    link_case(
+        l,
+        "an approval of an older text does not count",
+        "site-admin",
+        stored_row(
+            "approved",
+            json!({ "type": "text" }),
+            json!({ "item_revision": 2, "approved_revision": 1 }),
+        ),
+        "draft",
+        "tide-tables",
+        "owner",
+    );
+    link_case(
+        l,
+        "a text the reader was asked about cannot be linked",
+        "site-admin",
+        stored_row(
+            "approved",
+            json!({ "type": "text" }),
+            json!({ "clarification_asked": 1 }),
+        ),
+        "draft",
+        "tide-tables",
+        "owner",
+    );
+    link_case(
+        l,
+        "a purged suggestion cannot be linked",
+        "site-admin",
+        stored_row(
+            "approved",
+            json!({ "type": "text" }),
+            json!({ "purged_at": "2026-12-01T00:00:00Z" }),
+        ),
+        "draft",
+        "tide-tables",
+        "owner",
+    );
+    link_case(
+        l,
+        "the same target twice",
+        "site-admin",
+        stored_row(
+            "approved",
+            json!({ "type": "text", "conversions": one }),
+            json!({}),
+        ),
+        "draft",
+        "tide-tables",
+        "owner",
+    );
+    link_case(
+        l,
+        "the same id as another kind is another link",
+        "site-admin",
+        stored_row(
+            "approved",
+            json!({ "type": "text", "conversions": one }),
+            json!({}),
+        ),
+        "series",
+        "tide-tables",
+        "owner",
+    );
+    link_case(
+        l,
+        "a second link is added after the first",
+        "coordinator",
+        stored_row(
+            "approved",
+            json!({ "type": "text", "conversions": one }),
+            json!({}),
+        ),
+        "library-source",
+        "survey-1850",
+        "coord",
+    );
+    let full: Vec<Value> = (0..8)
+        .map(|n| link_value("draft", &format!("draft-{n}"), "owner"))
+        .collect();
+    link_case(
+        l,
+        "a ninth link",
+        "site-admin",
+        stored_row(
+            "approved",
+            json!({ "type": "text", "conversions": full }),
+            json!({}),
+        ),
+        "draft",
+        "draft-9",
+        "owner",
+    );
+    link_case(
+        l,
+        "an Admin account is named",
+        "site-admin",
+        approved(),
+        "draft",
+        "tide-tables",
+        "",
+    );
+    link_case(
+        l,
+        "an Admin account name is at most 64 characters",
+        "site-admin",
+        approved(),
+        "draft",
+        "tide-tables",
+        &"a".repeat(65),
+    );
+    link_case(
+        l,
+        "a link keeps the contact and name out of its record",
+        "site-admin",
+        stored_row(
+            "approved",
+            json!({ "type": "text", "contact": { "address": "ada@example.org", "followUp": true } }),
+            json!({ "reader_name": "Ada" }),
+        ),
+        "draft",
+        "tide-tables",
+        "owner",
+    );
+    link_case(
+        l,
+        "links are refused on details that were already malformed",
+        "site-admin",
+        stored_row(
+            "approved",
+            json!({ "type": "text", "conversions": [] }),
+            json!({}),
+        ),
+        "draft",
+        "tide-tables",
+        "owner",
+    );
+
+    // Stored details that carry links, read as the build reads them.
+    let mut details = Vec::new();
+    let d = &mut details;
+    details_case(d, "no links", json!({ "type": "text" }));
+    details_case(d, "one link", json!({ "type": "text", "conversions": one }));
+    let many = |n: usize| -> Vec<Value> {
+        (0..n)
+            .map(|i| link_value("series", &format!("s-{i}"), "owner"))
+            .collect()
+    };
+    details_case(
+        d,
+        "eight links",
+        json!({ "type": "text", "conversions": many(8) }),
+    );
+    details_case(
+        d,
+        "nine links",
+        json!({ "type": "text", "conversions": many(9) }),
+    );
+    details_case(
+        d,
+        "an empty list",
+        json!({ "type": "text", "conversions": [] }),
+    );
+    details_case(
+        d,
+        "not a list",
+        json!({ "type": "text", "conversions": "draft" }),
+    );
+    details_case(
+        d,
+        "a repeated target",
+        json!({ "type": "text", "conversions": [link_value("draft", "a", "owner"), link_value("draft", "a", "owner")] }),
+    );
+    details_case(
+        d,
+        "an unknown kind",
+        json!({ "type": "text", "conversions": [link_value("page", "a", "owner")] }),
+    );
+    details_case(
+        d,
+        "an uppercase library id",
+        json!({ "type": "text", "conversions": [link_value("library-source", "Survey", "owner")] }),
+    );
+    details_case(
+        d,
+        "a time that is not canonical",
+        json!({ "type": "text", "conversions": [{ "kind": "draft", "id": "a", "at": "yesterday", "by": "owner" }] }),
+    );
+    details_case(
+        d,
+        "an extra field",
+        json!({ "type": "text", "conversions": [{ "kind": "draft", "id": "a", "at": "2026-10-27T10:00:00Z", "by": "owner", "note": "x" }] }),
+    );
+    details_case(
+        d,
+        "a missing account",
+        json!({ "type": "text", "conversions": [{ "kind": "draft", "id": "a", "at": "2026-10-27T10:00:00Z" }] }),
+    );
+    details_case(
+        d,
+        "an account with a control character",
+        json!({ "type": "text", "conversions": [link_value("draft", "a", "ow\u{7}ner")] }),
+    );
+    details_case(
+        d,
+        "an account of 65 characters",
+        json!({ "type": "text", "conversions": [link_value("draft", "a", &"o".repeat(65))] }),
+    );
+    details_case(
+        d,
+        "links beside a contact",
+        json!({ "type": "text", "contact": { "address": "ada@example.org", "followUp": true }, "conversions": one }),
+    );
+
+    // The clearing of private identity: once the period has passed, or at once when linked.
+    let policy = ModerationPolicy::default();
+    let mut scrub = Vec::new();
+    for status in ["approved", "pending", "rejected", "removed"] {
+        for identity in [
+            "a contact",
+            "an unshown name",
+            "a shown name",
+            "nothing private",
+        ] {
+            for linked in [false, true] {
+                for passed in [false, true] {
+                    for purged in [false, true] {
+                        let mut value = json!({ "type": "text" });
+                        if identity == "a contact" {
+                            value["contact"] =
+                                json!({ "address": "ada@example.org", "followUp": true });
+                        }
+                        if linked {
+                            value["conversions"] = one.clone();
+                        }
+                        let (name, publish) = match identity {
+                            "an unshown name" => (json!("Ada"), false),
+                            "a shown name" => (json!("Ada"), true),
+                            _ => (Value::Null, false),
+                        };
+                        let row = stored_row(
+                            status,
+                            value,
+                            json!({
+                                "reader_name": name,
+                                "publish_name": publish,
+                                "purged_at": if purged { json!("2026-12-01T00:00:00Z") } else { Value::Null },
+                            }),
+                        );
+                        let suggestion = suggestion_of(&row).unwrap();
+                        let item = facts_of(&row);
+                        let now = if passed {
+                            "2026-11-25T10:00:00Z"
+                        } else {
+                            "2026-10-28T10:00:00Z"
+                        };
+                        let due = identity_scrub_due(
+                            &policy,
+                            &item,
+                            &suggestion,
+                            &suggestion.conversions,
+                            DateTime::parse(now).unwrap(),
+                        );
+                        scrub.push(json!({
+                            "status": status, "identity": identity, "linked": linked,
+                            "periodPassed": passed, "purged": purged,
+                            "row": row, "expect": due,
+                        }));
+                    }
+                }
+            }
+        }
+    }
+    assert!(scrub.iter().any(|case| case["expect"] == true));
+    assert!(scrub.iter().any(|case| case["expect"] == false));
+
+    bless_or_compare(
+        OUTCOMES_PATH,
+        &json!({
+            "description": "Editorial standing, outcomes, links to future work and the clearing of private identity (RD13.3, ADRs 0210 to 0212), decided by crates/openblog-core/src/future_suggestion.rs and read by web/components/future-suggestion.js and the hosted function. `standings`: a moderation state with and without a recorded link, and the standing, outcome and reader's receipt text derived. `links`: a stored row and a request, and the links the details hold afterwards or the code that refused it. `details`: stored details read for their links. `scrub`: a stored row, and whether it owes the clearing of its contact and unshown name now (`periodPassed` says the closed-item period has passed). Regenerate with OPENBLOG_BLESS=1 cargo test -p openblog-core --test future_suggestion_contract.",
+            "standings": standings,
+            "links": links,
+            "details": details,
+            "scrub": scrub,
         }),
     );
 }
