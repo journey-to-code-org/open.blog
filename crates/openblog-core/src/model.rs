@@ -51,6 +51,10 @@ pub struct Sources {
     /// The site's published Third Perspectives (`third-perspectives.json` in
     /// the content folder, ADR 0115), when the file exists.
     pub third_perspectives: Option<SourceFile>,
+    /// The site's featured reflections (`community-perspectives.json` in the
+    /// content folder, ADR 0235), when the file exists. Read strictly; nothing
+    /// in a page, feed or export changes (the section is #230).
+    pub community_features: Option<SourceFile>,
 }
 
 /// The private source library as a site load receives it.
@@ -504,6 +508,9 @@ pub struct Site {
     /// Why the site's published Third Perspectives cannot be read (ADR 0115),
     /// refused like `reader_feedback_error`.
     pub third_perspectives_error: Option<String>,
+    /// Why the site's featured reflections cannot be read (ADR 0235), refused
+    /// like `third_perspectives_error`.
+    pub community_features_error: Option<String>,
     /// The time the site was loaded for (`LoadOptions::now`). A post dated after it is scheduled,
     /// even when a preview or the admin editor loaded it, so it is never a series part.
     now: Option<DateTime>,
@@ -710,6 +717,7 @@ impl Site {
             attach_reader_feedback(&mut posts, &sources, &config, &mut warnings);
         let third_perspectives_error =
             attach_third_perspectives(&mut posts, &sources, &config, &mut warnings);
+        let community_features_error = read_community_features(&sources, &mut warnings);
 
         let mut pages: Vec<Page> = Vec::new();
         for file in &sources.pages {
@@ -835,6 +843,7 @@ impl Site {
             claim_evidence_error,
             reader_feedback_error,
             third_perspectives_error,
+            community_features_error,
             now: options.now,
         })
     }
@@ -1273,6 +1282,34 @@ fn attach_third_perspectives(
                 post.third_perspectives
                     .is_empty()
                     .then_some(crate::render::THIRD_PERSPECTIVE_ANCHOR),
+            ));
+        }
+    }
+    None
+}
+
+/// Read the site's featured reflections strictly (ADR 0235), or say why the
+/// file cannot be read. Nothing is repaired or dropped, and nothing here
+/// changes any output: a feature whose post is not one is only warned about,
+/// naming the item and never its contents.
+fn read_community_features(sources: &Sources, warnings: &mut Vec<String>) -> Option<String> {
+    let file = sources.community_features.as_ref()?;
+    let features = match crate::community_feature::FeaturesFile::from_json(&file.contents) {
+        Ok(features) => features,
+        Err(error) => return Some(format!("{}: {error}", file.path)),
+    };
+    let known: std::collections::HashSet<String> = sources
+        .posts
+        .iter()
+        .map(|post| post.path.replace('\\', "/"))
+        .collect();
+    for (index, item) in features.items.iter().enumerate() {
+        if !known.contains(&item.post) {
+            warnings.push(format!(
+                "{}: item {} is about {}, which is not a post; it is not shown",
+                file.path,
+                index + 1,
+                item.post
             ));
         }
     }
@@ -1973,6 +2010,7 @@ mod tests {
             claim_evidence: None,
             reader_feedback: None,
             third_perspectives: None,
+            community_features: None,
         });
         assert_eq!(s.posts.len(), 2);
         assert_eq!(s.posts[0].slug, "second");

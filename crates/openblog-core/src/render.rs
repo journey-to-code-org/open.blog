@@ -3638,6 +3638,7 @@ mod tests {
                 claim_evidence: None,
                 reader_feedback: None,
                 third_perspectives: None,
+                community_features: None,
             },
             LoadOptions::default(),
         )

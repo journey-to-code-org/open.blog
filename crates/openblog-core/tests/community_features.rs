@@ -4,9 +4,9 @@
 //! claims consensus.
 
 use openblog_core::community_feature::{
-    body_digest, feature_anchor, normalize_context, project_post, resolve_post, FeatureError, FeatureOff,
-    FeatureRecord, FeatureRequest, FeaturedPerspective, FeaturesFile, HiddenReason, HostedStanding,
-    NotShown, COMMUNITY_FEATURES_FILE, MAX_CONTEXT_CHARS, NON_CONSENSUS_NOTICE,
+    body_digest, feature_anchor, normalize_context, project_post, resolve_post, FeatureError,
+    FeatureOff, FeatureRecord, FeatureRequest, FeaturedPerspective, FeaturesFile, HiddenReason,
+    HostedStanding, NotShown, COMMUNITY_FEATURES_FILE, MAX_CONTEXT_CHARS, NON_CONSENSUS_NOTICE,
 };
 use openblog_core::participation::ParticipationMode;
 use openblog_core::passage_target::PassageDocument;

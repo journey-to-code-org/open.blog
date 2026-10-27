@@ -509,6 +509,67 @@ pub fn body_digest(body: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// What the reader agreed to, for Admin's card
+
+/// Where a hosted reflection stands on the reader's feature consent, as the
+/// inbox card says it: never the reader's words.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FeatureConsent {
+    /// Approved at its current text, and the reader agreed to feature exactly
+    /// that revision: an editor may choose it.
+    Agreed,
+    /// The reader agreed to feature an earlier text, which does not cover this
+    /// one (they clarified since, or it is not the approved text).
+    EarlierText,
+    /// The reader has not agreed, or declined, or is not in a state that can
+    /// be featured.
+    NotAgreed,
+}
+
+impl FeatureConsent {
+    pub fn id(self) -> &'static str {
+        match self {
+            FeatureConsent::Agreed => "agreed",
+            FeatureConsent::EarlierText => "earlier-text",
+            FeatureConsent::NotAgreed => "not-agreed",
+        }
+    }
+
+    /// The card's sentence for an editor.
+    pub fn explanation(self) -> &'static str {
+        match self {
+            FeatureConsent::Agreed => "the reader agreed to have this text featured",
+            FeatureConsent::EarlierText => {
+                "the reader agreed to feature an earlier text, which does not cover this one"
+            }
+            FeatureConsent::NotAgreed => "the reader has not agreed to have it featured",
+        }
+    }
+
+    /// The standing of a hosted copy: only an approved copy, whose approved
+    /// revision is its current text, can be `Agreed`.
+    pub fn of(hosted: &HostedPerspective) -> Self {
+        use crate::moderation::ModerationState;
+        let copy = &hosted.copy;
+        let consent = copy.consent();
+        if !consent.publish || hosted.state != ModerationState::Approved {
+            return FeatureConsent::NotAgreed;
+        }
+        match consent.feature_revision {
+            None => FeatureConsent::NotAgreed,
+            Some(revision)
+                if revision == copy.revision
+                    && hosted.approved_revision == Some(copy.revision)
+                    && copy.feature_covers(revision) =>
+            {
+                FeatureConsent::Agreed
+            }
+            Some(_) => FeatureConsent::EarlierText,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // One feature as the file stores it
 
 /// An editor's request to feature a reflection.
@@ -814,6 +875,21 @@ impl FeaturesFile {
         }
         self.items.push(record);
         Ok(())
+    }
+
+    /// Change a feature's editors' note (blank clears it), under the same
+    /// rules as when it was made. A note is the editors' own words, so no
+    /// consent from the reader is involved (ADR 0231); the reader's words and
+    /// the feature's day are untouched. Whether the feature was there.
+    pub fn set_context(&mut self, id: &str, context: &str) -> Result<bool, FeatureError> {
+        let context = normalize_context(context)?;
+        Ok(match self.items.iter_mut().find(|item| item.id == id) {
+            Some(item) => {
+                item.context = context;
+                true
+            }
+            None => false,
+        })
     }
 
     /// Take a feature off; whether it was there. Nothing remains: there is
