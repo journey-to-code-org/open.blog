@@ -5,6 +5,9 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- `openblog import hashnode` now imports each post's subtitle from the public page (the paragraph
+  after the title), as the GraphQL source already did.
+
 - `web runnable` examples no longer take keyboard focus when the page loads. Selecting each example's
   first tab used to focus its editor, so the browser scrolled to the last example on the page. Choosing a
   tab or pressing Reset still moves focus into the editor.
