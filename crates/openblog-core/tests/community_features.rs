@@ -786,6 +786,18 @@ fn an_editors_note_may_not_claim_popularity_a_count_or_agreement() {
         "12 readers found this useful",
         "Everyone agrees",
         "Trending",
+        "A popular reading",
+        "A reader favourite",
+        "A favorite of the group",
+        "Widely shared since March",
+        "The most-agreed reflection",
+        "Most agreed-with, by far",
+        "Liked by 12 readers",
+        "Readers: 12",
+        "Three people disagreed",
+        "90% of readers nodded",
+        "12 more people wrote",
+        "Voted up",
     ] {
         assert_eq!(
             normalize_context(bad).unwrap_err(),

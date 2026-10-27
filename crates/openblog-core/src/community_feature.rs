@@ -107,7 +107,8 @@ pub enum FeatureError {
     InvalidEditor,
     /// The note is not 1 to [`MAX_CONTEXT_CHARS`] characters of plain text.
     InvalidContext,
-    /// The note claims popularity, a count or agreement.
+    /// The note looks like a claim of popularity, a count or agreement, to the
+    /// lint of [`normalize_context`].
     PopularityClaim,
     /// The reflection already has its one placement.
     AlreadyFeatured,
@@ -138,7 +139,7 @@ impl FeatureError {
             FeatureError::PublishedDiffers => "the published reflection differs from the approved copy; publish it again first".into(),
             FeatureError::InvalidEditor => "only a site Admin user may feature a reflection".into(),
             FeatureError::InvalidContext => format!("an editor's note is 1 to {MAX_CONTEXT_CHARS} characters of plain text"),
-            FeatureError::PopularityClaim => "an editor's note may not claim popularity, a count or agreement; say why the reflection is worth reading".into(),
+            FeatureError::PopularityClaim => "an editor's note is checked by a simple lint for claims of popularity, a count or agreement, and this one looks like such a claim (the lint can refuse an honest note); say why the reflection is worth reading in other words".into(),
             FeatureError::AlreadyFeatured => "this reflection is already featured; it has one placement, on the page it is about".into(),
             FeatureError::Full => format!("the site already features {MAX_FEATURED} reflections"),
         }
@@ -200,46 +201,234 @@ pub enum HostedStanding {
 // ---------------------------------------------------------------------------
 // The editor's note
 
-fn forbidden_in_context(character: char) -> bool {
-    character.is_control() || crate::research_notes::bidi_override(character)
+/// Unicode format characters (category Cf): invisible, and able to hide a word
+/// from a lint or reorder text. Refused in a note along with controls and the
+/// other default-ignorable characters.
+fn is_format_character(character: char) -> bool {
+    matches!(
+        u32::from(character),
+        0x00AD
+            | 0x0600..=0x0605
+            | 0x061C
+            | 0x06DD
+            | 0x070F
+            | 0x0890..=0x0891
+            | 0x08E2
+            | 0x180E
+            | 0x200B..=0x200F
+            | 0x202A..=0x202E
+            | 0x2060..=0x2064
+            | 0x2066..=0x206F
+            | 0xFEFF
+            | 0xFFF9..=0xFFFB
+            | 0x110BD
+            | 0x110CD
+            | 0x13430..=0x1343F
+            | 0x1BCA0..=0x1BCA3
+            | 0x1D173..=0x1D17A
+            | 0xE0001
+            | 0xE0020..=0xE007F
+    )
 }
 
-/// Phrases that make selection look like a vote, a rank or a consensus. A
-/// conservative hint, not a judgment of the note: it errs toward refusing.
+fn forbidden_in_context(character: char) -> bool {
+    character.is_control()
+        || is_format_character(character)
+        || crate::collaboration::is_invisible(character)
+        || crate::research_notes::bidi_override(character)
+}
+
+/// Whole words or phrases that make selection look like a vote, a rank, a
+/// popularity or a consensus. Matched on whole words after the note is
+/// lower-cased and split at anything that is not a letter or a digit, so
+/// "most-agreed" is "most agreed" and "devoted" is not "voted".
 const POPULARITY_PHRASES: &[&str] = &[
     "most agreed",
     "most popular",
     "most liked",
     "most upvoted",
     "most read",
+    "most shared",
+    "most loved",
+    "most discussed",
+    "most viewed",
+    "most commented",
     "top reflection",
-    "top-rated",
     "top rated",
+    "top voted",
     "highest rated",
     "best reflection",
-    "upvote",
-    "votes",
-    "voted",
-    "ranked",
-    "ranking",
-    "trending",
+    "best rated",
+    "widely shared",
+    "widely read",
+    "widely liked",
+    "widely agreed",
+    "widely loved",
+    "well liked",
+    "well loved",
+    "well received",
+    "crowd favourite",
+    "crowd favorite",
+    "fan favourite",
+    "fan favorite",
     "readers agree",
     "people agree",
     "everyone agrees",
+    "everybody agrees",
     "community agrees",
     "community consensus",
+    "community favourite",
+    "community favorite",
     "majority of readers",
     "most readers",
     "most people",
     "many readers",
     "many people",
+    "several readers",
+    "several people",
+    "few readers",
+    "other readers agree",
+    "readers loved",
+    "readers liked",
 ];
 
-/// Words that, beside a number, count readers or their reactions.
-const COUNTED_THINGS: &[&str] = &["reader", "people", "like", "vote", "agree", "share"];
+/// Single words that are a claim of popularity, rank or a vote on their own.
+const POPULARITY_WORDS: &[&str] = &[
+    "popular",
+    "popularity",
+    "favourite",
+    "favourites",
+    "favorite",
+    "favorites",
+    "upvote",
+    "upvotes",
+    "upvoted",
+    "downvote",
+    "downvotes",
+    "downvoted",
+    "vote",
+    "votes",
+    "voted",
+    "voting",
+    "ranked",
+    "ranking",
+    "rankings",
+    "trending",
+    "viral",
+    "bestseller",
+    "acclaimed",
+];
+
+/// Nouns that, beside a number, count readers or their reactions.
+const COUNTED_NOUNS: &[&str] = &[
+    "reader",
+    "readers",
+    "people",
+    "person",
+    "persons",
+    "like",
+    "likes",
+    "vote",
+    "votes",
+    "agree",
+    "agrees",
+    "agreed",
+    "agreement",
+    "agreements",
+    "share",
+    "shares",
+    "reaction",
+    "reactions",
+    "view",
+    "views",
+    "reflection",
+    "reflections",
+    "response",
+    "responses",
+    "perspective",
+    "perspectives",
+    "comment",
+    "comments",
+    "supporter",
+    "supporters",
+];
+
+/// Words for a number that count when beside a counted noun.
+const NUMBER_WORDS: &[&str] = &[
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten",
+    "eleven",
+    "twelve",
+    "dozen",
+    "dozens",
+    "hundred",
+    "hundreds",
+    "thousand",
+    "thousands",
+    "million",
+    "millions",
+    "percent",
+];
+
+/// Words that may stand between a number and what it counts: "90% of readers",
+/// "12 more people".
+const NUMBER_FILLERS: &[&str] = &["of", "more", "other", "different", "fellow", "total"];
+
+fn is_number_token(word: &str) -> bool {
+    word.chars().all(|c| c.is_ascii_digit()) && !word.is_empty() || NUMBER_WORDS.contains(&word)
+}
+
+/// Whether a note, as lower-case words, claims popularity, a count or
+/// agreement. A lint: a simple, conservative hint that errs toward refusing,
+/// not a judgment of the note and not a guarantee, which is why a refusal says
+/// so and an editor can say why a reflection is worth reading in other words.
+fn claims_popularity(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    let words: Vec<&str> = lower
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .collect();
+    if words.iter().any(|word| POPULARITY_WORDS.contains(word)) {
+        return true;
+    }
+    let joined = format!(" {} ", words.join(" "));
+    if POPULARITY_PHRASES
+        .iter()
+        .any(|phrase| joined.contains(&format!(" {phrase} ")))
+    {
+        return true;
+    }
+    for (index, word) in words.iter().enumerate() {
+        if !is_number_token(word) {
+            continue;
+        }
+        // A number then what it counts ("12 readers", "90 of readers"), or what
+        // it counts then the number ("readers 12").
+        let mut next = index + 1;
+        while words.get(next).is_some_and(|w| NUMBER_FILLERS.contains(w)) && next < index + 3 {
+            next += 1;
+        }
+        if words.get(next).is_some_and(|w| COUNTED_NOUNS.contains(w)) {
+            return true;
+        }
+        if index > 0 && COUNTED_NOUNS.contains(&words[index - 1]) {
+            return true;
+        }
+    }
+    false
+}
 
 /// An editor's note as stored: whitespace collapsed, 1 to
-/// [`MAX_CONTEXT_CHARS`] characters of plain text. Blank is no note.
+/// [`MAX_CONTEXT_CHARS`] characters of plain text. Blank is no note. The
+/// popularity check is a lint (ADR 0234).
 pub fn normalize_context(value: &str) -> Result<Option<String>, FeatureError> {
     let text = value.split_whitespace().collect::<Vec<_>>().join(" ");
     if text.is_empty() {
@@ -248,14 +437,7 @@ pub fn normalize_context(value: &str) -> Result<Option<String>, FeatureError> {
     if text.chars().count() > MAX_CONTEXT_CHARS || text.chars().any(forbidden_in_context) {
         return Err(FeatureError::InvalidContext);
     }
-    let lower = text.to_lowercase();
-    let counts = lower.chars().any(|c| c.is_ascii_digit())
-        && COUNTED_THINGS.iter().any(|word| lower.contains(word));
-    if counts
-        || POPULARITY_PHRASES
-            .iter()
-            .any(|phrase| lower.contains(phrase))
-    {
+    if claims_popularity(&text) {
         return Err(FeatureError::PopularityClaim);
     }
     Ok(Some(text))

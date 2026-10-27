@@ -27,12 +27,20 @@ opposite: a short list reads as "the best" or "what people think".
   feature. It is one reader's view: featuring it is an editorial choice, not a vote, and it does not mean
   the authors, the editors or the community agree with it.") heads the section; no setting turns it off
   or replaces it.
-- **The editors' note is theirs.** At most 280 characters of plain text, labelled as the editors' note,
-  optional. It is refused when it claims popularity, a count or agreement: a conservative phrase list
-  ("most agreed", "most popular", "top-rated", "upvoted", "community consensus", "most readers" and the
-  like) and any number beside readers, people, likes, votes, agreement or shares. This is a hint that
-  errs toward refusing, not a judgment of the note, and ADR 0156's rule that acceptance never states
-  quality applies.
+- **The editors' note is theirs, and checked by a lint.** At most 280 characters of plain text, labelled
+  as the editors' note, optional. Control, format (Unicode category Cf) and other invisible
+  characters are refused outright, so nothing can hide a word from the check. The rest goes through a
+  *lint* for claims of popularity, a count or agreement: the note is lower-cased and split into whole
+  words (so "most-agreed" is "most agreed" and "devoted" is not "voted"), and refused when it has a
+  popularity word ("popular", "favourite", "viral", "votes", "ranked", "trending" and the like), a
+  phrase ("most agreed", "widely shared", "top rated", "community consensus", "most readers" and the
+  like), or a number or number word standing beside what it counts (a reader, a person, a like, a
+  vote, a share, a reaction, a reflection: "12 readers", "90% of readers", "readers: 12"). A number
+  elsewhere is fine. It is a lint, not a guarantee and not a judgment: it can refuse an honest note
+  and can be got round by a determined editor, who is a site Admin user and not an adversary; so the
+  refusal says it is a lint and asks the editor to say why the reflection is worth reading in other
+  words. ADR 0156's rule that acceptance never states quality applies, and the fixed notice above still
+  heads the section whatever the note says.
 - **Nothing counts, ranks or orders by popularity.** Inclusion is an editor's choice and is never
   derived from reactions, reads or reports (the system holds none of the first two). A feature has no
   number, rank, score, weight or position; the public type has no such field, and a section never
