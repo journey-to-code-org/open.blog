@@ -1109,6 +1109,10 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
             // event holds neither the target nor anything the reader wrote.
             if (row.kind !== FUTURE_SUGGESTION_KIND) return json(422, { error: "Only a suggestion for future work can be linked to future work.", code: "wrongKind" }, corsOrigin);
             if (!settings.moderation) return json(422, { error: INBOX_UNAVAILABLE, code: "notAllowed" }, corsOrigin);
+            // The link is guarded on `purged_at`, a column only protection reads, and a suggestion is
+            // in the inbox only while suggestions are on: without either the write would fail at the
+            // store as a bad gateway, so say what to switch on instead.
+            if (!settings.suggestions || !settings.protection) return json(422, { error: "Linking a suggestion needs suggestions (OPENBLOG_SUGGESTIONS_ENABLED) and engagement protection (supabase/protection.sql and OPENBLOG_PROTECTION_ENABLED) both switched on.", code: "unavailable" }, corsOrigin);
             const at = canonicalTime(now());
             const actor = auditActor(body.actor);
             const plan = planConversion(row, { role, kind: body.conversion?.kind, target: body.conversion?.id, actor, at });

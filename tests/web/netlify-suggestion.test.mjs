@@ -535,6 +535,15 @@ test("a link is refused by every rule the build gives, and stores nothing", asyn
   const off = await convertCall(database, convertBody(), { env: { ...environment, OPENBLOG_MODERATION_ENABLED: "" } });
   assert.notEqual(off.statusCode, 200);
   assert.equal(writes(database).length, 0);
+  // Without suggestions or protection the answer says what to switch on, never a bad gateway from the store.
+  for (const [name, env] of [["protection off", { OPENBLOG_PROTECTION_ENABLED: "" }], ["suggestions off", { OPENBLOG_SUGGESTIONS_ENABLED: "" }]]) {
+    const held = holding(approvedRow());
+    const refused = await convertCall(held.database, convertBody(), { env: { ...environment, ...env } });
+    assert.equal(refused.statusCode, 422, `${name}: ${refused.body}`);
+    assert.equal(JSON.parse(refused.body).code, "unavailable", name);
+    assert.match(JSON.parse(refused.body).error, /OPENBLOG_SUGGESTIONS_ENABLED/, name);
+    assert.equal(writes(held.database).length, 0, `${name}: nothing is stored`);
+  }
   // Without Admin authorization it never reaches the store.
   const anonymous = await handlerFor(database)(event("admin/moderation", "PATCH", { headers: ORIGIN, body: convertBody() }));
   assert.equal(anonymous.statusCode, 401);
