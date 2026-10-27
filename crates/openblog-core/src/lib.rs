@@ -28,6 +28,7 @@
 //! - [`chronology_index`]: deterministic chronology indexes and structural prompts to check datings
 //! - [`atlas_publication`]: the one public projection of its approved items, for pages and `atlas.json`
 //! - [`comparison_publication`]: the one public projection of approved passage alignments, rights-gated, for pages and `comparisons.json`
+//! - [`curated_selection`]: the author's explicit, revision-aware selection of already-publishable research context for readers
 //! - [`passage_target`]: stable passage targets in published text, resolved as current, re-anchored or stale
 //! - [`feedback_provenance`]: which revision a reader's feedback was about and when, with consent-gated attribution
 //! - [`scholarly_feedback`]: typed reader questions, suggested sources and corrections and other interpretations, as submitted and as received
@@ -65,6 +66,7 @@ pub mod config;
 pub mod context_links;
 pub mod contributor;
 pub mod correction_decision;
+pub mod curated_selection;
 pub mod date;
 pub mod draft;
 pub mod embed;
