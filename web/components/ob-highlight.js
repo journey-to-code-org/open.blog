@@ -637,7 +637,8 @@ function consoleTokens(code) {
       out.push(...tokenize(line, LANGUAGES.bash));
       continued = /\\\r?\n$/.test(line);
     } else {
-      out.push({ text: line, cls: /^\s*#/.test(line) ? "comment" : null });
+      // `# note` is a comment; `## main` (git status -sb) and other `##` output is just output.
+      out.push({ text: line, cls: /^\s*#(?!#)/.test(line) ? "comment" : null });
     }
   }
   return out;
@@ -713,6 +714,13 @@ export function isKnownLanguage(language) {
 /** True for fences marked as plain text or program output (`text`, `output`). */
 export function isPlainText(language) {
   return ALIASES[language] === "none";
+}
+
+const TERMINAL = new Set(["bash", "sh", "shell", "zsh", "console", "shell-session", "shellsession", "powershell", "ps1", "pwsh", "cmd", "bat"]);
+
+/** True for fences that show a terminal session or shell commands, which are not numbered by default. */
+export function isTerminal(language) {
+  return TERMINAL.has(String(language || "").toLowerCase());
 }
 
 /** `"1,3-5"` -> Set {1, 3, 4, 5}. Ranges are capped, so a typo cannot hang the page. */

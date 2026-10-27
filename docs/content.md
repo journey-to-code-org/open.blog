@@ -277,7 +277,7 @@ fn main() {}
 | --- | --- |
 | `title="..."` | A caption bar above the block, for a file name or a label. |
 | `{2,4-6}` | Highlight those lines, counted from 1 at the top of the block (even with `showLineNumbers=10`). |
-| `showLineNumbers` | Number this block even when numbering is off, or when it has one line. |
+| `showLineNumbers` | Number this block even when numbering is off, when it has one line, or when it is a terminal block (`bash`, `sh`, `console`, `powershell`). |
 | `showLineNumbers=10` | Number this block starting at 10. |
 | `showLineNumbers=false` | No numbers on this block. |
 | `runnable` | Make Rust, web, or an explicitly configured runner language editable and runnable. Unsupported languages stay static. |

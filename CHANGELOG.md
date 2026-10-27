@@ -5,6 +5,10 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Terminal fences (`bash`, `sh`, `console`, `powershell` and friends) are no longer numbered by default,
+  and in a `console` session an output line that starts with `##` (for example `git status -sb`) is output,
+  not a comment.
+
 ## [0.47.0] - 2026-10-27
 
 - Netlify builds only what it deploys: pull request previews and branch deploys (such as `develop`)
