@@ -30,6 +30,9 @@ export const MAX_CONTACT_BYTES = 254;
 export const MAX_ID_CHARS = 64;
 export const MAX_READER_NAME_CHARS = 80;
 export const MAX_SUBMISSION_BYTES = 12 * 1024;
+// Below the 16 KiB of the column's check, measured as Postgres measures jsonb text (a space after
+// every `:` and `,`), so a link that percent-encoding made longer never makes the insert fail.
+export const MAX_STORED_DETAILS_BYTES = 15 * 1024;
 // The build's JSON reader refuses documents nested deeper than this.
 const MAX_JSON_DEPTH = 127;
 
@@ -335,8 +338,23 @@ export function readSuggestionSubmissionJson(text) {
   if (about !== null) submission.about = about;
   if (name !== null) submission.attribution = Object.freeze({ name, publishName });
   if (contact !== null) submission.contact = Object.freeze(contact);
+  if (storedDetailsBytes(suggestionDetails(submission)) > MAX_STORED_DETAILS_BYTES) {
+    return failure("tooLarge", `a suggestion's links and hints are larger than ${MAX_STORED_DETAILS_BYTES} bytes once stored`);
+  }
   return { ok: true, submission: Object.freeze(submission) };
 }
+
+const separatorBytes = (value) => {
+  if (Array.isArray(value)) return Math.max(0, value.length - 1) + value.reduce((sum, item) => sum + separatorBytes(item), 0);
+  if (isObject(value)) {
+    const members = Object.values(value);
+    return (members.length ? 2 * members.length - 1 : 0) + members.reduce((sum, item) => sum + separatorBytes(item), 0);
+  }
+  return 0;
+};
+
+/** The bytes `details` takes in the hosted table, as Postgres measures `octet_length(details::text)`. */
+export const storedDetailsBytes = (details) => utf8Length(JSON.stringify(details)) + separatorBytes(details);
 
 /** The fields a hosted row keeps in `details`, beside the columns that hold the text and the reader's name. */
 export function suggestionDetails(submission) {

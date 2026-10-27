@@ -81,6 +81,11 @@ pub const MAX_SUBMISSION_BYTES: usize = 12 * 1024;
 /// `details` is held to the same 16 KiB by its own check, and a submission
 /// is smaller than that, so no accepted suggestion can be refused later.
 pub const MAX_JSON_BYTES: usize = 16 * 1024;
+/// The most a suggestion's stored `details` may measure, as Postgres measures
+/// them (`octet_length(details::text)`: jsonb text puts one space after every
+/// `:` and `,`). It is below the 16 KiB of the column's check, so a link that
+/// percent-encoding made longer can never make the insert fail.
+pub const MAX_STORED_DETAILS_BYTES: usize = 15 * 1024;
 /// The most conversion references one suggestion keeps.
 pub const MAX_CONVERSIONS: usize = 8;
 /// The longest admin account name a conversion records.
@@ -573,7 +578,7 @@ impl Submission {
                 Contact::new(&contact.address)
             })
             .transpose()?;
-        Ok(Self {
+        let submission = Self {
             suggestion_type,
             text,
             url,
@@ -581,7 +586,19 @@ impl Submission {
             about,
             attribution,
             contact,
-        })
+        };
+        let mut stored = Map::new();
+        stored.insert("type".into(), submission.suggestion_type.id().into());
+        stored.extend(submission.details());
+        if postgres_text_bytes(&Value::Object(stored)) > MAX_STORED_DETAILS_BYTES {
+            return Err(SuggestionError::new(
+                ErrorCode::TooLarge,
+                format!(
+                    "a suggestion's links and hints are larger than {MAX_STORED_DETAILS_BYTES} bytes once stored"
+                ),
+            ));
+        }
+        Ok(submission)
     }
 
     /// Canonical JSON, in a fixed field order.
@@ -628,6 +645,25 @@ impl Submission {
             );
         }
         object
+    }
+}
+
+/// The length in bytes of a JSON value as Postgres writes a jsonb value as
+/// text: compact, with one more byte after every `:` and `,`.
+fn postgres_text_bytes(value: &Value) -> usize {
+    value.to_string().len() + extra_separator_bytes(value)
+}
+
+fn extra_separator_bytes(value: &Value) -> usize {
+    match value {
+        Value::Object(map) => {
+            let separators = if map.is_empty() { 0 } else { 2 * map.len() - 1 };
+            separators + map.values().map(extra_separator_bytes).sum::<usize>()
+        }
+        Value::Array(items) => {
+            items.len().saturating_sub(1) + items.iter().map(extra_separator_bytes).sum::<usize>()
+        }
+        _ => 0,
     }
 }
 

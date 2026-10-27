@@ -5,7 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-  ACCEPTANCE_NOTICE, FUTURE_SUGGESTION_KIND, holdsIdentity, isPlainAddress, isSlug, normalizeSuggestionUrl, readClarification, readSuggestionSubmissionJson,
+  ACCEPTANCE_NOTICE, FUTURE_SUGGESTION_KIND, MAX_STORED_DETAILS_BYTES, MAX_SUBMISSION_BYTES, storedDetailsBytes, holdsIdentity, isPlainAddress, isSlug, normalizeSuggestionUrl, readClarification, readSuggestionSubmissionJson,
   receiveSuggestion, scrubbedIdentity, slugify, suggestionCopyText, suggestionDetails,
 } from "../../web/components/future-suggestion.js";
 import { publicUrlProblem } from "../../web/components/public-url.js";
@@ -105,4 +105,19 @@ test("the copy-and-send text carries the words, the link and the record, and nev
   assert.deepEqual(JSON.parse(last), submission);
   assert.ok(!/accepted|approved|endorse/i.test(copy));
   assert.match(ACCEPTANCE_NOTICE, /does not mean they agree/);
+});
+
+test("stored details are measured as Postgres measures jsonb text, below the column's 16 KiB", () => {
+  assert.equal(storedDetailsBytes({ type: "text" }), Buffer.byteLength('{"type": "text"}'));
+  assert.equal(storedDetailsBytes({ a: ["x", "y"], b: { c: 1 } }), Buffer.byteLength('{"a": ["x", "y"], "b": {"c": 1}}'));
+  assert.ok(MAX_STORED_DETAILS_BYTES < 16 * 1024);
+  const wide = `https://example.org/${"漢".repeat(225)}`;
+  const text = JSON.stringify({
+    version: 1, kind: "future-suggestion", type: "source", text: "x", url: wide,
+    hints: { title: "😀".repeat(300), publisher: "😀".repeat(300), creators: Array(7).fill("😀".repeat(200)), identifiers: Array(4).fill({ scheme: "url", value: wide }) },
+  });
+  assert.ok(Buffer.byteLength(text) <= MAX_SUBMISSION_BYTES);
+  const result = readSuggestionSubmissionJson(text);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "tooLarge");
 });

@@ -590,6 +590,21 @@ fn submission_cases() -> Vec<(String, Request)> {
             "hints": { "title": "\u{1F4DA}".repeat(300), "creators": vec!["\u{1F4DA}".repeat(200); 8], "publisher": "\u{1F4DA}".repeat(300) }
         })),
     );
+    // A link of three-byte characters is nine bytes once percent-encoded; five
+    // of them, with the hints, fit the submission bound and not the stored row.
+    let wide = format!("https://example.org/{}", "\u{6F22}".repeat(225));
+    add(
+        "links that percent-encoding makes too large for the stored row",
+        with(json!({
+            "url": wide,
+            "hints": {
+                "title": "\u{1F600}".repeat(300),
+                "publisher": "\u{1F600}".repeat(300),
+                "creators": vec!["\u{1F600}".repeat(200); 7],
+                "identifiers": vec![json!({ "scheme": "url", "value": wide }); 4]
+            }
+        })),
+    );
     cases
 }
 
