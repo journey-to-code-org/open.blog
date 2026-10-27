@@ -1,4 +1,4 @@
-// The reader's own annotation document in the reader's own browser (ADRs 0450-0455).
+// The reader's own annotation document in the reader's own browser (ADRs 0450-0456).
 //
 // Pure functions over the validated document of reader-annotations.js, and a
 // storage seam that never throws. Reading a post never needs storage: when the
@@ -321,5 +321,53 @@ export function clearStore(storage) {
     return area.getItem(STORAGE_KEY) === null ? { ok: true } : { ok: false, reason: "blocked" };
   } catch {
     return { ok: false, reason: "blocked" };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Turning the feature off, and showing what is saved (ADR 0456).
+// ---------------------------------------------------------------------------
+
+/** The one other key this feature writes: present when the reader turned highlights, notes and trails off here. */
+export const DISABLED_KEY = "openblog.reader-annotations.off";
+
+/** True when the reader turned the feature off in this browser. Unreadable storage counts as not off. */
+export function isDisabled(storage) {
+  try {
+    return storage()?.getItem(DISABLED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Turn the feature off or on. Saved data is not touched. Returns { ok: true } or { ok: false, reason: "blocked" }. */
+export function setDisabled(storage, off) {
+  try {
+    const area = storage();
+    if (!area) return { ok: false, reason: "blocked" };
+    if (off) area.setItem(DISABLED_KEY, "1");
+    else area.removeItem(DISABLED_KEY);
+    return isDisabled(storage) === Boolean(off) ? { ok: true } : { ok: false, reason: "blocked" };
+  } catch {
+    return { ok: false, reason: "blocked" };
+  }
+}
+
+/**
+ * Every key this feature has in the browser's storage (the document and the off switch), so a reader and a
+ * test can check an erase really emptied it. Returns null when storage cannot be listed.
+ */
+export function savedKeys(storage) {
+  try {
+    const area = storage();
+    if (!area) return null;
+    const found = [];
+    for (let i = 0; i < area.length; i += 1) {
+      const key = area.key(i);
+      if (key === STORAGE_KEY || key === DISABLED_KEY || (typeof key === "string" && key.startsWith(`${STORAGE_KEY}.`))) found.push(key);
+    }
+    return found.sort();
+  } catch {
+    return null;
   }
 }

@@ -1,5 +1,5 @@
 // <ob-reading-trail> lets a reader keep saved sources and reading trails in their own browser
-// (ADRs 0450 and 0455, docs/specs/reader-annotations.md). The page is complete without it: the
+// (ADRs 0450, 0455 and 0456, docs/specs/reader-annotations.md). The page is complete without it: the
 // region's static text says what it needs.
 //
 // Nothing is recorded as the reader reads. A trail is a list the reader builds by hand: sources
@@ -12,9 +12,12 @@
 // Saved data this version cannot read is never written over. Every reader-facing string is set as
 // text; every link comes from validated data.
 
-import { MAX_TITLE_CHARS } from "./reader-annotations.js";
+import { MAX_TITLE_CHARS, workKey } from "./reader-annotations.js";
+import { DATA_ELEMENT_ID, readPassages } from "./passage-selection.js";
+import { MAX_IMPORT_BYTES, buildExport, planImport, summarize } from "./reader-annotations-transfer.js";
 import {
   CHANGED_EVENT,
+  DISABLED_KEY,
   STORAGE_KEY,
   addTrailStep,
   annotatedWorks,
@@ -25,12 +28,15 @@ import {
   deleteSource,
   deleteWorkAnnotations,
   fitTitle,
+  isDisabled,
   moveTrailStep,
   readStore,
   recentTrails,
   recordById,
   removeTrailStep,
   saveSource,
+  savedKeys,
+  setDisabled,
 } from "./reader-annotations-store.js";
 
 const REFERENCES_ELEMENT_ID = "ob-references";
@@ -54,6 +60,24 @@ const PROBLEM_WORDS = Object.freeze({
   textTooLong: `A name can hold at most ${MAX_TITLE_CHARS} characters.`,
   forbiddenCharacter: "A name cannot hold control or text-direction characters.",
   missing: "That is no longer saved.",
+  changed: "What is saved in this browser changed since the preview, so nothing was imported. Choose the file again.",
+});
+const IMPORT_PROBLEMS = Object.freeze({
+  wrongFormat: "This is not a reading-trail file made by open.blog.",
+  malformed: "The file is not a readable reading-trail document.",
+  unsupportedVersion: "The file was made by a newer version than this page understands.",
+  tooLarge: "The file is larger than this page will read.",
+  tooMany: "The file holds more records than this page can keep.",
+  unsafeScheme: "A link in the file is not a plain http or https link.",
+  invalidUrl: "A link in the file is not in its canonical form.",
+  invalidPath: "A path in the file is not a safe, canonical path.",
+  invalidSite: "A site in the file is not a plain http or https origin.",
+  forbiddenCharacter: "The file holds control or text-direction characters.",
+  unknownField: "The file holds a field this version does not know.",
+  unknownKind: "The file holds a kind of record this version does not know.",
+  duplicateId: "Two records in the file share an id.",
+  danglingRef: "A trail in the file names a record that is not in it.",
+  privacyMismatch: "The file says it leaves out notes but holds note text.",
 });
 
 const el = (tag, className, text) => {
@@ -138,6 +162,9 @@ export class ObReadingTrail extends HTMLElement {
   #confirm = null;
   #focus = null;
   #trailChoice = null;
+  #exportNotes = false;
+  #import = null;
+  #importError = null;
   #fields = { trail: "", item: "" };
 
   connectedCallback() {
@@ -155,7 +182,7 @@ export class ObReadingTrail extends HTMLElement {
     this.#listeners = new AbortController();
     const { signal } = this.#listeners;
     window.addEventListener("storage", (event) => {
-      if (event.key === null || event.key === STORAGE_KEY) this.#reload();
+      if (event.key === null || event.key === STORAGE_KEY || event.key === DISABLED_KEY) this.#reload();
     }, { signal });
     window.addEventListener(CHANGED_EVENT, (event) => {
       if (event.detail?.from !== this) this.#reload();
@@ -224,13 +251,11 @@ export class ObReadingTrail extends HTMLElement {
     const note = NOTICES[this.#stored];
     ui.notice.textContent = note ?? "";
     ui.notice.hidden = !note;
-    const children = [
-      el("p", "ob-trail-lead", "Nothing is recorded as you read. Saved sources and trails hold only what you choose to add, are kept in this browser and are never sent anywhere."),
-      this.#sources(document_),
-      this.#works(document_),
-      this.#trails(document_),
-      this.#clear(),
-    ];
+    const off = isDisabled(storage);
+    const lead = el("p", "ob-trail-lead", "Nothing is recorded as you read. Saved sources and trails hold only what you choose to add, are kept in this browser and are never sent anywhere.");
+    const children = off
+      ? [lead, this.#transfer(document_, true), this.#clear()]
+      : [lead, this.#sources(document_), this.#works(document_), this.#trails(document_), this.#transfer(document_, false), this.#clear()];
     ui.body.replaceChildren(...children);
     this.#restoreFocus();
   }
@@ -695,6 +720,292 @@ export class ObReadingTrail extends HTMLElement {
       }),
     );
     return item;
+  }
+
+  /** The works this page can check an imported passage against: only the post being read. */
+  #knownWorks() {
+    const passages = readPassages(document.getElementById(DATA_ELEMENT_ID)?.textContent);
+    return passages ? { [workKey(this.#here)]: { revision: passages.revision, sections: passages.sections } } : {};
+  }
+
+  #counts(counts) {
+    return [plural(counts.highlights, "highlight"), plural(counts.notes, "note"), plural(counts.sources, "saved source"), plural(counts.trails, "trail")].join(", ");
+  }
+
+  /** Export, import and the off switch, with a plain statement of what is kept in this browser. */
+  #transfer(document_, off) {
+    const id = this.#ui.id;
+    const section = el("section", "ob-trail-section");
+    section.setAttribute("aria-labelledby", `${id}-transfer`);
+    section.append(this.#heading("Export, import and privacy", `${id}-transfer`));
+
+    // What is kept, read from the browser each time so the statement can be checked.
+    const keys = savedKeys(storage);
+    const kept = el("p", "ob-trail-kept");
+    if (this.#stored === "blocked" || keys === null) kept.textContent = "This browser does not allow saving here, so nothing from this feature is kept.";
+    else if (this.#stored === "unreadable") kept.textContent = "Something is saved in this browser that this page cannot read. It is untouched; you can erase it below.";
+    else {
+      const counts = summarize(document_);
+      const any = counts.highlights + counts.notes + counts.sources + counts.trails > 0;
+      kept.textContent = any ? `Kept in this browser: ${this.#counts(counts)}.` : "Kept in this browser: nothing.";
+    }
+    section.append(kept);
+    section.append(el("p", "ob-trail-hint", `Browser storage used by this feature: ${keys && keys.length > 0 ? keys.join(", ") : "none"}. Nothing leaves the browser unless you download a file below.`));
+
+    // Export.
+    const exportBox = el("div", "ob-trail-form");
+    exportBox.setAttribute("role", "group");
+    exportBox.setAttribute("aria-labelledby", `${id}-export`);
+    const exportHeading = el("h4", "ob-trail-subheading", "Export");
+    exportHeading.id = `${id}-export`;
+    exportBox.append(exportHeading);
+    const choice = el("div", "ob-trail-field");
+    const include = el("input");
+    include.type = "checkbox";
+    include.id = `${id}-export-notes`;
+    include.checked = this.#exportNotes;
+    include.dataset.focus = "export-notes";
+    const includeLabel = el("label", undefined, "Include the text of my notes and source notes");
+    includeLabel.htmlFor = include.id;
+    choice.append(include, includeLabel);
+    exportBox.append(choice);
+    const readable = this.#stored === "ok" || this.#stored === "empty";
+    const made = readable ? buildExport(document_, { notes: this.#exportNotes }) : null;
+    const empty = made ? made.counts.highlights + made.counts.notes + made.counts.sources + made.counts.trails === 0 : true;
+    const describe = el("p", "ob-trail-meta");
+    describe.id = `${id}-export-describe`;
+    if (!made) describe.textContent = "Nothing can be exported because the saved data cannot be read.";
+    else if (empty) describe.textContent = "Nothing to export yet.";
+    else {
+      const dropped = made.omittedNotes > 0 ? `; ${plural(made.omittedNotes, "note")} on a section or the whole post would be dropped` : "";
+      describe.textContent = `The file will hold: ${this.#counts(made.counts)}, with ${plural(made.counts.steps, "trail step")} (${made.bytes.toLocaleString("en-US")} bytes). The words you highlighted are always in it. Your own notes are ${this.#exportNotes ? "included" : "left out"}${dropped}. It holds nothing else from this site, and nothing is uploaded.`;
+    }
+    include.setAttribute("aria-describedby", describe.id);
+    include.addEventListener("change", () => {
+      this.#exportNotes = include.checked;
+      this.#focus = "export-notes";
+      this.#render();
+    });
+    exportBox.append(describe);
+    const download = el("button", undefined, "Download my reading trail");
+    download.type = "button";
+    download.dataset.focus = "download";
+    download.disabled = !made || empty;
+    download.setAttribute("aria-describedby", describe.id);
+    download.addEventListener("click", () => {
+      const fresh = readStore(storage);
+      if (fresh.status !== "ok") return this.#say("Nothing was exported because the saved data could not be read.");
+      const file = buildExport(fresh.document, { notes: this.#exportNotes });
+      const url = URL.createObjectURL(new Blob([file.text], { type: "application/json" }));
+      const link = el("a");
+      link.href = url;
+      link.download = file.fileName;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      this.#say(`Downloaded ${file.fileName}: ${this.#counts(file.counts)}. Notes ${file.notes ? "included" : "left out"}.`);
+    });
+    exportBox.append(download);
+    if (made && !empty) {
+      const details = el("details", "ob-trail-details");
+      details.append(el("summary", undefined, "Show exactly what the file contains"));
+      const pre = el("pre", "ob-trail-file");
+      pre.tabIndex = 0;
+      pre.setAttribute("aria-label", "The file contents");
+      details.addEventListener("toggle", () => {
+        pre.textContent = details.open ? made.text : "";
+      });
+      details.append(pre);
+      exportBox.append(details);
+    }
+    section.append(exportBox);
+
+    if (!off) section.append(this.#importBox());
+
+    // The off switch.
+    const offBox = el("div", "ob-trail-form");
+    offBox.append(el("h4", "ob-trail-subheading", off ? "Turned off here" : "Turn off"));
+    offBox.append(
+      el(
+        "p",
+        "ob-trail-hint",
+        off
+          ? "Highlights, notes, saved sources and trails are turned off in this browser: nothing is marked in posts, shown or saved. What was saved before is kept until you erase it."
+          : "Turn highlights, notes, saved sources and trails off in this browser. Nothing is marked in posts, shown or saved; what is already saved is kept until you erase it.",
+      ),
+    );
+    const toggle = el("button", undefined, off ? "Turn highlights, notes and trails back on" : "Turn highlights, notes and trails off");
+    toggle.type = "button";
+    toggle.dataset.focus = "toggle-off";
+    toggle.addEventListener("click", () => {
+      const result = setDisabled(storage, !off);
+      if (!result.ok) return this.#fail(FAILURES.blocked);
+      this.#confirm = null;
+      this.#import = null;
+      this.#focus = "toggle-off";
+      this.#reload();
+      window.dispatchEvent(new CustomEvent(CHANGED_EVENT, { detail: { from: this } }));
+      this.#say(off ? "Highlights, notes and trails are on again." : "Highlights, notes and trails are off. Nothing saved was removed.");
+    });
+    offBox.append(toggle);
+    section.append(offBox);
+    return section;
+  }
+
+  #importBox() {
+    const id = this.#ui.id;
+    const box = el("div", "ob-trail-form");
+    box.setAttribute("role", "group");
+    box.setAttribute("aria-labelledby", `${id}-import`);
+    const heading = el("h4", "ob-trail-subheading", "Import");
+    heading.id = `${id}-import`;
+    box.append(heading);
+    box.append(el("p", "ob-trail-hint", "Choose a file you exported. You see what it would change first, and nothing is saved until you press Import. The file is read in this browser and not uploaded."));
+    const field = el("div", "ob-trail-field");
+    const input = el("input");
+    input.type = "file";
+    input.accept = "application/json,.json";
+    input.id = `${id}-import-file`;
+    input.dataset.focus = "import-file";
+    const label = el("label", undefined, "Reading-trail file");
+    label.htmlFor = input.id;
+    field.append(label, input);
+    const error = el("p", "ob-trail-error");
+    error.id = `${id}-import-error`;
+    error.hidden = this.#importError === null;
+    error.textContent = this.#importError ?? "";
+    input.setAttribute("aria-describedby", error.id);
+    input.addEventListener("change", async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      this.#importError = null;
+      this.#import = null;
+      if (file.size > MAX_IMPORT_BYTES) {
+        this.#importError = "That file is larger than 4 MiB, so it was not read. Nothing was changed.";
+      } else if (this.#stored === "unreadable" || this.#stored === "blocked") {
+        this.#importError = this.#stored === "blocked" ? FAILURES.blocked : FAILURES.unreadable;
+      } else {
+        let text = null;
+        try {
+          text = await file.text();
+        } catch {
+          text = null;
+        }
+        if (text === null) this.#importError = "That file could not be read. Nothing was changed.";
+        else {
+          const name = Array.from(file.name, (character) => (character.codePointAt(0) < 0x20 ? " " : character)).join("");
+          this.#import = { name: short(name, 60), size: file.size, text, choice: "keep" };
+        }
+      }
+      this.#focus = this.#import ? `${id}-preview` : "import-file";
+      this.#render();
+      if (this.#importError) this.#say(this.#importError);
+    });
+    box.append(field, error);
+    if (this.#import) box.append(this.#preview());
+    return box;
+  }
+
+  #preview() {
+    const id = this.#ui.id;
+    const pending = this.#import;
+    const plan = planImport(this.#document, pending.text, { choice: pending.choice, works: this.#knownWorks() });
+    const wrap = el("div", "ob-trail-preview");
+    wrap.setAttribute("role", "group");
+    wrap.setAttribute("aria-labelledby", `${id}-preview`);
+    const heading = el("h5", "ob-trail-subheading", `Import preview: ${pending.name}`);
+    heading.id = `${id}-preview`;
+    heading.tabIndex = -1;
+    heading.dataset.focus = `${id}-preview`;
+    wrap.append(heading);
+    const cancel = el("button", undefined, "Cancel");
+    cancel.type = "button";
+    cancel.dataset.focus = "import-cancel";
+    cancel.addEventListener("click", () => {
+      this.#import = null;
+      this.#importError = null;
+      this.#focus = "import-file";
+      this.#render();
+      this.#say("Import cancelled. Nothing was changed.");
+    });
+    if (!plan.ok) {
+      wrap.append(el("p", "ob-trail-error", "This file cannot be imported, so nothing was changed."));
+      const list = el("ul", "ob-trail-list");
+      for (const problem of plan.problems) {
+        list.append(el("li", undefined, `${IMPORT_PROBLEMS[problem.code] ?? `The file breaks a rule (${problem.code}).`} (${short(problem.object, 80)})`));
+      }
+      wrap.append(list);
+      if (plan.moreProblems > 0) wrap.append(el("p", "ob-trail-meta", `${plural(plan.moreProblems, "more problem")} not listed.`));
+      wrap.append(cancel);
+      return wrap;
+    }
+    const lines = el("ul", "ob-trail-list");
+    const add = plan.added;
+    lines.append(el("li", undefined, `Would add: ${plural(add.annotations, "highlight or note", "highlights and notes")}, ${plural(add.sources, "saved source")}, ${plural(add.trails, "trail")}.`));
+    const sameTotal = plan.same.annotations + plan.same.sources + plan.same.trails;
+    if (sameTotal > 0) lines.append(el("li", undefined, `${plural(sameTotal, "record")} already saved, left as is.`));
+    if (plan.duplicates.length > 0) lines.append(el("li", undefined, `${plural(plan.duplicates.length, "record")} already saved under another id, not added again.`));
+    if (plan.stale.length > 0) {
+      lines.append(el("li", undefined, `${plural(plan.stale.length, "added highlight or note", "added highlights and notes")} on this post no longer ${plan.stale.length === 1 ? "matches" : "match"} its text. They would be kept and shown as not found.`));
+    }
+    if (plan.reanchored > 0) lines.append(el("li", undefined, `${plural(plan.reanchored, "added highlight or note", "added highlights and notes")} would be found again in changed text.`));
+    if (plan.unchecked > 0) lines.append(el("li", undefined, `${plural(plan.unchecked, "added highlight or note", "added highlights and notes")} on other posts will be checked when you open those posts.`));
+    if (plan.notes === "omitted") lines.append(el("li", undefined, "This file leaves out the text of notes."));
+    wrap.append(lines);
+    if (plan.conflicts.length > 0) {
+      const set = el("fieldset", "ob-trail-choice");
+      set.append(el("legend", undefined, `${plural(plan.conflicts.length, "record")} in the file ${plan.conflicts.length === 1 ? "has" : "have"} the same id as one you have but different content`));
+      const radio = (value, text) => {
+        const input = el("input");
+        input.type = "radio";
+        input.name = `${id}-conflict`;
+        input.value = value;
+        input.id = `${id}-conflict-${value}`;
+        input.checked = pending.choice === value;
+        input.dataset.focus = `conflict-${value}`;
+        input.addEventListener("change", () => {
+          pending.choice = value;
+          this.#focus = `conflict-${value}`;
+          this.#render();
+        });
+        const row = el("div", "ob-trail-field");
+        const labelNode = el("label", undefined, text);
+        labelNode.htmlFor = input.id;
+        row.append(input, labelNode);
+        return row;
+      };
+      set.append(radio("keep", "Keep what I have saved"), radio("file", "Use the file's version"));
+      wrap.append(set);
+    }
+    const go = el("button", undefined, "Import");
+    go.type = "button";
+    go.dataset.focus = "import-go";
+    go.disabled = !plan.changes;
+    go.addEventListener("click", () => {
+      this.#import = null;
+      const result = this.#apply(
+        (current) => {
+          const fresh = planImport(current, pending.text, { choice: pending.choice, works: this.#knownWorks() });
+          if (!fresh.ok) return { ok: false, problem: { code: fresh.problems[0]?.code ?? "malformed", object: "document", message: "" } };
+          if (fresh.text !== plan.text) return { ok: false, problem: { code: "changed", object: "document", message: "" } };
+          return { ok: true, document: fresh.document };
+        },
+        { done: `Imported. Now saved in this browser: ${this.#counts(plan.counts)}.`, focus: "import-file" },
+      );
+      if (!result.ok) {
+        this.#import = pending;
+        this.#importError = result.message;
+        this.#focus = "import-cancel";
+        this.#render();
+        this.#say(result.message);
+      } else {
+        this.#importError = null;
+      }
+    });
+    wrap.append(el("p", "ob-trail-meta", plan.changes ? `After the import: ${this.#counts(plan.counts)}.` : "Nothing in the file would change what is saved."));
+    wrap.append(go, cancel);
+    return wrap;
   }
 
   #clear() {

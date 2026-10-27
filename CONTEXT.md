@@ -2273,6 +2273,23 @@ removes one thing or everything. Nothing is recorded as a reader reads; it holds
 in their browser (ADR 0455).
 _Avoid_: History, recently read, tracking
 
+**Reading-trail export**:
+The file a reader downloads from the trail panel: the annotation document and nothing else, with the text of
+their own notes left out unless they chose to include it, and a sentence before the download saying what it holds.
+Nothing is uploaded (ADRs 0452, 0456).
+_Avoid_: Backup, sync, share
+
+**Import preview**:
+What the trail panel shows after a reader chooses a file and before anything is saved: what would be added, what is
+already saved, records that share an id but differ (the reader chooses which version stays), and imported highlights
+on the post being read that no longer match its text. A file that fails validation is refused whole (ADR 0456).
+_Avoid_: Restore, merge dialog
+
+**Annotation switch**:
+The reader's own setting, kept in their browser, that turns highlights, notes, saved sources and trails off on a
+site without removing what is saved. Erasing is separate and removes the data (ADR 0456).
+_Avoid_: Disable (a site setting), opt-out
+
 **Annotation privacy scope**:
 The statement every annotation document and export carries: `reader-private`, and whether the reader's own
 note text is `included` or `omitted`. It is checked, so a file cannot claim to omit notes while holding

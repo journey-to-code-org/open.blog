@@ -9,10 +9,11 @@ with no account. This page is the contract those features share. It is implement
 [ADR 0452](../adr/0452-an-export-states-its-privacy-scope-and-leaves-note-text-out-unless-the-reader-includes-it.md) (export privacy) and
 [ADR 0453](../adr/0453-reader-annotation-validation-is-strict-scoped-to-the-record-and-never-repairs-or-repeats-reader-text.md) (validation) and
 [ADR 0454](../adr/0454-highlights-and-notes-are-opt-in-per-site-keep-the-article-unchanged-and-save-only-to-bounded-local-storage.md) (highlights and notes on a page) and
-[ADR 0455](../adr/0455-reading-trails-are-built-by-hand-nothing-is-recorded-as-a-reader-reads-and-a-linked-source-remembers-the-work-it-was-found-in.md) (reading trails and saved sources on a page).
+[ADR 0455](../adr/0455-reading-trails-are-built-by-hand-nothing-is-recorded-as-a-reader-reads-and-a-linked-source-remembers-the-work-it-was-found-in.md) (reading trails and saved sources on a page) and
+[ADR 0456](../adr/0456-export-and-import-are-explicit-previewed-and-all-or-nothing-and-the-reader-can-turn-the-feature-off-or-erase-it-and-check-that-it-is-gone.md) (export, import and privacy controls).
 
 The contract comes first. Local highlights and notes (#85, below), the trail and saved-source organizer
-(#86, below) and import, export and privacy controls (#87) build on it. A site and its posts are unchanged
+(#86, below) and import, export and privacy controls (#87, below) build on it. A site and its posts are unchanged
 until those features are used; nothing here is in the build, Admin or any feed.
 
 ## Document
@@ -139,3 +140,33 @@ is one paragraph saying what it needs. With it:
   and nothing changes. The panel and the highlights refresh each other, and other tabs, when the document changes.
 - **Safety.** Titles, names and notes are set as text; links come from validated data (http or https, no credentials).
 
+
+## Export, import and privacy controls
+
+The trail panel ends with "Export, import and privacy" (`web/components/reader-annotations-transfer.js` holds
+the logic, `ob-reading-trail.js` the controls). Nothing here is uploaded or sent.
+
+- **What is kept.** The panel states, read from the browser each time it draws, what is saved ("Kept in this
+  browser: 2 notes, 1 saved source.") and which storage keys the feature holds
+  (`openblog.reader-annotations`, and `openblog.reader-annotations.off` while the feature is off, or `none`).
+- **Export.** "Download my reading trail" makes `openblog-reading-trail-YYYY-MM-DD.json`. Before the file
+  exists a sentence says how many highlights, notes, sources, trails and steps it will hold, its size, whether
+  your notes are included (they are not unless "Include the text of my notes and source notes" is checked)
+  and how many notes on a section or the whole post would be dropped. "Show exactly what the file contains"
+  shows its text. The file is the document and nothing else (see Privacy above).
+- **Import.** Choose a file; it is read in the browser, never uploaded. A preview shows what it would add,
+  what is already saved, records saved under another id, records that have the same id but different
+  content (keep yours, the default, or use the file's), imported highlights and notes on this post that no
+  longer match its text, and whether the file leaves out notes. Nothing is saved until "Import". Cancel
+  changes nothing. A file that is not valid, is from a newer version (`unsupportedVersion`), holds an
+  unsafe link or path, breaks a limit, or is over 4 MiB is refused whole with up to eight plain problems
+  that name the record and never repeat its text. The merge is deterministic: what is saved, then the file's
+  records in file order; a file that leaves out notes never removes a saved note.
+- **Writing.** Import re-reads the saved document, plans again and refuses if the result is not what was
+  previewed. Unreadable saved data and storage that is denied or full are reported, and the browser's data stays exactly as
+  it was. Both panels refresh afterwards.
+- **Turn off.** "Turn highlights, notes and trails off" keeps the data and stops the feature on this site in this
+  browser: nothing is marked, shown or saved, and the highlights region says so. The trail panel keeps
+  export, the switch and erase. "Turn ... back on" restores it.
+- **Erase.** "Clear all my local data" (above) removes the saved document, readable or not, after asking; the
+  panel then shows "Kept in this browser: nothing." and the keys it still holds.

@@ -3730,3 +3730,72 @@ ob-reading-trail [hidden] {
   outline: 2px solid currentColor;
   outline-offset: 2px;
 }
+
+/* Reader export, import and privacy controls (ADR 0456). */
+
+.ob-trail-subheading {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.ob-trail-kept {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.ob-trail-preview,
+.ob-trail-choice,
+.ob-trail-details {
+  display: grid;
+  gap: .75rem;
+  min-inline-size: 0;
+  margin: 0;
+  padding: .75rem 1rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: .35rem;
+}
+
+.ob-trail-details {
+  padding: .5rem 1rem;
+}
+
+.ob-trail-file {
+  box-sizing: border-box;
+  max-block-size: 20rem;
+  max-inline-size: 100%;
+  margin: .5rem 0 0;
+  overflow: auto;
+  font-size: .85rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ob-reading-trail input[type="file"] {
+  max-inline-size: 100%;
+  font: inherit;
+}
+
+.ob-trail-field:has(> input[type="checkbox"], > input[type="radio"]) {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+
+.ob-trail-body,
+.ob-trail-section,
+.ob-trail-form,
+.ob-trail-preview,
+.ob-trail-choice,
+.ob-trail-details {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ob-trail-field:has(> input[type="file"]) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ob-reading-trail input[type="file"] {
+  box-sizing: border-box;
+  inline-size: 100%;
+}

@@ -1,5 +1,5 @@
 // <ob-annotations> lets a reader keep highlights and private notes on a post, in their own browser
-// (ADRs 0450-0454, docs/specs/reader-annotations.md). The page is complete without it: the region's
+// (ADRs 0450-0454 and 0456, docs/specs/reader-annotations.md). The page is complete without it: the region's
 // static text says what it needs. Nothing is sent anywhere, and nothing is stored until the reader
 // saves something.
 //
@@ -17,7 +17,7 @@
 
 import { assessAnnotations, workKey, MAX_NOTE_CHARS } from "./reader-annotations.js";
 import { DATA_ELEMENT_ID, locateSelection, quoteFromSelection, readPassages, selectionProblem } from "./passage-selection.js";
-import { CHANGED_EVENT, STORAGE_KEY, addAnnotation, annotationsOf, deleteAnnotation, readStore, setNoteText, writeStore } from "./reader-annotations-store.js";
+import { CHANGED_EVENT, DISABLED_KEY, STORAGE_KEY, addAnnotation, annotationsOf, deleteAnnotation, isDisabled, readStore, setNoteText, writeStore } from "./reader-annotations-store.js";
 
 export const HIGHLIGHT_NAME = "ob-annotation";
 
@@ -46,6 +46,7 @@ const STORAGE_NOTES = Object.freeze({
   blocked: "This browser does not allow saving here, so highlights and notes are kept only until you leave this page.",
   full: "This browser has no room to save more, so your latest changes are kept only until you leave this page. Delete something to make room.",
   unreadable: "Highlights and notes saved earlier in this browser could not be read. They have been left untouched, and anything you add now is kept only until you leave this page.",
+  off: "Highlights and notes are turned off in this browser. Nothing is marked in the post and nothing new is saved. Anything saved earlier is kept until you erase it; you can turn this back on, export or erase it in the reading trails panel below.",
 });
 const PROBLEM_WORDS = Object.freeze({
   tooMany: "There is no room for another annotation. Delete one first.",
@@ -208,7 +209,7 @@ export class ObAnnotations extends HTMLElement {
     const { signal } = this.#listeners;
     document.addEventListener("selectionchange", () => this.#selectionChanged(), { signal });
     window.addEventListener("storage", (event) => {
-      if (event.key === null || event.key === STORAGE_KEY) this.#reload();
+      if (event.key === null || event.key === STORAGE_KEY || event.key === DISABLED_KEY) this.#reload();
     }, { signal });
     // The reading-trail panel on the same page changed the saved document.
     window.addEventListener(CHANGED_EVENT, (event) => {
@@ -504,6 +505,17 @@ export class ObAnnotations extends HTMLElement {
   /** Draw the notice, the list and the painted passages from the document and the page's published text. */
   #render() {
     const ui = this.#ui;
+    if (isDisabled(storage)) {
+      // Turned off by the reader: nothing is read, painted or offered, and what is saved is left alone.
+      ui.notice.textContent = STORAGE_NOTES.off;
+      ui.notice.hidden = false;
+      ui.make.hidden = true;
+      ui.list.hidden = true;
+      ui.list.replaceChildren();
+      this.#paint([]);
+      return;
+    }
+    ui.make.hidden = false;
     const mine = annotationsOf(this.#document, this.#work);
     const note = STORAGE_NOTES[this.#persistence];
     ui.notice.textContent = note ?? "";

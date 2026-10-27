@@ -249,7 +249,8 @@ const READER_ANNOTATIONS_REGION: &str = "<section id=\"ob-annotations\" class=\"
 ";
 /// A post's region for the reader's own saved sources and reading trails
 /// (ADR 0455), beside the highlights. It holds only text: a trail is built by
-/// hand in the reader's browser and nothing is recorded as they read.
+/// hand in the reader's browser and nothing is recorded as they read. The same
+/// panel exports, imports, turns off and erases that data (ADR 0456).
 const READER_TRAIL_REGION: &str = "<section id=\"ob-reading-trail\" class=\"ob-reading-trail\" aria-labelledby=\"ob-reading-trail-title\">
 <h2 id=\"ob-reading-trail-title\">Your reading trails and saved sources</h2>
 <ob-reading-trail>

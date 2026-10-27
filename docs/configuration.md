@@ -375,6 +375,8 @@ it on adds the region, the post's passage text and one script to each post; with
 It also adds a second region, "Your reading trails and saved sources", where a reader saves this post or a
 reference it cites and builds trails by hand (see [Reading trails and saved sources](specs/reader-annotations.md#reading-trails-and-saved-sources-on-a-page)).
 Nothing is recorded as a reader reads, and what they keep stays in their browser.
+The same panel lets a reader export that data to a file, import one after a preview, turn the feature off in their
+browser, and erase it (see [Export, import and privacy controls](specs/reader-annotations.md#export-import-and-privacy-controls)).
 
 ## Claim evidence
 
