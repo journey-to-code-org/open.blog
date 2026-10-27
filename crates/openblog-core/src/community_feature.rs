@@ -1,0 +1,767 @@
+//! Featuring an approved reflection on its work's canonical page, with the
+//! reader's separate consent (#214, ADRs 0230 to 0235).
+//!
+//! A *feature* is an editor's choice to show one already-published Third
+//! Perspective again in a community section of the page it is about, with a
+//! short editorial note. It is the same reflection, never a new one, so it
+//! runs on the one participation policy (RD12): nothing can be featured that
+//! is not approved, shown and consented to, and no new moderation state or
+//! hosted column exists.
+//!
+//! The site keeps its selections in `community-perspectives.json`, beside
+//! `third-perspectives.json` and under the same rules (versioned, public
+//! fields only, read strictly, canonical text). A selection holds a
+//! *reference*, never the reader's words: the id of the published reflection,
+//! the text revision the reader agreed to feature, a digest of the text that
+//! was agreed, the name shown at that time, the day it was featured and the
+//! editor's note. The words and the name come from the published reflection,
+//! so a withdrawal, a hidden name or a deletion that takes the reflection off
+//! takes its feature off too.
+//!
+//! Everything here is pure and answers three questions:
+//!
+//! - *May this be featured?* [`FeatureRecord::new`].
+//! - *Does a feature still stand against the hosted copy?*
+//!   [`FeatureRecord::hosted_standing`]: Admin's inbox asks it, and the
+//!   answer is either [`HostedStanding::Covered`] or the [`FeatureOff`]
+//!   reason it must come off.
+//! - *What does the page show?* [`resolve_post`] and [`project_post`]: the
+//!   public [`FeaturedPerspective`] only while every condition still holds,
+//!   else the reason it is hidden.
+//!
+//! Nothing counts, ranks or orders by popularity: a section lists features
+//! by the day they were featured, a feature has no number, score or weight,
+//! and an editor's note that claims popularity or agreement is refused.
+
+use std::collections::BTreeSet;
+
+use blake2::{Blake2s256, Digest};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+
+use crate::config::SiteConfig;
+use crate::date::DateTime;
+use crate::feedback_publication::{is_day, is_post_source};
+use crate::model::Post;
+use crate::participation::ParticipationMode;
+use crate::passage_target::normalize_passage_text;
+use crate::perspective_publication::{
+    project_post as project_perspectives, PublicPerspective, PublishedPerspective,
+    ThirdPerspectivesFile,
+};
+use crate::scholarly_feedback::is_uuid;
+use crate::third_perspective::{
+    ApprovedResponse, HostedPerspective, ModerationFacts, MAX_READER_NAME_CHARS,
+};
+
+/// The file's name, in the content folder.
+pub const COMMUNITY_FEATURES_FILE: &str = "community-perspectives.json";
+/// The version of the file format. A reader refuses a higher one.
+pub const COMMUNITY_FEATURES_VERSION: u64 = 1;
+/// The id of the section of a post's canonical page that shows features.
+pub const COMMUNITY_FEATURES_ANCHOR: &str = "ob-community-perspectives";
+/// The most features the file holds.
+pub const MAX_FEATURED: usize = 500;
+/// The largest file accepted, before it is parsed.
+pub const MAX_COMMUNITY_FEATURES_BYTES: usize = 2 * 1024 * 1024;
+/// The longest editorial note, in characters.
+pub const MAX_CONTEXT_CHARS: usize = 280;
+
+/// What a section says about why a reflection is there, always shown with it
+/// and never replaceable by an editor's note.
+pub const NON_CONSENSUS_NOTICE: &str = "The editors chose this reflection to feature. It is one reader's view: featuring it is an editorial choice, not a vote, and it does not mean the authors, the editors or the community agree with it.";
+
+/// The honest provenance line of one feature.
+fn provenance(response: &ApprovedResponse, featured: &str) -> String {
+    let who = match &response.name {
+        Some(name) => format!("{name}, a reader"),
+        None => "a reader".to_string(),
+    };
+    let mut line = format!(
+        "A Third Perspective from {who}, received {} and approved by the editors. It is featured here from {featured}, with the reader's separate permission.",
+        response.received
+    );
+    if response.earlier_revision {
+        line.push_str(" The reader read an earlier version of this article.");
+    }
+    if response.stale {
+        line.push_str(" The part of the article it is about has changed since.");
+    }
+    line
+}
+
+// ---------------------------------------------------------------------------
+// Why a feature is refused, and why it comes off
+
+/// Why a reflection may not be featured, or a note is refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FeatureError {
+    /// The one projection does not show the reflection now.
+    NotShownNow,
+    /// The reader has not agreed to feature it.
+    ConsentMissing,
+    /// The reader agreed to feature another revision of their text.
+    ConsentForOtherRevision,
+    /// The published reflection is not the hosted text or name.
+    PublishedDiffers,
+    /// Only a site Admin user may choose what to feature.
+    InvalidEditor,
+    /// The note is not 1 to [`MAX_CONTEXT_CHARS`] characters of plain text.
+    InvalidContext,
+    /// The note claims popularity, a count or agreement.
+    PopularityClaim,
+    /// The reflection already has its one placement.
+    AlreadyFeatured,
+    /// The file holds [`MAX_FEATURED`] features.
+    Full,
+}
+
+impl FeatureError {
+    pub fn code(self) -> &'static str {
+        match self {
+            FeatureError::NotShownNow => "notShownNow",
+            FeatureError::ConsentMissing => "consentMissing",
+            FeatureError::ConsentForOtherRevision => "consentForOtherRevision",
+            FeatureError::PublishedDiffers => "publishedDiffers",
+            FeatureError::InvalidEditor => "invalidEditor",
+            FeatureError::InvalidContext => "invalidContext",
+            FeatureError::PopularityClaim => "popularityClaim",
+            FeatureError::AlreadyFeatured => "alreadyFeatured",
+            FeatureError::Full => "full",
+        }
+    }
+
+    pub fn message(self) -> String {
+        match self {
+            FeatureError::NotShownNow => "this reflection is not shown on the page now, so it cannot be featured".into(),
+            FeatureError::ConsentMissing => "the reader has not agreed to have this reflection featured".into(),
+            FeatureError::ConsentForOtherRevision => "the reader agreed to feature an earlier text, not the text that was approved".into(),
+            FeatureError::PublishedDiffers => "the published reflection differs from the approved copy; publish it again first".into(),
+            FeatureError::InvalidEditor => "only a site Admin user may feature a reflection".into(),
+            FeatureError::InvalidContext => format!("an editor's note is 1 to {MAX_CONTEXT_CHARS} characters of plain text"),
+            FeatureError::PopularityClaim => "an editor's note may not claim popularity, a count or agreement; say why the reflection is worth reading".into(),
+            FeatureError::AlreadyFeatured => "this reflection is already featured; it has one placement, on the page it is about".into(),
+            FeatureError::Full => format!("the site already features {MAX_FEATURED} reflections"),
+        }
+    }
+}
+
+/// Why a feature comes off, or is hidden. The same reasons serve Admin's
+/// check against the hosted copy and the page's check against the file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FeatureOff {
+    /// The reader withdrew the reflection.
+    Withdrawn,
+    /// Retention purged the text, or the copy is gone.
+    Deleted,
+    /// The reflection is no longer approved, shown and about this work.
+    NotApproved,
+    /// The reader no longer agrees to feature it.
+    ConsentDeclined,
+    /// The text is not the text the reader agreed to feature.
+    TextChanged,
+    /// The reader's name is not the name they agreed to show.
+    NameChanged,
+    /// The article it is about is gone.
+    SourceGone,
+}
+
+impl FeatureOff {
+    pub fn id(self) -> &'static str {
+        match self {
+            FeatureOff::Withdrawn => "withdrawn",
+            FeatureOff::Deleted => "deleted",
+            FeatureOff::NotApproved => "not-approved",
+            FeatureOff::ConsentDeclined => "consent-declined",
+            FeatureOff::TextChanged => "text-changed",
+            FeatureOff::NameChanged => "name-changed",
+            FeatureOff::SourceGone => "source-gone",
+        }
+    }
+
+    /// What Admin says to an editor, never a reader's words.
+    pub fn explanation(self) -> &'static str {
+        match self {
+            FeatureOff::Withdrawn => "the reader withdrew this reflection",
+            FeatureOff::Deleted => "the reflection's text has been deleted",
+            FeatureOff::NotApproved => "the reflection is no longer approved and shown",
+            FeatureOff::ConsentDeclined => "the reader no longer agrees to have it featured",
+            FeatureOff::TextChanged => {
+                "the text is not the text the reader agreed to have featured"
+            }
+            FeatureOff::NameChanged => "the reader's name is not the one they agreed to show",
+            FeatureOff::SourceGone => "the article it is about is no longer published",
+        }
+    }
+}
+
+/// Whether a feature still stands against its hosted copy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HostedStanding {
+    Covered,
+    MustComeOff(FeatureOff),
+}
+
+// ---------------------------------------------------------------------------
+// The editor's note
+
+fn forbidden_in_context(character: char) -> bool {
+    character.is_control() || crate::research_notes::bidi_override(character)
+}
+
+/// Phrases that make selection look like a vote, a rank or a consensus. A
+/// conservative hint, not a judgment of the note: it errs toward refusing.
+const POPULARITY_PHRASES: &[&str] = &[
+    "most agreed",
+    "most popular",
+    "most liked",
+    "most upvoted",
+    "most read",
+    "top reflection",
+    "top-rated",
+    "top rated",
+    "highest rated",
+    "best reflection",
+    "upvote",
+    "votes",
+    "voted",
+    "ranked",
+    "ranking",
+    "trending",
+    "readers agree",
+    "people agree",
+    "everyone agrees",
+    "community agrees",
+    "community consensus",
+    "majority of readers",
+    "most readers",
+    "most people",
+    "many readers",
+    "many people",
+];
+
+/// Words that, beside a number, count readers or their reactions.
+const COUNTED_THINGS: &[&str] = &["reader", "people", "like", "vote", "agree", "share"];
+
+/// An editor's note as stored: whitespace collapsed, 1 to
+/// [`MAX_CONTEXT_CHARS`] characters of plain text. Blank is no note.
+pub fn normalize_context(value: &str) -> Result<Option<String>, FeatureError> {
+    let text = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if text.is_empty() {
+        return Ok(None);
+    }
+    if text.chars().count() > MAX_CONTEXT_CHARS || text.chars().any(forbidden_in_context) {
+        return Err(FeatureError::InvalidContext);
+    }
+    let lower = text.to_lowercase();
+    let counts = lower.chars().any(|c| c.is_ascii_digit())
+        && COUNTED_THINGS.iter().any(|word| lower.contains(word));
+    if counts
+        || POPULARITY_PHRASES
+            .iter()
+            .any(|phrase| lower.contains(phrase))
+    {
+        return Err(FeatureError::PopularityClaim);
+    }
+    Ok(Some(text))
+}
+
+/// The digest of the reflection text a feature was agreed for.
+pub fn body_digest(body: &str) -> String {
+    let mut hasher = Blake2s256::new();
+    hasher.update(b"openblog-featured-reflection-v1\0");
+    hasher.update((body.len() as u64).to_be_bytes());
+    hasher.update(body.as_bytes());
+    hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// One feature as the file stores it
+
+/// An editor's request to feature a reflection.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FeatureRequest {
+    /// The site Admin user choosing. Never stored: the file's history in the
+    /// site's repository is the record of who changed it.
+    pub selected_by: String,
+    /// The optional editor's note.
+    pub context: String,
+    pub at: DateTime,
+}
+
+/// One feature: a reference to a published reflection and what the reader
+/// agreed to, never the reader's words.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FeatureRecord {
+    /// The published reflection's id (a lowercase UUID). A reflection has at
+    /// most one feature.
+    pub id: String,
+    /// The post's source path, the one the reflection is about.
+    pub post: String,
+    /// The text revision the reader agreed to have featured.
+    pub revision: u32,
+    /// The digest of that text.
+    pub digest: String,
+    /// The name the reflection showed when it was featured, if any. A name
+    /// that differs from it later is never shown.
+    pub name: Option<String>,
+    /// The day it was featured, `YYYY-MM-DD`.
+    pub featured: String,
+    /// The editor's note, plain text.
+    pub context: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct WireRecord {
+    id: String,
+    post: String,
+    revision: u32,
+    digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    featured: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    context: Option<String>,
+}
+
+impl FeatureRecord {
+    /// Feature a reflection the hosted copy and the published file both show
+    /// now: approved at its current text, under a consent that agrees to
+    /// feature exactly that revision, about this post. The editor's note is
+    /// checked. Approval alone never features anything.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        source: &str,
+        hosted: &HostedPerspective,
+        facts: &ModerationFacts,
+        published: &PublishedPerspective,
+        post: &Post,
+        config: &SiteConfig,
+        request: &FeatureRequest,
+    ) -> Result<Self, FeatureError> {
+        if !crate::collaboration::valid_admin_username(&request.selected_by) {
+            return Err(FeatureError::InvalidEditor);
+        }
+        let context = normalize_context(&request.context)?;
+        let response = PublishedPerspective::response_of(hosted, post, config)
+            .filter(|_| facts.approved_revision == Some(hosted.copy.revision))
+            .ok_or(FeatureError::NotShownNow)?;
+        let copy = &hosted.copy;
+        match copy.consent().feature_revision {
+            None => return Err(FeatureError::ConsentMissing),
+            Some(revision) if !copy.feature_covers(revision) || revision != copy.revision => {
+                return Err(FeatureError::ConsentForOtherRevision)
+            }
+            Some(_) => {}
+        }
+        if published.id != hosted.id.to_ascii_lowercase()
+            || published.post != source
+            || published.body != copy.body
+            || published.name != response.name
+        {
+            return Err(FeatureError::PublishedDiffers);
+        }
+        let record = Self {
+            id: published.id.clone(),
+            post: source.to_string(),
+            revision: copy.revision,
+            digest: body_digest(&copy.body),
+            name: response.name,
+            featured: request.at.ymd().max(published.approved.clone()),
+            context,
+        };
+        record
+            .validate()
+            .map_err(|_| FeatureError::InvalidContext)?;
+        Ok(record)
+    }
+
+    /// Whether this feature still stands against the hosted copy: the check
+    /// Admin makes on every inbox load, for the reflection's row, its
+    /// moderation facts and the post as published now. `None` for the row is
+    /// a copy that no longer exists. Nothing here reads a private field into
+    /// the answer: it is a reason, never the reader's words.
+    pub fn hosted_standing(
+        &self,
+        hosted: Option<(&HostedPerspective, &ModerationFacts)>,
+        post: Option<&Post>,
+        config: &SiteConfig,
+        mode: ParticipationMode,
+    ) -> HostedStanding {
+        use crate::moderation::ModerationState;
+        let off = HostedStanding::MustComeOff;
+        let Some(post) = post else {
+            return off(FeatureOff::SourceGone);
+        };
+        let Some((hosted, facts)) = hosted else {
+            return off(FeatureOff::Deleted);
+        };
+        if facts.state == ModerationState::Withdrawn {
+            return off(FeatureOff::Withdrawn);
+        }
+        if !facts.content_retained {
+            return off(FeatureOff::Deleted);
+        }
+        if facts.state != ModerationState::Approved {
+            return off(FeatureOff::NotApproved);
+        }
+        let copy = &hosted.copy;
+        match copy.consent().feature_revision {
+            None => return off(FeatureOff::ConsentDeclined),
+            Some(_) if !copy.feature_covers(self.revision) => return off(FeatureOff::TextChanged),
+            Some(_) => {}
+        }
+        if copy.revision != self.revision
+            || facts.approved_revision != Some(self.revision)
+            || body_digest(&copy.body) != self.digest
+        {
+            return off(FeatureOff::TextChanged);
+        }
+        let work = crate::third_perspective::PublishedWork::of_post(post, config);
+        let document = crate::passage_target::PassageDocument::of_post(post, config);
+        let target = crate::third_perspective::TargetStatus::from(
+            &document.resolve(&copy.provenance.target, Some(&copy.provenance.revision)),
+        );
+        let Some(response) = copy.approved_response(facts, mode, &work, &target) else {
+            return off(FeatureOff::NotApproved);
+        };
+        if !name_agrees(response.name.as_deref(), self.name.as_deref()) {
+            return off(FeatureOff::NameChanged);
+        }
+        HostedStanding::Covered
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        if !is_uuid(&self.id) || self.id != self.id.to_ascii_lowercase() {
+            return Err("`id` must be a lowercase UUID".into());
+        }
+        if !is_post_source(&self.post) {
+            return Err(
+                "`post` must be a post's source path in the content folder, such as posts/tides.md"
+                    .into(),
+            );
+        }
+        if self.revision == 0 || self.revision > i32::MAX as u32 {
+            return Err("`revision` must be a positive text revision".into());
+        }
+        if self.digest.len() != 64
+            || !self
+                .digest
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        {
+            return Err("`digest` must be 64 lowercase hexadecimal digits".into());
+        }
+        if !is_day(&self.featured) {
+            return Err("`featured` must be a day written YYYY-MM-DD".into());
+        }
+        if let Some(name) = &self.name {
+            let count = name.chars().count();
+            if count == 0
+                || count > MAX_READER_NAME_CHARS
+                || normalize_passage_text(name) != *name
+                || name
+                    .chars()
+                    .any(|c| c.is_control() || crate::research_notes::bidi_override(c))
+            {
+                return Err(format!(
+                    "`name` must be 1 to {MAX_READER_NAME_CHARS} characters of plain text"
+                ));
+            }
+        }
+        if let Some(context) = &self.context {
+            match normalize_context(context) {
+                Ok(Some(normal)) if normal == *context => {}
+                Err(FeatureError::PopularityClaim) => {
+                    return Err("`context` may not claim popularity, a count or agreement".into())
+                }
+                _ => {
+                    return Err(format!(
+                        "`context` must be 1 to {MAX_CONTEXT_CHARS} characters of plain text with single spaces"
+                    ))
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn from_value(value: &Value) -> Result<Self, String> {
+        let wire: WireRecord = serde_json::from_value(value.clone()).map_err(|_| {
+            "has a field this version does not define, or a field of the wrong type".to_string()
+        })?;
+        let record = Self {
+            id: wire.id,
+            post: wire.post,
+            revision: wire.revision,
+            digest: wire.digest,
+            name: wire.name,
+            featured: wire.featured,
+            context: wire.context,
+        };
+        record.validate()?;
+        Ok(record)
+    }
+
+    fn to_wire(&self) -> WireRecord {
+        WireRecord {
+            id: self.id.clone(),
+            post: self.post.clone(),
+            revision: self.revision,
+            digest: self.digest.clone(),
+            name: self.name.clone(),
+            featured: self.featured.clone(),
+            context: self.context.clone(),
+        }
+    }
+}
+
+/// A name may only narrow: shown as agreed, or hidden, never another.
+fn name_agrees(now: Option<&str>, agreed: Option<&str>) -> bool {
+    match now {
+        None => true,
+        Some(now) => agreed == Some(now),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The file
+
+/// Every feature the site publishes.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FeaturesFile {
+    pub items: Vec<FeatureRecord>,
+}
+
+impl FeaturesFile {
+    /// Read the file, refusing a newer version, an unknown field or any
+    /// broken rule, naming the item and never what it holds. Nothing is
+    /// repaired or dropped.
+    pub fn from_json(text: &str) -> Result<Self, String> {
+        if text.len() > MAX_COMMUNITY_FEATURES_BYTES {
+            return Err(format!(
+                "is larger than {MAX_COMMUNITY_FEATURES_BYTES} bytes"
+            ));
+        }
+        let value: Value =
+            serde_json::from_str(text).map_err(|_| "is not valid JSON".to_string())?;
+        match value.get("version").and_then(Value::as_u64) {
+            Some(COMMUNITY_FEATURES_VERSION) => {}
+            Some(version) if version > COMMUNITY_FEATURES_VERSION => {
+                return Err(format!(
+                    "is version {version}, newer than the version {COMMUNITY_FEATURES_VERSION} this open.blog reads"
+                ))
+            }
+            _ => return Err("needs `version` 1".into()),
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct WireFile {
+            #[allow(dead_code)]
+            version: u64,
+            items: Vec<Value>,
+        }
+        let wire: WireFile = serde_json::from_value(value)
+            .map_err(|_| "needs only `version` and an `items` list".to_string())?;
+        if wire.items.len() > MAX_FEATURED {
+            return Err(format!(
+                "has {} items; keep at most {MAX_FEATURED}",
+                wire.items.len()
+            ));
+        }
+        let mut items = Vec::with_capacity(wire.items.len());
+        let mut ids = BTreeSet::new();
+        for (index, value) in wire.items.iter().enumerate() {
+            let item = FeatureRecord::from_value(value)
+                .map_err(|error| format!("item {}: {error}", index + 1))?;
+            if !ids.insert(item.id.clone()) {
+                return Err(format!(
+                    "item {}: repeats the id of an earlier item; a reflection has one placement",
+                    index + 1
+                ));
+            }
+            items.push(item);
+        }
+        Ok(Self { items })
+    }
+
+    /// Canonical text: items sorted by post, day featured and id, two-space
+    /// indentation and a final line break.
+    pub fn to_json(&self) -> String {
+        let mut items: Vec<&FeatureRecord> = self.items.iter().collect();
+        items.sort_by(|a, b| {
+            (a.post.as_str(), a.featured.as_str(), a.id.as_str()).cmp(&(
+                b.post.as_str(),
+                b.featured.as_str(),
+                b.id.as_str(),
+            ))
+        });
+        let value = json!({
+            "version": COMMUNITY_FEATURES_VERSION,
+            "items": items.iter().map(|item| item.to_wire()).collect::<Vec<_>>(),
+        });
+        let mut out = serde_json::to_string_pretty(&value).expect("features serialize");
+        out.push('\n');
+        out
+    }
+
+    pub fn get(&self, id: &str) -> Option<&FeatureRecord> {
+        self.items.iter().find(|item| item.id == id)
+    }
+
+    /// Add a feature. A reflection has one placement, so a second is refused.
+    pub fn feature(&mut self, record: FeatureRecord) -> Result<(), FeatureError> {
+        if self.get(&record.id).is_some() {
+            return Err(FeatureError::AlreadyFeatured);
+        }
+        if self.items.len() >= MAX_FEATURED {
+            return Err(FeatureError::Full);
+        }
+        self.items.push(record);
+        Ok(())
+    }
+
+    /// Take a feature off; whether it was there. Nothing remains: there is
+    /// no public tombstone (ADR 0233).
+    pub fn unfeature(&mut self, id: &str) -> bool {
+        let before = self.items.len();
+        self.items.retain(|item| item.id != id);
+        self.items.len() != before
+    }
+
+    /// Take a reflection off the site together with its feature, in one step:
+    /// a reflection that is no longer published is never left featured.
+    /// Returns whether the reflection was published and whether it was
+    /// featured.
+    pub fn unpublish_reflection(
+        &mut self,
+        published: &mut ThirdPerspectivesFile,
+        id: &str,
+    ) -> (bool, bool) {
+        (published.unpublish(id), self.unfeature(id))
+    }
+
+    /// The features about one post, oldest first by the day they were
+    /// featured. Nothing orders them by popularity: there is nothing to
+    /// count.
+    pub fn for_post(&self, source: &str) -> Vec<&FeatureRecord> {
+        let mut items: Vec<&FeatureRecord> = self
+            .items
+            .iter()
+            .filter(|item| item.post == source)
+            .collect();
+        items.sort_by(|a, b| (&a.featured, &a.id).cmp(&(&b.featured, &b.id)));
+        items
+    }
+}
+
+// ---------------------------------------------------------------------------
+// What the page shows
+
+/// One featured reflection as the canonical page shows it: the reflection's
+/// one public projection, the editor's note, the day it was featured and the
+/// honest provenance line. It has no field for a count, rank, score, vote,
+/// reaction or the editor who chose it, so no renderer can show one.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeaturedPerspective {
+    /// The published reflection's id, which an abuse report names.
+    pub id: String,
+    pub response: ApprovedResponse,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub section_title: Option<String>,
+    /// The editor's note, labelled as the editors' own.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<String>,
+    /// The day it was featured, `YYYY-MM-DD`.
+    pub featured: String,
+    /// Where it came from and what agreed to it, always shown with it.
+    pub provenance: String,
+}
+
+impl FeaturedPerspective {
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).expect("a featured perspective always serializes")
+    }
+}
+
+/// Each feature of `post` and the public form it has now, or the reason it is
+/// hidden. `records` are the file's features for `source`; `post` is `None`
+/// when the article is gone. Order is the order of `records`.
+#[allow(clippy::too_many_arguments)]
+pub fn resolve_post(
+    records: &[&FeatureRecord],
+    published: &ThirdPerspectivesFile,
+    post: Option<&Post>,
+    config: &SiteConfig,
+    mode: ParticipationMode,
+    answer_mode: ParticipationMode,
+) -> Vec<(String, Result<FeaturedPerspective, FeatureOff>)> {
+    let Some(post) = post else {
+        return records
+            .iter()
+            .map(|record| (record.id.clone(), Err(FeatureOff::SourceGone)))
+            .collect();
+    };
+    let items: Vec<&PublishedPerspective> = records
+        .iter()
+        .filter_map(|record| {
+            published
+                .get(&record.id)
+                .filter(|item| item.post == record.post)
+        })
+        .collect();
+    let shown: Vec<PublicPerspective> =
+        project_perspectives(&items, post, config, mode, answer_mode);
+    records
+        .iter()
+        .map(|record| {
+            let result = (|| {
+                let item = published
+                    .get(&record.id)
+                    .filter(|item| item.post == record.post)
+                    .ok_or(FeatureOff::NotApproved)?;
+                let public = shown
+                    .iter()
+                    .find(|public| public.id == record.id)
+                    .ok_or(FeatureOff::NotApproved)?;
+                if body_digest(&item.body) != record.digest {
+                    return Err(FeatureOff::TextChanged);
+                }
+                if !name_agrees(public.response.name.as_deref(), record.name.as_deref()) {
+                    return Err(FeatureOff::NameChanged);
+                }
+                Ok(FeaturedPerspective {
+                    id: record.id.clone(),
+                    provenance: provenance(&public.response, &record.featured),
+                    response: public.response.clone(),
+                    section_title: public.section_title.clone(),
+                    context: record.context.clone(),
+                    featured: record.featured.clone(),
+                })
+            })();
+            (record.id.clone(), result)
+        })
+        .collect()
+}
+
+/// The features a post's canonical page shows now, by the day they were
+/// featured. A feature that does not stand is simply absent: the page keeps
+/// no count of them and no mark of a gap (ADR 0233).
+pub fn project_post(
+    records: &[&FeatureRecord],
+    published: &ThirdPerspectivesFile,
+    post: &Post,
+    config: &SiteConfig,
+    mode: ParticipationMode,
+    answer_mode: ParticipationMode,
+) -> Vec<FeaturedPerspective> {
+    resolve_post(records, published, Some(post), config, mode, answer_mode)
+        .into_iter()
+        .filter_map(|(_, result)| result.ok())
+        .collect()
+}

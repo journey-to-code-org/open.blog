@@ -1698,8 +1698,14 @@ impl SubmittedCopy {
         let response = self.approved_response(facts, mode, work, target)?;
         let covered = crate::collaboration::valid_admin_username(&selection.selected_by)
             && facts.approved_revision == Some(selection.revision)
-            && self.consent().feature_revision == Some(selection.revision);
+            && self.feature_covers(selection.revision);
         covered.then_some(FeaturedPublication { response })
+    }
+
+    /// Whether the reader's consent in effect agrees to feature exactly
+    /// `revision` of their text (ADR 0110); none agrees to feature any other.
+    pub fn feature_covers(&self, revision: u32) -> bool {
+        self.consent().publish && self.consent().feature_revision == Some(revision)
     }
 }
 

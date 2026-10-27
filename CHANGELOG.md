@@ -3,6 +3,16 @@
 All notable changes to open.blog are recorded here. Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+- Featuring a reader's reflection in a community section is now defined (RD14, no page change yet):
+  it needs the reader's own separate consent for the exact text, a change to the text needs fresh
+  consent, withdrawal or a declined feature takes it off with no public tombstone, and a featured
+  reflection always says whose it is and that choosing it is an editorial choice, not a vote or
+  consensus. Nothing counts, ranks or orders features by popularity. Selections will live in a new
+  public `community-perspectives.json`; nothing reads it yet, so every existing page, feed and export
+  is unchanged.
+
 ## [0.43.0] - 2026-10-26
 
 - Readers can suggest a question, text, video, audio or other source for the author's future work

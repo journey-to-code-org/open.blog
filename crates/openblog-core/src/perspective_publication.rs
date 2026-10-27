@@ -269,7 +269,7 @@ impl PublishedPerspective {
         post.is_some_and(|post| Self::response_of(hosted, post, config).is_some())
     }
 
-    fn response_of(
+    pub(crate) fn response_of(
         hosted: &HostedPerspective,
         post: &Post,
         config: &SiteConfig,
