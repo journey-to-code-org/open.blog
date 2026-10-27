@@ -311,7 +311,7 @@ fn a_coordinator_never_sees_the_contact_and_a_viewer_with_no_role_sees_nothing()
         ID,
         json!({"feedback": {
             "version": 1, "kind": "future-suggestion", "body": "Her letters would help.",
-            "details": {"type": "text", "contact": {"address": "ada@example.org", "followUp": true}},
+            "details": {"type": "text", "contact": {"address": "ada@example.org", "followUp": true}, "creditRevision": 1},
             "provenance": {"version": 1, "work": "/posts/tides/", "revision": null, "target": null,
                 "receivedAt": "2026-10-26T10:00:00Z", "channel": "hosted",
                 "attribution": {"name": "Public Person", "publishName": true}}
@@ -325,6 +325,27 @@ fn a_coordinator_never_sees_the_contact_and_a_viewer_with_no_role_sees_nothing()
     .unwrap();
     assert_eq!(view["reader"]["name"], "Public Person");
     assert_eq!(view["suggestion"]["contact"], Value::Null);
+    // The agreement was for revision 1: once the text has a later revision (a
+    // clarification), a coordinator is shown no name until the reader agrees again.
+    let clarified = InboxItem::from_value(&hosted(
+        "pending",
+        ID,
+        json!({"itemRevision": 2, "feedback": {
+            "version": 1, "kind": "future-suggestion", "body": "Her letters, as I meant.",
+            "details": {"type": "text", "creditRevision": 1},
+            "provenance": {"version": 1, "work": "/posts/tides/", "revision": null, "target": null,
+                "receivedAt": "2026-10-26T10:00:00Z", "channel": "hosted",
+                "attribution": {"name": "Public Person", "publishName": true}}
+        }}),
+    ))
+    .unwrap();
+    let view = as_viewer(Principal::AdminSession {
+        admin_user: "coord-admin",
+    })
+    .view(&clarified)
+    .unwrap();
+    assert_eq!(view["reader"].get("name"), None);
+    assert_eq!(view["reader"]["publishName"], false);
 }
 
 #[test]
