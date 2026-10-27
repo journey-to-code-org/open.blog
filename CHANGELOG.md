@@ -5,6 +5,17 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Portable copies carry the research context: portable HTML, Markdown and text, syndicated copies,
+  full-content feeds and `llms-full.txt` now include the research context you selected for a post, in
+  the same words as its page, with every attribution, doubt and piece of evidence, each item linked
+  back to its anchor on the canonical page. Summary-only feeds link to the section. A bibliography
+  export adds the references you selected and lists what it cannot carry. Copies say what a format
+  cannot carry, show an address that is not a link as text, and are refused for that post alone if
+  anything selected would be lost. With the switch off, or nothing selected, every copy is unchanged.
+  The page now also shows the passages and rights words of each compared version. Anchors on the page
+  moved into the reserved `ob-` family (`ob-research-context`, `ob-curated-<id>`) and
+  `curated-context.json` says `openblog-curated-context-file`. See
+  [ADR 0258](docs/adr/0258-portable-copies-carry-the-public-curated-context-as-labeled-sections-with-links-back-to-the-canonical-page.md).
 - Curated research context: a new private file, `.openblog/private/research/selections.json`,
   holds which public research context readers may be given: references to sources, atlas entries,
   relationships, datings and comparisons, and your own attributed comments on a source or an

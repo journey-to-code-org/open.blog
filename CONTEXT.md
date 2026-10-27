@@ -1303,6 +1303,12 @@ selected, a selected detail the source lacks, or metadata whose origin is not re
 dating is also a `boundary:` warning. Never a judgement of the research.
 _Avoid_: Hiding a rival dating, filling in a missing detail
 
+**Portable research context**:
+The research-context section as a portable copy (HTML, Markdown, text, feed, syndicated copy) writes it:
+labeled sequential sections from the one public curated value, with links to the canonical section and
+each item's anchor, and a diagnostic for what the format cannot carry. A copy that would lose a selected
+fact is refused for that post alone.
+
 **Curated context file**:
 `curated-context.json`: the versioned public data file projected from the one public curated value,
 holding each published selection with its attribution, doubt, evidence, provenance and selected

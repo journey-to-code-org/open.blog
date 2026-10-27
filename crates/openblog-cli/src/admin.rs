@@ -17943,10 +17943,35 @@ mod tests {
                 )
             })
             .collect();
-        let (site, _) = site::load_site(root, false, Some(clock::now())).unwrap();
+        let (mut site, _) = site::load_site(root, false, Some(clock::now())).unwrap();
+        // The public curated context, as a build attaches it (ADR 0258): every
+        // portable copy below carries it, so the scan covers what it adds.
+        crate::boundary::attach_public_curation(root, &mut site).unwrap();
+        // A destination refuses a placeholder address, so what is sent names a real one.
+        let mut config = site::load_config(root).unwrap();
+        config.url = "https://corpus.openblog.dev".into();
         for post in &site.posts {
             let projection =
                 openblog_core::portability::PortableProjection::for_site(&site, post).unwrap();
+            artifacts.push((
+                format!("portable text of {}", post.slug),
+                projection.portable_text().unwrap(),
+            ));
+            // What a destination is sent (DEV, Hashnode and a manual import).
+            let source = fs::read_to_string(root.join("content").join(&post.source)).unwrap();
+            let sent = crate::syndication::syndication_post(
+                post,
+                &source,
+                &config,
+                site.series_context(post),
+                site.curated_context_for(post),
+            )
+            .unwrap();
+            artifacts.push((
+                format!("syndicated markdown of {}", post.slug),
+                sent.markdown,
+            ));
+            artifacts.push((format!("syndicated html of {}", post.slug), sent.html));
             artifacts.push((
                 format!("portable markdown of {}", post.slug),
                 projection.portable_markdown().unwrap(),
@@ -17959,7 +17984,12 @@ mod tests {
                 crate::portable_export::Format::CslJson,
                 crate::portable_export::Format::Bibtex,
             ] {
-                if let Ok(export) = crate::portable_export::bibliography_export(post, format) {
+                let curated = site
+                    .curated_context_for(post)
+                    .and_then(|context| context.bibliography_for_post(&post.slug));
+                if let Ok(export) =
+                    crate::portable_export::bibliography_export(post, curated, format)
+                {
                     artifacts.push((
                         format!("{format:?} export of {}", post.slug),
                         export.content,
@@ -38684,16 +38714,25 @@ series: letters
         ] {
             assert!(page.contains(&words), "{words} is not on the page");
         }
-        // The comment is on the post it is for, and no other page carries it.
+        // The comment is on the post it is for, in its data and its portable copies, in the
+        // feeds that carry that post and in llms-full.txt, and no other page carries it.
         let carrying: Vec<&str> = artifacts
             .iter()
             .filter(|(_, text)| text.contains(&comment))
             .map(|(path, _)| path.as_str())
             .collect();
         assert!(
-            carrying
-                .iter()
-                .all(|path| *path == "curated-context.json" || path.starts_with("posts/cave")),
+            carrying.iter().all(|path| {
+                [
+                    "curated-context.json",
+                    "feed.json",
+                    "rss.xml",
+                    "llms-full.txt",
+                ]
+                .contains(path)
+                    || path.starts_with("posts/cave")
+                    || path.ends_with("of cave")
+            }),
             "{carrying:?}"
         );
         assert_eq!(
@@ -38711,11 +38750,45 @@ series: letters
             ["curated-context"]
         );
         assert_eq!(published_ids(&manifest, "curated", "selection").len(), 6);
-        // The portable copies of the post never carry the page's research-context section.
-        for (path, text) in &artifacts {
-            if path.starts_with("portable") {
-                assert!(!text.contains("research-context"), "{path}");
+        // Every portable copy of the post carries what was approved and selected, in the same
+        // words, with the link back to the canonical page's research-context section (ADR 0258):
+        // portable HTML, Markdown and text, what a destination is sent, the feeds and llms-full.txt.
+        let artifact = |path: &str| -> &String {
+            &artifacts
+                .iter()
+                .find(|(name, _)| name == path || name.ends_with(path))
+                .unwrap_or_else(|| panic!("no artifact {path}"))
+                .1
+        };
+        let carriers = [
+            "portable html of cave",
+            "portable markdown of cave",
+            "portable text of cave",
+            "syndicated markdown of cave",
+            "syndicated html of cave",
+            "llms-full.txt",
+            "feed.json",
+            "rss.xml",
+        ];
+        for path in carriers {
+            let text = artifact(path);
+            for words in [
+                public_text("entrysummary"),
+                public_text("relationshipdoubt"),
+                comment.clone(),
+            ] {
+                assert!(text.contains(&words), "{words} is not in {path}");
             }
+            assert!(
+                text.contains("#ob-research-context"),
+                "{path} does not link back to the canonical section"
+            );
+        }
+        // A bibliography has no place for the author's comment or the relationship; it says so
+        // where it lists omissions, and the words are not in the data.
+        for path in ["Bibtex export of cave", "CslJson export of cave"] {
+            let text = artifact(path);
+            assert!(!text.contains(&comment) && !text.contains(&public_text("relationshipdoubt")));
         }
     }
 }

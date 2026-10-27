@@ -332,8 +332,8 @@ post's items in your order with a canonical anchor for each), and each post you 
 static **Research context** section after its text, complete without JavaScript. Both are read from the
 one public value that Admin's **What will be public** lists, so they never disagree and neither can reach
 a private note. With the switch off, or nothing selected, the site builds exactly as before; a file over
-its bound is left out whole with a `boundary:` warning and the pages are unaffected. Feeds and portable
-copies of a post do not carry the section yet (#198).
+its bound is left out whole with a `boundary:` warning and the pages are unaffected. Portable copies, syndicated copies, full-content feeds and `llms-full.txt` carry it too, with a link back to the
+canonical section ([ADR 0258](adr/0258-portable-copies-carry-the-public-curated-context-as-labeled-sections-with-links-back-to-the-canonical-page.md)).
 
 The comment you write for a selection is public, so the build's check for private text allows it: any
 words it shares with a private note are treated as public everywhere on the site, in every file, not

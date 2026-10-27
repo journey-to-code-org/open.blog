@@ -86,14 +86,14 @@ pub fn project_with(root: &Path, site: &mut Site, shared: &Shared) -> Blocked {
     // public value the boundary manifest lists. Only while the site publishes
     // curated context and its selections can be read; otherwise nothing is
     // attached and every output is what it was.
-    site.curation = None;
+    site.set_curation(None);
     if shared.curated {
         let stores = Stores::read(root, shared);
         if let Some(set) = &stores.selections {
             let owned = CurationBasis::of(site, &stores);
             let resolution =
                 openblog_core::curated_selection::resolve(set, &owned.basis(site, &stores));
-            site.curation = Some(resolution.curation);
+            site.set_curation(Some(resolution.curation));
         }
     }
     // The posts' concept links (ADR 0172) resolve against the atlas just
@@ -452,6 +452,28 @@ pub fn selections_error(site: &Site, stores: &Stores<'_>) -> Option<String> {
                 Store::Selections.file()
             )
         })
+}
+
+/// Attach the public curated value to `site` exactly as a build does, while
+/// the site publishes curated context, so a portable export or a syndicated
+/// copy carries the research context (ADR 0258). Nothing but the value the
+/// build lists is attached, and nothing is written. A selections file that
+/// cannot be read refuses, as a build does, rather than leaving the author's
+/// curation out of a copy that looks complete. With the switch off nothing is
+/// read at all.
+pub fn attach_public_curation(root: &Path, site: &mut Site) -> Result<(), String> {
+    if !site.config.curated_context.publish {
+        return Ok(());
+    }
+    let shared = Shared::read(root, &site.config);
+    project_with(root, site, &shared);
+    let stores = Stores::read(root, &shared);
+    match selections_error(site, &stores) {
+        Some(error) => Err(error
+            .replace("refusing to build", "refusing to export")
+            .replace("Nothing was written", "No file was written")),
+        None => Ok(()),
+    }
 }
 
 /// The site-wide manifest a build of the saved files would publish, for the
@@ -2660,6 +2682,148 @@ date: 2026-01-07
             },
             "names the item anchor `a-heading`",
         );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    // ---- portable copies of the curated context (#198, ADR 0258 to ADR 0262) ----------------
+
+    fn export_to(root: &Path, slug: &str, name: &str) -> Result<String, String> {
+        let out = root.join("exports").join(name);
+        crate::portable_export::run(
+            root,
+            slug,
+            crate::portable_export::Format::Markdown,
+            Some(out.to_str().unwrap()),
+            true,
+            false,
+        )?;
+        Ok(fs::read_to_string(out).unwrap())
+    }
+
+    #[test]
+    fn a_portable_export_and_a_syndicated_copy_carry_the_research_context_and_nothing_private() {
+        let root = context_site("portable-copies");
+        let exported = export_to(&root, "cave", "cave.md").unwrap();
+        for expected in [
+            "## Research context",
+            APPROVED_WORDS,
+            "#ob-research-context",
+        ] {
+            assert!(exported.contains(expected), "{expected}:\n{exported}");
+        }
+        assert!(!exported.contains(WITHDRAWN_WORDS));
+        assert!(!exported.contains(PASSAGE) && !exported.contains(SHORT_NOTES[0]));
+
+        // What a destination is sent carries it too, as a different revision, so a syndicated
+        // copy is updated when its context first appears.
+        let (mut site, _) = crate::site::load_site(&root, false, None).unwrap();
+        attach_public_curation(&root, &mut site).unwrap();
+        let mut config = crate::site::load_config(&root).unwrap();
+        config.url = "https://corpus.openblog.dev".into();
+        let post = site.posts.iter().find(|post| post.slug == "cave").unwrap();
+        let source = fs::read_to_string(root.join("content").join(&post.source)).unwrap();
+        let sent = crate::syndication::syndication_post(
+            post,
+            &source,
+            &config,
+            None,
+            site.curated_context_for(post),
+        )
+        .unwrap();
+        let plain =
+            crate::syndication::syndication_post(post, &source, &config, None, None).unwrap();
+        for copy in [&sent.markdown, &sent.html] {
+            assert!(copy.contains(APPROVED_WORDS) && copy.contains("#ob-research-context"));
+            assert!(!copy.contains(WITHDRAWN_WORDS));
+        }
+        assert!(!plain.markdown.contains(APPROVED_WORDS));
+        assert_ne!(sent.revision, plain.revision);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn with_the_switch_off_or_nothing_selected_a_portable_copy_is_byte_for_byte_the_legacy_copy() {
+        let root = context_site("portable-legacy");
+        set_switch(&root, false);
+        let off = export_to(&root, "cave", "off.md").unwrap();
+        assert!(!off.contains("Research context") && !off.contains(APPROVED_WORDS));
+        // The switch on with nothing selected is the same copy, byte for byte.
+        fs::remove_file(root.join(Store::Selections.file())).unwrap();
+        set_switch(&root, true);
+        assert_eq!(export_to(&root, "cave", "empty.md").unwrap(), off);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_selections_file_that_cannot_be_read_refuses_an_export_rather_than_leaving_the_context_out()
+    {
+        let root = context_site("portable-damaged");
+        fs::write(root.join(Store::Selections.file()), "{ nope").unwrap();
+        let error = export_to(&root, "cave", "damaged.md").unwrap_err();
+        assert!(error.contains("refusing to export"), "{error}");
+        assert!(
+            !root.join("exports/damaged.md").exists(),
+            "nothing was written"
+        );
+        // With the switch off the file is never read, and the export is what it was.
+        set_switch(&root, false);
+        assert!(export_to(&root, "cave", "off.md").is_ok());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_bibliography_carries_the_selected_reference_and_lists_the_items_it_has_no_place_for() {
+        use crate::portable_export::{bibliography_export, Format};
+        use openblog_core::curated_selection::{NewSelection, SelectionKind};
+        let root = curating_site("portable-bibliography");
+        write_post(&root, "cave", "", "The cave.");
+        let results = select_for_build(
+            &root,
+            vec![
+                NewSelection {
+                    posts: Some(vec!["cave".into()]),
+                    optional_fields: vec!["creators".into()],
+                    ..pick(SelectionKind::Reference, "plato")
+                },
+                NewSelection {
+                    text: Some(APPROVED_WORDS.into()),
+                    by: Some("The author".into()),
+                    posts: Some(vec!["cave".into()]),
+                    ..pick(SelectionKind::Explanation, "plato-person")
+                },
+            ],
+        );
+        assert!(results.iter().all(Result::is_ok), "{results:?}");
+        let (mut site, _) = crate::site::load_site(&root, false, None).unwrap();
+        attach_public_curation(&root, &mut site).unwrap();
+        let post = site.posts.iter().find(|post| post.slug == "cave").unwrap();
+        let curated = site
+            .curated_context_for(post)
+            .and_then(|context| context.bibliography_for_post("cave"));
+        let bibtex = bibliography_export(post, curated.clone(), Format::Bibtex).unwrap();
+        assert!(
+            bibtex.content.contains("@misc{plato,"),
+            "{}",
+            bibtex.content
+        );
+        assert!(bibtex.content.contains("Politeia"));
+        // The private diary, a source nobody published, and the author's words are not in it.
+        for private in ["A private diary", APPROVED_WORDS] {
+            assert!(!bibtex.content.contains(private), "{private}");
+        }
+        // What a bibliography cannot carry is listed, not dropped without a word.
+        assert!(
+            bibtex
+                .losses
+                .iter()
+                .any(|loss| loss.field == "explanation" && loss.reason.contains("no place")),
+            "{:?}",
+            bibtex.losses
+        );
+        let csl = bibliography_export(post, curated, Format::CslJson).unwrap();
+        assert!(csl.content.contains("\"id\": \"plato\""), "{}", csl.content);
+        // With no curated context the post has no citations and so nothing to export, as before.
+        assert!(bibliography_export(post, None, Format::Bibtex).is_err());
         let _ = fs::remove_dir_all(root);
     }
 }

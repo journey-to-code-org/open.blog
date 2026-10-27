@@ -25,6 +25,7 @@
 //! pages are unaffected: the page section is bounded by the selections file
 //! itself and stays the complete fallback.
 
+use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
@@ -452,14 +453,135 @@ struct Named {
     anchor: Option<String>,
 }
 
+/// How the section is written: as the page's HTML, as a portable copy's HTML,
+/// or as a portable copy's Markdown. The words, the order and the escaping
+/// rules are the same in every one; only the links and the list markup differ.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Syntax {
+    Html,
+    Markdown,
+}
+
+/// Where a copy that has left the site links back to (ADR 0258): the canonical
+/// address of the post, whose page holds every anchor the copy names, and how
+/// a root-relative address of this site is made absolute.
+pub struct CopyLinks<'a> {
+    pub canonical: &'a str,
+    pub absolute: &'a dyn Fn(&str) -> Result<String, String>,
+}
+
 struct Page<'a> {
     context: &'a CuratedContext,
     /// The ids of the items this post offers, and the context it lists.
     offered: BTreeSet<&'a str>,
     listed: BTreeSet<(ContextKind, &'a str)>,
+    syntax: Syntax,
+    /// `Some` for a copy that has left the site: nothing links to an anchor of
+    /// a page it is not on, and a root-relative address is made absolute.
+    copy: Option<&'a CopyLinks<'a>>,
+    /// How many addresses were shown as text because they cannot be links.
+    unlinked: Cell<usize>,
 }
 
-impl Page<'_> {
+/// Markdown text for a public value: punctuation that could become markup is
+/// escaped, so a value is never a link, emphasis or raw HTML when read back.
+fn md_text(value: &str) -> String {
+    crate::portability::markdown_text(value)
+}
+
+impl<'a> Page<'a> {
+    fn new(
+        context: &'a CuratedContext,
+        post: &'a PostContext,
+        syntax: Syntax,
+        copy: Option<&'a CopyLinks<'a>>,
+    ) -> Self {
+        Self {
+            context,
+            offered: post.items.iter().map(|item| item.id.as_str()).collect(),
+            listed: post
+                .context
+                .iter()
+                .map(|context| (context.kind, context.id.as_str()))
+                .collect(),
+            syntax,
+            copy,
+            unlinked: Cell::new(0),
+        }
+    }
+
+    /// A value as text in this syntax.
+    fn t(&self, value: &str) -> String {
+        match self.syntax {
+            Syntax::Html => text(value),
+            Syntax::Markdown => md_text(value),
+        }
+    }
+
+    /// A link to an anchor of this post's page. On the page it is a fragment;
+    /// in a copy it is the canonical address and the fragment; a copy in
+    /// Markdown or HTML always has somewhere to point, so it is never dead.
+    fn in_page(&self, anchor: &str, inner: &str, class: &str) -> String {
+        let class = if class.is_empty() || self.copy.is_some() {
+            String::new()
+        } else {
+            format!(" class=\"{class}\"")
+        };
+        match (self.syntax, self.copy) {
+            (Syntax::Html, None) => format!("<a{class} href=\"#{}\">{inner}</a>", attr(anchor)),
+            (Syntax::Html, Some(copy)) => format!(
+                "<a href=\"{}\">{inner}</a>",
+                attr(&format!("{}#{anchor}", copy.canonical))
+            ),
+            (Syntax::Markdown, Some(copy)) => format!(
+                "[{inner}]({})",
+                crate::portability::markdown_destination(&format!("{}#{anchor}", copy.canonical))
+            ),
+            (Syntax::Markdown, None) => inner.to_string(),
+        }
+    }
+
+    /// A link to an address that is already safe: a page of this site or an
+    /// `https` address. A copy makes a root-relative one absolute.
+    fn to(&self, href: &str, inner: &str) -> String {
+        let href = match self.copy {
+            Some(copy) => (copy.absolute)(href).unwrap_or_else(|_| href.to_string()),
+            None => href.to_string(),
+        };
+        match self.syntax {
+            Syntax::Html => format!("<a href=\"{}\">{inner}</a>", attr(&href)),
+            Syntax::Markdown => format!(
+                "[{inner}]({})",
+                crate::portability::markdown_destination(&href)
+            ),
+        }
+    }
+
+    fn cite(&self, inner: &str) -> String {
+        match self.syntax {
+            Syntax::Html => format!("<cite>{inner}</cite>"),
+            Syntax::Markdown => format!("*{inner}*"),
+        }
+    }
+
+    fn list(&self, parts: &[String]) -> String {
+        match self.syntax {
+            Syntax::Html => format!(
+                "<ul class=\"ob-curated-list\">{}</ul>",
+                parts
+                    .iter()
+                    .map(|part| format!("<li>{part}</li>"))
+                    .collect::<String>()
+            ),
+            Syntax::Markdown => parts.join("; "),
+        }
+    }
+
+    /// An address that cannot be a link is shown as it is, and counted.
+    fn note_unlinked(&self) {
+        self.unlinked.set(self.unlinked.get() + 1);
+    }
+
     /// A source, entry or relationship by the name the public value gives it:
     /// the context item that brings it, or, when it was selected on its own
     /// and so is not repeated as context, the selected item itself.
@@ -496,13 +618,9 @@ impl Page<'_> {
             Some(Named {
                 label,
                 anchor: Some(anchor),
-            }) => format!(
-                "<a class=\"ob-curated-source\" href=\"#{}\"><cite>{}</cite></a>",
-                attr(&anchor),
-                text(&label)
-            ),
-            Some(named) => format!("<cite>{}</cite>", text(&named.label)),
-            None => format!("<cite>{}</cite>", text(id)),
+            }) => self.in_page(&anchor, &self.cite(&self.t(&label)), "ob-curated-source"),
+            Some(named) => self.cite(&self.t(&named.label)),
+            None => self.cite(&self.t(id)),
         }
     }
 
@@ -511,17 +629,29 @@ impl Page<'_> {
             Some(Named {
                 label,
                 anchor: Some(anchor),
-            }) => format!("<a href=\"#{}\">{}</a>", attr(&anchor), text(&label)),
-            Some(named) => text(&named.label),
-            None => text(id),
+            }) => self.in_page(&anchor, &self.t(&label), ""),
+            Some(named) => self.t(&named.label),
+            None => self.t(id),
         }
     }
 
     fn party(&self, value: &Value) -> Option<String> {
         let object = value.as_object()?;
+        // A party states only who it is. A compared version is also tagged as a
+        // source, and carries where its passages are and its rights words: it is
+        // read as a source with those, never cut down to its name.
+        if object
+            .keys()
+            .any(|key| !matches!(key.as_str(), "kind" | "source" | "name"))
+        {
+            return None;
+        }
         match object.get("kind").and_then(Value::as_str)? {
             "author" => Some("the site author".to_string()),
-            "named" => object.get("name").and_then(Value::as_str).map(text),
+            "named" => object
+                .get("name")
+                .and_then(Value::as_str)
+                .map(|name| self.t(name)),
             "source" => object
                 .get("source")
                 .and_then(Value::as_str)
@@ -530,7 +660,7 @@ impl Page<'_> {
         }
     }
 
-    fn locators(value: &Value) -> String {
+    fn locators(&self, value: &Value) -> String {
         value
             .as_array()
             .map(|list| {
@@ -539,8 +669,10 @@ impl Page<'_> {
                         let kind = locator.get("kind")?.as_str()?;
                         let at = locator.get("value")?.as_str()?;
                         Some(match locator.get("to").and_then(Value::as_str) {
-                            Some(to) => format!("{} {} to {}", text(kind), text(at), text(to)),
-                            None => format!("{} {}", text(kind), text(at)),
+                            Some(to) => {
+                                format!("{} {} to {}", self.t(kind), self.t(at), self.t(to))
+                            }
+                            None => format!("{} {}", self.t(kind), self.t(at)),
                         })
                     })
                     .collect::<Vec<_>>()
@@ -549,8 +681,9 @@ impl Page<'_> {
             .unwrap_or_default()
     }
 
-    /// One field value as inline HTML. Every string is escaped; the only
-    /// links are to this site's pages and to a source's own `https` address.
+    /// One field value as inline text in this syntax. Every string is
+    /// escaped; the only links are to this site's pages and to a source's own
+    /// `https` address.
     fn value(&self, name: &str, value: &Value, depth: usize) -> String {
         match value {
             Value::Null => String::new(),
@@ -565,10 +698,8 @@ impl Page<'_> {
                 "source" | "subject" if self.named(ContextKind::Source, string).is_some() => {
                     self.source_ref(string)
                 }
-                "url" if safe_href(string) => {
-                    format!("<a href=\"{}\">{}</a>", attr(string), text(string))
-                }
-                _ => text(string),
+                "url" if safe_href(string) => self.to(string, &self.t(string)),
+                _ => self.t(string),
             },
             Value::Array(list) => {
                 let parts: Vec<String> = list
@@ -578,7 +709,7 @@ impl Page<'_> {
                         Some([Value::String(scheme), Value::String(value)])
                             if name == "identifiers" =>
                         {
-                            format!("{}: {}", text(scheme), text(value))
+                            format!("{}: {}", self.t(scheme), self.t(value))
                         }
                         _ => self.value(name, item, depth + 1),
                     })
@@ -587,13 +718,7 @@ impl Page<'_> {
                 match parts.len() {
                     0 => String::new(),
                     1 => parts.into_iter().next().unwrap_or_default(),
-                    _ => format!(
-                        "<ul class=\"ob-curated-list\">{}</ul>",
-                        parts
-                            .iter()
-                            .map(|part| format!("<li>{part}</li>"))
-                            .collect::<String>()
-                    ),
+                    _ => self.list(&parts),
                 }
             }
             Value::Object(object) => {
@@ -603,14 +728,41 @@ impl Page<'_> {
                 if let Some(source) = object.get("source").and_then(Value::as_str) {
                     let at = object
                         .get("locators")
-                        .map(Self::locators)
+                        .map(|locators| self.locators(locators))
                         .unwrap_or_default();
                     let mut html = self.source_ref(source);
                     if !at.is_empty() {
                         html.push_str(&format!(", {at}"));
                     }
+                    // A compared version: where in it the passages are, and the
+                    // words the author gave of its rights, which travel with it.
+                    if let Some(places) = object.get("places").and_then(Value::as_array) {
+                        let places: Vec<String> = places
+                            .iter()
+                            .filter_map(|place| {
+                                let at = self.locators(place.get("locators")?);
+                                let words = place
+                                    .get("text")
+                                    .and_then(Value::as_str)
+                                    .map(|words| format!(" “{}”", self.t(words)))
+                                    .unwrap_or_default();
+                                let shown = format!("{at}{words}");
+                                (!shown.trim().is_empty()).then_some(shown)
+                            })
+                            .collect();
+                        if !places.is_empty() {
+                            html.push_str(&format!(", {}", places.join("; ")));
+                        }
+                    }
+                    if let Some(rights) = object
+                        .get("rights")
+                        .and_then(|rights| rights.get("label"))
+                        .and_then(Value::as_str)
+                    {
+                        html.push_str(&format!(" — {}", self.t(rights)));
+                    }
                     if let Some(note) = object.get("note").and_then(Value::as_str) {
-                        html.push_str(&format!(" ({})", text(note)));
+                        html.push_str(&format!(" ({})", self.t(note)));
                     }
                     return html;
                 }
@@ -633,10 +785,10 @@ impl Page<'_> {
                     object.get("name").and_then(Value::as_str),
                     object.get("role").and_then(Value::as_str),
                 ) {
-                    return format!("{} ({})", text(name), text(role));
+                    return format!("{} ({})", self.t(name), self.t(role));
                 }
                 if depth >= MAX_DEPTH {
-                    return text(&Value::Object(object.clone()).to_string());
+                    return self.t(&Value::Object(object.clone()).to_string());
                 }
                 // Anything else is read as labelled parts, in name order.
                 object
@@ -645,7 +797,7 @@ impl Page<'_> {
                     .map(|(key, inner)| {
                         format!(
                             "{}: {}",
-                            text(&label_of(key)),
+                            self.t(&label_of(key)),
                             self.value(key, inner, depth + 1)
                         )
                     })
@@ -659,52 +811,115 @@ impl Page<'_> {
     fn heading(&self, item: &CuratedItem) -> String {
         let noun = kind_noun(item.kind);
         let subject = match item.kind {
-            SelectionKind::Reference => str_of(item, "title").map(text),
-            SelectionKind::ContextualEntry => str_of(item, "label").map(text),
-            SelectionKind::Comparison => str_of(item, "label").map(text),
+            SelectionKind::Reference => str_of(item, "title").map(|title| self.t(title)),
+            SelectionKind::ContextualEntry => str_of(item, "label").map(|label| self.t(label)),
+            SelectionKind::Comparison => str_of(item, "label").map(|label| self.t(label)),
             SelectionKind::Relationship => {
                 let end = |field: &str| {
                     str_of(item, field).map(|id| {
                         self.entry_name(id)
-                            .map_or_else(|| text(id), |name| text(&name))
+                            .map_or_else(|| self.t(id), |name| self.t(&name))
                     })
                 };
                 match (end("from"), str_of(item, "label"), end("to")) {
                     (Some(from), Some(label), Some(to)) => {
-                        Some(format!("{from} {} {to}", text(label)))
+                        Some(format!("{from} {} {to}", self.t(label)))
                     }
                     _ => None,
                 }
             }
             SelectionKind::Timeline => match (str_of(item, "aspect"), str_of(item, "text")) {
-                (Some(aspect), Some(when)) => Some(format!("{}: {}", text(aspect), text(when))),
-                (None, Some(when)) => Some(text(when)),
+                (Some(aspect), Some(when)) => Some(format!("{}: {}", self.t(aspect), self.t(when))),
+                (None, Some(when)) => Some(self.t(when)),
                 _ => None,
             },
             SelectionKind::SourceAnnotation => self
                 .named(ContextKind::Source, &item.target)
-                .map(|named| text(&named.label)),
-            SelectionKind::Explanation => self.entry_name(&item.target).map(|name| text(&name)),
+                .map(|named| self.t(&named.label)),
+            SelectionKind::Explanation => self.entry_name(&item.target).map(|name| self.t(&name)),
         };
         match subject {
-            Some(subject) => format!("{}: {subject}", text(noun)),
-            None => text(noun),
+            Some(subject) => format!("{}: {subject}", self.t(noun)),
+            None => self.t(noun),
         }
     }
 
-    fn origin(item: &CuratedItem) -> String {
+    fn origin(&self, item: &CuratedItem) -> String {
         match &item.provenance {
             crate::curated_selection::Provenance::Authored => {
                 "Where this metadata came from: written by the author.".to_string()
             }
             crate::curated_selection::Provenance::Imported { from } => format!(
                 "Where this metadata came from: imported from {}.",
-                text(from)
+                self.t(from)
             ),
             crate::curated_selection::Provenance::Unrecorded => {
                 "Where this metadata came from: not recorded.".to_string()
             }
         }
+    }
+
+    /// The rows of one item, as (label, value) in this syntax, in the order
+    /// the page shows them. An address that cannot be a link is a row of its
+    /// own, as text: it is the source's public address, never dropped.
+    fn rows(&self, item: &CuratedItem) -> Vec<(String, String)> {
+        let mut names: Vec<&str> = FIELD_ORDER
+            .iter()
+            .map(|(name, _)| *name)
+            .filter(|name| item.content.contains_key(*name))
+            .collect();
+        let mut rest: Vec<&str> = item
+            .content
+            .keys()
+            .map(String::as_str)
+            .filter(|name| !names.contains(name) && !HIDDEN_FIELDS.contains(name))
+            .collect();
+        rest.sort_unstable();
+        names.extend(rest);
+        let dated = item.kind == SelectionKind::Timeline;
+        let mut rows: Vec<(String, String)> = names
+            .into_iter()
+            .filter(|name| !HIDDEN_FIELDS.contains(name))
+            // A dating reads as its stated words; the date's own fields are in the data file.
+            .filter(|name| !(dated && *name == "date" && item.content.contains_key("text")))
+            .filter_map(|name| {
+                let raw = item.content.get(name)?;
+                let value = match (name, raw.as_str()) {
+                    // The entry a dating dates has a page of its own.
+                    ("owner", Some(id)) if str_of(item, "ownerType") == Some("entry") => self.to(
+                        &crate::atlas_publication::entry_url(id),
+                        &self
+                            .entry_name(id)
+                            .map_or_else(|| self.t(id), |name| self.t(&name)),
+                    ),
+                    _ => self.value(name, raw, 0),
+                };
+                let label = if dated && name == "text" {
+                    "Stated as".to_string()
+                } else {
+                    label_of(name)
+                };
+                (!value.is_empty()).then(|| (self.t(&label), value))
+            })
+            .collect();
+        if let Some(url) = str_of(item, "url").filter(|url| !url.is_empty() && !safe_href(url)) {
+            self.note_unlinked();
+            rows.push((self.t("Address (not a link)"), self.t(url)));
+        }
+        rows
+    }
+
+    fn missing_line(&self, item: &CuratedItem) -> Option<String> {
+        (!item.missing.is_empty()).then(|| {
+            format!(
+                "Not recorded, so left out and never invented: {}.",
+                item.missing
+                    .iter()
+                    .map(|name| self.t(&label_of(name)))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        })
     }
 
     fn item_html(&self, item: &CuratedItem) -> String {
@@ -723,72 +938,21 @@ impl Page<'_> {
             ),
             None => format!("<h3 class=\"ob-curated-heading\">{heading}</h3>\n"),
         });
-        let mut names: Vec<&str> = FIELD_ORDER
-            .iter()
-            .map(|(name, _)| *name)
-            .filter(|name| item.content.contains_key(*name))
-            .collect();
-        let mut rest: Vec<&str> = item
-            .content
-            .keys()
-            .map(String::as_str)
-            .filter(|name| !names.contains(name) && !HIDDEN_FIELDS.contains(name))
-            .collect();
-        rest.sort_unstable();
-        names.extend(rest);
-        let dated = item.kind == SelectionKind::Timeline;
-        // An address that cannot be a link (an `http` one, say) is still the
-        // source's public address: it is shown as plain text, never dropped.
-        let unlinked = str_of(item, "url")
-            .filter(|url| !url.is_empty() && !safe_href(url))
-            .map(|url| format!("<dt>Address (not a link)</dt>\n<dd>{}</dd>\n", text(url)))
-            .unwrap_or_default();
-        let rows: String = names
+        let rows: String = self
+            .rows(item)
             .into_iter()
-            .filter(|name| !HIDDEN_FIELDS.contains(name))
-            // A dating reads as its stated words; the date's own fields are in the data file.
-            .filter(|name| !(dated && *name == "date" && item.content.contains_key("text")))
-            .filter_map(|name| {
-                let raw = item.content.get(name)?;
-                let value = match (name, raw.as_str()) {
-                    // The entry a dating dates has a page of its own.
-                    ("owner", Some(id)) if str_of(item, "ownerType") == Some("entry") => {
-                        format!(
-                            "<a href=\"{}\">{}</a>",
-                            attr(&crate::atlas_publication::entry_url(id)),
-                            self.entry_name(id)
-                                .map_or_else(|| text(id), |name| text(&name))
-                        )
-                    }
-                    _ => self.value(name, raw, 0),
-                };
-                let label = if dated && name == "text" {
-                    "Stated as".to_string()
-                } else {
-                    label_of(name)
-                };
-                (!value.is_empty())
-                    .then(|| format!("<dt>{}</dt>\n<dd>{value}</dd>\n", text(&label)))
-            })
-            .chain(std::iter::once(unlinked))
+            .map(|(label, value)| format!("<dt>{label}</dt>\n<dd>{value}</dd>\n"))
             .collect();
         if !rows.is_empty() {
             html.push_str(&format!("<dl class=\"ob-curated-fields\">\n{rows}</dl>\n"));
         }
-        if !item.missing.is_empty() {
-            html.push_str(&format!(
-                "<p class=\"ob-curated-missing\">Not recorded, so left out and never invented: {}.</p>\n",
-                item.missing
-                    .iter()
-                    .map(|name| text(&label_of(name)))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
+        if let Some(missing) = self.missing_line(item) {
+            html.push_str(&format!("<p class=\"ob-curated-missing\">{missing}</p>\n"));
         }
         if item.kind == SelectionKind::Reference {
             html.push_str(&format!(
                 "<p class=\"ob-curated-origin\">{}</p>\n",
-                Self::origin(item)
+                self.origin(item)
             ));
         }
         if !item.notices.is_empty() {
@@ -812,42 +976,132 @@ impl Page<'_> {
         html
     }
 
+    /// One item of a portable copy's HTML: no ids or data attributes, a
+    /// heading that links to the item's own page when it has one, and a link
+    /// to the item's anchor on the canonical page.
+    fn item_copy_html(&self, item: &CuratedItem) -> String {
+        let mut html = String::from("<li>\n");
+        let link = str_of(item, "url").filter(|url| safe_href(url));
+        let heading = self.heading(item);
+        html.push_str(&format!(
+            "<h3>{}</h3>\n",
+            match link {
+                Some(url) => self.to(url, &heading),
+                None => heading,
+            }
+        ));
+        let rows: String = self
+            .rows(item)
+            .into_iter()
+            .map(|(label, value)| format!("<dt>{label}</dt>\n<dd>{value}</dd>\n"))
+            .collect();
+        if !rows.is_empty() {
+            html.push_str(&format!("<dl>\n{rows}</dl>\n"));
+        }
+        if let Some(missing) = self.missing_line(item) {
+            html.push_str(&format!("<p>{missing}</p>\n"));
+        }
+        if item.kind == SelectionKind::Reference {
+            html.push_str(&format!("<p>{}</p>\n", self.origin(item)));
+        }
+        if !item.notices.is_empty() {
+            html.push_str("<ul>\n");
+            for notice in &item.notices {
+                html.push_str(&format!("<li>{}</li>\n", text(&notice_text(notice))));
+            }
+            html.push_str("</ul>\n");
+        }
+        html.push_str(&format!(
+            "<p>{}</p>\n</li>\n",
+            self.in_page(
+                &format!("{ANCHOR_PREFIX}{}", item.id),
+                "This item on the original article",
+                ""
+            )
+        ));
+        html
+    }
+
+    /// One item of a portable copy's Markdown: a heading, then one line per
+    /// row, the caveats, and the link to the item's anchor on the canonical
+    /// page.
+    fn item_copy_markdown(&self, item: &CuratedItem) -> String {
+        let link = str_of(item, "url").filter(|url| safe_href(url));
+        let heading = self.heading(item);
+        let mut out = format!(
+            "### {}\n\n",
+            match link {
+                Some(url) => self.to(url, &heading),
+                None => heading,
+            }
+        );
+        for (label, value) in self.rows(item) {
+            out.push_str(&format!("- {label}: {value}\n"));
+        }
+        if let Some(missing) = self.missing_line(item) {
+            out.push_str(&format!("- {missing}\n"));
+        }
+        if item.kind == SelectionKind::Reference {
+            out.push_str(&format!("- {}\n", self.origin(item)));
+        }
+        for notice in &item.notices {
+            out.push_str(&format!("- Notice: {}\n", md_text(&notice_text(notice))));
+        }
+        out.push_str(&format!(
+            "- {}\n\n",
+            self.in_page(
+                &format!("{ANCHOR_PREFIX}{}", item.id),
+                "This item on the original article",
+                ""
+            )
+        ));
+        out
+    }
+
+    /// What one reference in the list names, in this syntax: the item's public
+    /// name (linked when it has a safe address), what the source says it is,
+    /// and an address that cannot be a link as text.
+    fn context_entry(&self, item: &ContextItem) -> String {
+        let name = item.label.as_deref().unwrap_or(&item.id);
+        let named = match (item.url.as_deref().filter(|url| safe_href(url)), item.kind) {
+            (Some(url), _) => self.to(url, &self.t(name)),
+            (None, ContextKind::Source) => self.cite(&self.t(name)),
+            (None, _) => self.t(name),
+        };
+        let unlinked = item
+            .url
+            .as_deref()
+            .filter(|url| !url.is_empty() && !safe_href(url))
+            .map(|url| {
+                self.note_unlinked();
+                match self.syntax {
+                    Syntax::Html if self.copy.is_none() => format!(
+                        " <span class=\"ob-curated-address\">(address, not a link: {})</span>",
+                        text(url)
+                    ),
+                    _ => format!(" (address, not a link: {})", self.t(url)),
+                }
+            })
+            .unwrap_or_default();
+        let detail = match (&item.source, item.kind) {
+            (Some(source), ContextKind::Source) if source.text != name => {
+                format!(" — {}", self.t(&source.text))
+            }
+            _ => String::new(),
+        };
+        format!("{named}{detail}{unlinked}")
+    }
+
     fn context_html(&self, listed: &[&ContextItem]) -> String {
         let mut html = format!(
             "<h3 class=\"ob-curated-heading\" id=\"{REFS_HEADING_ID}\">What these refer to</h3>\n<ul class=\"ob-curated-context\" role=\"list\">\n",
         );
         for item in listed {
-            let name = item.label.as_deref().unwrap_or(&item.id);
-            let id = anchor(context_noun(item.kind), &item.id);
-            let named = match (item.url.as_deref().filter(|url| safe_href(url)), item.kind) {
-                (Some(url), _) => format!("<a href=\"{}\">{}</a>", attr(url), text(name)),
-                (None, ContextKind::Source) => format!("<cite>{}</cite>", text(name)),
-                (None, _) => text(name),
-            };
-            let unlinked = item
-                .url
-                .as_deref()
-                .filter(|url| !url.is_empty() && !safe_href(url))
-                .map(|url| {
-                    format!(
-                        " <span class=\"ob-curated-address\">(address, not a link: {})</span>",
-                        text(url)
-                    )
-                })
-                .unwrap_or_default();
-            let detail = match (&item.source, item.kind) {
-                (Some(source), ContextKind::Source) if source.text != name => {
-                    format!(" — {}", text(&source.text))
-                }
-                _ => String::new(),
-            };
             html.push_str(&format!(
-                "<li id=\"{}\" data-curated-context-kind=\"{}\">{}{}{} <span class=\"ob-curated-via\">({})</span></li>\n",
-                attr(&id),
+                "<li id=\"{}\" data-curated-context-kind=\"{}\">{} <span class=\"ob-curated-via\">({})</span></li>\n",
+                attr(&anchor(context_noun(item.kind), &item.id)),
                 attr(context_noun(item.kind)),
-                named,
-                detail,
-                unlinked,
+                self.context_entry(item),
                 text(context_noun(item.kind))
             ));
         }
@@ -855,23 +1109,30 @@ impl Page<'_> {
         html
     }
 
-    /// The whole section, or `None` when the post offers nothing.
-    fn section(&self, post: &PostContext, data_url: Option<&str>) -> Option<String> {
+    /// The items a post's section shows, in the author's order, and how many
+    /// more the bound held back; and the context its items need.
+    fn chosen(&self, post: &PostContext) -> (Vec<&'a CuratedItem>, usize, Vec<&'a ContextItem>) {
         let mut items: Vec<&CuratedItem> = post
             .items
             .iter()
             .filter_map(|reference| self.context.item(&reference.id))
             .collect();
-        if items.is_empty() {
-            return None;
-        }
         let held_back = items.len().saturating_sub(MAX_PAGE_ITEMS);
         items.truncate(MAX_PAGE_ITEMS);
-        let listed: Vec<&ContextItem> = post
+        let listed = post
             .context
             .iter()
             .filter_map(|reference| self.context.context_item(reference.kind, &reference.id))
             .collect();
+        (items, held_back, listed)
+    }
+
+    /// The whole section, or `None` when the post offers nothing.
+    fn section(&self, post: &PostContext, data_url: Option<&str>) -> Option<String> {
+        let (items, held_back, listed) = self.chosen(post);
+        if items.is_empty() {
+            return None;
+        }
         let mut html = format!(
             "<section class=\"ob-curated\" id=\"{SECTION_ID}\" aria-labelledby=\"{SECTION_ID}-title\" data-curated-context=\"{}\">\n",
             items.len()
@@ -879,9 +1140,7 @@ impl Page<'_> {
         html.push_str(&format!(
             "<h2 class=\"ob-curated-title\" id=\"{SECTION_ID}-title\">Research context</h2>\n"
         ));
-        html.push_str(
-            "<p class=\"ob-curated-note\">Chosen by the author from their research, in the order they gave. Each item says who holds a view, how firmly and on what evidence; none of it is a verdict, and what a source does not say is listed as not recorded.",
-        );
+        html.push_str(&format!("<p class=\"ob-curated-note\">{NOTE}"));
         if let Some(url) = data_url {
             html.push_str(&format!(
                 " <a class=\"ob-curated-data\" href=\"{}\">The same context as data</a>.",
@@ -904,6 +1163,199 @@ impl Page<'_> {
         }
         html.push_str("</section>\n");
         Some(html)
+    }
+
+    /// The section of a portable copy (ADR 0258), in this page's syntax.
+    fn copy_section(&self, post: &PostContext) -> Option<CopySection> {
+        let copy = self.copy?;
+        let (items, held_back, listed) = self.chosen(post);
+        if items.is_empty() {
+            return None;
+        }
+        let section_link = self.in_page(
+            SECTION_ID,
+            "Read this research context on the original article",
+            "",
+        );
+        let more = |count: usize| {
+            format!(
+                "This copy shows the first {MAX_PAGE_ITEMS} items. {count} more {} on the original article.",
+                if count == 1 { "is" } else { "are" }
+            )
+        };
+        let mut out = String::new();
+        match self.syntax {
+            Syntax::Html => {
+                out.push_str(
+                    "<section aria-label=\"Research context\">\n<h2>Research context</h2>\n",
+                );
+                out.push_str(&format!("<p>{NOTE} {section_link}.</p>\n<ol>\n"));
+                for item in &items {
+                    out.push_str(&self.item_copy_html(item));
+                }
+                out.push_str("</ol>\n");
+                if held_back > 0 {
+                    out.push_str(&format!("<p>{}</p>\n", more(held_back)));
+                }
+                if !listed.is_empty() {
+                    out.push_str("<h3>What these refer to</h3>\n<ul>\n");
+                    for item in &listed {
+                        out.push_str(&format!(
+                            "<li>{} ({})</li>\n",
+                            self.context_entry(item),
+                            text(context_noun(item.kind))
+                        ));
+                    }
+                    out.push_str("</ul>\n");
+                }
+                out.push_str("</section>\n");
+            }
+            Syntax::Markdown => {
+                out.push_str("## Research context\n\n");
+                out.push_str(&format!("{} {section_link}.\n\n", md_text(NOTE)));
+                for item in &items {
+                    out.push_str(&self.item_copy_markdown(item));
+                }
+                if held_back > 0 {
+                    out.push_str(&format!("{}\n\n", md_text(&more(held_back))));
+                }
+                if !listed.is_empty() {
+                    out.push_str("### What these refer to\n\n");
+                    for item in &listed {
+                        out.push_str(&format!(
+                            "- {} ({})\n",
+                            self.context_entry(item),
+                            md_text(context_noun(item.kind))
+                        ));
+                    }
+                    out.push('\n');
+                }
+            }
+        }
+        let mut leaves = Vec::new();
+        for item in &items {
+            collect_prose(
+                &Value::Object(item.content.clone().into_iter().collect()),
+                &mut leaves,
+            );
+        }
+        Some(CopySection {
+            text: out,
+            anchors: items
+                .iter()
+                .map(|item| format!("{}#{ANCHOR_PREFIX}{}", copy.canonical, item.id))
+                .collect(),
+            leaves,
+            items: items.len(),
+            held_back,
+            unlinked: self.unlinked.get(),
+        })
+    }
+}
+
+/// The note every section opens with.
+const NOTE: &str = "Chosen by the author from their research, in the order they gave. Each item says who holds a view, how firmly and on what evidence; none of it is a verdict, and what a source does not say is listed as not recorded.";
+
+/// The fields whose strings are the item's own words: what a copy must carry
+/// whole. The identity fields and ids are not words, and are not in the list.
+const PROSE_FIELDS: &[&str] = &[
+    "summary",
+    "text",
+    "by",
+    "note",
+    "uncertainty",
+    "rationale",
+    "label",
+    "title",
+    "inverseLabel",
+    "correspondenceLabel",
+    "confidence",
+    "standing",
+    "name",
+];
+
+fn collect_prose(value: &Value, out: &mut Vec<String>) {
+    match value {
+        Value::Object(object) => {
+            for (key, inner) in object {
+                match inner {
+                    Value::String(words) if PROSE_FIELDS.contains(&key.as_str()) => {
+                        if !fold(words).is_empty() {
+                            out.push(words.clone());
+                        }
+                    }
+                    Value::Object(_) | Value::Array(_) => collect_prose(inner, out),
+                    _ => {}
+                }
+            }
+        }
+        Value::Array(list) => {
+            for inner in list {
+                collect_prose(inner, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// A string reduced to its letters and digits, with the entities the escapers
+/// write decoded first, so a value can be found in HTML, Markdown or text
+/// whatever each escaped.
+fn fold(value: &str) -> String {
+    value
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// One post's research context as a portable copy writes it (ADR 0258),
+/// with what a copy must carry whole and what it could not.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CopySection {
+    /// The section in the copy's syntax.
+    pub text: String,
+    /// The canonical address of each item shown, in order.
+    anchors: Vec<String>,
+    /// The words of the shown items: every one must be in the copy.
+    leaves: Vec<String>,
+    /// How many items the copy shows.
+    pub items: usize,
+    /// How many more the bound held back; they are on the canonical page.
+    pub held_back: usize,
+    /// How many addresses are shown as text because they cannot be links.
+    pub unlinked: usize,
+}
+
+impl CopySection {
+    /// Whether `artifact` carries every shown item's canonical anchor, in
+    /// order, and every word the items are made of. Reads the artifact only to
+    /// check it, never to build anything.
+    pub fn carried_by(&self, artifact: &str) -> bool {
+        self.first_missing(artifact).is_none()
+    }
+
+    /// What `artifact` lacks first: an item's canonical anchor, or the words of
+    /// an item, as a short description naming the field and never more than a
+    /// few words of it.
+    pub fn first_missing(&self, artifact: &str) -> Option<String> {
+        let mut rest = artifact;
+        for anchor in &self.anchors {
+            match rest.find(anchor.as_str()) {
+                Some(at) => rest = &rest[at + anchor.len()..],
+                None => return Some(format!("the link to {anchor}")),
+            }
+        }
+        let folded = fold(artifact);
+        self.leaves
+            .iter()
+            .find(|words| !folded.contains(&fold(words)))
+            .map(|words| format!("the words `{}`", words.chars().take(40).collect::<String>()))
     }
 }
 
@@ -959,15 +1411,150 @@ impl CuratedContext {
     /// when the build writes it.
     pub fn post_section_html(&self, slug: &str, data_url: Option<&str>) -> Option<String> {
         let post = self.for_post(slug)?;
-        Page {
-            context: self,
-            offered: post.items.iter().map(|item| item.id.as_str()).collect(),
-            listed: post
-                .context
-                .iter()
-                .map(|context| (context.kind, context.id.as_str()))
-                .collect(),
-        }
-        .section(post, data_url)
+        Page::new(self, post, Syntax::Html, None).section(post, data_url)
     }
+
+    /// The same context as one post's portable HTML (ADR 0258): semantic
+    /// headings, lists and definitions with no ids, scripts or data
+    /// attributes, every link absolute, and a link to each item's anchor and
+    /// to the section on the canonical page. `None` when the post offers
+    /// nothing, so its copy is exactly what it was.
+    pub fn copy_html(&self, slug: &str, links: &CopyLinks<'_>) -> Option<CopySection> {
+        let post = self.for_post(slug)?;
+        Page::new(self, post, Syntax::Html, Some(links)).copy_section(post)
+    }
+
+    /// The same context as one post's portable Markdown (ADR 0258), every
+    /// value escaped as inline text. Plain text is derived from this.
+    pub fn copy_markdown(&self, slug: &str, links: &CopyLinks<'_>) -> Option<CopySection> {
+        let post = self.for_post(slug)?;
+        Page::new(self, post, Syntax::Markdown, Some(links)).copy_section(post)
+    }
+
+    /// What a bibliography export can carry of one post's curated context
+    /// (ADR 0261): the references the author selected for it, as the public
+    /// description the exporters already read, in the author's order. Every
+    /// other kind of item has no place in a bibliography; each is listed in
+    /// `not_carried`, so the export can say what it left out.
+    pub fn bibliography_for_post(&self, slug: &str) -> Option<BibliographyContext> {
+        let post = self.for_post(slug)?;
+        let mut carried = BibliographyContext::default();
+        for item in post
+            .items
+            .iter()
+            .filter_map(|reference| self.item(&reference.id))
+        {
+            match (item.kind, public_reference_of(item)) {
+                (SelectionKind::Reference, Some(reference)) => carried.references.push(reference),
+                _ => carried
+                    .not_carried
+                    .push((item.id.clone(), item.kind.as_str())),
+            }
+        }
+        Some(carried)
+    }
+
+    /// What a feed that carries no full content says of one post's context:
+    /// where it is on the canonical page and which items it holds, by id,
+    /// kind and anchor. No words of any item.
+    pub fn feed_summary(&self, slug: &str, canonical: &str) -> Option<Value> {
+        let post = self.for_post(slug)?;
+        let items: Vec<Value> = post
+            .items
+            .iter()
+            .filter_map(|reference| self.item(&reference.id))
+            .map(|item| {
+                serde_json::json!({
+                    "id": item.id,
+                    "kind": item.kind.as_str(),
+                    "url": format!("{canonical}#{ANCHOR_PREFIX}{}", item.id),
+                })
+            })
+            .collect();
+        (!items.is_empty()).then(|| {
+            serde_json::json!({
+                "url": format!("{canonical}#{SECTION_ID}"),
+                "items": items,
+            })
+        })
+    }
+}
+
+/// The references a post's curated context holds for a bibliography, and the
+/// items it holds that no bibliography format can carry (ADR 0261).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct BibliographyContext {
+    pub references: Vec<crate::citations::PublicReference>,
+    /// (the item's id, what kind of item it is)
+    pub not_carried: Vec<(String, &'static str)>,
+}
+
+/// A selected reference as the public description the exporters read. Only
+/// what the item holds is set: a detail the author did not select, or the
+/// source does not have, stays absent and is never filled in.
+fn public_reference_of(item: &CuratedItem) -> Option<crate::citations::PublicReference> {
+    use crate::citations::{PublicCreator, PublicReference};
+    let content = &item.content;
+    let key = content.get("key").and_then(Value::as_str)?.to_string();
+    let kind = crate::source_library::ResearchSourceKind::parse(
+        content.get("kind").and_then(Value::as_str)?,
+    )?
+    .as_str();
+    let string = |name: &str| {
+        content
+            .get(name)
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    };
+    let creators = content
+        .get("creators")
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(|creator| {
+                    Some(PublicCreator {
+                        name: creator.get("name")?.as_str()?.to_string(),
+                        role: creator
+                            .get("role")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let identifiers = content
+        .get("identifiers")
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(|pair| {
+                    let pair = pair.as_array()?;
+                    Some((
+                        pair.first()?.as_str()?.to_string(),
+                        pair.get(1)?.as_str()?.to_string(),
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let csl = content
+        .get("csl")
+        .and_then(Value::as_object)
+        .map(|bag| {
+            bag.iter()
+                .filter_map(|(name, value)| Some((name.clone(), value.as_str()?.to_string())))
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(PublicReference {
+        key,
+        kind,
+        title: string("title"),
+        creators,
+        issued: string("issued"),
+        language: string("language"),
+        identifiers,
+        csl,
+    })
 }

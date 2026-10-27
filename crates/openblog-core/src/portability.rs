@@ -205,6 +205,12 @@ pub struct PortableProjection<'a> {
     /// The published suggested sources and corrections with their outcome (ADR 0119): what a
     /// portable copy carries of reader notes, beside the link to the canonical discussion.
     outcomes: Vec<&'a crate::feedback_publication::PublicFeedback>,
+    /// The post's slug, which names it in the curated context.
+    slug: &'a str,
+    /// The public curated context this post is offered (ADR 0258), which every
+    /// portable artifact must carry whole. Only `for_site` attaches it, from
+    /// the site's public curated value and from nothing else.
+    curated: Option<std::sync::Arc<crate::curated_context::CuratedContext>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -619,7 +625,20 @@ impl<'a> PortableProjection<'a> {
     /// external copy of a part of a collaborative series names and links its series; any other
     /// post's projection is exactly `from_post`'s.
     pub fn for_site(site: &Site, post: &'a Post) -> Result<Self, String> {
-        Ok(Self::from_post(post, &site.config)?.with_series(site.series_context(post)))
+        Ok(Self::from_post(post, &site.config)?
+            .with_series(site.series_context(post))
+            .with_curated(site.curated_context_for(post)))
+    }
+
+    /// The same projection carrying `context`, the public curated context the
+    /// post is offered (ADR 0258). `None` removes it, and the copies are then
+    /// exactly what they were without it.
+    pub fn with_curated(
+        mut self,
+        context: Option<std::sync::Arc<crate::curated_context::CuratedContext>>,
+    ) -> Self {
+        self.curated = context;
+        self
     }
 
     /// The same projection stating `series` as the post's series context. `None` removes it.
@@ -717,6 +736,8 @@ impl<'a> PortableProjection<'a> {
                 .iter()
                 .filter(|item| item.outcome.is_some())
                 .collect(),
+            slug: &post.slug,
+            curated: None,
         })
     }
 
@@ -863,6 +884,9 @@ impl<'a> PortableProjection<'a> {
             }
         }
         html.push_str(&rendered.html);
+        if let Some(section) = self.curated_section(RepresentationFormat::Html) {
+            html.push_str(&section.text);
+        }
         html.push_str(&self.outcomes_html());
         // A capability the canonical page offers without a portable fallback yet
         // (a planned or unknown structure) fails closed: its authored content
@@ -931,6 +955,7 @@ impl<'a> PortableProjection<'a> {
         self.ensure_semantics(RepresentationFormat::Html, &html)?;
         let mut diagnostics =
             portability_diagnostics(self.source_path, self.markdown, &capabilities);
+        diagnostics.extend(self.curated_diagnostics());
         // A layout places the same turns differently; no portable form can. Say so, once, rather
         // than let the placement disappear silently (ADR 0033).
         if let Some(arrangement) = self.arrangement() {
@@ -1139,6 +1164,13 @@ impl<'a> PortableProjection<'a> {
                     source.kind.label()
                 ));
             }
+        }
+
+        if let Some(section) = self.curated_section(RepresentationFormat::Markdown) {
+            if !output.ends_with("\n\n") {
+                output.push('\n');
+            }
+            output.push_str(&section.text);
         }
 
         output.push_str(&self.outcomes_markdown());
@@ -1730,6 +1762,17 @@ impl<'a> PortableProjection<'a> {
                 ));
             }
         }
+        // The research context fails closed the same way (ADR 0258): a copy
+        // that dropped an item, its anchor or any of its words would show a
+        // view without the doubt that came with it.
+        if let Some(section) = self.curated_section(format) {
+            if let Some(missing) = section.first_missing(artifact) {
+                return Err(format!(
+                    "{} [curated-context-lost] curated-research-context: the {format:?} copy does not carry every selected research-context item with its words and its link to the canonical page (it lacks {missing}); refusing to publish a partial copy",
+                    self.source_path
+                ));
+            }
+        }
         let diagnostics = self.analyze_portable_artifact(format, artifact)?;
         if diagnostics.is_empty() {
             return Ok(());
@@ -1791,6 +1834,110 @@ impl<'a> PortableProjection<'a> {
             series_clause(" This part is by ", &names(&series.part_authors)),
             series_clause(" Series contributors: ", &names(&series.contributors)),
         ))
+    }
+
+    /// The post's research context as a portable copy writes it (ADR 0258),
+    /// when the post is offered one: from the public curated value alone, with
+    /// every link absolute and a link back to the canonical page's anchors.
+    fn curated_section(
+        &self,
+        format: RepresentationFormat,
+    ) -> Option<crate::curated_context::CopySection> {
+        let context = self.curated.as_ref()?;
+        let absolute = |href: &str| self.resolve_link(href);
+        let links = crate::curated_context::CopyLinks {
+            canonical: &self.canonical_url,
+            absolute: &absolute,
+        };
+        match format {
+            RepresentationFormat::Html => context.copy_html(self.slug, &links),
+            // Plain text is derived from the Markdown, so it is checked as it.
+            RepresentationFormat::Markdown | RepresentationFormat::Text => {
+                context.copy_markdown(self.slug, &links)
+            }
+        }
+    }
+
+    /// The post's research context as Markdown, for the outputs that print
+    /// their own header (`llms-full.txt`), or `None` when it has none.
+    pub fn curated_context_markdown(&self) -> Option<String> {
+        self.curated_section(RepresentationFormat::Markdown)
+            .map(|section| section.text)
+    }
+
+    /// What a feed says of the post's research context without carrying it:
+    /// the canonical anchor of the section and of each item. No item's words.
+    pub fn curated_context_summary(&self) -> Option<serde_json::Value> {
+        self.curated
+            .as_ref()?
+            .feed_summary(self.slug, &self.canonical_url)
+    }
+
+    /// The post's research context for a bibliography export (ADR 0261).
+    pub fn curated_bibliography(&self) -> Option<crate::curated_context::BibliographyContext> {
+        self.curated.as_ref()?.bibliography_for_post(self.slug)
+    }
+
+    /// Loss diagnostics for the research context in a portable copy (ADR
+    /// 0258): what a format cannot carry as the page does, said once.
+    fn curated_diagnostics(&self) -> Vec<PortabilityDiagnostic> {
+        let Some(section) = self.curated_section(RepresentationFormat::Html) else {
+            return Vec::new();
+        };
+        let diagnostic = |code: &str,
+                          severity: DiagnosticSeverity,
+                          message: String,
+                          action: &str,
+                          affected: &str| PortabilityDiagnostic {
+            code: code.into(),
+            severity,
+            source_path: self.source_path.into(),
+            capability_id: Some("curated-research-context".into()),
+            message,
+            recommended_action: action.into(),
+            context: DiagnosticContext {
+                representation: Some("portable-html".into()),
+                destination: Some("portable-export".into()),
+                portability_level: Some(PortabilityLevel::GracefullyTransformed),
+                affected_semantics: Some(affected.into()),
+                source_range: None,
+            },
+        };
+        let mut found = vec![diagnostic(
+            "curated-context-sequenced",
+            DiagnosticSeverity::Info,
+            format!(
+                "The research context ({} item(s)) is carried as labeled sequential sections; anchors, links between its items and the data file are on the canonical page.",
+                section.items
+            ),
+            "No action needed: every item keeps its attribution, uncertainty, evidence and origin as text, and links to its anchor on the canonical article.",
+            "In-page anchors, links among items, the data file, and the page's layout; the items' words, attribution, doubt, evidence and origin are unchanged.",
+        )];
+        if section.unlinked > 0 {
+            found.push(diagnostic(
+                "curated-context-address-text",
+                DiagnosticSeverity::Warning,
+                format!(
+                    "{} address(es) in the research context are not safe links, so the copy shows them as plain text.",
+                    section.unlinked
+                ),
+                "Give the source an https address if readers should be able to follow it; the address is never dropped.",
+                "Links to addresses that are not this site's pages or https addresses.",
+            ));
+        }
+        if section.held_back > 0 {
+            found.push(diagnostic(
+                "curated-context-held-back",
+                DiagnosticSeverity::Warning,
+                format!(
+                    "The research context has {} more item(s) than a copy shows; they are on the canonical page, which the copy links to.",
+                    section.held_back
+                ),
+                "Select fewer items for this post, or read the rest on the canonical article.",
+                "Items beyond the per-copy bound.",
+            ));
+        }
+        found
     }
 
     /// The canonical page's own place for one published note.
@@ -2355,7 +2502,7 @@ const OUTCOMES_INTRO: &str = "Suggested sources and corrections readers sent abo
 /// Markdown text for a public value (a title, a name, a fact): Markdown punctuation, `<` and `&`
 /// are escaped, so the value can never become a link, emphasis, an autolink, raw HTML or an
 /// entity when the export is read back.
-fn markdown_text(value: &str) -> String {
+pub(crate) fn markdown_text(value: &str) -> String {
     let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
     let mut escaped = String::new();
     for character in normalized.chars() {
@@ -2370,7 +2517,7 @@ fn markdown_text(value: &str) -> String {
     escaped
 }
 
-fn markdown_destination(value: &str) -> String {
+pub(crate) fn markdown_destination(value: &str) -> String {
     value
         .replace('\\', "\\\\")
         .replace('(', "\\(")

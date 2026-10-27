@@ -2781,4 +2781,501 @@ mod context {
             .iter()
             .any(|p| p.projection == Projection::Curated));
     }
+
+    // ---- portable copies, feeds and the bibliography (#198, ADR 0258 to ADR 0262) -----------
+
+    mod portable {
+        use super::*;
+        use openblog_core::curated_selection::{ItemNotice, PublicCuration};
+        use openblog_core::portability::{PortableProjection, RepresentationFormat};
+        use openblog_core::{feeds, DateTime, LoadOptions, Site, SiteConfig, SourceFile, Sources};
+
+        const CANONICAL: &str = "https://example.test/posts/cave/";
+
+        fn config(full_content: bool) -> SiteConfig {
+            SiteConfig::from_json(&format!(
+                r#"{{"title":"T","url":"https://example.test","postPath":"/posts/{{slug}}/","feeds":{{"fullContent":{full_content}}}}}"#
+            ))
+            .unwrap()
+        }
+
+        fn site(curation: Option<PublicCuration>, full_content: bool) -> Site {
+            let post = |slug: &str| {
+                SourceFile {
+                path: format!("posts/{slug}.md"),
+                contents: format!(
+                    "---\ntitle: Post {slug}\ndate: 2026-01-01\ndescription: About {slug}.\n---\nBody of {slug}.\n"
+                ),
+            }
+            };
+            let mut site = Site::load(
+                config(full_content),
+                Sources {
+                    posts: vec![post("cave"), post("other"), post("lonely")],
+                    ..Default::default()
+                },
+                LoadOptions {
+                    now: DateTime::parse("2030-01-01T00:00:00Z"),
+                    ..LoadOptions::default()
+                },
+            )
+            .unwrap_or_else(|errors| panic!("{errors:?}"));
+            site.set_curation(curation);
+            site
+        }
+
+        fn curated() -> PublicCuration {
+            let w = world();
+            resolve(&selected(&w), &w.basis()).curation
+        }
+
+        /// A curation that offers one item to `cave` and nothing to any other post.
+        fn cave_only() -> PublicCuration {
+            curation_of(vec![item("only", &["cave"])], Vec::new())
+        }
+
+        fn copies(site: &Site, slug: &str) -> (String, String, String) {
+            let post = site.posts.iter().find(|post| post.slug == slug).unwrap();
+            let projection = PortableProjection::for_site(site, post).unwrap();
+            (
+                projection.portable_html().unwrap().html,
+                projection.portable_markdown().unwrap(),
+                projection.portable_text().unwrap(),
+            )
+        }
+
+        /// The words of the selected facts in the fixture, which every copy must carry.
+        const FACTS: &[&str] = &[
+            "An Athenian philosopher.",
+            "The dating is unsettled.",
+            "A later editor",
+            "Dates it later.",
+            "A comment of mine, to be shown as written.",
+            "The author explains the Academy.",
+            "Both render 514a.",
+            "The author reads these places as corresponding in part",
+            "428 BCE",
+            "plausible",
+            "contested",
+            "Platonis Opera",
+            "Politeia",
+            "A study of the dialogues",
+            "page 514",
+        ];
+
+        fn folded(value: &str) -> String {
+            value
+                .replace("&amp;", "&")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+                .replace("&#39;", "'")
+                .chars()
+                .filter(|c| c.is_alphanumeric())
+                .flat_map(char::to_lowercase)
+                .collect()
+        }
+
+        #[test]
+        fn every_selected_fact_survives_in_html_markdown_and_text_with_a_link_back() {
+            let site = site(Some(curated()), true);
+            let (html, markdown, text) = copies(&site, "cave");
+            for (format, copy) in [("html", &html), ("markdown", &markdown), ("text", &text)] {
+                for fact in FACTS {
+                    assert!(
+                        folded(copy).contains(&folded(fact)),
+                        "{format} lost `{fact}`:\n{copy}"
+                    );
+                }
+                // The canonical link back to the section and to each item's own anchor.
+                assert!(
+                    copy.contains(&format!("{CANONICAL}#ob-research-context")),
+                    "{format}"
+                );
+                for id in [
+                    "entry-plato",
+                    "relationship-authored",
+                    "annotation-burnet",
+                    "comparison-cave",
+                    "dating-birth-a",
+                    "explanation-academy",
+                ] {
+                    assert!(
+                        copy.contains(&format!("{CANONICAL}#ob-curated-{id}")),
+                        "{format} {id}"
+                    );
+                }
+                // A different post's item is not on this one's copy.
+                assert!(!folded(copy).contains(&folded("Undated")), "{format}");
+            }
+            // The items sit in the author's order in every copy.
+            for copy in [&html, &markdown, &text] {
+                let at = |needle: &str| copy.find(needle).unwrap_or_else(|| panic!("{needle}"));
+                assert!(
+                    at("#ob-curated-entry-plato") < at("#ob-curated-relationship-authored")
+                        && at("#ob-curated-relationship-authored")
+                            < at("#ob-curated-annotation-burnet")
+                        && at("#ob-curated-annotation-burnet") < at("#ob-curated-comparison-cave")
+                        && at("#ob-curated-comparison-cave") < at("#ob-curated-dating-birth-a")
+                );
+            }
+            // The attribution, doubt and dissent stay words, never colour or position alone.
+            for words in [
+                "Who asserts it",
+                "How firmly",
+                "What is doubtful",
+                "Who disputes it",
+                "The evidence",
+            ] {
+                assert!(
+                    html.contains(words) && markdown.contains(words) && text.contains(words),
+                    "{words}"
+                );
+            }
+            // No proprietary component and no page machinery: no ids, scripts or data attributes.
+            for raw in ["<script", " id=\"", "data-curated", "onerror"] {
+                assert!(!html.contains(raw), "{raw}");
+            }
+            // A caveat reads as a sentence, never the Admin's message.
+            assert!(!html.contains('`') && !markdown.contains("Selection `"));
+            // A copy says what a missing detail is, and never invents one.
+            let other = copies(&site, "other");
+            assert!(other
+                .1
+                .contains("Not recorded, so left out and never invented: Creators, Date issued."));
+            assert!(other
+                .0
+                .contains("Where this metadata came from: imported from a library catalogue."));
+        }
+
+        #[test]
+        fn with_curation_off_or_empty_every_copy_is_byte_for_byte_what_it_was() {
+            let plain = site(None, true);
+            let empty = site(
+                Some(PublicCuration {
+                    format: openblog_core::curated_selection::CURATED_FORMAT,
+                    format_version: openblog_core::curated_selection::CURATED_FORMAT_VERSION,
+                    items: Vec::new(),
+                    context: Vec::new(),
+                }),
+                true,
+            );
+            let curating = site(Some(curated()), true);
+            for slug in ["cave", "other", "lonely"] {
+                assert_eq!(copies(&plain, slug), copies(&empty, slug), "{slug}");
+            }
+            // A post that is offered nothing is untouched even while another is offered something.
+            let scoped = site(Some(cave_only()), true);
+            for slug in ["other", "lonely"] {
+                assert_eq!(copies(&plain, slug), copies(&scoped, slug), "{slug}");
+            }
+            assert_ne!(copies(&plain, "cave").1, copies(&scoped, "cave").1);
+            assert_ne!(copies(&plain, "cave").1, copies(&curating, "cave").1);
+            // The feeds and llms-full.txt are the same while nothing is offered.
+            for (a, b) in [
+                (feeds::rss(&plain).unwrap(), feeds::rss(&empty).unwrap()),
+                (
+                    feeds::json_feed(&plain).unwrap(),
+                    feeds::json_feed(&empty).unwrap(),
+                ),
+                (
+                    feeds::llms_full(&plain).unwrap(),
+                    feeds::llms_full(&empty).unwrap(),
+                ),
+            ] {
+                assert_eq!(a, b);
+            }
+        }
+
+        #[test]
+        fn the_feeds_and_llms_full_carry_the_context_and_summary_feeds_link_to_it() {
+            let site = site(Some(curated()), true);
+            let json: Value = serde_json::from_str(&feeds::json_feed(&site).unwrap()).unwrap();
+            let cave = json["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|item| item["url"] == CANONICAL)
+                .unwrap();
+            for field in ["content_html", "content_text"] {
+                let copy = cave[field].as_str().unwrap();
+                for fact in FACTS {
+                    assert!(
+                        folded(copy).contains(&folded(fact)),
+                        "{field} lost `{fact}`"
+                    );
+                }
+            }
+            assert_eq!(
+                cave["_openblog"]["researchContext"]["url"],
+                json!(format!("{CANONICAL}#ob-research-context"))
+            );
+            let rss = feeds::rss(&site).unwrap();
+            assert!(rss.contains("Research context"));
+            assert!(rss.contains(&format!(
+                "<atom:link rel=\"related\" type=\"text/html\" title=\"Research context\" href=\"{CANONICAL}#ob-research-context\"/>"
+            )));
+            let full = feeds::llms_full(&site).unwrap();
+            assert!(full.contains("## Research context"));
+            assert!(full.contains(&format!("{CANONICAL}#ob-curated-entry-plato")));
+            for fact in FACTS {
+                assert!(
+                    folded(&full).contains(&folded(fact)),
+                    "llms-full lost `{fact}`"
+                );
+            }
+            // A summary-only feed carries no item's words, only where the context is.
+            let summary = self::site(Some(curated()), false);
+            let json: Value = serde_json::from_str(&feeds::json_feed(&summary).unwrap()).unwrap();
+            let cave = json["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|item| item["url"] == CANONICAL)
+                .unwrap();
+            let text = cave.to_string();
+            assert!(!text.contains("The dating is unsettled."));
+            let ids: Vec<&str> = cave["_openblog"]["researchContext"]["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|item| item["id"].as_str().unwrap())
+                .collect();
+            assert_eq!(ids[0], "entry-plato");
+            assert_eq!(ids.len(), 6);
+            // A post with no context has no such member.
+            let scoped = self::site(Some(cave_only()), true);
+            let json: Value = serde_json::from_str(&feeds::json_feed(&scoped).unwrap()).unwrap();
+            let lonely = json["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|item| item["url"] == "https://example.test/posts/lonely/")
+                .unwrap();
+            assert!(lonely.get("_openblog").is_none());
+        }
+
+        #[test]
+        fn a_copy_says_what_it_could_not_carry_and_an_address_that_is_not_a_link_stays_text() {
+            let mut curation = curated();
+            let reference = curation
+                .items
+                .iter_mut()
+                .find(|item| item.id == "reference-undated")
+                .unwrap();
+            reference
+                .content
+                .insert("url".into(), json!("http://example.org/plain"));
+            let site = site(Some(curation), true);
+            let post = site.posts.iter().find(|post| post.slug == "other").unwrap();
+            let output = PortableProjection::for_site(&site, post)
+                .unwrap()
+                .portable_html()
+                .unwrap();
+            let codes: Vec<&str> = output
+                .diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.code.as_str())
+                .collect();
+            assert!(codes.contains(&"curated-context-sequenced"), "{codes:?}");
+            assert!(codes.contains(&"curated-context-address-text"), "{codes:?}");
+            assert!(output.html.contains("http://example.org/plain"));
+            assert!(!output.html.contains("href=\"http://example.org/plain\""));
+            // A post with nothing selected has none of these.
+            let scoped = self::site(Some(cave_only()), true);
+            let lonely = scoped
+                .posts
+                .iter()
+                .find(|post| post.slug == "lonely")
+                .unwrap();
+            let output = PortableProjection::for_site(&scoped, lonely)
+                .unwrap()
+                .portable_html()
+                .unwrap();
+            assert!(output
+                .diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.code.starts_with("curated-context")));
+        }
+
+        #[test]
+        fn hostile_words_and_addresses_are_inert_in_every_copy() {
+            let hostile = "</script><script>alert(1)</script> [x](javascript:alert(2)) <img src=x onerror=alert(3)> **bold** & \"q\"";
+            let mut curation = curated();
+            let annotation = curation
+                .items
+                .iter_mut()
+                .find(|item| item.id == "annotation-burnet")
+                .unwrap();
+            annotation.content.insert("text".into(), json!(hostile));
+            annotation.content.insert("by".into(), json!("<b>Eve</b>"));
+            let entry = curation
+                .items
+                .iter_mut()
+                .find(|item| item.id == "entry-plato")
+                .unwrap();
+            entry
+                .content
+                .insert("url".into(), json!("javascript:alert(4)"));
+            let site = site(Some(curation), true);
+            let (html, markdown, text) = copies(&site, "cave");
+            for raw in ["<script", "<img", "<b>", "onerror=alert(3)>"] {
+                assert!(!html.contains(raw), "html: {raw}");
+            }
+            assert!(!html.contains("href=\"javascript:"));
+            assert!(
+                markdown.contains("\\[x\\]\\(javascript:alert\\(2\\)\\)")
+                    || markdown.contains("\\[x\\]")
+            );
+            // The brackets are escaped, so it is words and not a link.
+            for (at, _) in markdown.match_indices("](javascript:") {
+                assert_eq!(
+                    &markdown[at - 1..at],
+                    "\\",
+                    "an unescaped link to javascript:"
+                );
+            }
+            for copy in [&html, &markdown, &text] {
+                assert!(folded(copy).contains(&folded(hostile)));
+            }
+            // Every link in the Markdown goes to this site or to https.
+            for (at, _) in markdown.match_indices("](") {
+                if markdown[..at].ends_with('\\') {
+                    continue; // an escaped bracket is words, not a link
+                }
+                let destination = &markdown[at + 2..];
+                assert!(
+                    destination.starts_with("https://") || destination.starts_with('<'),
+                    "{destination:.60}"
+                );
+            }
+        }
+
+        #[test]
+        fn a_copy_that_dropped_an_item_or_its_words_is_refused_whole_not_published_in_part() {
+            let site = site(Some(curated()), true);
+            let post = site.posts.iter().find(|post| post.slug == "cave").unwrap();
+            let projection = PortableProjection::for_site(&site, post).unwrap();
+            let markdown = projection.portable_markdown().unwrap();
+            let context = site.curated_context_for(post).unwrap();
+            let links = openblog_core::curated_context::CopyLinks {
+                canonical: CANONICAL,
+                absolute: &|href: &str| Ok(format!("https://example.test{href}")),
+            };
+            let section = context.copy_markdown("cave", &links).unwrap();
+            assert!(section.carried_by(&markdown));
+            // The words of a doubt cut out, an anchor cut out, or an item reordered: none is carried.
+            assert!(!section.carried_by(&markdown.replace("The dating is unsettled.", "")));
+            assert!(!section.carried_by(&markdown.replace("#ob-curated-dating-birth-a", "#x")));
+            assert!(!section.carried_by(
+                &markdown.replace("#ob-curated-entry-plato", "#ob-curated-explanation-academy")
+            ));
+            // A projection holding a non-public detail fails by name, not by text.
+            assert_eq!(projection.portable_text().unwrap().is_empty(), false);
+        }
+
+        #[test]
+        fn a_large_context_is_bounded_in_a_copy_and_says_how_many_items_are_held_back() {
+            let items: Vec<CuratedItem> = (0..openblog_core::curated_context::MAX_PAGE_ITEMS + 5)
+                .map(|n| item(&format!("entry-{n:04}"), &["cave"]))
+                .collect();
+            let site = site(Some(curation_of(items, Vec::new())), true);
+            let post = site.posts.iter().find(|post| post.slug == "cave").unwrap();
+            let projection = PortableProjection::for_site(&site, post).unwrap();
+            let output = projection.portable_html().unwrap();
+            assert!(output.html.contains("5 more are on the original article"));
+            assert!(output
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "curated-context-held-back"));
+            assert!(projection
+                .portable_markdown()
+                .unwrap()
+                .contains("5 more are on the original article"));
+        }
+
+        #[test]
+        fn a_bibliography_carries_the_selected_references_and_lists_what_it_cannot() {
+            let site = site(Some(curated()), true);
+            let post = site.posts.iter().find(|post| post.slug == "other").unwrap();
+            let carried = PortableProjection::for_site(&site, post)
+                .unwrap()
+                .curated_bibliography()
+                .unwrap();
+            assert_eq!(carried.references.len(), 1);
+            assert_eq!(carried.references[0].key, "undated");
+            assert_eq!(carried.references[0].title.as_deref(), Some("Undated"));
+            assert!(carried.references[0].creators.is_empty(), "never invented");
+            assert!(carried.references[0].issued.is_none());
+            assert!(carried
+                .not_carried
+                .contains(&("comparison-cave".to_string(), "comparison")));
+            // A post that is offered nothing has none.
+            let scoped = self::site(Some(cave_only()), true);
+            let lonely = scoped
+                .posts
+                .iter()
+                .find(|post| post.slug == "lonely")
+                .unwrap();
+            assert!(PortableProjection::for_site(&scoped, lonely)
+                .unwrap()
+                .curated_bibliography()
+                .is_none());
+        }
+
+        #[test]
+        fn the_portable_copies_match_the_fixtures_the_node_tests_read() {
+            let site = site(Some(curated()), true);
+            let (html, markdown, text) = copies(&site, "cave");
+            check_fixture("../curated-context/portable-cave.html", &html);
+            check_fixture("../curated-context/portable-cave.md", &markdown);
+            check_fixture(
+                "../curated-context/portable-cave.txt",
+                &format!(
+                    "{text}
+"
+                ),
+            );
+            let feed: Value = serde_json::from_str(&feeds::json_feed(&site).unwrap()).unwrap();
+            let cave = feed["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|item| item["url"] == CANONICAL)
+                .unwrap()
+                .clone();
+            check_fixture(
+                "../curated-context/feed-item-cave.json",
+                &format!(
+                    "{}
+",
+                    serde_json::to_string_pretty(&cave).unwrap()
+                ),
+            );
+        }
+
+        #[test]
+        fn a_projection_built_without_the_site_carries_nothing() {
+            let site = site(Some(curated()), true);
+            let post = site.posts.iter().find(|post| post.slug == "cave").unwrap();
+            let bare = PortableProjection::from_post(post, &site.config).unwrap();
+            assert!(bare.curated_context_markdown().is_none());
+            assert!(!bare
+                .representation(RepresentationFormat::Text)
+                .contains("Research context"));
+        }
+
+        #[test]
+        fn a_notice_in_a_copy_is_a_sentence_from_its_code() {
+            let mut curation = curated();
+            curation.items[0].notices.push(ItemNotice {
+                code: NoticeCode::MissingDetail,
+                field: Some("issued".into()),
+                message: "Selection `x`: `issued` has none.".into(),
+            });
+            let site = site(Some(curation), true);
+            let (html, markdown, _) = copies(&site, "cave");
+            assert!(!html.contains("Selection `x`") && !markdown.contains("Selection `x`"));
+        }
+    }
 }

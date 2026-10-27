@@ -200,7 +200,7 @@ test("every item has a canonical anchor that lands on it, and the data file name
     await page.goto("about:blank");
     await page.goto(`${origin}${item.url}`);
     const target = await page.evaluate(() => document.querySelector(":target")?.id || "");
-    expect(target).toBe(`curated-${item.id}`);
+    expect(target).toBe(`ob-curated-${item.id}`);
     const box = await page.locator(`#ob-curated-${item.id}`).boundingBox();
     expect(box).not.toBeNull();
     await expect(page.locator(`#ob-curated-${item.id}`)).toBeInViewport();
@@ -307,7 +307,32 @@ test("a build of the same site writes the same bytes and no private sentinel any
   }
   // The comment reaches the data file and the one page it is for, and no other file.
   const carrying = files.filter((file) => readFileSync(join(first, file), "utf8").includes("window.__xss"));
-  expect(carrying.every((file) => file === "curated-context.json" || file.startsWith("cave/"))).toBe(true);
+  expect(carrying.every((file) => ["curated-context.json", "feed.json", "rss.xml", "llms-full.txt"].includes(file) || file.startsWith("cave/"))).toBe(true);
   rmSync(first, { recursive: true, force: true });
   rmSync(second, { recursive: true, force: true });
+});
+
+test("the feed's and the portable copies' links back land on the real section and items of the canonical page", async ({ page }) => {
+  const feed = await (await fetch(`${origin}/feed.json`)).json();
+  const cave = feed.items.find((item) => new URL(item.url).pathname === "/cave/");
+  expect(cave, "the post is in the feed").toBeTruthy();
+  const context = cave._openblog.researchContext;
+  expect(context.items.map((item) => item.id)).toEqual(items);
+  // The full-content copy carries each selected fact and links to every item's anchor.
+  for (const item of context.items) {
+    expect(cave.content_html).toContain(item.url);
+    expect(cave.content_text).toContain(item.url);
+  }
+  expect(cave.content_html).toContain(context.url);
+  expect(cave.content_html).not.toMatch(/<script|\sid=|data-curated/);
+  // llms-full.txt carries it too, under the same heading, and none of the private words.
+  const full = await (await fetch(`${origin}/llms-full.txt`)).text();
+  expect(full).toContain("## Research context");
+  expect(full).not.toContain(LEAK("withdrawncomment"));
+  // Each link back resolves, on the site as served, to the element it names.
+  for (const url of [context.url, ...context.items.map((item) => item.url)]) {
+    const hash = new URL(url).hash;
+    await page.goto(`${origin}/cave/${hash}`);
+    await expect(page.locator(hash)).toBeVisible();
+  }
 });

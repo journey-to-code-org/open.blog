@@ -49,8 +49,12 @@ are to this site's pages and to a source's own `https` address. The order in the
 order. It wraps anywhere (so it reflows at 320 pixels and at 400% zoom), keeps each item whole in print,
 and needs no script. A post that is offered nothing has no section and is byte for byte what it was.
 
-## What is left to portable output
+## Portable copies
 
-Feeds, portable Markdown, text and HTML, and shared reflections do not carry the section: they are built
-from the post, not its page. Carrying the selected facts across them, with loss diagnostics, is #198;
-this file and the section are the public projection it reads.
+Portable HTML, Markdown and text, syndicated copies, full-content feeds and `llms-full.txt` carry the same
+section as labeled sequential sections (ADR 0258 to 0262): no ids, scripts or data attributes, absolute links,
+a link to the section and to each item's anchor on the canonical page, and the same words as the page. A
+summary-only feed links to the section (`<atom:link rel="related">`, `_openblog.researchContext`). A copy that
+would lose anything it shows is refused for that post. Formats say what they cannot carry
+(`curated-context-sequenced`, `-address-text`, `-held-back`). Bibliography exports add the selected references
+and list every other item as omitted. With curation off or empty every copy is byte for byte unchanged.
