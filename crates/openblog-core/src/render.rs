@@ -217,6 +217,8 @@ fn resolve_social_metadata(config: &SiteConfig, input: SocialMetadataInput<'_>) 
 const FEEDBACK_ANCHOR: &str = "ob-feedback";
 /// The id of a post's Third Perspective region (ADR 0114).
 pub(crate) const THIRD_PERSPECTIVE_ANCHOR: &str = "ob-third-perspective";
+/// The id of a post's suggestion region (RD13).
+pub(crate) const FUTURE_SUGGESTION_ANCHOR: &str = "ob-future-suggestion";
 /// The id of the page data element that holds a post's passage text.
 pub const PASSAGE_DATA_ELEMENT_ID: &str = "ob-passages";
 /// The page data element holding what a reader may name in an evidence
@@ -984,12 +986,12 @@ impl<'a> Renderer<'a> {
         if let Some(element) = &meta.passage_data {
             h.push_str(element);
             h.push('\n');
-            // Each form's script is loaded only by pages that offer it.
-            for script in &meta.participation_scripts {
-                h.push_str(&format!(
-                    "<script type=\"module\" src=\"/assets/components/{script}\"></script>\n"
-                ));
-            }
+        }
+        // Each form's script is loaded only by pages that offer it.
+        for script in &meta.participation_scripts {
+            h.push_str(&format!(
+                "<script type=\"module\" src=\"/assets/components/{script}\"></script>\n"
+            ));
         }
         if meta.concept_previews.is_some() {
             // The preview component is loaded only by a page that has a concept link.
@@ -1236,6 +1238,77 @@ impl<'a> Renderer<'a> {
             attr(endpoint),
             attr(&c.absolute(&post.url)),
             text(&document.revision),
+        ))
+    }
+
+    /// The suggestion region of one post (ADRs 0152 to 0157): only a post where
+    /// the site has switched `future-suggestion` on and the post's mode is
+    /// `open` has it. Its static text is the no-JavaScript path, naming the
+    /// site's feedback contact; where the site has a hosted transport it also
+    /// carries `<ob-future-suggestion>`, which sends through the hosted
+    /// service only where it issues receipts and otherwise prepares the
+    /// suggestion to copy and send. A site with no transport shows only the
+    /// contact, and shows nothing at all when it has none, so its pages read as
+    /// before. Nothing here is a vote, a count or a list of other readers'
+    /// suggestions: they are private to the editors.
+    fn future_suggestion(&self, post: &Post) -> Option<String> {
+        let c = &self.site.config;
+        if participation::configured_mode(c, post, ParticipationKind::FutureSuggestion)
+            != ParticipationMode::Open
+        {
+            return None;
+        }
+        let transport = participation::transport_available(c);
+        let contact = c.engagement.feedback_contact.as_str();
+        if !transport && contact.is_empty() {
+            return None;
+        }
+        let (contact_attr, contact_words) = if contact.is_empty() {
+            (String::new(), String::new())
+        } else if let Some(address) = contact.strip_prefix("mailto:") {
+            (
+                format!(" contact=\"{}\"", attr(contact)),
+                format!(" at <a href=\"{}\">{}</a>", attr(contact), text(address)),
+            )
+        } else {
+            (
+                format!(" contact=\"{}\"", attr(contact)),
+                format!(
+                    " through <a href=\"{}\">the contact page</a>",
+                    attr(contact)
+                ),
+            )
+        };
+        let intro = "<p>Suggest a question, text, video, audio or other source for the author to consider for future work. It goes to the site’s editors, never to this page; accepting one only means they are interested, not that they agree with it, have checked it or may use it. There are no votes and no counts.</p>";
+        let words = format!(
+            "<p class=\"ob-future-suggestion-static\">{} you can write your suggestion to the author{contact_words}: say whether it is a question, text, video, audio or other source, give a link if you have one, and say whether you may be contacted about it.</p>",
+            if transport {
+                "The form needs JavaScript. Without it,"
+            } else {
+                "This site does not take suggestions through a form, but"
+            }
+        );
+        let heading = format!(
+            "<h2 id=\"{FUTURE_SUGGESTION_ANCHOR}-title\">Suggest something for future work</h2>\n"
+        );
+        let inner = if transport {
+            let endpoint = c.engagement.endpoint.trim().trim_end_matches('/');
+            let receipts = if c.engagement.receipts {
+                " receipts"
+            } else {
+                ""
+            };
+            format!(
+                "<ob-future-suggestion endpoint=\"{}\" page=\"{}\" work=\"{}\"{contact_attr}{receipts}>\n{intro}\n{words}\n</ob-future-suggestion>\n",
+                attr(endpoint),
+                attr(&c.absolute(&post.url)),
+                attr(&post.url),
+            )
+        } else {
+            format!("{intro}\n{words}\n")
+        };
+        Some(format!(
+            "<section id=\"{FUTURE_SUGGESTION_ANCHOR}\" class=\"ob-future-suggestion\" aria-labelledby=\"{FUTURE_SUGGESTION_ANCHOR}-title\">\n{heading}{inner}</section>\n"
         ))
     }
 
@@ -1881,6 +1954,10 @@ impl<'a> Renderer<'a> {
         if let Some(region) = &third_perspective {
             body.push_str(region);
         }
+        let future_suggestion = self.future_suggestion(post);
+        if let Some(region) = &future_suggestion {
+            body.push_str(region);
+        }
         let comment_mode = participation::effective_mode(c, post, ParticipationKind::Comment);
         if comment_mode != ParticipationMode::Hidden {
             let mode = if comment_mode == ParticipationMode::Locked {
@@ -2044,6 +2121,12 @@ impl<'a> Renderer<'a> {
                 third_perspective
                     .as_ref()
                     .map(|_| "ob-third-perspective.js"),
+                // Only where there is a hosted service to send to; a site with
+                // none keeps the static text alone and loads nothing.
+                future_suggestion
+                    .as_ref()
+                    .filter(|_| participation::transport_available(c))
+                    .map(|_| "ob-future-suggestion.js"),
             ]
             .into_iter()
             .flatten()

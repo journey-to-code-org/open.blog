@@ -28,11 +28,12 @@ use serde_json::{json, Value};
 
 const FIXTURE_PATH: &str = "../../tests/fixtures/participation-transitions.json";
 const ROLES: [&str; 3] = ["site-admin", "coordinator", "contributing-author"];
-const MATRIX_KINDS: [ParticipationKind; 4] = [
+const MATRIX_KINDS: [ParticipationKind; 5] = [
     ParticipationKind::Comment,
     ParticipationKind::Question,
     ParticipationKind::AuthorResponse,
     ParticipationKind::AbuseReport,
+    ParticipationKind::FutureSuggestion,
 ];
 const WORK: &str = "/posts/tides/";
 const WORKS: [&str; 1] = [WORK];

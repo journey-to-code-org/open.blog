@@ -2246,6 +2246,155 @@ ob-third-perspective [hidden] {
   outline-offset: 2px;
 }
 
+/* Suggestions for future work (RD13): one column at every width, native controls, visible focus; a fieldset or the region itself never forces a sideways scroll. */
+
+ob-future-suggestion {
+  display: block;
+}
+
+.ob-future-suggestion-form {
+  display: grid;
+  gap: 1rem;
+  max-inline-size: 42rem;
+}
+
+.ob-future-suggestion-form fieldset {
+  display: grid;
+  gap: .5rem;
+  min-inline-size: 0;
+  margin: 0;
+  padding: .75rem 1rem 1rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: .35rem;
+}
+
+.ob-future-suggestion-form legend {
+  padding-inline: .25rem;
+  font-weight: 600;
+}
+
+.ob-future-suggestion-field,
+.ob-future-suggestion-subfield {
+  display: grid;
+  gap: .25rem;
+}
+
+.ob-future-suggestion-subfield {
+  margin-inline-start: 1.75rem;
+}
+
+.ob-future-suggestion-field > label,
+.ob-future-suggestion-subfield > label,
+.ob-future-suggestion-fallback > label {
+  font-weight: 600;
+}
+
+.ob-future-suggestion-choice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: .15rem .5rem;
+  align-items: baseline;
+}
+
+.ob-future-suggestion-choice > .ob-future-suggestion-hint {
+  grid-column: 2;
+}
+
+.ob-future-suggestion-form input:not([type="radio"], [type="checkbox"]),
+.ob-future-suggestion-form select,
+.ob-future-suggestion-form textarea,
+.ob-future-suggestion-fallback textarea {
+  box-sizing: border-box;
+  inline-size: 100%;
+  min-inline-size: 0;
+  font: inherit;
+  padding: .65rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: .35rem;
+  background: var(--ob-color-surface);
+  color: inherit;
+}
+
+.ob-future-suggestion-form [aria-invalid="true"] {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.ob-future-suggestion-hint,
+.ob-future-suggestion-error,
+.ob-future-suggestion-status,
+.ob-future-suggestion-done,
+.ob-future-suggestion-fallback-message {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ob-future-suggestion-hint {
+  color: var(--ob-color-muted);
+}
+
+.ob-future-suggestion-error,
+.ob-future-suggestion-alert:not(:empty) {
+  font-weight: 600;
+}
+
+.ob-future-suggestion-error::before {
+  content: "Error: ";
+}
+
+.ob-future-suggestion-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1rem;
+  align-items: center;
+}
+
+.ob-future-suggestion-form button[aria-disabled="true"],
+.ob-future-suggestion-fallback button[aria-disabled="true"] {
+  cursor: progress;
+  opacity: .7;
+}
+
+.ob-future-suggestion-status:empty {
+  display: none;
+}
+
+.ob-future-suggestion-done,
+.ob-future-suggestion-fallback {
+  max-inline-size: 42rem;
+  margin-block: 1rem;
+}
+
+.ob-future-suggestion-fallback {
+  display: grid;
+  gap: .5rem;
+}
+
+.ob-future-suggestion [hidden],
+ob-future-suggestion [hidden] {
+  display: none;
+}
+
+.ob-future-suggestion-form :focus-visible,
+.ob-future-suggestion-fallback :focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.ob-future-suggestion-form fieldset[hidden],
+.ob-future-suggestion-form [hidden] {
+  display: none;
+}
+
+.ob-future-suggestion-form textarea {
+  resize: vertical;
+}
+
+.ob-future-suggestion {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
 /* ---------- Series ---------- */
 
 .ob-series-box {
