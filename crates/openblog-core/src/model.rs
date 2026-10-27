@@ -55,6 +55,9 @@ pub struct Sources {
     /// content folder, ADR 0181), when the file exists. Read strictly; nothing
     /// in a page, feed or export changes (the section is #230).
     pub community_features: Option<SourceFile>,
+    /// The site's continuation links (`continuations.json` in the content
+    /// folder, ADR 0401), when the file exists.
+    pub continuations: Option<SourceFile>,
 }
 
 /// The private source library as a site load receives it.
@@ -281,6 +284,9 @@ pub struct Post {
     /// most posts. Each is the one public projection of a reflection that is
     /// also in `third_perspectives`.
     pub(crate) community_features: Vec<crate::community_feature::FeaturedPerspective>,
+    /// Where earlier questions on this post went, and what it continues, as
+    /// ordinary links on its canonical page (ADRs 0400 and 0401).
+    pub(crate) continuations: PostContinuations,
     /// The body HTML. A concept link (ADR 0172) is the plain text of its
     /// label here until [`Site::link_concepts`] resolves it against the
     /// public atlas, so a post nobody resolved never carries a link that
@@ -395,6 +401,11 @@ impl Post {
     }
 
     /// The featured reflections this post's canonical page shows now (ADR 0184).
+    /// The continuation links this post's canonical page shows now.
+    pub fn continuations(&self) -> &PostContinuations {
+        &self.continuations
+    }
+
     pub fn community_features(&self) -> &[crate::community_feature::FeaturedPerspective] {
         &self.community_features
     }
@@ -567,6 +578,9 @@ pub struct Site {
     /// Why the site's featured reflections cannot be read (ADR 0181), refused
     /// like `third_perspectives_error`.
     pub community_features_error: Option<String>,
+    /// Why the site's continuation links cannot be read (ADR 0401), refused
+    /// like `community_features_error`.
+    pub continuations_error: Option<String>,
     /// The time the site was loaded for (`LoadOptions::now`). A post dated after it is scheduled,
     /// even when a preview or the admin editor loaded it, so it is never a series part.
     now: Option<DateTime>,
@@ -857,6 +871,8 @@ impl Site {
             attach_third_perspectives(&mut posts, &sources, &config, &mut warnings);
         let community_features_error =
             attach_community_features(&mut posts, &sources, &config, &mut warnings);
+        let continuations_error =
+            attach_continuations(&mut posts, &sources, options.now, &mut warnings);
 
         let mut pages: Vec<Page> = Vec::new();
         for file in &sources.pages {
@@ -1012,6 +1028,7 @@ impl Site {
             reader_feedback_error,
             third_perspectives_error,
             community_features_error,
+            continuations_error,
             now: options.now,
         })
     }
@@ -1536,6 +1553,99 @@ fn attach_community_features(
     None
 }
 
+/// The continuation links one post's canonical page shows (ADR 0400): where
+/// questions on it went, what it continues, and the titles of the pages they
+/// name. Public paths and the editor's own words only.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PostContinuations {
+    pub later: Vec<crate::continuation::PublicContinuation>,
+    pub earlier: Vec<crate::continuation::PublicContinuation>,
+    pub titles: std::collections::BTreeMap<String, String>,
+}
+
+/// Read the site's continuation links strictly (ADR 0401), or say why the
+/// file cannot be read. An edge is attached only while both pages are
+/// published now (a draft or a post waiting for its date is not), through the
+/// same `resolve` the rules live in; an edge that does not stand is absent from
+/// the page with no placeholder, and is only warned about, naming the id and a
+/// fixed reason. The file lists only edges whose origin an Admin approved, and
+/// Admin drops an edge when its origin is removed (ADR 0403).
+fn attach_continuations(
+    posts: &mut [Post],
+    sources: &Sources,
+    now: Option<DateTime>,
+    warnings: &mut Vec<String>,
+) -> Option<String> {
+    use crate::continuation as cont;
+    use std::collections::{BTreeMap, BTreeSet};
+    let file = sources.continuations.as_ref()?;
+    let edges = match cont::ContinuationsFile::from_json(&file.contents) {
+        Ok(edges) => edges,
+        Err(error) => return Some(format!("{}: {error}", file.path)),
+    };
+    let mut published = BTreeSet::new();
+    let mut series = BTreeSet::new();
+    let mut titles = BTreeMap::new();
+    for post in posts.iter() {
+        if post.draft || now.is_some_and(|now| post.date > now) {
+            continue;
+        }
+        published.insert(post.url.clone());
+        titles.insert(post.url.clone(), post.title.clone());
+        if let Some(slug) = &post.series {
+            series.insert(slug.clone());
+        }
+    }
+    let aliases = BTreeMap::new();
+    let site = cont::Site {
+        published: &published,
+        series: &series,
+        series_aliases: &aliases,
+    };
+    let mut shown = Vec::new();
+    for edge in &edges.items {
+        match cont::resolve(edge, cont::OriginStanding::Approved, &site) {
+            Ok(item) => shown.push(item),
+            Err(hidden) => warnings.push(format!(
+                "{}: continuation {} is not shown: {}",
+                file.path,
+                edge.id,
+                hidden.id()
+            )),
+        }
+    }
+    if shown.is_empty() {
+        return None;
+    }
+    for post in posts.iter_mut() {
+        let later: Vec<_> = shown
+            .iter()
+            .filter(|e| e.from == post.url)
+            .cloned()
+            .collect();
+        let earlier: Vec<_> = shown.iter().filter(|e| e.to == post.url).cloned().collect();
+        if later.is_empty() && earlier.is_empty() {
+            continue;
+        }
+        let mut names = BTreeMap::new();
+        for path in later
+            .iter()
+            .map(|e| &e.to)
+            .chain(earlier.iter().map(|e| &e.from))
+        {
+            if let Some(title) = titles.get(path) {
+                names.insert(path.clone(), title.clone());
+            }
+        }
+        post.continuations = PostContinuations {
+            later,
+            earlier,
+            titles: names,
+        };
+    }
+    None
+}
+
 /// A post's revision notes as written: each item of the list, or one note
 /// written as a single value (which is never split at its commas).
 fn revision_items(fm: &FrontMatter) -> Vec<String> {
@@ -2015,6 +2125,7 @@ fn load_post_in(
         reader_feedback: Vec::new(),
         third_perspectives: Vec::new(),
         community_features: Vec::new(),
+        continuations: PostContinuations::default(),
         reading_depth: rendered.reading_depth.clone(),
         html,
         concept_html,
@@ -2273,6 +2384,7 @@ mod tests {
             reader_feedback: None,
             third_perspectives: None,
             community_features: None,
+            continuations: None,
         });
         assert_eq!(s.posts.len(), 2);
         assert_eq!(s.posts[0].slug, "second");

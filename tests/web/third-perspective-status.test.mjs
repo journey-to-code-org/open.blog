@@ -129,3 +129,19 @@ test("a failed features check says so for every error except 403, which is not t
     assert.match(featureAuditFailure({ status, message: "Nope." }), /^Featured reflections could not be checked against the hosted copy\. Nope\.$/);
   }
 });
+
+test("a card offers a continuation link only to the site Admin, for an approved item whose text is kept", () => {
+  const { continuationCardState, continuationRequest, continuationStandingText } = featuring;
+  const base = { source: "feedback", kind: "third-perspective", role: "site-admin", status: "approved", purged: false, version: 7, id: "a" };
+  assert.equal(continuationCardState(base), true);
+  assert.equal(continuationCardState({ ...base, kind: "future-suggestion" }), true);
+  for (const change of [{ role: "moderator" }, { status: "pending" }, { status: "removed" }, { purged: true }, { kind: "question" }, { source: "comment" }]) {
+    assert.equal(continuationCardState({ ...base, ...change }), false, JSON.stringify(change));
+  }
+  assert.deepEqual(continuationRequest(base, { to: "/neaps/", relation: "revisits", note: "  " }), { id: "a", to: "/neaps/", relation: "revisits", note: null, expectedVersion: 7 });
+  assert.equal(continuationRequest(base, { to: "/neaps/", note: " Next. " }).note, "Next.");
+  assert.match(continuationStandingText({ standing: "notApproved" }), /no longer approved/);
+  assert.match(continuationStandingText({ standing: "approved", hidden: "to-not-published" }), /not published now/);
+  assert.match(continuationStandingText({ standing: "unknown" }), /could not say/);
+  assert.match(continuationStandingText({ standing: "approved" }), /shown on both pages/);
+});

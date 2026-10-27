@@ -2146,14 +2146,15 @@ _Avoid_: Import, conversion, promotion to the library
 
 ## Continuations
 
-How a later work links back to the reader questions that came before it (ADRs 0400 to 0405). Ordinary
+How a later work links back to the reader questions that came before it (ADRs 0400 to 0406). Ordinary
 links are the whole feature; updates are an optional extra.
 
 **Continuation**:
 An editor's typed link from one approved question, reflection or source suggestion to a later published
 work that takes it up, kept in `continuations.json` as ids and canonical paths and never a reader's
 words, name or contact. It shows only while the submission is approved and both pages are published,
-and it never says the submission caused the work or that anyone endorses it.
+and it never says the submission caused the work or that anyone endorses it. Built into the canonical page
+of both ends as a static list of links and managed by the site Admin (ADR 0406).
 _Avoid_: Reply, answer, credit, inspiration, trackback
 
 **Continuation relation**:

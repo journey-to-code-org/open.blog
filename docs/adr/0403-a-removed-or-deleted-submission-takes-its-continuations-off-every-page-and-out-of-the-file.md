@@ -13,5 +13,5 @@ Readers may withdraw a submission and moderators may remove one. The earlier que
 
 ## Decision
 
-- `resolve` shows an edge only while the origin is `Approved` and both pages are published. Any other standing, including unknown because no hosted service answered, hides it with no placeholder, so a static build without the service shows nothing it cannot confirm. A removed submission therefore disappears from both ends at the next build.
-- `ContinuationsFile::forget_origin` drops every edge of a deleted, withdrawn or removed submission for good; Admin calls it with the same action that removes the submission (#231). Nothing of the submission ever lived in the file, so no text needs scrubbing.
+- `resolve` shows an edge only while the origin is `Approved` and both pages are published. Any other standing hides it with no placeholder. A static build has no hosted service to ask, so it passes `Approved` for every edge in the file, which Admin wrote only for a submission it saw approved and drops with `forget_origin` when that stops being true (ADR 0406); an edge whose pages are not published is hidden at build time. A removed submission therefore disappears from both ends at the next build.
+- `ContinuationsFile::forget_origin` drops every edge of a deleted, withdrawn or removed submission for good; Admin calls it with the same action that removes the submission, and a sweep drops edges of submissions withdrawn on the hosted side (ADR 0406). Nothing of the submission ever lived in the file, so no text needs scrubbing.

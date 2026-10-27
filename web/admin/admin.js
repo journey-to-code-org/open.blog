@@ -788,6 +788,36 @@ export function featureStandingText(feature) {
 }
 
 /**
+ * Whether an inbox card offers a continuation link (RD15, ADR 0400): only the site Admin, only an
+ * approved reflection, question or source suggestion whose text is still kept.
+ */
+export function continuationCardState(item) {
+  if (item?.source !== "feedback" || item.role !== "site-admin") return false;
+  if (item.kind !== "third-perspective" && item.kind !== "future-suggestion") return false;
+  return item.status === "approved" && !item.purged;
+}
+
+/** The body of linking a submission to a later work: the id, the work, the relation, the note and the version seen. */
+export function continuationRequest(item, form) {
+  return {
+    id: item.id,
+    to: String(form.to ?? ""),
+    relation: String(form.relation ?? "takes-up"),
+    note: String(form.note ?? "").trim() || null,
+    expectedVersion: item.version,
+  };
+}
+
+/** How one link stands, in words an editor reads. */
+export function continuationStandingText(link) {
+  if (link.standing === "notApproved") return "Its submission is no longer approved here, so it is not shown. Check for withdrawn submissions to drop it, or remove it.";
+  if (link.hidden === "to-not-published") return "The later work is not published now (a draft or waiting for its date), so the link is hidden until it is.";
+  if (link.hidden === "from-not-published") return "The earlier page is not published now, so the link is hidden until it is.";
+  if (link.standing === "unknown") return "The hosted service could not say whether the submission is still approved. The link is shown.";
+  return "It is shown on both pages.";
+}
+
+/**
  * What the audit of the site's features (`engagement/community/features`) says, in words, for the
  * banner shown on every tab: the features that must come off, those hidden because their article is
  * gone, and those that cannot be checked. Each is listed by post and day, never by the reflection.
@@ -15531,6 +15561,113 @@ export class ObAdmin extends AdminElement {
       }));
     };
 
+    // Continuation links (RD15, #231): a typed ordinary link from an approved submission to a later
+    // work, listed here with its standing, and offered on each approved card.
+    let continuationData = { links: [], works: [] };
+    const continuationList = h("ul", { class: "oba-continuation-list", "data-continuation-list": "" });
+    const continuationStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite", tabindex: "-1" });
+    const sweepButton = h("button", { class: "oba-btn", type: "button", onClick: async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      try {
+        const result = await this.api.call("POST", "engagement/continuations/sweep", { json: {} });
+        await reloadAll(result.dropped ? `${result.dropped} link${result.dropped === 1 ? "" : "s"} of withdrawn or removed submissions dropped. Rebuild or publish to update the live site.` : "Every link's submission is still approved or could not be checked.", "ok");
+      } catch (error) {
+        announce(continuationStatus, error.message, "error");
+        continuationStatus.focus();
+      } finally {
+        button.disabled = false;
+      }
+    } }, "Check for withdrawn submissions");
+    const continuationSection = h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-continuations-title", "data-continuations": "" },
+      h("h2", { id: "oba-continuations-title" }, "Continuation links"),
+      h("p", {}, "Each link says a later work takes up an earlier reader question, reflection or source suggestion. It is an ordinary link on both pages; it says nothing about cause or agreement, and shows nothing of the reader's words."),
+      continuationList, sweepButton, continuationStatus);
+    continuationSection.hidden = true;
+    const loadContinuations = async () => {
+      try {
+        const result = await this.api.call("GET", "engagement/continuations");
+        continuationData = { links: result.links || [], works: result.works || [] };
+      } catch (error) {
+        // Not the site Admin, or hosted engagement is off: the section is simply not offered.
+        continuationData = { links: [], works: [] };
+        continuationSection.hidden = true;
+        continuationList.replaceChildren();
+        return;
+      }
+      continuationSection.hidden = false;
+      continuationList.replaceChildren(...(continuationData.links.length
+        ? continuationData.links.map((link) => h("li", { "data-continuation-id": link.id },
+          `${link.from} to ${link.to} (${link.relation}, ${link.linked}). ${continuationStandingText(link)} `,
+          h("button", { class: "oba-btn", type: "button", onClick: async (event) => {
+            const button = event.currentTarget;
+            button.disabled = true;
+            try {
+              await this.api.call("POST", "engagement/continuations/unlink", { json: { id: link.id } });
+              await reloadAll("The link was removed from both pages. Rebuild or publish to update the live site.", "ok");
+            } catch (error) {
+              button.disabled = false;
+              announce(continuationStatus, error.message, "error");
+              continuationStatus.focus();
+            }
+          } }, "Remove the link")))
+        : [h("li", {}, "No links yet. Link an approved reflection, question or source suggestion from its card.")]));
+    };
+
+    // The linking form of an approved card.
+    const continuationForm = (item) => {
+      const base = `oba-continuation-${item.id}`;
+      const line = h("p", { class: "oba-small", role: "status", "aria-live": "polite", tabindex: "-1" });
+      const section = h("section", { class: "oba-feature", "aria-labelledby": `${base}-title`, "data-continuation-form": item.id }, h("h4", { id: `${base}-title` }, "Link to a later work"));
+      const existing = continuationData.links.filter((link) => link.origin === item.id);
+      if (existing.length) section.append(h("p", { class: "oba-small" }, `Linked ${existing.length} time${existing.length === 1 ? "" : "s"}: ${existing.map((link) => link.to).join(", ")}.`));
+      const select = h("select", { id: `${base}-to`, name: "to" }, h("option", { value: "" }, "Choose a published work"), continuationData.works.map((work) => h("option", { value: work.path }, `${work.title} (${work.path})`)));
+      const relation = h("select", { id: `${base}-relation`, name: "relation" },
+        h("option", { value: "takes-up" }, "The later work takes it up"),
+        h("option", { value: "revisits" }, "The later work revisits it"),
+        item.kind === "future-suggestion" ? h("option", { value: "uses-source" }, "The later work uses the suggested source") : null);
+      const note = h("textarea", { id: `${base}-note`, rows: "2", maxlength: "280", name: "note", "aria-describedby": `${base}-hint` });
+      const hint = h("p", { class: "oba-small", id: `${base}-hint` }, "Optional, up to 280 characters of plain text, in your own words. It is refused if it says the submission caused the work or claims popularity or agreement.");
+      const preview = h("div", { "aria-live": "polite", "data-continuation-preview": "" });
+      const run = async (event, choose) => {
+        const button = event.currentTarget;
+        if (!select.value) {
+          announce(line, "Choose the later work first.", "error");
+          select.focus();
+          return;
+        }
+        button.disabled = true;
+        announce(line, choose ? "Linking…" : "Preparing the preview…");
+        try {
+          const request = continuationRequest(item, { to: select.value, relation: relation.value, note: note.value });
+          if (choose) {
+            await this.api.call("POST", "engagement/continuations/link", { json: request });
+            await reloadAll("Linked. Both pages show it after the next rebuild or publish.", "ok");
+            return;
+          }
+          const result = await this.api.call("POST", "engagement/continuations/preview", { json: request });
+          preview.replaceChildren(
+            h("p", { class: "oba-small" }, result.notice),
+            h("p", {}, `From ${result.preview.from} to ${result.preview.to} (${result.preview.relation}${result.preview.series ? `, series ${result.preview.series}` : ""}).`),
+            result.preview.note ? h("p", {}, h("strong", {}, "Your note: "), result.preview.note) : null);
+          announce(line, "The preview is below. Nothing has been changed.");
+          button.disabled = false;
+        } catch (error) {
+          button.disabled = false;
+          announce(line, error.message, "error");
+          line.focus();
+        }
+      };
+      section.append(
+        h("label", { for: `${base}-to` }, "Later work"), " ", select, " ",
+        h("label", { for: `${base}-relation` }, "How it relates"), " ", relation, " ",
+        h("label", { for: `${base}-note` }, "Your note"), " ", note, hint,
+        h("button", { class: "oba-btn", type: "button", onClick: (event) => run(event, false) }, "Preview"), " ",
+        h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: (event) => run(event, true) }, "Link to the later work"),
+        line, preview);
+      return section;
+    };
+
     // The Featuring section of an approved reflection's card.
     const featureSection = (item, offer) => {
       const base = `oba-feature-${item.id}`;
@@ -15631,6 +15768,7 @@ export class ObAdmin extends AdminElement {
 
     const reloadAll = async (message, kind_) => {
       await loadFeatureAudit();
+      await loadContinuations();
       await Promise.all([loadQueue(), loadPublished(), loadPerspectiveAudit()]);
       if (message) {
         announce(queueStatus, message, kind_);
@@ -15938,6 +16076,7 @@ export class ObAdmin extends AdminElement {
       }
       const featuring = featureCardState(item, featureMap.get(item.id));
       if (featuring) card.append(featureSection(item, featuring));
+      if (continuationCardState(item)) card.append(continuationForm(item));
       const offer = answerOffer(item);
       if (offer && item.kind === "third-perspective") {
         // The author of the section the reflection is about may answer it (ADR 0132). The server
@@ -16221,6 +16360,7 @@ export class ObAdmin extends AdminElement {
         featureBanner,
         h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-moderation-queue-title" }, h("h2", { id: "oba-moderation-queue-title" }, "Moderation queue"), stateTabs, kindFilter, stateNote, queueStatus, queue, more),
         h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-feedback-published-title" }, h("h2", { id: "oba-feedback-published-title" }, "Published on your posts"), publishedStatus, published),
+        continuationSection,
         h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-retention-title" },
           h("h2", { id: "oba-retention-title" }, "Retention"),
           h("p", {}, "Unpublished reader text is not kept for ever: pending notes expire, and the text of rejected, removed and withdrawn items and of upheld reports is deleted after the periods set in openblog.json. Retention never runs on its own. Check what it would do first; nothing changes until you run it, and the private record of each decision is kept longer than any text."),
@@ -16228,6 +16368,7 @@ export class ObAdmin extends AdminElement {
       ),
     );
     await loadFeatureAudit();
+    await loadContinuations();
     await Promise.all([loadQueue(), loadPublished(), loadPerspectiveAudit()]);
   }
 

@@ -9,4 +9,4 @@
 
 ## Decision
 
-The unit tests in `continuation.rs` cover each required case: one-to-many edges and duplicate pairs, removed or withdrawn submissions (hidden and forgotten), renamed and unknown series, invalid links and notes, strict canonical file reading, escaped static output free of private fields, link-only offers (no service), explicit consent, redacted debug output, unsubscribe with right and wrong tokens, and deletion. The page and Admin wiring (#231, #232) add browser tests for keyboard, 400% reflow and reduced motion on the real UI; this task adds no UI.
+The unit tests in `continuation.rs` cover each required case: one-to-many edges and duplicate pairs, removed or withdrawn submissions (hidden and forgotten), renamed and unknown series, invalid links and notes, strict canonical file reading, escaped static output free of private fields, link-only offers (no service), explicit consent, redacted debug output, unsubscribe with right and wrong tokens, and deletion. The page and Admin wiring (#231, #232) add browser tests for keyboard, 400% reflow and reduced motion on the real UI; the Admin and page wiring (#231) added them, see ADR 0406.

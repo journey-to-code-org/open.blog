@@ -1,4 +1,4 @@
-//! Continuing a discussion across episodes (RD15, #215, ADRs 0400 to 0405).
+//! Continuing a discussion across episodes (RD15, #215 and #231, ADRs 0400 to 0406).
 //!
 //! A *continuation* is an editor's typed link from one approved question,
 //! reflection or source suggestion to a later published work that takes it
@@ -27,6 +27,9 @@
 //!   link, never in the static output or analytics, and never sent to: this
 //!   module validates a request and models the stored record and its
 //!   unsubscribe, and nothing here transmits anything ([`SubscriptionRequest`]).
+//!
+//! The build reads the file through `model::attach_continuations` and Admin
+//! writes it (ADR 0406).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -55,7 +58,9 @@ pub const MAX_PER_ORIGIN: usize = 20;
 pub const MAX_CONTINUATIONS_BYTES: usize = 2 * 1024 * 1024;
 /// The longest editorial note, in characters.
 pub const MAX_NOTE_CHARS: usize = 280;
-/// The id of the section that lists continuations on a canonical page.
+/// The id of the section that lists where a question went; the section of what a
+/// post continues has the same id with `-earlier` added, so a page with both has
+/// no repeated id.
 pub const CONTINUATIONS_ANCHOR: &str = "ob-continuations";
 
 /// What every list of continuations says, always shown with it.
@@ -214,6 +219,12 @@ impl Relation {
             Self::Revisits => "revisits",
             Self::UsesSource => "uses-source",
         }
+    }
+
+    pub fn from_id(id: &str) -> Option<Self> {
+        [Self::TakesUp, Self::Revisits, Self::UsesSource]
+            .into_iter()
+            .find(|relation| relation.id() == id)
     }
 
     fn later_phrase(self) -> &'static str {
@@ -607,12 +618,15 @@ pub fn render_section(
     if items.is_empty() {
         return String::new();
     }
-    let heading = match direction {
-        Direction::Later => "Where this question went",
-        Direction::Earlier => "Earlier questions this continues",
+    let (heading, anchor) = match direction {
+        Direction::Later => ("Where this question went", CONTINUATIONS_ANCHOR.to_string()),
+        Direction::Earlier => (
+            "Earlier questions this continues",
+            format!("{CONTINUATIONS_ANCHOR}-earlier"),
+        ),
     };
     let mut out = format!(
-        "<section id=\"{CONTINUATIONS_ANCHOR}\" class=\"ob-continuations\" aria-labelledby=\"{CONTINUATIONS_ANCHOR}-heading\">\n<h2 id=\"{CONTINUATIONS_ANCHOR}-heading\">{heading}</h2>\n<p>{}</p>\n<ul>\n",
+        "<section id=\"{anchor}\" class=\"ob-continuations\" aria-labelledby=\"{anchor}-heading\">\n<h2 id=\"{anchor}-heading\">{heading}</h2>\n<p>{}</p>\n<ul>\n",
         text(NO_CAUSATION_NOTICE)
     );
     for item in items {

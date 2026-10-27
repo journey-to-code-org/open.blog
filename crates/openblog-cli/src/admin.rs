@@ -34,6 +34,7 @@ use openblog_core::collaboration::{
 };
 use openblog_core::community_feature;
 use openblog_core::config::{AssistantProviderKind, SyndicationProvider};
+use openblog_core::continuation;
 use openblog_core::draft::{
     ComparisonSlot, DraftError, DraftSet, DraftView, ReadyOutcome, RevealPolicy,
 };
@@ -714,6 +715,13 @@ fn authenticated_api(
         ("POST", "engagement/community/feature") => feature_reflection(state, req, session, false),
         ("POST", "engagement/community/note") => update_feature_note(state, req, session),
         ("POST", "engagement/community/unfeature") => unfeature_reflection(state, req, session),
+        ("GET", "engagement/continuations") => continuations_list(state, session),
+        ("POST", "engagement/continuations/preview") => {
+            continuations_link(state, req, session, true)
+        }
+        ("POST", "engagement/continuations/link") => continuations_link(state, req, session, false),
+        ("POST", "engagement/continuations/unlink") => continuations_unlink(state, req, session),
+        ("POST", "engagement/continuations/sweep") => continuations_sweep(state, session),
         ("POST", "engagement/author-responses/publish") => {
             sync_published_answer(state, req, session, true)
         }
@@ -7962,6 +7970,24 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
             }
         }
     }
+    // A submission that is no longer approved, or whose text was deleted, takes
+    // its continuation links off both pages (ADR 0403); so does the item an
+    // upheld report took down.
+    let mut continuations_dropped = 0;
+    let mut forgotten = Vec::new();
+    if erase || changed.state != ModerationState::Approved {
+        forgotten.push(id.clone());
+    }
+    if let (Some(target), Some(_)) = (&item.target, &removed_target) {
+        forgotten.push(target.id.clone());
+    }
+    for origin in forgotten {
+        let (count, rebuilt) = forget_continuations(state, &origin);
+        continuations_dropped += count;
+        if rebuilt.is_some() {
+            build = rebuilt;
+        }
+    }
     let published = published_feedback_file(state);
     let perspectives = published_perspectives_file(state);
     let view = sources.inbox(session, protocol, third_perspectives, |inbox| {
@@ -7975,8 +8001,442 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
             "publishError": publish_error,
             "build": build,
             "removedTarget": removed_target.is_some(),
+            "continuationsDropped": continuations_dropped,
         }),
     )
+}
+
+// ---- Continuation links (#231, ADRs 0400 to 0405)
+//
+// An editor's typed link from one approved reflection, question or source
+// suggestion to a later published work lives in `continuations.json` in the
+// content folder, written only here under the content lock. It holds ids and
+// paths, never the reader's words. Every route is the site Admin's and denies
+// the rest. A submission that is removed, withdrawn or deleted takes its links
+// off the file (ADR 0403).
+
+fn continuations_path(state: &AppState) -> Result<PathBuf, Response> {
+    let config = site::load_config(&state.root).map_err(|error| Response::error(500, &error))?;
+    let path = state
+        .root
+        .join(&config.paths.content)
+        .join(continuation::CONTINUATIONS_FILE);
+    if fs::symlink_metadata(&path).is_ok_and(|metadata| !metadata.is_file()) {
+        return Err(Response::error(
+            409,
+            "continuations.json must be a regular file in the content folder",
+        ));
+    }
+    Ok(path)
+}
+
+/// The links; an absent file is an empty one. A file that cannot be read is
+/// refused, naming the file, and nothing is written over it.
+fn load_continuations(path: &Path) -> Result<continuation::ContinuationsFile, Response> {
+    let Some(bytes) = read_optional_bytes(path).map_err(|error| Response::error(500, &error))?
+    else {
+        return Ok(Default::default());
+    };
+    let text = String::from_utf8(bytes).map_err(|_| {
+        Response::error(
+            409,
+            "continuations.json is not UTF-8; fix it in source mode before linking",
+        )
+    })?;
+    continuation::ContinuationsFile::from_json(&text).map_err(|error| {
+        Response::error(
+            409,
+            &format!("continuations.json {error}; fix it in source mode before linking"),
+        )
+    })
+}
+
+fn write_continuations(
+    path: &Path,
+    file: &continuation::ContinuationsFile,
+) -> Result<(), Response> {
+    write_atomic_bytes(path, file.to_json().as_bytes())
+        .map_err(|_| Response::error(500, "continuations.json could not be written"))
+}
+
+fn continuation_error_response(error: continuation::ContinuationError) -> Response {
+    use continuation::ContinuationError as E;
+    let status = match error {
+        E::Duplicate | E::TooMany => 409,
+        _ => 422,
+    };
+    Response::json(
+        status,
+        &json!({ "error": error.message(), "code": "invalid" }),
+    )
+}
+
+fn continuation_denied() -> Response {
+    Response::json(
+        403,
+        &json!({ "error": "Only the site Admin can change the continuation links.", "code": "denied" }),
+    )
+}
+
+/// What kind of submission a hosted item is, for a link; `None` when it cannot
+/// start one (a comment, passage feedback, a report, or text that was deleted).
+fn continuation_origin_kind(
+    item: &moderation_inbox::InboxItem,
+) -> Option<continuation::OriginKind> {
+    use continuation::OriginKind;
+    match item.kind {
+        ParticipationKind::ThirdPerspective => item.perspective().map(|_| OriginKind::Reflection),
+        ParticipationKind::FutureSuggestion => item.suggestion().map(|suggestion| {
+            if suggestion.submission.suggestion_type
+                == openblog_core::future_suggestion::SuggestionType::Question
+            {
+                OriginKind::Question
+            } else {
+                OriginKind::SourceSuggestion
+            }
+        }),
+        _ => None,
+    }
+}
+
+const CONTINUATION_AUDIT_LIMIT: usize = 100;
+
+/// `GET engagement/continuations`: every link, checked on each load against
+/// the pages and the hosted submission, and the published works an editor may
+/// link to. `standing` is `approved`, `notApproved` (the submission is gone or
+/// no longer approved: sweep it) or `unknown` (the hosted service could not be
+/// asked, so nothing is judged). Only ids, paths, days and the editors' notes.
+fn continuations_list(state: &AppState, session: &auth::Session) -> Response {
+    let sources = match inbox_sources(state) {
+        Ok(sources) => sources,
+        Err(response) => return response,
+    };
+    if !retention_admin(&sources, session) {
+        return continuation_denied();
+    }
+    let path = match continuations_path(state) {
+        Ok(path) => path,
+        Err(response) => return response,
+    };
+    let file = match load_continuations(&path) {
+        Ok(file) => file,
+        Err(response) => return response,
+    };
+    let site = match feedback_site(state) {
+        Ok(site) => site,
+        Err(response) => return response,
+    };
+    let now = clock::now();
+    let works: Vec<Json> = site
+        .posts
+        .iter()
+        .filter(|post| !post.draft && post.date <= now)
+        .map(|post| json!({ "path": post.url, "title": post.title, "series": post.series }))
+        .collect();
+    let published: std::collections::BTreeSet<String> = works
+        .iter()
+        .filter_map(|work| work["path"].as_str().map(str::to_string))
+        .collect();
+    let series: std::collections::BTreeSet<String> = site
+        .posts
+        .iter()
+        .filter_map(|post| post.series.clone())
+        .collect();
+    let aliases = std::collections::BTreeMap::new();
+    let view = continuation::Site {
+        published: &published,
+        series: &series,
+        series_aliases: &aliases,
+    };
+    let mut standing: std::collections::BTreeMap<String, &'static str> = Default::default();
+    let mut links = Vec::new();
+    for edge in file.items.iter().take(CONTINUATION_AUDIT_LIMIT) {
+        let origin = *standing.entry(edge.origin.clone()).or_insert_with(|| {
+            match hosted_inbox_lookup(state, moderation_inbox::Source::Feedback, &edge.origin) {
+                Ok(Some((_, _, item))) if item.state == ModerationState::Approved => "approved",
+                Ok(_) => "notApproved",
+                Err(_) => "unknown",
+            }
+        });
+        let shown = continuation::resolve(edge, continuation::OriginStanding::Approved, &view);
+        links.push(json!({
+            "id": edge.id, "origin": edge.origin, "kind": edge.kind.id(),
+            "relation": edge.relation.id(), "from": edge.from, "to": edge.to,
+            "series": edge.series, "note": edge.note, "linked": edge.linked,
+            "standing": origin,
+            "shown": shown.is_ok() && origin != "notApproved",
+            "hidden": shown.err().map(continuation::Hidden::id),
+        }));
+    }
+    Response::json(
+        200,
+        &json!({
+            "truncated": file.items.len() > CONTINUATION_AUDIT_LIMIT,
+            "links": links,
+            "works": works,
+            "notice": continuation::NO_CAUSATION_NOTICE,
+        }),
+    )
+}
+
+/// `POST engagement/continuations/link` (or `/preview`): link one approved
+/// submission to a later published work. The kind, the earlier page and the
+/// series come from the hosted submission and the site, never the request; the
+/// request names the submission, the later work, the relation and an optional
+/// note. A preview runs every check and writes nothing.
+fn continuations_link(
+    state: &AppState,
+    req: &Request,
+    session: &auth::Session,
+    preview: bool,
+) -> Response {
+    let body = match feedback_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let id = match feedback_id(&body["id"]) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let Some(relation) = body["relation"]
+        .as_str()
+        .and_then(continuation::Relation::from_id)
+    else {
+        return Response::error(
+            422,
+            "Choose how the later work relates: takes-up, revisits or uses-source",
+        );
+    };
+    let note = match &body["note"] {
+        Json::Null => None,
+        Json::String(note) => Some(note.clone()),
+        _ => return Response::error(422, "An editors note is plain text"),
+    };
+    let Some(to) = body["to"].as_str().map(str::to_string) else {
+        return Response::error(422, "Choose the later work");
+    };
+    let (protocol, third_perspectives, item) =
+        match hosted_inbox_lookup(state, moderation_inbox::Source::Feedback, &id) {
+            Ok(Some(found)) => found,
+            Ok(None) => return Response::error(404, "No such submission"),
+            Err(response) => return response,
+        };
+    let sources = match inbox_sources(state) {
+        Ok(sources) => sources,
+        Err(response) => return response,
+    };
+    let role = sources.inbox(session, protocol, third_perspectives, |inbox| {
+        inbox.actor(&item).role()
+    });
+    if role != moderation::ActorRole::SiteAdmin {
+        return continuation_denied();
+    }
+    if item.state != ModerationState::Approved {
+        return Response::error(
+            409,
+            "Only an approved submission can be linked to a later work",
+        );
+    }
+    let Some(kind) = continuation_origin_kind(&item) else {
+        return Response::error(
+            409,
+            "This item cannot start a continuation, or its text was deleted",
+        );
+    };
+    if !preview && body["expectedVersion"].as_u64() != Some(item.version) {
+        return Response::json(409, &json!({ "error": INBOX_CHANGED, "code": "stale" }));
+    }
+    let site = match feedback_site(state) {
+        Ok(site) => site,
+        Err(response) => return response,
+    };
+    let now = clock::now();
+    let published = |path: &str| {
+        site.posts
+            .iter()
+            .find(|post| post.url == path && !post.draft && post.date <= now)
+    };
+    let Some(target) = published(&to) else {
+        return Response::json(
+            409,
+            &json!({ "error": "The later work is not published now, so it cannot be linked", "code": "unpublished" }),
+        );
+    };
+    if published(&item.work).is_none() {
+        return Response::json(
+            409,
+            &json!({ "error": "The page the submission was about is not published now, so it cannot be linked", "code": "unpublished" }),
+        );
+    }
+    let mut status = lock(&state.build);
+    let _transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let path = match continuations_path(state) {
+        Ok(path) => path,
+        Err(response) => return response,
+    };
+    let mut file = match load_continuations(&path) {
+        Ok(file) => file,
+        Err(response) => return response,
+    };
+    let short: String = id.chars().filter(char::is_ascii_hexdigit).take(8).collect();
+    let link_id = (1..)
+        .map(|n| format!("link-{short}-{n}"))
+        .find(|candidate| file.get(candidate).is_none())
+        .unwrap_or_default();
+    let edge = continuation::Continuation {
+        id: link_id,
+        kind,
+        origin: id.clone(),
+        from: item.work.clone(),
+        to: to.clone(),
+        series: target.series.clone(),
+        relation,
+        note,
+        linked: now.ymd(),
+    };
+    let edge = match edge.validated() {
+        Ok(edge) => edge,
+        Err(error) => return continuation_error_response(error),
+    };
+    if let Err(error) = file.add(edge.clone()) {
+        return continuation_error_response(error);
+    }
+    if preview {
+        return Response::json(
+            200,
+            &json!({
+                "preview": {
+                    "kind": edge.kind.id(), "relation": edge.relation.id(),
+                    "from": edge.from, "to": edge.to, "series": edge.series, "note": edge.note,
+                },
+                "notice": continuation::NO_CAUSATION_NOTICE,
+            }),
+        );
+    }
+    if let Err(response) = write_continuations(&path, &file) {
+        return response;
+    }
+    let build = feedback_build_json(&state.rebuild_locked(&mut status));
+    eprintln!("admin: continuation {} linked", edge.id);
+    Response::json(
+        200,
+        &json!({ "linked": true, "id": edge.id, "build": build }),
+    )
+}
+
+/// `POST engagement/continuations/unlink`: take one link off both pages.
+fn continuations_unlink(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    let body = match feedback_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let Some(link) = body["id"].as_str().map(str::to_string) else {
+        return Response::error(422, "Name the link");
+    };
+    let sources = match inbox_sources(state) {
+        Ok(sources) => sources,
+        Err(response) => return response,
+    };
+    if !retention_admin(&sources, session) {
+        return continuation_denied();
+    }
+    let mut status = lock(&state.build);
+    let _transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let path = match continuations_path(state) {
+        Ok(path) => path,
+        Err(response) => return response,
+    };
+    let mut file = match load_continuations(&path) {
+        Ok(file) => file,
+        Err(response) => return response,
+    };
+    if !file.remove(&link) {
+        return Response::error(404, "No such link");
+    }
+    if let Err(response) = write_continuations(&path, &file) {
+        return response;
+    }
+    let build = feedback_build_json(&state.rebuild_locked(&mut status));
+    Response::json(200, &json!({ "unlinked": true, "build": build }))
+}
+
+/// `POST engagement/continuations/sweep`: drop every link whose submission the
+/// hosted service says is no longer approved, such as one its reader withdrew.
+/// A submission the hosted service could not be asked about is kept.
+fn continuations_sweep(state: &AppState, session: &auth::Session) -> Response {
+    let sources = match inbox_sources(state) {
+        Ok(sources) => sources,
+        Err(response) => return response,
+    };
+    if !retention_admin(&sources, session) {
+        return continuation_denied();
+    }
+    let path = match continuations_path(state) {
+        Ok(path) => path,
+        Err(response) => return response,
+    };
+    let origins: std::collections::BTreeSet<String> = match load_continuations(&path) {
+        Ok(file) => file.items.iter().map(|edge| edge.origin.clone()).collect(),
+        Err(response) => return response,
+    };
+    let mut gone = Vec::new();
+    for origin in origins {
+        match hosted_inbox_lookup(state, moderation_inbox::Source::Feedback, &origin) {
+            Ok(Some((_, _, item))) if item.state == ModerationState::Approved => {}
+            Ok(_) => gone.push(origin),
+            Err(_) => {}
+        }
+    }
+    let mut dropped = 0;
+    let mut build = Json::Null;
+    for origin in &gone {
+        let (count, rebuilt) = forget_continuations(state, origin);
+        dropped += count;
+        if let Some(rebuilt) = rebuilt {
+            build = rebuilt;
+        }
+    }
+    Response::json(200, &json!({ "dropped": dropped, "build": build }))
+}
+
+/// Drop every link of a submission that is removed, withdrawn or deleted, and
+/// rebuild when any went (ADR 0403). Returns how many went and the build. A
+/// file that cannot be read or written is reported on stderr and leaves the
+/// moderation decision as it was; the sweep route finishes the job.
+fn forget_continuations(state: &AppState, origin: &str) -> (usize, Option<Json>) {
+    let Ok(path) = continuations_path(state) else {
+        return (0, None);
+    };
+    if !path.exists() {
+        return (0, None);
+    }
+    let mut status = lock(&state.build);
+    let Ok(_transaction) = content_transaction(state) else {
+        return (0, None);
+    };
+    let mut file = match load_continuations(&path) {
+        Ok(file) => file,
+        Err(_) => {
+            eprintln!("admin: continuations.json could not be read to drop the links of {origin}");
+            return (0, None);
+        }
+    };
+    let count = file.forget_origin(origin);
+    if count == 0 {
+        return (0, None);
+    }
+    if write_continuations(&path, &file).is_err() {
+        eprintln!("admin: continuations.json could not be written to drop the links of {origin}");
+        return (0, None);
+    }
+    let build = feedback_build_json(&state.rebuild_locked(&mut status));
+    (count, Some(build))
 }
 
 // ---- Suggestions for future work (RD13)
@@ -24515,7 +24975,7 @@ What I read:
         fs::write(&path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
     }
 
-    fn feedback_routes() -> [(&'static str, &'static str); 25] {
+    fn feedback_routes() -> [(&'static str, &'static str); 30] {
         [
             ("POST", "/admin/api/engagement/suggestions/export"),
             ("POST", "/admin/api/engagement/suggestions/link"),
@@ -24529,6 +24989,11 @@ What I read:
             ("POST", "/admin/api/engagement/community/feature"),
             ("POST", "/admin/api/engagement/community/note"),
             ("POST", "/admin/api/engagement/community/unfeature"),
+            ("GET", "/admin/api/engagement/continuations"),
+            ("POST", "/admin/api/engagement/continuations/preview"),
+            ("POST", "/admin/api/engagement/continuations/link"),
+            ("POST", "/admin/api/engagement/continuations/unlink"),
+            ("POST", "/admin/api/engagement/continuations/sweep"),
             ("POST", "/admin/api/engagement/third-perspectives/publish"),
             ("POST", "/admin/api/engagement/third-perspectives/unpublish"),
             ("GET", "/admin/api/engagement/moderation"),

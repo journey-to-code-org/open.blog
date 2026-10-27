@@ -2046,6 +2046,19 @@ impl<'a> Renderer<'a> {
         body.push_str(&crate::community_feature::render_section(
             post.community_features(),
         ));
+        // Where earlier questions went and what this post continues: plain
+        // links on the canonical page, never a count or a form (ADR 0400).
+        let continued = post.continuations();
+        body.push_str(&crate::continuation::render_section(
+            crate::continuation::Direction::Later,
+            &continued.later,
+            &continued.titles,
+        ));
+        body.push_str(&crate::continuation::render_section(
+            crate::continuation::Direction::Earlier,
+            &continued.earlier,
+            &continued.titles,
+        ));
         let third_perspective = self.third_perspective(post);
         if let Some(region) = &third_perspective {
             body.push_str(region);
@@ -4168,6 +4181,7 @@ mod tests {
                 reader_feedback: None,
                 third_perspectives: None,
                 community_features: None,
+                continuations: None,
             },
             LoadOptions::default(),
         )

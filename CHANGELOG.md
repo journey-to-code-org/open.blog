@@ -5,7 +5,7 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
-- Continuations (core only, nothing renders them yet): a typed `continuations.json` model that links an approved question, reflection or source suggestion to the later work that takes it up, with ordinary links as the whole baseline, notes that cannot claim cause, endorsement or popularity, edges that disappear when a submission is removed, and optional update subscriptions that are off by default, need explicit consent and erase the address when you unsubscribe.
+- Continuation links: a canonical page now shows "Where this question went" and, on the later work, "Earlier questions this continues" as plain links that work without JavaScript, built from `continuations.json`. Admin links an approved reflection, question or source suggestion to a later published work, previews it, removes it, and drops the links of a removed or withdrawn submission. A note cannot claim cause, endorsement or popularity. Update subscriptions are not part of this change.
 - `<ob-search>` accepts a `no-history` attribute that stops it from writing `?q=` to the page address,
   for a search box that lives in a dialog or panel on another page.
 
