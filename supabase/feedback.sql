@@ -59,7 +59,7 @@ create table if not exists public.openblog_feedback (
   -- The reason code of the last rejection or removal; never free text.
   moderation_reason text check (moderation_reason ~ '^[a-z][a-z-]{0,31}$'),
   constraint openblog_feedback_passage_complete check (
-    (revision is null and target is null)
+    (revision is null and target is null and (work is null or kind = 'future-suggestion'))
     or (work is not null and revision is not null and target is not null)
   ),
   constraint openblog_feedback_consent_needs_name check (reader_name is not null or not publish_name),
@@ -516,14 +516,17 @@ grant execute on function public.openblog_record_feedback_decision(text, uuid, i
 -- Suggestions for future work (ADR 0192), used only once
 -- OPENBLOG_SUGGESTIONS_ENABLED is set. A suggestion is one row with kind
 -- `future-suggestion`: the page it was sent from in `work`, and no passage
--- revision or target, which the check above used to refuse. This loosens the
--- check and nothing else: every row that satisfied the old one satisfies
--- the new one, so no stored row changes and nothing is rewritten. Dropping
+-- revision or target, which the check above used to refuse. Only that kind
+-- may have a page without a passage; every other kind still has all three
+-- or none. This loosens the check for that one kind and nothing else: every
+-- row that satisfied the old one (all three null, or all three set, of any
+-- kind) satisfies the new one, so no stored row changes and nothing is
+-- rewritten. Dropping
 -- and adding it again is safe to repeat; to restore the old check, run
 -- future-suggestions-rollback.sql, which refuses while such a row exists.
 alter table public.openblog_feedback drop constraint if exists openblog_feedback_passage_complete;
 alter table public.openblog_feedback add constraint openblog_feedback_passage_complete check (
-  (revision is null and target is null)
+  (revision is null and target is null and (work is null or kind = 'future-suggestion'))
   or (work is not null and revision is not null and target is not null)
 );
 

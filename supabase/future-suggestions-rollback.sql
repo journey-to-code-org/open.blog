@@ -21,6 +21,19 @@
 -- (an audit event of a deleted row blocks the delete; delete the events of
 -- those rows from public.openblog_feedback_events first). Comments, passage
 -- feedback, Third Perspectives and every other table are untouched.
+--
+-- protection.sql's `openblog_feedback_events_keep_recent` trigger refuses to
+-- delete an audit event recorded less than a day ago (it raises
+-- check_violation). If you must remove events of suggestions received in the
+-- last day, wait until they are a day old, then delete them; do not drop the
+-- trigger to get round it, which would remove the protection for every other
+-- event. Until the events and rows are gone, this file refuses and changes
+-- nothing.
+--
+-- Running feedback.sql again, for any reason, loosens the check again: it
+-- drops and re-adds openblog_feedback_passage_complete in its loosened form.
+-- Run this file after the last time you run feedback.sql, and run it again if
+-- you ever run feedback.sql afterwards.
 
 begin;
 
