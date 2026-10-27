@@ -346,7 +346,9 @@ other way to take part is a participation kind, off until you switch it on in `p
 ```
 
 - `kinds` takes `question`, `source-suggestion`, `correction-suggestion`,
-  `alternative-interpretation`, `third-perspective`, `author-response` and `abuse-report`. Each is
+  `alternative-interpretation`, `third-perspective`, `author-response`, `abuse-report` and
+  `future-suggestion` (readers' questions and sources for future work, private to the editors;
+  [ADR 0152](adr/0152-a-future-suggestion-is-one-more-participation-kind-whose-approval-publishes-nothing.md)). Each is
   `off` (the default: front matter cannot turn it on), `hidden`, `locked` or `open` (switched on,
   and the mode of posts that do not name it), or `follow-comments` (each post's mode is its
   `comments:` setting). `abuse-report` is `off` or `open` for the whole site. A post chooses its
@@ -355,12 +357,28 @@ other way to take part is a participation kind, off until you switch it on in `p
   ever e-mailed to readers. Nothing is accepted without hosted engagement and an endpoint.
 - `retention` (days, 1 to 3650): unmoderated items expire after `pendingDays`, unanswered
   clarification requests after `clarificationDays`, the text of rejected and removed items and of
-  upheld abuse reports is purged after `closedDays`, and the private moderation record after `auditDays`, which must be
+  upheld abuse reports is purged after `closedDays` (an accepted suggestion for future work is kept,
+  but its private contact and unshown name are cleared after `closedDays`), and the private
+  moderation record after `auditDays`, which must be
   at least `closedDays`. Without `retention` these defaults apply to every kind except comments:
   hosted comments are kept as they always were, never expired or purged. Writing `retention`
   yourself, even as `"retention": {}` for the defaults, applies it to comments too.
 - Once a kind beyond comments is switched on, builds also write `openblog-participation.json`,
   the public map of each post's open and locked kinds that the hosted function checks.
+- `future-suggestion` adds a "Suggest something for future work" region to each post where it is
+  `open`: a reader writes a question or suggests a text, video, audio or other source in their own
+  words, with an optional public link, source details, the article it is about, a name they may be
+  thanked by and an address they agree to be contacted at. It goes to the editors' private queue and
+  never to a page; accepting one means only that the editors are interested. With hosted engagement
+  the form sends through the function only when `engagement.receipts` is on and the function takes
+  suggestions (`OPENBLOG_SUGGESTIONS_ENABLED`, see [the function's guide](../netlify/functions/README.md#suggestions-for-future-work-optional));
+  otherwise, and whenever the service cannot take it, the reader gets the suggestion to copy and
+  send to `engagement.feedbackContact`. A site with no hosted service shows only that contact (and
+  nothing when none is set). Editors read, decide and, for an accepted one, copy it into a private
+  research note in the **Moderation inbox**; its contact and unshown name are cleared after
+  `retention.closedDays`
+  ([ADRs 0158](adr/0158-suggestions-are-sent-through-the-one-feedback-route-behind-their-own-opt-in-with-the-page-as-work.md)
+  to [0160](adr/0160-editors-read-suggestions-in-the-one-inbox-and-copying-one-into-a-research-note-is-an-explicit-unverified-export.md)).
 - `third-perspective` adds an "Offer a Third Perspective" region to each post where it is `open`:
   a reader writes their own reflection on the whole work or one section, may choose a prompt
   (never a score or a vote), and decides whether it may be published, whether their name may be

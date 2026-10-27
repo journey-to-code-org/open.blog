@@ -31,6 +31,9 @@ import {
   parseModerationRoute,
   perspectiveLines,
   retentionSummaryLines,
+  suggestionLines,
+  linkRequest,
+  libraryCandidateLines,
 } from "../../web/admin/admin.js";
 
 const transitions = JSON.parse(readFileSync(new URL("../fixtures/participation-transitions.json", import.meta.url), "utf8"));
@@ -39,7 +42,7 @@ const admin = readFileSync(new URL("../../web/admin/admin.js", import.meta.url),
 test("the inbox lists every state of the one state machine, pending first", () => {
   assert.deepEqual([...MODERATION_STATES].sort(), [...new Set(transitions.cases.map((entry) => entry.state))].sort());
   assert.equal(MODERATION_STATES[0], "pending");
-  assert.deepEqual(MODERATION_KINDS.map(([id]) => id), ["", "comment", "question", "source-suggestion", "correction-suggestion", "alternative-interpretation", "third-perspective", "author-response", "abuse-report"]);
+  assert.deepEqual(MODERATION_KINDS.map(([id]) => id), ["", "comment", "question", "source-suggestion", "correction-suggestion", "alternative-interpretation", "third-perspective", "future-suggestion", "author-response", "abuse-report"]);
 });
 
 test("addresses keep the state and kind, and anything unknown falls back to the defaults", () => {
@@ -353,4 +356,95 @@ test("an answer's card and the audit say when it is on the post and when it must
   assert.match(lines[1], /^Approving publishes it on the post, after that author’s section and under the reader’s reflection, labelled as the author’s response\./);
   assert.match(lines[1], /comes off the post whenever the reflection does or the author withdraws it/);
   assert.match(admin, /author-responses/);
+});
+
+// ---- Suggestions for future work (RD13)
+
+const suggestionCard = {
+  typeLabel: "Text to read", url: "https://example.org/letters",
+  hints: { title: "The survey letters", creators: ["A. Surveyor"], year: "c. 1850", publisher: "Admiralty", identifiers: [{ scheme: "doi", value: "10.1234/abc" }] },
+  about: { series: "tides" }, missing: [], notice: "Accepted means the editors are interested in exploring this. It does not mean they agree with it, have checked it, or have permission to use it.",
+  standing: { id: "interested", label: "Editors are interested" },
+};
+
+test("a suggestion is worded as the reader's own unchecked statements, with the link left for the editor to open", () => {
+  const lines = suggestionLines(suggestionCard);
+  assert.deepEqual(lines[0], { text: "Kind: Text to read." });
+  assert.deepEqual(lines[1], { label: "The reader’s link", link: "https://example.org/letters" });
+  const text = lines.map((line) => line.text ?? "").join("\n");
+  assert.match(text, /Title \(the reader’s words\): The survey letters/);
+  assert.match(text, /DOI \(not checked\): 10\.1234\/abc/);
+  assert.match(text, /About the series: tides/);
+  assert.match(text, /Stands as: Editors are interested\./);
+  assert.ok(!/verified|true|endorse|approved/i.test(text.replace(/not checked/g, "")), text);
+  assert.deepEqual(suggestionLines(null), []);
+  assert.match(suggestionLines({ ...suggestionCard, missing: ["a creator"] }).map((line) => line.text ?? "").join(" "), /Still to find: a creator\./);
+});
+
+test("a suggestion's readers, outcomes and mismatches never speak of publication", () => {
+  assert.match(moderationReaderLine({ name: "Ada", publishName: true }, "feedback", "future-suggestion"), /agreed to be credited by this name for this text/);
+  assert.match(moderationReaderLine({ name: "Ada", publishName: false }, "feedback", "future-suggestion"), /name stays private/);
+  assert.match(moderationReaderLine({ private: true }, "feedback", "future-suggestion"), /only the site Admin can see/);
+  const item = { source: "feedback", kind: "future-suggestion", suggestion: suggestionCard, status: "approved", published: false, post: { title: "Tides" }, work: "/posts/tides/" };
+  assert.match(moderationOutcome(item, "approve", {}), /^Accepted into the editors’ list\. Nothing was published or e-mailed\./);
+  assert.match(moderationOutcome(item, "approve", {}), /not that you agree with it, have checked it or may use it/);
+  assert.match(moderationOutcome(item, "reject", {}), /^Not taken forward\. Nothing was published/);
+  assert.match(moderationOutcome(item, "remove", {}), /^Closed\. It was never shown/);
+  // Approved and "not published" is not a mismatch to repair, whatever the file says.
+  assert.equal(feedbackPublicationMismatch(item), null);
+  assert.equal(feedbackPublicationMismatch({ ...item, published: true, status: "removed" }), null);
+  // Every other kind keeps its wording.
+  assert.equal(feedbackPublicationMismatch({ source: "feedback", kind: "question", status: "approved", published: false }).action, "publish");
+});
+
+test("retention's summary words the clearing of a kept suggestion's private contact and name", () => {
+  const report = { summary: [{ step: "scrub-identity", kind: "future-suggestion", kindLabel: "Suggestion for future work", count: 2 }], audit: {}, periods: { comments: true, auditDays: 365 } };
+  assert.deepEqual(retentionSummaryLines(report), ["2 suggestion for future work items would have their private contact and unshown name cleared, and nothing else."]);
+  assert.match(admin, /result\.scrubbed/);
+  assert.match(admin, /contact and private name cleared/);
+});
+
+test("the export is the author's own explicit action and sends only the item and its version", () => {
+  assert.match(admin, /"POST", "engagement\/suggestions\/export", \{ json: \{ id: item\.id, version: item\.version \} \}/);
+  assert.match(admin, /item\.suggestion\?\.export/);
+  assert.match(admin, /Nothing was published, fetched or e-mailed, and the suggestion is unchanged\./);
+});
+
+test("a suggestion's outcome and links read as the author's own records, never opened, counted or ranked", () => {
+  const linked = {
+    ...suggestionCard,
+    standing: { id: "converted", label: "Linked to future work" },
+    outcome: { id: "converted", label: "Converted" },
+    conversions: [{ kind: "draft", id: "tide-tables", at: "2026-10-28T10:00:00Z", by: "mikey" }, { kind: "library-source", id: "survey-1850", at: "2026-10-29T10:00:00Z", by: "mikey" }],
+  };
+  const text = suggestionLines(linked).map((line) => line.text ?? "").join("\n");
+  assert.match(text, /Outcome: Converted\./);
+  assert.match(text, /Linked to the draft tide-tables, recorded 2026-10-28 by mikey\. Nothing opened or checked it\./);
+  assert.match(text, /Linked to the Source Library record survey-1850, recorded 2026-10-29/);
+  assert.ok(!/\b(rank|popular|votes?|most requested|trending|score)\b/i.test(text), text);
+  // Without an outcome or links the lines are as they were.
+  assert.ok(!suggestionLines(suggestionCard).some((line) => /Outcome|Linked/.test(line.text ?? "")));
+});
+
+test("a link request is read before anything is sent, and names the item as it was loaded", () => {
+  const item = { id: "00000000-0000-4000-8000-000000000001", version: 4 };
+  assert.deepEqual(linkRequest(item, "draft", "  tide-tables "), { ok: true, body: { id: item.id, version: 4, conversion: { kind: "draft", id: "tide-tables" } } });
+  assert.equal(linkRequest(item, "", "tides").ok, false);
+  assert.equal(linkRequest(item, "page", "tides").ok, false);
+  assert.equal(linkRequest(item, "series", "   ").ok, false);
+  assert.match(linkRequest(item, "series", "").message, /Name it/);
+});
+
+test("library hints are plain lines marked unverified, with nothing the reader did not say about the source", () => {
+  assert.deepEqual(libraryCandidateLines(null), []);
+  const lines = libraryCandidateLines({ type: "video", url: "https://example.org/watch", title: "The survey", creators: ["A. Surveyor"], year: "1850", publisher: "Admiralty", identifiers: [{ scheme: "doi", value: "10.1234/abc" }], unverified: true });
+  assert.match(lines[0], /Unverified/);
+  assert.deepEqual(lines.slice(1), ["Link: https://example.org/watch", "Title: The survey", "Creators: A. Surveyor", "Year: 1850", "Publisher: Admiralty", "DOI: 10.1234/abc"]);
+  assert.deepEqual(libraryCandidateLines({ type: "text", unverified: true }).length, 1);
+});
+
+test("the role line's description sits directly above the function it describes", () => {
+  const source = readFileSync(new URL("../../web/admin/admin.js", import.meta.url), "utf8");
+  assert.match(source, /\/\*\* What the signed-in account can do with an item, from the role the server resolved\. \*\/\nexport function moderationRoleLine\(/);
+  assert.doesNotMatch(source, /resolved\. \*\/\nfunction conversionKindName/);
 });

@@ -25,8 +25,20 @@ const KIND_RULES = Object.freeze({
   "third-perspective": { publishable: true, clarification: true },
   "author-response": { publishable: true, clarification: false },
   "abuse-report": { publishable: false, clarification: false },
+  // Approval admits it to the editors' private queue; it is never public (ADR 0152).
+  "future-suggestion": { publishable: false, editorial: true, clarification: true },
 });
 export const PARTICIPATION_KINDS = Object.freeze(Object.keys(KIND_RULES));
+
+/**
+ * Whether an approved item of `kind` may ever be shown to readers: `KindRules::publishable`. An
+ * editorial kind (a suggestion for future work) is approved into the editors' private queue and an
+ * abuse report is never public, so neither is, whatever their state; a kind this code does not know
+ * is not. Anything that says an item is "published" or "shown" must ask this first.
+ */
+export function isPublishable(kind) {
+  return Object.hasOwn(KIND_RULES, kind) && KIND_RULES[kind].publishable === true;
+}
 
 const DECLINE = Object.freeze(["spam", "abusive", "personal-data", "off-topic", "duplicate", "rights", "other"]);
 const DISMISS_REPORT = Object.freeze(["no-action", "duplicate", "spam", "other"]);
@@ -54,7 +66,7 @@ function applies(kind, action) {
   if (action === "approve") return kind !== "abuse-report";
   if (action === "uphold-report") return kind === "abuse-report";
   if (action === "request-clarification" || action === "clarify") return rules.clarification;
-  if (action === "remove") return rules.publishable;
+  if (action === "remove") return rules.publishable || rules.editorial === true;
   return true;
 }
 
@@ -184,7 +196,11 @@ export function timeKey(value) {
  * The step one retention run owes an item, or null (ADR 0104): `item` is `{kind, state, since,
  * retained}`, `cutoffs` the run's `{pendingUntil, clarificationUntil, closedUntil, comments}`. An
  * item is due when its state began at or before its step's time. Comments are covered only when
- * the site set retention itself; an approved item is kept while it can be published.
+ * the site set retention itself; an approved item is kept while it can be published. An approved
+ * editorial item (a suggestion for future work) is kept too, but owes `scrub-identity`, the
+ * clearing of its private contact and unpublished name, once the closed-item period has passed
+ * since its approval (ADR 0155), or at once when `item.linked` says an author linked it to future
+ * work; `item.identityHeld === false` says it holds none, so it owes nothing (a fixture row, which says nothing of it, is due as the policy decides).
  */
 export function retentionStep(item, cutoffs) {
   const kind = Object.hasOwn(KIND_RULES, item?.kind) ? item.kind : null;
@@ -197,6 +213,10 @@ export function retentionStep(item, cutoffs) {
   if (item.state === "clarification") return due(cutoffs.clarificationUntil) ? "expire" : null;
   if (item.state === "withdrawn") return retained ? "purge-content" : null;
   if (item.state === "approved" && KIND_RULES[kind].publishable) return null;
+  if (item.state === "approved" && KIND_RULES[kind].editorial === true) {
+    // One an author linked to future work (`item.linked`) owes the clearing at once (ADR 0163).
+    return retained && item.identityHeld !== false && (item.linked === true || due(cutoffs.closedUntil)) ? "scrub-identity" : null;
+  }
   return retained && due(cutoffs.closedUntil) ? "purge-content" : null;
 }
 
@@ -217,7 +237,7 @@ export function planErasure(item, role, expectedVersion) {
   let withdraw = false;
   if (role === "submitter") {
     withdraw = ["pending", "clarification", "approved"].includes(item.state);
-  } else if (!["rejected", "removed", "withdrawn"].includes(item.state) && !(item.state === "approved" && !KIND_RULES[kind].publishable)) {
+  } else if (!["rejected", "removed", "withdrawn"].includes(item.state) && !(item.state === "approved" && !KIND_RULES[kind].publishable && KIND_RULES[kind].editorial !== true)) {
     return refuse("notAllowed");
   }
   return { ok: true, withdraw, to: withdraw ? "withdrawn" : item.state, version: item.version + (withdraw ? 2 : 1) };

@@ -2,9 +2,11 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { FEEDBACK_KINDS, canonicalTime, readFeedbackSubmissionJson, readSubmissionJson, receiveFeedback } from "../../web/components/passage-feedback.js";
 import { AUTHOR_RESPONSE_KIND, PARENT_UNAVAILABLE, checkAnswerParent, mayDecideResponse, parentFactsOfRow, readAuthorResponseRequest, receiveAuthorResponse } from "../lib/author-response.mjs";
 import { EVIDENCE_KINDS, decisionsOf, emptyLog, planDecision } from "../lib/correction-decisions.mjs";
+import { FUTURE_SUGGESTION_KIND, holdsIdentity, planConversion, planCredit, readClarification, readConversions, readerStanding, readSuggestionSubmissionJson, receiveSuggestion, scrubbedIdentity, suggestionCredit } from "../../web/components/future-suggestion.js";
+import { isWorkPath } from "../../web/components/passage-feedback.js";
 import { MODERATION_STATES, auditActor, planModeration } from "../lib/feedback-moderation.mjs";
 import {
-  INBOX_ACTIONS, MODERATOR_ROLES, PARTICIPATION_KINDS, REPORT_GROUNDS, commentState, commentStateFilter, issuesReceipts, legacyCommentStatus,
+  INBOX_ACTIONS, MODERATOR_ROLES, PARTICIPATION_KINDS, REPORT_GROUNDS, commentState, commentStateFilter, isPublishable, issuesReceipts, legacyCommentStatus,
   legacySupports, planErasure, planTransition, planUphold, retentionStep, timeKey,
 } from "../lib/participation-moderation.mjs";
 import {
@@ -177,6 +179,12 @@ const inboxItem = (source, row, targets) => {
 // reader sees only the prompt category they chose, and whether they may be asked, as `consent`.
 const receiptDetails = (row) => {
   const details = row.details || {};
+  // The links an author recorded name their account and their own drafts, series and sources: the
+  // reader sees none of them, only the standing the receipt derives from them (ADR 0163).
+  if (row.kind === FUTURE_SUGGESTION_KIND) {
+    const { conversions, creditRevision, ...own } = details;
+    return own;
+  }
   if (row.kind !== THIRD_PERSPECTIVE_KIND) return details;
   return typeof details.category === "string" ? { category: details.category } : {};
 };
@@ -210,10 +218,18 @@ const receiptViewOf = (row, hidden = false) => {
     clarification: asked ? { reason: row.moderation_reason ?? null } : null,
     consent: row.clarification_consent === true,
     // A Third Perspective is published only while its consent still allows it and its kind is not
-    // hidden (ADR 0115). Without the consent column that is unknown, null, never "not shown".
-    published: row.kind === THIRD_PERSPECTIVE_KIND ? (hidden ? false : perspectivePublic(row)) : row.status === "approved" && row.approved_revision === revision,
+    // hidden (ADR 0115). Without the consent column that is unknown, null, never "not shown". A kind
+    // that is never public (an approved suggestion for future work is only in the editors' queue)
+    // is never published, whatever its state.
+    published: !isPublishable(row.kind) ? false : row.kind === THIRD_PERSPECTIVE_KIND ? (hidden ? false : perspectivePublic(row)) : row.status === "approved" && row.approved_revision === revision,
     purged,
     ...(purged ? {} : { body: row.body, details: receiptDetails(row) }),
+    // Where a suggestion stands, honestly and in the words of ACCEPTANCE_NOTICE: a stage and one
+    // sentence, never a rank, a count, a promise or what it was linked to (ADR 0163).
+    ...(row.kind === FUTURE_SUGGESTION_KIND && !purged ? { standing: readerStanding(row.status, readConversions(row.details) ?? []) } : {}),
+    // Whether a reader who gave a name has agreed to be credited by it for this text as it stands
+    // (ADR 0167); null when they gave none, so there is nothing to agree to.
+    ...(row.kind === FUTURE_SUGGESTION_KIND && !purged ? { credit: row.reader_name ? { agreed: suggestionCredit(row) !== null } : null } : {}),
   };
 };
 
@@ -225,6 +241,7 @@ const INBOX_UNAVAILABLE = "Run supabase/moderation.sql (and supabase/feedback.sq
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const FEEDBACK_UNAVAILABLE = "Passage feedback is not available on this site. The page itself is unchanged; you can copy your note and send it to the author instead.";
 const PERSPECTIVE_UNAVAILABLE = "This site does not take Third Perspectives through the form. The page itself is unchanged; you can copy your reflection and send it to the author instead.";
+const SUGGESTION_UNAVAILABLE = "This site does not take suggestions through the form. The page itself is unchanged; you can copy your suggestion and send it to the author instead.";
 const PERSPECTIVE_INBOX_UNAVAILABLE = "Run supabase/feedback.sql again and set OPENBLOG_THIRD_PERSPECTIVES_ENABLED=true to approve Third Perspectives, so each approval records the consent it covers.";
 // Author responses (ADR 0132) need no SQL: they are rows of the Third Perspectives' table. Only this opt-in.
 const ANSWER_UNAVAILABLE = "Set OPENBLOG_AUTHOR_RESPONSES_ENABLED=true, on top of Third Perspectives, for authors to answer them.";
@@ -274,6 +291,10 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
     values.thirdPerspectives = values.protection && values.feedback && String(env.OPENBLOG_THIRD_PERSPECTIVES_ENABLED || "").trim() === "true";
     // Author responses (ADR 0132): the same store and inbox, opt in on top of Third Perspectives.
     values.authorResponses = values.thirdPerspectives && String(env.OPENBLOG_AUTHOR_RESPONSES_ENABLED || "").trim() === "true";
+    // Suggestions for future work (ADR 0154): set only after running supabase/feedback.sql again,
+    // which loosens the one check that kept a row about a page from having no passage, on top of
+    // passage feedback and protection, because every hosted suggestion needs its reader's receipt.
+    values.suggestions = values.protection && values.feedback && String(env.OPENBLOG_SUGGESTIONS_ENABLED || "").trim() === "true";
     const required = [values.url, values.key, values.siteId, values.origin, values.adminKey, values.salt];
     if (!required.every(Boolean) || !/^\/(?:[^\\?#\u0000-\u001F]*\/)?$/.test(values.basePath) || values.basePath.includes("//") || values.basePath.split("/").some((segment) => segment === "." || segment === "..")) return null;
     return values;
@@ -381,6 +402,11 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         `and(status.eq.clarification,${since(cutoffs.clarificationUntil)})`,
         `and(status.in.(rejected,removed),purged_at.is.null,${since(cutoffs.closedUntil)})`,
         "and(status.eq.withdrawn,purged_at.is.null)",
+        // An approved suggestion is kept, but its private contact and unpublished name are not
+        // (ADR 0155): only one that holds some is a candidate, or the batch could fill with
+        // suggestions already cleared.
+        // One an author linked to future work owes it at once, whatever its age (ADR 0163).
+        `and(status.eq.approved,kind.eq.${FUTURE_SUGGESTION_KIND},purged_at.is.null,or(${since(cutoffs.closedUntil)},details->conversions.not.is.null),or(details->contact.not.is.null,and(reader_name.not.is.null,publish_name.eq.false)))`,
       ],
       report: [
         `and(status.eq.pending,${since(cutoffs.pendingUntil)})`,
@@ -474,6 +500,8 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
       retained,
       parent: source === "report" ? String(row.target_id).toLowerCase() : null,
       since: row.moderated_at || row[rowTimeColumn(source)],
+      // A kept suggestion owes retention only the clearing of what is private to it (ADR 0155).
+      ...(source === "feedback" && row.kind === FUTURE_SUGGESTION_KIND ? { identityHeld: holdsIdentity(row), linked: (readConversions(row.details) ?? []).length > 0 } : {}),
     };
   };
   // Apply one planned change, only while the row still has the state and
@@ -701,6 +729,40 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
           }));
           return json(202, { id: rows[0]?.id, status: "pending", receivedAt: row.received_at, receipt }, corsOrigin);
         }
+        if (submissionKind(text) === FUTURE_SUGGESTION_KIND) {
+          // A suggestion for future work (ADR 0154): the same route and store, read by its own
+          // contract. The page it was sent from is the request's `work`, not part of the reader's
+          // submission, and must be one the site publishes with the kind open. Every hosted
+          // suggestion has a receipt, so the reader can always withdraw it.
+          if (!settings.suggestions) return json(404, { error: SUGGESTION_UNAVAILABLE, code: "unavailable" }, corsOrigin);
+          const read = readSuggestionSubmissionJson(text);
+          if (!read.ok) {
+            const { code, message } = read.error;
+            return json(code === "tooLarge" ? 413 : 422, { error: message, code }, corsOrigin);
+          }
+          const submission = read.submission;
+          const work = String(query.work ?? "");
+          if (!isWorkPath(work)) return json(422, { error: "Send the page you are suggesting from as `work`, such as /posts/tides/.", code: "invalidWork" }, corsOrigin);
+          const policy = await feedbackPolicy(settings, work, FUTURE_SUGGESTION_KIND);
+          if (policy !== "open") {
+            return json(403, policy === "locked"
+              ? { error: "This site is not taking suggestions now.", code: "closed" }
+              : { error: SUGGESTION_UNAVAILABLE, code: "unavailable" }, corsOrigin);
+          }
+          if (!await consumeQuota(settings, event, "suggestions", 5, 500)) {
+            return json(429, { error: "Too many suggestions from here. Please try again later.", code: "rateLimited" }, corsOrigin);
+          }
+          const claim = await firstTimeThisHour(settings, event, "suggestions", [work, JSON.stringify(submission)]);
+          if (!claim) return json(409, { error: "This suggestion was already sent and is waiting for review.", code: "duplicate" }, corsOrigin);
+          const receipt = randomBytes(32).toString("base64url");
+          const { row } = receiveSuggestion(submission, work, canonicalTime(now()));
+          const rows = await storedOnce(settings, claim, () => database(settings, "/rest/v1/openblog_feedback?select=id,status,received_at", {
+            method: "POST",
+            headers: { Prefer: "return=representation" },
+            body: JSON.stringify({ site_id: settings.siteId, ...row, status: "pending", receipt_hash: receiptDigest(receipt) }),
+          }));
+          return json(202, { id: rows[0]?.id, status: "pending", receivedAt: row.received_at, receipt }, corsOrigin);
+        }
         // Bounds and every rule apply before anything else, an evidence block's too (ADR 0116);
         // nothing here says whether an id the reader named exists.
         const read = readSubmissionJson(text, { evidence: settings.corrections });
@@ -822,6 +884,22 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
             body: JSON.stringify({ clarification_consent: body.consent }),
           }));
         }
+        if (action === "credit") {
+          // A reader's own change to whether the editors may credit them by the name they gave
+          // (ADR 0167): for this text as it stands, or withdrawn. It never publishes anything.
+          // Agreeing binds the agreement to the current revision, so a later clarification needs
+          // fresh agreement; the version is raised so an editor acting on the earlier view is
+          // refused instead of acting on a credit that has changed.
+          if (row.kind !== FUTURE_SUGGESTION_KIND || !facts.retained) return json(422, { error: "You can change this only on a suggestion that is still kept.", code: "notAllowed" }, corsOrigin);
+          const plan = planCredit(row, body.consent);
+          if (!plan.ok) return json(422, { error: plan.code === "consentWithoutName" ? "You gave no name to be credited by." : "Choose whether the editors may credit you.", code: plan.code }, corsOrigin);
+          const params = new URLSearchParams({ site_id: `eq.${settings.siteId}`, id: `eq.${row.id}`, receipt_hash: `eq.${receiptDigest(receipt)}`, version: `eq.${version}`, purged_at: "is.null", select: receiptColumns });
+          return answered(await database(settings, `/rest/v1/openblog_feedback?${params}`, {
+            method: "PATCH",
+            headers: { Prefer: "return=representation" },
+            body: JSON.stringify({ publish_name: plan.publish_name, details: plan.details, version: version + 1 }),
+          }));
+        }
         if (action === "clarify") {
           const plan = planTransition(facts, { action: "clarify", expectedVersion: version, role: "submitter" });
           if (!plan.ok) return json(plan.code === "stale" ? 409 : 422, { error: "Your note is not waiting for clarification.", code: plan.code, item: receiptView(row) }, corsOrigin);
@@ -836,6 +914,19 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
               body: JSON.stringify({
                 p_site_id: settings.siteId, p_id: row.id, p_expected_version: version, p_from: "clarification", p_to: "pending", p_action: "clarify",
                 p_reason: null, p_actor: READER_ACTOR, p_actor_role: "submitter", p_at: at, p_body: answer, p_details: { ...(row.details || {}), revisedAt: at },
+              }),
+            }));
+          }
+          if (row.kind === FUTURE_SUGGESTION_KIND) {
+            // A suggestion's answer replaces its text as the next revision under the rule its text
+            // met; its link, hints, page and contact stay as they are.
+            const answer = readClarification(body.body);
+            if (answer === null) return json(422, { error: "Write your answer in plain text of up to 2,000 characters.", code: "invalidBody" }, corsOrigin);
+            return answered(await database(settings, "/rest/v1/rpc/openblog_moderate_feedback_item", {
+              method: "POST",
+              body: JSON.stringify({
+                p_site_id: settings.siteId, p_id: row.id, p_expected_version: version, p_from: "clarification", p_to: "pending", p_action: "clarify",
+                p_reason: null, p_actor: READER_ACTOR, p_actor_role: "submitter", p_at: canonicalTime(now()), p_body: answer, p_details: row.details || {},
               }),
             }));
           }
@@ -854,7 +945,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
             }),
           }));
         }
-        return json(422, { error: "Choose to read, clarify, agree to be asked, or withdraw your note.", code: "invalid" }, corsOrigin);
+        return json(422, { error: "Choose to read, clarify, agree to be asked, change your credit, or withdraw your note.", code: "invalid" }, corsOrigin);
       }
       if (operation === "reports") {
         // An abuse report (ADR 0107): accepted only for an item that is
@@ -875,7 +966,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         const work = source === "comment" ? target.path : target.work;
         const shown = source === "comment"
           ? facts.state === "approved" && await commentPolicy(settings, work) !== "hidden"
-          : facts.state === "approved" && target.approved_revision === facts.revision && facts.clarificationAsked !== facts.revision
+          : isPublishable(facts.kind) && facts.state === "approved" && target.approved_revision === facts.revision && facts.clarificationAsked !== facts.revision
             && (facts.kind !== THIRD_PERSPECTIVE_KIND || perspectivePublic(target) !== false) && await feedbackPolicy(settings, work, facts.kind) !== "hidden";
         if (!facts.retained || !shown) return unavailable();
         // An answer is shown only under a Third Perspective shown now and about its own responder's
@@ -931,6 +1022,8 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         if (stored[0]?.kind === THIRD_PERSPECTIVE_KIND) return json(409, { error: "Third Perspectives are moderated through /admin/moderation.", code: "useModerationInbox" }, corsOrigin);
         // An author response is approved only under a shown parent and never by its own author.
         if (stored[0]?.kind === AUTHOR_RESPONSE_KIND) return json(409, { error: "Author responses are moderated through /admin/moderation.", code: "useModerationInbox" }, corsOrigin);
+        // A suggestion's decisions (and the clearing of its identity) are the inbox's: they carry a conversion and its audit.
+        if (stored[0]?.kind === FUTURE_SUGGESTION_KIND) return json(409, { error: "Suggestions for future work are moderated through /admin/moderation.", code: "useModerationInbox" }, corsOrigin);
         // With the inbox's schema the change goes through its function, so
         // the item's revisions and the audit event's kind, revision and role
         // are kept as the inbox keeps them (ADR 0106).
@@ -967,7 +1060,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
           const limit = Math.min(Math.max(Number.parseInt(query.limit, 10) || INBOX_PAGE, 1), 100);
           const sources = [];
           if (!kind || kind === "comment") sources.push("comment");
-          if (settings.feedback && (!kind || Object.hasOwn(FEEDBACK_KINDS, kind) || kind === THIRD_PERSPECTIVE_KIND || kind === AUTHOR_RESPONSE_KIND)) sources.push("feedback");
+          if (settings.feedback && (!kind || Object.hasOwn(FEEDBACK_KINDS, kind) || kind === THIRD_PERSPECTIVE_KIND || kind === AUTHOR_RESPONSE_KIND || kind === FUTURE_SUGGESTION_KIND)) sources.push("feedback");
           if (settings.protection && (!kind || kind === "abuse-report")) sources.push("report");
           // Each store's first `limit + 1` rows after the cursor; merged, the
           // first `limit` are this page's, oldest first.
@@ -989,8 +1082,10 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
           const version = body.expectedVersion;
           const role = body.actorRole === undefined ? "site-admin" : body.actorRole;
           const protectedAction = settings.protection && (body.action === "erase" || (body.action === "uphold-report" && source === "report"));
+          // Linking a suggestion to future work is not a moderation transition: the state is unchanged (ADR 0162).
+          const linkAction = body.action === "convert" && source === "feedback";
           if (!source || !UUID.test(id) || !Number.isInteger(version) || version < 1 || version > 2147483647 || !MODERATION_STATES.includes(body.from)
-            || !(INBOX_ACTIONS.includes(body.action) || protectedAction) || !MODERATOR_ROLES.includes(role)) {
+            || !(INBOX_ACTIONS.includes(body.action) || protectedAction || linkAction) || !MODERATOR_ROLES.includes(role)) {
             return json(422, { error: "Invalid moderation change.", code: "invalid" }, corsOrigin);
           }
           const row = await inboxRow(settings, source, id);
@@ -1006,6 +1101,43 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
             if (!current) return json(404, { error: "No such item.", code: "notFound" }, corsOrigin);
             return conflict(current);
           };
+          if (body.action === "convert") {
+            // An author's record that an accepted suggestion became, or is becoming, future work
+            // (ADR 0162): only the Admin's chosen role and the stored row decide, and the row is
+            // changed only while it still has the version and approval Admin saw. It creates,
+            // fetches and publishes nothing; the link is kept in the row's details, and the audit
+            // event holds neither the target nor anything the reader wrote.
+            if (row.kind !== FUTURE_SUGGESTION_KIND) return json(422, { error: "Only a suggestion for future work can be linked to future work.", code: "wrongKind" }, corsOrigin);
+            if (!settings.moderation) return json(422, { error: INBOX_UNAVAILABLE, code: "notAllowed" }, corsOrigin);
+            // The link is guarded on `purged_at`, a column only protection reads, and a suggestion is
+            // in the inbox only while suggestions are on: without either the write would fail at the
+            // store as a bad gateway, so say what to switch on instead.
+            if (!settings.suggestions || !settings.protection) return json(422, { error: "Linking a suggestion needs suggestions (OPENBLOG_SUGGESTIONS_ENABLED) and engagement protection (supabase/protection.sql and OPENBLOG_PROTECTION_ENABLED) both switched on.", code: "unavailable" }, corsOrigin);
+            const at = canonicalTime(now());
+            const actor = auditActor(body.actor);
+            const plan = planConversion(row, { role, kind: body.conversion?.kind, target: body.conversion?.id, actor, at });
+            if (!plan.ok) return plan.code === "denied" ? refused("denied") : json(422, { error: "This link is not allowed.", code: plan.code }, corsOrigin);
+            const params = new URLSearchParams({
+              site_id: `eq.${settings.siteId}`, id: `eq.${id}`, version: `eq.${facts.version}`, status: "eq.approved",
+              approved_revision: `eq.${facts.revision}`, kind: `eq.${FUTURE_SUGGESTION_KIND}`, purged_at: "is.null", select: FEEDBACK_PROTECTED_COLUMNS,
+            });
+            const rows = await database(settings, `/rest/v1/openblog_feedback?${params}`, {
+              method: "PATCH",
+              headers: { Prefer: "return=representation" },
+              body: JSON.stringify({ details: plan.details, version: facts.version + 1 }),
+            });
+            if (Array.isArray(rows) && rows.length === 1) {
+              await database(settings, "/rest/v1/openblog_feedback_events", {
+                method: "POST",
+                headers: { Prefer: "return=minimal" },
+                body: JSON.stringify({
+                  site_id: settings.siteId, feedback_id: id, action: "convert", from_status: "approved", to_status: "approved", reason: null,
+                  actor, at, version: facts.version + 1, kind: FUTURE_SUGGESTION_KIND, item_revision: facts.revision, actor_role: role,
+                }),
+              }).catch((error) => console.error("open.blog engagement: could not record a link event:", error.message));
+            }
+            return changed(rows);
+          }
           if (body.action === "erase") {
             // A deletion request taken by the site Admin (ADR 0107).
             const plan = planErasure(facts, role, version);
@@ -1238,10 +1370,10 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         }
         if (event.httpMethod === "POST") {
           const wanted = Array.isArray(body.items) ? body.items : null;
-          if (!wanted || wanted.length > RETENTION_BATCH || !wanted.every((item) => sources.includes(item?.source) && UUID.test(String(item.id || "")) && Number.isInteger(item.version) && ["expire", "purge-content"].includes(item.step))) {
+          if (!wanted || wanted.length > RETENTION_BATCH || !wanted.every((item) => sources.includes(item?.source) && UUID.test(String(item.id || "")) && Number.isInteger(item.version) && ["expire", "purge-content", "scrub-identity"].includes(item.step))) {
             return json(422, { error: "Send at most 200 items the dry run listed.", code: "invalid" }, corsOrigin);
           }
-          const done = { expired: 0, purged: 0, skipped: 0 };
+          const done = { expired: 0, purged: 0, scrubbed: 0, skipped: 0 };
           const at = canonicalTime(now());
           for (const item of wanted) {
             const id = String(item.id).toLowerCase();
@@ -1255,6 +1387,32 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
             if (item.step === "expire") {
               const change = { action: "expire", from: facts.state, to: "rejected", reason: "expired" };
               rows = await applyInboxChange(settings, item.source, id, change, facts.version, RETENTION_ACTOR, "system");
+            } else if (item.step === "scrub-identity") {
+              // Clears the kept suggestion's contact and unpublished name and nothing else, only
+              // while it is still the approved suggestion the dry run listed, raising its version
+              // so no view from before can act on it (ADR 0155).
+              const cleared = scrubbedIdentity(row);
+              const params = new URLSearchParams({
+                site_id: `eq.${settings.siteId}`, id: `eq.${id}`, version: `eq.${facts.version}`, status: "eq.approved",
+                kind: `eq.${FUTURE_SUGGESTION_KIND}`, purged_at: "is.null", select: "id,version",
+              });
+              rows = await database(settings, `/rest/v1/openblog_feedback?${params}`, {
+                method: "PATCH",
+                headers: { Prefer: "return=representation" },
+                body: JSON.stringify({ details: cleared.details, reader_name: cleared.reader_name, version: facts.version + 1 }),
+              });
+              if (Array.isArray(rows) && rows.length === 1) {
+                // The event holds no text, name or contact. The data change above is the one that
+                // matters, so a failure to log it is reported, not retried against the row.
+                await database(settings, "/rest/v1/openblog_feedback_events", {
+                  method: "POST",
+                  headers: { Prefer: "return=minimal" },
+                  body: JSON.stringify({
+                    site_id: settings.siteId, feedback_id: id, action: "scrub-identity", from_status: "approved", to_status: "approved", reason: null,
+                    actor: RETENTION_ACTOR, at, version: facts.version + 1, kind: FUTURE_SUGGESTION_KIND, item_revision: facts.revision, actor_role: "system",
+                  }),
+                }).catch((error) => console.error("open.blog engagement: could not record a scrub event:", error.message));
+              }
             } else if (item.source === "feedback") {
               rows = await database(settings, "/rest/v1/rpc/openblog_erase_feedback", {
                 method: "POST",
@@ -1266,11 +1424,11 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
                 body: JSON.stringify({ p_site_id: settings.siteId, p_id: id, p_expected_version: facts.version, p_actor: RETENTION_ACTOR, p_actor_role: "system", p_at: at }),
               });
             }
-            if (Array.isArray(rows) && rows.length === 1) done[item.step === "expire" ? "expired" : "purged"] += 1;
+            if (Array.isArray(rows) && rows.length === 1) done[item.step === "expire" ? "expired" : item.step === "scrub-identity" ? "scrubbed" : "purged"] += 1;
             else done.skipped += 1;
           }
           const audit = body.audit === true ? await auditDue(settings, cutoffs, true) : null;
-          console.info(`open.blog engagement: retention expired ${done.expired}, purged ${done.purged}, skipped ${done.skipped}`);
+          console.info(`open.blog engagement: retention expired ${done.expired}, purged ${done.purged}, cleared ${done.scrubbed}, skipped ${done.skipped}`);
           return json(200, { ok: true, ...done, auditDeleted: audit }, corsOrigin);
         }
         return json(405, { error: "Use GET for the dry run and POST to run it." }, corsOrigin);

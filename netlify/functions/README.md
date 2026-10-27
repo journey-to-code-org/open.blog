@@ -198,6 +198,48 @@ To undo it, remove `OPENBLOG_CORRECTIONS_ENABLED` and redeploy, optionally expor
 and run [`supabase/corrections-rollback.sql`](../../supabase/corrections-rollback.sql). It drops
 exactly what step 1 added; a note sent with evidence keeps its text and state and is read as the
 version 1 note it then is, and the `decide` audit events stay.
+## Suggestions for future work (optional)
+
+A reader's question or suggested source for the author's future work (ADRs 0152 to 0161) is one
+`openblog_feedback` row of kind `future-suggestion`: the page in `work`, no passage `revision` or
+`target`, the reader's words in `body` and `{type, url?, hints?, about?, contact?}` in `details`.
+Every hosted suggestion has a receipt, so the reader can always take it back; suggestions therefore
+need passage feedback's table, the inbox's schema and the engagement protection above, then:
+
+1. Run [`supabase/feedback.sql`](../../supabase/feedback.sql) again. Its one change to something
+   that exists is a check it loosens: `openblog_feedback_passage_complete` becomes "no revision and
+   no target, or a page, a revision and a target", so a row may have a page and no passage. It drops
+   the constraint if it exists and adds the new one, so it is safe to run twice, and every row
+   already stored still satisfies it. Nothing is rewritten.
+2. Set `OPENBLOG_SUGGESTIONS_ENABLED` to `true` (with `OPENBLOG_FEEDBACK_ENABLED`,
+   `OPENBLOG_MODERATION_ENABLED` and `OPENBLOG_PROTECTION_ENABLED`) and redeploy, and set
+   `"future-suggestion": "open"` in `participation.kinds` and `"receipts": true` in `engagement`.
+
+`POST /feedback?work=/posts/tides/` then takes a suggestion (`kind: "future-suggestion"`) by its own
+contract (`web/components/future-suggestion.js`, held to the build by
+`tests/fixtures/future-suggestion-submissions.json`, and its link rule by
+`tests/fixtures/public-urls.json`): at most 12 KiB, always pending, `work` a page the deployed
+`openblog-participation.json` says is open for the kind, five an hour per client and 500 per site
+(bucket `suggestions`), and the same suggestion for the same page from one client once an hour. The
+function calls only the database and the site's own manifest: a link a reader gives is stored, never
+opened. Through `POST /receipt` the reader reads it (their own text and contact), agrees to be asked,
+answers a clarification (the text is replaced; the link, hints, page and contact stay) or withdraws
+it, which deletes its text, name and contact at once; a receipt never says a suggestion is published.
+A report against one is refused exactly as a report against an id that does not exist. The inbox
+lists it (`kind=future-suggestion`) and decides it by the one state machine.
+
+The retention run gains a step, `scrub-identity`: an approved suggestion is kept, but its
+`details.contact` and an unpublished `reader_name` are cleared (and nothing else) once `closedDays`
+have passed since approval, with a version raise and an audit event that holds nothing of the reader.
+The dry run lists only suggestions that still hold one of those.
+
+To undo it, remove `OPENBLOG_SUGGESTIONS_ENABLED` and redeploy, export the rows (`where kind =
+'future-suggestion'`) and, only if you want the old check back, delete those rows and the audit
+events that refer to them and run
+[`supabase/future-suggestions-rollback.sql`](../../supabase/future-suggestions-rollback.sql). It
+refuses, and changes nothing, while any row has a page and no passage; it never deletes a reader's
+row itself. Leaving the loosened check in place is harmless to every other kind.
+
 ## Third Perspectives (optional)
 
 A Third Perspective (ADRs 0109 to 0114) is a reader's own reflection on a work, stored as one

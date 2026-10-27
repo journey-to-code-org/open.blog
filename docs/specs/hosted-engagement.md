@@ -106,6 +106,20 @@ it; nothing reads the hosted rows to show a page. A receipt's `published` flag f
 true only while the row is approved at its current revision under an approved consent record that
 agreed to publication while the consent in effect still does (ADR 0115).
 
+## Suggestions for future work
+
+A reader's question or suggested source for future work (ADRs 0152 to 0161) goes through the same
+`POST /feedback` route, with the page as the request's `work`, read by its own contract
+(`web/components/future-suggestion.js`, held to the build by
+`tests/fixtures/future-suggestion-submissions.json`; its link rule by `tests/fixtures/public-urls.json`),
+into one `openblog_feedback` row of kind `future-suggestion` with no passage. It is opt in behind
+`supabase/feedback.sql` run again (which loosens one check, with
+`supabase/future-suggestions-rollback.sql` to undo it) and `OPENBLOG_SUGGESTIONS_ENABLED`, on top of
+protection, because every hosted copy has a receipt. A suggestion is private to the editors in every
+state: a receipt's `published` flag and an abuse report both ask `isPublishable(kind)` first, and an
+accepted suggestion owes retention only the clearing of its contact and unshown name
+(`scrub-identity`, ADR 0155).
+
 ## Author responses
 
 An author's answer to a Third Perspective about their own section of a shared reflection (ADRs 0131
