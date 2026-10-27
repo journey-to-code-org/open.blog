@@ -54,6 +54,10 @@ pub struct Rendered {
     /// With [`RenderOptions::supplements`]: the supplements read and what was
     /// reported about their markers.
     pub reading_depth: Option<crate::reading_depth::ReadingDepth>,
+    /// With [`RenderOptions::concept_links`]: the ids (as written) of concept
+    /// links inside an image's description, which are plain text there
+    /// (ADR 0204), for the build to warn about.
+    pub concept_images: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1653,10 +1657,13 @@ pub fn render(markdown: &str, options: RenderOptions<'_>) -> Rendered {
         options.citation_notes.as_ref(),
         options.supplements,
     );
+    let mut in_images = Vec::new();
     if options.concept_links {
-        crate::concept_links::mark_events(&mut parsed_events);
+        in_images = crate::concept_links::mark_events(&mut parsed_events).in_images;
     }
-    render_events(parsed_events, markdown.len(), options, None, findings)
+    let mut rendered = render_events(parsed_events, markdown.len(), options, None, findings);
+    rendered.concept_images = in_images;
+    rendered
 }
 
 /// The start of an attributed section's anchor, which no heading id may have
@@ -2512,6 +2519,7 @@ fn render_events<'a>(
         recipe_steps: blocks.steps,
         recipe_anchor: blocks.recipe_anchor,
         reading_depth,
+        concept_images: Vec::new(),
     }
 }
 

@@ -22,7 +22,10 @@ All notable changes to open.blog are recorded here. Releases follow
   the atlas is off, the words are published as plain text and the build, `check` and Admin name the
   file and the id. Feeds and portable copies keep the words without the link, and Admin's "What
   will be public" for the post lists each linked entry. Posts that do not use the syntax are
-  unchanged.
+  unchanged. A linked word is underlined with dots and read as "(atlas entry)" by a screen reader;
+  Admin's preview shows the links the build makes; an `atlas:` link inside an image description,
+  a page, a series description or the home introduction is shown as its words with a warning,
+  never as a raw address; and a stray unclosed link tag no longer links the rest of the post.
 
 ## [0.41.0] - 2026-10-26
 

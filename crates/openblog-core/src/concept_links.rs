@@ -43,6 +43,15 @@ pub const LINK_CLASS: &str = "ob-concept";
 /// Every diagnostic this module writes contains this text, so a later
 /// resolution replaces the earlier ones instead of repeating them.
 pub const WARNING_MARK: &str = ": concept link `";
+/// The start of the diagnostic for an `atlas:` link outside a post. It is
+/// written once when the site loads and is not one of the post resolution's
+/// diagnostics, so [`WARNING_MARK`] does not replace it.
+pub const OUTSIDE_WARNING_MARK: &str = ": atlas link `";
+/// The words a screen reader adds after a concept link's label, as visually
+/// hidden text, so the link says what it leads to without script.
+pub const LINK_HINT: &str = " (atlas entry)";
+/// The class of the hint's element (the theme's visually hidden class).
+const HINT_CLASS: &str = "ob-visually-hidden";
 
 /// The id a concept link's destination names, when the destination is a
 /// well-formed one: `atlas:` and a lowercase slug of at most 64 bytes.
@@ -56,19 +65,52 @@ pub(crate) fn mark_open(id: &str) -> String {
     format!("{MARK_PREFIX}{}\">", escape::attr(id))
 }
 
-/// Turn every concept link of a parsed post into its mark. Returns whether
-/// there was one. Links cannot nest, so one flag pairs each end with its start.
-pub(crate) fn mark_events(events: &mut [Event<'_>]) -> bool {
+/// What [`mark_events`] found.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Marked {
+    /// Whether any concept link became a mark.
+    pub any: bool,
+    /// The ids (as written) of concept links inside an image's description,
+    /// in source order. They are not marked: an alt text is plain text and a
+    /// mark there would be escaped onto the page, private id and all.
+    pub in_images: Vec<String>,
+}
+
+/// Turn every concept link of a parsed post into its mark. Links cannot nest,
+/// so one flag pairs each end with its start. A link inside an image's alt
+/// text keeps only its label (the events of the link are emptied) and is
+/// reported in [`Marked::in_images`] instead.
+pub(crate) fn mark_events(events: &mut [Event<'_>]) -> Marked {
+    let mut found = Marked::default();
     let mut open = false;
-    let mut any = false;
+    let mut dropped = false;
+    let mut images = 0usize;
     for event in events.iter_mut() {
         let replacement = match &*event {
+            Event::Start(Tag::Image { .. }) => {
+                images += 1;
+                None
+            }
+            Event::End(TagEnd::Image) => {
+                images = images.saturating_sub(1);
+                None
+            }
             Event::Start(Tag::Link { dest_url, .. }) if dest_url.starts_with(SCHEME) => {
-                open = true;
-                any = true;
-                Some(Event::InlineHtml(CowStr::from(mark_open(
-                    &dest_url[SCHEME.len()..],
-                ))))
+                if images > 0 {
+                    dropped = true;
+                    found.in_images.push(dest_url[SCHEME.len()..].to_string());
+                    Some(Event::Text(CowStr::from("")))
+                } else {
+                    open = true;
+                    found.any = true;
+                    Some(Event::InlineHtml(CowStr::from(mark_open(
+                        &dest_url[SCHEME.len()..],
+                    ))))
+                }
+            }
+            Event::End(TagEnd::Link) if dropped => {
+                dropped = false;
+                Some(Event::Text(CowStr::from("")))
             }
             Event::End(TagEnd::Link) if open => {
                 open = false;
@@ -80,7 +122,7 @@ pub(crate) fn mark_events(events: &mut [Event<'_>]) -> bool {
             *event = replacement;
         }
     }
-    any
+    found
 }
 
 /// Why a concept link is shown as plain text.
@@ -92,12 +134,17 @@ pub enum Unlinked {
     SiteOff,
     /// The public atlas has no entry with this id.
     NotPublished,
+    /// The link is inside an image's description, which is plain text.
+    InImage,
+    /// The link is in a page, a series description or the home introduction,
+    /// which do not resolve concept links.
+    OutsidePost,
 }
 
 /// What became of the concept links that name one id in one post.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConceptUse {
-    /// The id as written (escaped for HTML when it is not a well-formed id).
+    /// The id as written, not escaped for HTML.
     pub id: String,
     /// How many links name it.
     pub count: usize,
@@ -114,10 +161,25 @@ impl ConceptUse {
             Unlinked::NotAnId => "the destination is not `atlas:` and an entry id (lowercase letters, digits and hyphens)".to_string(),
             Unlinked::SiteOff => "the site does not publish its Knowledge Atlas (`knowledgeAtlas.publish` is off or the atlas could not be read)".to_string(),
             Unlinked::NotPublished => "the published atlas has no entry with that id (it may be unknown, not approved or withdrawn)".to_string(),
+            Unlinked::InImage => "a link cannot be inside an image's description (its alt text), which is plain text".to_string(),
+            Unlinked::OutsidePost => "concept links are resolved in posts only, not in pages, series descriptions or the home introduction".to_string(),
         };
-        let shown: String = self.id.chars().take(40).collect();
+        // The id as the author wrote it, cut by characters (never through an
+        // escape) with anything a log or a terminal could misread replaced.
+        let lead = if self.unlinked == Some(Unlinked::OutsidePost) {
+            // Not a post's resolution, so a later resolution keeps it.
+            OUTSIDE_WARNING_MARK
+        } else {
+            WARNING_MARK
+        };
+        let shown: String = self
+            .id
+            .chars()
+            .take(40)
+            .map(|c| if c.is_control() { '\u{FFFD}' } else { c })
+            .collect();
         Some(format!(
-            "{source}{WARNING_MARK}{SCHEME}{shown}`{} is shown as plain text: {reason}. Fix the id, approve the entry, or remove the link.",
+            "{source}{lead}{SCHEME}{shown}`{} is shown as plain text: {reason}. Fix the id, approve the entry, or remove the link.",
             if self.count > 1 {
                 format!(" ({} times)", self.count)
             } else {
@@ -153,10 +215,17 @@ pub fn link_html(html: &str, atlas: Option<&PublicAtlas>) -> Linked {
         };
         let id = &after[..end];
         let body = &after[end + 2..];
-        let (inner, tail) = match body.find(MARK_CLOSE) {
-            Some(close) => (&body[..close], &body[close + MARK_CLOSE.len()..]),
-            None => (body, ""),
+        // A mark is inline: it closes inside its own block. One that is not
+        // closed there (an unclosed raw `<ob-concept ...>`) is dropped, so it
+        // can never turn the rest of the post into a link.
+        let closed = body
+            .find(MARK_CLOSE)
+            .filter(|close| !crosses_a_block(&body[..*close]));
+        let Some(close) = closed else {
+            rest = body;
+            continue;
         };
+        let (inner, tail) = (&body[..close], &body[close + MARK_CLOSE.len()..]);
         let entry = atlas
             .and_then(|atlas| atlas.entry(id))
             .filter(|_| valid_id(id));
@@ -177,7 +246,9 @@ pub fn link_html(html: &str, atlas: Option<&PublicAtlas>) -> Linked {
                     entry.kind.as_str()
                 ));
                 out.push_str(&strip_marks(inner));
-                out.push_str("</a>");
+                out.push_str(&format!(
+                    "<span class=\"{HINT_CLASS}\">{LINK_HINT}</span></a>"
+                ));
             }
             None => out.push_str(&strip_marks(inner)),
         }
@@ -189,12 +260,79 @@ pub fn link_html(html: &str, atlas: Option<&PublicAtlas>) -> Linked {
         uses: uses
             .into_iter()
             .map(|(id, (count, unlinked))| ConceptUse {
-                id,
+                id: unescape(&id),
                 count,
                 unlinked,
             })
             .collect(),
     }
+}
+
+/// The uses of concept links inside image descriptions, one per id in id
+/// order, as the warnings name them.
+pub(crate) fn image_uses(ids: &[String]) -> Vec<ConceptUse> {
+    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+    for id in ids {
+        *counts.entry(id).or_default() += 1;
+    }
+    counts
+        .into_iter()
+        .map(|(id, count)| ConceptUse {
+            id: id.to_string(),
+            count,
+            unlinked: Some(Unlinked::InImage),
+        })
+        .collect()
+}
+
+/// A page's, series' or home introduction's HTML with its concept marks
+/// replaced by their labels, and one warning per id for the author: these
+/// documents do not resolve concept links, and a raw `atlas:` address must
+/// never reach a page. `source` names the document.
+pub fn plain_outside_post(html: &str, source: &str) -> (String, Vec<String>) {
+    let linked = link_html(html, None);
+    let warnings = linked
+        .uses
+        .into_iter()
+        .filter_map(|mut used| {
+            used.unlinked = Some(Unlinked::OutsidePost);
+            used.warning(source)
+        })
+        .collect();
+    (linked.html, warnings)
+}
+
+/// Whether `html` holds a block boundary, which no inline mark can span.
+fn crosses_a_block(html: &str) -> bool {
+    const BLOCKS: [&str; 16] = [
+        "</p>",
+        "</li>",
+        "</h",
+        "</td>",
+        "</th>",
+        "</tr>",
+        "</blockquote>",
+        "</div>",
+        "</pre>",
+        "</ul>",
+        "</ol>",
+        "</table>",
+        "<p>",
+        "<p ",
+        "<ul",
+        "<ol",
+    ];
+    BLOCKS.iter().any(|tag| html.contains(tag))
+}
+
+/// The text an attribute value was escaped from ([`escape::attr`]).
+fn unescape(value: &str) -> String {
+    value
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&amp;", "&")
 }
 
 /// `text` without any mark tag.

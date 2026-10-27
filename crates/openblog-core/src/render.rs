@@ -1368,12 +1368,18 @@ impl<'a> Renderer<'a> {
                 &c.home.intro,
                 RenderOptions {
                     heading_anchors: false,
+                    concept_links: true,
                     ..Default::default()
                 },
             );
-            body.push_str(&format!(
-                "<section class=\"ob-intro ob-prose\">{}</section>\n",
+            // An `atlas:` link is only its label here (ADR 0204).
+            let intro = if intro.html.contains(crate::concept_links::MARK_PREFIX) {
+                crate::concept_links::link_html(&intro.html, None).html
+            } else {
                 intro.html
+            };
+            body.push_str(&format!(
+                "<section class=\"ob-intro ob-prose\">{intro}</section>\n"
             ));
         }
         body.push_str("<section class=\"ob-section\" aria-labelledby=\"latest\">\n");

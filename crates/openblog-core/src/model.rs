@@ -280,6 +280,9 @@ pub struct Post {
     /// The body HTML with each concept link still marked, for
     /// [`Site::link_concepts`]; `None` for a post with no concept link.
     pub(crate) concept_html: Option<String>,
+    /// The ids (as written) of concept links inside an image's description,
+    /// which are plain text there; each is a warning for the author.
+    pub(crate) concept_images: Vec<String>,
     /// The publication Markdown with each concept link written as its label,
     /// for copies that leave the site; `None` for a post with no concept link.
     pub(crate) portable_markdown: Option<String>,
@@ -337,6 +340,12 @@ impl Post {
     /// The Markdown portable copies, feeds and exports are built from: the
     /// publication Markdown, with each concept link (ADR 0204) written as its
     /// label, since a copy cannot resolve an atlas entry.
+    /// Whether the post links an atlas entry with `atlas:` (ADR 0204), so it
+    /// needs the public atlas attached before it is shown.
+    pub fn has_concept_links(&self) -> bool {
+        self.concept_html.is_some()
+    }
+
     pub fn portable_markdown(&self) -> &str {
         self.portable_markdown
             .as_deref()
@@ -533,14 +542,18 @@ impl Site {
             .retain(|warning| !warning.contains(crate::concept_links::WARNING_MARK));
         let mut found = Vec::new();
         for post in &mut self.posts {
-            let Some(marked) = &post.concept_html else {
-                continue;
-            };
-            let linked = crate::concept_links::link_html(marked, self.atlas.as_ref());
-            post.html = linked.html;
+            if let Some(marked) = &post.concept_html {
+                let linked = crate::concept_links::link_html(marked, self.atlas.as_ref());
+                post.html = linked.html;
+                found.extend(
+                    linked
+                        .uses
+                        .iter()
+                        .filter_map(|used| used.warning(&post.source)),
+                );
+            }
             found.extend(
-                linked
-                    .uses
+                crate::concept_links::image_uses(&post.concept_images)
                     .iter()
                     .filter_map(|used| used.warning(&post.source)),
             );
@@ -607,8 +620,12 @@ impl Site {
         // Series definitions first, so posts can reference them.
         let mut series: Vec<Series> = Vec::new();
         for file in &sources.series {
-            match load_series(file, render_options) {
-                Ok(s) => {
+            match load_series(file, concept_options(render_options)) {
+                Ok(mut s) => {
+                    let (html, notes) =
+                        crate::concept_links::plain_outside_post(&s.description_html, &file.path);
+                    s.description_html = html;
+                    warnings.extend(notes);
                     if series.iter().any(|existing| existing.slug == s.slug) {
                         errors.push(format!("{}: duplicate series slug `{}`", file.path, s.slug));
                     } else {
@@ -749,8 +766,12 @@ impl Site {
 
         let mut pages: Vec<Page> = Vec::new();
         for file in &sources.pages {
-            match load_page(file, render_options) {
-                Ok(page) => {
+            match load_page(file, concept_options(render_options)) {
+                Ok(mut page) => {
+                    let (html, notes) =
+                        crate::concept_links::plain_outside_post(&page.html, &file.path);
+                    page.html = html;
+                    warnings.extend(notes);
                     if pages.iter().any(|p| p.slug == page.slug) {
                         errors.push(format!(
                             "{}: duplicate page slug `{}`",
@@ -765,6 +786,21 @@ impl Site {
             }
         }
         pages.sort_by(|a, b| a.title.cmp(&b.title));
+        if config.home.intro.contains(crate::concept_links::SCHEME) {
+            // The home introduction shows an `atlas:` link as its label (the
+            // renderer does the same); the author hears about it here.
+            let intro = markdown::render(
+                &config.home.intro,
+                RenderOptions {
+                    concept_links: true,
+                    ..Default::default()
+                },
+            );
+            warnings.extend(
+                crate::concept_links::plain_outside_post(&intro.html, "openblog.json (home.intro)")
+                    .1,
+            );
+        }
 
         if !errors.is_empty() {
             return Err(errors);
@@ -1741,13 +1777,15 @@ fn load_post_in(
     } else {
         (rendered.html.clone(), None)
     };
-    let portable_markdown = concept_html.as_ref().and_then(|_| {
-        crate::concept_links::plain_markdown(
-            published
-                .as_ref()
-                .map_or(base, |(published, _)| &published.markdown),
-        )
-    });
+    let portable_markdown = (concept_html.is_some() || !rendered.concept_images.is_empty())
+        .then_some(())
+        .and_then(|()| {
+            crate::concept_links::plain_markdown(
+                published
+                    .as_ref()
+                    .map_or(base, |(published, _)| &published.markdown),
+            )
+        });
 
     Ok(Post {
         url: config.post_url(&slug),
@@ -1785,6 +1823,7 @@ fn load_post_in(
         reading_depth: rendered.reading_depth.clone(),
         html,
         concept_html,
+        concept_images: rendered.concept_images.clone(),
         portable_markdown,
         text: rendered.text,
         headings: rendered.headings,
@@ -1854,6 +1893,16 @@ fn apply_credits(
     post.credits = credits;
     post.credit_provenance = provenance;
     Ok(())
+}
+
+/// The options a page or a series is rendered with: its concept links are
+/// marked so they can be replaced by their labels with a warning, never left
+/// as an `atlas:` address (ADR 0204).
+fn concept_options(options: RenderOptions<'_>) -> RenderOptions<'_> {
+    RenderOptions {
+        concept_links: true,
+        ..options
+    }
 }
 
 fn load_series(file: &SourceFile, options: RenderOptions<'_>) -> Result<Series, String> {

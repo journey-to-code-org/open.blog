@@ -107,12 +107,12 @@ fn a_published_entry_becomes_an_ordinary_link_and_the_prose_is_kept() {
     let html = &site.posts[0].html;
     assert!(
         html.contains(
-            "<a class=\"ob-concept\" href=\"/atlas/allegory-of-the-cave/\" data-atlas-entry=\"allegory-of-the-cave\" data-atlas-kind=\"concept\">allegory of the cave</a>"
+            "<a class=\"ob-concept\" href=\"/atlas/allegory-of-the-cave/\" data-atlas-entry=\"allegory-of-the-cave\" data-atlas-kind=\"concept\">allegory of the cave<span class=\"ob-visually-hidden\"> (atlas entry)</span></a>"
         ),
         "{html}"
     );
     assert!(html.contains(
-        "<a class=\"ob-concept\" href=\"/atlas/plato/\" data-atlas-entry=\"plato\" data-atlas-kind=\"person\">Plato</a>"
+        "<a class=\"ob-concept\" href=\"/atlas/plato/\" data-atlas-entry=\"plato\" data-atlas-kind=\"person\">Plato<span class=\"ob-visually-hidden\"> (atlas entry)</span></a>"
     ));
     // The words are the author's, in order, with and without the links.
     assert!(!html.contains("atlas:") && !html.contains("ob-concept data-id"));
@@ -226,13 +226,15 @@ fn a_hostile_label_or_a_forged_mark_cannot_make_a_link_or_markup() {
     let site = site_with(body, Some(public_atlas()), "https://example.com");
     let html = &site.posts[0].html;
     assert!(
-        html.contains("data-atlas-kind=\"person\">Tom &amp; \"Jerry\" &lt;3 &lt;b&gt;</a>"),
+        html.contains("data-atlas-kind=\"person\">Tom &amp; \"Jerry\" &lt;3 &lt;b&gt;<span class=\"ob-visually-hidden\"> (atlas entry)</span></a>"),
         "{html}"
     );
     assert!(!html.contains("atlas/secret") && html.contains("forged"));
     // A forged mark resolves only to what is public, as a real link would.
-    assert!(html.contains("data-atlas-kind=\"person\">forged but public</a>"));
-    assert!(html.contains("<em>nested</em> label</a>"));
+    assert!(html.contains("data-atlas-kind=\"person\">forged but public<span class=\"ob-visually-hidden\"> (atlas entry)</span></a>"));
+    assert!(html.contains(
+        "<em>nested</em> label<span class=\"ob-visually-hidden\"> (atlas entry)</span></a>"
+    ));
     assert!(!html.contains("ob-concept data-id") && !html.contains("</ob-concept>"));
     // Nothing a label says reaches an attribute.
     assert_eq!(html.matches("data-atlas-entry=").count(), 3);
@@ -419,4 +421,180 @@ fn the_syntax_is_one_set_of_cases_for_rust_and_the_browser() {
             case["name"]
         );
     }
+}
+
+#[test]
+fn a_concept_link_inside_an_image_description_leaks_nothing_and_warns() {
+    let body = "![A [hidden](atlas:secret) and [Plato](atlas:plato)](/cave.png)\n\nAnd [Plato](atlas:plato) outside.";
+    for atlas in [Some(public_atlas()), None] {
+        let site = site_with(body, atlas, "https://example.com");
+        let html = &site.posts[0].html;
+        assert!(
+            html.contains("alt=\"A hidden and Plato\""),
+            "the alt text is the plain labels: {html}"
+        );
+        for leak in ["atlas:", "secret", "ob-concept data-id", "&lt;ob-concept"] {
+            assert!(!html.contains(leak), "{leak}: {html}");
+        }
+        // The link outside the image is unaffected.
+        assert!(html.contains("And "), "{html}");
+        let warnings = concept_warnings(&site);
+        for id in ["secret", "plato"] {
+            assert!(
+                warnings.iter().any(|w| w.contains(&format!("`atlas:{id}`"))
+                    && w.contains("inside an image")
+                    || w.contains(&format!("`atlas:{id}`")) && w.contains("image's description")),
+                "{id}: {warnings:?}"
+            );
+        }
+        let out = built(&site);
+        assert!(out["posts/cave/index.html"].contains("alt=\"A hidden and Plato\""));
+        assert!(!out["posts/cave/index.html"].contains("atlas:secret"));
+    }
+    // The copy that leaves the site keeps the words too.
+    let site = site_with(body, Some(public_atlas()), "https://example.com");
+    assert!(!site.posts[0].portable_markdown().contains("atlas:"));
+}
+
+fn full_site(intro: &str) -> Site {
+    let mut config = config("https://example.com", true);
+    config.home.intro = intro.to_string();
+    Site::load(
+        config,
+        Sources {
+            posts: vec![SourceFile {
+                path: "posts/cave.md".into(),
+                contents: "---\ntitle: The cave\ndate: 2026-10-20\n---\nBody.".into(),
+            }],
+            pages: vec![SourceFile {
+                path: "pages/about.md".into(),
+                contents:
+                    "---\ntitle: About\n---\nAbout [Plato](atlas:plato) and [x](atlas:secret).\n"
+                        .into(),
+            }],
+            series: vec![SourceFile {
+                path: "series/greeks.md".into(),
+                contents: "---\nname: Greeks\n---\nA series on [Plato](atlas:plato).\n".into(),
+            }],
+            ..Default::default()
+        },
+        LoadOptions::default(),
+    )
+    .expect("site")
+}
+
+#[test]
+fn atlas_links_in_pages_series_and_the_home_intro_are_text_with_a_warning() {
+    let mut site = full_site("Welcome to [the atlas](atlas:plato).");
+    site.atlas = Some(public_atlas());
+    site.link_concepts();
+    assert_eq!(
+        site.pages[0].html, "<p>About Plato and x.</p>\n",
+        "{}",
+        site.pages[0].html
+    );
+    assert!(site.series[0]
+        .description_html
+        .contains("A series on Plato."));
+    // The warnings survive the resolution of the posts.
+    for source in [
+        "pages/about.md",
+        "series/greeks.md",
+        "openblog.json (home.intro)",
+    ] {
+        assert!(
+            site.warnings.iter().any(|w| w.starts_with(source)
+                && w.contains("atlas link `atlas:")
+                && w.contains("posts only")),
+            "{source}: {:?}",
+            site.warnings
+        );
+    }
+    let out = built(&site);
+    for (path, contents) in &out {
+        if path.ends_with(".html") {
+            assert!(
+                !contents.contains("href=\"atlas:") && !contents.contains("ob-concept data-id"),
+                "{path}"
+            );
+        }
+    }
+    let home = out
+        .iter()
+        .find(|(path, _)| path.as_str() == "index.html")
+        .map(|(_, contents)| contents)
+        .unwrap_or_else(|| panic!("no home page in {:?}", out.keys().collect::<Vec<_>>()));
+    assert!(home.contains("Welcome to the atlas."));
+    // A site that does not use the syntax outside a post is unchanged.
+    let plain = full_site("Welcome.");
+    assert!(plain
+        .warnings
+        .iter()
+        .all(|w| !w.starts_with("openblog.json (home.intro)")));
+}
+
+#[test]
+fn unicode_labels_stay_whole_and_the_warning_prints_the_raw_id() {
+    let body = "[Plátōn — 柏拉图 🏛️](atlas:plato) and [cafe\u{301}](atlas:allegory-of-the-cave).";
+    let site = site_with(body, Some(public_atlas()), "https://example.com");
+    let html = &site.posts[0].html;
+    assert!(html.contains(">Plátōn — 柏拉图 🏛️<span"), "{html}");
+    assert!(html.contains(">cafe\u{301}<span"), "{html}");
+    assert_eq!(
+        site.posts[0].portable_markdown(),
+        "Plátōn — 柏拉图 🏛️ and cafe\u{301}."
+    );
+
+    // A malformed id is printed as written, never HTML-escaped, and a long
+    // one is cut by characters, never through an entity or a character.
+    let long = format!("{}&'\"{}", "a".repeat(37), "é".repeat(10));
+    let body = format!(
+        "[x](atlas:a&b) [y](atlas:caf\u{e9}) [z](<atlas:{long}>) [q](atlas:{}) .",
+        "柏".repeat(60)
+    );
+    let site = site_with(&body, Some(public_atlas()), "https://example.com");
+    let warnings = concept_warnings(&site);
+    assert!(
+        warnings.iter().any(|w| w.contains("`atlas:a&b`")),
+        "{warnings:?}"
+    );
+    assert!(
+        warnings.iter().any(|w| w.contains("`atlas:café`")),
+        "{warnings:?}"
+    );
+    for warning in &warnings {
+        assert!(
+            !warning.contains("&amp;") && !warning.contains("&lt;") && !warning.contains("&#"),
+            "{warning}"
+        );
+        assert!(!warning.contains('\u{FFFD}'), "{warning}");
+    }
+    let cut = warnings
+        .iter()
+        .find(|w| w.contains("aaaaaaaa"))
+        .expect("cut");
+    assert!(
+        cut.contains(&format!("`atlas:{}&'\"", "a".repeat(37))),
+        "{cut}"
+    );
+    assert!(warnings
+        .iter()
+        .any(|w| w.contains(&format!("`atlas:{}`", "柏".repeat(40)))));
+}
+
+#[test]
+fn an_unclosed_or_block_spanning_mark_never_links_the_rest_of_the_post() {
+    let body = "Start <ob-concept data-id=\"plato\">unclosed\n\nA later paragraph.\n\nAnd [Plato](atlas:plato) linked.";
+    let site = site_with(body, Some(public_atlas()), "https://example.com");
+    let html = &site.posts[0].html;
+    assert_eq!(html.matches("<a ").count(), 1, "only the real link: {html}");
+    assert!(html.contains("Start unclosed"), "{html}");
+    assert!(html.contains("<p>A later paragraph.</p>"), "{html}");
+    assert!(!html.contains("ob-concept data-id") && !html.contains("</ob-concept>"));
+    // A closing tag in a later block does not close an earlier mark.
+    let body = "Start <ob-concept data-id=\"plato\">open\n\nMiddle.\n\nEnd</ob-concept> done.";
+    let site = site_with(body, Some(public_atlas()), "https://example.com");
+    let html = &site.posts[0].html;
+    assert!(!html.contains("<a "), "{html}");
+    assert!(html.contains("<p>Middle.</p>"), "{html}");
 }

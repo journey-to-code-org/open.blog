@@ -783,6 +783,22 @@ h2.ob-title {
   outline: none;
 }
 
+/* A concept link (ADR 0204): a word the author tied to an atlas entry. The
+   dotted underline marks it as a link to an entry rather than to another
+   page, and does not rely on colour; the visually hidden words after the
+   label say the same to a screen reader. */
+a.ob-concept {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-thickness: 0.12em;
+  text-underline-offset: 0.2em;
+}
+
+a.ob-concept:hover,
+a.ob-concept:focus-visible {
+  text-decoration-style: solid;
+}
+
 /* <ob-citation-previews>: one preview at a time, placed straight after the
    marker it describes (so Tab reaches its links next) and moved below or
    above the marker, inside the viewport, by the offsets the component sets. */
