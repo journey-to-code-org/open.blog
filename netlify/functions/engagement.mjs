@@ -4,7 +4,7 @@ import { AUTHOR_RESPONSE_KIND, PARENT_UNAVAILABLE, checkAnswerParent, mayDecideR
 import { EVIDENCE_KINDS, decisionsOf, emptyLog, planDecision } from "../lib/correction-decisions.mjs";
 import { MODERATION_STATES, auditActor, planModeration } from "../lib/feedback-moderation.mjs";
 import {
-  INBOX_ACTIONS, MODERATOR_ROLES, PARTICIPATION_KINDS, REPORT_GROUNDS, commentState, commentStateFilter, issuesReceipts, legacyCommentStatus,
+  INBOX_ACTIONS, MODERATOR_ROLES, PARTICIPATION_KINDS, REPORT_GROUNDS, commentState, commentStateFilter, isPublishable, issuesReceipts, legacyCommentStatus,
   legacySupports, planErasure, planTransition, planUphold, retentionStep, timeKey,
 } from "../lib/participation-moderation.mjs";
 import {
@@ -210,8 +210,10 @@ const receiptViewOf = (row, hidden = false) => {
     clarification: asked ? { reason: row.moderation_reason ?? null } : null,
     consent: row.clarification_consent === true,
     // A Third Perspective is published only while its consent still allows it and its kind is not
-    // hidden (ADR 0115). Without the consent column that is unknown, null, never "not shown".
-    published: row.kind === THIRD_PERSPECTIVE_KIND ? (hidden ? false : perspectivePublic(row)) : row.status === "approved" && row.approved_revision === revision,
+    // hidden (ADR 0115). Without the consent column that is unknown, null, never "not shown". A kind
+    // that is never public (an approved suggestion for future work is only in the editors' queue)
+    // is never published, whatever its state.
+    published: !isPublishable(row.kind) ? false : row.kind === THIRD_PERSPECTIVE_KIND ? (hidden ? false : perspectivePublic(row)) : row.status === "approved" && row.approved_revision === revision,
     purged,
     ...(purged ? {} : { body: row.body, details: receiptDetails(row) }),
   };
@@ -875,7 +877,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         const work = source === "comment" ? target.path : target.work;
         const shown = source === "comment"
           ? facts.state === "approved" && await commentPolicy(settings, work) !== "hidden"
-          : facts.state === "approved" && target.approved_revision === facts.revision && facts.clarificationAsked !== facts.revision
+          : isPublishable(facts.kind) && facts.state === "approved" && target.approved_revision === facts.revision && facts.clarificationAsked !== facts.revision
             && (facts.kind !== THIRD_PERSPECTIVE_KIND || perspectivePublic(target) !== false) && await feedbackPolicy(settings, work, facts.kind) !== "hidden";
         if (!facts.retained || !shown) return unavailable();
         // An answer is shown only under a Third Perspective shown now and about its own responder's

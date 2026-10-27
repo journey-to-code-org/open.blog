@@ -30,6 +30,16 @@ const KIND_RULES = Object.freeze({
 });
 export const PARTICIPATION_KINDS = Object.freeze(Object.keys(KIND_RULES));
 
+/**
+ * Whether an approved item of `kind` may ever be shown to readers: `KindRules::publishable`. An
+ * editorial kind (a suggestion for future work) is approved into the editors' private queue and an
+ * abuse report is never public, so neither is, whatever their state; a kind this code does not know
+ * is not. Anything that says an item is "published" or "shown" must ask this first.
+ */
+export function isPublishable(kind) {
+  return Object.hasOwn(KIND_RULES, kind) && KIND_RULES[kind].publishable === true;
+}
+
 const DECLINE = Object.freeze(["spam", "abusive", "personal-data", "off-topic", "duplicate", "rights", "other"]);
 const DISMISS_REPORT = Object.freeze(["no-action", "duplicate", "spam", "other"]);
 const CLARIFY = Object.freeze(["unclear", "needs-source", "personal-data", "other"]);
