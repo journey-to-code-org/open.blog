@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.47.0] - 2026-10-27
+
 - New `demo` fence: ```` ```demo <kind> ```` embeds an interactive lesson demo in a post. Kinds are
   `git-sandbox` (an in-memory Git), `fetch-lab` (a simulated network and Web Storage inspector),
   `component-lab` (a live custom element with a shadow root), `js-evolution` (older and newer JavaScript
