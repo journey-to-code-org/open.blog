@@ -30,12 +30,18 @@ is kept.
   it on the closed-item clock the way an upheld abuse report is purged), and an editor closes it
   with the same `remove` an approved public item has, with a decline reason, after which the
   ordinary closed-item retention applies. The reader may still withdraw it or ask for deletion.
+  What is kept is the idea, not the person: once `closedDays` have passed since approval, or when an
+  author links it to future work, retention clears the reader's contact and unpublished name and
+  nothing else ([ADR 0193](0193-attribution-and-contact-are-optional-consented-and-contact-stays-private-to-the-site-admin.md)),
+  as a fourth retention step beside expiry and the two purges.
 - **Approval is the site Admin's or a coordinator's**, as everywhere (the one grant list). A
   contributing author, the public and the retention job never decide.
-- **The setting is inert until the submission route exists.** Naming `future-suggestion` in
-  `participation.kinds` before RD13.2 ([#227](https://github.com/journey-to-code-org/open.blog/issues/227))
-  adds the form and the hosted route changes no page; the moderation inbox does not yet hold the
-  kind, so nothing can be stored or listed.
+- **The setting was inert until the submission route existed**, so naming `future-suggestion` in
+  `participation.kinds` changed nothing while RD13.1 shipped alone. RD13.2
+  ([#227](https://github.com/journey-to-code-org/open.blog/issues/227)) adds the form, the hosted
+  route and the inbox listing together
+  ([ADR 0196](0196-suggestions-are-sent-through-the-one-feedback-route-behind-their-own-opt-in-with-the-page-as-work.md)),
+  and the setting is live from then on.
 
 ## Consequences
 
@@ -43,4 +49,8 @@ is kept.
   mirror (`netlify/lib/participation-moderation.mjs`) is checked against them case by case.
 - A kind that is neither public nor an abuse report is now possible, so code must ask the rules
   (`publishable`, `editorial`), never compare kinds, which the policy already did for abuse
-  reports only.
+  reports only. The hosted function asks `isPublishable(kind)` before any receipt says an item is
+  "published" or a report treats it as shown
+  ([ADR 0199](0199-a-kind-that-is-never-public-is-never-called-published-shown-or-reportable.md)).
+- Retention gains a step, `scrub-identity`, for an approved editorial item; the retention fixture
+  gains that value for this kind and no other row changes.

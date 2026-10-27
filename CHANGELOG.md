@@ -5,14 +5,33 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
-- The records for readers' future-question and source suggestions are defined (RD13.1): a new
-  participation kind, `future-suggestion`, for a question, text, video, audio or other source with
-  an optional public link, bibliographic hints, a series or article it is about, a chosen display
-  name and optional contact. It is off everywhere and has no form or hosted route yet, so no page,
-  feed or output changes. When it arrives, a suggestion will be private to the editors, accepting
-  one will mean editorial interest only (not agreement, checking or rights), contact will be visible
-  only to the site Admin and the reader, and nothing will enter the private research library unless
-  an author chooses to. No SQL changes.
+- Readers can suggest a question, text, video, audio or other source for the author's future work
+  (RD13). Set `"future-suggestion": "open"` in `participation.kinds` and a post gets a "Suggest
+  something for future work" form: the reader's own words, an optional public link and source
+  details, an optional article it is about, a name the editors may thank them by and an address they
+  agree to be contacted at. It goes to the editors' private queue, never to the page; accepting one
+  means only that the editors are interested, never agreement, checking or permission to use it, and
+  nothing counts, ranks or votes on suggestions. A site with no hosted service shows only its
+  `engagement.feedbackContact` (and nothing at all when it has none), and without script the region
+  says how to write instead. Pages of a site that leaves the kind off are unchanged.
+- Hosted: suggestions are taken through the existing `/feedback` route behind a new opt-in,
+  `OPENBLOG_SUGGESTIONS_ENABLED`, with a receipt, five an hour per client and a bound on repeats.
+  This needs one additive SQL change: run `supabase/feedback.sql` again. It loosens a check so a row
+  may have a page and no passage; every row already stored stays valid. To undo it run
+  `supabase/future-suggestions-rollback.sql`, which refuses (and changes nothing) while any
+  suggestion row exists, so export and delete them first.
+- Editors read suggestions in the Moderation inbox (kind "Suggestions for future work"), decide them
+  by the one policy, are shown possible duplicates without a count, and can copy an accepted one into
+  a private research note with an explicit button: labelled unverified reader text and where it came
+  from, with no name, contact or time, and nothing fetched or published. A suggestion's contact and
+  unshown name are cleared by the retention run after `closedDays`, and nothing else is.
+- Fixes to the suggestion records before release (#213 review): one public-address rule for a link
+  (the same as the publication boundary's), identifier hints held to the plain-text, link and scheme
+  rules, a largest submission that always reads back from storage, a strict stored shape, redacted
+  debug output, duplicates grouped by DOI, ISBN-10/13 and link however written and only among items
+  the viewer may see, a suggestion's editor view gated by who may see it, a closed linked suggestion
+  that no longer reads as declined, series and link targets in the site's own slugs, and a receipt
+  and a report that never treat a never-public kind as published.
 
 ## [0.41.0] - 2026-10-26
 

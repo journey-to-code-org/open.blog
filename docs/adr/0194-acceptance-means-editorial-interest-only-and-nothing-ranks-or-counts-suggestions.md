@@ -21,12 +21,21 @@ the project forbids popularity-based truth signals.
   true, verified, endorsed, cleared or promised for publication.
 - **Where it stands is derived, never stored**: `Standing` is computed from the moderation state
   and whether any conversion is recorded (received, waiting for the reader to say more, editors are
-  interested, linked to future work, not taken forward, withdrawn). It adds no state to the one
-  machine, and the labels name a stage, never a verdict.
+  interested, linked to future work, linked to future work and now closed, not taken forward,
+  withdrawn). It adds no state to the one machine, and the labels name a stage, never a verdict.
+  Closing a suggestion that was already linked is not a decline (the idea was used and the link
+  stays), so a removed suggestion with conversions stands as `closed-converted`, never as "not taken
+  forward"; the outcome [#228](https://github.com/journey-to-code-org/open.blog/issues/228) records for
+  it stays `converted`.
 - **Nothing counts or ranks.** No field, order, view or output carries a number of suggestions,
-  votes or "most requested". `duplicate_groups` tells an editor which suggestions name the same
-  source (an identifier decides first, then the link without its scheme, `www.`, fragment, trailing
-  slash and tracking parameters) so they can be handled together; it returns lists of ids in a
-  fixed order, never a count, and is private to editors.
+  votes or "most requested". `source_keys` gives each suggestion every key it names a source by: a
+  DOI by its name however it was written (bare, `doi:` or a resolver link, through the library's own
+  `normalize_doi_url`), an ISBN-10 and the ISBN-13 it converts to as one, an ISSN without its
+  hyphen, and the link without its scheme, `www.`, fragment, trailing slash and tracking parameters
+  (a DOI resolver link as the DOI it names). Two suggestions are the same source when they share any
+  key, directly or through a third. `duplicate_groups(actor, mode, items)` takes the viewer and
+  considers only items that viewer may see, so a group never reveals an item they cannot; it returns
+  lists of ids in a fixed order, never a count, and is private to editors. The inbox's possible-
+  duplicate cue compares suggestions across pages for the same reason, and shows no number.
 - **A decline is a moderation decision with a reason** (`reject`, or `remove` once accepted), never
   published, and never a statement about the idea's merit.

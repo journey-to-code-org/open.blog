@@ -28,7 +28,23 @@ to be emailed, listed or thanked in public.
   one `View::PrivateIdentity` rule: the site Admin and the submitter), never to a coordinator,
   contributing author or the public, and the same holds for an unpublished name. It is excluded
   from audit events, conversions, library candidates and `Debug` output (which prints
-  `Contact(<private>)`), and is purged with the text on withdrawal, deletion and retention.
+  `Contact(<private>)`, and prints a name the reader did not agree to show as `<private>`, in
+  `Submission`, `Suggestion` and the editor's view alike), and is purged with the text on
+  withdrawal, deletion and retention.
+- **They are not kept as long as the idea.** An accepted suggestion is kept, but its contact and
+  unpublished name are cleared (and nothing else) once `closedDays` have passed since it was
+  approved, or the moment an author links it to future work
+  (`RetentionStep::ScrubIdentity`, `identity_scrub_due`). A name the reader agreed to show stays. The
+  hosted retention run does it as its own step, `scrub-identity`, listed in the dry run only for an
+  approved suggestion that still holds some (so a run's batch never fills with ones already cleared),
+  applied only while the row is still the approved one the dry run listed, with a version raise and an
+  audit event that holds nothing of the reader. Where links are persisted is
+  [#228](https://github.com/journey-to-code-org/open.blog/issues/228)'s: until then the hosted run
+  clears on the period alone, and the conversion rule is the pure function #228 will call.
+- **Showing a suggestion is gated where it is built.** `Suggestion::editor_view` returns `None`
+  unless `may_view(actor, item, mode, View::Content)` allows it (an actor with no role on the work, or
+  text already purged, gets nothing), and the contact and unpublished name only where
+  `View::PrivateIdentity` does.
 - **Nothing here sends a message.** open.blog never emails a suggester. If an editor decides to
   write to someone, that is outside the system, and it is the editor's to do with the address
   they are allowed to see.

@@ -1783,7 +1783,9 @@ _Avoid_: Category, genre, priority
 **Editors' queue**:
 The private list of future suggestions an editor has accepted. Approving a future suggestion admits
 it here and publishes nothing; it is kept while accepted and leaves only when an editor closes it,
-the reader withdraws it or retention purges it after it is closed (ADR 0190).
+the reader withdraws it or retention purges it after it is closed. What is kept is the idea: its
+contact and unpublished name are cleared after `closedDays`, or when it is linked to future work
+(ADRs 0190, 0193).
 _Avoid_: Published suggestions, backlog, roadmap, public wishlist
 
 **Editorial interest**:
@@ -1799,19 +1801,29 @@ _Avoid_: Metadata, source record, citation
 
 **Suggestion contact**:
 An optional e-mail address a reader gives with their agreement to be contacted about one
-suggestion. Private to the site Admin and the submitter, excluded from audit events, conversions and
-library candidates, and never used by the system to send anything (ADR 0193).
+suggestion. Private to the site Admin and the submitter, excluded from audit events, conversions,
+library candidates, research notes and debug output, cleared by retention while the suggestion is
+kept, and never used by the system to send anything (ADR 0193).
 _Avoid_: Subscription, mailing list, account email
+
+**Private identity clearing**:
+The retention step (`scrub-identity`) that removes a kept, accepted suggestion's contact and any name
+the reader did not agree to show, once `closedDays` have passed since approval or when an author links
+it to future work, and changes nothing else. A name the reader agreed to show stays (ADR 0193).
+_Avoid_: Purge, anonymising the idea, deleting the suggestion
 
 **Suggestion standing**:
 Where a suggestion is with the editors (received, waiting for the reader, editors are interested,
-linked to future work, not taken forward, withdrawn), derived from the moderation state and any
-conversion and never stored as a state of its own (ADR 0194).
+linked to future work, linked to future work and now closed, not taken forward, withdrawn), derived
+from the moderation state and any conversion and never stored as a state of its own. Closing a
+suggestion that was already linked is not a decline (ADR 0194).
 _Avoid_: Status, ranking, score, popularity
 
 **Duplicate suggestion group**:
-Suggestions that name the same source (the same identifier or link, however written), shown to
-editors as lists of ids so they can be handled together. Never a count or a signal of demand
+Suggestions that share any source key: a DOI by its name whether bare, `doi:` or a resolver link, an
+ISBN-10 and its ISBN-13 as one, an ISSN without its hyphen, or the link without scheme, `www.`,
+fragment, trailing slash and tracking parameters. Shown to editors as lists of ids so they can be
+handled together, only among items that editor may see. Never a count or a signal of demand
 (ADR 0194).
 _Avoid_: Most requested, trending, vote count
 
@@ -1826,3 +1838,23 @@ The unverified link and hints of an accepted suggestion, offered to its author t
 Source Library record they choose to make. Never the reader's words, name or contact, and never
 written to the library by the system (ADR 0195).
 _Avoid_: Imported source, pending source, library suggestion
+
+**Suggestion form**:
+The one region on a post where the kind is `open`: a progressive Web Component with native controls
+that sends a suggestion through the hosted feedback route where the site issues receipts, and
+otherwise (offline, closed, off, failing, or no service at all) prepares it to copy and send to the
+site's feedback contact. A static site with no service shows only that contact (ADRs 0196, 0197).
+_Avoid_: Wishlist, request box, voting widget
+
+**Suggestion route**:
+`POST /feedback` with a `future-suggestion` body and the page as the request's `work`, behind
+`OPENBLOG_SUGGESTIONS_ENABLED` and the loosened `openblog_feedback_passage_complete` check. Always
+pending, with a receipt, five an hour per client, and the same suggestion once an hour (ADR 0196).
+_Avoid_: Suggestion endpoint, tip line
+
+**Research note export**:
+The author's own, explicit copy of an accepted suggestion into a note of the private research
+notebook: labelled unverified reader text with the page it came from, the reader's words and what
+they said about the source as quoted statements, and no name, contact or time. It creates no passage,
+source, draft or link and changes nothing about the suggestion (ADR 0198).
+_Avoid_: Import, conversion, promotion to the library

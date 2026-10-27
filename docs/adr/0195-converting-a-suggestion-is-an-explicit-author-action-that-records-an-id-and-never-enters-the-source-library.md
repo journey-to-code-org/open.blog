@@ -21,8 +21,9 @@ must not flow into it, or into any public output, without an author deciding to.
 - **A link is a record of an author's act.** `convert` is allowed only for the site Admin or a
   coordinator of the work (the policy's approve grant), on a suggestion approved at its current
   revision, not waiting for clarification and still kept. It returns `Conversion {kind, id, at,
-  by}`: `draft`, `series` or `library-source`, the lowercase slug of what the author made, when,
-  and which Admin account recorded it. It creates nothing and sends nothing. A target is linked at
+  by}`: `draft`, `series` or `library-source`, the slug of what the author made (a draft's or a
+  series' as this site writes slugs, non-ASCII letters included; a library source's is the library's
+  lowercase ASCII source id), when, and which Admin account recorded it. It creates nothing and sends nothing. A target is linked at
   most once and a suggestion keeps at most 8 links.
 - **A link holds nothing of the reader**: no name, contact, text or hint, so a link can be shown to
   anyone who may see the editors' queue without leaking identity.
@@ -35,3 +36,6 @@ must not flow into it, or into any public output, without an author deciding to.
 - **Storage and screens are RD13.3's** ([#228](https://github.com/journey-to-code-org/open.blog/issues/228)):
   where links are persisted and how an editor records one. It must use these functions and may
   not widen who can call them.
+- **Copying into the private research notebook is the one export, and it is explicit**
+  ([ADR 0198](0198-editors-read-suggestions-in-the-one-inbox-and-copying-one-into-a-research-note-is-an-explicit-unverified-export.md)).
+  It is a sibling of the library candidate, not a conversion: it records no link.
