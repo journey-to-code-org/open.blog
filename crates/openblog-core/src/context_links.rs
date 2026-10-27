@@ -299,8 +299,16 @@ mod tests {
         let messages: Vec<_> = findings.iter().map(|f| f.message.as_str()).collect();
         assert_eq!(messages.len(), 3, "{messages:?}");
         assert!(messages[0].starts_with("The concept link ATLAS:alpha is shown as plain text"));
-        assert!(messages[1].starts_with("The concept link atlas:beta is not shown"), "{}", messages[1]);
-        assert!(messages[2].starts_with("The concept link atlas:gamma is not shown"), "{}", messages[2]);
+        assert!(
+            messages[1].starts_with("The concept link atlas:beta is not shown"),
+            "{}",
+            messages[1]
+        );
+        assert!(
+            messages[2].starts_with("The concept link atlas:gamma is not shown"),
+            "{}",
+            messages[2]
+        );
         assert!(findings.iter().all(|f| f.gap == ContextGap::NeverLinked));
     }
 

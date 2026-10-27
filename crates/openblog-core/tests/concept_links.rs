@@ -903,5 +903,8 @@ fn no_heading_can_take_the_id_of_the_concept_hint() {
     let html = &site.posts[0].html;
     assert_eq!(html.matches("id=\"ob-concept-hint\"").count(), 1, "{html}");
     assert!(html.contains("id=\"ob-concept-hint-2\""), "{html}");
-    assert!(html.contains("<span id=\"ob-concept-hint\" hidden>"), "{html}");
+    assert!(
+        html.contains("<span id=\"ob-concept-hint\" hidden>"),
+        "{html}"
+    );
 }
