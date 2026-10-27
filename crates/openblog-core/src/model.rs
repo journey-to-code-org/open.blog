@@ -301,6 +301,9 @@ pub struct Post {
     pub(crate) profile_warnings: Vec<String>,
     pub(crate) accessibility: Vec<AccessibilityFinding>,
     pub(crate) evidence: Vec<EvidenceFinding>,
+    /// Identifier, version, quotation-location and citation-consistency
+    /// findings about the sources this post cites (ADR 0148), for the author.
+    pub(crate) source_review: Vec<crate::source_review::SourceReviewFinding>,
     /// Semantic capabilities detected in the authored Markdown.
     pub capabilities: Vec<CapabilityDescriptor>,
     /// Set for posts using the recipe profile: times, servings, ingredients, steps.
@@ -501,6 +504,9 @@ pub struct Site {
     pub accessibility: Vec<AccessibilityFinding>,
     /// Structured research/evidence guidance for the CLI and Admin Studio.
     pub evidence: Vec<EvidenceFinding>,
+    /// Source-review findings about the sources posts cite (ADR 0148), for
+    /// `openblog check` and builds. Never written to the output.
+    pub source_review: Vec<crate::source_review::SourceReviewFinding>,
     /// Known view totals per page path, supplied by the caller (for example from
     /// the analytics backup) so static builds can show counts.
     pub view_counts: BTreeMap<String, u64>,
@@ -573,6 +579,7 @@ impl Site {
         let mut accessibility =
             accessibility::audit_site_language("openblog.json", &config.language);
         let mut evidence = Vec::new();
+        let mut source_review = Vec::new();
         let render_options = config.render_options();
         let credit_sidecars = associate_credit_sidecars(&sources);
         // Read and parsed on first need only, so a site whose posts cite
@@ -753,6 +760,7 @@ impl Site {
                     }
                     accessibility.extend(post.accessibility.iter().cloned());
                     evidence.extend(post.evidence.iter().cloned());
+                    source_review.extend(post.source_review.iter().cloned());
                     posts.push(post);
                 }
                 Err(error) => errors.push(format!("{}: {error}", file.path)),
@@ -900,6 +908,7 @@ impl Site {
             warnings,
             accessibility,
             evidence,
+            source_review,
             view_counts: BTreeMap::new(),
             atlas: None,
             comparisons: None,
@@ -1538,6 +1547,7 @@ fn load_post_in(
     let base = with_evidence.as_deref().unwrap_or(&doc.body);
     let mut citation_error = None;
     let mut citation_findings = Vec::new();
+    let mut source_review = Vec::new();
     let published = match (citation_style, citations) {
         (Some(style), Citations::Publish(library)) => {
             citation_findings = crate::citation_review::review_citations(
@@ -1546,6 +1556,8 @@ fn load_post_in(
                 doc.body_line,
                 library,
             );
+            source_review =
+                crate::source_review::review_post(&file.path, &doc.body, doc.body_line, library);
             let locale = CitationLocale::for_post(
                 first(fm, &["citationLocale", "citation_locale"]),
                 &config.language,
@@ -1836,6 +1848,7 @@ fn load_post_in(
         profile_warnings: profile.warnings,
         accessibility,
         evidence,
+        source_review,
         capabilities,
         recipe,
         research,

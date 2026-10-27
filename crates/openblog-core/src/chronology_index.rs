@@ -90,7 +90,7 @@ pub struct ChronologyPrompt {
     pub message: String,
     /// Each of those datings' id, aspect and stated date, in the same
     /// order: what the prompt says, without positions or sentences, for an
-    /// author's acknowledgement (ADR 0145). Never serialized.
+    /// author's acknowledgement (ADR 0147). Never serialized.
     #[serde(skip)]
     pub facts: Vec<String>,
 }

@@ -2094,7 +2094,7 @@ const DRAFT_RESEARCH_TYPE = Object.freeze({ passage: "Passage", source: "Source"
  * anything in the browser. `insert({ kind, markdown, label })` applies a checked insertion to
  * the draft and returns "" or why it could not.
  */
-export function createDraftResearchPanel({ api, insert, onClose, onClaim, onClaims, onSessionEnded, idPrefix = "oba-draft-research" }) {
+export function createDraftResearchPanel({ api, insert, onClose, onClaim, onClaims, onChecks, onReview, onSessionEnded, idPrefix = "oba-draft-research" }) {
   let data = null;
   let filter = "all";
   let query = "";
@@ -2113,6 +2113,7 @@ export function createDraftResearchPanel({ api, insert, onClose, onClaim, onClai
   const detail = h("section", { class: "oba-draft-research-detail", "aria-labelledby": `${idPrefix}-detail-title`, hidden: true, "data-draft-research-detail": "true" });
   const refresh = h("button", { class: "oba-btn", type: "button", "data-draft-research-refresh": "true", onClick: () => void load() }, "Refresh");
   const close = h("button", { class: "oba-btn", type: "button", "aria-label": "Close the research panel", "data-draft-research-close": "true", onClick: () => onClose?.() }, "Close");
+  const checksLine = h("p", { class: "oba-small", id: `${idPrefix}-checks-line`, role: "status", "aria-live": "polite", "data-draft-research-checks-line": "true" });
 
   const sources = () => (Array.isArray(data?.library?.sources) ? data.library.sources : []);
   const sourceById = (id) => sources().find((source) => source.id === id) || null;
@@ -2138,6 +2139,15 @@ export function createDraftResearchPanel({ api, insert, onClose, onClaim, onClai
     problems,
     results,
     detail,
+    onChecks
+      ? h(
+          "section",
+          { class: "oba-draft-research-checks", "data-draft-research-checks": "true", "aria-labelledby": `${idPrefix}-checks-title` },
+          h("h4", { id: `${idPrefix}-checks-title` }, "Research checks"),
+          checksLine,
+          h("div", { class: "oba-toolbar" }, h("button", { class: "oba-btn", type: "button", "data-draft-research-checks-open": "true", "aria-describedby": checksLine.id, onClick: () => onReview?.() }, "Review research checks")),
+        )
+      : null,
     h(
       "div",
       { class: "oba-draft-research-claims", "data-draft-research-claims": "true" },
@@ -2455,8 +2465,32 @@ export function createDraftResearchPanel({ api, insert, onClose, onClaim, onClai
     if (moveFocus) detail.querySelector(`#${idPrefix}-detail-title`)?.focus();
   };
 
+  /**
+   * What the research checks say about this draft, counted apart, from the same review the
+   * publication dialog and the readiness report show. Never a total, and read-only.
+   */
+  const loadChecks = async () => {
+    if (!onChecks) return;
+    try {
+      const review = await onChecks();
+      if (!review) return;
+      checksLine.textContent = review.applies === false
+        ? "The research checks cover posts on the Research profile and posts that publish citations. This draft is neither."
+        : review.findings?.length
+          ? publicationReviewCountsText(review)
+          : "The checks that ran raised nothing for this draft. That is not a judgement of the draft; checks cannot see everything.";
+    } catch (error) {
+      if (error?.status === 401) {
+        onSessionEnded?.();
+        return;
+      }
+      checksLine.textContent = "The research checks could not be read. Your draft is unchanged.";
+    }
+  };
+
   /** Read the research for the panel. A part that cannot be read is reported and the rest still works. */
   const load = async () => {
+    void loadChecks();
     say("Loading your research…");
     refresh.disabled = true;
     try {
@@ -7125,6 +7159,43 @@ const REVIEW_OUTCOME_LABELS = Object.freeze({ detected: "Detected", potential: "
 /** Whether a post finding sits in the front matter field it names rather than in the body. */
 const reviewFieldFinding = (scope, firstBodyLine) => Boolean(scope.field) && !(Number(scope.line) >= firstBodyLine);
 
+/** The text a group's detail says for the whole site, where a post that is not yet published only warns. */
+const SITE_BLOCKING_DETAIL = "The next build would refuse these. They cannot be acknowledged; fix them, then refresh.";
+
+/**
+ * Where a finding of the site report is, in words: the contract's own place text, the very words
+ * `openblog check` prints, so a finding is named the same way in both. The fallback only serves a
+ * report from a server that predates the field.
+ */
+export function publicationReviewSitePlace(finding) {
+  if (typeof finding?.place === "string" && finding.place) return finding.place;
+  const scope = finding?.scope || {};
+  if (scope.object === "post") {
+    const path = scope.path || "a post";
+    if (Number.isInteger(scope.line)) return `${path}, line ${scope.line}`;
+    return scope.field ? `${path}, ${scope.field}` : path;
+  }
+  if ((scope.object === "claim" || scope.object === "evidence-link") && scope.path && /\.md$/.test(scope.path)) {
+    return `${publicationReviewPlace(finding)} in ${scope.path}`;
+  }
+  return publicationReviewPlace(finding);
+}
+
+/**
+ * Where a finding of the site report is repaired, from the whole-site view: the post that holds it
+ * (its Evidence Studio for a claim), or the research panel holding the object. `null` when there
+ * is no single place to open.
+ */
+export function publicationReviewSiteTarget(finding) {
+  const scope = finding?.scope || {};
+  const path = String(scope.path || "");
+  const post = /\.md$/.test(path);
+  if (scope.object === "post" && post) return { kind: "panel", href: `#/edit/${encodeURIComponent(path)}`, label: `Open the post ${path}` };
+  if ((scope.object === "claim" || scope.object === "evidence-link") && post) return { kind: "panel", href: `#/edit/${encodeURIComponent(path)}?pane=evidence`, label: `Open ${path} in Evidence Studio` };
+  if (["post", "claim", "evidence-link", "claims-file"].includes(scope.object)) return null;
+  return publicationReviewTarget(finding);
+}
+
 /** Where a finding is, in words: a line of the draft, or the research object it names. */
 export function publicationReviewPlace(finding, { post = "", firstBodyLine = 1 } = {}) {
   const scope = finding?.scope || {};
@@ -7203,7 +7274,7 @@ export function publicationReviewCountsText(review) {
   const counts = review?.counts || {};
   const part = (label, count) => `${label}: ${Number(count?.found) || 0}${Number(count?.acknowledged) ? ` (${Number(count.acknowledged)} acknowledged)` : ""}`;
   const blocking = (review?.groups || []).find((group) => group.name === "blocking")?.findings?.length || 0;
-  return `${blocking ? `${blocking} must be fixed before publishing. ` : ""}${[part("Detected", counts.detected), part("Potential", counts.potential), part("Needs review", counts.needsReview)].join(". ")}.`;
+  return `${blocking ? `${blocking} must be fixed ${review?.scope === "site" ? "before the next build" : "before publishing"}. ` : ""}${[part("Detected", counts.detected), part("Potential", counts.potential), part("Needs review", counts.needsReview)].join(". ")}.`;
 }
 
 /** What an acknowledgement says about its finding, in words that never call it resolved. */
@@ -7433,7 +7504,7 @@ export function createBoundaryPreview({ manifest, idPrefix = "oba-boundary", lev
  * "schedule" or "check" (review only). `onDone` receives "confirm", "cancel" or a target to go to.
  * Acknowledging writes only the private acknowledgements file; nothing else is changed here.
  */
-export function createPublicationReview({ review, mode = "check", api, onDone, idPrefix = "oba-review" }) {
+export function createPublicationReview({ review, mode = "check", api, onDone, idPrefix = "oba-review", embedded = false, site = false, headingLevel = 2, announce = null }) {
   const findings = Array.isArray(review?.findings) ? review.findings : [];
   const groups = Array.isArray(review?.groups) ? review.groups : [];
   const context = { post: String(review?.post || ""), firstBodyLine: Number(review?.firstBodyLine) || 1 };
@@ -7441,10 +7512,13 @@ export function createPublicationReview({ review, mode = "check", api, onDone, i
   let revision = typeof acks.revision === "string" ? acks.revision : null;
   const blocking = groups.find((group) => group.name === "blocking")?.findings?.length || 0;
   const verb = mode === "schedule" ? "scheduling" : "publishing";
-  const heading = h("h2", { id: `${idPrefix}-title`, tabindex: "-1" }, mode === "check" ? "Research review" : `Research review before ${verb}`);
-  const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-review-status": "true" }, publicationReviewCountsText(review));
+  const heading = h(`h${Math.min(6, headingLevel)}`, { id: `${idPrefix}-title`, tabindex: "-1" }, site || embedded ? "Research checks" : mode === "check" ? "Research review" : `Research review before ${verb}`);
+  // Embedded in a panel that already has a polite status line, the review does not add a second
+  // live region that would announce the same moment: it hands what it says to that line.
+  const status = h("p", announce ? { class: "oba-small", "data-review-status": "true" } : { class: "oba-small", role: "status", "aria-live": "polite", "data-review-status": "true" }, publicationReviewCountsText(review));
   const say = (text) => {
     status.textContent = text;
+    announce?.(text);
   };
   const counts = review?.counts || {};
   const countOf = (outcome) => {
@@ -7462,7 +7536,7 @@ export function createPublicationReview({ review, mode = "check", api, onDone, i
   };
 
   const findingView = (entry, position) => {
-    const place = publicationReviewPlace(entry, context);
+    const place = site ? publicationReviewSitePlace(entry) : publicationReviewPlace(entry, context);
     const messageId = `${idPrefix}-message-${position}`;
     const ackState = h("p", { class: "oba-small", "data-review-acknowledgement": entry.acknowledgement || "none", hidden: !entry.acknowledgement }, publicationReviewAcknowledgementText(entry.acknowledgement));
     const error = h("p", { class: "oba-error", role: "alert", hidden: true, "data-review-error": "true" });
@@ -7542,9 +7616,11 @@ export function createPublicationReview({ review, mode = "check", api, onDone, i
               { class: "oba-small", "data-review-gate-note": entry.gate },
               entry.gate === "withholds"
                 ? "This cannot be acknowledged: acknowledging would not publish it. The comparison stays out of the next build until you check the place and approve it again."
-                : "This cannot be acknowledged: it is an integrity or privacy failure the build refuses, so it is fixed instead.",
+                : entry.gate === "refuses-when-published"
+                  ? "This cannot be acknowledged: the build refuses this citation once its post is published, so it is fixed instead. Until then it only warns."
+                  : "This cannot be acknowledged: it is an integrity or privacy failure the build refuses, so it is fixed instead.",
             ),
-        h("div", { class: "oba-toolbar" }, actionFor(publicationReviewTarget(entry, context)), actionFor(publicationReviewRelatedTarget(entry)), toggle),
+        h("div", { class: "oba-toolbar" }, actionFor(site ? publicationReviewSiteTarget(entry) : publicationReviewTarget(entry, context)), actionFor(publicationReviewRelatedTarget(entry)), toggle),
         ackState,
         error,
       ),
@@ -7559,8 +7635,8 @@ export function createPublicationReview({ review, mode = "check", api, onDone, i
       return h(
         "section",
         { class: `oba-review-group is-${group.name}`, "aria-labelledby": headingId, "data-review-group": group.name },
-        h("h3", { id: headingId }, `${info.label} (${group.findings.length})`),
-        h("p", { class: "oba-small" }, info.detail),
+        h(`h${Math.min(6, headingLevel + 1)}`, { id: headingId }, `${info.label} (${group.findings.length})`),
+        h("p", { class: "oba-small" }, site && group.name === "blocking" ? SITE_BLOCKING_DETAIL : info.detail),
         h("ul", { class: "oba-review-list" }, group.findings.map((position) => (findings[position] ? findingView(findings[position], position) : null))),
       );
     });
@@ -7586,9 +7662,11 @@ export function createPublicationReview({ review, mode = "check", api, onDone, i
       );
   const element = h(
     "section",
-    { class: "oba-review", "aria-labelledby": heading.id, "data-publication-review": mode },
+    { class: `oba-review${embedded ? " is-embedded" : ""}`, "aria-labelledby": heading.id, "data-publication-review": site ? "site" : embedded ? "embedded" : mode },
     heading,
-    h("p", { class: "oba-small", id: `${idPrefix}-intro` }, "These are prompts from your research checks, never verdicts: nothing here says the post is true, complete or ready. Only an integrity or privacy failure the build would refuse stops publishing; everything else is yours to decide. Acknowledging a finding keeps it listed and counted."),
+    h("p", { class: "oba-small", id: `${idPrefix}-intro` }, site
+      ? "These are prompts from your research checks, never verdicts: nothing here says your research is true, complete or ready. Only an integrity or privacy failure of a file the next build reads stops it; everything else is yours to decide. Acknowledging a finding keeps it listed and counted."
+      : "These are prompts from your research checks, never verdicts: nothing here says the post is true, complete or ready. Only an integrity or privacy failure the build would refuse stops publishing; everything else is yours to decide. Acknowledging a finding keeps it listed and counted."),
     status,
     ackProblem,
     ...notReviewed,
@@ -7596,8 +7674,8 @@ export function createPublicationReview({ review, mode = "check", api, onDone, i
       ? [h("p", { class: "oba-notice", "data-review-not-applicable": "true" }, "The research review covers posts on the Research profile and posts that publish citations. This post is neither, so publishing it works as before.")]
       : sections.length
         ? sections
-        : [h("p", { class: "oba-notice", "data-review-empty": "true" }, "The checks that ran raised nothing for this post. That is not a judgement of the post; checks cannot see everything.")]),
-    h("div", { class: "oba-dialog-actions" }, blockedNote, h("span", { class: "oba-spacer" }), cancel, confirm),
+        : [h("p", { class: "oba-notice", "data-review-empty": "true" }, site ? "The checks that ran raised nothing for the site. That is not a judgement of your research; checks cannot see everything." : "The checks that ran raised nothing for this post. That is not a judgement of the post; checks cannot see everything.")]),
+    embedded ? null : h("div", { class: "oba-dialog-actions" }, blockedNote, h("span", { class: "oba-spacer" }), cancel, confirm),
   );
   return { element, heading, confirm, cancel, status };
 }
@@ -10584,15 +10662,47 @@ export class ObAdmin extends AdminElement {
     const mountedView = this.nextViewVersion();
     const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-boundary-status": "true" });
     const content = h("div", { class: "oba-boundary-content" });
+    const checks = h("div", { class: "oba-boundary-checks", "data-readiness": "site" });
     const refresh = h("button", { class: "oba-btn", type: "button", "data-boundary-refresh": "true" }, "Refresh");
     const load = async (announce) => {
       refresh.disabled = true;
       status.className = "oba-small";
       status.textContent = "Reading what the next build publishes…";
       try {
-        const [manifest, postPaths] = await Promise.all([this.api.call("GET", "research/boundary"), this.savedPostPaths()]);
+        const [manifest, postPaths, readiness] = await Promise.all([
+          this.api.call("GET", "research/boundary"),
+          this.savedPostPaths(),
+          // The one research report; its failure never hides what will be public.
+          this.api.call("GET", "research/readiness").catch((error) => {
+            if (error instanceof ApiError && error.status === 401) throw error;
+            return { failure: error };
+          }),
+        ]);
         if (this.viewVersion !== mountedView) return;
         content.replaceChildren(createBoundaryPreview({ manifest, idPrefix: "oba-boundary-site", level: 3, scope: "site", postPaths }));
+        if (readiness?.failure) {
+          checks.replaceChildren(h("p", { class: "oba-error", role: "alert", "data-readiness-error": "true" }, `The research checks could not be read. ${readiness.failure?.data?.error || readiness.failure?.message || ""} Nothing was changed.`));
+        } else if (readiness?.applies === false) {
+          checks.replaceChildren();
+        } else {
+          checks.replaceChildren(
+            createPublicationReview({
+              review: readiness,
+              mode: "check",
+              api: this.api,
+              idPrefix: "oba-readiness-site",
+              embedded: true,
+              announce: (text) => {
+                status.textContent = text;
+              },
+              site: true,
+              headingLevel: 3,
+              onDone: (outcome) => {
+                if (outcome?.kind === "session-ended") this.showSessionEnded("Your session ended. Sign in again to see what will be public.");
+              },
+            }).element,
+          );
+        }
         status.textContent = `${announce ? "Refreshed. " : ""}${boundaryCountsText(manifest)}`;
       } catch (error) {
         if (error instanceof ApiError && error.status === 401) {
@@ -10617,6 +10727,7 @@ export class ObAdmin extends AdminElement {
           h("div", { class: "oba-toolbar" }, refresh),
           status,
           content,
+          checks,
         ),
       ),
     );
@@ -18572,6 +18683,8 @@ export class Editor {
         onClose: () => this.toggleDraftResearch(false),
         onClaim: () => void this.claimFromSelection(),
         onClaims: () => this.activatePane?.("evidence", true),
+        onChecks: this.kind === "posts" ? () => this.readResearchChecks() : null,
+        onReview: () => void this.reviewResearch("check"),
         onSessionEnded: () => this.app.showSessionEnded?.("Your session ended. Sign in again to return to your unsaved draft."),
       });
       this.draftResearch.element.addEventListener("keydown", (event) => {
@@ -19015,12 +19128,35 @@ export class Editor {
     ui.boundaryStatus.textContent = "Reading what this post publishes…";
     const readAt = this.app.editVersion;
     try {
-      const manifest = await this.app.api.call("POST", "research/boundary", {
-        json: { kind: this.kind, path: this.doc.path, fields: this.collect(), body: ui.body.value, ...this.creditRequestFields() },
-      });
+      const request = { kind: this.kind, path: this.doc.path, fields: this.collect(), body: ui.body.value, ...this.creditRequestFields() };
+      // The same review the publication dialog shows; its failure never hides what will be public.
+      const reviewing = this.app.api.call("POST", "research/review", { json: request }).catch((error) => (error?.status === 401 ? Promise.reject(error) : { failure: error }));
+      const manifest = await this.app.api.call("POST", "research/boundary", { json: request });
+      const review = await reviewing;
       // A post's claims are its own, so they link to its Evidence Studio.
       const postPaths = this.doc.path ? new Map((manifest.projections || []).flatMap((report) => [...(report.published || []), ...(report.withheld || [])]).flatMap((item) => item.posts || []).map((slug) => [slug, this.doc.path])) : null;
       ui.boundaryContent.replaceChildren(createBoundaryPreview({ manifest, idPrefix: "oba-boundary-post", level: 4, scope: "post", postPaths }));
+      if (review?.failure) {
+        ui.boundaryContent.append(h("p", { class: "oba-error", role: "alert", "data-readiness-error": "true" }, `The research checks could not be read. ${review.failure?.data?.error || review.failure?.message || ""} Your draft is unchanged.`));
+      } else if (review && review.applies !== false) {
+        ui.boundaryContent.append(
+          createPublicationReview({
+            review,
+            mode: "check",
+            api: this.app.api,
+            idPrefix: "oba-readiness-post",
+            embedded: true,
+            announce: (text) => {
+              ui.boundaryStatus.textContent = text;
+            },
+            headingLevel: 4,
+            onDone: (outcome) => {
+              if (outcome?.kind === "session-ended") this.app.showSessionEnded("Your session ended. Sign in again to return to your unsaved draft.");
+              else if (outcome && !outcome.navigate) this.goToReviewTarget(outcome);
+            },
+          }).element,
+        );
+      }
       this.boundaryRead = true;
       // An edit made while it was being read is not in it.
       this.boundaryStale = this.app.editVersion !== readAt;
@@ -19037,6 +19173,13 @@ export class Editor {
       this.previewingBoundary = false;
     }
     ui.boundaryRegion.querySelector("#oba-boundary-post-heading")?.focus();
+  }
+
+  /** The research review of the draft as it stands, for the draft-side panel's counts. Reads only. */
+  async readResearchChecks() {
+    return this.app.api.call("POST", "research/review", {
+      json: { kind: this.kind, path: this.doc.path, fields: this.collect(), body: this.ui.body.value, ...this.creditRequestFields() },
+    });
   }
 
   /**

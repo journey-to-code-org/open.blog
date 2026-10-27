@@ -1146,6 +1146,80 @@ how the post's evidence changed, optionally naming one claim. It is versioned wi
 removing private research or withdrawing a claim never removes it.
 _Avoid_: Changelog entry, correction notice from a reader; storing the note in private research
 
+## Research completeness
+
+These terms describe how every research check is gathered into one contract before publication.
+They never describe whether a work is true, credible, agreed or fit to publish.
+
+**Research completeness finding**:
+Any finding, notice, prompt or diagnostic of a research check, described in one shape: its owning
+validator, check, own code, category, outcome (detected, potential or needs-review), gate, the one
+object it is scoped to, related objects, its validator's message and a repair. Mapping into it
+changes nothing a check reports or where.
+_Avoid_: Readiness score, issue, verdict; renaming a check's code
+
+**Owning validator**:
+The one core check function that reports a given check. Every check has exactly one; presentations
+such as Admin, the CLI and the readiness report gather findings and own none.
+_Avoid_: Treating Admin or a report as a second validator
+
+**Finding category**:
+What kind of gap or prompt a finding is (integrity, public boundary, structure, reference,
+identifier, version, locator, citation, claim anchor, evidence, provenance, chronology, rights).
+Categories group findings and never rank them.
+_Avoid_: Severity, priority
+
+**Finding gate**:
+What the owning validator does about a finding: advisory (nothing is refused), refuses when
+published (a post publishing the citation is refused), withholds (a stale approval leaves one
+comparison out of the build and cannot be acknowledged), or refuses (the save or build is
+refused). Only deterministic integrity and privacy failures refuse; potential and needs-review
+findings are always advisory.
+_Avoid_: Blocking review, mandatory resolution
+
+**Research readiness report**:
+The one report of what every research check says about the site as the next build would publish
+it: the contract's findings in its one order, grouped by what the build refuses and then by
+outcome, counted apart, with the author's acknowledgements matched. Admin (What will be public,
+What this post makes public, the Research panel beside a draft), `openblog check` (also as
+`--json`), `openblog build` and the preview that serves a build all show it with the same codes in
+the same order (ADR 0150). It is prompts, never a verdict: it has no score, and only a failure of
+a private file the build reads stops a build, before any public file is written.
+_Avoid_: Readiness score, pass or fail, completeness percentage
+
+**Finding acknowledgement**:
+An author's record that they have considered an advisory finding. It names the finding's key and
+fingerprint, never makes the finding resolved, is counted apart from what was found, and goes
+stale when what the finding says changes.
+_Avoid_: Dismissal, resolution, waiver; acknowledging an integrity or privacy failure
+
+**Finding fingerprint**:
+A digest of a finding's validator, code, object, file, id, field, related objects and the
+structured facts its validator states for that code (cited keys and locators, source and passage
+ids, identifier values, stated dates), never its message, lines or positions, so it changes
+exactly when what the finding is about changes and not when text moves or wording is edited.
+_Avoid_: Finding id, revision; hashing the message
+
+**Source review**:
+The validator that prompts about identifiers two records share or one record holds twice,
+version details a citation, passage or record leaves out (a volume, a translator, a witness's
+shelfmark), quotations without a narrow location, and posts that cite one source under two
+records or several versions of one work. Every prompt is advisory and offline, and none says
+whether a source or quotation is accurate.
+_Avoid_: Fact check, quotation verification, metadata repair
+
+**Quotation**:
+For source review, a citation inside or directly after a block quotation, a citation directly
+after quoted words, or a notebook passage. A quotation needs a location in its source; whether
+the words are there is only ever for a person to check. A GitHub-style alert is not one.
+_Avoid_: Excerpt check, verified quote
+
+**Identifier comparison key**:
+The form two identifiers are compared in (a DOI case-folded in its resolver form, an ISBN-10 as
+its ISBN-13, a PMCID with its prefix upper-cased). It is only compared, never written back: the
+record keeps the identifier as written.
+_Avoid_: Normalizing, deduplicating, merging
+
 ## Reader participation
 
 These terms describe how readers point at published text, where their feedback came from, and
@@ -1569,12 +1643,6 @@ The check that each context link in a post names a page the next build publishes
 `context_links` and reported as `context-link-unpublished` (ADR 0123). A missing page is a gap to
 repair, never a privacy failure.
 _Avoid_: Broken link check, link validation
-
-**Finding acknowledgement**:
-An author's record that they have considered an advisory finding. It names the finding's key and
-fingerprint, never makes the finding resolved, is counted apart from what was found, and goes
-stale when what the finding says changes.
-_Avoid_: Dismissal, resolution, waiver; acknowledging an integrity or privacy failure
 
 **Publication boundary**:
 The line between private research and what the public site carries. Nothing crosses it because it
