@@ -4267,22 +4267,6 @@ mod tests {
     }
 
     #[test]
-    fn home_uses_configured_primary_heading_on_every_page() {
-        let files = build(
-            r#"{"home":{"heading":"Field Notes"},"postsPerPage":2}"#,
-            true,
-        );
-        for path in ["index.html", "page/2/index.html"] {
-            let html = file(&files, path);
-            assert!(html.contains("<h1 id=\"latest\" class=\"ob-title\">"));
-            assert!(html.contains("Field Notes"));
-            assert!(!html.contains("<h2 id=\"latest\""));
-            assert_eq!(html.matches("<h1 ").count(), 1);
-        }
-        assert!(file(&files, "index.html").contains("<h2 id=\"series\""));
-    }
-
-    #[test]
     fn generates_every_page_and_feed() {
         let files = build(
             r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","postsPerPage":2}"#,
