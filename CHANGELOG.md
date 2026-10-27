@@ -5,6 +5,7 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Continuations (core only, nothing renders them yet): a typed `continuations.json` model that links an approved question, reflection or source suggestion to the later work that takes it up, with ordinary links as the whole baseline, notes that cannot claim cause, endorsement or popularity, edges that disappear when a submission is removed, and optional update subscriptions that are off by default, need explicit consent and erase the address when you unsubscribe.
 - `<ob-search>` accepts a `no-history` attribute that stops it from writing `?q=` to the page address,
   for a search box that lives in a dialog or panel on another page.
 

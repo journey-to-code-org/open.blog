@@ -2143,3 +2143,27 @@ notebook: labelled unverified reader text with the page it came from, the reader
 they said about the source as quoted statements, and no name, contact or time. It creates no passage,
 source, draft or link and changes nothing about the suggestion (ADR 0160).
 _Avoid_: Import, conversion, promotion to the library
+
+## Continuations
+
+How a later work links back to the reader questions that came before it (ADRs 0400 to 0405). Ordinary
+links are the whole feature; updates are an optional extra.
+
+**Continuation**:
+An editor's typed link from one approved question, reflection or source suggestion to a later published
+work that takes it up, kept in `continuations.json` as ids and canonical paths and never a reader's
+words, name or contact. It shows only while the submission is approved and both pages are published,
+and it never says the submission caused the work or that anyone endorses it.
+_Avoid_: Reply, answer, credit, inspiration, trackback
+
+**Continuation relation**:
+How the later work relates to the earlier submission: takes up, revisits or uses a suggested source. A
+closed set that describes the link and never its worth.
+_Avoid_: Reason, cause, impact
+
+**Update subscription**:
+A reader's optional, explicit request to be told when later work continues one page's questions or one
+series. Off by default and offered only where a site turned it on and the hosted service is reachable;
+otherwise the page offers links only. The address is private, kept only while active, never in static
+output or analytics, and erased by unsubscribing. Nothing in open.blog sends the update itself (ADR 0404).
+_Avoid_: Newsletter, follow, mailing list, tracking
