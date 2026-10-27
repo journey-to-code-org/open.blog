@@ -444,6 +444,50 @@ fn main() {
 > Use `println!` with a string literal.
 ````
 
+#### Rust checks: hidden tests that give the reader feedback
+
+Add `check` after `rust runnable`, then a `---checks` line and ordinary `#[test]` functions. The
+reader sees and edits only the starter above the marker. A **Check my code** button appends your
+tests to what they wrote, compiles it on the Rust Playground in test mode, and shows *your* feedback
+for every check that fails: the doc comment (`///`) on the test, or the function name if there is none.
+
+````markdown
+```rust runnable check title="Finish the damage rule"
+fn click_damage(base: u32, bonus: u32) -> u32 {
+    // TODO: add them without overflowing
+    0
+}
+---checks
+/// Add the base and the bonus together.
+#[test]
+fn adds_bonus() {
+    assert_eq!(click_damage(5, 3), 8);
+}
+
+/// Stop at the ceiling instead of wrapping around: try saturating_add.
+#[test]
+fn saturates() {
+    assert_eq!(click_damage(u32::MAX, 1), u32::MAX);
+}
+```
+````
+
+- The checks run in a child module with `use super::*`, so they can call the reader's functions,
+  private ones included. The program is compiled as a library, so the reader's `fn main` is optional.
+  The reader's code and your checks together must stay under 40,000 bytes (the starter alone under 20,000).
+- A wrong answer shows only your feedback lines. Code that does not compile shows the compiler output.
+  The raw assertion text is never shown, so a check does not spoil its own answer.
+- **Hidden is not secret.** The checks ship in the page data (`<script data-ob-rust-checks>`), so
+  a curious reader can find them. This is a teaching aid, not a grader.
+- **Other platforms.** A copy cannot run the checks, so feeds, exports and syndicated copies show the
+  starter as the code, then the checks inside a collapsed `<details>` block labelled "Spoiler: the
+  checks for this challenge", then the link to the canonical page. A reader elsewhere can see how the
+  challenge is checked without having the answer in their face.
+- Pin down behaviour, not style: tests that call `click_damage(5, 3)` fix the function's name and
+  signature, so say so in the task, and prefer several small checks with specific feedback over one big one.
+- The build rejects `check` on anything but `rust runnable`, a missing `---checks` line, an empty
+  starter, or a `---checks` section with no `#[test]`.
+
 The Admin's **Assistant → Interactions → Create runnable-code proposal** dialog can draft either a
 complete example or this challenge pattern from selected text or the current section. Every field is
 editable, insertion is explicit, and the form also works without an AI provider. These challenges do

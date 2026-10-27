@@ -1252,7 +1252,16 @@ ob-rust-playground[data-enhanced="true"] > pre.ob-rust-source {
 }
 
 .ob-code-editor-status {
-  font-weight: 600;
+  margin-top: 0.25rem;
+  font-family: var(--ob-font-mono);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+.ob-code-editor-controls + .ob-code-editor-note {
+  margin-top: 0.75rem;
+  padding-top: 0.65rem;
+  border-top: var(--ob-border-width) solid var(--ob-color-border);
 }
 
 .ob-rust-output-panel {
@@ -1272,6 +1281,21 @@ ob-rust-playground[data-enhanced="true"] > pre.ob-rust-source {
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
+
+/* "Check my code": the author's own feedback for a `rust runnable check` fence. */
+.ob-rust-check-panel {
+  margin-top: 0.65rem;
+  padding: 0.65rem 0.85rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-left-width: 4px;
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-code-bg);
+}
+.ob-rust-check-panel[data-state="passed"] { border-left-color: var(--ob-color-accent); }
+.ob-rust-check-summary { margin: 0; font-weight: 700; }
+.ob-rust-check-list { margin: 0.5rem 0 0; padding-left: 1.25rem; }
+.ob-rust-check-item { margin: 0.25rem 0; }
+.ob-rust-check-panel[hidden] { display: none; }
 
 .ob-prose .ob-rust-output {
   max-height: 22rem;

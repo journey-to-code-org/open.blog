@@ -5,6 +5,14 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- New `rust runnable check` fence option: a `---checks` line inside a Rust runnable fence separates the
+  reader's starter code from hidden `#[test]` functions. **Check my code** sends both to the Rust Playground
+  with `tests: true`, reads `test ob_checks::name ... ok|FAILED` (the first line for a name wins, so a test
+  cannot be forged by printing), and shows the author's `///` feedback line for each failing check. Checks
+  live in a `data-ob-rust-checks` JSON script, never in the editor. Feeds, portable HTML and portable
+  Markdown show the starter and tuck the checks into a `<details>` block headed "Spoiler: the checks for
+  this challenge"; the semantic-fact check fails an export that loses either.
+
 - New `demo git-practice` kind with `lesson="<id>"`: a guided practice terminal where the reader types each
   Git command and sees what it would print. Lessons are scripted in `ob-practice-model.js` with accepted
   alternates, hints after wrong answers, and long output that opens in a simulated `less` (space, `b`, `j`/`k`,
