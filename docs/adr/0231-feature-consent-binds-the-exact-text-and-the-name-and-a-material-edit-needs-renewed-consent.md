@@ -32,6 +32,15 @@ match the text must not carry over to different text.
   merely switched off clarification after rewriting their reflection silently agreed to feature words
   they had not agreed to; that is now impossible by construction. Stored consent records are unchanged
   and read as before: this alters only what a new change may write.
+- **Legacy consent records are taken on trust.** Records already stored are read exactly as written and
+  are not re-verified: nothing can show what text a reader saw beyond the revision the record names, and
+  a record is never rewritten to fit a rule that came later. The risk is low. No record made by a released
+  version holds a feature agreement at all (the field is new with RD14, so every older record reads as
+  "not agreed"), and the rebinding fault described above lived only in the unreleased first design. A
+  stored agreement also does nothing alone: an editor must still choose the reflection, the feature
+  binds the revision and the digest of the exact text (so an agreement for other words never matches),
+  Admin previews the page's own projection before choosing, and the reader can decline from their
+  receipt at any time.
 - **The words are bound twice.** A feature records the revision the reader agreed to and the digest of
   that text (`body_digest`, a domain-separated BLAKE2s-256 of the exact bytes). The hosted check
   compares the revision, the approved revision and the digest; the static page compares the published

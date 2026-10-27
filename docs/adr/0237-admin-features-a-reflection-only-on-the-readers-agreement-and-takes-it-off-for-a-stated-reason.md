@@ -47,10 +47,11 @@ no state, no hosted column and no route that decides anything the pure module do
 - **The preview is the page's own projection and writes nothing.** It builds the record exactly as
   choosing does, adds the reflection to an in-memory copy of the published file when it is not on it,
   and returns `community_feature::project_post`'s `FeaturedPerspective` with the fixed
-  `NON_CONSENSUS_NOTICE`. The card renders it as text only (the reader's words, the provenance line, the
+  `NON_CONSENSUS_NOTICE`. Choosing runs the same `project_post` check before it writes, so a kind that is
+  hidden or locked out on the post is `409` for a choice exactly as for a preview. The card renders it as text only (the reader's words, the provenance line, the
   editors' note labelled as theirs); an editor never previews something choosing would refuse, and the
   preview carries no id of a moderator, no consent record and no count, rank or score. #230 renders the
-  same value on the canonical page.
+  same value on the canonical page (ADR 0238).
 - **The note is the editors' own words, changed without the reader.** `POST .../note` re-runs ADR 0234's
   lint and replaces only the note; the reader's text, the digest and the day featured are untouched.
   There is no reorder: features are listed by the day they were featured and the id, so there is no
@@ -62,18 +63,26 @@ no state, no hosted column and no route that decides anything the pure module do
   and on the reflection's card. `.../unfeature` removes only the feature record; the reflection stays
   published. Taking a reflection off (`unpublish_perspective`) removes its feature first, in the same
   step, so a feature never outlives its reflection. An editor may take a feature off by choice at any
-  time; nothing is e-mailed and no tombstone is left (ADR 0233).
-- **The build reads the file strictly and changes nothing.** `community-perspectives.json` is read with
-  the same rules at build time: a file that cannot be read refuses the build, naming the item and never
-  its contents, and an item about something that is not a post is a warning. No page, feed, export or
-  portable copy changes by a byte (a test compares the whole output tree with and without a valid file),
-  and a site without the file is untouched. The section is #230.
+  time; nothing is e-mailed and no tombstone is left (ADR 0233). Removing is always safe, so the site
+  Admin of every work may take a feature off or change its note when the hosted service cannot be asked;
+  a per-work Admin needs the hosted row to prove the work. The audit then reports what the committed
+  file alone shows and `unknown` for the rest, and the banner says the features could not be checked for
+  any failure except `403`.
+- **The build reads the file strictly.** `community-perspectives.json` is read with the same rules at
+  build time: a file that cannot be read refuses the build, naming the item and never its contents, and
+  an item about something that is not a post is a warning. The section it feeds is #230 (ADR 0238); a
+  site without the file is untouched.
 - **Hosted changes are additive.** The one hosted addition is the receipt's `feature` action, which
   reuses the consent-append path and the version raise (ADR 0230); there is no schema change, route,
   environment variable or setting.
-- **Nothing counts, ranks or claims consensus.** No route, field or message states how many reflections
-  were received, approved or featured; the banner's sentences name what must be done, not a tally of
-  merit, and the editors' note is refused when it does.
+- **Nothing a reader sees counts, ranks or claims consensus.** No route, field or message states how
+  many reflections were received, approved or featured. The one exemption is the count of Admin tasks
+  in Admin's own banner ("2 featured reflections must come off"), shown only to the site Admin and
+  never to a reader: it says how much work is waiting, not how well a reflection fared. The editors'
+  note is refused when it claims popularity.
+- **No manual order or placement.** Issue #229 listed order, reorder and placement. They are replaced by
+  the day featured and one placement per reflection: a hand-set order would be an editor ranking
+  reflections, which is what ADR 0234 refuses.
 
 ## Considered options
 
