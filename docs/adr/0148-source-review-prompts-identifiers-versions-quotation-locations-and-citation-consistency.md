@@ -1,4 +1,4 @@
-# ADR 0146: Source review prompts about identifiers, versions, quotation locations and citation consistency
+# ADR 0148: Source review prompts about identifiers, versions, quotation locations and citation consistency
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -8,14 +8,14 @@
 - Builds on: [ADR 0045](0045-citation-locators-reuse-notebook-locators.md),
   [ADR 0050](0050-offline-citation-checks-and-portable-bibliography-exports.md),
   [ADR 0084](0084-version-lineage-witness-identity-and-volumes.md),
-  [ADR 0144](0144-one-research-completeness-contract-with-one-owner-per-check.md),
-  [ADR 0145](0145-acknowledgements-never-resolve-a-finding-and-go-stale-when-it-changes.md)
+  [ADR 0146](0146-one-research-completeness-contract-with-one-owner-per-check.md),
+  [ADR 0147](0147-acknowledgements-never-resolve-a-finding-and-go-stale-when-it-changes.md)
 - Coordinates with: [#194](https://github.com/journey-to-code-org/open.blog/issues/194),
   [#195](https://github.com/journey-to-code-org/open.blog/issues/195)
 
 ## Context
 
-ADR 0144 reserved a `source-review` validator with four checks (identifier compatibility,
+ADR 0146 reserved a `source-review` validator with four checks (identifier compatibility,
 version identity, quotation location and citation consistency) for the gaps no existing check
 covers. The library already refuses malformed DOIs, ISBNs, ISSNs and URLs, a page on a work, a
 folio outside a witness, and a reference location without its volume (ADR 0084), and citation
@@ -83,7 +83,7 @@ without destructive normalization, and without inventing any detail.
   schemes, field positions, locator kinds and counts, never a title, excerpt, note, quoted
   words or identifier value. Each finding's position-free `facts` (cited keys and locators,
   comparison keys, ids, volume counts and the quotation's own text) feed its fingerprint
-  (ADR 0145) and are never serialized. Archived records and passages are left out of the
+  (ADR 0147) and are never serialized. Archived records and passages are left out of the
   library review; whatever still rests on them is reported by the checks that read it.
 - **Where it shows.** The site load reviews each opted-in post with the library it already
   reads for citations, so `openblog check` and `openblog build` print the post findings beside

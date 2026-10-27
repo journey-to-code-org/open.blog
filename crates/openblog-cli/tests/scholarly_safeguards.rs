@@ -1,5 +1,5 @@
 //! The scholarly-safeguard regression corpus through the real command line
-//! (#195, ADR 0149): compact invented projects, each failing one distinction
+//! (#195, ADR 0151): compact invented projects, each failing one distinction
 //! on its own, run through `openblog check --json` and `openblog build`.
 //!
 //! `tests/fixtures/scholarly-safeguards/corpus.json` is the data. Every case is

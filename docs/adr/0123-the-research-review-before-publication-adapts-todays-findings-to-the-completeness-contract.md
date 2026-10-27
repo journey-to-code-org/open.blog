@@ -13,7 +13,7 @@
   [ADR 0097](0097-chronology-prompts-are-structural-and-never-verdicts.md),
   [ADR 0121](0121-workspace-panels-keep-unsaved-changes-while-another-panel-opens.md),
   [ADR 0122](0122-the-draft-side-research-panel-inserts-only-checked-and-published-research.md)
-- Coordinates with: the research-completeness contract of RW9 (ADR 0144 and ADR 0145 on
+- Coordinates with: the research-completeness contract of RW9 (ADR 0146 and ADR 0147 on
   `story/rw9-research-completeness`, still being revised) and
   [#194](https://github.com/journey-to-code-org/open.blog/issues/194), which exposes one
   readiness report and depends on this review
@@ -75,14 +75,14 @@ would make #194 a migration.
   JSON fields: `validator`, `check`, `code`, `category`, `outcome`, `gate`, `scope` (object, id,
   index, path, line, column, field), `related`, `message`, `repair`, and per review `fingerprint`
   and `acknowledgement`, with `counts` of each outcome (`found`, `acknowledged`) and
-  `unmatchedAcknowledgements`. The tables are ADR 0144's matrix. The order is ADR 0144's total
+  `unmatchedAcknowledgements`. The tables are ADR 0146's matrix. The order is ADR 0146's total
   order; exact duplicates collapse. The review adds only `groups` (the positions of the findings
   in each group, in the order above), `applies`, `post`, `firstBodyLine`, `notReviewed` and the
   acknowledgements file's revision. There is no score, total, pass, ready or resolved field.
 
   | Today's output | Converter | Contract mapping |
   | --- | --- | --- |
-  | `EvidenceFinding` (research profile, citations, claims) | `from_evidence` | ADR 0144's evidence rows; a claim finding is scoped to its claim, a link finding to its link with the claim related |
+  | `EvidenceFinding` (research profile, citations, claims) | `from_evidence` | ADR 0146's evidence rows; a claim finding is scoped to its claim, a link finding to its link with the claim related |
   | `AtlasDiagnostic` notices and errors (atlas, claims, alignments) | `from_atlas_diagnostic` | notices to the file's projection or places check, advisory; errors to its integrity check, `refuses` |
   | `ChronologyPrompt` | `from_chronology_prompt` | `chronology-consistency`, needs-review, advisory, every dating related |
   | `PublicComparison` withheld places | `from_comparison` | `withheld-rights` and `withheld-length` under `comparison-rights`, advisory |
@@ -98,7 +98,7 @@ would make #194 a migration.
   advisory: the address is the author's own text, so a missing page is a gap, not a leak. Its
   fact is the address.
 - **Rows this review adds to the matrix.** The contract keeps these; #194 must add them to
-  ADR 0144's matrix when it replaces the converters, rather than drop or rename them, so
+  ADR 0146's matrix when it replaces the converters, rather than drop or rename them, so
   acknowledgements stored in the meantime keep their keys:
 
   | Kind | Added | Owner and mapping |

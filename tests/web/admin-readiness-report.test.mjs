@@ -8,7 +8,7 @@ import {
   publicationReviewSiteTarget,
 } from "../../web/admin/admin.js";
 
-// The research readiness report (#194, ADR 0148): Admin and the command line show one report. The
+// The research readiness report (#194, ADR 0150): Admin and the command line show one report. The
 // Rust tests write the shared fixtures from the contract (crates/openblog-core/tests/readiness_report.rs);
 // these tests read the same files and check that Admin's wording, order and counts are the
 // terminal's, so neither can drift from the other.

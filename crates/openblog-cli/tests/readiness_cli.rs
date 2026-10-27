@@ -1,5 +1,5 @@
 //! The research readiness report through the real command line (#194,
-//! ADR 0148): `openblog check`, `openblog check --json` and `openblog build`
+//! ADR 0150): `openblog check`, `openblog check --json` and `openblog build`
 //! show one report with one set of codes in one order; the machine-readable
 //! output is deterministic; a failure of a private file the build reads stops
 //! the build before any public file changes; and a site without research

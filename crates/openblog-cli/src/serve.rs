@@ -260,7 +260,7 @@ pub(crate) fn readiness_text(report: &site::BuildReport) -> String {
 }
 
 /// The report to print after a rebuild, only when it differs from the last one
-/// printed, so an unchanged report is not repeated on every save (ADR 0148).
+/// printed, so an unchanged report is not repeated on every save (ADR 0150).
 pub(crate) fn changed_readiness(last: &mut String, report: &site::BuildReport) -> Option<String> {
     let text = readiness_text(report);
     if text == *last {
@@ -270,7 +270,7 @@ pub(crate) fn changed_readiness(last: &mut String, report: &site::BuildReport) -
     (!text.is_empty()).then_some(text)
 }
 
-/// Source-review findings (ADR 0146), one line each in the shape evidence
+/// Source-review findings (ADR 0148), one line each in the shape evidence
 /// findings use: outcome, place, message, repair and code.
 pub fn print_source_review_findings(findings: &[SourceReviewFinding]) {
     for finding in findings {

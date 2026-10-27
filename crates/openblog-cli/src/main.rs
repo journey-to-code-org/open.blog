@@ -838,7 +838,7 @@ fn check_site(
 /// `openblog check` and `openblog check --json`.
 ///
 /// Without `--json`, the checks print as they always did, then the one
-/// research report on standard error (ADR 0148). With `--json`, standard
+/// research report on standard error (ADR 0150). With `--json`, standard
 /// output is one JSON document and nothing else, always: the report Admin
 /// receives plus an `error` field that is `null` when the checks passed and
 /// the message when they did not, or when the site could not be loaded (the
@@ -966,7 +966,7 @@ fn check_research_notebook(
     }))
 }
 
-/// Review the stored source library and notebook (ADR 0146), with the
+/// Review the stored source library and notebook (ADR 0148), with the
 /// findings the site load made about the sources its posts cite, when a
 /// library is stored. Every finding is advisory; the summary counts each
 /// outcome apart and never combines them.

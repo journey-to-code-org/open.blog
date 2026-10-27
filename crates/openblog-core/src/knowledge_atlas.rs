@@ -635,7 +635,7 @@ pub struct AtlasDiagnostic {
     pub message: String,
     /// The position-free facts a notice states: the ids, locators and
     /// counts it is about, never a sentence. They identify what the notice
-    /// says for an author's acknowledgement (ADR 0145) and are never
+    /// says for an author's acknowledgement (ADR 0147) and are never
     /// serialized.
     #[serde(skip)]
     pub facts: Vec<String>,

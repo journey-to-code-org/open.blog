@@ -1,6 +1,6 @@
 //! Source-scoped identifier, version, quotation-location and
-//! citation-consistency diagnostics (ADR 0146): the `source-review`
-//! validator of the research-completeness contract (ADR 0144).
+//! citation-consistency diagnostics (ADR 0148): the `source-review`
+//! validator of the research-completeness contract (ADR 0146).
 //!
 //! Four checks, each a structural property of the research record:
 //!
@@ -175,7 +175,7 @@ pub struct SourceReviewFinding {
     pub related: Vec<String>,
     pub message: String,
     pub repair: String,
-    /// The position-free facts the finding states (ADR 0145): keys,
+    /// The position-free facts the finding states (ADR 0147): keys,
     /// locators, ids and comparison keys, never a line or sentence. Never
     /// serialized, so no identifier value reaches any output.
     #[serde(skip)]

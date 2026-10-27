@@ -286,7 +286,7 @@ pub struct Post {
     pub(crate) accessibility: Vec<AccessibilityFinding>,
     pub(crate) evidence: Vec<EvidenceFinding>,
     /// Identifier, version, quotation-location and citation-consistency
-    /// findings about the sources this post cites (ADR 0146), for the author.
+    /// findings about the sources this post cites (ADR 0148), for the author.
     pub(crate) source_review: Vec<crate::source_review::SourceReviewFinding>,
     /// Semantic capabilities detected in the authored Markdown.
     pub capabilities: Vec<CapabilityDescriptor>,
@@ -467,7 +467,7 @@ pub struct Site {
     pub accessibility: Vec<AccessibilityFinding>,
     /// Structured research/evidence guidance for the CLI and Admin Studio.
     pub evidence: Vec<EvidenceFinding>,
-    /// Source-review findings about the sources posts cite (ADR 0146), for
+    /// Source-review findings about the sources posts cite (ADR 0148), for
     /// `openblog check` and builds. Never written to the output.
     pub source_review: Vec<crate::source_review::SourceReviewFinding>,
     /// Known view totals per page path, supplied by the caller (for example from

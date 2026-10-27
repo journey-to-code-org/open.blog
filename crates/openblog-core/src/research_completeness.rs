@@ -1,4 +1,4 @@
-//! The research-completeness contract (ADR 0144, ADR 0145): one finding
+//! The research-completeness contract (ADR 0146, ADR 0147): one finding
 //! shape, one matrix and one deterministic order that every research check
 //! maps into, so a single report can gather them without any check changing
 //! what it reports or where.
@@ -76,10 +76,10 @@ pub enum Validator {
     Alignments,
     ComparisonProjection,
     /// Source-scoped identifier, version, quotation-location and
-    /// citation-consistency diagnostics (ADR 0146).
+    /// citation-consistency diagnostics (ADR 0148).
     SourceReview,
     /// `context_links::review_context_links`: whether each context link in a
-    /// post names a page the next build publishes (ADR 0123, ADR 0147).
+    /// post names a page the next build publishes (ADR 0123, ADR 0149).
     PublicationContext,
 }
 
@@ -835,7 +835,7 @@ code_table!(SOURCE_REVIEW_CODES, source_review_spec, SourceReviewCode -> Spec {
     CitationVersionsMixed => spec(K::CitationConsistency, C::Citation, O::NeedsReview, G::Advisory),
 });
 
-/// The code of the context-link check (ADR 0123, ADR 0147).
+/// The code of the context-link check (ADR 0123, ADR 0149).
 pub const CONTEXT_LINK_UNPUBLISHED: &str = "context-link-unpublished";
 
 /// The adapter's code for a private file the publication reads that cannot
@@ -1169,7 +1169,7 @@ impl CompletenessFinding {
         findings
     }
 
-    /// A source-review finding (ADR 0146): scoped to the post, record or
+    /// A source-review finding (ADR 0148): scoped to the post, record or
     /// passage it names, with every other source it is about related.
     pub fn from_source_review(finding: &SourceReviewFinding) -> Self {
         let object = match finding.object {
@@ -1465,7 +1465,7 @@ impl Acknowledgement {
 }
 
 /// The stored acknowledgements (ADR 0124): a versioned, sorted,
-/// duplicate-free list, in exactly the record shape of ADR 0145.
+/// duplicate-free list, in exactly the record shape of ADR 0147.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AcknowledgementSet {

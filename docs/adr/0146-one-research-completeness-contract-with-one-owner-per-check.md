@@ -1,6 +1,6 @@
-# ADR 0144: One research-completeness contract maps every research check, and each check has one owner
+# ADR 0146: One research-completeness contract maps every research check, and each check has one owner
 
-- Status: Accepted, amended by [ADR 0147](0147-the-publication-review-is-a-view-of-the-research-completeness-contract.md)
+- Status: Accepted, amended by [ADR 0149](0149-the-publication-review-is-a-view-of-the-research-completeness-contract.md)
 - Date: 2026-10-26
 - Decision issue: [#191](https://github.com/journey-to-code-org/open.blog/issues/191)
 - Parent story: [#189](https://github.com/journey-to-code-org/open.blog/issues/189)
@@ -57,7 +57,7 @@ different names, and nothing would say which outcomes may stop a build.
   | `claims` | `ClaimSet::parse`, `ClaimSet::notices` | `claims-integrity`, `claim-projection` |
   | `alignments` | `AlignmentSet::parse`, `AlignmentSet::notices` | `alignments-integrity`, `alignment-places` |
   | `comparison-projection` | `PublicComparisons::project` | `comparison-rights` |
-  | `source-review` (ADR 0146) | `source_review::review_post`, `source_review::review_library` | `identifier-compatibility`, `version-identity`, `quotation-location`, `citation-consistency` |
+  | `source-review` (ADR 0148) | `source_review::review_post`, `source_review::review_library` | `identifier-compatibility`, `version-identity`, `quotation-location`, `citation-consistency` |
 
   The RW9 hand-off checks map one to one: missing reference `citation-resolution`, reference
   completeness `reference-completeness`, identifier `identifier-compatibility`, locator
@@ -109,7 +109,7 @@ different names, and nothing would say which outcomes may stop a build.
   | alignments | `stale-approval` (gate `withholds`, never acknowledgeable) | alignment-places | locator | needs-review |
 
   The review before publication (ADR 0123) added `publication-context` and its check
-  `context-link`, and ADR 0147 moved them here with `file-unreadable`, a `refuses` code of each
+  `context-link`, and ADR 0149 moved them here with `file-unreadable`, a `refuses` code of each
   private file's integrity check for a file that cannot be read or projected at all.
 
 - **Gates: only deterministic integrity and privacy failures refuse.** `citation-syntax` and
@@ -131,7 +131,7 @@ different names, and nothing would say which outcomes may stop a build.
   `invalid-date`, `aspect-kind` and `duplicate-dating` are `chronology`; everything else is
   `integrity`. A `potential` or `needs-review` finding is always advisory, so no subjective
   judgement can block anything. A fourth gate, `withholds`, is for the one condition that leaves
-  a single item out of a build without stopping it: a stale approval (ADR 0147).
+  a single item out of a build without stopping it: a stale approval (ADR 0149).
 - **Scoped to one object.** A `scope` names one object kind (`post`, `claim`, `evidence-link`,
   `source`, `interpretation`, `passage`, `note`, `entry`, `relationship`, `dating`, `alignment`,
   or a whole private file: `source-library`, `notebook`, `atlas`, `claims-file`,

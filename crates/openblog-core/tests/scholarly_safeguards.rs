@@ -1,5 +1,5 @@
 //! The scholarly-safeguard regression corpus through the real emitters
-//! (#195, ADR 0149): every row of the research-completeness matrix is
+//! (#195, ADR 0151): every row of the research-completeness matrix is
 //! produced by the validator that owns it, from compact invented fixtures in
 //! `tests/fixtures/scholarly-safeguards/`.
 //!

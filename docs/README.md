@@ -112,7 +112,7 @@ alike and that never judge whether a claim is true
 ([ADR 0074](adr/0074-evidence-gaps-are-prompts-in-the-shared-finding-contract.md)), gathered with
 every other research check into one readiness report that Admin, `openblog check`, builds and the
 preview show with the same codes in the same order
-([ADR 0148](adr/0148-one-research-readiness-report-across-admin-check-build-and-preview.md)), and, when a
+([ADR 0150](adr/0150-one-research-readiness-report-across-admin-check-build-and-preview.md)), and, when a
 site opts in, publishes approved claims with their evidence side by side as a section of the
 post, with revision notes the post itself carries
 ([ADR 0075](adr/0075-publish-approved-claim-evidence-in-the-post-with-public-revision-notes.md)),

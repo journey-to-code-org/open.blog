@@ -1,4 +1,4 @@
-//! The one research readiness report (#194, ADR 0148), over the unified
+//! The one research readiness report (#194, ADR 0150), over the unified
 //! contract: Admin and the command line list the same codes in the same order;
 //! a post's review and the site's report differ only in what counts as
 //! blocking; acknowledged findings stay listed and counted; and the terminal

@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// The scholarly-safeguard corpus in the real Admin Studio (#195, ADR 0149): for representative
+// The scholarly-safeguard corpus in the real Admin Studio (#195, ADR 0151): for representative
 // cases of the corpus, What will be public lists exactly the findings `openblog check --json`
 // lists, in the same order, names only ids and places (never the private words of the case),
 // writes nothing, and reflows at 320 pixels.

@@ -1,4 +1,4 @@
-# ADR 0145: Acknowledgements never resolve a finding and go stale when it changes
+# ADR 0147: Acknowledgements never resolve a finding and go stale when it changes
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -6,7 +6,7 @@
 - Parent story: [#189](https://github.com/journey-to-code-org/open.blog/issues/189)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
 - Builds on: [ADR 0074](0074-evidence-gaps-are-prompts-in-the-shared-finding-contract.md),
-  [ADR 0144](0144-one-research-completeness-contract-with-one-owner-per-check.md)
+  [ADR 0146](0146-one-research-completeness-contract-with-one-owner-per-check.md)
 - Coordinates with: [#62](https://github.com/journey-to-code-org/open.blog/issues/62),
   [#194](https://github.com/journey-to-code-org/open.blog/issues/194)
 
@@ -55,7 +55,7 @@ edited, or an author could acknowledge once and never see a new problem under th
   | `archived-member` | the archived passage or source |
   | chronology prompts | each dating's id, aspect and stated date |
   | `withheld-rights`, `withheld-length` | the version's rights status and license and the place's locators |
-  | `source-review` findings | the cited keys and locators, identifier comparison keys, source and version ids, volume counts and the quotation's own text each code names (ADR 0146) |
+  | `source-review` findings | the cited keys and locators, identifier comparison keys, source and version ids, volume counts and the quotation's own text each code names (ADR 0148) |
   | refusing errors | nothing beyond the key: they cannot be acknowledged |
 
   So inserting a line above a located citation keeps its acknowledgement current, and citing a

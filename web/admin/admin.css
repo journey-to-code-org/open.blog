@@ -3841,7 +3841,7 @@ a.oba-btn-primary {
   margin: 0;
 }
 
-/* The research checks shown inside What will be public and the draft-side panel (#194, ADR 0148). */
+/* The research checks shown inside What will be public and the draft-side panel (#194, ADR 0150). */
 .oba-boundary-checks:not(:empty),
 .oba-review.is-embedded {
   margin-top: 1rem;

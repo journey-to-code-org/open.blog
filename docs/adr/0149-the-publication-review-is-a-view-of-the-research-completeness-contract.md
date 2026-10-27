@@ -1,4 +1,4 @@
-# ADR 0147: The publication review is a view of the research-completeness contract
+# ADR 0149: The publication review is a view of the research-completeness contract
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -7,9 +7,9 @@
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
 - Builds on: [ADR 0123](0123-the-research-review-before-publication-adapts-todays-findings-to-the-completeness-contract.md),
   [ADR 0124](0124-review-acknowledgements-are-a-private-revisioned-file-of-keys-and-fingerprints.md),
-  [ADR 0144](0144-one-research-completeness-contract-with-one-owner-per-check.md),
-  [ADR 0145](0145-acknowledgements-never-resolve-a-finding-and-go-stale-when-it-changes.md)
-- Amends: ADR 0144 (the matrix gains the rows below, and a fourth gate)
+  [ADR 0146](0146-one-research-completeness-contract-with-one-owner-per-check.md),
+  [ADR 0147](0147-acknowledgements-never-resolve-a-finding-and-go-stale-when-it-changes.md)
+- Amends: ADR 0146 (the matrix gains the rows below, and a fourth gate)
 
 ## Context
 

@@ -234,11 +234,11 @@ pub struct BuildReport {
     pub warnings: Vec<String>,
     pub accessibility: Vec<AccessibilityFinding>,
     pub evidence: Vec<EvidenceFinding>,
-    /// Source-review findings about the sources posts cite (ADR 0146).
+    /// Source-review findings about the sources posts cite (ADR 0148).
     pub source_review: Vec<openblog_core::source_review::SourceReviewFinding>,
     /// What the research projections published and withheld (ADR 0125).
     pub boundary: openblog_core::publication_boundary::BoundaryManifest,
-    /// The research readiness report the build was checked against (ADR 0148),
+    /// The research readiness report the build was checked against (ADR 0150),
     /// when the site has research to report on; `None` for a site without any.
     pub readiness: Option<crate::readiness::Readiness>,
 }
@@ -919,7 +919,7 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
         .map_err(|error| crate::readiness::alongside(root, &site, error))?;
     // The one research report, read before anything is written: a failure of a
     // private file the build reads refuses the build while the output folder is
-    // still exactly as it was (ADR 0148). Every other finding is for the
+    // still exactly as it was (ADR 0150). Every other finding is for the
     // author to decide and never stops anything.
     let every_post = site.posts.len() == saved_posts;
     let mut readiness =

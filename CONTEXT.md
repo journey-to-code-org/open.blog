@@ -1118,7 +1118,7 @@ it: the contract's findings in its one order, grouped by what the build refuses 
 outcome, counted apart, with the author's acknowledgements matched. Admin (What will be public,
 What this post makes public, the Research panel beside a draft), `openblog check` (also as
 `--json`), `openblog build` and the preview that serves a build all show it with the same codes in
-the same order (ADR 0148). It is prompts, never a verdict: it has no score, and only a failure of
+the same order (ADR 0150). It is prompts, never a verdict: it has no score, and only a failure of
 a private file the build reads stops a build, before any public file is written.
 _Avoid_: Readiness score, pass or fail, completeness percentage
 

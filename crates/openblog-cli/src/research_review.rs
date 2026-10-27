@@ -100,7 +100,7 @@ pub struct DraftPost<'a> {
     pub body_line: usize,
     /// The research-profile and citation findings for this post, from the draft's site load.
     pub evidence: Vec<EvidenceFinding>,
-    /// The source-review findings for this post (ADR 0146), from the same load.
+    /// The source-review findings for this post (ADR 0148), from the same load.
     pub source_review: Vec<SourceReviewFinding>,
 }
 

@@ -1,14 +1,14 @@
-# ADR 0149: The scholarly-safeguard corpus exercises every matrix row through its real emitter
+# ADR 0151: The scholarly-safeguard corpus exercises every matrix row through its real emitter
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#195](https://github.com/journey-to-code-org/open.blog/issues/195)
 - Parent story: [#189](https://github.com/journey-to-code-org/open.blog/issues/189)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
-- Builds on: [ADR 0144](0144-one-research-completeness-contract-with-one-owner-per-check.md),
-  [ADR 0145](0145-acknowledgements-never-resolve-a-finding-and-go-stale-when-it-changes.md),
-  [ADR 0146](0146-source-review-prompts-identifiers-versions-quotation-locations-and-citation-consistency.md),
-  [ADR 0148](0148-one-research-readiness-report-across-admin-check-build-and-preview.md)
+- Builds on: [ADR 0146](0146-one-research-completeness-contract-with-one-owner-per-check.md),
+  [ADR 0147](0147-acknowledgements-never-resolve-a-finding-and-go-stale-when-it-changes.md),
+  [ADR 0148](0148-source-review-prompts-identifiers-versions-quotation-locations-and-citation-consistency.md),
+  [ADR 0150](0150-one-research-readiness-report-across-admin-check-build-and-preview.md)
 - Documentation: [Research checks](../research-checks.md)
 
 ## Context
@@ -50,7 +50,7 @@ entry, scholarly disagreement) fail independently, or that none of it leaks priv
   scanned for the words of every item it did not approve, and for the rationale, uncertainty and
   notes of those items.
 - **A pinned list of what v0.39.0 let an author acknowledge** stays acknowledgeable, so no stored
-  acknowledgement silently stops matching; additions are the source-review rows of ADR 0146.
+  acknowledgement silently stops matching; additions are the source-review rows of ADR 0148.
 - **Documentation** (`docs/research-checks.md`) explains each code in plain language with its fix,
   what acknowledging does and does not mean, and what stays private. A test fails when a row's
   code is not explained there, and the documentation link check covers its links.

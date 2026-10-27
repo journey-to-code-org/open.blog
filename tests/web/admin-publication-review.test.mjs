@@ -463,7 +463,7 @@ test("the review is labelled, keyboard operable, builds DOM safely and adds no m
   assert.match(css, /overflow-wrap: anywhere/);
 });
 
-// ---------------------------------------------------------------- the readiness report (#194, ADR 0148)
+// ---------------------------------------------------------------- the readiness report (#194, ADR 0150)
 
 const READINESS = () => ({
   ...structuredClone(JSON.parse(readFileSync(new URL("../fixtures/research-readiness/report.json", import.meta.url), "utf8"))),

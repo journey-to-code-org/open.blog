@@ -1,6 +1,6 @@
 //! The research review before publication (#62, ADR 0123, ADR 0124),
-//! presented over the one research-completeness contract (ADR 0144,
-//! ADR 0145, ADR 0147).
+//! presented over the one research-completeness contract (ADR 0146,
+//! ADR 0147, ADR 0149).
 //!
 //! Before a post is published or scheduled, Admin gathers what the existing
 //! research checks already say about it. Nothing here checks anything

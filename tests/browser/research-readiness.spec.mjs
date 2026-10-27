@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// The research readiness report in the real Admin Studio (#194, ADR 0148): What will be public
+// The research readiness report in the real Admin Studio (#194, ADR 0150): What will be public
 // shows, under the projections, the one report the command line prints, with the same codes in
 // the same order; the draft-side Research panel and "What this post makes public" show the same
 // review for one draft; an acknowledgement is keyboard operable, keeps the finding listed and

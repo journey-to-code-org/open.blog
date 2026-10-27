@@ -1,4 +1,4 @@
-//! Source review (ADR 0146): identifier, version, quotation-location and
+//! Source review (ADR 0148): identifier, version, quotation-location and
 //! citation-consistency diagnostics over posts, the source library and the
 //! notebook. Every finding is an advisory prompt scoped to one object, the
 //! review is offline and deterministic, nothing is normalized in place or

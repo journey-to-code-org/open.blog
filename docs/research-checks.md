@@ -243,6 +243,6 @@ importing the same file twice changes nothing. What an item lacks is then named 
   [the source library](specs/research-source-library.md),
   [the Knowledge Atlas](specs/knowledge-atlas.md) and
   [passage alignments](specs/passage-alignments.md) for each file's format.
-- [ADR 0144](adr/0144-one-research-completeness-contract-with-one-owner-per-check.md) and
-  [ADR 0145](adr/0145-acknowledgements-never-resolve-a-finding-and-go-stale-when-it-changes.md)
+- [ADR 0146](adr/0146-one-research-completeness-contract-with-one-owner-per-check.md) and
+  [ADR 0147](adr/0147-acknowledgements-never-resolve-a-finding-and-go-stale-when-it-changes.md)
   for the contract behind the report.

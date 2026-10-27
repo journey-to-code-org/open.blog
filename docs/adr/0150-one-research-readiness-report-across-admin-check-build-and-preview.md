@@ -1,4 +1,4 @@
-# ADR 0148: One research readiness report across Admin, check, build and preview
+# ADR 0150: One research readiness report across Admin, check, build and preview
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -8,9 +8,9 @@
 - Builds on: [ADR 0123](0123-the-research-review-before-publication-adapts-todays-findings-to-the-completeness-contract.md),
   [ADR 0124](0124-review-acknowledgements-are-a-private-revisioned-file-of-keys-and-fingerprints.md),
   [ADR 0125](0125-one-publication-boundary-previewed-from-and-enforced-on-the-builds-own-projections.md),
-  [ADR 0144](0144-one-research-completeness-contract-with-one-owner-per-check.md),
-  [ADR 0145](0145-acknowledgements-never-resolve-a-finding-and-go-stale-when-it-changes.md),
-  [ADR 0147](0147-the-publication-review-is-a-view-of-the-research-completeness-contract.md)
+  [ADR 0146](0146-one-research-completeness-contract-with-one-owner-per-check.md),
+  [ADR 0147](0147-acknowledgements-never-resolve-a-finding-and-go-stale-when-it-changes.md),
+  [ADR 0149](0149-the-publication-review-is-a-view-of-the-research-completeness-contract.md)
 
 ## Context
 
@@ -27,7 +27,7 @@ all. #194 asks for one readiness report, built on the unified contract, that Adm
   owning validator's findings through the loaders the build and the review already use
   (`research_review::read_published`), and hands them to
   `research_completeness::CompletenessReport`. Nothing is validated again. The report is
-  grouped by `PublicationReview::scoped(.., ReviewScope::Site)` (ADR 0147): what the next
+  grouped by `PublicationReview::scoped(.., ReviewScope::Site)` (ADR 0149): what the next
   build refuses first, then detected, potential and needs-review. Its JSON is the review's
   JSON (findings, groups, counts, `unmatchedAcknowledgements`, `notReviewed`, the
   acknowledgements file's revision, `applies`); there is no score, total, pass, ready or

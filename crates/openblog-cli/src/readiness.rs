@@ -1,4 +1,4 @@
-//! The research readiness report (#194, ADR 0148): one report of what every
+//! The research readiness report (#194, ADR 0150): one report of what every
 //! research check says about the site as the next build would publish it,
 //! shown the same way by Admin, `openblog check`, `openblog build` and the
 //! preview that serves a build.
@@ -285,7 +285,7 @@ pub fn report_of_all(root: &Path, site: &Site) -> Readiness {
 
 /// A build error with the research report beside it, for a site that has
 /// research, so the findings behind a refusal are listed with the same codes
-/// and order `check` and Admin show (ADR 0148). The error is unchanged, and
+/// and order `check` and Admin show (ADR 0150). The error is unchanged, and
 /// a site without research gets exactly the error it always got.
 pub fn alongside(root: &Path, site: &Site, error: String) -> String {
     let mut report = report(root, site);

@@ -1,4 +1,4 @@
-//! The research-completeness contract (ADR 0144, ADR 0145): every existing
+//! The research-completeness contract (ADR 0146, ADR 0147): every existing
 //! research check maps into one finding shape and one matrix; each check has
 //! exactly one owning validator; detected, potential and needs-review stay
 //! apart and nothing is scored; findings are object-scoped, ordered the same
@@ -874,7 +874,7 @@ fn an_acknowledgement_never_resolves_a_finding_and_counts_apart() {
     let report = CompletenessReport::new(findings.clone(), &[forged]);
     assert!(report.findings.iter().all(|e| e.acknowledgement.is_none()));
     // A record the contract does not allow is never applied and never
-    // counted: the stored file holding one is refused whole (ADR 0147).
+    // counted: the stored file holding one is refused whole (ADR 0149).
     assert_eq!(report.unmatched_acknowledgements, 0);
     let published = findings
         .iter()
@@ -1358,7 +1358,7 @@ fn revising_the_source_or_notebook_record_stales_exactly_the_acknowledgements_it
 }
 
 // ---------------------------------------------------------------------------
-// The rows the publication review added (ADR 0123, ADR 0147): one contract,
+// The rows the publication review added (ADR 0123, ADR 0149): one contract,
 // one source of truth for validator, code, fingerprint and gate.
 // ---------------------------------------------------------------------------
 
@@ -1610,7 +1610,7 @@ fn acknowledgements_stored_by_the_admin_flow_stay_valid_under_the_contract() {
 
 /// Every (validator, code) pair v0.39.0 let an author acknowledge, pinned: a
 /// stored acknowledgement an author made then must still name an advisory
-/// finding now, however the matrix is reorganized (ADR 0144).
+/// finding now, however the matrix is reorganized (ADR 0146).
 const ACKNOWLEDGEABLE_IN_V0_39_0: [&str; 40] = [
     "alignments: archived-member",
     "alignments: stale-locator",
@@ -1672,7 +1672,7 @@ fn every_pair_v0_39_0_let_an_author_acknowledge_is_still_acknowledgeable() {
             "{pair} was acknowledgeable in v0.39.0 and no longer is"
         );
     }
-    // What is acknowledgeable beyond them is the source-review rows (ADR 0146),
+    // What is acknowledgeable beyond them is the source-review rows (ADR 0148),
     // which v0.39.0 had no validator for.
     let pinned: BTreeSet<String> = ACKNOWLEDGEABLE_IN_V0_39_0
         .iter()

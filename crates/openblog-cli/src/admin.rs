@@ -14488,7 +14488,7 @@ fn boundary_site(state: &AppState) -> Response {
     Response::json(200, &view)
 }
 
-/// The research readiness report of the saved site (#194, ADR 0148): the
+/// The research readiness report of the saved site (#194, ADR 0150): the
 /// same findings, codes and order `openblog check`, `openblog build` and the
 /// preview print, from the same load. Read-only and Admin-only: it writes
 /// nothing, repairs nothing and publishes nothing.
@@ -16941,7 +16941,7 @@ mod tests {
         );
     }
 
-    // ---- the research readiness report (#194, ADR 0148) -------------------------
+    // ---- the research readiness report (#194, ADR 0150) -------------------------
 
     fn readiness_of(f: &Fixture, session: &(String, String)) -> Json {
         let response = handle(
