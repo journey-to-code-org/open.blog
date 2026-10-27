@@ -1,4 +1,4 @@
-//! The interpretation comparison pages (ADR 0306, #90).
+//! The interpretation comparison pages (ADR 0232, #90).
 //!
 //! Every page is complete HTML rendered from the one public value
 //! ([`PublicInterpretations`]). The interpretations come first, each with who

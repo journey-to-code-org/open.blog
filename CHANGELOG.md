@@ -23,7 +23,7 @@ All notable changes to open.blog are recorded here. Releases follow
   explanations; it never changes the evidence and print shows every level. Evidence appears only for approved
   claim links the site already publishes (with `claimEvidence.publish` on). A reading attributed to a source
   the site does not publish is left out, and the build tells you by id. The comparison files are never copied
-  raw into the site. See [ADR 0306](docs/adr/0306-a-comparison-page-is-static-html-from-the-projection-with-levels-as-sections-a-selector-only-enhances.md).
+  raw into the site. See [ADR 0232](docs/adr/0232-a-comparison-page-is-static-html-from-the-projection-with-levels-as-sections-a-selector-only-enhances.md).
 - Admin Studio can author interpretation comparisons: **Content → Comparisons** lists, creates, edits and
   moves comparisons to the trash. Every reading needs an attribution (or an explicit unknown author), you can
   link evidence and see in words whether it is public, private or not found, and missing evidence never
@@ -31,13 +31,13 @@ All notable changes to open.blog are recorded here. Releases follow
   exact text**; only that action records an approval, a save can never add one, and editing the text
   withdraws it. Withdrawing an approval in a published comparison asks before returning it to draft. The
   preview is the public projection with a list, for you alone, of what readers will not see. Saves are
-  refused when the file changed elsewhere, and source mode keeps fields the release does not know. Publishing is a separate switch (ADR 0306). See [ADR 0305](docs/adr/0305-comparisons-are-edited-in-admin-with-an-approve-action-that-only-the-server-can-give.md).
+  refused when the file changed elsewhere, and source mode keeps fields the release does not know. Publishing is a separate switch (ADR 0232). See [ADR 0231](docs/adr/0231-comparisons-are-edited-in-admin-with-an-approve-action-that-only-the-server-can-give.md).
 - Interpretation comparisons now have a file format. `content/comparisons/<slug>.json` sets two or more
   attributed readings of one subject side by side (a named person, a library source, or an explicitly
   anonymous author), with neutral relations such as "differs from", an uncertainty note, evidence references,
   translations and optional beginner, student and scholarly explanations. Nothing marks a reading correct,
   and an explanation never replaces your prose. An AI-drafted reading or explanation is labelled and is
-  published only after you approve its exact text; editing it withdraws the approval. The site reads them only while `interpretations.publish` is on (ADR 0306). See [ADR 0300](docs/adr/0300-a-comparison-is-its-own-public-content-type-and-one-versioned-file.md).
+  published only after you approve its exact text; editing it withdraws the approval. The site reads them only while `interpretations.publish` is on (ADR 0232). See [ADR 0226](docs/adr/0226-a-comparison-is-its-own-public-content-type-and-one-versioned-file.md).
 - Optional update subscriptions: a pluggable, double opt-in service for readers who ask to hear when later work takes up a question, with no provider as the link-only baseline. Requests are confirmed once within 48 hours, answered alike so they reveal nothing, and unsubscribe or deletion erases the address with no account. Hosted storage is additive SQL in `supabase/subscriptions.sql` (rollback in `subscriptions-rollback.sql`), behind `OPENBLOG_SUBSCRIPTIONS_ENABLED`. No page renders a form yet, and no function, mail transport or unsubscribe page exists yet, so readers cannot subscribe until a follow-up adds them.
 - Continuation links: a canonical page now shows "Where this question went" and, on the later work, "Earlier questions this continues" as plain links that work without JavaScript, built from `continuations.json`. Admin links an approved reflection, question or source suggestion to a later published work, previews it, removes it, and drops the links of a removed or withdrawn submission, telling the moderator plainly if they could not be dropped. A note cannot claim cause, endorsement or popularity. Update subscriptions are not part of this change.
 - Reading paths are now easier to find and to move. A post or atlas entry that is a step of a listed path

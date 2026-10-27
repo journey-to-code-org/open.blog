@@ -1,7 +1,7 @@
-//! The public interpretation comparisons a build publishes (ADR 0306, #90).
+//! The public interpretation comparisons a build publishes (ADR 0232, #90).
 //!
 //! [`PublicInterpretations`] is built only from [`PublicComparison::project`]
-//! (ADR 0304) and from the descriptions of the sources and evidence links the
+//! (ADR 0230) and from the descriptions of the sources and evidence links the
 //! build itself publishes. The pages read nothing else, never the stored
 //! comparison file, so what is private (a draft, an unapproved AI draft, a
 //! source nothing public cites, a link the author did not approve) has no

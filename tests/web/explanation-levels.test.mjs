@@ -1,4 +1,4 @@
-// The logic of <ob-explanation-levels> (ADR 0306): which levels a page offers, which level a URL
+// The logic of <ob-explanation-levels> (ADR 0232): which levels a page offers, which level a URL
 // fragment asks for, and what the status line says. Hiding, keyboard and layout behaviour is covered
 // in a browser by tests/browser/interpretation-pages.spec.mjs.
 import assert from "node:assert/strict";

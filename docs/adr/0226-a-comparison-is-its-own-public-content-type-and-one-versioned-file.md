@@ -1,4 +1,4 @@
-# ADR 0300: A comparison is its own public content type and one versioned file
+# ADR 0226: A comparison is its own public content type and one versioned file
 
 - Status: Accepted
 - Date: 2026-10-27

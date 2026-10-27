@@ -1,11 +1,11 @@
-# ADR 0301: Interpretations disagree without a ruling, and attribution is required
+# ADR 0227: Interpretations disagree without a ruling, and attribution is required
 
 - Status: Accepted
 - Date: 2026-10-27
 - Decision issue: [#88](https://github.com/journey-to-code-org/open.blog/issues/88)
 - Parent story: [#31](https://github.com/journey-to-code-org/open.blog/issues/31)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0300](0300-a-comparison-is-its-own-public-content-type-and-one-versioned-file.md)
+- Builds on: [ADR 0226](0226-a-comparison-is-its-own-public-content-type-and-one-versioned-file.md)
 
 ## Context
 
@@ -24,7 +24,7 @@ automated behaviour must not claim truth, consensus or authority.
   `false`, `winner`, `verdict`, `consensus`, `score`, `rank`, `ranking`, `rating`, `authority`,
   `authoritative`, `preferred`, `best`, `majority`, `replaces`, `replacement`, `canonical`, `body` or
   `overrides` at the top, or on an interpretation, relation or explanation, is refused, naming the
-  field. Otherwise the lossless round trip (ADR 0300) would keep such a field for a later release to
+  field. Otherwise the lossless round trip (ADR 0226) would keep such a field for a later release to
   read.
 - **Relations are neutral and author-written.** `differs-from` and `agrees-with` have no direction
   (the same pair twice is a repeat); `builds-on` and `responds-to` do. None says one reading is

@@ -1,5 +1,5 @@
 //! Attributed interpretation comparisons and author-approved explanation
-//! levels (ADR 0300, #88).
+//! levels (ADR 0226, #88).
 //!
 //! A comparison sets several attributed readings of one subject side by side
 //! and may carry audience-level explanations of that subject. It is its own
@@ -77,7 +77,7 @@ pub const MAX_EXPLANATION_CHARS: usize = 6_000;
 
 /// Field names that would turn a comparison into a ruling, or an explanation
 /// into a replacement for the canonical prose. A file holding one is refused
-/// at any level (ADR 0301, 0302).
+/// at any level (ADR 0227, 0228).
 pub const JUDGEMENT_FIELDS: &[&str] = &[
     "correct",
     "incorrect",

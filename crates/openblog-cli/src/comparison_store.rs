@@ -1,7 +1,7 @@
-//! File-backed storage for interpretation comparisons (ADR 0300 and 0305, #89).
+//! File-backed storage for interpretation comparisons (ADR 0226 and 0231, #89).
 //!
 //! A comparison is the public, author-written file
-//! `<content>/comparisons/<slug>.json` (ADR 0300). Admin reads and writes it
+//! `<content>/comparisons/<slug>.json` (ADR 0226). Admin reads and writes it
 //! through this module and nothing else. Every change names the revision
 //! (SHA-256 of the stored bytes) it was based on, is checked by
 //! `openblog_core::scholarly_comparison` before anything is written, and

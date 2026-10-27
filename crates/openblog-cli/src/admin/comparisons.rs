@@ -1,4 +1,4 @@
-//! Admin routes for interpretation comparisons (ADR 0305, #89).
+//! Admin routes for interpretation comparisons (ADR 0231, #89).
 //!
 //! Every route sits behind the session, and every write behind the CSRF check
 //! (`api`), and an unknown name is a 404 (deny by default). A write takes the
@@ -10,7 +10,7 @@
 //! An approval is only ever made by the `approve` route, which stamps the
 //! signed-in user, the time and the digest of the exact text the author was
 //! shown. A save, a form or source text, can keep an approval the stored file
-//! already has but can never add or change one (ADR 0305), and an approval
+//! already has but can never add or change one (ADR 0231), and an approval
 //! whose text was edited is dropped, never kept stale.
 
 use openblog_core::scholarly_comparison::{

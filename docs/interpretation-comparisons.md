@@ -9,7 +9,7 @@ that, and a page that claimed it would be claiming more than you can show.
 Publishing is opt-in. See [Interpretation comparisons](configuration.md#interpretation-comparisons)
 for the `interpretations.publish` switch and [Author an interpretation comparison](admin.md#author-an-interpretation-comparison)
 for the Admin form. The decisions are recorded in
-[ADR 0300](adr/0300-a-comparison-is-its-own-public-content-type-and-one-versioned-file.md) and the ADRs
+[ADR 0226](adr/0226-a-comparison-is-its-own-public-content-type-and-one-versioned-file.md) and the ADRs
 after it.
 
 ## Attribution
@@ -54,7 +54,7 @@ files and anything copied from the web as untrusted until you have read it.
 
 Approval is recorded by the Admin action only. A hand edit of the JSON can add an approval line, and the
 build does not check who wrote it (see
-[ADR 0305](adr/0305-comparisons-are-edited-in-admin-with-an-approve-action-that-only-the-server-can-give.md)),
+[ADR 0231](adr/0231-comparisons-are-edited-in-admin-with-an-approve-action-that-only-the-server-can-give.md)),
 so keep the files under review like any other source.
 
 ## What stays private

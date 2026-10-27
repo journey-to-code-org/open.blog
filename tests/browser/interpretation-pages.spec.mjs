@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Interpretation comparison pages (ADR 0306, #90), built and served by the real binary. Without
+// Interpretation comparison pages (ADR 0232, #90), built and served by the real binary. Without
 // JavaScript a comparison is a complete static page: who advances each interpretation, how they
 // relate, and every explanation level as a section reachable by link. With it, a level selector
 // narrows the explanations without ever touching the interpretations or their evidence, is keyboard

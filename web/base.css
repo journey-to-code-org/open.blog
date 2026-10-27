@@ -3141,7 +3141,7 @@ ob-reading-modes { display: block; }
   .ob-path-step { border-color: CanvasText; }
 }
 
-/* Interpretation comparison pages (#90, ADR 0306): a plain ordered list of interpretations, each a
+/* Interpretation comparison pages (#90, ADR 0232): a plain ordered list of interpretations, each a
    bordered group, then the relations, then every explanation level as its own section. Text wraps
    anywhere so nothing overflows at 320 pixels or at 400% zoom. It reads in order without CSS or
    JavaScript. <ob-explanation-levels> only adds the level buttons; print shows every level and

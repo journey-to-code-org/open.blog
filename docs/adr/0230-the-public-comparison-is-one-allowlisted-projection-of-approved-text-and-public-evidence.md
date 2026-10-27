@@ -1,11 +1,11 @@
-# ADR 0304: The public comparison is one allowlisted projection of approved text and public evidence
+# ADR 0230: The public comparison is one allowlisted projection of approved text and public evidence
 
 - Status: Accepted
 - Date: 2026-10-27
 - Decision issue: [#88](https://github.com/journey-to-code-org/open.blog/issues/88)
 - Parent story: [#31](https://github.com/journey-to-code-org/open.blog/issues/31)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0303](0303-ai-drafts-are-labelled-by-origin-and-publish-only-with-a-persons-approval-of-the-exact-text.md)
+- Builds on: [ADR 0229](0229-ai-drafts-are-labelled-by-origin-and-publish-only-with-a-persons-approval-of-the-exact-text.md)
 
 ## Decision
 

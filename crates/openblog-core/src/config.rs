@@ -182,7 +182,7 @@ impl ReadingPathsConfig {
     }
 }
 
-/// Whether the site publishes interpretation comparisons (ADR 0306). Off by
+/// Whether the site publishes interpretation comparisons (ADR 0232). Off by
 /// default: `/interpretations/` is then not reserved and `content/comparisons`
 /// is only edited, never published. Turning it on reserves `/interpretations/`,
 /// and a page or post URL that collides is refused. Evidence a comparison cites

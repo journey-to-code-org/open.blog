@@ -1,11 +1,11 @@
-# ADR 0305: Comparisons are edited in Admin, and only the Approve action gives an approval
+# ADR 0231: Comparisons are edited in Admin, and only the Approve action gives an approval
 
 - Status: Accepted
 - Date: 2026-10-27
 - Decision issue: [#89](https://github.com/journey-to-code-org/open.blog/issues/89)
 - Parent story: [#31](https://github.com/journey-to-code-org/open.blog/issues/31)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0300](0300-a-comparison-is-its-own-public-content-type-and-one-versioned-file.md), [ADR 0303](0303-ai-drafts-are-labelled-by-origin-and-publish-only-with-a-persons-approval-of-the-exact-text.md), [ADR 0304](0304-the-public-comparison-is-one-allowlisted-projection-of-approved-text-and-public-evidence.md)
+- Builds on: [ADR 0226](0226-a-comparison-is-its-own-public-content-type-and-one-versioned-file.md), [ADR 0229](0229-ai-drafts-are-labelled-by-origin-and-publish-only-with-a-persons-approval-of-the-exact-text.md), [ADR 0230](0230-the-public-comparison-is-one-allowlisted-projection-of-approved-text-and-public-evidence.md)
 
 ## Decision
 
@@ -25,7 +25,7 @@
   that approval and reports which, so the author sees the loss and Admin never stores a stale
   approval. Marking an item as the author's own words removes its approval, since none is needed.
 - **Revoking is explicit about publishing.** `POST comparisons/revoke` removes one approval. A published
-  comparison cannot hold unapproved AI text (ADR 0303), so revoking in one needs `unpublish: true`,
+  comparison cannot hold unapproved AI text (ADR 0229), so revoking in one needs `unpublish: true`,
   which sets the whole comparison back to `draft` in the same atomic write; without it the request is
   refused and nothing changes. Admin asks the author to confirm.
 - **Evidence is shown, not enforced.** Each evidence reference has a state for the author: `public`
@@ -37,7 +37,7 @@
   public when it is an approved link of an approved claim and `claimEvidence.publish` is on, and a
   source is public when such a link cites it. This is deliberately conservative: it can hide a source
   that #90 later chooses to publish, and cannot publish one that is private. The preview is the one
-  core projection of ADR 0304 computed as if the comparison were published, with an author-only
+  core projection of ADR 0230 computed as if the comparison were published, with an author-only
   `leftOut` list; it never tells a reader that something was left out.
 - **AI-off works.** Nothing here calls a model. Without any AI draft there is no approval step at all.
 

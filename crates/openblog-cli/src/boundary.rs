@@ -143,7 +143,7 @@ fn attach_reading_paths(root: &Path, site: &mut Site) {
     site.reading_paths = Some(resolution.paths);
 }
 
-/// Attach the public interpretation comparisons (ADR 0306, #90), only while
+/// Attach the public interpretation comparisons (ADR 0232, #90), only while
 /// the site publishes them. Each stored comparison is projected by
 /// `PublicComparison::project` against the sources and evidence links this
 /// build publishes (approved links of approved claims, and only while

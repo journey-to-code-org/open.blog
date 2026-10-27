@@ -1,4 +1,4 @@
-//! Admin comparison routes (ADR 0305, #89): deny by default, CSRF, stale
+//! Admin comparison routes (ADR 0231, #89): deny by default, CSRF, stale
 //! writes, atomic canonical writes, source mode, the approval action, evidence
 //! states, privacy and hostile input.
 

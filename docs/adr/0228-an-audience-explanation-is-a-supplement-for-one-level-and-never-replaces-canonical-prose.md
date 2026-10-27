@@ -1,11 +1,11 @@
-# ADR 0302: An audience explanation is a supplement for one level and never replaces canonical prose
+# ADR 0228: An audience explanation is a supplement for one level and never replaces canonical prose
 
 - Status: Accepted
 - Date: 2026-10-27
 - Decision issue: [#88](https://github.com/journey-to-code-org/open.blog/issues/88)
 - Parent story: [#31](https://github.com/journey-to-code-org/open.blog/issues/31)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0300](0300-a-comparison-is-its-own-public-content-type-and-one-versioned-file.md)
+- Builds on: [ADR 0226](0226-a-comparison-is-its-own-public-content-type-and-one-versioned-file.md)
 
 ## Decision
 
@@ -14,7 +14,7 @@
   remembers a level on the server.
 - **A supplement by construction.** An explanation is `text` about the whole comparison or, with
   `about`, one interpretation. The file has no field that stands in for a post's prose, and the
-  fields that would (`replaces`, `canonical`, `body`, ...) are refused (ADR 0301). The public value
+  fields that would (`replaces`, `canonical`, `body`, ...) are refused (ADR 0227). The public value
   always carries `supplemental: true`. A reader who never chooses a level reads the canonical prose,
   unchanged.
 - **One per level per subject.** A second `student` explanation of the same interpretation is refused,

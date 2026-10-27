@@ -325,7 +325,7 @@ Listed paths are also linked from the posts and atlas entries they name, found b
 
 ## Interpretation comparisons
 
-`interpretations.publish` (off by default) is the switch for publishing the [interpretation comparisons](adr/0306-a-comparison-page-is-static-html-from-the-projection-with-levels-as-sections-a-selector-only-enhances.md)
+`interpretations.publish` (off by default) is the switch for publishing the [interpretation comparisons](adr/0232-a-comparison-page-is-static-html-from-the-projection-with-levels-as-sections-a-selector-only-enhances.md)
 you write in `content/comparisons` or in Admin under **Content → Comparisons**. While it is off nothing
 publishes them and `/interpretations/` is not reserved. Turning it on reserves `/interpretations/`, so a page
 named `interpretations` or a `postPath` that puts a post there is refused by the build. Each published

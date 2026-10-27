@@ -4384,7 +4384,7 @@ a.oba-btn-primary {
   }
 }
 
-/* Interpretation comparisons (ADR 0305, #89) reuse the reading-path regions above. Evidence and
+/* Interpretation comparisons (ADR 0231, #89) reuse the reading-path regions above. Evidence and
    provenance sit in fieldsets that wrap, and every state is words, never colour alone. */
 .oba-cmp-evidence {
   margin: 0 0 0.75rem;

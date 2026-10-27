@@ -793,7 +793,7 @@ fn reading_paths_warning(root: &std::path::Path, site: &openblog_core::Site) -> 
     openblog_core::render::reading_paths_address_conflict(site)
 }
 
-/// Like [`reading_paths_warning`] for `/interpretations/` (ADR 0306): while
+/// Like [`reading_paths_warning`] for `/interpretations/` (ADR 0232): while
 /// `interpretations.publish` is off, warn when comparison files exist beside a
 /// page or post that would collide once it is switched on.
 fn interpretations_warning(root: &std::path::Path, site: &openblog_core::Site) -> Option<String> {

@@ -1,16 +1,16 @@
-# ADR 0306: A comparison page is static HTML from the projection, with levels as sections a selector only enhances
+# ADR 0232: A comparison page is static HTML from the projection, with levels as sections a selector only enhances
 
 - Status: Accepted
 - Date: 2026-10-27
 - Decision issue: [#90](https://github.com/journey-to-code-org/open.blog/issues/90)
 - Parent story: [#31](https://github.com/journey-to-code-org/open.blog/issues/31)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0302](0302-an-audience-explanation-is-a-supplement-for-one-level-and-never-replaces-canonical-prose.md),
-  [ADR 0304](0304-the-public-comparison-is-one-allowlisted-projection-of-approved-text-and-public-evidence.md)
+- Builds on: [ADR 0228](0228-an-audience-explanation-is-a-supplement-for-one-level-and-never-replaces-canonical-prose.md),
+  [ADR 0230](0230-the-public-comparison-is-one-allowlisted-projection-of-approved-text-and-public-evidence.md)
 
 ## Context
 
-ADR 0304 defined the one public comparison value and left it unread. This is its first reader. A
+ADR 0230 defined the one public comparison value and left it unread. This is its first reader. A
 reader must be able to see who advances each reading, switch among the author's explanation levels,
 and never find that the quoted evidence moved. The page has to be complete without JavaScript, and
 nothing private may reach it.
@@ -55,4 +55,4 @@ nothing private may reach it.
 - The publication boundary manifest, search, feeds and export do not yet list comparisons; #91 adds
   them and must read the same `PublicInterpretations`.
 - A hand edit can still add an approval to the author's own file; the build does not verify who
-  approved (ADR 0305).
+  approved (ADR 0231).

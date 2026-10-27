@@ -2209,39 +2209,39 @@ An author's own public side-by-side of two or more attributed readings of one su
 `content/comparisons/<slug>.json`, with neutral author-written relations between them and optional
 audience explanations. It is its own content type, not a source-library interpretation (which is
 private) and not a series. It never rules on which reading is right and has no verdict, score, rank,
-consensus or preferred field; a file that holds one is refused (ADRs 0300, 0301).
+consensus or preferred field; a file that holds one is refused (ADRs 0226, 0227).
 _Avoid_: Debate, ranking, consensus view, fact check, versus page
 
 **Attributed interpretation**:
 One reading inside a comparison: who held it (a named person or tradition, a library source, or an
 explicitly anonymous author), its statement, the author's uncertainty note, evidence references and
 origin. It may be a translation of another reading of the same comparison. Attribution is required and
-its certainty is the author's own (ADR 0301).
+its certainty is the author's own (ADR 0227).
 _Avoid_: Opinion, take, answer, theory
 
 **Audience explanation**:
 An author-written supplement to a comparison or one reading, for one fixed level (`beginner`, `student`,
 `scholarly`), one per level per subject. It never replaces canonical prose and is never evidence; the
-public value always says it is supplemental (ADR 0302).
+public value always says it is supplemental (ADR 0228).
 _Avoid_: Simplified version, rewrite, reading level setting, personalisation
 
 **AI draft**:
 Text whose `origin` the author states as drafted by a tool. It is labelled as such wherever it appears
 and is published only after a person's approval of its exact text; nothing here calls a model
-(ADR 0303).
+(ADR 0229).
 _Avoid_: AI answer, generated explanation, automatic summary
 
 **Comparison approval**:
 A person's recorded statement (`by`, `at`, `digest`) that they read exactly this text and accept it.
 The digest binds it to the text, so editing the text makes the approval stale until it is given again
-(ADR 0303). In Admin only the Approve action records one: a save can keep an approval but never add or
-change it, and editing the text withdraws it (ADR 0305).
+(ADR 0229). In Admin only the Approve action records one: a save can keep an approval but never add or
+change it, and editing the text withdraws it (ADR 0231).
 _Avoid_: Sign-off flag, reviewed, verified
 
 **Level selector**:
 The optional control on a published comparison that narrows which explanation level section is shown.
 Every level is a section of the page whatever the control does, the quoted evidence sits outside them,
-and the control stores nothing (ADR 0306).
+and the control stores nothing (ADR 0232).
 _Avoid_: Reading level setting, personalisation, difficulty toggle
 
 ## Continuations

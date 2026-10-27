@@ -1,4 +1,4 @@
-//! Interpretation comparison pages (ADR 0306, #90): who advances each
+//! Interpretation comparison pages (ADR 0232, #90): who advances each
 //! interpretation, every explanation level reachable without JavaScript,
 //! evidence that no level can change, escaping of hostile text, and nothing
 //! private reaching a page.

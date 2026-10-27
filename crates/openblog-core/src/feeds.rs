@@ -516,7 +516,7 @@ pub fn search_index(site: &Site) -> String {
         entries.extend(paths.listed_only().paths.iter().map(path_index_entry));
     }
     // Published interpretation comparisons are found by search the same way
-    // (ADR 0306), from the public projection only: approved text, never a
+    // (ADR 0232), from the public projection only: approved text, never a
     // draft or an unapproved AI draft. They are not feed items.
     if let Some(public) = &site.interpretations {
         entries.extend(

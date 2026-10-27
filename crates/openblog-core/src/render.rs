@@ -100,7 +100,7 @@ struct Meta<'a> {
     /// which adds optional progress kept in the reader's own browser.
     reading_path: bool,
     /// The page is an interpretation comparison with explanation levels, so it
-    /// loads `<ob-explanation-levels>` (ADR 0306, #90).
+    /// loads `<ob-explanation-levels>` (ADR 0232, #90).
     interpretation_levels: bool,
     theme: &'a Theme,
     published: Option<String>,
@@ -633,7 +633,7 @@ pub fn generate_with_trail_budget(
         }
     }
     // Interpretation comparisons, only when the site publishes them (ADR
-    // 0306, #90): every page is rendered from the one public value and is
+    // 0232, #90): every page is rendered from the one public value and is
     // complete HTML, with or without JavaScript.
     if let Some(public) = &site.interpretations {
         if !public.comparisons.is_empty() {
@@ -865,7 +865,7 @@ pub fn reading_paths_address_conflict(site: &Site) -> Option<String> {
 }
 
 /// A page or post whose address is under `/interpretations/`, which the
-/// comparison pages reserve once `interpretations.publish` is on (ADR 0306).
+/// comparison pages reserve once `interpretations.publish` is on (ADR 0232).
 /// `None` when nothing collides. The build refuses the same collision while the
 /// switch is on; `check` uses this to warn before it is.
 pub fn interpretations_address_conflict(site: &Site) -> Option<String> {
@@ -898,7 +898,7 @@ fn validate_output_paths(site: &Site) -> Result<(), String> {
     // switch (ADR 0212), so a site that has not opted in is unaffected.
     let publishes_paths = site.config.reading_paths.publish;
     // Interpretation comparisons reserve `/interpretations/` the same way
-    // (ADR 0306); `/comparisons/` stays with passage comparisons.
+    // (ADR 0232); `/comparisons/` stays with passage comparisons.
     let publishes_interpretations = site.config.interpretations.publish;
     let reserved = |segment: &str| {
         RESERVED.contains(&segment)

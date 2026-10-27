@@ -1,4 +1,4 @@
-//! Interpretation-comparison contracts (ADR 0300 to 0304, #88): disagreement
+//! Interpretation-comparison contracts (ADR 0226 to 0230, #88): disagreement
 //! without a ruling, supplemental audience levels, AI provenance and
 //! approval, anonymous and translated sources, evidence references,
 //! round trips and privacy.
@@ -311,7 +311,7 @@ fn evidence_is_a_reference_and_only_public_evidence_is_projected() {
     let public = public.unwrap();
     assert!(public.interpretations.iter().all(|i| i.evidence.is_empty()));
     // The translation is attributed to a source that is not public, so it is
-    // withheld whole (ADR 0306); the other two keep their text and lose evidence.
+    // withheld whole (ADR 0232); the other two keep their text and lose evidence.
     assert!(withheld
         .iter()
         .filter(|w| w.id != "epistemic-fr")

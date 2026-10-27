@@ -555,7 +555,7 @@ pub struct Site {
     /// path output at all.
     pub reading_paths: Option<crate::reading_path::PublicPaths>,
     /// The public interpretation comparisons, supplied by the caller only when
-    /// the site publishes them (`interpretations.publish`, ADR 0306). `None`
+    /// the site publishes them (`interpretations.publish`, ADR 0232). `None`
     /// writes no comparison page at all.
     pub interpretations: Option<crate::interpretation_publication::PublicInterpretations>,
     /// The public curated research context, supplied by the caller only when

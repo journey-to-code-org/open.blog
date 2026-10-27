@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Interpretation comparisons in the real Admin Studio (B7.2, ADR 0305): attributed readings,
+// Interpretation comparisons in the real Admin Studio (B7.2, ADR 0231): attributed readings,
 // evidence states (missing evidence is shown and never blocks), AI drafts that stay drafts until
 // the Approve action and are withdrawn by editing, revocation, source mode, stale-save conflicts,
 // keyboard operation, and no sideways scrolling at 320px.

@@ -1169,7 +1169,7 @@ pub fn watched_paths(root: &Path, config: &SiteConfig) -> Vec<PathBuf> {
 /// Where the interpretation comparison files are stored. They hold drafts and
 /// unapproved AI text beside what is approved, so a configured static or theme
 /// folder that contains them (a `static` of `.`) must never copy them raw: a
-/// comparison reaches a page only through its projection (ADR 0306).
+/// comparison reaches a page only through its projection (ADR 0232).
 fn comparison_files(root: &Path, config: &SiteConfig) -> PathBuf {
     root.join(&config.paths.content)
         .join(openblog_core::scholarly_comparison::COMPARISONS_DIR)

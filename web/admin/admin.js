@@ -9724,7 +9724,7 @@ export function readingPathListText(item) {
   return `${status} · ${steps}${shown}`;
 }
 
-// Interpretation comparisons (ADR 0305, #89). A comparison is the public file
+// Interpretation comparisons (ADR 0231, #89). A comparison is the public file
 // `content/comparisons/<slug>.json`; these helpers turn the file's JSON into an editor draft and
 // back without losing a field the editor does not show, and word what the server reports. The
 // server owns every rule, the canonical form and every approval; nothing here decides whether a
@@ -11994,7 +11994,7 @@ export class ObAdmin extends AdminElement {
     this.viewBusy = () => busy;
   }
 
-  // ---- interpretation comparisons (ADR 0305, #89)
+  // ---- interpretation comparisons (ADR 0231, #89)
 
   /** `#/comparisons` lists them, `#/comparisons/new` starts one and `#/comparisons/edit/<slug>` edits one. */
   async showComparisons(tail) {

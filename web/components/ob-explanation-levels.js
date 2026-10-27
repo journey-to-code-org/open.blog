@@ -1,5 +1,5 @@
 // <ob-explanation-levels> adds a level selector to an interpretation comparison
-// page (ADR 0306, #90). The page is complete without it: every explanation
+// page (ADR 0232, #90). The page is complete without it: every explanation
 // level is a section of the page, linked from a list of links, in a fixed
 // order, and the interpretations and their evidence sit above the levels
 // where no level can reach them.

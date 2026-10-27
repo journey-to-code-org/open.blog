@@ -74,7 +74,7 @@ pub enum Projection {
     /// and the links to them from posts and atlas pages (ADR 0216).
     ReadingPaths,
     /// The author's interpretation comparisons: their pages and the
-    /// interpretations and audience explanations on them (ADR 0306).
+    /// interpretations and audience explanations on them (ADR 0232).
     Interpretations,
 }
 
@@ -1318,7 +1318,7 @@ fn reading_paths(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
 
 /// The interpretation comparisons the build publishes: each with the parts it
 /// copies. Only the public projection is read, so a draft comparison, an AI
-/// draft nobody approved and a private note are never here (ADR 0304). What a
+/// draft nobody approved and a private note are never here (ADR 0230). What a
 /// comparison leaves out is reported to the author at build time, by item id.
 fn interpretations(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
     let mut report = report(Projection::Interpretations, inputs.switches.interpretations);
