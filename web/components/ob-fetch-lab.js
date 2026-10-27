@@ -5,6 +5,8 @@
 import {
   presets, parseHeaders, trace, snippet,
   createStorage, usage, setItem, getItem, removeItem, clear,
+  scenarios, CREDENTIALS, createWorld, advance, changeReport, clearCache, clearCookies, exchange,
+  cacheEntries, serverDefaults, APP_ORIGIN, functionUnderTest, runUnderTest, testSnippet,
 } from "./ob-fetch-model.js";
 import { ObLab, defineLab, el, field, reducedMotion } from "./ob-lab.js";
 
@@ -12,6 +14,8 @@ const STAGES = [["request", "Request"], ["response", "Response"], ["parse", "Par
 
 class ObFetchLab extends ObLab {
   setup() {
+    const scenario = Object.hasOwn(scenarios, this.dataset.lesson) ? scenarios[this.dataset.lesson] : null;
+    if (scenario) { this.setupScenario(scenario); return; }
     this.storage = createStorage();
     this.parsed = null;
 
@@ -46,10 +50,10 @@ class ObFetchLab extends ObLab {
     return box;
   }
 
-  buildPipeline() {
+  buildPipeline(stages = STAGES) {
     this.stages = {};
     const list = el("ol", { class: "ob-fetch-stages", "aria-label": "Request pipeline" });
-    for (const [key, label] of STAGES) {
+    for (const [key, label] of stages) {
       const item = el("li", { "data-stage": key }, label);
       this.stages[key] = item;
       list.append(item);
@@ -118,7 +122,7 @@ class ObFetchLab extends ObLab {
   showSnippet() {
     this.snippet.textContent = snippet({
       method: this.method.value, path: this.path.value.trim() || "/",
-      headers: this.headers.value, body: this.body.value,
+      headers: this.headers.value, body: this.body.value, credentials: this.credentials?.value,
     });
   }
 
@@ -209,6 +213,217 @@ class ObFetchLab extends ObLab {
     this.storage = clear(this.storage);
     this.storageOut.textContent = "localStorage.clear()";
     this.renderStorage();
+  }
+
+  // ---- Lesson scenarios (fence option lesson="login|caching|testing") --------------------
+
+  setupScenario(scenario) {
+    const kind = this.dataset.lesson;
+    this.kind = kind;
+    this.append(el("p", { class: "ob-fetch-note" }, scenario.note));
+    if (kind === "testing") { this.buildTesting(scenario); return; }
+    this.world = createWorld();
+    this.append(this.buildScenarioRequest(scenario), this.buildPipeline(STAGES.slice(0, 3)), this.buildResult(),
+      this.buildWorld());
+    this.pick(scenario.presets[0]);
+    this.renderWorld();
+  }
+
+  buildScenarioRequest(scenario) {
+    const login = this.kind === "login";
+    const box = el("section", { class: "ob-fetch-panel", "aria-label": "Request" });
+    const row = el("div", { class: "ob-fetch-presets", role: "group", "aria-label": "Example requests" });
+    for (const preset of scenario.presets) {
+      const button = el("button", { type: "button" }, preset.label);
+      button.addEventListener("click", () => { this.pick(preset); this.sendScenario(); });
+      row.append(button);
+    }
+    this.explain = el("p", { class: "ob-fetch-explain", role: "status" });
+    this.method = el("select");
+    for (const verb of ["GET", "POST"]) this.method.append(el("option", { value: verb }, verb));
+    this.path = el("input", { type: "text", autocomplete: "off", spellcheck: "false" });
+    this.headers = el("textarea", { rows: "2", spellcheck: "false", placeholder: "Content-Type: application/json" });
+    this.body = el("textarea", { rows: "2", spellcheck: "false", placeholder: '{"user": "mika", "password": "pw"}' });
+    const form = el("form", { class: "ob-fetch-form" });
+    form.append(field("Method", this.method), field("URL", this.path));
+    if (login) {
+      this.credentials = el("select");
+      for (const value of CREDENTIALS) this.credentials.append(el("option", { value }, value));
+      this.allowOrigin = el("select");
+      for (const [value, text] of [["none", "(not sent)"], ["*", "*"], [APP_ORIGIN, APP_ORIGIN]]) {
+        this.allowOrigin.append(el("option", { value }, text));
+      }
+      this.allowCredentials = el("input", { type: "checkbox" });
+      const check = el("label", { class: "ob-fetch-check" });
+      check.append(this.allowCredentials, " Server sends Access-Control-Allow-Credentials: true");
+      form.append(field("credentials option", this.credentials),
+        field("Server sends Access-Control-Allow-Origin (applies to cross-origin URLs)", this.allowOrigin), check,
+        field("Headers (Name: value, one per line)", this.headers), field("Body", this.body));
+    }
+    form.append(el("button", { type: "submit" }, "Send request"));
+    form.addEventListener("submit", (event) => { event.preventDefault(); this.sendScenario(); });
+    form.addEventListener("input", () => this.showSnippet());
+    this.snippet = el("pre", { class: "ob-fetch-code", tabindex: "0", "aria-label": "Equivalent fetch code" });
+    box.append(row, this.explain, form, this.snippet);
+    return box;
+  }
+
+  pick(preset) {
+    this.method.value = preset.method;
+    this.path.value = preset.path;
+    this.headers.value = preset.headers ?? "";
+    this.body.value = preset.body ?? "";
+    if (this.credentials) {
+      this.credentials.value = preset.credentials ?? "same-origin";
+      const server = { ...serverDefaults, ...(preset.server ?? {}) };
+      this.allowOrigin.value = server.allowOrigin;
+      this.allowCredentials.checked = server.allowCredentials;
+    }
+    this.explain.textContent = preset.explain;
+    this.showSnippet();
+  }
+
+  buildWorld() {
+    // Read the field into a local before an object literal uses it: the components' guard against
+    // assigning host fields reads a comparison placed straight after a key as an assignment.
+    const login = this.kind === "login";
+    const box = el("section", { class: "ob-fetch-panel", "aria-label": login ? "Cookie jar" : "Cache and clock" });
+    this.worldView = el("div", { class: "ob-fetch-world", role: "status" });
+    const actions = el("div", { class: "ob-fetch-actions" });
+    const buttons = login
+      ? [["Clear cookies", () => { this.world = clearCookies(this.world); }]]
+      : [
+        ["Advance the clock 30 seconds", () => { this.world = advance(this.world, 30); }],
+        ["Change the report on the server", () => { this.world = changeReport(this.world); }],
+        ["Clear the cache", () => { this.world = clearCache(this.world); }],
+      ];
+    for (const [text, run] of buttons) {
+      const button = el("button", { type: "button" }, text);
+      button.addEventListener("click", () => { run(); this.renderWorld(); });
+      actions.append(button);
+    }
+    box.append(el("h3", {}, this.kind === "login" ? "Pretend cookie jar" : "Pretend cache and clock"), this.worldView, actions);
+    return box;
+  }
+
+  renderWorld() {
+    const { world } = this;
+    if (this.kind === "login") {
+      this.worldView.textContent = world.cookie
+        ? `Cookie for api.example.test: ${world.cookie} (HttpOnly, invisible to your JavaScript)`
+        : "Cookie for api.example.test: (none)";
+      return;
+    }
+    const entries = cacheEntries(world);
+    const lines = [
+      `Pretend clock: ${world.now} s`,
+      `Requests that reached the server: ${world.serverHits}`,
+      `Server's current ETag for /report: "v${world.reportVersion}"`,
+      ...(entries.length
+        ? entries.map((entry) => `Saved copy of ${entry.key}: ETag ${entry.etag}, ${entry.age} s old, ${entry.fresh ? "fresh" : "stale"}`)
+        : ["Saved copies: (none)"]),
+    ];
+    this.worldView.textContent = lines.join("\n");
+  }
+
+  sendScenario() {
+    const request = this.current();
+    if (this.credentials) {
+      request.credentials = this.credentials.value;
+      request.server = { allowOrigin: this.allowOrigin.value, allowCredentials: this.allowCredentials.checked };
+    }
+    const result = exchange(this.world, request);
+    this.world = result.world;
+    this.showExchange(result);
+    this.renderWorld();
+  }
+
+  showExchange(result) {
+    const { wire, response, blocked, source, ok, json, lessons, sent, cookieSent } = result;
+    const set = (key, state) => { if (state) this.stages[key].dataset.state = state; else delete this.stages[key].dataset.state; };
+    set("request", "done");
+    const notes = [];
+    if (source === "cache") notes.push("Answered from the cache: no request left the browser.");
+    if (source === "revalidated") notes.push("Revalidated: the server said 304 and the browser reused its copy.");
+    if (source === "network" && wire) notes.push("Answered by the server.");
+    if (blocked) notes.push("The browser blocked the response.");
+    if (this.kind === "login") notes.push(`Cookie sent: ${cookieSent ? "yes" : "no"}.`);
+    if (sent?.["if-none-match"]) notes.push(`Sent If-None-Match: ${sent["if-none-match"]}.`);
+    const shown = wire ?? response;
+    this.responseView.textContent = shown
+      ? `${source === "cache" ? "(no request was sent; this is the saved copy)\n" : ""}HTTP ${shown.status} ${shown.statusText}\n${Object.entries(shown.headers).map(([k, v]) => `${k}: ${v}`).join("\n")}\n\n${shown.body || "(no body)"}`
+      : "(no response: the request never reached a server)";
+    if (!response) {
+      this.codeView.textContent = "await fetch(…) rejected\nTypeError: Failed to fetch";
+      set("response", "error"); set("parse", "");
+    } else {
+      this.codeView.textContent = [
+        `response.status  → ${response.status}`,
+        `response.ok      → ${ok}`,
+        json.ok ? `await response.json() → ${JSON.stringify(json.value)}` : `await response.json() → throws SyntaxError\n  ${json.error}`,
+      ].join("\n");
+      set("response", ok ? "done" : "error"); set("parse", json.ok ? "done" : "error");
+    }
+    this.lessons.textContent = `${notes.join(" ")} ${lessons.join(" ")}`.trim();
+  }
+
+  buildTesting(scenario) {
+    const box = el("section", { class: "ob-fetch-panel", "aria-label": "Stub" });
+    box.append(el("h3", {}, "Function under test"), el("pre", { class: "ob-fetch-code", tabindex: "0", "aria-label": "Function under test" }, functionUnderTest));
+    const row = el("div", { class: "ob-fetch-presets", role: "group", "aria-label": "Example stubs" });
+    for (const preset of scenario.presets) {
+      const button = el("button", { type: "button" }, preset.label);
+      button.addEventListener("click", () => { this.fill(preset); this.run(); });
+      row.append(button);
+    }
+    this.explain = el("p", { class: "ob-fetch-explain", role: "status" });
+    this.stubKind = el("select");
+    for (const [value, text] of [["response", "Answers with a response"], ["network", "Network error (rejects)"], ["slow", "Answers slowly"]]) {
+      this.stubKind.append(el("option", { value }, text));
+    }
+    this.stubStatus = el("input", { type: "text", inputmode: "numeric", autocomplete: "off" });
+    this.stubDelay = el("input", { type: "text", inputmode: "numeric", autocomplete: "off" });
+    this.stubBody = el("textarea", { rows: "2", spellcheck: "false" });
+    const form = el("form", { class: "ob-fetch-form" });
+    form.append(field("Stub behavior", this.stubKind), field("Status", this.stubStatus),
+      field("Body", this.stubBody), field("Delay in milliseconds (for \"Answers slowly\")", this.stubDelay),
+      el("button", { type: "submit" }, "Run the function"));
+    form.addEventListener("submit", (event) => { event.preventDefault(); this.run(); });
+    box.append(el("h3", {}, "Replace fetch with a stub"), row, this.explain, form);
+
+    const result = el("div", { class: "ob-fetch-result" });
+    this.testOut = el("pre", { class: "ob-fetch-out", tabindex: "0", role: "status", "aria-label": "Result" });
+    this.testCalls = el("pre", { class: "ob-fetch-out", tabindex: "0", "aria-label": "What happened" });
+    this.lessons = el("p", { class: "ob-fetch-lesson" });
+    const left = el("section", { class: "ob-fetch-panel" });
+    left.append(el("h3", {}, "What the function did"), this.testOut, this.testCalls, this.lessons);
+    this.testCode = el("pre", { class: "ob-fetch-code", tabindex: "0", "aria-label": "Test code for this stub" });
+    const right = el("section", { class: "ob-fetch-panel" });
+    right.append(el("h3", {}, "The same stub as test code"), this.testCode);
+    result.append(left, right);
+    this.append(box, result);
+    this.fill(scenario.presets[0]);
+    this.run();
+  }
+
+  fill(preset) {
+    this.stubKind.value = preset.kind;
+    this.stubStatus.value = String(preset.status || "");
+    this.stubDelay.value = String(preset.delay ?? "");
+    this.stubBody.value = preset.body ?? "";
+    this.explain.textContent = preset.explain;
+  }
+
+  run() {
+    const stub = { kind: this.stubKind.value, status: this.stubStatus.value, body: this.stubBody.value, delay: this.stubDelay.value };
+    const outcome = runUnderTest(stub);
+    this.testOut.textContent = outcome.outcome === "returns"
+      ? `getPostTitle(stub, 1) returned ${JSON.stringify(outcome.value) ?? "undefined"}`
+      : `getPostTitle(stub, 1) threw ${outcome.error.name}: ${outcome.error.message}`;
+    this.testOut.dataset.error = String(outcome.outcome !== "returns");
+    this.testCalls.textContent = outcome.calls.join("\n");
+    this.lessons.textContent = outcome.lessons.join(" ");
+    this.testCode.textContent = testSnippet(stub);
   }
 
   renderStorage() {

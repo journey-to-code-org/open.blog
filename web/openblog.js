@@ -9,6 +9,7 @@ import "./components/ob-rust-playground.js";
 import "./components/ob-code-runner.js";
 import "./components/ob-web-sandbox.js";
 import "./components/ob-git-sandbox.js";
+import "./components/ob-practice-lab.js";
 import "./components/ob-fetch-lab.js";
 import "./components/ob-component-lab.js";
 import "./components/ob-evolution-lab.js";

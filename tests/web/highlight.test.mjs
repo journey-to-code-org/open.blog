@@ -2,7 +2,7 @@
 // Run with: node --test tests/web/
 import test from "node:test";
 import assert from "node:assert/strict";
-import { detectLanguage, highlight, isKnownLanguage, isPlainText, splitLines } from "../../web/components/ob-highlight.js";
+import { detectLanguage, highlight, isKnownLanguage, isPlainText, isTerminal, splitLines } from "../../web/components/ob-highlight.js";
 
 /** The class given to the first token whose text is exactly `text`. */
 function clsOf(tokens, text) {
@@ -112,6 +112,13 @@ test("terminal sessions: prompts are commands, the rest is output", () => {
   assert.equal(clsOf(t, "user@host:~$ "), "prompt");
   assert.equal(clsOf(t, "ls"), "function");
   assert.equal(clsOf(t, "total 8"), null);
+});
+
+test("in a terminal session a `# note` line is a comment but `##` output is plain", () => {
+  const t = highlight("$ git status -sb\n## main...origin/main\n# a note\n M app.js", "console");
+  assert.equal(clsOf(t, "## main...origin/main\n"), null, "`##` is output, not a comment");
+  assert.equal(clsOf(t, "# a note\n"), "comment");
+  assert.equal(clsOf(t, " M app.js"), null);
 });
 
 test("shell quoting, numbers and heredocs", () => {
@@ -237,6 +244,11 @@ test("tokens split into lines for line numbers", () => {
   assert.equal(isPlainText("text"), true);
   assert.equal(isPlainText("output"), true);
   assert.equal(isPlainText("rust"), false);
+});
+
+test("shell and console fences are terminal blocks, code languages are not", () => {
+  for (const name of ["bash", "sh", "console", "PowerShell", "zsh"]) assert.equal(isTerminal(name), true, name);
+  for (const name of ["rust", "js", "text", "", undefined]) assert.equal(isTerminal(name), false, String(name));
 });
 
 test("fetch with an options object is javascript, not css", () => {
