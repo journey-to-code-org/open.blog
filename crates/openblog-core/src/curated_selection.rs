@@ -57,6 +57,7 @@ pub const MAX_POSTS: usize = 50;
 
 const CREDIT_FIELDS: &[&str] = &["credit", "credits", "contributor", "contributors"];
 const MAX_ID: usize = 64;
+const MAX_POST: usize = 200;
 const MAX_TARGET: usize = 120;
 const MAX_SHORT: usize = 200;
 
@@ -342,6 +343,15 @@ fn safe_target(text: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'~' | b'-'))
 }
 
+/// A post slug as `slug::slugify` writes one: letters and digits of any
+/// script, joined by single hyphens.
+fn safe_post(text: &str) -> bool {
+    !text.is_empty()
+        && text.chars().count() <= MAX_POST
+        && text.chars().all(|c| c.is_alphanumeric() || c == '-')
+        && !text.starts_with('-')
+}
+
 fn is_revision(text: &str) -> bool {
     text.len() == 16 && text.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
@@ -528,7 +538,7 @@ pub fn validate(selection: &Selection) -> Vec<Diagnostic> {
             || posts.len() > MAX_POSTS
             || posts
                 .iter()
-                .any(|post| !safe_target(post) || !seen.insert(post));
+                .any(|post| !safe_post(post) || !seen.insert(post));
         if bad {
             out.push(diag(
                 Code::BadPosts,
@@ -1989,5 +1999,321 @@ impl SelectionSet {
         let before = self.selections.len();
         self.selections.retain(|s| s.id != id);
         self.selections.len() != before
+    }
+}
+
+// ---------------------------------------------------------------- the author's view
+
+/// What readers of one post are given: the whole-site items and those scoped
+/// to the post, in the post's order, with the context only they need. The
+/// same value the public renderers read (#197), so a preview is not a second
+/// rendering of it.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PostCuration<'a> {
+    pub format: &'static str,
+    pub format_version: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub post: Option<String>,
+    pub items: Vec<&'a CuratedItem>,
+    pub context: Vec<&'a ContextItem>,
+}
+
+impl PublicCuration {
+    /// The items and context readers of `post` get, or, for `None`, every
+    /// published item in the site-wide order.
+    pub fn view_for(&self, post: Option<&str>) -> PostCuration<'_> {
+        let items: Vec<&CuratedItem> = match post {
+            Some(post) => self.for_post(post),
+            None => self.items.iter().collect(),
+        };
+        let shown: BTreeSet<&str> = items.iter().map(|item| item.id.as_str()).collect();
+        let context = self
+            .context
+            .iter()
+            .filter(|item| item.via.iter().any(|id| shown.contains(id.as_str())))
+            .collect();
+        PostCuration {
+            format: self.format,
+            format_version: self.format_version,
+            post: post.map(str::to_string),
+            items,
+            context,
+        }
+    }
+}
+
+/// One stored selection as its author sees it: what it selects by name, what
+/// readers get of it and, when they get nothing, why. The author's own text is
+/// included (it is theirs and this view is theirs alone); nothing private
+/// that the selection did not copy is.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SelectionView {
+    pub id: String,
+    pub kind: SelectionKind,
+    pub target: String,
+    /// What the target is called in the public projections, when it is
+    /// published; never a private label.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    pub state: SelectionState,
+    /// `published`, or `withheld` with `why` and a `message` naming ids only.
+    pub status: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub why: Option<Why>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    /// Whether readers of the post this view is for are offered it.
+    pub applies_to_post: bool,
+    pub fields: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub locator: Option<String>,
+    pub provenance: Provenance,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub requires: Vec<String>,
+    /// The posts it is scoped to; absent means the whole site.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub posts: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub position: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub withdrawn_reason: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub notices: Vec<ItemNotice>,
+}
+
+/// A public item that can be selected, by the name its own projection gives it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Candidate {
+    pub id: String,
+    pub label: String,
+    /// The public page, when the item has one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// For a relationship or a dating, the entry or relationship it is about.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub about: Vec<String>,
+}
+
+/// Everything the build publishes that a selection can pick, and nothing else.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Candidates {
+    pub entries: Vec<Candidate>,
+    pub relationships: Vec<Candidate>,
+    pub datings: Vec<Candidate>,
+    pub comparisons: Vec<Candidate>,
+    /// Sources that are already public: cited by a published post, or
+    /// published by the atlas or a comparison.
+    pub sources: Vec<Candidate>,
+}
+
+/// The author's curation surface for one post, or for the whole site.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CurationView<'a> {
+    /// The revision of the selections file a change must name.
+    pub revision: String,
+    pub file: &'static str,
+    /// Whether the site publishes curated context (`curatedContext.publish`).
+    pub publish: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub post: Option<String>,
+    pub selections: Vec<SelectionView>,
+    /// What readers get, exactly.
+    pub preview: PostCuration<'a>,
+    pub candidates: Candidates,
+}
+
+fn candidates_of(basis: &Basis<'_>) -> Candidates {
+    let mut found = Candidates::default();
+    if let Some(atlas) = basis.atlas {
+        let label_of = |id: &str| {
+            atlas
+                .entries
+                .iter()
+                .find(|entry| entry.id == id)
+                .map_or_else(|| id.to_string(), |entry| entry.label.clone())
+        };
+        found.entries = atlas
+            .entries
+            .iter()
+            .map(|entry| Candidate {
+                id: entry.id.clone(),
+                label: entry.label.clone(),
+                url: Some(entry.url.clone()),
+                about: Vec::new(),
+            })
+            .collect();
+        found.relationships = atlas
+            .relationships
+            .iter()
+            .map(|relationship| Candidate {
+                id: relationship.id.clone(),
+                label: format!(
+                    "{} {} {}",
+                    label_of(&relationship.from),
+                    relationship.label,
+                    label_of(&relationship.to)
+                ),
+                url: None,
+                about: vec![relationship.from.clone(), relationship.to.clone()],
+            })
+            .collect();
+        found.datings = atlas
+            .datings
+            .iter()
+            .map(|dating| Candidate {
+                id: dating.id.clone(),
+                label: format!("{}: {}", dating.aspect.as_str(), dating.text),
+                url: None,
+                about: vec![dating.owner.clone()],
+            })
+            .collect();
+    }
+    if let Some(comparisons) = basis.comparisons {
+        found.comparisons = comparisons
+            .comparisons
+            .iter()
+            .map(|comparison| Candidate {
+                id: comparison.id.clone(),
+                label: comparison
+                    .label
+                    .clone()
+                    .unwrap_or_else(|| comparison.id.clone()),
+                url: Some(comparison.url.clone()),
+                about: Vec::new(),
+            })
+            .collect();
+    }
+    if let (Some(library), Some(public)) = (basis.library, basis.public_sources) {
+        found.sources = public
+            .iter()
+            .filter_map(|id| library.get(id))
+            .map(|record| Candidate {
+                id: record.id.clone(),
+                label: public_reference(record)
+                    .title
+                    .unwrap_or_else(|| record.id.clone()),
+                url: None,
+                about: Vec::new(),
+            })
+            .collect();
+    }
+    found
+}
+
+/// Build the author's view of the selections: each one with its status and
+/// reason, what readers of `post` get, and what can be selected. Pure: the
+/// caller reads the stores and holds whatever locks it needs.
+pub fn curation_view<'a>(
+    set: &SelectionSet,
+    resolution: &'a Resolution,
+    basis: &Basis<'_>,
+    post: Option<&str>,
+    revision: &str,
+    publish: bool,
+) -> CurationView<'a> {
+    let candidates = candidates_of(basis);
+    let label_of = |sel: &Selection| -> Option<String> {
+        let find = |list: &[Candidate]| {
+            list.iter()
+                .find(|candidate| candidate.id == sel.target)
+                .map(|candidate| candidate.label.clone())
+        };
+        match sel.kind {
+            SelectionKind::Reference | SelectionKind::SourceAnnotation => find(&candidates.sources),
+            SelectionKind::ContextualEntry | SelectionKind::Explanation => {
+                find(&candidates.entries)
+            }
+            SelectionKind::Relationship => find(&candidates.relationships),
+            SelectionKind::Timeline => find(&candidates.datings),
+            SelectionKind::Comparison => find(&candidates.comparisons),
+        }
+    };
+    let held: BTreeMap<&str, &WithheldSelection> = resolution
+        .withheld
+        .iter()
+        .map(|held| (held.id.as_str(), held))
+        .collect();
+    let items: BTreeMap<&str, &CuratedItem> = resolution
+        .curation
+        .items
+        .iter()
+        .map(|item| (item.id.as_str(), item))
+        .collect();
+    let mut selections: Vec<SelectionView> = set
+        .selections
+        .iter()
+        .map(|sel| {
+            let withheld = held.get(sel.id.as_str());
+            let applies = post.is_none_or(|post| {
+                sel.posts
+                    .as_ref()
+                    .is_none_or(|posts| posts.iter().any(|p| p == post))
+            });
+            SelectionView {
+                id: sel.id.clone(),
+                kind: sel.kind,
+                target: sel.target.clone(),
+                label: label_of(sel),
+                state: sel.state,
+                status: if withheld.is_some() {
+                    "withheld"
+                } else {
+                    "published"
+                },
+                why: withheld.map(|held| held.why),
+                message: withheld.map(|held| held.message.clone()),
+                applies_to_post: applies,
+                fields: sel.fields.clone(),
+                text: sel.text.clone(),
+                by: sel.by.clone(),
+                locator: sel.locator.clone(),
+                provenance: sel.provenance.clone(),
+                requires: sel.requires.clone(),
+                posts: sel.posts.clone(),
+                position: sel.position,
+                withdrawn_reason: sel.withdrawn_reason.clone(),
+                notices: items
+                    .get(sel.id.as_str())
+                    .map(|item| item.notices.clone())
+                    .unwrap_or_default(),
+            }
+        })
+        .collect();
+    // Published ones in the order readers get them, then the withheld, by id.
+    let order: BTreeMap<&str, usize> = resolution
+        .curation
+        .view_for(post)
+        .items
+        .iter()
+        .enumerate()
+        .map(|(index, item)| (item.id.as_str(), index))
+        .collect();
+    selections.sort_by(|a, b| {
+        let key = |view: &SelectionView| {
+            (
+                !view.applies_to_post,
+                order.get(view.id.as_str()).copied().unwrap_or(usize::MAX),
+                view.id.clone(),
+            )
+        };
+        key(a).cmp(&key(b))
+    });
+    CurationView {
+        revision: revision.to_string(),
+        file: SELECTIONS_FILE,
+        publish,
+        post: post.map(str::to_string),
+        selections,
+        preview: resolution.curation.view_for(post),
+        candidates,
     }
 }

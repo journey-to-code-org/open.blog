@@ -494,7 +494,7 @@ impl BoundaryManifest {
         // Absent while the switch is off, whatever the selections file
         // holds, so a site that does not curate is described exactly as before.
         if inputs.switches.curated {
-            projections.push(curated(inputs));
+            projections.push(curated(inputs, None));
         }
         Self {
             version: BOUNDARY_FORMAT_VERSION,
@@ -512,11 +512,15 @@ impl BoundaryManifest {
     pub fn post(inputs: &BoundaryInputs<'_>, post: &Post) -> Self {
         let mut slugs: BTreeSet<&str> = inputs.posts.iter().map(|p| p.slug.as_str()).collect();
         slugs.insert(post.slug.as_str());
-        let projections = vec![
+        let mut projections = vec![
             citations(inputs, vec![post]),
             claim_evidence(inputs, vec![post], &slugs, Some(post.slug.as_str())),
             context_links(inputs, post),
         ];
+        // The selections this post is offered, only while the site curates.
+        if inputs.switches.curated {
+            projections.push(curated(inputs, Some(post.slug.as_str())));
+        }
         Self {
             version: BOUNDARY_FORMAT_VERSION,
             scope: Scope::Post {
@@ -1189,13 +1193,16 @@ fn comparisons(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
     report
 }
 
-fn curated(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
+/// The curated selections: for the whole site, or for one post, which is
+/// offered the whole-site selections and its own, in the order readers get them.
+fn curated(inputs: &BoundaryInputs<'_>, post: Option<&str>) -> ProjectionReport {
     let mut report = report(Projection::Curated, inputs.switches.curated);
     let Some(curation) = inputs.curation else {
         return report;
     };
     let resolution = curation.resolution;
-    for item in &resolution.curation.items {
+    let view = resolution.curation.view_for(post);
+    for item in view.items.iter().copied() {
         let mut withheld_fields = Vec::new();
         for notice in resolution.notices.iter().filter(|n| n.id == item.id) {
             let reason = match notice.code {
@@ -1229,7 +1236,7 @@ fn curated(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
             notices: item.notices.clone(),
         });
     }
-    for context in &resolution.curation.context {
+    for context in view.context.iter().copied() {
         let kind = match context.kind {
             CurationContext::Entry => ItemKind::Entry,
             CurationContext::Relationship => ItemKind::Relationship,
@@ -1246,7 +1253,16 @@ fn curated(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
             notices: Vec::new(),
         });
     }
-    for held in &resolution.withheld {
+    let applies = |id: &str| {
+        post.is_none_or(|post| {
+            curation
+                .set
+                .get(id)
+                .and_then(|selection| selection.posts.as_ref())
+                .is_none_or(|posts| posts.iter().any(|p| p == post))
+        })
+    };
+    for held in resolution.withheld.iter().filter(|held| applies(&held.id)) {
         let reason = match held.why {
             Why::Withdrawn => Reason::Withdrawn,
             Why::TargetMissing => Reason::MissingTarget,

@@ -507,7 +507,6 @@ fn lock_path(path: &Path) -> PathBuf {
 
 /// Take the atlas's write lock, the first in the one order every store uses,
 /// so a store that reads the atlas can hold its writers out.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn lock_atlas(root: &Path) -> Result<FileLock, StoreError> {
     let path = atlas_path(root)?;
     FileLock::acquire(lock_path(&path), "Knowledge Atlas write", LOCK_WAIT)

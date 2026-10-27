@@ -19,9 +19,6 @@
 //! selections lock, so no two writers can wait on each other. A change to a
 //! store it reads only ever makes a selection stale, which withholds it.
 
-// The write path is used by the Admin routes (ADR 0228).
-#![cfg_attr(not(test), allow(dead_code))]
-
 use std::fmt;
 use std::fs;
 use std::io::{Read, Write};
