@@ -426,6 +426,34 @@ fn changing_what_the_reader_may_be_asked_never_renews_feature_consent_for_edited
 }
 
 #[test]
+fn a_feature_dated_before_the_reflection_was_approved_is_never_shown() {
+    let mut w = world("Mina", true);
+    assert!(w.page().is_ok());
+    // A clock that ran behind cannot date a feature before its approval: the
+    // day is raised to the approval's.
+    let item = &w.published.items[0];
+    let mut early = request("");
+    early.at = time("2026-01-01T00:00:00Z");
+    let record = FeatureRecord::new(
+        SOURCE,
+        &w.hosted,
+        &w.facts,
+        item,
+        &w.site.posts[0],
+        &w.site.config,
+        &early,
+    )
+    .unwrap();
+    assert_eq!(record.featured, item.approved);
+    // A hand-edited earlier day is refused by the page.
+    w.record.featured = "2026-10-01".into();
+    assert!(w.record.featured < w.published.items[0].approved);
+    assert_eq!(w.page().unwrap_err(), FeatureOff::Misdated);
+    w.record.featured = w.published.items[0].approved.clone();
+    assert!(w.page().is_ok(), "the same day is honest");
+}
+
+#[test]
 fn the_published_text_that_differs_from_what_was_agreed_is_never_featured() {
     let mut w = world("Mina", true);
     assert!(w.page().is_ok());

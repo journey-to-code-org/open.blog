@@ -33,6 +33,9 @@ must stop showing a feature when its inputs disappear even before Admin acts.
   | `not-approved` | the one projection no longer shows it (hidden kind, another work) |
 
   The reason's explanation is fixed text: it carries no id, name or reader words.
+- **The static page also refuses a misdated feature.** A feature's day is raised to the day the
+  reflection was approved when it is made, so one dated earlier is a hand edit and is hidden
+  (`misdated`, never produced by the hosted check).
 - **The static page checks the same facts it has.** `resolve_post` shows a feature only when the
   published reflection is still in `third-perspectives.json` for that post, the one projection still
   shows it, the digest still matches. Otherwise the feature is absent, and

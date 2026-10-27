@@ -50,6 +50,11 @@ opposite: a short list reads as "the best" or "what people think".
   Perspectives section, anchored `ob-community-perspectives`. A reflection has at most one placement;
   a repeated id in the file is refused as a whole. Grouping features under editor headings is a later,
   separate decision that needs its own consent wording and file version (ADR 0235).
+- **The section is an unordered list (a note for #230).** Features are rendered as a `<ul>` of `<li>`,
+  never an `<ol>`, a table with a rank column or numbered headings: a numbered list reads as a ranking, and
+  the order (the day featured, then the id) means nothing else. The day a feature is dated is never
+  earlier than the day the reflection was approved; the page refuses a hand-edited earlier day
+  (`misdated`), since the file's days are what the provenance line states.
 - **The editor who chose it is not shown.** The public form has no field for the Admin user or any
   moderator; the page says "the editors". A site run by one author still says "the editors", since the
   claim is about selection, not about who made it.

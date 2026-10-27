@@ -162,6 +162,9 @@ pub enum FeatureOff {
     TextChanged,
     /// The article it is about is gone.
     SourceGone,
+    /// The day it was featured is earlier than the day the reflection was
+    /// approved, which no honest feature has (a hand-edited file).
+    Misdated,
 }
 
 impl FeatureOff {
@@ -173,6 +176,7 @@ impl FeatureOff {
             FeatureOff::ConsentDeclined => "consent-declined",
             FeatureOff::TextChanged => "text-changed",
             FeatureOff::SourceGone => "source-gone",
+            FeatureOff::Misdated => "misdated",
         }
     }
 
@@ -187,6 +191,7 @@ impl FeatureOff {
                 "the text is not the text the reader agreed to have featured"
             }
             FeatureOff::SourceGone => "the article it is about is no longer published",
+            FeatureOff::Misdated => "it is dated as featured before the reflection was approved",
         }
     }
 }
@@ -878,6 +883,11 @@ pub fn resolve_post(
                     .ok_or(FeatureOff::NotApproved)?;
                 if body_digest(&item.body) != record.digest {
                     return Err(FeatureOff::TextChanged);
+                }
+                // Featured is never before approved (a feature is chosen from an
+                // approved reflection), so an earlier day is a hand edit.
+                if record.featured < item.approved {
+                    return Err(FeatureOff::Misdated);
                 }
                 Ok(FeaturedPerspective {
                     id: record.id.clone(),
