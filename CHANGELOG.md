@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.45.0] - 2026-10-27
+
 - A post's page now shows the reflections its editors chose to feature, in a "Community perspectives"
   section after the Third Perspectives (RD14): a plain list, in the order each was featured, that says it
   is the editors' choice and not a vote or a sign that anyone agrees, with each reflection's reader (or "a
