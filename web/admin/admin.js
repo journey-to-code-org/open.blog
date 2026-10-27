@@ -552,7 +552,6 @@ export function answerOffer(item) {
   };
 }
 
-/** What the signed-in account can do with an item, from the role the server resolved. */
 /**
  * What a suggestion for future work says about its source, as lines of plain text for the editors,
  * and what is still to find out. Every line is the reader's statement, never checked: nothing is
@@ -575,6 +574,7 @@ export function suggestionLines(suggestion) {
   return lines;
 }
 
+/** What the signed-in account can do with an item, from the role the server resolved. */
 export function moderationRoleLine(role) {
   if (role === "coordinator") return "You moderate this as a coordinator of its shared publication. Only the site Admin sees a reader’s private name or reopens a decision.";
   if (role === "contributing-author") return "You can read this as a contributing author of the work. A coordinator or the site Admin decides.";
