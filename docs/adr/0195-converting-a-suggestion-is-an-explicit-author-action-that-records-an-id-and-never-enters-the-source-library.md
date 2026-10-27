@@ -33,9 +33,11 @@ must not flow into it, or into any public output, without an author deciding to.
   contact, and rights stay the author's per-version declaration
   ([ADR 0085](0085-rights-are-the-authors-declaration-per-version.md)), never inferred from a
   suggestion. A question has no candidate.
-- **Storage and screens are RD13.3's** ([#228](https://github.com/journey-to-code-org/open.blog/issues/228)):
-  where links are persisted and how an editor records one. It must use these functions and may
-  not widen who can call them.
+- **Storage and screens are RD13.3's** ([#228](https://github.com/journey-to-code-org/open.blog/issues/228)),
+  decided in [ADR 0210](0210-a-link-to-future-work-is-kept-in-the-suggestions-details-with-an-audit-event-and-needs-no-new-schema.md)
+  to [ADR 0212](0212-a-link-to-a-source-is-the-authors-record-of-a-library-record-they-made-and-the-hints-are-copied-by-hand.md):
+  the links are kept in the row's `details`, recorded from the inbox through these functions, and
+  no one is widened beyond who could call them.
 - **Copying into the private research notebook is the one export, and it is explicit**
   ([ADR 0198](0198-editors-read-suggestions-in-the-one-inbox-and-copying-one-into-a-research-note-is-an-explicit-unverified-export.md)).
   It is a sibling of the library candidate, not a conversion: it records no link.

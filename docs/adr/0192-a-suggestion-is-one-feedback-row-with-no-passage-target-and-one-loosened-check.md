@@ -21,6 +21,11 @@ fields.
 
 ## Decision
 
+_Amended by [ADR 0213](0213-a-suggestions-stored-details-are-held-to-a-bound-below-the-columns-check-measured-as-postgres-measures-them.md)
+(the size `details` may reach), [ADR 0214](0214-only-a-suggestion-may-have-a-page-without-a-passage-and-the-rollback-names-the-audit-guard.md)
+(the loosened check names the kind) and [ADR 0210](0210-a-link-to-future-work-is-kept-in-the-suggestions-details-with-an-audit-event-and-needs-no-new-schema.md)
+(`details` may also hold `conversions`)._
+
 - **A suggestion is one row of that table** with kind `future-suggestion`: the page it was sent from
   in `work`, no passage `revision` and no `target` (it is not about a passage), `body` the reader's
   words, `item_revision` the text revision, and `details` exactly `{type, url?, hints?, about?,

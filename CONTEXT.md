@@ -1808,8 +1808,9 @@ _Avoid_: Subscription, mailing list, account email
 
 **Private identity clearing**:
 The retention step (`scrub-identity`) that removes a kept, accepted suggestion's contact and any name
-the reader did not agree to show, once `closedDays` have passed since approval or when an author links
-it to future work, and changes nothing else. A name the reader agreed to show stays (ADR 0193).
+the reader did not agree to show, once `closedDays` have passed since approval or, at the next
+retention run, when an author has linked it to future work; it changes nothing else and keeps the
+links. A name the reader agreed to show stays (ADRs 0193, 0211).
 _Avoid_: Purge, anonymising the idea, deleting the suggestion
 
 **Suggestion standing**:
@@ -1830,8 +1831,23 @@ _Avoid_: Most requested, trending, vote count
 **Conversion**:
 A recorded link from an accepted suggestion to a draft, series or Source Library record an author
 made from it: the target's id, when and which Admin account recorded it, and nothing of the reader.
-Recording one creates nothing (ADR 0195).
+Recording one creates nothing, is kept in the row's `details` as `conversions` (no schema change,
+at most eight, none twice) with an audit event `convert`, and is never opened or checked
+(ADRs 0195, 0210).
 _Avoid_: Import, promotion, automatic episode
+
+**Editorial outcome**:
+How the editors dealt with a suggestion: held (accepted, not linked), converted (linked, even if
+since closed), declined (rejected before it was accepted) or closed (accepted, then removed without a
+link). Derived from the moderation state and the links and never stored; undecided and withdrawn
+suggestions have none. Never a verdict on the idea (ADR 0211).
+_Avoid_: Priority, score, status of the idea
+
+**Receipt standing**:
+What a reader's receipt says of their own suggestion: its stage and one honest sentence in the words
+of the acceptance notice, with a link described as a record and not a promise. Never a rank, a count,
+a promise to publish or what it was linked to (ADR 0211).
+_Avoid_: Progress, ranking, roadmap position
 
 **Library candidate**:
 The unverified link and hints of an accepted suggestion, offered to its author to copy into a

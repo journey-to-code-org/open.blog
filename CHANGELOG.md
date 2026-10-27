@@ -25,6 +25,21 @@ All notable changes to open.blog are recorded here. Releases follow
   a private research note with an explicit button: labelled unverified reader text and where it came
   from, with no name, contact or time, and nothing fetched or published. A suggestion's contact and
   unshown name are cleared by the retention run after `closedDays`, and nothing else is.
+- Editors record what became of a suggestion (RD13, #228). In the Moderation inbox an accepted
+  suggestion has a "Link to future work" form: the slug of a draft or series, or the id of a source
+  in your library, which you made yourself. It records only that link (kept in the suggestion's own
+  details, with a private audit event; no SQL change), creates and publishes nothing, and is never
+  opened or checked. Each suggestion shows its outcome (held, converted, declined or closed) and its
+  links, and an accepted source can show its link and details, marked unverified, to copy into a
+  library record by hand. A reader who kept their receipt sees where it stands in plain words: the
+  editors are interested, an editor has recorded a link between it and work they are doing (a record,
+  not a promise to publish), or it was not taken forward (not a judgement of the idea); never a rank,
+  a count or what it was linked to. A linked suggestion's contact and unshown name are cleared by the
+  next retention run instead of waiting out `closedDays`.
+- Fixes to the suggestion records before release (#227 review): a suggestion whose links would
+  pass the hosted column's size once stored is refused when sent, the hosted check lets only a
+  suggestion have a page without a passage, the generic feedback route never decides a suggestion,
+  and an error in a source's details marks the first detail filled in.
 - Fixes to the suggestion records before release (#213 review): one public-address rule for a link
   (the same as the publication boundary's), identifier hints held to the plain-text, link and scheme
   rules, a largest submission that always reads back from storage, a strict stored shape, redacted
