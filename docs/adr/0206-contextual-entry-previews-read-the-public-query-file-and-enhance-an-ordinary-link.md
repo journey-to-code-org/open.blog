@@ -33,7 +33,9 @@ how such a card behaves for a keyboard, a pointer, a touch screen and a screen r
   one request per page view in which a reader shows interest in a concept link (focus, hover or a
   press), and none otherwise: nothing is fetched on load or when the page is idle. A touch screen
   has no hover to show interest before the tap that must already find the file, so there only, and
-  never for a reader who asked to save data, a concept link scrolling into view is the interest. A
+  never for a reader who asked to save data, and only when the file is under 256 KiB (the element
+  carries `data-bytes`, the written file's size; a larger or unknown size waits for the first
+  tap), a concept link scrolling into view is the interest. A
   page without a concept link never loads the component. The build adds the element only when the
   file is actually written (ADR 0201 can leave it out), so a link never waits for a file that is not
   there. The page names the file with its content hash (`/atlas-query.json?v=<16 hex digits>`, the
@@ -80,7 +82,8 @@ how such a card behaves for a keyboard, a pointer, a touch screen and a screen r
 ## Consequences
 
 - A reader pays for the query file only after showing interest in a link; the bound (4 MiB,
-  normally far smaller) and `saveData` are the limits. On a touch screen a first tap before the file
-  has arrived follows the link, as it did before previews.
+  normally far smaller), `saveData` and the 256 KiB prefetch limit are the limits. On a touch screen a
+  first tap before the file has arrived follows the link, as it did before previews; a large file
+  therefore costs the first tap a plain link, and a small one is ready before it.
 - A site whose build leaves the query file out has plain links and no component.
 - The preview wording is English until the fixed wording of the site is localised.

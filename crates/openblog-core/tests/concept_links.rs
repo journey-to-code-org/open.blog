@@ -729,8 +729,9 @@ fn only_a_post_with_a_resolved_concept_link_loads_the_previews_and_it_reads_one_
     let out = built(&site);
     // The address carries the file's content hash, so it is never stale.
     let element = format!(
-        "<ob-concept-previews src=\"/atlas-query.json?v={}\"></ob-concept-previews>",
-        query_version(&out)
+        "<ob-concept-previews src=\"/atlas-query.json?v={}\" data-bytes=\"{}\"></ob-concept-previews>",
+        query_version(&out),
+        out["atlas-query.json"].len()
     );
     let element = element.as_str();
     let page = &out["posts/cave/index.html"];
@@ -765,8 +766,9 @@ fn only_a_post_with_a_resolved_concept_link_loads_the_previews_and_it_reads_one_
     let blog = site_with(BODY, Some(public_atlas()), "https://example.com/blog");
     let out = built(&blog);
     assert!(out["posts/cave/index.html"].contains(&format!(
-        "<ob-concept-previews src=\"/blog/atlas-query.json?v={}\"></ob-concept-previews>",
-        query_version(&out)
+        "<ob-concept-previews src=\"/blog/atlas-query.json?v={}\" data-bytes=\"{}\"></ob-concept-previews>",
+        query_version(&out),
+        out["atlas-query.json"].len()
     )));
     assert!(out["posts/cave/index.html"].contains("/blog/assets/components/ob-concept-previews.js"));
     assert!(out.contains_key("atlas-query.json"));

@@ -35,7 +35,9 @@ All notable changes to open.blog are recorded here. Releases follow
   it, Escape closes it and returns focus, nothing traps focus), keeps your place in the page, respects
   reduced motion and fits a 320px screen. Without JavaScript, or if the file cannot be read, the link
   is the ordinary link to the entry page. The card is looked up only when you first show interest in
-  a link (never while you are just reading), the page names the file by its content so a changed
+  a link (focus, hover or a press), never on load. On a touch screen, which has no hover, the file
+  is read as a link scrolls into view only when it is under 256 KB (the page says its size); a
+  larger one waits for your first tap, and no one who asked to save data is prefetched. The page names the file by its content so a changed
   atlas is never read from a stale copy, a screen reader that focused the link early hears one
   announcement when the card is ready, and a link inside a heading keeps the heading's name.
 - Every Markdown form of an `atlas:` link or image is now made safe in one place, so none can leak a

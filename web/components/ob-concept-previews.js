@@ -12,7 +12,9 @@
 // The file is fetched once, from the site's own origin, at the first sign of
 // interest in a link (focus, hover or a press), never on load or when the page
 // is idle, so reading a post costs nothing extra (on a touch screen, which has
-// no hover, a link scrolling into view is the interest). The page names the file with
+// no hover, a link scrolling into view is the interest, but only when the
+// file is small: the page says its size in `data-bytes`, and at 256 KiB or
+// more, or with no size, a touch screen waits for the first tap). The page names the file with
 // its content hash, so a changed atlas is never read from a stale cache. If it
 // cannot be fetched or read, nothing changes: the links stay links. A reader
 // whose focus arrived before the file did hears one polite announcement of the
@@ -170,6 +172,9 @@ const WORDS = {
   "page-label": "Read the full entry",
 };
 
+/** On a touch screen the file is read ahead of a tap only below this many bytes (256 KiB). */
+export const PREFETCH_LIMIT = 256 * 1024;
+
 let instances = 0;
 
 export class ObConceptPreviews extends HTMLElement {
@@ -216,9 +221,12 @@ export class ObConceptPreviews extends HTMLElement {
     window.addEventListener("resize", () => this.place(), { signal });
     // Nothing is fetched yet: the first interest in a link does it. A touch
     // screen has no hover to show interest before the tap that must already
-    // find the file, so there (and only there, and never for a reader who
-    // asked to save data) a concept link scrolling into view counts as interest.
+    // find the file, so there (and only there, never for a reader who asked
+    // to save data, and only for a file the page says is under 256 KiB) a
+    // concept link scrolling into view counts as interest. A larger file, or
+    // one of unknown size, waits for the first tap.
     if (
+      this.smallEnoughToPrefetch() &&
       !globalThis.navigator?.connection?.saveData &&
       globalThis.matchMedia?.("(pointer: coarse)").matches &&
       "IntersectionObserver" in globalThis
@@ -244,6 +252,12 @@ export class ObConceptPreviews extends HTMLElement {
     this.entries = null;
     this.pressed = null;
     this.wanted = null;
+  }
+
+  /** Whether the page says the query file is under {@link PREFETCH_LIMIT} bytes. */
+  smallEnoughToPrefetch() {
+    const bytes = Number(this.getAttribute("data-bytes"));
+    return Number.isFinite(bytes) && bytes > 0 && bytes < PREFETCH_LIMIT;
   }
 
   /** The query file's address on this site's own origin, from `src`, or null. */

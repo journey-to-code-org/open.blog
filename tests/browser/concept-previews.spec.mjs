@@ -269,6 +269,34 @@ test("touch: the first tap opens the preview, a second tap follows the link", as
   await context.close();
 });
 
+test("touch: a query file of 256 KB or more, or of unknown size, is not read until the first tap", async ({ browser }) => {
+  for (const bytes of ["262144", "999999", null]) {
+    const context = await browser.newContext({ hasTouch: true, isMobile: true, viewport: { width: 375, height: 700 } });
+    const page = await context.newPage();
+    await page.route(`${origin}/posts/cave/`, async (route) => {
+      const response = await route.fetch();
+      const html = await response.text();
+      const changed = bytes === null
+        ? html.replace(/ data-bytes="\d+"/, "")
+        : html.replace(/data-bytes="\d+"/, `data-bytes="${bytes}"`);
+      await route.fulfill({ response, body: changed });
+    });
+    const requests = [];
+    page.on("request", (request) => requests.push(new URL(request.url()).pathname));
+    await page.goto(`${origin}/posts/cave/`);
+    await expect(page.locator("ob-concept-previews")).toHaveCount(1);
+    // Scroll every link into view: on a small file that is the interest, here it is not.
+    for (const link of await links(page).all()) await link.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(400);
+    await expect(page.locator("ob-concept-previews"), `bytes ${bytes}`).toHaveAttribute("data-state", "idle");
+    expect(requests.filter((path) => path.includes("atlas-query")), `bytes ${bytes}`).toEqual([]);
+    // The first tap is the interest.
+    await links(page).first().dispatchEvent("pointerdown", { pointerType: "touch", isPrimary: true });
+    await expect.poll(() => requests.filter((path) => path === "/atlas-query.json").length, `bytes ${bytes}`).toBe(1);
+    await context.close();
+  }
+});
+
 test("opening a preview keeps the reading position", async ({ page }) => {
   await open(page);
   const last = links(page).last();

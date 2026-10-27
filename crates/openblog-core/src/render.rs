@@ -1021,8 +1021,11 @@ impl<'a> Renderer<'a> {
         }
         if let Some(source) = &meta.concept_previews {
             h.push('\n');
+            // The file's size in bytes lets a touch screen decide whether it
+            // may be fetched ahead of the first tap (ADR 0206).
+            let bytes = self.atlas_query_json().map_or(0, str::len);
             h.push_str(&format!(
-                "<ob-concept-previews src=\"/{}\"></ob-concept-previews>",
+                "<ob-concept-previews src=\"/{}\" data-bytes=\"{bytes}\"></ob-concept-previews>",
                 attr(source)
             ));
         }

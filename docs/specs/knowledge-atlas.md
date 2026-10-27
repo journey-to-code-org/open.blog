@@ -506,14 +506,15 @@ scanned and a repeated term is linked only where the author linked it.
 
 [ADR 0206](../adr/0206-contextual-entry-previews-read-the-public-query-file-and-enhance-an-ordinary-link.md).
 A post that has a resolved concept link, on a site whose build writes `atlas-query.json`, ends with
-`<ob-concept-previews src="/atlas-query.json?v=<hash>"></ob-concept-previews>` (the address follows
+`<ob-concept-previews src="/atlas-query.json?v=<hash>" data-bytes="<size>"></ob-concept-previews>` (the address follows
 the base path, and `<hash>` is 16 hex digits of the file's own BLAKE2s hash, so the address changes
 exactly when the file does) and loads `/assets/components/ob-concept-previews.js`. No other page does.
 
 - Without JavaScript nothing changes: the link goes to the entry's page.
 - The component reads `atlas-query.json` from the site's own origin, once, at the first
   interest in a link (focus, hover or a press; on a touch screen a concept link scrolling into view,
-  unless the reader asked to save data), never on load or when the page is idle, and validates it: `format` `openblog-atlas-query`, `formatVersion` 1, each entry, relationship and
+  unless the reader asked to save data or the file is 256 KiB or more: the element's `data-bytes`
+  says the file's size, and a missing or larger size waits for the first tap), never on load or when the page is idle, and validates it: `format` `openblog-atlas-query`, `formatVersion` 1, each entry, relationship and
   source on its own. A file it cannot fetch or read, or an entry whose page is not the link's own
   destination, leaves that link an ordinary link.
 - A preview shows only that file's public fields, as text: the entry's `kindLabel` (its type), the
