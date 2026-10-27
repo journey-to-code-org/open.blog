@@ -2124,7 +2124,7 @@ impl<'a> Renderer<'a> {
             post.community_features(),
         ));
         // Where earlier questions went and what this post continues: plain
-        // links on the canonical page, never a count or a form (ADR 0400).
+        // links on the canonical page, never a count or a form (ADR 0218).
         let continued = post.continuations();
         body.push_str(&crate::continuation::render_section(
             crate::continuation::Direction::Later,

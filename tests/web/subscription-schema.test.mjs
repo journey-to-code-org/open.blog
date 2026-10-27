@@ -1,4 +1,4 @@
-// The hosted store for optional update subscriptions (ADR 0407): additive, private, secure tokens,
+// The hosted store for optional update subscriptions (ADR 0225): additive, private, secure tokens,
 // digests only, no tie to the feedback table, and a rollback that removes everything it added.
 import test from "node:test";
 import assert from "node:assert/strict";

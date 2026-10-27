@@ -1,4 +1,4 @@
-//! Continuing a discussion across episodes (RD15, #215 and #231, ADRs 0400 to 0407).
+//! Continuing a discussion across episodes (RD15, #215 and #231, ADRs 0218 to 0225).
 //!
 //! A *continuation* is an editor's typed link from one approved question,
 //! reflection or source suggestion to a later published work that takes it
@@ -29,7 +29,7 @@
 //!   unsubscribe, and nothing here transmits anything ([`SubscriptionRequest`]).
 //!
 //! The build reads the file through `model::attach_continuations` and Admin
-//! writes it (ADR 0406).
+//! writes it (ADR 0224).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -274,7 +274,7 @@ pub struct Continuation {
 /// An editorial note as stored: whitespace collapsed, at most
 /// [`MAX_NOTE_CHARS`] characters of plain text, no claim of popularity,
 /// agreement, causation or endorsement. Blank is no note. The checks are
-/// lints (ADR 0402): simple, conservative and not a judgement of the note.
+/// lints (ADR 0220): simple, conservative and not a judgement of the note.
 pub fn normalize_note(value: &str) -> Result<Option<String>, ContinuationError> {
     let note = value.split_whitespace().collect::<Vec<_>>().join(" ");
     if note.is_empty() {
@@ -448,7 +448,7 @@ impl ContinuationsFile {
 
     /// Drop every edge of a submission that was deleted, withdrawn or removed,
     /// and return how many went. This is the durable half of [`resolve`]'s
-    /// hiding (ADR 0403).
+    /// hiding (ADR 0221).
     pub fn forget_origin(&mut self, origin: &str) -> usize {
         let before = self.items.len();
         self.items.retain(|item| item.origin != origin);
@@ -671,7 +671,7 @@ pub enum Offer {
 }
 
 /// The offer a page makes. Both the setting and a reachable hosted service are
-/// needed; either missing falls back to links (ADR 0404).
+/// needed; either missing falls back to links (ADR 0222).
 pub fn offer(enabled: bool, hosted_available: bool) -> Offer {
     if enabled && hosted_available {
         Offer::Form

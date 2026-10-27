@@ -7981,7 +7981,7 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
         }
     }
     // A submission that is no longer approved, or whose text was deleted, takes
-    // its continuation links off both pages (ADR 0403); so does the item an
+    // its continuation links off both pages (ADR 0221); so does the item an
     // upheld report took down.
     let mut continuations_dropped = 0;
     let mut continuations_error: Option<&'static str> = None;
@@ -8017,14 +8017,14 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
     )
 }
 
-// ---- Continuation links (#231, ADRs 0400 to 0405)
+// ---- Continuation links (#231, ADRs 0218 to 0223)
 //
 // An editor's typed link from one approved reflection, question or source
 // suggestion to a later published work lives in `continuations.json` in the
 // content folder, written only here under the content lock. It holds ids and
 // paths, never the reader's words. Every route is the site Admin's and denies
 // the rest. A submission that is removed, withdrawn or deleted takes its links
-// off the file (ADR 0403).
+// off the file (ADR 0221).
 
 fn continuations_path(state: &AppState) -> Result<PathBuf, Response> {
     let config = site::load_config(&state.root).map_err(|error| Response::error(500, &error))?;
@@ -8154,7 +8154,7 @@ fn origins_no_longer_approved(
         .collect()
 }
 
-/// Whose links a moderation decision takes off both pages (ADR 0403): the
+/// Whose links a moderation decision takes off both pages (ADR 0221): the
 /// decided item when it is deleted or no longer approved, and the item an
 /// upheld report removed.
 fn continuation_origins_to_forget(
@@ -8514,11 +8514,11 @@ fn continuations_sweep(state: &AppState, session: &auth::Session) -> Response {
 }
 
 /// The words the moderator gets when a submission's continuation links could
-/// not be taken off (ADR 0403): the decision stands, the link may still show.
+/// not be taken off (ADR 0221): the decision stands, the link may still show.
 const CONTINUATIONS_NOT_DROPPED: &str = "The submission's continuation links could not be removed, so a link may still show on the pages. Run \"Check for withdrawn submissions\" or remove the link by hand.";
 
 /// Drop every link of a submission that is removed, withdrawn or deleted, and
-/// rebuild when any went (ADR 0403). Returns how many went, the build, and a
+/// rebuild when any went (ADR 0221). Returns how many went, the build, and a
 /// plain message when the links could not be dropped (the content could not be
 /// locked, or the file could not be read or written). The moderation decision
 /// stands in that case, the message reaches the moderator, and the sweep route
@@ -40669,7 +40669,7 @@ series: letters
         }
     }
 
-    // ---- Continuation links on the server (#231, ADRs 0400 to 0405)
+    // ---- Continuation links on the server (#231, ADRs 0218 to 0223)
 
     const CONT_ORIGIN: &str = "00000000-0000-4000-8000-0000000000c1";
 

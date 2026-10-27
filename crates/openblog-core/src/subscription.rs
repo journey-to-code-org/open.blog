@@ -1,4 +1,4 @@
-//! The service behind optional update subscriptions (RD15, #232, ADR 0407).
+//! The service behind optional update subscriptions (RD15, #232, ADR 0225).
 //!
 //! [`crate::continuation`] says what a subscription request is. This module
 //! is the boundary a hosted service plugs into, written so that the baseline

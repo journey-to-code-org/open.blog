@@ -642,7 +642,7 @@ export function moderationReaderLine(reader, source = "feedback", kind = "") {
 }
 
 /** What a decision did, for the status line after the list reloads. A failure to take the item's
- *  continuation links off the pages is said plainly after it (ADR 0403). */
+ *  continuation links off the pages is said plainly after it (ADR 0221). */
 export function moderationOutcome(item, action, result) {
   const text = moderationDecisionText(item, action, result);
   return result?.continuationsError ? `${text} ${result.continuationsError}` : text;
@@ -794,7 +794,7 @@ export function featureStandingText(feature) {
 }
 
 /**
- * Whether an inbox card offers a continuation link (RD15, ADR 0400): only the site Admin, only an
+ * Whether an inbox card offers a continuation link (RD15, ADR 0218): only the site Admin, only an
  * approved reflection, question or source suggestion whose text is still kept.
  */
 export function continuationCardState(item) {

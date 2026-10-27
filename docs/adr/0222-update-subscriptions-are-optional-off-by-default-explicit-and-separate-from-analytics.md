@@ -1,11 +1,11 @@
-# ADR 0404: Update subscriptions are optional, off by default, explicit and separate from analytics
+# ADR 0222: Update subscriptions are optional, off by default, explicit and separate from analytics
 
 - Status: Accepted
 - Date: 2026-10-27
 - Decision issue: [#215](https://github.com/journey-to-code-org/open.blog/issues/215)
 - Parent story: [#206](https://github.com/journey-to-code-org/open.blog/issues/206)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: ADR 0400, [ADR 0155](0155-attribution-and-contact-are-optional-consented-and-contact-stays-private-to-the-site-admin.md)
+- Builds on: ADR 0218, [ADR 0155](0155-attribution-and-contact-are-optional-consented-and-contact-stays-private-to-the-site-admin.md)
 
 ## Context
 

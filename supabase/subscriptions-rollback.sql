@@ -1,4 +1,4 @@
--- Roll back update subscriptions' storage (ADR 0407). Run in the Supabase SQL
+-- Roll back update subscriptions' storage (ADR 0225). Run in the Supabase SQL
 -- editor.
 --
 -- First remove OPENBLOG_SUBSCRIPTIONS_ENABLED from the Netlify environment

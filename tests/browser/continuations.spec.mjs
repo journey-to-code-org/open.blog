@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 
-// Continuation links (#231, ADRs 0400 to 0405). The reader's side, in the real site with JavaScript
+// Continuation links (#231, ADRs 0218 to 0223). The reader's side, in the real site with JavaScript
 // switched off: the earlier page lists where a question went, the later page lists what it
 // continues, each as ordinary links reached from the keyboard, with a link to an unpublished page
 // absent, no reader text and no overflow at 320px. The editor's side, in the real Admin with the

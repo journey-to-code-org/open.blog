@@ -56,7 +56,7 @@ pub struct Sources {
     /// in a page, feed or export changes (the section is #230).
     pub community_features: Option<SourceFile>,
     /// The site's continuation links (`continuations.json` in the content
-    /// folder, ADR 0401), when the file exists.
+    /// folder, ADR 0219), when the file exists.
     pub continuations: Option<SourceFile>,
 }
 
@@ -285,7 +285,7 @@ pub struct Post {
     /// also in `third_perspectives`.
     pub(crate) community_features: Vec<crate::community_feature::FeaturedPerspective>,
     /// Where earlier questions on this post went, and what it continues, as
-    /// ordinary links on its canonical page (ADRs 0400 and 0401).
+    /// ordinary links on its canonical page (ADRs 0218 and 0219).
     pub(crate) continuations: PostContinuations,
     /// The body HTML. A concept link (ADR 0172) is the plain text of its
     /// label here until [`Site::link_concepts`] resolves it against the
@@ -582,7 +582,7 @@ pub struct Site {
     /// Why the site's featured reflections cannot be read (ADR 0181), refused
     /// like `third_perspectives_error`.
     pub community_features_error: Option<String>,
-    /// Why the site's continuation links cannot be read (ADR 0401), refused
+    /// Why the site's continuation links cannot be read (ADR 0219), refused
     /// like `community_features_error`.
     pub continuations_error: Option<String>,
     /// The time the site was loaded for (`LoadOptions::now`). A post dated after it is scheduled,
@@ -1563,7 +1563,7 @@ fn attach_community_features(
     None
 }
 
-/// The continuation links one post's canonical page shows (ADR 0400): where
+/// The continuation links one post's canonical page shows (ADR 0218): where
 /// questions on it went, what it continues, and the titles of the pages they
 /// name. Public paths and the editor's own words only.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -1573,13 +1573,13 @@ pub struct PostContinuations {
     pub titles: std::collections::BTreeMap<String, String>,
 }
 
-/// Read the site's continuation links strictly (ADR 0401), or say why the
+/// Read the site's continuation links strictly (ADR 0219), or say why the
 /// file cannot be read. An edge is attached only while both pages are
 /// published now (a draft or a post waiting for its date is not), through the
 /// same `resolve` the rules live in; an edge that does not stand is absent from
 /// the page with no placeholder, and is only warned about, naming the id and a
 /// fixed reason. The file lists only edges whose origin an Admin approved, and
-/// Admin drops an edge when its origin is removed (ADR 0403).
+/// Admin drops an edge when its origin is removed (ADR 0221).
 fn attach_continuations(
     posts: &mut [Post],
     sources: &Sources,

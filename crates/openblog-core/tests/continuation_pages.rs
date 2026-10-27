@@ -1,4 +1,4 @@
-//! Continuation links on canonical pages (#231, ADRs 0400 to 0405): the
+//! Continuation links on canonical pages (#231, ADRs 0218 to 0223): the
 //! earlier page lists where a question went and the later page lists what it
 //! continues, as plain links built from `continuations.json`. No script, no
 //! count, no reader text. An edge to a page that is not published (a draft, a

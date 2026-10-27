@@ -1,4 +1,4 @@
--- Optional update subscriptions for continuations (ADR 0407). Run once in the
+-- Optional update subscriptions for continuations (ADR 0225). Run once in the
 -- Supabase SQL editor, only if the site opts in to update subscriptions. A
 -- site that does not opt in never needs it, and every continuation link works
 -- without it.
@@ -20,7 +20,7 @@
 -- address is kept only for a pending or active subscription; unsubscribing,
 -- deleting and expiry delete the whole row.
 --
--- The caller's order of work (ADR 0407):
+-- The caller's order of work (ADR 0225):
 --   subscribe:  openblog_subscribe -> send the confirmation message. If the
 --               send fails, call openblog_cancel_subscription_request with the
 --               confirmation token, so no address stays stored for a message

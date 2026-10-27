@@ -1,15 +1,15 @@
-# ADR 0406: Continuation links are built into canonical pages from the file and managed by the site Admin
+# ADR 0224: Continuation links are built into canonical pages from the file and managed by the site Admin
 
 - Status: Accepted
 - Date: 2026-10-27
 - Decision issue: [#231](https://github.com/journey-to-code-org/open.blog/issues/231)
 - Parent story: [#206](https://github.com/journey-to-code-org/open.blog/issues/206)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: ADR 0400 to ADR 0405, [ADR 0181](0181-features-publish-from-community-perspectives-json-beside-third-perspectives-json-and-read-strictly.md)
+- Builds on: ADR 0218 to ADR 0223, [ADR 0181](0181-features-publish-from-community-perspectives-json-beside-third-perspectives-json-and-read-strictly.md)
 
 ## Context
 
-The semantics (ADRs 0400 to 0405) were pure. Readers need the links on the pages, and editors need a way to make, remove and audit them, without the static site ever depending on the hosted service.
+The semantics (ADRs 0218 to 0223) were pure. Readers need the links on the pages, and editors need a way to make, remove and audit them, without the static site ever depending on the hosted service.
 
 ## Decision
 

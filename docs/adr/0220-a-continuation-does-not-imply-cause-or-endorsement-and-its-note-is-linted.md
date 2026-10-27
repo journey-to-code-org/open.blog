@@ -1,11 +1,11 @@
-# ADR 0402: A continuation does not imply cause or endorsement, and its note is linted
+# ADR 0220: A continuation does not imply cause or endorsement, and its note is linted
 
 - Status: Accepted
 - Date: 2026-10-27
 - Decision issue: [#215](https://github.com/journey-to-code-org/open.blog/issues/215)
 - Parent story: [#206](https://github.com/journey-to-code-org/open.blog/issues/206)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: ADR 0400
+- Builds on: ADR 0218
 
 ## Context
 

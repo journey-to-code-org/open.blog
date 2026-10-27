@@ -1,4 +1,4 @@
-# ADR 0400: A continuation is a typed ordinary link from one approved submission to a later work
+# ADR 0218: A continuation is a typed ordinary link from one approved submission to a later work
 
 - Status: Accepted
 - Date: 2026-10-27
@@ -22,5 +22,5 @@ A reader's question, reflection or source suggestion may shape what is written n
 
 ## Considered options
 
-- **Link by free-text "because of" notes.** Rejected: it invites causation claims (ADR 0402).
+- **Link by free-text "because of" notes.** Rejected: it invites causation claims (ADR 0220).
 - **Store the edge in the post front matter.** Rejected: it ties a reader's submission to an author's file and history.

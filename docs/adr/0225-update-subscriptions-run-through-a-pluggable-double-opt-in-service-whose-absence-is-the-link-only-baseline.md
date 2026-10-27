@@ -1,15 +1,15 @@
-# ADR 0407: Update subscriptions run through a pluggable double opt-in service whose absence is the link-only baseline
+# ADR 0225: Update subscriptions run through a pluggable double opt-in service whose absence is the link-only baseline
 
 - Status: Accepted
 - Date: 2026-10-27
 - Decision issue: [#232](https://github.com/journey-to-code-org/open.blog/issues/232)
 - Parent story: [#206](https://github.com/journey-to-code-org/open.blog/issues/206)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: ADR 0404
+- Builds on: ADR 0222
 
 ## Context
 
-ADR 0404 fixed what a subscription request and a stored record are, and left transport and the hosted schema to this task. The risks are an address leaking into output or analytics, a form that can tell a stranger who is subscribed, a link that outlives consent, and any dependence on a mail vendor.
+ADR 0222 fixed what a subscription request and a stored record are, and left transport and the hosted schema to this task. The risks are an address leaking into output or analytics, a form that can tell a stranger who is subscribed, a link that outlives consent, and any dependence on a mail vendor.
 
 ## Decision
 
