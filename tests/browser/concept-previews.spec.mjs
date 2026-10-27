@@ -574,9 +574,26 @@ test("the components assign no field that is already a property of HTMLElement, 
   // behind them.
   const intended = { "ob-theme-toggle.js": ["hidden"], "ob-views.js": ["textContent"] };
   const assigned = new Map();
-  for (const file of readdirSync(dir).filter((name) => name.endsWith(".js"))) {
-    const source = readFileSync(join(dir, file), "utf8");
-    if (!/extends\s+HTMLElement\b/.test(source)) continue;
+  // A component's host is anything whose `extends` chain reaches HTMLElement: directly, through
+  // the `BaseElement` alias (`globalThis.HTMLElement ?? class {}`) a module uses to load in node,
+  // or through another class of the components.
+  const files = readdirSync(dir).filter((name) => name.endsWith(".js"));
+  const sources = new Map(files.map((file) => [file, readFileSync(join(dir, file), "utf8")]));
+  const parents = new Map();
+  for (const source of sources.values()) {
+    for (const match of source.matchAll(/\bclass\s+([A-Za-z_$][\w$]*)\s+extends\s+([A-Za-z_$][\w$]*)/g)) parents.set(match[1], match[2]);
+  }
+  const isElement = (name, seen = new Set()) => {
+    if (name === "HTMLElement" || name === "BaseElement") return true;
+    if (seen.has(name) || !parents.has(name)) return false;
+    return isElement(parents.get(name), new Set([...seen, name]));
+  };
+  expect([...parents.keys()].filter((name) => isElement(name)), "the classes found to be elements").toEqual(
+    expect.arrayContaining(["ObConceptPreviews", "ObAtlasTrail", "ObAtlasTimeline"]),
+  );
+  for (const file of files) {
+    const source = sources.get(file);
+    if (![...source.matchAll(/\bclass\s+([A-Za-z_$][\w$]*)\s+extends\b/g)].some((match) => isElement(match[1]))) continue;
     const names = new Set();
     for (const match of source.matchAll(assignment)) names.add(match[1]);
     for (const match of source.matchAll(update)) names.add(match[1] ?? match[2]);
