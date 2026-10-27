@@ -94,6 +94,20 @@ const BODY: &str =
     "In the [allegory of the cave](atlas:allegory-of-the-cave), [Plato](atlas:plato) \
 imagines prisoners. Plato returns later, and the allegory of the cave again, unlinked.";
 
+/// The version the pages name the query file by: the first eight bytes of the
+/// BLAKE2s hash of the file's own contents, in hex.
+fn query_version(out: &BTreeMap<String, String>) -> String {
+    use blake2::{Blake2s256, Digest};
+    let mut hasher = Blake2s256::new();
+    hasher.update(out["atlas-query.json"].as_bytes());
+    hasher
+        .finalize()
+        .iter()
+        .take(8)
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
 fn concept_warnings(site: &Site) -> Vec<&String> {
     site.warnings
         .iter()
@@ -214,10 +228,9 @@ fn with_the_atlas_off_every_link_is_text_and_a_post_without_them_is_unchanged() 
     );
     assert!(concept_warnings(&with_atlas).is_empty());
     assert!(with_atlas.posts[0].html.contains("[code](atlas:plato)"));
-    // Outside a post the syntax is only the link it is written as.
-    assert!(render(BODY, RenderOptions::default())
-        .html
-        .contains("href=\"atlas:plato\""));
+    // Outside a post an atlas link is never an `atlas:` address: it is its label.
+    let outside = render(BODY, RenderOptions::default()).html;
+    assert!(!outside.contains("atlas:plato"), "{outside}");
 }
 
 #[test]
@@ -711,10 +724,15 @@ fn the_preview_component_reads_only_fields_the_query_file_really_writes() {
 
 #[test]
 fn only_a_post_with_a_resolved_concept_link_loads_the_previews_and_it_reads_one_file() {
-    let element = "<ob-concept-previews src=\"/atlas-query.json\"></ob-concept-previews>";
     let script = "/assets/components/ob-concept-previews.js";
     let site = site_with(BODY, Some(public_atlas()), "https://example.com");
     let out = built(&site);
+    // The address carries the file's content hash, so it is never stale.
+    let element = format!(
+        "<ob-concept-previews src=\"/atlas-query.json?v={}\"></ob-concept-previews>",
+        query_version(&out)
+    );
+    let element = element.as_str();
     let page = &out["posts/cave/index.html"];
     assert_eq!(page.matches(element).count(), 1, "{page}");
     assert!(page.contains(script));
@@ -746,8 +764,10 @@ fn only_a_post_with_a_resolved_concept_link_loads_the_previews_and_it_reads_one_
     // A base path moves the file the component reads with every other address.
     let blog = site_with(BODY, Some(public_atlas()), "https://example.com/blog");
     let out = built(&blog);
-    assert!(out["posts/cave/index.html"]
-        .contains("<ob-concept-previews src=\"/blog/atlas-query.json\"></ob-concept-previews>"));
+    assert!(out["posts/cave/index.html"].contains(&format!(
+        "<ob-concept-previews src=\"/blog/atlas-query.json?v={}\"></ob-concept-previews>",
+        query_version(&out)
+    )));
     assert!(out["posts/cave/index.html"].contains("/blog/assets/components/ob-concept-previews.js"));
     assert!(out.contains_key("atlas-query.json"));
     // Deterministic.
@@ -793,4 +813,82 @@ fn a_query_that_is_not_written_means_no_previews_and_ordinary_links() {
     let page = &out["posts/cave/index.html"];
     assert!(page.contains("href=\"/atlas/e-1/\""), "{page}");
     assert!(!page.contains("ob-concept-previews"), "{page}");
+}
+
+#[test]
+fn a_link_in_a_heading_is_described_by_one_hint_and_keeps_the_headings_name() {
+    let body = "## About [Plato](atlas:plato)\n\nAnd [Plato](atlas:plato) in prose.";
+    let site = site_with(body, Some(public_atlas()), "https://example.com");
+    let html = &site.posts[0].html;
+    // The heading's link has no inline hidden words; it points at the one hint.
+    assert!(
+        html.contains("data-atlas-kind=\"person\" aria-describedby=\"ob-concept-hint\">Plato</a>"),
+        "{html}"
+    );
+    // The prose link keeps its inline hint, and the hint exists exactly once.
+    assert!(html.contains("Plato<span class=\"ob-visually-hidden\"> (atlas entry)</span></a>"));
+    assert_eq!(html.matches("id=\"ob-concept-hint\"").count(), 1, "{html}");
+    assert!(html.contains("hidden>Atlas entry</span>"));
+    // A post with no link in a heading carries no hint element.
+    let prose = site_with(
+        "[Plato](atlas:plato) only.",
+        Some(public_atlas()),
+        "https://example.com",
+    );
+    assert!(!prose.posts[0].html.contains("ob-concept-hint"));
+}
+
+#[test]
+fn a_raw_mark_that_is_dropped_is_never_silent() {
+    let body = "A <ob-concept data-id=\"plato\">never closed.\n\nNext <ob-concept data-id=\"plato\">paragraph</ob-concept> is fine. And <ob-concept data-id=\"incomplete";
+    let site = site_with(body, Some(public_atlas()), "https://example.com");
+    let html = &site.posts[0].html;
+    assert!(!html.to_lowercase().contains("<ob-concept"), "{html}");
+    let warnings: Vec<_> = concept_warnings(&site);
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("is not closed in its own paragraph")),
+        "{warnings:?}"
+    );
+}
+
+#[test]
+fn a_warning_never_carries_text_that_reorders_or_hides_other_text() {
+    let id = "a\u{202E}b\u{2066}c\u{2069}d\u{200F}e\u{061C}f\u{FEFF}g\u{2028}h\u{0007}i";
+    let body = format!("A [x](<atlas:{id}>) and ![y](<atlas:{id}>).");
+    let site = site_with(&body, Some(public_atlas()), "https://example.com");
+    let warnings = concept_warnings(&site);
+    assert!(!warnings.is_empty());
+    for warning in warnings {
+        for c in warning.chars() {
+            assert!(
+                !matches!(c, '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{200E}' | '\u{200F}' | '\u{061C}' | '\u{FEFF}' | '\u{2028}' | '\u{0007}'),
+                "{warning:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_query_files_address_changes_with_its_content_and_is_the_same_otherwise() {
+    let root = built(&site_with(
+        BODY,
+        Some(public_atlas()),
+        "https://example.com",
+    ));
+    let blog = built(&site_with(
+        BODY,
+        Some(public_atlas()),
+        "https://example.com/blog",
+    ));
+    assert_ne!(query_version(&root), query_version(&blog));
+    assert_eq!(
+        query_version(&root),
+        query_version(&built(&site_with(
+            BODY,
+            Some(public_atlas()),
+            "https://example.com"
+        )))
+    );
 }

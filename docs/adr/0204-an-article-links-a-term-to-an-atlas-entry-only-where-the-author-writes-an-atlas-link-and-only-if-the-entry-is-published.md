@@ -28,7 +28,8 @@ rather than a broken or leaking link, and nothing changes for a site or post tha
   `the [allegory of the cave](atlas:allegory-of-the-cave)`. In any editor, preview or exported copy
   that does not know it, the words read as the author wrote them, and the destination is a short id.
   The id is the atlas entry's own id (a lowercase slug of at most 64 bytes). Every form of
-  Markdown link works (inline, reference, autolink); a code span or block is not a link. Nothing else
+  Markdown link works (inline, and reference in its full, collapsed and shortcut forms; an autolink has no
+  label and is refused, see ADR 0205); a code span or block is not a link. Nothing else
   is a concept link: prose is never scanned, a label is never matched to an entry, and a term the
   author does not link stays text however often it repeats. The author links the occurrences they
   choose.

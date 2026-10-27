@@ -54,10 +54,10 @@ pub struct Rendered {
     /// With [`RenderOptions::supplements`]: the supplements read and what was
     /// reported about their markers.
     pub reading_depth: Option<crate::reading_depth::ReadingDepth>,
-    /// With [`RenderOptions::concept_links`]: the ids (as written) of concept
-    /// links inside an image's description, which are plain text there
-    /// (ADR 0204), for the build to warn about.
-    pub concept_images: Vec<String>,
+    /// Every `atlas:` link or image the renderer refused to show as a link
+    /// (ADR 0205), whatever its form, for the build to warn about. Its
+    /// destination, title and id never reach the HTML.
+    pub concept_refusals: Vec<crate::concept_links::Refusal>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1652,17 +1652,17 @@ pub fn render(markdown: &str, options: RenderOptions<'_>) -> Rendered {
         findings = crate::reading_depth::reserve_ids(&mut parsed_events);
         crate::reading_depth::name_headings(&mut parsed_events);
     }
+    // Every `atlas:` link and image is made safe before anything reads the
+    // events' text, so no id reaches a heading's slug either.
+    let marked = crate::concept_links::mark_events(&mut parsed_events, options.concept_links);
     assign_heading_ids(
         &mut parsed_events,
         options.citation_notes.as_ref(),
         options.supplements,
     );
-    let mut in_images = Vec::new();
-    if options.concept_links {
-        in_images = crate::concept_links::mark_events(&mut parsed_events).in_images;
-    }
+    let refusals = marked.refused;
     let mut rendered = render_events(parsed_events, markdown.len(), options, None, findings);
-    rendered.concept_images = in_images;
+    rendered.concept_refusals = refusals;
     rendered
 }
 
@@ -1857,6 +1857,7 @@ pub(crate) fn heading_ids(markdown: &str, supplements: bool) -> Vec<String> {
     let source = without_nul(markdown, supplements);
     let mut events = Parser::new_ext(&source, parser_options(false)).collect::<Vec<_>>();
     reserve_supplement_ids(&mut events, supplements);
+    crate::concept_links::mark_events(&mut events, false);
     assign_heading_ids(&mut events, None, supplements);
     events
         .into_iter()
@@ -1888,6 +1889,7 @@ pub(crate) fn passage_sections(
     let mut events =
         Parser::new_ext(&source, parser_options(smart_punctuation)).collect::<Vec<_>>();
     reserve_supplement_ids(&mut events, supplements);
+    crate::concept_links::mark_events(&mut events, false);
     assign_heading_ids(&mut events, notes, supplements);
     let notes_start = notes.and_then(|labels| generated_notes_heading(&events, labels));
     let mut sections: Vec<(Option<String>, String)> = vec![(None, String::new())];
@@ -1954,6 +1956,7 @@ pub fn render_portable(
         findings = crate::reading_depth::reserve_ids(&mut parsed_events);
         crate::reading_depth::name_headings(&mut parsed_events);
     }
+    crate::concept_links::mark_events(&mut parsed_events, false);
     assign_heading_ids(&mut parsed_events, None, options.supplements);
     for event in &mut parsed_events {
         let destination = match event {
@@ -2519,7 +2522,7 @@ fn render_events<'a>(
         recipe_steps: blocks.steps,
         recipe_anchor: blocks.recipe_anchor,
         reading_depth,
-        concept_images: Vec::new(),
+        concept_refusals: Vec::new(),
     }
 }
 

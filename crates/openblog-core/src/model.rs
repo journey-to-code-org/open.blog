@@ -282,7 +282,7 @@ pub struct Post {
     pub(crate) concept_html: Option<String>,
     /// The ids (as written) of concept links inside an image's description,
     /// which are plain text there; each is a warning for the author.
-    pub(crate) concept_images: Vec<String>,
+    pub(crate) concept_refusals: Vec<crate::concept_links::Refusal>,
     /// The publication Markdown with each concept link written as its label,
     /// for copies that leave the site; `None` for a post with no concept link.
     pub(crate) portable_markdown: Option<String>,
@@ -340,15 +340,16 @@ impl Post {
             .unwrap_or(&self.authored_markdown)
     }
 
-    /// The Markdown portable copies, feeds and exports are built from: the
-    /// publication Markdown, with each concept link (ADR 0204) written as its
-    /// label, since a copy cannot resolve an atlas entry.
     /// Whether the post links an atlas entry with `atlas:` (ADR 0204), so it
     /// needs the public atlas attached before it is shown.
     pub fn has_concept_links(&self) -> bool {
         self.concept_html.is_some()
     }
 
+    /// The Markdown portable copies, feeds and exports are built from: the
+    /// publication Markdown, with each atlas link written as its label and
+    /// each raw concept mark removed, since a copy cannot resolve an atlas
+    /// entry (ADR 0205).
     pub fn portable_markdown(&self) -> &str {
         self.portable_markdown
             .as_deref()
@@ -429,6 +430,9 @@ pub struct Series {
     pub slug: String,
     pub url: String,
     pub description_html: String,
+    /// What the renderer refused in the description (ADR 0205), for the
+    /// author's warnings written when the site loads.
+    pub(crate) concept_refusals: Vec<crate::concept_links::Refusal>,
     pub description_text: String,
     pub theme: Option<String>,
     pub cover: Option<String>,
@@ -477,6 +481,9 @@ pub struct Page {
     pub url: String,
     pub description: String,
     pub html: String,
+    /// What the renderer refused in the page (ADR 0205), for the author's
+    /// warnings written when the site loads.
+    pub(crate) concept_refusals: Vec<crate::concept_links::Refusal>,
     pub text: String,
     pub headings: Vec<Heading>,
     pub theme: Option<String>,
@@ -559,7 +566,7 @@ impl Site {
                 );
             }
             found.extend(
-                crate::concept_links::image_uses(&post.concept_images)
+                crate::concept_links::refusal_uses(&post.concept_refusals)
                     .iter()
                     .filter_map(|used| used.warning(&post.source)),
             );
@@ -629,8 +636,11 @@ impl Site {
         for file in &sources.series {
             match load_series(file, concept_options(render_options)) {
                 Ok(mut s) => {
-                    let (html, notes) =
-                        crate::concept_links::plain_outside_post(&s.description_html, &file.path);
+                    let (html, notes) = crate::concept_links::plain_outside_post(
+                        &s.description_html,
+                        &s.concept_refusals,
+                        &file.path,
+                    );
                     s.description_html = html;
                     warnings.extend(notes);
                     if series.iter().any(|existing| existing.slug == s.slug) {
@@ -776,8 +786,11 @@ impl Site {
         for file in &sources.pages {
             match load_page(file, concept_options(render_options)) {
                 Ok(mut page) => {
-                    let (html, notes) =
-                        crate::concept_links::plain_outside_post(&page.html, &file.path);
+                    let (html, notes) = crate::concept_links::plain_outside_post(
+                        &page.html,
+                        &page.concept_refusals,
+                        &file.path,
+                    );
                     page.html = html;
                     warnings.extend(notes);
                     if pages.iter().any(|p| p.slug == page.slug) {
@@ -805,8 +818,12 @@ impl Site {
                 },
             );
             warnings.extend(
-                crate::concept_links::plain_outside_post(&intro.html, "openblog.json (home.intro)")
-                    .1,
+                crate::concept_links::plain_outside_post(
+                    &intro.html,
+                    &intro.concept_refusals,
+                    "openblog.json (home.intro)",
+                )
+                .1,
             );
         }
 
@@ -831,6 +848,7 @@ impl Site {
                         slug: series_slug.clone(),
                         url: format!("/series/{series_slug}/"),
                         description_html: String::new(),
+                        concept_refusals: Vec::new(),
                         description_text: String::new(),
                         theme: None,
                         cover: None,
@@ -1781,23 +1799,28 @@ fn load_post_in(
 
     // Concept links (ADR 0204): the page holds each as its label until the
     // build resolves it against the public atlas.
-    let (html, concept_html) = if rendered.html.contains(crate::concept_links::MARK_PREFIX) {
+    let (html, concept_html) = if crate::concept_links::has_raw_mark(&rendered.html) {
         (
             crate::concept_links::link_html(&rendered.html, None).html,
-            Some(rendered.html.clone()),
+            rendered
+                .html
+                .contains(crate::concept_links::MARK_PREFIX)
+                .then(|| rendered.html.clone()),
         )
     } else {
         (rendered.html.clone(), None)
     };
-    let portable_markdown = (concept_html.is_some() || !rendered.concept_images.is_empty())
-        .then_some(())
-        .and_then(|()| {
-            crate::concept_links::plain_markdown(
-                published
-                    .as_ref()
-                    .map_or(base, |(published, _)| &published.markdown),
-            )
-        });
+    let portable_markdown = (concept_html.is_some()
+        || !rendered.concept_refusals.is_empty()
+        || crate::concept_links::has_raw_mark(&rendered.html))
+    .then_some(())
+    .and_then(|()| {
+        crate::concept_links::plain_markdown(
+            published
+                .as_ref()
+                .map_or(base, |(published, _)| &published.markdown),
+        )
+    });
 
     Ok(Post {
         url: config.post_url(&slug),
@@ -1835,7 +1858,7 @@ fn load_post_in(
         reading_depth: rendered.reading_depth.clone(),
         html,
         concept_html,
-        concept_images: rendered.concept_images.clone(),
+        concept_refusals: rendered.concept_refusals.clone(),
         portable_markdown,
         text: rendered.text,
         headings: rendered.headings,
@@ -1944,6 +1967,7 @@ fn load_series(file: &SourceFile, options: RenderOptions<'_>) -> Result<Series, 
         name,
         slug,
         description_html: rendered.html,
+        concept_refusals: rendered.concept_refusals,
         description_text: first(fm, &["description"])
             .map(str::to_string)
             .unwrap_or_else(|| markdown::excerpt(&rendered.text, 200)),
@@ -1992,6 +2016,7 @@ fn load_page(file: &SourceFile, options: RenderOptions<'_>) -> Result<Page, Stri
             .map(str::to_string)
             .unwrap_or_else(|| markdown::excerpt(&rendered.text, 180)),
         html: rendered.html,
+        concept_refusals: rendered.concept_refusals,
         text: rendered.text,
         headings: rendered.headings,
         theme: optional_string(first(fm, &["theme"])),

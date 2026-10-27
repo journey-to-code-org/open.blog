@@ -470,8 +470,12 @@ that does not know the syntax, and nothing is linked unless the author writes it
 scanned and a repeated term is linked only where the author linked it.
 
 - The destination is `atlas:` and an entry id (lowercase letters, digits and single hyphens, at
-  most 64 bytes). Inline, reference and autolink forms work; code is not a link. Only posts read the
-  syntax; elsewhere it is the link it is written as. A post without it renders as it did.
+  most 64 bytes), written as an inline link or a full, collapsed or shortcut reference link. An
+  autolink (`<atlas:id>`) has no label and is not supported: it renders as nothing and the build
+  warns to write `[label](atlas:id)`. An image can never have an `atlas:` address (its description
+  is shown as plain text, with a warning); code is not a link. Only posts resolve the syntax:
+  anywhere else (a page, a series description, the home introduction) every `atlas:` link shows its
+  label and no address, title or id reaches the page. A post without it renders as it did.
 - The build resolves each link against the public atlas projection and nothing else. A published
   entry becomes `<a class="ob-concept" href="/atlas/<id>/" data-atlas-entry="<id>"
   data-atlas-kind="<kind>">label</a>` (the address follows the base path): a plain link that works
@@ -492,7 +496,9 @@ scanned and a repeated term is linked only where the author linked it.
 - A resolved link also carries visually hidden words after the label (` (atlas entry)`), and the
   theme underlines it with dots, so it reads and looks as a link to an entry
   ([ADR 0205](../adr/0205-a-concept-link-is-only-a-link-where-it-can-be-one-and-every-other-place-shows-its-words.md)).
-  An `atlas:` link inside an image's description keeps its label as the alt text and warns. In a
+  An `atlas:` link inside an image's description keeps its label as the alt text and warns. Inside
+  a heading the link is described by one hidden hint (`aria-describedby`) rather than carrying inline
+  hidden words. In a
   page, a series description or the home introduction the label is shown as plain text and the load
   warns (``<file>: atlas link `atlas:id` is shown as plain text: ...``); only posts resolve links.
 
@@ -500,13 +506,14 @@ scanned and a repeated term is linked only where the author linked it.
 
 [ADR 0206](../adr/0206-contextual-entry-previews-read-the-public-query-file-and-enhance-an-ordinary-link.md).
 A post that has a resolved concept link, on a site whose build writes `atlas-query.json`, ends with
-`<ob-concept-previews src="/atlas-query.json"></ob-concept-previews>` (the address follows the base
-path) and loads `/assets/components/ob-concept-previews.js`. No other page does.
+`<ob-concept-previews src="/atlas-query.json?v=<hash>"></ob-concept-previews>` (the address follows
+the base path, and `<hash>` is 16 hex digits of the file's own BLAKE2s hash, so the address changes
+exactly when the file does) and loads `/assets/components/ob-concept-previews.js`. No other page does.
 
 - Without JavaScript nothing changes: the link goes to the entry's page.
-- The component reads `atlas-query.json` from the site's own origin, once, when the page is idle
-  (or at the first interest in a link; not up front when the reader asked to save data), and
-  validates it: `format` `openblog-atlas-query`, `formatVersion` 1, each entry, relationship and
+- The component reads `atlas-query.json` from the site's own origin, once, at the first
+  interest in a link (focus, hover or a press; on a touch screen a concept link scrolling into view,
+  unless the reader asked to save data), never on load or when the page is idle, and validates it: `format` `openblog-atlas-query`, `formatVersion` 1, each entry, relationship and
   source on its own. A file it cannot fetch or read, or an entry whose page is not the link's own
   destination, leaves that link an ordinary link.
 - A preview shows only that file's public fields, as text: the entry's `kindLabel` (its type), the

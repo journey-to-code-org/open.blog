@@ -8,6 +8,8 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use blake2::{Blake2s256, Digest};
+
 use crate::atlas_publication::{
     self, DatedAspect, OwnerType, Placement, PublicAtlas, PublicDating, PublicEntry,
     PublicEvidence, PublicRelationship,
@@ -74,7 +76,9 @@ struct Meta<'a> {
     /// Whether the page's concept links (ADR 0204) are enhanced with
     /// previews (ADR 0206): it loads `<ob-concept-previews>` and its element.
     /// `false` on every other page, which is then written exactly as before.
-    concept_previews: bool,
+    /// The address of the query file the previews read, with its content
+    /// version (`atlas-query.json?v=...`), when the page is enhanced.
+    concept_previews: Option<String>,
     /// The published passage text of a post that offers passage feedback or
     /// Third Perspectives, as its `<script type="application/json">` element
     /// (ADRs 0082, 0114); `None` on every other page, which is then written
@@ -101,9 +105,11 @@ struct Renderer<'a> {
     /// What the site publishes about sources, read once on first use, for every post's evidence
     /// choices (ADR 0116).
     site_references: std::cell::OnceCell<crate::evidence_submission::SiteReferenceIndex>,
-    /// Whether the build writes `atlas-query.json`, decided on first use: the
-    /// concept previews read that file and nothing else.
-    atlas_query_listed: std::cell::OnceCell<bool>,
+    /// The `atlas-query.json` the build writes, projected once on first use
+    /// (`None` when the site publishes no atlas or the projection is refused
+    /// or over its bound): the concept previews read that file and nothing
+    /// else, and the file written is these bytes.
+    atlas_query: std::cell::OnceCell<Option<String>>,
 }
 
 struct Output {
@@ -428,7 +434,7 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
         site,
         themes: &resolved,
         site_references: Default::default(),
-        atlas_query_listed: Default::default(),
+        atlas_query: Default::default(),
     };
     let c = &site.config;
     let mut out = Output {
@@ -502,13 +508,11 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
         // A projection that is refused (over a bound, or not consistent) is
         // left out and the pages and atlas.json stay the complete fallback;
         // the build warns (`boundary:`) and the boundary preview says so.
-        if let Ok(query) =
-            crate::atlas_query::AtlasQuery::project(atlas, &c.author.name, &c.base_path())
-        {
-            let json = c.apply_base_path(&query.to_json());
-            if json.len() <= crate::atlas_query::MAX_BYTES {
-                out.add(crate::atlas_query::ATLAS_QUERY_JSON_FILE.into(), json)?;
-            }
+        if let Some(json) = r.atlas_query_json() {
+            out.add(
+                crate::atlas_query::ATLAS_QUERY_JSON_FILE.into(),
+                json.to_string(),
+            )?;
         }
     }
     // Passage comparisons, only when the site publishes them (ADR 0092): the
@@ -643,7 +647,7 @@ pub fn generate_document(
         site,
         themes: &resolved,
         site_references: Default::default(),
-        atlas_query_listed: Default::default(),
+        atlas_query: Default::default(),
     };
     let (url, contents) = if let Some((index, post)) = site
         .posts
@@ -918,7 +922,7 @@ impl<'a> Renderer<'a> {
                 ));
             }
         }
-        if meta.concept_previews {
+        if meta.concept_previews.is_some() {
             // The preview component is loaded only by a page that has a concept link.
             h.push_str("<script type=\"module\" src=\"/assets/components/ob-concept-previews.js\"></script>\n");
         }
@@ -940,11 +944,11 @@ impl<'a> Renderer<'a> {
             h.push('\n');
             h.push_str(element);
         }
-        if meta.concept_previews {
+        if let Some(source) = &meta.concept_previews {
             h.push('\n');
             h.push_str(&format!(
                 "<ob-concept-previews src=\"/{}\"></ob-concept-previews>",
-                crate::atlas_query::ATLAS_QUERY_JSON_FILE
+                attr(source)
             ));
         }
         h.push_str("\n</main>\n");
@@ -959,22 +963,46 @@ impl<'a> Renderer<'a> {
         c.apply_base_path(&c.cdn.apply(&h))
     }
 
-    /// Whether the post's concept links are enhanced with previews (ADR
-    /// 0206): it has a resolved link and the build writes the one file the
-    /// previews read, so a link never leads to a preview that cannot load.
-    fn concept_previews(&self, post: &Post) -> bool {
-        if !post.has_concept_links() || !post.html.contains(crate::concept_links::LINK_CLASS) {
-            return false;
-        }
-        *self.atlas_query_listed.get_or_init(|| {
-            let c = &self.site.config;
-            self.site.atlas.as_ref().is_some_and(|atlas| {
-                crate::atlas_query::AtlasQuery::project(atlas, &c.author.name, &c.base_path())
-                    .is_ok_and(|query| {
-                        c.apply_base_path(&query.to_json()).len() <= crate::atlas_query::MAX_BYTES
-                    })
+    /// The query projection as the build writes it: projected once, with the
+    /// base path applied, and `None` when the site publishes no atlas or the
+    /// projection is refused or over its bound.
+    fn atlas_query_json(&self) -> Option<&str> {
+        self.atlas_query
+            .get_or_init(|| {
+                let c = &self.site.config;
+                let atlas = self.site.atlas.as_ref()?;
+                let query =
+                    crate::atlas_query::AtlasQuery::project(atlas, &c.author.name, &c.base_path())
+                        .ok()?;
+                let json = c.apply_base_path(&query.to_json());
+                (json.len() <= crate::atlas_query::MAX_BYTES).then_some(json)
             })
-        })
+            .as_deref()
+    }
+
+    /// Where the post's concept links read their previews (ADR 0206), when
+    /// they are enhanced: it has a resolved link and the build writes the one
+    /// file the previews read, so a link never leads to a preview that cannot
+    /// load. The address carries the file's content hash, so a browser never
+    /// reads a stale file after the atlas changes, and the same atlas always
+    /// makes the same address.
+    fn concept_previews(&self, post: &Post) -> Option<String> {
+        if !post.has_concept_links() || !post.html.contains(crate::concept_links::LINK_CLASS) {
+            return None;
+        }
+        let json = self.atlas_query_json()?;
+        let mut hasher = Blake2s256::new();
+        hasher.update(json.as_bytes());
+        let version: String = hasher
+            .finalize()
+            .iter()
+            .take(8)
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        Some(format!(
+            "{}?v={version}",
+            crate::atlas_query::ATLAS_QUERY_JSON_FILE
+        ))
     }
 
     /// Passage feedback on one post (ADR 0082): the feedback region, whose
@@ -1483,7 +1511,7 @@ impl<'a> Renderer<'a> {
             }),
             reader_references: None,
             citation_previews: None,
-            concept_previews: false,
+            concept_previews: None,
             passage_data: None,
             participation_scripts: Vec::new(),
             atlas_timeline: false,
@@ -3086,7 +3114,7 @@ impl<'a> Renderer<'a> {
             json_ld: None,
             reader_references: None,
             citation_previews: None,
-            concept_previews: false,
+            concept_previews: None,
             passage_data: None,
             participation_scripts: Vec::new(),
             atlas_timeline: false,

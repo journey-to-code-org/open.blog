@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -58,6 +58,20 @@ const BODY = [
   "At the end, [Plato](atlas:plato) again, near the bottom of the page.",
   "",
 ].join("\n");
+// A post with both kinds of preview: a concept link in a heading and in a footnote, and a citation.
+const MIXED = [
+  "---",
+  "title: Mixed",
+  "date: 2026-10-17",
+  "citations: notes",
+  "---",
+  "## About [Plato](atlas:plato)",
+  "",
+  "[Plato](atlas:plato) wrote [@plato-republic, canonical 514a] and left a note.[^1]",
+  "",
+  "[^1]: A footnote about the [Republic](atlas:republic) and [Plato](atlas:plato).",
+  "",
+].join("\n");
 let root;
 let server;
 let origin;
@@ -67,6 +81,7 @@ test.beforeAll(async () => {
   writeFileSync(join(root, "openblog.json"), JSON.stringify({ title: "Previews", url: "https://previews.example.org", author: { name: "Site Author" }, knowledgeAtlas: { publish: true } }));
   mkdirSync(join(root, "content", "posts"), { recursive: true });
   writeFileSync(join(root, "content", "posts", "cave.md"), `---\ntitle: The cave\ndate: 2026-10-19\n---\n${BODY}`);
+  writeFileSync(join(root, "content", "posts", "mixed.md"), MIXED);
   writeFileSync(join(root, "content", "posts", "plain.md"), "---\ntitle: Plain\ndate: 2026-10-18\n---\nNo links at all.\n");
   const research = join(root, ".openblog", "private", "research");
   mkdirSync(research, { recursive: true });
@@ -103,11 +118,15 @@ const links = (page) => page.locator("main#main a.ob-concept");
 const plato = (page) => links(page).nth(0);
 const republic = (page) => links(page).nth(1);
 
-/** The cave page once the component has fetched the atlas file and is ready to preview. */
+/**
+ * The cave page once the component is defined and waiting. It fetches nothing until a link
+ * shows interest (focus, hover or a press), so a preview that is wanted is awaited by its own
+ * assertion.
+ */
 async function open(page, path = "/posts/cave/") {
   await page.goto(`${origin}${path}`);
   await expect(page.locator("ob-concept-previews")).toHaveCount(1);
-  await expect(page.locator("ob-concept-previews")).toHaveAttribute("data-state", "ready");
+  await expect(page.locator("ob-concept-previews")).toHaveAttribute("data-state", /^(idle|loading|ready)$/);
 }
 
 async function overflow(page) {
@@ -236,6 +255,8 @@ test("touch: the first tap opens the preview, a second tap follows the link", as
   const context = await browser.newContext({ hasTouch: true, isMobile: true, viewport: { width: 375, height: 700 } });
   const page = await context.newPage();
   await open(page);
+  // A touch screen has no hover: a concept link scrolling into view is the interest.
+  await expect(page.locator("ob-concept-previews")).toHaveAttribute("data-state", "ready");
   await plato(page).tap();
   await expect(preview(page)).toBeVisible();
   await expect(preview(page)).toContainText("An Athenian philosopher.");
@@ -338,11 +359,16 @@ test("it reads one public file from the site, nothing more, and only a post with
   await expect(page.locator("ob-concept-previews")).toHaveCount(0);
   requests.length = 0;
   await open(page);
+  // Nothing is fetched while the page is only being read.
+  await page.waitForTimeout(500);
+  expect(requests.filter((url) => url.includes("atlas-query")), "nothing before interest").toEqual([]);
   await plato(page).hover();
   await republic(page).hover();
   await expect(preview(page)).toBeVisible();
   const own = requests.filter((url) => new URL(url).pathname === "/atlas-query.json");
   expect(own, "fetched once however many previews open").toHaveLength(1);
+  // The address names the file's content, so a changed atlas is never read from a stale cache.
+  expect(new URL(own[0]).search).toMatch(/^\?v=[0-9a-f]{16}$/);
   expect(requests.every((url) => new URL(url).origin === origin)).toBe(true);
   await context.close();
 });
@@ -379,6 +405,7 @@ test("a failure leaves ordinary links: unavailable, unreadable, newer, off-site,
     await page.route(`${origin}/atlas-query.json?**`, handler);
     await page.route(`${origin}/atlas-query.json`, handler);
     await page.goto(`${origin}/posts/cave/`);
+    await plato(page).focus();
     // The file was read and found wrong ("failed"), or read and matched no link ("ready"): either
     // way it is settled, and no link is enhanced.
     await expect(page.locator("ob-concept-previews")).toHaveAttribute("data-state", /^(failed|ready)$/, { timeout: 10000 });
@@ -397,7 +424,7 @@ test("a failure leaves ordinary links: unavailable, unreadable, newer, off-site,
 test("hostile data is shown as text, never as markup", async ({ page }) => {
   const query = await (await fetch(`${origin}/atlas-query.json`)).json();
   const hostile = { ...query, entries: query.entries.map((item) => item.id === "plato" ? { ...item, kindLabel: HOSTILE, label: HOSTILE, preview: HOSTILE } : item) };
-  await page.route(`${origin}/atlas-query.json`, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(hostile) }));
+  await page.route(`${origin}/atlas-query.json?**`, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(hostile) }));
   await open(page);
   await plato(page).focus();
   await expect(preview(page)).toBeVisible();
@@ -430,4 +457,114 @@ test("it works under a strict content security policy", async ({ page }) => {
   await republic(page).hover();
   await expect(preview(page)).toContainText("Work");
   expect(await page.evaluate(() => window.__violations)).toEqual(before);
+});
+
+test("a reader whose focus arrives before the file hears one announcement when it is ready", async ({ page }) => {
+  let release;
+  const gate = new Promise((done) => { release = done; });
+  await page.route(`${origin}/atlas-query.json?**`, async (route) => {
+    await gate;
+    await route.continue();
+  });
+  await open(page);
+  await plato(page).focus();
+  // Nothing yet: the link is still just a link with its own name.
+  await expect(preview(page)).toHaveCount(0);
+  await expect(page.locator("ob-concept-previews")).toHaveAttribute("data-state", "loading");
+  const status = page.getByRole("status");
+  await expect(status).toHaveText("");
+  release();
+  await expect(preview(page)).toBeVisible();
+  await expect(status).toHaveText(/Plato: Person\. An Athenian philosopher\./);
+  await expect(plato(page)).toHaveAccessibleDescription(/Person.*An Athenian philosopher\./);
+});
+
+test("a concept link in a heading keeps the heading's name, and its preview is outside the heading", async ({ page }) => {
+  await open(page, "/posts/mixed/");
+  // The heading's own anchor link ("#") is part of its text; the concept link's hint is not.
+  const heading = page.locator("main h2#about-plato");
+  await expect(heading).toBeVisible();
+  const link = heading.locator("a.ob-concept");
+  // The hint describes the link; it is not part of the heading's text, name or the outline.
+  await expect(link).toHaveAccessibleName("Plato");
+  await expect(link).toHaveAccessibleDescription("Atlas entry");
+  await expect(heading.locator(".ob-visually-hidden")).toHaveCount(0);
+  await link.focus();
+  await expect(preview(page)).toBeVisible();
+  expect(await heading.locator(".ob-concept-preview").count()).toBe(0);
+  expect(await preview(page).evaluate((card) => card.previousElementSibling?.matches("h2"))).toBe(true);
+  await expect(link).toHaveAccessibleDescription(/Atlas entry.*Person.*An Athenian philosopher\./);
+  await expect(heading).toHaveAccessibleName(/^About Plato(?! \(atlas entry\))/);
+  // Tab passes the heading's own anchor, which keeps the preview open, and enters the preview.
+  await page.keyboard.press("Tab");
+  await expect(heading.locator("a.ob-heading-anchor")).toBeFocused();
+  await expect(preview(page)).toBeVisible();
+  await page.keyboard.press("Tab");
+  await expect(preview(page).getByRole("link", { name: "Read the full entry: Plato" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(link).toBeFocused();
+  await expect(link).toHaveAccessibleDescription("Atlas entry");
+});
+
+test("citation previews and concept previews share a page, and a concept link in a footnote works", async ({ page }) => {
+  await open(page, "/posts/mixed/");
+  await expect(page.locator("ob-citation-previews")).toHaveCount(1);
+  // The concept link in the body opens its own preview and not the citation's.
+  await links(page).nth(1).focus();
+  await expect(preview(page)).toBeVisible();
+  await expect(page.locator(".ob-citation-preview")).toBeHidden();
+  // The citation marker opens the citation preview and closes the concept preview.
+  const marker = page.locator("[id^='cite-1-ref']").first();
+  await marker.focus();
+  await expect(page.locator(".ob-citation-preview")).toBeVisible();
+  await expect(preview(page)).toBeHidden();
+  // The concept link inside the footnote has its own preview.
+  const inNote = page.locator("a.ob-concept", { hasText: "Republic" }).first();
+  await inNote.focus();
+  await expect(preview(page)).toBeVisible();
+  await expect(preview(page)).toContainText("Work");
+  await expect(page.locator(".ob-citation-preview")).toBeHidden();
+  const box = await preview(page).boundingBox();
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize().width + 1);
+  await page.keyboard.press("Escape");
+  await expect(preview(page)).toBeHidden();
+  await expect(inNote).toBeFocused();
+});
+
+test("the components assign no field that is already a property of HTMLElement, in any form of assignment", async ({ page }) => {
+  // `popover` bit the citation previews: HTMLElement's own property turned the element into a
+  // string. The names are read from every component's source, and each is asked of the real
+  // HTMLElement.prototype in the browser, not matched against a list kept by hand.
+  const dir = join(repository, "web", "components");
+  const assignment = /\bthis\.([A-Za-z_$][\w$]*)\s*(?:(?:\*\*|<<|>>>?|&&|\|\||\?\?|[-+*/%&|^])=|=(?!=))/g;
+  const update = /(?:\+\+|--)\s*this\.([A-Za-z_$][\w$]*)|\bthis\.([A-Za-z_$][\w$]*)\s*(?:\+\+|--)/g;
+  // A pattern or a loop that assigns to a field of `this` would hide a name from the scan.
+  const hidden = /:\s*this\.[A-Za-z_$][\w$]*\s*[,}=]|\[[^\]]*\bthis\.[A-Za-z_$][\w$]*[^\]]*\]\s*=(?!=)|\bfor\s*\(\s*(?:const|let|var)?\s*this\./g;
+  // Two components deliberately use a real property of their own host: un-hiding it, and giving
+  // it its text. Each is named with its file, and must still be there, so no other field hides
+  // behind them.
+  const intended = { "ob-theme-toggle.js": ["hidden"], "ob-views.js": ["textContent"] };
+  const assigned = new Map();
+  for (const file of readdirSync(dir).filter((name) => name.endsWith(".js"))) {
+    const source = readFileSync(join(dir, file), "utf8");
+    if (!/extends\s+HTMLElement\b/.test(source)) continue;
+    const names = new Set();
+    for (const match of source.matchAll(assignment)) names.add(match[1]);
+    for (const match of source.matchAll(update)) names.add(match[1] ?? match[2]);
+    for (const name of intended[file] ?? []) {
+      expect(names.has(name), `${file} no longer assigns ${name}; drop the exemption`).toBe(true);
+      names.delete(name);
+    }
+    assigned.set(file, [...names]);
+    expect(source.match(hidden), `${file} assigns to a field of this through a pattern`).toBeNull();
+  }
+  expect(assigned.get("ob-concept-previews.js").length).toBeGreaterThanOrEqual(10);
+  expect(assigned.get("ob-concept-previews.js")).toContain("state");
+  await page.goto(`${origin}/posts/plain/`);
+  const names = [...new Set([...assigned.values()].flat())];
+  const reserved = await page.evaluate((candidates) => candidates.filter((name) => name in HTMLElement.prototype), names);
+  expect(reserved, "fields that are HTMLElement properties").toEqual([]);
+  // The check itself finds a property when there is one.
+  expect(await page.evaluate(() => ["popover", "hidden", "title", "inert"].filter((name) => name in HTMLElement.prototype))).toEqual(["popover", "hidden", "title", "inert"]);
 });

@@ -15481,9 +15481,11 @@ fn preview(state: &AppState, req: &Request) -> Response {
         Err(response) => return response,
     };
     // A post that links atlas entries with `atlas:` (ADR 0204) is shown with
-    // the links the build would make, resolved against the public atlas alone
-    // and under the content lock the draft holds, before the research stores
-    // are read. Any other document is previewed exactly as before.
+    // the links the build would make, resolved against the public atlas alone.
+    // The draft is loaded, so the build lock is released before the atlas
+    // store is read, and only the atlas is attached (never the comparisons or
+    // claims, which no concept link needs). Any other document is previewed
+    // exactly as before.
     if draft.kind == "posts"
         && draft
             .site
@@ -15491,8 +15493,13 @@ fn preview(state: &AppState, req: &Request) -> Response {
             .iter()
             .any(|post| post.source == draft.rel && post.has_concept_links())
     {
-        let shared = crate::boundary::Shared::read(&state.root, &draft.site.config);
-        crate::boundary::project_with(&state.root, &mut draft.site, &shared);
+        draft.release();
+        let mut notes = Vec::new();
+        if let Ok(atlas) = crate::site::published_atlas(&state.root, &draft.site.config, &mut notes)
+        {
+            draft.site.atlas = atlas;
+        }
+        draft.site.link_concepts();
     }
     let DraftSite {
         site: preview_site,

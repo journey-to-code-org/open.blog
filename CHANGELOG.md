@@ -34,7 +34,17 @@ All notable changes to open.blog are recorded here. Releases follow
   full entry. It reads only the published `atlas-query.json`, works from the keyboard (Tab goes into
   it, Escape closes it and returns focus, nothing traps focus), keeps your place in the page, respects
   reduced motion and fits a 320px screen. Without JavaScript, or if the file cannot be read, the link
-  is the ordinary link to the entry page.
+  is the ordinary link to the entry page. The card is looked up only when you first show interest in
+  a link (never while you are just reading), the page names the file by its content so a changed
+  atlas is never read from a stale copy, a screen reader that focused the link early hears one
+  announcement when the card is ready, and a link inside a heading keeps the heading's name.
+- Every Markdown form of an `atlas:` link or image is now made safe in one place, so none can leak a
+  private entry id into a post, page, series description, home introduction, feed, search or
+  portable copy: reference, collapsed and shortcut links, autolinks (which have no label, so they
+  show nothing and the build tells you to write `[label](atlas:id)`), and images with an `atlas:`
+  address (always refused, their description is shown as text) all show only their words. A raw
+  `<ob-concept>` mark is removed from copies and the text projection, and one dropped because it is
+  unclosed now warns. A test builds every form to unpublished ids and scans every built file.
 
 ## [0.42.0] - 2026-10-26
 

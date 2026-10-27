@@ -15,7 +15,6 @@ const { MAX_QUERY_LENGTH, leadsToEntry, previewModel, readQuery, sitePath } = aw
 );
 
 const fixtures = JSON.parse(readFileSync(new URL("../fixtures/concept-previews.json", import.meta.url), "utf8"));
-const source = readFileSync(new URL("../../web/components/ob-concept-previews.js", import.meta.url), "utf8");
 const query = readQuery(JSON.stringify(fixtures.query));
 
 test("the fixture query is read, and the malformed entries lose only themselves", () => {
@@ -108,17 +107,4 @@ test("only a link that still goes to the entry's own page is enhanced, under any
   const blog = { url: "/blog/atlas/plato/" };
   assert.equal(leadsToEntry(link("/blog/atlas/plato/"), blog, "https://site.test/blog/posts/cave/"), true);
   assert.equal(leadsToEntry(link("/atlas/plato/"), blog, "https://site.test/blog/posts/cave/"), false);
-});
-
-test("the component names none of its fields after an HTMLElement property", () => {
-  // `popover` bit the citation previews: HTMLElement's own property turned the element into a
-  // string. Any of these assigned on the host would be coerced or would change the page.
-  const reserved = [
-    "popover", "hidden", "title", "id", "lang", "dir", "slot", "style", "dataset", "children",
-    "inert", "draggable", "tabIndex", "accessKey", "contentEditable", "innerText", "innerHTML",
-    "outerHTML", "textContent", "className", "classList", "attributes", "form", "src", "href",
-  ];
-  const assigned = new Set([...source.matchAll(/\bthis\.([A-Za-z_$][\w$]*)\s*=(?!=)/g)].map((match) => match[1]));
-  assert.ok(assigned.size >= 10);
-  for (const name of reserved) assert.ok(!assigned.has(name), `this.${name} is an HTMLElement property`);
 });

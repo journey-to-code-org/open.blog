@@ -9,9 +9,15 @@
 // that file already publishes, as text. Nothing the page holds, and nothing
 // private, is read; no wording is rebuilt here (kindLabel, assertedByText,
 // confidenceText and the rest are the page's own wording); nothing is stored.
-// The file is fetched once, from the site's own origin, when the page is idle
-// or at the first sign of interest in a link. If it cannot be fetched or read,
-// nothing changes: the links stay links.
+// The file is fetched once, from the site's own origin, at the first sign of
+// interest in a link (focus, hover or a press), never on load or when the page
+// is idle, so reading a post costs nothing extra (on a touch screen, which has
+// no hover, a link scrolling into view is the interest). The page names the file with
+// its content hash, so a changed atlas is never read from a stale cache. If it
+// cannot be fetched or read, nothing changes: the links stay links. A reader
+// whose focus arrived before the file did hears one polite announcement of the
+// entry's type and summary when it is ready, and the link is then described by
+// the preview as usual.
 //
 // Keyboard, pointer and touch behave exactly as the citation previews do
 // (ADR 0061). Focusing a link opens its preview and describes the link with it;
@@ -33,7 +39,6 @@ export const MAX_RELATIONSHIPS = 2;
 export const MAX_EVIDENCE = 2;
 const OPEN_DELAY = 250;
 const CLOSE_DELAY = 300;
-const IDLE_TIMEOUT = 4000;
 // Kept clear of the viewport's edges, in CSS pixels.
 const GUTTER = 8;
 const GAP = 4;
@@ -209,22 +214,33 @@ export class ObConceptPreviews extends HTMLElement {
     document.addEventListener("pointerdown", (event) => this.outside(event), { signal });
     document.addEventListener("focusin", (event) => this.outside(event), { signal });
     window.addEventListener("resize", () => this.place(), { signal });
-    // The file is small for a typical atlas, and fetching it while the page is
-    // idle lets a first tap on a touch screen open a preview. A reader who
-    // asked to save data gets it only when they show interest in a link.
-    if (!globalThis.navigator?.connection?.saveData) {
-      if (typeof requestIdleCallback === "function") requestIdleCallback(() => this.load(), { timeout: IDLE_TIMEOUT });
-      else this.idleTimer = setTimeout(() => this.load(), IDLE_TIMEOUT / 2);
+    // Nothing is fetched yet: the first interest in a link does it. A touch
+    // screen has no hover to show interest before the tap that must already
+    // find the file, so there (and only there, and never for a reader who
+    // asked to save data) a concept link scrolling into view counts as interest.
+    if (
+      !globalThis.navigator?.connection?.saveData &&
+      globalThis.matchMedia?.("(pointer: coarse)").matches &&
+      "IntersectionObserver" in globalThis
+    ) {
+      const watcher = new IntersectionObserver((records) => {
+        if (!records.some((record) => record.isIntersecting)) return;
+        watcher.disconnect();
+        this.interest();
+      });
+      for (const link of candidates) watcher.observe(link);
+      signal.addEventListener("abort", () => watcher.disconnect());
     }
   }
 
   disconnectedCallback() {
     this.close();
-    clearTimeout(this.idleTimer);
     this.controller?.abort();
     this.controller = null;
     this.card?.remove();
+    this.status?.remove();
     this.card = null;
+    this.status = null;
     this.entries = null;
     this.pressed = null;
     this.wanted = null;
@@ -280,8 +296,25 @@ export class ObConceptPreviews extends HTMLElement {
   want(link) {
     this.wanted = link;
     if (this.state === "ready") return this.open(link);
+    // Focus arrived before the file: once it has, open the preview and say so once.
+    const focused = document.activeElement === link;
     this.loading?.then(() => {
-      if (this.wanted === link && this.state === "ready") this.open(link);
+      if (this.wanted !== link || this.state !== "ready") return;
+      this.open(link);
+      if (focused && document.activeElement === link) this.announce(link);
+    });
+  }
+
+  /** Say, once and politely, what the preview now describing the link holds. */
+  announce(link) {
+    const model = this.entries?.get(link);
+    if (!model || !this.status) return;
+    this.status.textContent = "";
+    // A change after a frame is announced; the same words set at once may not be.
+    requestAnimationFrame(() => {
+      if (this.status && this.entries?.get(link) === model) {
+        this.status.textContent = `${model.label}: ${model.kindLabel}. ${model.summary ?? this.word("summary-missing-label")}`;
+      }
     });
   }
 
@@ -304,6 +337,12 @@ export class ObConceptPreviews extends HTMLElement {
     this.anchors = document.createElement("span");
     this.anchors.className = "ob-concept-preview-links";
     card.append(this.anchors);
+    // One polite announcement, for a reader whose focus arrived before the file.
+    this.status = document.createElement("span");
+    this.status.className = "ob-visually-hidden";
+    this.status.setAttribute("role", "status");
+    // Beside the element: the element itself is not rendered.
+    this.after(this.status);
     card.addEventListener("pointerenter", () => clearTimeout(this.closeTimer), { signal });
     card.addEventListener("pointerleave", (event) => this.leave(event), { signal });
     return card;
@@ -330,7 +369,12 @@ export class ObConceptPreviews extends HTMLElement {
     if (!model || this.isOpen(link)) return;
     this.close();
     this.fill(link, model);
-    link.after(this.card);
+    // Beside the link, but never inside a heading: the preview is not part of
+    // the heading's text, its name or the page outline.
+    const heading = link.closest("h1, h2, h3, h4, h5, h6");
+    (heading ?? link).after(this.card);
+    // Focus moving to the heading's own anchor, on the way to the preview, is not leaving it.
+    this.scope = heading;
     this.card.hidden = false;
     this.current = link;
     const described = (link.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean);
@@ -521,6 +565,7 @@ export class ObConceptPreviews extends HTMLElement {
     }
     if (!this.current) return;
     if (target === this.current || this.current.contains?.(target) || this.card.contains(target)) return;
+    if (event.type === "focusin" && this.scope?.contains?.(target)) return;
     this.close();
   }
 }
