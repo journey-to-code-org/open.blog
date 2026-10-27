@@ -357,6 +357,43 @@ test("a suggestion is never shown by any public route", async () => {
   }
 });
 
+test("a suggestion's contact reaches only its own receipt and the site Admin, by no other route", async () => {
+  const row = stored({ status: "approved", approved_revision: 1 });
+  const database = fakeDatabase((entry) => (entry.method === "GET" ? [row] : entry.path.includes("/rpc/") ? [row] : []));
+  const leaks = (response, label) => assert.doesNotMatch(String(response.body), /ada@example|"contact"|followUp/, label);
+  // The public routes, and the Admin routes without the key.
+  for (const path of ["comments", "feedback", "views"]) leaks(await handlerFor(database)(event(path, "GET", { query: { path: WORK, work: WORK } })), path);
+  for (const path of ["admin/feedback", "admin/moderation", "admin/retention", "admin/comments", "admin/analytics"]) {
+    const response = await handlerFor(database)(event(path, "GET", { query: { state: "pending" } }));
+    assert.equal(response.statusCode, 401, path);
+    leaks(response, path);
+  }
+  // B5's own Admin view lists its own kinds only, and the generic change route never decides a suggestion.
+  leaks(await handlerFor(database)(event("admin/feedback", "GET", { headers: ADMIN })), "admin/feedback");
+  assert.match(database.requests.find((entry) => entry.path.endsWith("/openblog_feedback")).params.kind, /^in\.\(question,source-suggestion,correction-suggestion,alternative-interpretation\)$/);
+  // The reader's own answers to a report, a submission and a withdrawal repeat nothing of it.
+  leaks(await handlerFor(database)(event("reports", "POST", { headers: ORIGIN, body: { source: "feedback", id: ID(1), ground: "spam" } })), "reports");
+  const submitted = fakeDatabase((entry) => (entry.method === "POST" && entry.path.endsWith("/openblog_feedback") ? [{ id: ID(7), status: "pending", received_at: "2026-10-26T10:00:00+00:00" }] : []));
+  leaks(await send(submitted, request({ contact: { address: "ada@example.org", followUp: true } })), "submission");
+  const withdrawn = await receiptCall(database, { action: "withdraw" });
+  leaks(withdrawn, "withdraw");
+  // The receipt, which proves the receipt secret, is the one place the reader sees it.
+  assert.match((await receiptCall(database, { action: "read" })).body, /ada@example\.org/);
+  assert.equal((await receiptCall(database, { action: "read" }, environment)).statusCode, 200);
+  const wrong = await handlerFor(fakeDatabase(() => []))(event("receipt", "POST", { headers: ORIGIN, body: { receipt: "W".repeat(43), action: "read" } }));
+  leaks(wrong, "a wrong receipt");
+});
+
+test("the generic Admin route never decides a suggestion; its decisions are the inbox's", async () => {
+  const database = fakeDatabase((entry) => (entry.method === "GET" ? [stored()] : []));
+  for (const body of [{ action: "approve" }, { action: "reject", reason: "spam" }]) {
+    const refused = await handlerFor(database)(event("admin/feedback", "PATCH", { headers: ADMIN, body: { id: ID(1), from: "pending", expectedVersion: 1, ...body } }));
+    assert.equal(refused.statusCode, 409);
+    assert.equal(JSON.parse(refused.body).code, "useModerationInbox");
+  }
+  assert.equal(writes(database).length, 0);
+});
+
 // ---- Retention of a kept suggestion's private identity
 
 const cutoffs = { pendingUntil: "2026-07-29T10:00:00Z", clarificationUntil: "2026-09-27T10:00:00Z", closedUntil: "2026-09-27T10:00:00Z", auditUntil: "2025-10-27T10:00:00Z" };

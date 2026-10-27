@@ -993,6 +993,8 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         if (stored[0]?.kind === THIRD_PERSPECTIVE_KIND) return json(409, { error: "Third Perspectives are moderated through /admin/moderation.", code: "useModerationInbox" }, corsOrigin);
         // An author response is approved only under a shown parent and never by its own author.
         if (stored[0]?.kind === AUTHOR_RESPONSE_KIND) return json(409, { error: "Author responses are moderated through /admin/moderation.", code: "useModerationInbox" }, corsOrigin);
+        // A suggestion's decisions (and the clearing of its identity) are the inbox's: they carry a conversion and its audit.
+        if (stored[0]?.kind === FUTURE_SUGGESTION_KIND) return json(409, { error: "Suggestions for future work are moderated through /admin/moderation.", code: "useModerationInbox" }, corsOrigin);
         // With the inbox's schema the change goes through its function, so
         // the item's revisions and the audit event's kind, revision and role
         // are kept as the inbox keeps them (ADR 0106).
