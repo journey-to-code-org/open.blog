@@ -21,13 +21,21 @@ public data beside Markdown: a small versioned JSON file.
 - **Where and what.** `content/paths/<slug>.json`, format `openblog-reading-path`, `version` 1. The
   slug is the file name (a lowercase ASCII slug of at most 64 characters), so it can never disagree with
   a field and a rename is a file rename. The file holds `title`, optional `summary`, `status`
-  (`draft` when absent, so leaving a field out publishes nothing) and `steps`.
+  (`draft` when absent, so leaving a field out publishes nothing), `listed` (ADR 0245) and `steps`.
 - **Versioned.** `format` and `version` are required. Another version is refused with its number,
   never read as version 1.
-- **Lossless: refuse, never drop.** Unknown fields at any level are refused, naming the field and,
-  inside a step, the step. A parse followed by a save therefore cannot lose anything, because there
-  is nothing the parser does not hold. A later version can add fields without older releases
-  silently deleting them on save.
+- **Lossless: keep what is not defined, refuse what is defined wrongly.** This is the atlas and
+  notebook idiom (ADR 0053, ADR 0034). Fields this release does not define are kept as written, at
+  every level (the file, a step, a target, a transition), and written back after the defined ones in
+  name order, so a parse followed by a save loses nothing and an older release still reads a newer
+  file's known fields. Kept fields are inert: never read, never in the public value. A defined
+  field of the wrong type or outside its list of values is refused, naming the field and never the
+  value, and another `version` is refused. A repeated key is refused rather than collapsed to the
+  last one, because a hand edit that pastes a field twice must be told. (The first draft of this
+  ADR refused unknown fields; review #76 replaced that so an older binary can read a newer file.)
+- **Messages never echo a value.** The file is read by hand, not through a generic deserializer
+  whose errors quote what was written, so a message names a field (`` `status` must be `draft` or
+  `published` ``) and a hostile value never reaches a log or an Admin error.
 - **Canonical and deterministic.** `ReadingPath::to_canonical_json` writes two-space JSON in a fixed
   field order, omits absent optional fields, uses `\n` and ends with one newline. Parsing it gives the same
   path and writing that gives the same bytes, so an Admin save and a hand edit of the same path
@@ -48,8 +56,10 @@ public data beside Markdown: a small versioned JSON file.
 ## Consequences
 
 - The file is easy to review in a pull request and to diff, and a mistake is one scoped message.
-- A hand-edited path with a field from a future release is refused rather than damaged.
-- Adding a field is a version bump with a migration, which is the cost of never dropping one.
+- A hand-edited path with a field from a future release is read for what it defines and saved
+  without damage to the rest.
+- A field that changes meaning still needs a version bump, because an older release would keep it
+  and not act on it.
 
 ## Domain language
 

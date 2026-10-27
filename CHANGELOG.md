@@ -11,7 +11,11 @@ All notable changes to open.blog are recorded here. Releases follow
   the first. It is separate from series and changes neither posts nor series. Steps that are not
   published are left out and named to the author only, never in public output. Nothing renders or
   exports paths yet, so existing sites build exactly as before; see
-  [Reading paths](docs/specs/reading-paths.md).
+  [Reading paths](docs/specs/reading-paths.md). `influenced` joins two atlas entries only, on an
+  uncontested published relationship in exactly that direction; a path that would show a gap (a left-out
+  step a later step follows) is withheld whole; fields the release does not define are kept and written
+  back; a repeated key is refused; messages never quote a value; and `readingPaths.publish` (off by
+  default) is the switch that reserves `/paths/`.
 
 ## [0.44.0] - 2026-10-26
 

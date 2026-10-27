@@ -20,16 +20,29 @@ what it is called or what it says, and a missing step must not break the rest of
 
 ## Decision
 
-- **One input for what exists.** `PublishedTargets` holds the posts the build publishes (drafts and
-  scheduled posts are not in `Site::posts`) and the public atlas's entries and influence
+- **One input for what exists.** `PublishedTargets` holds the posts the build publishes in
+  production and the public atlas's entries and influence
   relationships (the one value ADR 0058 and ADR 0168 allow). Resolution reads nothing else: no
   private atlas, library, notebook or draft, so there is nothing to leak a title or text from.
-- **A missing step is left out.** A step whose target is not in `PublishedTargets` is not in the
-  public value, and the later steps are renumbered (position is among the shown steps). The reader
-  gets a shorter, complete path and the authored order of what remains.
-- **A transition never describes a step the reader does not see.** The transition of a step whose
-  predecessor was left out is dropped, with a diagnostic, so the step stands with its own rationale and
-  no claimed relationship (ADR 0243). Where a transition's basis fails, the rules of ADR 0243 apply.
+  `PublishedTargets::from_site` applies production visibility itself (`Site::is_published`: not a
+  draft, not dated after the time the site was loaded for) and does not rely on what `Site::posts`
+  holds, because Admin and preview loads include drafts and scheduled posts there. A site loaded
+  without a time cannot tell scheduled posts apart, so Admin loads with one.
+- **A missing step is left out only where that leaves no trace.** A step whose target is not in
+  `PublishedTargets` is not in the public value, and positions are renumbered among the shown steps.
+  That is safe when the step is last, or optional and not the step a shown step follows (ADR 0243):
+  the reader gets a shorter, complete path. It is not safe otherwise.
+- **A transition never describes a step the reader does not see, and never goes missing.** When a
+  shown step's followed step (ADR 0243) is left out, or its `influenced` claim does not hold, the
+  whole path is withheld with a diagnostic. The first draft of this ADR dropped that one
+  transition, which let a reader see exactly where something was removed (a step with no "why"
+  among steps that all have one). Withholding is conservative and reversible: republish the post
+  or fix the claim and the path returns with no edit. It means every shown step after the first has
+  a transition, which is tested over every combination of availability.
+- **The public value carries no author-chosen step id.** An id like `step-3` beside `step-5` would
+  show a gap even with transitions intact, and #78 does not need it: a step is named by its kind and
+  target, which are unique in a path and public by definition. Diagnostics, which are for the
+  author, keep ids.
 - **A path with fewer than two shown steps is not published**, with a diagnostic. A draft path is
   not published and is not reported as a problem.
 - **The public value is silent about what was left out.** It carries no count, flag or placeholder
@@ -40,7 +53,7 @@ what it is called or what it says, and a missing step must not break the rest of
   probe for what exists. Diagnostics go where the author's warnings already go (`check`, build
   warnings, Admin) and never into a page, feed, export, log of the public site or error shown to a reader.
   Wiring them is the work of #77 to #79; this contract fixes their kinds (`StepUnavailable`,
-  `TransitionDropped`, `BasisUnavailable`, `PathWithheld`) and wording.
+  `TransitionDropped`, `PathWithheld`) and wording.
 - **Scoped, and never destructive.** One path's problem leaves every other path and the site as
   they were, and resolution writes no file: the canonical path file is not edited to remove a
   missing step. The author fixes the source.
@@ -54,6 +67,8 @@ what it is called or what it says, and a missing step must not break the rest of
 - Deleting or unpublishing a post degrades every path through it safely and tells the author.
 - A reader cannot tell a path was ever longer, which is the cost of not leaking.
 - Republishing the post restores the step with no edit.
+- Withholding a whole path for one missing required step is blunt; Admin's diagnostics (#77) say
+  which step, so the author sees the cause at once.
 
 ## Domain language
 

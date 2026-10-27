@@ -23,9 +23,11 @@ list-first.
 - **One ordered list.** `steps` is the order, as written. Position is derived (one-based among the
   published steps) and never stored, so reordering is moving a step in the list.
 - **No branches.** A step has one transition (from the step before it) and no list of next steps.
-  A field that tries (`next`, `branches`) is an unknown field and refused. Alternative routes are
-  separate paths that happen to share steps. Optional material is a step marked `optional`, which
-  a reader may skip and which never changes the order. This is reversible: a later version could add
+  A field that tries (`next`, `branches`) is, like any field this release does not define, kept
+  as an inert extra (ADR 0241): it is never read, so it cannot make a branch, and the list is the
+  order. Alternative routes are separate paths that happen to share steps. Optional material is a
+  step marked `optional`, which a reader may skip, which never changes the order and which is never
+  the first step. A step after an optional one follows the last required step (ADR 0243). This is reversible: a later version could add
   named branches without changing what a version 1 file means.
 - **No repeats.** A target (post or atlas entry) appears at most once in a path. Revisiting one is
   a cycle in everything but name, makes progress and "previous" ambiguous, and is refused naming the

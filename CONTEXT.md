@@ -1024,9 +1024,10 @@ _Avoid_: Lesson, chapter, module
 
 **Path transition**:
 What an author writes to say why a step follows the one before it: required text and a relationship
-from a closed list with no default (`next` claims order only). `influenced` is kept only with a
-published atlas influence from the earlier step to the later one; order and dates never imply it, and
-a transition after a left-out step is dropped (ADR 0243).
+from a closed list with no default (`next` claims order only). It is about the step it follows, the
+nearest earlier step that is not optional. `influenced` joins two atlas entries and is kept only with
+a published, uncontested atlas influence from the followed entry to this one; order and dates never
+imply it, and a path that would lose a transition is withheld whole (ADR 0243, ADR 0244).
 _Avoid_: Link, edge, influence chain
 
 **Public reading paths**:
