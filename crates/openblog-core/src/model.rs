@@ -51,6 +51,10 @@ pub struct Sources {
     /// The site's published Third Perspectives (`third-perspectives.json` in
     /// the content folder, ADR 0115), when the file exists.
     pub third_perspectives: Option<SourceFile>,
+    /// The site's featured reflections (`community-perspectives.json` in the
+    /// content folder, ADR 0181), when the file exists. Read strictly; nothing
+    /// in a page, feed or export changes (the section is #230).
+    pub community_features: Option<SourceFile>,
 }
 
 /// The private source library as a site load receives it.
@@ -272,6 +276,11 @@ pub struct Post {
     /// The approved Third Perspectives this post's canonical page shows, read
     /// through the one public projection (ADRs 0111 and 0115).
     pub(crate) third_perspectives: Vec<crate::perspective_publication::PublicPerspective>,
+    /// The reflections the editors chose to feature on this post's canonical
+    /// page, by the day they were featured (ADRs 0180 and 0184); empty for
+    /// most posts. Each is the one public projection of a reflection that is
+    /// also in `third_perspectives`.
+    pub(crate) community_features: Vec<crate::community_feature::FeaturedPerspective>,
     /// The body HTML. A concept link (ADR 0172) is the plain text of its
     /// label here until [`Site::link_concepts`] resolves it against the
     /// public atlas, so a post nobody resolved never carries a link that
@@ -383,6 +392,11 @@ impl Post {
     /// The approved Third Perspectives this post's canonical page shows (ADR 0115).
     pub fn third_perspectives(&self) -> &[crate::perspective_publication::PublicPerspective] {
         &self.third_perspectives
+    }
+
+    /// The featured reflections this post's canonical page shows now (ADR 0184).
+    pub fn community_features(&self) -> &[crate::community_feature::FeaturedPerspective] {
+        &self.community_features
     }
 
     /// The reader-facing reference data of this post's published citations
@@ -550,6 +564,9 @@ pub struct Site {
     /// Why the site's published Third Perspectives cannot be read (ADR 0115),
     /// refused like `reader_feedback_error`.
     pub third_perspectives_error: Option<String>,
+    /// Why the site's featured reflections cannot be read (ADR 0181), refused
+    /// like `third_perspectives_error`.
+    pub community_features_error: Option<String>,
     /// The time the site was loaded for (`LoadOptions::now`). A post dated after it is scheduled,
     /// even when a preview or the admin editor loaded it, so it is never a series part.
     now: Option<DateTime>,
@@ -838,6 +855,8 @@ impl Site {
             attach_reader_feedback(&mut posts, &sources, &config, &mut warnings);
         let third_perspectives_error =
             attach_third_perspectives(&mut posts, &sources, &config, &mut warnings);
+        let community_features_error =
+            attach_community_features(&mut posts, &sources, &config, &mut warnings);
 
         let mut pages: Vec<Page> = Vec::new();
         for file in &sources.pages {
@@ -992,6 +1011,7 @@ impl Site {
             claim_evidence_error,
             reader_feedback_error,
             third_perspectives_error,
+            community_features_error,
             now: options.now,
         })
     }
@@ -1432,6 +1452,86 @@ fn attach_third_perspectives(
                     .then_some(crate::render::THIRD_PERSPECTIVE_ANCHOR),
             ));
         }
+    }
+    None
+}
+
+/// Read the site's featured reflections strictly (ADR 0181), or say why the
+/// file cannot be read. Nothing is repaired or dropped. A feature is attached
+/// to its post only while everything that allowed it still holds, checked
+/// against the committed `third-perspectives.json` the page is built from
+/// (ADR 0178): a feature that does not stand is absent from the page with no
+/// mark of a gap, and is only warned about, naming the id and a fixed reason
+/// and never any content. A post whose Third Perspectives are hidden shows no
+/// feature. A post without a feature, and a site without the file, are
+/// untouched.
+fn attach_community_features(
+    posts: &mut [Post],
+    sources: &Sources,
+    config: &SiteConfig,
+    warnings: &mut Vec<String>,
+) -> Option<String> {
+    use crate::community_feature as community;
+    use crate::participation::ParticipationKind;
+    let file = sources.community_features.as_ref()?;
+    let features = match community::FeaturesFile::from_json(&file.contents) {
+        Ok(features) => features,
+        Err(error) => return Some(format!("{}: {error}", file.path)),
+    };
+    let known: std::collections::HashSet<String> = sources
+        .posts
+        .iter()
+        .map(|post| post.path.replace('\\', "/"))
+        .collect();
+    for (index, item) in features.items.iter().enumerate() {
+        if !known.contains(&item.post) {
+            warnings.push(format!(
+                "{}: item {} is about {}, which is not a post; it is not shown",
+                file.path,
+                index + 1,
+                item.post
+            ));
+        }
+    }
+    // The reflections the page is built from. A file that cannot be read is
+    // already the build's error; no feature is shown without its reflection.
+    let published = match &sources.third_perspectives {
+        None => crate::perspective_publication::ThirdPerspectivesFile::default(),
+        Some(third) => {
+            match crate::perspective_publication::ThirdPerspectivesFile::from_json(&third.contents)
+            {
+                Ok(published) => published,
+                Err(_) => return None,
+            }
+        }
+    };
+    for post in posts.iter_mut() {
+        let records = features.for_post(&post.source.replace('\\', "/"));
+        if records.is_empty() {
+            continue;
+        }
+        let mode =
+            crate::participation::published_mode(config, post, ParticipationKind::ThirdPerspective);
+        if !mode.shows_approved() {
+            continue;
+        }
+        let answer_mode =
+            crate::participation::published_mode(config, post, ParticipationKind::AuthorResponse);
+        let mut shown = Vec::new();
+        for (id, result) in
+            community::resolve_post(&records, &published, Some(post), config, mode, answer_mode)
+        {
+            match result {
+                Ok(feature) => shown.push(feature),
+                Err(community::NotShown::Off(reason)) => warnings.push(format!(
+                    "{}: feature {id} is not shown: {}",
+                    file.path,
+                    reason.explanation()
+                )),
+                Err(community::NotShown::Hidden(_)) => {}
+            }
+        }
+        post.community_features = shown;
     }
     None
 }
@@ -1914,6 +2014,7 @@ fn load_post_in(
         evidence_error,
         reader_feedback: Vec::new(),
         third_perspectives: Vec::new(),
+        community_features: Vec::new(),
         reading_depth: rendered.reading_depth.clone(),
         html,
         concept_html,
@@ -2171,6 +2272,7 @@ mod tests {
             claim_evidence: None,
             reader_feedback: None,
             third_perspectives: None,
+            community_features: None,
         });
         assert_eq!(s.posts.len(), 2);
         assert_eq!(s.posts[0].slug, "second");

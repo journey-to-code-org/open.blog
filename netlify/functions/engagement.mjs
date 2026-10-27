@@ -11,7 +11,7 @@ import {
 } from "../lib/participation-moderation.mjs";
 import {
   THIRD_PERSPECTIVE_KIND, checkThirdPerspectiveApproval, normalizeReflection, readThirdPerspectiveSubmissionJson, receiveThirdPerspective,
-  reviseClarificationConsent, submissionKind,
+  consentInEffect, reviseClarificationConsent, reviseConsent, submissionKind,
 } from "../../web/components/third-perspective.js";
 
 const json = (statusCode, value, origin = "") => ({
@@ -205,6 +205,18 @@ const perspectivePublic = (row) => {
 // state and version, their own words until they are purged, whether the
 // author asked them to clarify it and why, and whether they agreed to be
 // asked. Never anything about a moderator.
+// What a reader may do about featuring their reflection (ADR 0176, 0177): the revision they see (the
+// approved one once approved, else the current one), whether their agreement covers exactly it, and
+// whether it covers only an earlier text. null where there is nothing to agree to: not a kept
+// reflection in a state that can still be shown, or consent revoked.
+const featureConsentView = (row) => {
+  if (row.purged_at || !["pending", "clarification", "approved"].includes(row.status)) return null;
+  const revision = row.status === "approved" ? row.approved_revision ?? null : row.item_revision ?? 1;
+  const last = consentInEffect(row.details);
+  if (revision === null || !last?.publish) return null;
+  const agreedFor = Number.isInteger(last.featureRevision) ? last.featureRevision : null;
+  return { revision, agreed: agreedFor === revision, earlier: agreedFor !== null && agreedFor !== revision };
+};
 const receiptViewOf = (row, hidden = false) => {
   const purged = Boolean(row.purged_at);
   const revision = row.item_revision ?? 1;
@@ -223,6 +235,7 @@ const receiptViewOf = (row, hidden = false) => {
     // is never published, whatever its state.
     published: !isPublishable(row.kind) ? false : row.kind === THIRD_PERSPECTIVE_KIND ? (hidden ? false : perspectivePublic(row)) : row.status === "approved" && row.approved_revision === revision,
     purged,
+    ...(row.kind === THIRD_PERSPECTIVE_KIND && !purged ? { feature: featureConsentView(row) } : {}),
     ...(purged ? {} : { body: row.body, details: receiptDetails(row) }),
     // Where a suggestion stands, honestly and in the words of ACCEPTANCE_NOTICE: a stage and one
     // sentence, never a rank, a count, a promise or what it was linked to (ADR 0163).
@@ -884,6 +897,33 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
             body: JSON.stringify({ clarification_consent: body.consent }),
           }));
         }
+        if (action === "feature") {
+          // A reader's own choice about featuring their reflection (ADR 0176, 0177): agree, for the text
+          // they see, or decline. Allowed while it is pending, asked to clarify or approved. The
+          // change is appended as a new consent record and the version is raised, like any consent
+          // change. Nothing here features anything: an editor still chooses, and a text that changes
+          // leaves an agreement behind (it names a revision).
+          if (row.kind !== THIRD_PERSPECTIVE_KIND || !settings.thirdPerspectives) return json(404, { error: PERSPECTIVE_UNAVAILABLE, code: "unavailable" }, corsOrigin);
+          if (typeof body.consent !== "boolean" || (body.consent && !Number.isInteger(body.revisionSeen)) || !["pending", "clarification", "approved"].includes(facts.state) || !facts.retained) {
+            return json(422, { error: "You can change this only while your reflection is waiting, being clarified or approved.", code: "notAllowed" }, corsOrigin);
+          }
+          const current = consentInEffect(row.details);
+          const revised = reviseConsent({
+            body: row.body, revision: facts.revision, provenance: hostedFeedback(row).feedback.provenance, details: row.details || {},
+            state: facts.state, approvedRevision: row.approved_revision ?? null, retained: facts.retained,
+          }, { clarification: current?.clarification === true, feature: body.consent ? { agree: body.revisionSeen } : "decline" }, canonicalTime(now()));
+          if (!revised.ok) {
+            if (revised.code === "unchanged") return json(200, { item: receiptView(row) }, corsOrigin);
+            if (revised.code === "staleRevision") return answered([]);
+            return json(422, { error: "Your consent cannot change again on this reflection.", code: revised.code }, corsOrigin);
+          }
+          const params = new URLSearchParams({ site_id: `eq.${settings.siteId}`, id: `eq.${row.id}`, receipt_hash: `eq.${receiptDigest(receipt)}`, status: "in.(pending,clarification,approved)", version: `eq.${version}`, purged_at: "is.null", select: receiptColumns });
+          return answered(await database(settings, `/rest/v1/openblog_feedback?${params}`, {
+            method: "PATCH",
+            headers: { Prefer: "return=representation" },
+            body: JSON.stringify({ details: revised.details, version: version + 1 }),
+          }));
+        }
         if (action === "credit") {
           // A reader's own change to whether the editors may credit them by the name they gave
           // (ADR 0167): for this text as it stands, or withdrawn. It never publishes anything.
@@ -945,7 +985,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
             }),
           }));
         }
-        return json(422, { error: "Choose to read, clarify, agree to be asked, change your credit, or withdraw your note.", code: "invalid" }, corsOrigin);
+        return json(422, { error: "Choose to read, clarify, agree to be asked, change whether it may be featured or your credit, or withdraw your note.", code: "invalid" }, corsOrigin);
       }
       if (operation === "reports") {
         // An abuse report (ADR 0107): accepted only for an item that is

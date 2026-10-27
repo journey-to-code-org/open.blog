@@ -13,6 +13,7 @@ import {
   readThirdPerspectiveSubmissionJson,
   receiveThirdPerspective,
   reviseClarificationConsent,
+  reviseConsent,
   submissionKind,
   thirdPerspectiveCopyText,
   thirdPerspectiveSubmissionValue,
@@ -70,8 +71,9 @@ test("categories are optional descriptive prompts, never scores, votes or sides"
 test("clarification consent changed through a receipt appends exactly the record the build appends", () => {
   for (const entry of fixture.consentChanges) {
     const record = entry.record;
-    const details = { ...(record.category ? { category: record.category } : {}), intake: record.intake, consents: record.consents };
-    const outcome = reviseClarificationConsent({
+    const details = { ...(record.category ? { category: record.category } : {}), intake: record.intake, consents: record.consents, ...(record.revisedAt ? { revisedAt: record.revisedAt } : {}) };
+    const feature = entry.feature === undefined ? "keep" : entry.feature === "decline" ? "decline" : { agree: entry.feature };
+    const outcome = reviseConsent({
       body: record.body,
       revision: record.revision,
       provenance: record.provenance,
@@ -79,10 +81,20 @@ test("clarification consent changed through a receipt appends exactly the record
       state: entry.moderation.state,
       approvedRevision: entry.moderation.approvedRevision,
       retained: entry.moderation.contentRetained,
-    }, entry.clarification, entry.at);
+    }, { clarification: entry.clarification, feature }, entry.at);
     if (entry.expect.code) assert.deepEqual(outcome, { ok: false, code: entry.expect.code }, entry.name);
     else assert.deepEqual(outcome.details.consents, entry.expect.consents, entry.name);
   }
+});
+
+test("changing what the reader may be asked never renews feature consent for edited text", () => {
+  const record = fixture.consentChanges.find((entry) => entry.name.startsWith("changing what the reader is asked")).record;
+  const copy = { body: record.body, revision: 2, provenance: record.provenance, details: { intake: record.intake, consents: record.consents, revisedAt: record.revisedAt }, state: "pending", approvedRevision: null, retained: true };
+  const toggled = reviseClarificationConsent(copy, true, "2026-10-26T12:00:00Z");
+  assert.equal(toggled.details.consents.at(-1).featureRevision, 1, "still bound to the text the reader agreed to");
+  const approved = reviseClarificationConsent({ ...copy, state: "approved", approvedRevision: 2 }, true, "2026-10-26T12:00:00Z");
+  assert.equal(approved.details.consents.at(-1).featureRevision, 1);
+  assert.deepEqual(reviseConsent(copy, { clarification: false, feature: { agree: 1 } }, "2026-10-26T12:00:00Z"), { ok: false, code: "staleRevision" });
 });
 
 test("a widening change keeps room for narrowing and revocation; a narrowing one may use it", () => {
