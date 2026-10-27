@@ -783,6 +783,22 @@ h2.ob-title {
   outline: none;
 }
 
+/* A concept link (ADR 0172): a word the author tied to an atlas entry. The
+   dotted underline marks it as a link to an entry rather than to another
+   page, and does not rely on colour; the visually hidden words after the
+   label say the same to a screen reader. */
+a.ob-concept {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-thickness: 0.12em;
+  text-underline-offset: 0.2em;
+}
+
+a.ob-concept:hover,
+a.ob-concept:focus-visible {
+  text-decoration-style: solid;
+}
+
 /* <ob-citation-previews>: one preview at a time, placed straight after the
    marker it describes (so Tab reaches its links next) and moved below or
    above the marker, inside the viewport, by the offsets the component sets. */
@@ -853,6 +869,113 @@ ob-citation-previews {
 }
 
 @keyframes ob-citation-preview-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* <ob-concept-previews> (ADR 0174): one preview at a time, placed straight
+   after the concept link it describes (so Tab reaches its link next) and moved
+   below or above the link, inside the viewport, by the offsets the component
+   sets. It is the citation preview's box with the entry's own lines. */
+ob-concept-previews {
+  display: none;
+}
+
+.ob-concept-preview {
+  position: absolute;
+  z-index: 20;
+  display: block;
+  box-sizing: border-box;
+  inline-size: 28rem;
+  max-inline-size: var(--ob-concept-preview-max-inline-size, calc(100vw - 1rem));
+  max-block-size: min(24rem, 70vh);
+  overflow: auto;
+  padding: 0.75rem 1rem;
+  border: var(--ob-border-width, 1px) solid var(--ob-color-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+  color: var(--ob-color-text);
+  box-shadow: var(--ob-shadow);
+  font-size: 0.9rem;
+  font-style: normal;
+  font-weight: normal;
+  line-height: 1.5;
+  text-align: start;
+  text-indent: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  translate: var(--ob-concept-preview-x, 0) var(--ob-concept-preview-y, 1.5em);
+}
+
+.ob-concept-preview[hidden],
+.ob-concept-preview [hidden] {
+  display: none;
+}
+
+.ob-concept-preview-details,
+.ob-concept-preview-kind,
+.ob-concept-preview-provenance,
+.ob-concept-preview-summary,
+.ob-concept-preview-clipped,
+.ob-concept-preview-source,
+.ob-concept-preview-relationships,
+.ob-concept-preview-relationship,
+.ob-concept-preview-heading,
+.ob-concept-preview-statement,
+.ob-concept-preview-how,
+.ob-concept-preview-uncertainty,
+.ob-concept-preview-evidence,
+.ob-concept-preview-more {
+  display: block;
+}
+
+.ob-concept-preview-kind {
+  font-weight: 600;
+}
+
+.ob-concept-preview-provenance,
+.ob-concept-preview-clipped,
+.ob-concept-preview-source,
+.ob-concept-preview-how,
+.ob-concept-preview-evidence,
+.ob-concept-preview-more {
+  color: var(--ob-color-muted);
+}
+
+.ob-concept-preview-summary,
+.ob-concept-preview-source,
+.ob-concept-preview-relationships {
+  margin-block-start: 0.5rem;
+}
+
+.ob-concept-preview-heading {
+  font-weight: 600;
+}
+
+.ob-concept-preview-relationship {
+  margin-block-start: 0.25rem;
+}
+
+.ob-concept-preview-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin-block-start: 0.5rem;
+}
+
+.ob-concept-preview a:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ob-concept-preview:not([hidden]) {
+    animation: ob-concept-preview-in var(--ob-motion, 150ms) ease-out;
+  }
+}
+
+@keyframes ob-concept-preview-in {
   from {
     opacity: 0;
   }
@@ -2612,6 +2735,11 @@ ob-back-to-top button:hover {
     display: none !important;
   }
 
+  /* Entry previews are for screens; a printed concept link is its label. */
+  .ob-concept-preview {
+    display: none !important;
+  }
+
   .ob-citation-note {
     break-inside: avoid;
     color: inherit;
@@ -2838,4 +2966,30 @@ ob-reading-modes { display: block; }
   .ob-atlas-timeline li[hidden] { display: list-item !important; }
   .ob-atlas-timeline section[hidden] { display: block !important; }
   .ob-atlas-dating { break-inside: avoid; }
+}
+
+/* Knowledge Atlas relationship trails (ADR 0175): a static ordered list of steps grouped by how
+   far they are from the entry, readable without CSS or JavaScript. Each step is a bordered item
+   whose facts stack on narrow screens and wrap anywhere, so a long label never overflows. Nothing
+   moves. Print shows the whole trail without its filters, even where a filter hid steps. */
+.ob-trail-depths, .ob-trail-steps { list-style: none; padding-inline-start: 0; margin: 0; }
+.ob-trail-depth { margin: 0 0 1.5rem; min-width: 0; }
+.ob-trail-step { min-width: 0; margin: 0 0 0.75rem; padding: 0.5rem 0.75rem; overflow-wrap: anywhere; border: 1px solid var(--ob-color-border); border-inline-start-width: 4px; border-radius: var(--ob-radius-sm, 4px); }
+.ob-trail-step[data-standing="contested"] { border-inline-start-style: double; }
+.ob-trail-step[data-again="true"] { border-style: dashed; }
+.ob-trail-statement { margin: 0 0 0.25rem; font-weight: 600; }
+.ob-trail-facts { margin: 0.25rem 0; }
+.ob-trail-facts dd { margin-inline-start: 1rem; }
+.ob-trail-facts ul { margin: 0; padding-inline-start: 1.25rem; }
+.ob-trail-tools { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; align-items: center; margin: 1rem 0; }
+.ob-trail-field { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin: 0; max-width: 100%; }
+.ob-trail-tools select { max-width: 100%; }
+.ob-trail-status { flex-basis: 100%; margin: 0; }
+@media print {
+  .ob-trail-tools { display: none !important; }
+  .ob-atlas-trail-section li[hidden] { display: list-item !important; }
+  .ob-trail-step { break-inside: avoid; }
+}
+@media (forced-colors: active) {
+  .ob-trail-step { border-color: CanvasText; }
 }

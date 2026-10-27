@@ -998,6 +998,50 @@ Both the atlas pages and `atlas.json` are rendered from it, and nothing public r
 atlas. Withdrawing approval removes an item from the next build.
 _Avoid_: Public atlas export, public graph; filtering the private atlas per surface
 
+**Atlas query projection**:
+The bounded, deterministic reading of the atlas projection that components and search use,
+`atlas-query.json`: entry previews, relationships in their stored direction with who asserts them,
+confidence, standing, uncertainty and sources, and a term lookup. It is derived from the atlas
+projection alone, so a query cannot reach anything that is not published, and it is refused whole
+over a size bound rather than cut. It is listed in the publication boundary like any projection
+(ADRs 0168, 0169).
+_Avoid_: Graph API, public search index, a second atlas; querying the private atlas
+
+**Concept link**:
+An author's explicit Markdown link to `atlas:<entry id>` in a post. The build resolves it against
+the public atlas projection alone: a published entry becomes an ordinary link to its page, and
+anything else (a malformed id, an unknown, unapproved or withdrawn entry, or an atlas that is not
+published) becomes the label as plain text with a diagnostic for the author. Prose is never scanned,
+so only the occurrences the author links are linked, and a copy that leaves the site keeps the words
+without the link (ADR 0172). It is underlined with dots and read as "(atlas entry)" (ADR 0173),
+and an `atlas:` link in an image description, a page, a series description or the home introduction
+is its label with a warning, never an address.
+_Avoid_: Automatic link, auto-link, entity recognition, wiki link
+
+**Entry preview**:
+The short card a progressive component shows beside a concept link: the entry's type, the line that
+it comes from the author's approved atlas, the first paragraph of its summary, a work's source and
+up to two relationships with who asserts them, how firmly and what is uncertain. It reads the public
+`atlas-query.json` alone and shows its wording unchanged; without JavaScript, or if the file cannot
+be read, the link is an ordinary link to the entry's page (ADR 0174).
+_Avoid_: Tooltip, hover card, entry summary popup, atlas widget
+
+**Atlas trail**:
+A bounded walk over published relationships from one entry, across either direction, each
+relationship crossed once so a cycle ends it. It lists the steps and nothing more: not a path of
+influence, a ranking or an inferred relationship (ADR 0170). An entry page renders it as a static
+ordered list in which every step shows its relationship in the direction it was stated, which way
+the walk crossed it, who asserts it, how firmly, its evidence and its uncertainty, and a step that
+returns to an entry already on the trail says so instead of continuing; only script adds filters
+(ADR 0175).
+_Avoid_: Influence chain, shortest path, recommendation, graph view
+
+**Preview clip**:
+The cut of an entry's first summary paragraph, or of a relationship's stated doubt, to the query
+projection's text limit, always flagged `previewClipped` or `uncertaintyClipped` so a reader is
+sent to the page for the whole (ADR 0169).
+_Avoid_: Summary, excerpt without a flag
+
 **Published dating**:
 A projected dating as the atlas projection publishes it: who dates what, on which cited evidence,
 how firmly and with what note, at the precision stated and read back in words with BCE written

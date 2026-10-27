@@ -277,8 +277,10 @@ approved, are published, each with who asserts it, its evidence, confidence, dou
 dissent; private notes, notebook passages and unapproved items never are. Datings you approved
 on published items, each cited, are shown on the entry's page with who dates it, the evidence
 and your note, competing datings side by side, and on a timeline at the end of `/atlas/` that
-reads without JavaScript. While it is off, no
-build reads the atlas. Clearing an approval removes the item from the next build. Add
+reads without JavaScript. An entry with approved relationships also ends with a
+[relationship trail](specs/knowledge-atlas.md#relationship-trails): the relationships around it, up
+to three steps out, each with its direction, evidence and doubt, and never inferred. While it is
+off, no build reads the atlas. Clearing an approval removes the item from the next build. Add
 `{ "label": "Atlas", "href": "/atlas/" }` to `nav` to link it from the header. See the
 [Knowledge Atlas format](specs/knowledge-atlas.md#publication).
 

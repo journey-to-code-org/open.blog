@@ -107,6 +107,14 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
         include_str!("../../../web/components/ob-atlas-timeline.js"),
     ),
     (
+        "components/ob-atlas-trail.js",
+        include_str!("../../../web/components/ob-atlas-trail.js"),
+    ),
+    (
+        "components/ob-concept-previews.js",
+        include_str!("../../../web/components/ob-concept-previews.js"),
+    ),
+    (
         "components/ob-passage-feedback.js",
         include_str!("../../../web/components/ob-passage-feedback.js"),
     ),
@@ -907,6 +915,8 @@ pub fn generate_site_with_boundary(
     // Required destinations (including full-content feeds) must succeed before
     // generated output or stale files are changed.
     let files = generate(site, themes)?;
+    site.warnings
+        .extend(openblog_core::render::atlas_trail_warning(site));
     crate::private_guard::refuse_private_research_in_output(&files)?;
     // Private text found outside a projection's machine data only warns.
     let text_matches = crate::boundary::check_output(root, site, &manifest, &files)?;
@@ -1932,12 +1942,13 @@ mod tests {
         assert_eq!(dist_bytes(&root), without);
         // Only the timeline component, which ships with every site like any
         // other component, carries the word; no page loads it.
-        assert!(without.keys().all(
-            |path| !path.contains("atlas") || path == "assets/components/ob-atlas-timeline.js"
-        ));
-        assert!(without
-            .values()
-            .all(|bytes| !String::from_utf8_lossy(bytes).contains("ob-atlas-timeline.js")));
+        assert!(without.keys().all(|path| !path.contains("atlas")
+            || path == "assets/components/ob-atlas-timeline.js"
+            || path == "assets/components/ob-atlas-trail.js"));
+        assert!(without.values().all(|bytes| {
+            let text = String::from_utf8_lossy(bytes);
+            !text.contains("ob-atlas-timeline.js") && !text.contains("ob-atlas-trail.js")
+        }));
         fs::remove_dir_all(root).unwrap();
     }
 

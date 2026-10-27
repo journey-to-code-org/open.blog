@@ -3,6 +3,64 @@
 All notable changes to open.blog are recorded here. Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.44.0] - 2026-10-26
+
+- A site that publishes its Knowledge Atlas now also publishes `atlas-query.json`, a small, bounded
+  reading of the published atlas for the context previews and relationship trails to come. It holds
+  only what `atlas.json` already publishes: approved entries with a short preview, and approved
+  relationships in the direction they were stated, with who asserts them, confidence, standing,
+  uncertainty and sources, with the pages' own wording (kind, who asserts a position, confidence,
+  standing and evidence) already written out so previews never reword it. Nothing private can be
+  in it, an atlas too large for it (or one that does not agree with itself) is left out with a
+  build warning and without affecting the atlas pages or `atlas.json`, and Admin's "What will be
+  public" lists it, its sources and the reason if it is left out.
+  A site that does not publish its atlas builds exactly as before.
+- A post can link a word to an approved Knowledge Atlas entry by writing
+  `[the allegory of the cave](atlas:allegory-of-the-cave)`. Only the words you link are linked, and
+  nothing is recognised automatically. The build turns each link into an ordinary link to the
+  entry's page that works without JavaScript. If the entry is unknown, not approved or withdrawn, or
+  the atlas is off, the words are published as plain text and the build, `check` and Admin name the
+  file and the id. Feeds and portable copies keep the words without the link, and Admin's "What
+  will be public" for the post lists each linked entry. Posts that do not use the syntax are
+  unchanged. A linked word is underlined with dots and read as "(atlas entry)" by a screen reader;
+  Admin's preview shows the links the build makes; an `atlas:` link inside an image description,
+  a page, a series description or the home introduction is shown as its words with a warning,
+  never as a raw address (nor in raw HTML: an `atlas:` `href`, `src`, `srcset`, `poster` and the like
+  is removed with a warning that names the document, not the address); and a stray unclosed link
+  tag no longer links the rest of the post.
+
+- A concept link in a post now previews its entry. On a page with a concept link, focusing or
+  hovering the link (or a first tap on a touch screen) shows a small card with the entry's type,
+  that it comes from your approved atlas, the first paragraph of its summary, a work's source, and up
+  to two relationships with who asserts them, how firmly and what is uncertain, plus a link to the
+  full entry. It reads only the published `atlas-query.json`, works from the keyboard (Tab goes into
+  it, Escape closes it and returns focus, nothing traps focus), keeps your place in the page, respects
+  reduced motion and fits a 320px screen. Without JavaScript, or if the file cannot be read, the link
+  is the ordinary link to the entry page. The card is looked up only when you first show interest in
+  a link (focus, hover or a press), never on load. On a touch screen, which has no hover, the file
+  is read as a link scrolls into view only when it is under 256 KB (the page says its size); a
+  larger one waits for your first tap, and no one who asked to save data is prefetched. The page names the file by its content so a changed
+  atlas is never read from a stale copy, a screen reader that focused the link early hears one
+  announcement when the card is ready, and a link inside a heading keeps the heading's name.
+- Every Markdown form of an `atlas:` link or image is now made safe in one place, so none can leak a
+  private entry id into a post, page, series description, home introduction, feed, search or
+  portable copy: reference, collapsed and shortcut links, autolinks (which have no label, so they
+  show nothing and the build tells you to write `[label](atlas:id)`), and images with an `atlas:`
+  address (always refused, their description is shown as text) all show only their words. A raw
+  `<ob-concept>` mark is removed from copies and the text projection, and one dropped because it is
+  unclosed now warns. A test builds every form to unpublished ids and scans every built file.
+- An entry page of a published Knowledge Atlas now ends with a relationship trail: the entry's
+  published relationships, and the relationships of the entries they reach, up to three steps away
+  and 50 relationships, as a plain ordered list that reads without JavaScript (the first step
+  out in full, further steps as their sentence and a link, within a 20 MB site-wide budget). Every step shows
+  the relationship in the direction it was stated, which way the trail followed it, who asserts it,
+  how firmly, its evidence and what is uncertain; a step that returns to an entry already on the
+  trail says so instead of going round again, and each entry it reaches links to its own page,
+  which continues the trail. Nothing is inferred: a trail is not a line of influence. With
+  JavaScript, controls filter by relationship type, direction, distance and "only contested or
+  uncertain" with a status line, the keyboard moves through without a trap, print shows the whole
+  trail, and it fits a 320px screen. A site that does not publish its atlas builds exactly as before.
+
 ## [0.43.0] - 2026-10-26
 
 - Readers can suggest a question, text, video, audio or other source for the author's future work
