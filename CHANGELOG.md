@@ -7,6 +7,10 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [0.47.0] - 2026-10-27
 
+- Netlify builds only what it deploys: pull request previews and branch deploys (such as `develop`)
+  are skipped, and a production build is skipped when a change touches only tests, docs, top-level
+  Markdown files or GitHub workflows. GitHub CI still tests every change.
+
 - New `demo` fence: ```` ```demo <kind> ```` embeds an interactive lesson demo in a post. Kinds are
   `git-sandbox` (an in-memory Git), `fetch-lab` (a simulated network and Web Storage inspector),
   `component-lab` (a live custom element with a shadow root), `js-evolution` (older and newer JavaScript

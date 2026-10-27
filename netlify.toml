@@ -16,6 +16,20 @@
 [build]
   command = "cargo build --release -p openblog-cli --locked && ./target/release/openblog build"
   publish = "dist"
+  # Netlify build minutes are limited. A production build is skipped when the
+  # change since the last deploy touches only tests, docs, top-level Markdown
+  # files (never posts under content/) or GitHub workflows. The ignore command
+  # exits 0 to skip and 1 to build; the first build, with no cached commit,
+  # always builds.
+  ignore = "test -n \"$CACHED_COMMIT_REF\" && git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- . ':(exclude)tests' ':(exclude)docs' ':(exclude,glob)*.md' ':(exclude).github'"
+
+# Pull request previews and branch deploys (including `develop`) are not built:
+# GitHub CI tests every change, and only `main` is deployed.
+[context.deploy-preview]
+  ignore = "exit 0"
+
+[context.branch-deploy]
+  ignore = "exit 0"
 
 [build.environment]
   CARGO_TERM_COLOR = "always"
