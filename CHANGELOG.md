@@ -5,6 +5,11 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- `fetch-lab` takes `lesson="login"`, `"caching"` or `"testing"`. Login simulates a cookie jar with the
+  `credentials` option and CORS credential headers; caching simulates `Cache-Control`, `ETag`, `304` and
+  `no-store` on a pretend clock the reader advances; testing runs a function against a stubbed `fetch` that
+  succeeds, returns 404, fails, times out or returns broken JSON. A plain fence keeps its original presets.
+
 - Terminal fences (`bash`, `sh`, `console`, `powershell` and friends) are no longer numbered by default,
   and in a `console` session an output line that starts with `##` (for example `git status -sb`) is output,
   not a comment.
