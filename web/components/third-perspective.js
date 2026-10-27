@@ -477,7 +477,7 @@ export function thirdPerspectiveCopyText(submission, canonicalUrl = "") {
     lines.push(`Name: ${submission.attribution.name} (${submission.attribution.publishName ? "may be shown if published" : "not to be shown"})`);
   }
   if (submission.consent.publish) {
-    lines.push(`May be published once approved; may be asked to clarify: ${submission.consent.clarification ? "yes" : "no"}.`);
+    lines.push(`May be published once approved; may be asked to clarify: ${submission.consent.clarification ? "yes" : "no"}; may be featured in a community section: ${submission.consent.feature ? "yes, this text only" : "no"}.`);
     lines.push("", "open.blog Third Perspective record (for the author; keep it on one line):", JSON.stringify(thirdPerspectiveSubmissionValue(submission)));
   } else {
     lines.push("Not for publication: for the author only.");

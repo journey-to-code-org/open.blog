@@ -30,8 +30,18 @@ system beside them: a new state, a new store, or a notion of "featured" that qui
 - **Neither approval nor publication features anything.** A reflection is featurable only when the
   reader's consent in effect agrees to feature exactly the approved text revision (`featureRevision`,
   agreed with the submission or later by the reader's own receipt). The agreement is separate from
-  agreeing to publish, from showing a name and from being asked to clarify, and a form asks for it as
-  its own unticked choice. An Admin user cannot grant it, widen it or assume it.
+  agreeing to publish, from showing a name and from being asked to clarify. An Admin user cannot
+  grant it, widen it or assume it.
+- **The reader's paths exist, and are built with the curation task (#229).** The submission form has an
+  unticked "An editor may feature my reflection in a community section" choice, whose hint says it is
+  separate from publishing, covers only this text, is the editors' choice and that copies already
+  published may remain. The reader's receipt has a `feature` action, allowed while the reflection is
+  pending, in clarification or approved: it appends a consent record (an agreement for the revision the
+  reader sees, or a decline) and raises the version, so a moderator or Admin acting on an earlier view is
+  refused. It is hosted-additive: consents already live in `details`, every reader already knows
+  `featureRevision`, and there is no schema change. The receipt also says feature-specific wording when
+  the reader withdraws: a feature and a shown name stay in the site's history. A reader with no hosted
+  service can still tick the choice in the copy-and-send text.
 - **A selection is a reference.** `FeatureRecord` holds the published reflection's id and post, the
   text revision agreed, a digest of that text, the day it was featured
   and the editor's optional note, and no name. It holds none of the reader's words: the page reads them

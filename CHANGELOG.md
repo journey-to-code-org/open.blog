@@ -5,6 +5,11 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Readers can now agree, or decline, to let an editor feature their Third Perspective in a community
+  section: an unticked choice on the form (separate from publishing, with a note that copies already
+  published may remain) and a choice on their private receipt that works while the reflection is
+  waiting, being clarified or approved. Agreeing covers the text the reader sees, and a later change to
+  the text needs a fresh agreement. Nothing is featured by this alone.
 - Admin now shows "Republish without the name" on a published Third Perspective whose reader hid their
   name after approval, on the card and in the banner on every tab. Until that reflection is published
   again the committed `third-perspectives.json` still holds the name (RD10 never offered the action).

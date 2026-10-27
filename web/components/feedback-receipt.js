@@ -6,6 +6,10 @@
 //
 // Untrusted text is only ever assigned through textContent.
 
+/** What a reader is told about letting an editor feature their reflection (ADR 0230, 0231, 0233). */
+export const FEATURE_CONSENT_LABEL = "An editor may feature this reflection in a community section";
+export const FEATURE_CONSENT_HINT = "This is separate from publishing it. It covers the text as it is now, shown whole with a short note from the editors, and is the editors’ choice, which does not mean anyone agrees with it. If your text changes you are asked again. Untick it to stop: it takes effect at once and the reflection stays published. Copies already published may remain.";
+
 const RECEIPT = /^[A-Za-z0-9_-]{43}$/;
 const SEND_TIMEOUT = 20_000;
 let counter = 0;
@@ -165,7 +169,7 @@ const labelled = (control, id, text) => {
  * whether the author may ask them to clarify the note through it. `consent` is what the reader
  * already chose when sending (a Third Perspective asks first), and `noun` names what they sent.
  */
-export function receiptPanel({ endpoint, receipt, consent: initialConsent = false, noun = "note" }) {
+export function receiptPanel({ endpoint, receipt, consent: initialConsent = false, noun = "note", feature: initialFeature = null }) {
   counter += 1;
   const prefix = `ob-receipt-${counter}`;
   const panel = make("section", "ob-receipt");
@@ -189,8 +193,40 @@ export function receiptPanel({ endpoint, receipt, consent: initialConsent = fals
   consent.checked = initialConsent === true;
   const row = make("p", "ob-receipt-consent");
   row.append(consent, " ", labelled(consent, `${prefix}-consent`, `The author may ask me to clarify this ${noun} through this receipt`));
-  panel.append(title, explain, labelled(field, `${prefix}-field`, "Receipt"), field, copy, row, status);
+  panel.append(title, explain, labelled(field, `${prefix}-field`, "Receipt"), field, copy, row);
   let version = 1;
+  // Whether an editor may feature a reflection: its own choice, for the revision the reader sees.
+  let feature = initialFeature;
+  if (feature) {
+    const box = make("input");
+    box.type = "checkbox";
+    box.checked = feature.agreed === true;
+    const featureHint = make("p", "ob-receipt-hint", FEATURE_CONSENT_HINT);
+    featureHint.id = `${prefix}-feature-hint`;
+    box.setAttribute("aria-describedby", featureHint.id);
+    const featureRow = make("p", "ob-receipt-feature");
+    featureRow.append(box, " ", labelled(box, `${prefix}-feature`, FEATURE_CONSENT_LABEL));
+    panel.append(featureRow, featureHint);
+    box.addEventListener("change", async () => {
+      const wanted = box.checked;
+      box.disabled = true;
+      status.textContent = "Saving…";
+      const { status: code, data } = await call(endpoint, { receipt, action: "feature", consent: wanted, ...(wanted ? { revisionSeen: feature.revision } : {}), expectedVersion: version });
+      box.disabled = false;
+      box.focus();
+      if (code === 200 && data.item) {
+        version = data.item.version;
+        feature = data.item.feature || feature;
+        box.checked = feature.agreed === true;
+        status.textContent = box.checked ? "Saved: an editor may feature this text." : "Saved: it will not be featured.";
+      } else {
+        box.checked = data.item?.feature ? data.item.feature.agreed === true : !wanted;
+        if (data.item?.version) version = data.item.version;
+        status.textContent = code === 409 ? `Your ${noun} changed since you sent it, so this was not saved. Try again.` : receiptProblem(code, data.code);
+      }
+    });
+  }
+  panel.append(status);
   copy.addEventListener("click", async () => {
     try {
       await globalThis.navigator.clipboard.writeText(receipt);
@@ -266,6 +302,33 @@ export function receiptManager({ endpoint, noun: managed = "note" }) {
     if (!item.purged && typeof item.body === "string") {
       result.append(make("p", "ob-receipt-label", "What you wrote:"), make("blockquote", "ob-receipt-body", item.body));
     }
+    if (item.kind === PERSPECTIVE && item.feature && !item.purged) {
+      // The reader's own choice about featuring, for the text they see (ADR 0230, 0231). An agreement
+      // for an earlier text is said plainly: it does not cover this one.
+      const box = make("input");
+      box.type = "checkbox";
+      box.checked = item.feature.agreed === true;
+      const boxHint = make("p", "ob-receipt-hint", item.feature.earlier ? `You agreed to feature an earlier text. That does not cover this one. ${FEATURE_CONSENT_HINT}` : FEATURE_CONSENT_HINT);
+      boxHint.id = `${prefix}-feature-hint`;
+      box.setAttribute("aria-describedby", boxHint.id);
+      const boxRow = make("p", "ob-receipt-feature");
+      boxRow.append(box, " ", labelled(box, `${prefix}-feature`, FEATURE_CONSENT_LABEL));
+      box.addEventListener("change", async () => {
+        const wanted = box.checked;
+        box.disabled = true;
+        status.textContent = "Saving…";
+        const { status: code, data } = await call(endpoint, { receipt, action: "feature", consent: wanted, ...(wanted ? { revisionSeen: item.feature.revision } : {}), expectedVersion: item.version });
+        if (code === 200 && data.item) show(data.item, wanted ? "Saved: an editor may feature this text." : "Saved: it will not be featured.");
+        else if (code === 409 && data.item) show(data.item, receiptProblem(code, data.code));
+        else {
+          box.disabled = false;
+          box.checked = !wanted;
+          box.focus();
+          status.textContent = receiptProblem(code, data.code);
+        }
+      });
+      result.append(boxRow, boxHint);
+    }
     if (item.kind === SUGGESTION && item.credit && !item.purged) {
       // Whether the editors may credit them by the name they gave, for this text as it stands (ADR
       // 0167). Agreement is for one version of the text: after a clarification they are asked again.
@@ -327,7 +390,7 @@ export function receiptManager({ endpoint, noun: managed = "note" }) {
       const withdraw = make("button", undefined, `Withdraw and delete my ${noun}`);
       withdraw.type = "button";
       const confirmRow = make("p", "ob-receipt-confirm");
-      confirmRow.append(confirm, " ", labelled(confirm, `${prefix}-confirm`, item.status === "approved" && publicKind ? `I want this ${noun} taken off ${where} and the hosted copy of its text and my name deleted. I understand that copies already published (the site’s history, feeds and the repository’s history) may remain. This cannot be undone.` : `I want this ${noun}’s ${publicKind ? "text and my name" : "text, my name and any contact address I gave"} deleted. This cannot be undone.`));
+      confirmRow.append(confirm, " ", labelled(confirm, `${prefix}-confirm`, item.status === "approved" && publicKind ? `I want this ${noun} taken off ${where}${item.kind === PERSPECTIVE ? " and out of any community section it is featured in" : ""} and the hosted copy of its text and my name deleted. I understand that copies already published (the site’s history, feeds and the repository’s history) may remain, and that a feature or a name that was published stays in them. This cannot be undone.` : `I want this ${noun}’s ${publicKind ? "text and my name" : "text, my name and any contact address I gave"} deleted. This cannot be undone.`));
       withdraw.addEventListener("click", async () => {
         if (!confirm.checked) {
           status.textContent = `Confirm that you want the ${noun} deleted first.`;
