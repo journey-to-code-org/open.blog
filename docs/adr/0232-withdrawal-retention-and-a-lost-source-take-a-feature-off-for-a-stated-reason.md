@@ -31,12 +31,11 @@ must stop showing a feature when its inputs disappear even before Admin acts.
   | `consent-declined` | the reader's consent in effect no longer agrees to feature |
   | `text-changed` | another revision, another approved revision or another text digest |
   | `not-approved` | the one projection no longer shows it (hidden kind, another work) |
-  | `name-changed` | the shown name is not the recorded one |
 
   The reason's explanation is fixed text: it carries no id, name or reader words.
 - **The static page checks the same facts it has.** `resolve_post` shows a feature only when the
   published reflection is still in `third-perspectives.json` for that post, the one projection still
-  shows it, the digest still matches and the name still agrees. Otherwise the feature is absent, and
+  shows it, the digest still matches. Otherwise the feature is absent, and
   the reason is available to a build warning that names the id only.
 - **Taking a reflection off takes its feature off.** Admin's existing take-off (withdrawal, deletion
   request, removal, upheld report, retention) calls `FeaturesFile::unpublish_reflection`, which removes
@@ -53,7 +52,7 @@ must stop showing a feature when its inputs disappear even before Admin acts.
   reflection itself is not (ADR 0115).
 - **Retention.** Expired retention purges the hosted text, name and consent (RD12); the feature is then
   `deleted` and must come off. The file never holds text or a private name, so there is nothing in it
-  to expire; its remaining record is a reference, a digest, the shown name and the editor's note, and
+  to expire; its remaining record is a reference, a digest and the editor's note, and
   comes off in the same step.
 
 ## Considered options

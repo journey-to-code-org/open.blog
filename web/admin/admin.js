@@ -699,6 +699,7 @@ export function feedbackPublicationMismatch(item) {
 export function perspectivePublicationMismatch(item) {
   if (item.published === false && item.mayBeShown === true) return { notice: "Approved, but not on the site yet.", action: "publish", label: "Publish on the post" };
   if (item.published === true && item.mayBeShown === null) return { notice: "It is on the post, but this page cannot tell whether it may stay: the hosted copy cannot say (Third Perspectives are switched off or rolled back). Check it, and take it off if it should not be shown.", action: "unpublish", label: "Take it off the post" };
+  if (item.published === true && item.mayBeShown === true && item.nameNarrowed === true) return { notice: "The reader hid their name after this was published, but the post's file still holds it. Publish it again without the name.", action: "publish", label: "Republish without the name" };
   if (item.published !== true || item.mayBeShown !== false) return null;
   const notice = {
     withdrawn: "The reader withdrew this reflection through their receipt, and its text and name were deleted, but it is still on the post. Take it off now.",
@@ -736,8 +737,10 @@ export function perspectiveAuditNotices(audit) {
   const off = count(audit?.mustComeOff);
   const unknown = count(audit?.unknown);
   const answers = count(audit?.answersMustComeOff);
+  const names = count(audit?.nameNarrowed);
   if (answers) notices.push({ kind: "answersMustComeOff", text: `${answers} published author response${answers === 1 ? "" : "s"} must come off ${answers === 1 ? "its" : "their"} post${answers === 1 ? "" : "s"}: the author withdrew ${answers === 1 ? "it" : "them"}, or ${answers === 1 ? "its" : "their"} approval no longer allows ${answers === 1 ? "it" : "them"}. The reader’s reflection stays.` });
   if (off) notices.push({ kind: "mustComeOff", text: `${many(off)} must come off ${off === 1 ? "its post" : "their posts"}: the reader withdrew ${off === 1 ? "it" : "them"}, or ${off === 1 ? "its" : "their"} approval or consent no longer allows ${off === 1 ? "it" : "them"}.` });
+  if (names) notices.push({ kind: "nameNarrowed", text: `${many(names)} still ${names === 1 ? "shows" : "show"} a name the reader hid after approval. Publish ${names === 1 ? "it" : "each"} again without the name; until then the name stays in the post's public file.` });
   if (unknown) notices.push({ kind: "unknown", text: `${many(unknown)} cannot be checked against the hosted copy, because Third Perspectives are switched off or rolled back there. Look at ${unknown === 1 ? "it" : "each"}, and take off any that should not be shown.` });
   if (audit?.truncated) notices.push({ kind: "truncated", text: "More reflections are published than one check reads; the first ones were checked." });
   return notices;
@@ -14732,11 +14735,11 @@ export class ObAdmin extends AdminElement {
         return;
       }
       const notices = perspectiveAuditNotices(audit);
-      const entry = (item, label, route = "third-perspectives") => h("li", {}, `${item.post}: `, h("button", { class: "oba-btn", type: "button", "data-perspective-id": item.id, onClick: async (event) => {
+      const entry = (item, label, route = "third-perspectives", operation = "unpublish") => h("li", {}, `${item.post}: `, h("button", { class: "oba-btn", type: "button", "data-perspective-id": item.id, onClick: async (event) => {
         event.currentTarget.disabled = true;
         try {
-          await this.api.call("POST", `engagement/${route}/unpublish`, { json: { id: item.id } });
-          await reloadAll("Taken off its post. Rebuild or publish to update the live site.", "ok");
+          await this.api.call("POST", `engagement/${route}/${operation}`, { json: { id: item.id } });
+          await reloadAll(operation === "publish" ? "Published again without the name. Rebuild or publish to update the live site." : "Taken off its post. Rebuild or publish to update the live site.", "ok");
         } catch (error) {
           event.currentTarget.disabled = false;
           announce(queueStatus, error.message, "error");
@@ -14748,6 +14751,7 @@ export class ObAdmin extends AdminElement {
         h("p", {}, h("strong", {}, notice.text)),
         notice.kind === "answersMustComeOff" ? h("ul", {}, audit.answersMustComeOff.map((item) => entry(item, "Take the answer off the post", "author-responses"))) : null,
         notice.kind === "mustComeOff" ? h("ul", {}, audit.mustComeOff.map((item) => entry(item, "Take it off the post"))) : null,
+        notice.kind === "nameNarrowed" ? h("ul", {}, audit.nameNarrowed.map((item) => entry(item, "Republish without the name", "third-perspectives", "publish"))) : null,
         notice.kind === "unknown" ? h("ul", {}, audit.unknown.map((item) => entry(item, "Take it off the post"))) : null,
       )));
     };

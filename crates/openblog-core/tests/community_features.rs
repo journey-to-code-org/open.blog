@@ -10,7 +10,9 @@ use openblog_core::community_feature::{
 };
 use openblog_core::participation::ParticipationMode;
 use openblog_core::passage_target::PassageDocument;
-use openblog_core::perspective_publication::{PublishedPerspective, ThirdPerspectivesFile};
+use openblog_core::perspective_publication::{
+    NameStanding, PublishedPerspective, ThirdPerspectivesFile,
+};
 use openblog_core::third_perspective::{
     ConsentChange, ConsentChoices, ConsentOutcome, FeatureChange, HostedPerspective, Intake,
     LocalReflection, ModerationFacts, ModerationState, PerspectiveTarget, ReaderAttribution,
@@ -583,14 +585,14 @@ fn a_deleted_source_article_is_never_shown_and_is_not_dropped() {
 // ---- Identity
 
 #[test]
-fn a_name_can_only_narrow_after_a_feature() {
+fn a_hidden_name_leaves_the_committed_file_by_republishing_and_a_feature_keeps_no_name() {
     let w = world("Mina", true);
-    assert_eq!(w.record.name.as_deref(), Some("Mina"));
     let shown = w.page().unwrap();
     assert_eq!(shown.response.name.as_deref(), Some("Mina"));
     assert!(shown.provenance.contains("Mina, a reader"));
+    let post = Some(&w.site.posts[0]);
 
-    // The reader hides their name: the feature stands, anonymously.
+    // The reader hides their name after approval, by their own change.
     let mut hidden = w.copy();
     narrow(
         &mut hidden,
@@ -600,21 +602,48 @@ fn a_name_can_only_narrow_after_a_feature() {
         "2026-10-31T08:00:00Z",
     );
     let row = hosted_row(&hidden, "approved", Some(1));
+    // The feature stands (it was agreed for the text, not the name)...
     assert_eq!(
         w.standing_of(Some((&row, &w.facts))),
         HostedStanding::Covered
     );
+    // ...but the committed file still holds the name until it is published
+    // again, and Admin is told so on every load.
+    assert_eq!(
+        w.published.items[0].name_standing(&row, post, &w.site.config),
+        NameStanding::Narrowed
+    );
+    assert_eq!(
+        w.published.items[0].name_standing(&w.hosted, post, &w.site.config),
+        NameStanding::Current
+    );
+    // Nothing new is featured against the stale file.
+    assert_eq!(
+        try_feature(&w.site, &row, &w.facts, &w.published.items[0], "").unwrap_err(),
+        FeatureError::PublishedDiffers
+    );
+
+    // Republishing from the hosted copy, the one step Admin takes, drops the
+    // name from the file; the feature then shows anonymously.
     let mut published = w.published.clone();
-    published.items[0].name = None;
+    published.publish(publish(&w.site, &row)).unwrap();
+    assert_eq!(published.items[0].name, None);
+    assert!(!published.to_json().contains("Mina"));
+    assert_eq!(
+        published.items[0].name_standing(&row, post, &w.site.config),
+        NameStanding::Current
+    );
     let anonymous = w.page_with(&published).unwrap();
     assert_eq!(anonymous.response.name, None);
     assert!(anonymous.provenance.contains("from a reader,"));
+    // The feature file never held the name at all.
+    assert!(!FeaturesFile {
+        items: vec![w.record.clone()]
+    }
+    .to_json()
+    .contains("Mina"));
 
-    // Another name than the one agreed is never shown, and nothing widens
-    // after approval.
-    let mut renamed = w.published.clone();
-    renamed.items[0].name = Some("Someone Else".into());
-    assert_eq!(w.page_with(&renamed).unwrap_err(), FeatureOff::NameChanged);
+    // Nothing widens after approval, and a private name is never published.
     let mut widen = w.copy();
     let error = widen
         .revise_consent(
@@ -623,16 +652,14 @@ fn a_name_can_only_narrow_after_a_feature() {
                 publish: true,
                 attribution: ReaderAttribution::named("Someone Else", true),
                 clarification: true,
-                feature: FeatureChange::Agree { revision_seen: 1 },
+                feature: FeatureChange::Keep,
             },
             time("2026-10-31T08:00:00Z"),
         )
         .unwrap_err();
     assert_eq!(error.code(), "wideningAfterDecision");
-
-    // A feature of a private name records no name.
     let private = world("Hidden Reader", false);
-    assert_eq!(private.record.name, None);
+    assert_eq!(private.published.items[0].name, None);
 }
 
 // ---- Placement
@@ -786,7 +813,7 @@ fn an_editors_note_may_not_claim_popularity_a_count_or_agreement() {
 fn good_item() -> Value {
     json!({
         "id": ID_1, "post": SOURCE, "revision": 1, "digest": body_digest(REFLECTION),
-        "name": "Mina", "featured": "2026-10-28", "context": "A careful reading."
+        "featured": "2026-10-28", "context": "A careful reading."
     })
 }
 
@@ -819,6 +846,7 @@ fn the_file_is_versioned_strict_canonical_and_holds_no_words_or_private_field() 
         ("votes", json!(3)),
         ("moderator", json!("mikey")),
         ("featureRevision", json!(1)),
+        ("name", json!("Mina")),
     ] {
         let mut bad = good_item();
         bad[field] = value;
@@ -835,7 +863,6 @@ fn the_file_is_versioned_strict_canonical_and_holds_no_words_or_private_field() 
         ("revision", json!(0)),
         ("digest", json!("ABC")),
         ("featured", json!("2026-13-01")),
-        ("name", json!("")),
         ("context", json!("")),
         ("context", json!("  padded ")),
         ("context", json!("The most popular one")),

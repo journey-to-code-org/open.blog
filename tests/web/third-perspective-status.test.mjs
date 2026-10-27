@@ -72,3 +72,13 @@ test("the banner counts published reflections that must come off and those that 
   assert.match(unknown.text, /^1 published reflection cannot be checked against the hosted copy/);
   assert.equal(truncated.kind, "truncated");
 });
+
+test("a name the reader hid after publication is offered for republishing without it", () => {
+  const perspectivePublicationMismatch = feedbackPublicationMismatch;
+  const mismatch = perspectivePublicationMismatch({ kind: "third-perspective", status: "approved", published: true, mayBeShown: true, nameNarrowed: true });
+  assert.deepEqual(mismatch, { notice: "The reader hid their name after this was published, but the post's file still holds it. Publish it again without the name.", action: "publish", label: "Republish without the name" });
+  assert.equal(perspectivePublicationMismatch({ kind: "third-perspective", status: "approved", published: true, mayBeShown: true, nameNarrowed: false }), null);
+  const [notice] = perspectiveAuditNotices({ nameNarrowed: [{ id: "a", post: "posts/x.md" }] });
+  assert.equal(notice.kind, "nameNarrowed");
+  assert.match(notice.text, /^1 published reflection still shows a name the reader hid after approval/);
+});

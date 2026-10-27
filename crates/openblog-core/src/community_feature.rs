@@ -13,10 +13,11 @@
 //! fields only, read strictly, canonical text). A selection holds a
 //! *reference*, never the reader's words: the id of the published reflection,
 //! the text revision the reader agreed to feature, a digest of the text that
-//! was agreed, the name shown at that time, the day it was featured and the
-//! editor's note. The words and the name come from the published reflection,
-//! so a withdrawal, a hidden name or a deletion that takes the reflection off
-//! takes its feature off too.
+//! was agreed, the day it was featured and the editor's note. The words and
+//! the name come from the published reflection, so a withdrawal or a deletion
+//! that takes the reflection off takes its feature off too, and a name the
+//! reader hides is hidden by republishing that one reflection (ADR 0231): a
+//! feature keeps no second copy of the name to forget.
 //!
 //! Everything here is pure and answers three questions:
 //!
@@ -44,15 +45,12 @@ use crate::date::DateTime;
 use crate::feedback_publication::{is_day, is_post_source};
 use crate::model::Post;
 use crate::participation::ParticipationMode;
-use crate::passage_target::normalize_passage_text;
 use crate::perspective_publication::{
     project_post as project_perspectives, PublicPerspective, PublishedPerspective,
     ThirdPerspectivesFile,
 };
 use crate::scholarly_feedback::is_uuid;
-use crate::third_perspective::{
-    ApprovedResponse, HostedPerspective, ModerationFacts, MAX_READER_NAME_CHARS,
-};
+use crate::third_perspective::{ApprovedResponse, HostedPerspective, ModerationFacts};
 
 /// The file's name, in the content folder.
 pub const COMMUNITY_FEATURES_FILE: &str = "community-perspectives.json";
@@ -102,7 +100,8 @@ pub enum FeatureError {
     ConsentMissing,
     /// The reader agreed to feature another revision of their text.
     ConsentForOtherRevision,
-    /// The published reflection is not the hosted text or name.
+    /// The published reflection is not the hosted text or name: a name the
+    /// reader has hidden since is republished first.
     PublishedDiffers,
     /// Only a site Admin user may choose what to feature.
     InvalidEditor,
@@ -160,8 +159,6 @@ pub enum FeatureOff {
     ConsentDeclined,
     /// The text is not the text the reader agreed to feature.
     TextChanged,
-    /// The reader's name is not the name they agreed to show.
-    NameChanged,
     /// The article it is about is gone.
     SourceGone,
 }
@@ -174,7 +171,6 @@ impl FeatureOff {
             FeatureOff::NotApproved => "not-approved",
             FeatureOff::ConsentDeclined => "consent-declined",
             FeatureOff::TextChanged => "text-changed",
-            FeatureOff::NameChanged => "name-changed",
             FeatureOff::SourceGone => "source-gone",
         }
     }
@@ -189,7 +185,6 @@ impl FeatureOff {
             FeatureOff::TextChanged => {
                 "the text is not the text the reader agreed to have featured"
             }
-            FeatureOff::NameChanged => "the reader's name is not the one they agreed to show",
             FeatureOff::SourceGone => "the article it is about is no longer published",
         }
     }
@@ -306,9 +301,6 @@ pub struct FeatureRecord {
     pub revision: u32,
     /// The digest of that text.
     pub digest: String,
-    /// The name the reflection showed when it was featured, if any. A name
-    /// that differs from it later is never shown.
-    pub name: Option<String>,
     /// The day it was featured, `YYYY-MM-DD`.
     pub featured: String,
     /// The editor's note, plain text.
@@ -322,8 +314,6 @@ struct WireRecord {
     post: String,
     revision: u32,
     digest: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    name: Option<String>,
     featured: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     context: Option<String>,
@@ -371,7 +361,6 @@ impl FeatureRecord {
             post: source.to_string(),
             revision: copy.revision,
             digest: body_digest(&copy.body),
-            name: response.name,
             featured: request.at.ymd().max(published.approved.clone()),
             context,
         };
@@ -427,11 +416,11 @@ impl FeatureRecord {
         let target = crate::third_perspective::TargetStatus::from(
             &document.resolve(&copy.provenance.target, Some(&copy.provenance.revision)),
         );
-        let Some(response) = copy.approved_response(facts, mode, &work, &target) else {
+        if copy
+            .approved_response(facts, mode, &work, &target)
+            .is_none()
+        {
             return off(FeatureOff::NotApproved);
-        };
-        if !name_agrees(response.name.as_deref(), self.name.as_deref()) {
-            return off(FeatureOff::NameChanged);
         }
         HostedStanding::Covered
     }
@@ -460,20 +449,6 @@ impl FeatureRecord {
         if !is_day(&self.featured) {
             return Err("`featured` must be a day written YYYY-MM-DD".into());
         }
-        if let Some(name) = &self.name {
-            let count = name.chars().count();
-            if count == 0
-                || count > MAX_READER_NAME_CHARS
-                || normalize_passage_text(name) != *name
-                || name
-                    .chars()
-                    .any(|c| c.is_control() || crate::research_notes::bidi_override(c))
-            {
-                return Err(format!(
-                    "`name` must be 1 to {MAX_READER_NAME_CHARS} characters of plain text"
-                ));
-            }
-        }
         if let Some(context) = &self.context {
             match normalize_context(context) {
                 Ok(Some(normal)) if normal == *context => {}
@@ -499,7 +474,6 @@ impl FeatureRecord {
             post: wire.post,
             revision: wire.revision,
             digest: wire.digest,
-            name: wire.name,
             featured: wire.featured,
             context: wire.context,
         };
@@ -513,18 +487,9 @@ impl FeatureRecord {
             post: self.post.clone(),
             revision: self.revision,
             digest: self.digest.clone(),
-            name: self.name.clone(),
             featured: self.featured.clone(),
             context: self.context.clone(),
         }
-    }
-}
-
-/// A name may only narrow: shown as agreed, or hidden, never another.
-fn name_agrees(now: Option<&str>, agreed: Option<&str>) -> bool {
-    match now {
-        None => true,
-        Some(now) => agreed == Some(now),
     }
 }
 
@@ -731,9 +696,6 @@ pub fn resolve_post(
                     .ok_or(FeatureOff::NotApproved)?;
                 if body_digest(&item.body) != record.digest {
                     return Err(FeatureOff::TextChanged);
-                }
-                if !name_agrees(public.response.name.as_deref(), record.name.as_deref()) {
-                    return Err(FeatureOff::NameChanged);
                 }
                 Ok(FeaturedPerspective {
                     id: record.id.clone(),

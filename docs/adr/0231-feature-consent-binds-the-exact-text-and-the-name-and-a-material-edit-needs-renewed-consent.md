@@ -41,11 +41,18 @@ match the text must not carry over to different text.
   for byte, never an excerpt, truncation, pull quote or edited version, because a cut can change what
   the reader said. The editor says why it is worth reading in their own note, labelled as theirs
   (ADR 0234).
-- **A name may only narrow.** The feature records the name shown when it was chosen (none when the
-  reader kept it private or it matched a credited name). A reader who later hides their name changes
-  nothing else: the feature stands, anonymously. A name that differs from the recorded one, or one added
-  where there was none, is never shown (`nameChanged`), whether a stored history is wrong or the
-  published file was edited. A reader cannot widen a name after approval at all (ADR 0110).
+- **A name may only narrow, and it lives in one file.** A feature keeps no name: the page shows the name
+  the published reflection shows (none when the reader kept it private or it matched a credited name),
+  so a second committed copy of a name does not exist to forget. A reader who later hides their name
+  changes nothing else: the feature stands, anonymously. The hidden name does remain in
+  `third-perspectives.json` until that reflection is published again, and so would a feature's own copy
+  have; Admin therefore compares the published name with the hosted copy on every inbox load
+  (`PublishedPerspective::name_standing`, `NameStanding::Narrowed`) and shows, on the card and in the
+  banner on every tab, "Republish without the name", the one step that drops it (ADR 0115 promised
+  this action; RD14 builds it). Until the owner commits and publishes, the name is still in the public
+  file and in git history (ADR 0233). A feature of a reflection whose published name is stale is refused
+  (`publishedDiffers`) until it is republished. A reader cannot widen a name after approval at all
+  (ADR 0110).
 - **Editing the note is not a material edit.** The note is the editors' own words about the reflection;
   changing it needs no consent from the reader and shows no new reader text. It must still pass
   ADR 0234's rules.
@@ -61,5 +68,6 @@ match the text must not carry over to different text.
   reader never gave (RD10 behaved so until this correction; the stored records are unaffected).
 - **Allow light editing of featured text (trimming, spelling).** Rejected: any edit puts words in the
   reader's mouth; if the reader wants a change they clarify and renew.
-- **Let the featured name differ from the published name.** Rejected: one projection decides what a
-  reader's name is, and a second would be a second place to leak or widen it.
+- **Keep the name in the feature record and narrow it with a second republish.** Rejected: it doubles
+  the places Admin must clean when a reader hides their name, for no field the page needs; one
+  projection decides what a reader's name is.

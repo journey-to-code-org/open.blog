@@ -26,7 +26,7 @@ without breaking sites that already have it. It must not become a second copy of
   indentation and a final line break) so a change is a small, deterministic diff. A reader refuses a
   newer version, an unknown field, a repeated id, a malformed value or a note that fails ADR 0234,
   naming the item and never its contents. Nothing is repaired or dropped.
-- **Public fields only.** An item has `id`, `post`, `revision`, `digest`, an optional `name`, `featured`
+- **Public fields only.** An item has `id`, `post`, `revision`, `digest`, `featured`
   and an optional `context`. It has no reader text, no receipt or its digest, no consent records, no
   editor or moderator, no reason and no time of day; the strict reader refuses each of those by name,
   and a test pins it.

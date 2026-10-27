@@ -33,13 +33,14 @@ system beside them: a new state, a new store, or a notion of "featured" that qui
   agreeing to publish, from showing a name and from being asked to clarify, and a form asks for it as
   its own unticked choice. An Admin user cannot grant it, widen it or assume it.
 - **A selection is a reference.** `FeatureRecord` holds the published reflection's id and post, the
-  text revision agreed, a digest of that text, the name shown when it was chosen, the day it was
-  featured and the editor's optional note. It holds none of the reader's words: the page reads them
+  text revision agreed, a digest of that text, the day it was featured
+  and the editor's optional note, and no name. It holds none of the reader's words: the page reads them
   from the published reflection (ADR 0115), so everything that takes a reflection off (withdrawal,
   deletion, removal, a hidden kind) takes its feature off without a second copy to forget.
 - **Only a site Admin user chooses.** `FeatureRecord::new` needs a valid Admin user name and then
   checks, against the hosted copy, that the one projection shows it now, that the consent agrees to its
-  approved revision, and that the published file holds the same text and the same shown name. Each
+  approved revision, and that the published file holds the same text and the same shown name (a name the reader hid since
+  is republished first). Each
   failure is a stable code (`notShownNow`, `consentMissing`, `consentForOtherRevision`,
   `publishedDiffers`, `invalidEditor`) and nothing is written.
 - **Featured is a place, not a promotion.** A feature has exactly one placement: the community section

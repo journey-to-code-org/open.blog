@@ -269,6 +269,29 @@ impl PublishedPerspective {
         post.is_some_and(|post| Self::response_of(hosted, post, config).is_some())
     }
 
+    /// Whether the published file still shows the reader's name as the hosted
+    /// copy shows it now. A reader may hide their name after approval (ADR
+    /// 0110), and the committed file keeps the name it was published with until
+    /// the reflection is published again, so Admin asks this on every inbox
+    /// load: [`NameStanding::Narrowed`] means `publish` it again from the hosted
+    /// copy, which is the one step that drops the name from the file. A copy
+    /// the projection no longer shows is [`NameStanding::Current`] here: taking
+    /// it off is the other check (`shown_now`).
+    pub fn name_standing(
+        &self,
+        hosted: &HostedPerspective,
+        post: Option<&Post>,
+        config: &SiteConfig,
+    ) -> NameStanding {
+        let shown = post.and_then(|post| Self::response_of(hosted, post, config));
+        match (shown, &self.name) {
+            (Some(response), Some(name)) if response.name.as_ref() != Some(name) => {
+                NameStanding::Narrowed
+            }
+            _ => NameStanding::Current,
+        }
+    }
+
     pub(crate) fn response_of(
         hosted: &HostedPerspective,
         post: &Post,
@@ -420,6 +443,16 @@ impl PublishedPerspective {
             target,
         )
     }
+}
+
+/// Whether a published reflection names the reader as the hosted copy does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NameStanding {
+    /// The file shows no name, or the name the copy shows now.
+    Current,
+    /// The file shows a name the copy no longer shows (the reader hid it, or
+    /// the stored name is not the file's): publish the reflection again.
+    Narrowed,
 }
 
 /// Every approved Third Perspective the site publishes.

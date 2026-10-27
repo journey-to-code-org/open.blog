@@ -1851,10 +1851,10 @@ _Avoid_: Terms acceptance, blanket permission, approval
 
 **Feature record**:
 An editor's selection of a published reflection, kept as a reference in `community-perspectives.json`:
-its id and post, the text revision agreed, a digest of that text, the name shown when chosen, the day
-featured and an optional editors' note. It holds none of the reader's words and no editor's name; the
-page reads the words from the published reflection. A reflection has at most one record, and a
-name may only narrow after it (ADR 0230, 0231, 0235).
+its id and post, the text revision agreed, a digest of that text, the day featured and an
+optional editors' note. It holds none of the reader's words, no name and no editor's name; the page
+reads the words and the name from the published reflection, so a name the reader hides is dropped by
+republishing that reflection. A reflection has at most one record (ADR 0230, 0231, 0235).
 _Avoid_: Copy of a reflection, featured flag, ranking entry
 
 **Community section**:

@@ -5,6 +5,10 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Admin now shows "Republish without the name" on a published Third Perspective whose reader hid their
+  name after approval, on the card and in the banner on every tab. Until that reflection is published
+  again the committed `third-perspectives.json` still holds the name (RD10 never offered the action).
+  A feature keeps no name of its own.
 - Fixed: changing any other part of a reader's consent (such as whether they may be asked to clarify)
   no longer renews their agreement to feature a Third Perspective for text they have since edited.
   Only an explicit agreement for the text the reader sees binds feature consent. Stored consent

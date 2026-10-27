@@ -5400,6 +5400,26 @@ fn perspective_must_come_off(
     }
 }
 
+/// Whether the published file still shows a name the hosted copy no longer
+/// shows (the reader hid it after approval): the one step that removes it from
+/// the committed file is publishing the reflection again (ADR 0115, 0231).
+/// Only where the hosted function reads consent, else the copy cannot say.
+fn perspective_name_narrowed(
+    site: &Site,
+    third_perspectives: bool,
+    file: &perspective_publication::ThirdPerspectivesFile,
+    item: &moderation_inbox::InboxItem,
+) -> bool {
+    let (true, Some(hosted), Some(record)) =
+        (third_perspectives, item.perspective(), file.get(&item.id))
+    else {
+        return false;
+    };
+    let post = feedback_moderation::post_for_work(site, &hosted.copy.provenance.work);
+    record.name_standing(hosted, post, &site.config)
+        == perspective_publication::NameStanding::Narrowed
+}
+
 /// `POST engagement/third-perspectives/publish` or `/unpublish`: put an
 /// approved Third Perspective on its post again, after a failed write or an
 /// approval made outside Admin, or take one off that may no longer be shown
@@ -5673,15 +5693,17 @@ fn published_perspectives_audit(state: &AppState, session: &auth::Session) -> Re
     let mut must_come_off = Vec::new();
     let mut unknown = Vec::new();
     let mut answers_off = Vec::new();
+    let mut name_narrowed = Vec::new();
     for record in file.items.iter().take(PERSPECTIVE_AUDIT_LIMIT) {
         let entry = json!({ "id": record.id, "post": record.post });
         match hosted_inbox_lookup(state, moderation_inbox::Source::Feedback, &record.id) {
             Ok(Some((protocol, third_perspectives, item))) => {
-                let (role, state_now) =
+                let (role, state_now, narrowed) =
                     sources.inbox(session, protocol, third_perspectives, |inbox| {
                         (
                             inbox.actor(&item).role(),
                             perspective_must_come_off(inbox.site, third_perspectives, &item),
+                            perspective_name_narrowed(inbox.site, third_perspectives, &file, &item),
                         )
                     });
                 if role != moderation::ActorRole::SiteAdmin {
@@ -5703,6 +5725,7 @@ fn published_perspectives_audit(state: &AppState, session: &auth::Session) -> Re
                 match state_now {
                     Some(true) => must_come_off.push(entry),
                     None => unknown.push(entry),
+                    Some(false) if narrowed => name_narrowed.push(entry),
                     Some(false) => {}
                 }
             }
@@ -5723,6 +5746,7 @@ fn published_perspectives_audit(state: &AppState, session: &auth::Session) -> Re
             "mustComeOff": must_come_off,
             "unknown": unknown,
             "answersMustComeOff": answers_off,
+            "nameNarrowed": name_narrowed,
         }),
     )
 }
@@ -6383,6 +6407,10 @@ fn inbox_view(
                     Some(must) => json!(!must),
                     None => Json::Null,
                 };
+            // The reader hid their name after it was published: the file still holds it.
+            view["nameNarrowed"] = json!(perspectives.is_some_and(|file| {
+                perspective_name_narrowed(inbox.site, inbox.third_perspectives, file, item)
+            }));
         } else if item.kind == ParticipationKind::FutureSuggestion {
             // A suggestion is never published, in any file, whatever its state:
             // accepting it admits it to the editors' private list (ADR 0152).
@@ -24047,6 +24075,113 @@ What I read:
             refused.contains("third-perspectives.json: item 1:"),
             "{refused}"
         );
+    }
+
+    #[test]
+    fn a_name_the_reader_hid_leaves_the_published_file_when_it_is_published_again() {
+        use openblog_core::third_perspective::{
+            ConsentChange, ConsentChoices, FeatureChange, Intake, LocalReflection, ModerationFacts,
+            PerspectiveTarget, ReaderAttribution,
+        };
+        let f = fixture("perspective-name-narrowed");
+        let (site, _) = site::load_site(&f.dir, false, None).unwrap();
+        let post = site.posts[0].clone();
+        let document = PassageDocument::of_post(&post, &site.config);
+        let mut copy = LocalReflection {
+            work: post.url.clone(),
+            revision: document.revision.clone(),
+            target: PerspectiveTarget::work(),
+            category: None,
+            body: "A reader’s reading.".into(),
+            attribution: ReaderAttribution::named("Mina", true),
+            seen_at: None,
+        }
+        .submission(ConsentChoices {
+            publish: true,
+            clarification: false,
+            feature: false,
+        })
+        .receive(
+            openblog_core::DateTime::parse("2026-10-26T10:00:00Z").unwrap(),
+            Intake::Hosted {
+                receipt_digest: "5e".repeat(32),
+            },
+        )
+        .unwrap();
+        let item = |copy: &third_perspective::SubmittedCopy| {
+            let record: Json = serde_json::from_str(&copy.to_json()).unwrap();
+            moderation_inbox::InboxItem::from_value(&json!({
+                "source": "feedback", "id": FEEDBACK_ITEM_ID, "status": "approved", "version": 2,
+                "moderatedAt": "2026-10-27T09:00:00Z", "reason": null,
+                "feedback": {"version": 1, "kind": "third-perspective", "body": copy.body, "details": copy.stored_details(), "provenance": record["provenance"]},
+                "itemRevision": 1, "approvedRevision": 1,
+                "clarificationAsked": null, "clarificationConsent": false, "approvedConsent": 1,
+            }))
+            .unwrap()
+        };
+        let path = f
+            .dir
+            .join("content")
+            .join(perspective_publication::THIRD_PERSPECTIVES_FILE);
+        publish_approved_perspective(&path, &site, item(&copy).perspective().unwrap()).unwrap();
+        let works = moderation::SharedWorks::new(&[], &site);
+        let identities = Identities {
+            active_admin_users: &[],
+            contributor_ids: &[],
+        };
+        let inbox = moderation_inbox::Inbox {
+            site: &site,
+            works: &works,
+            principal: moderation::Principal::ModerationToken,
+            identities: &identities,
+            policy: moderation::ModerationPolicy::default(),
+            protocol: moderation_inbox::Protocol::Protected,
+            third_perspectives: true,
+            now: clock::now(),
+        };
+        let file = || load_third_perspectives(&path).unwrap();
+        assert_eq!(file().items[0].name.as_deref(), Some("Mina"));
+        let view = inbox_view(&inbox, &item(&copy), None, Some(&file())).unwrap();
+        assert_eq!(view["nameNarrowed"], json!(false));
+
+        // The reader hides their name after approval, through their receipt.
+        copy.revise_consent(
+            &ModerationFacts {
+                state: moderation::ModerationState::Approved,
+                revision: 1,
+                approved_revision: Some(1),
+                approved_consent: Some(1),
+                clarification_asked: None,
+                content_retained: true,
+            },
+            ConsentChange {
+                publish: true,
+                attribution: ReaderAttribution::named("Mina", false),
+                clarification: false,
+                feature: FeatureChange::Keep,
+            },
+            openblog_core::DateTime::parse("2026-10-28T10:00:00Z").unwrap(),
+        )
+        .unwrap();
+        let hidden = item(&copy);
+        let view = inbox_view(&inbox, &hidden, None, Some(&file())).unwrap();
+        assert_eq!(
+            (
+                &view["published"],
+                &view["mayBeShown"],
+                &view["nameNarrowed"]
+            ),
+            (&json!(true), &json!(true), &json!(true)),
+            "the card offers the republish"
+        );
+        assert!(!perspective_name_narrowed(&site, false, &file(), &hidden));
+
+        // Publishing again, the one step the card offers, drops the name.
+        publish_approved_perspective(&path, &site, hidden.perspective().unwrap()).unwrap();
+        assert_eq!(file().items[0].name, None);
+        assert!(!fs::read_to_string(&path).unwrap().contains("Mina"));
+        let view = inbox_view(&inbox, &hidden, None, Some(&file())).unwrap();
+        assert_eq!(view["nameNarrowed"], json!(false));
     }
 
     #[test]
