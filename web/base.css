@@ -3682,3 +3682,83 @@ ob-native-lab .ob-native-target.ob-native-in-view { border-color: var(--ob-color
 ob-native-lab .ob-native-field { display: grid; gap: 0.25rem; margin-top: 0.75rem; }
 ob-native-lab .ob-native-field label { font-size: 0.85em; }
 ob-native-lab input[type="range"] { width: 100%; min-height: 2.75rem; accent-color: var(--ob-color-accent, currentColor); }
+
+/* <ob-practice-lab>: guided Git practice terminal. Themed through --ob-* tokens. */
+ob-practice-lab {
+  display: block;
+  margin-block: var(--ob-space-5, 1.5rem);
+  padding: var(--ob-space-4, 1rem);
+  border: var(--ob-border-width, 1px) solid var(--ob-color-border, currentColor);
+  border-radius: var(--ob-radius, 0.5rem);
+  background: var(--ob-color-surface, transparent);
+}
+ob-practice-lab .ob-practice-status { margin: 0 0 0.25rem; color: var(--ob-color-muted, inherit); font-size: 0.8em; letter-spacing: 0.06em; text-transform: uppercase; }
+ob-practice-lab .ob-practice-goal { margin: 0 0 0.75rem; font-weight: 700; }
+ob-practice-lab .ob-practice-log {
+  height: 14rem;
+  padding: 0.75rem;
+  overflow-y: auto;
+  border-radius: var(--ob-radius-sm, 4px);
+  background: var(--ob-color-code-bg, transparent);
+  color: var(--ob-color-code-text, inherit);
+  font: 0.85rem/1.5 var(--ob-font-mono, monospace);
+}
+ob-practice-lab .ob-practice-line { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+ob-practice-lab .ob-practice-line.is-cmd { font-weight: 700; }
+ob-practice-lab .ob-practice-line.is-why { margin-bottom: 0.5rem; font-style: italic; opacity: 0.85; }
+ob-practice-lab .ob-practice-line.is-err { border-left: 4px solid var(--ob-color-accent, currentColor); padding-left: 0.5rem; }
+ob-practice-lab .ob-practice-line.is-tip { color: var(--ob-color-muted, inherit); }
+ob-practice-lab .ob-practice-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.75rem; }
+ob-practice-lab .ob-practice-form label { flex-basis: 100%; font-size: 0.8em; color: var(--ob-color-muted, inherit); }
+ob-practice-lab .ob-practice-input {
+  flex: 1 1 14rem;
+  min-height: 2.75rem;
+  padding: 0.4rem 0.7rem;
+  border: var(--ob-border-width, 1px) solid var(--ob-color-border, currentColor);
+  border-radius: var(--ob-radius-sm, 4px);
+  background: var(--ob-color-code-bg, transparent);
+  color: var(--ob-color-code-text, inherit);
+  font: 1rem var(--ob-font-mono, monospace);
+}
+ob-practice-lab button {
+  min-height: 2.75rem;
+  padding: 0.4rem 0.9rem;
+  border: var(--ob-border-width, 1px) solid var(--ob-color-accent-border, currentColor);
+  border-radius: var(--ob-radius-sm, 4px);
+  background: transparent;
+  color: var(--ob-color-text, inherit);
+  font: inherit;
+  cursor: pointer;
+}
+ob-practice-lab button:hover:not(:disabled) { background: var(--ob-color-accent, currentColor); color: var(--ob-color-accent-contrast, Canvas); }
+ob-practice-lab button:disabled { opacity: 0.5; cursor: not-allowed; }
+ob-practice-lab .ob-practice-restart { margin-top: 0.75rem; }
+ob-practice-lab button:focus-visible,
+ob-practice-lab .ob-practice-input:focus-visible,
+ob-practice-lab .ob-practice-log:focus-visible { outline: var(--ob-focus-ring, 3px solid currentColor); outline-offset: 2px; }
+ob-practice-lab .ob-practice-pager { padding: 0; }
+ob-practice-lab .ob-practice-pager:focus-visible { outline: var(--ob-focus-ring, 3px solid currentColor); outline-offset: 2px; }
+ob-practice-lab .ob-practice-pager-view {
+  height: 12.5em;
+  margin: 0;
+  padding: 0.75rem 0.75rem 0;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-radius: var(--ob-radius-sm, 4px) var(--ob-radius-sm, 4px) 0 0;
+  background: var(--ob-color-code-bg, transparent);
+  color: var(--ob-color-code-text, inherit);
+  font: 0.85rem/1.5 var(--ob-font-mono, monospace);
+}
+ob-practice-lab .ob-practice-pager-prompt {
+  margin: 0;
+  padding: 0 0.75rem 0.5rem;
+  border-radius: 0 0 var(--ob-radius-sm, 4px) var(--ob-radius-sm, 4px);
+  background: var(--ob-color-code-bg, transparent);
+  color: var(--ob-color-code-text, inherit);
+  font: 700 0.85rem/1.5 var(--ob-font-mono, monospace);
+}
+ob-practice-lab .ob-practice-pager-keys,
+ob-practice-lab .ob-practice-pager-summary { margin: 0.5rem 0 0; color: var(--ob-color-muted, inherit); font-size: 0.8em; }
+ob-practice-lab .ob-practice-pager-controls { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
+ob-practice-lab [hidden] { display: none; }

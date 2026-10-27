@@ -356,7 +356,8 @@ If both sides edited the same file, Git stops with a conflict.
 | Kind | Demo |
 | --- | --- |
 | `git-sandbox` | An in-memory Git you can drive with commands or buttons: commits, branches, merges, conflicts. |
-| `fetch-lab` | A simulated network inspector and Web Storage panel: edit a request, see what `fetch()` and `response.json()` do, hit the quota. |
+| `git-practice` | A guided practice terminal: one goal at a time, the reader types each Git command and sees what it would print. Add `lesson="<id>"` to pick a scripted lesson (ids in `web/components/ob-practice-model.js`). |
+| `fetch-lab` | A simulated network inspector and Web Storage panel: edit a request, see what `fetch()` and `response.json()` do, hit the quota. Add `lesson="login"`, `lesson="caching"` or `lesson="testing"` to swap in a scenario instead: cookies and `credentials` with CORS, `Cache-Control`/`ETag`/304 with a pretend clock, or a stubbed `fetch` for testing. Without `lesson` the original lab is unchanged. |
 | `component-lab` | A live custom element with a shadow root: change attributes, slots and CSS custom properties. |
 | `js-evolution` | Older and newer JavaScript for the same task, side by side, run on the same fixed data across three milestones (2015, 2017, 2020). |
 | `audio-lab` | A real, quiet Web Audio synth: oscillator, low-pass filter, live signal trace. Sound plays only after Start. |

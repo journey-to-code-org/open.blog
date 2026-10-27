@@ -5,6 +5,13 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- New `demo git-practice` kind with `lesson="<id>"`: a guided practice terminal where the reader types each
+  Git command and sees what it would print. Lessons are scripted in `ob-practice-model.js` with accepted
+  alternates, hints after wrong answers, and long output that opens in a simulated `less` (space, `b`, `j`/`k`,
+  `g`/`G`, `q`). The prompt answers to shell keys: Up and Down (or Ctrl+P and Ctrl+N) walk earlier commands and
+  restore a half-typed line, and Ctrl+A, Ctrl+E, Ctrl+U, Ctrl+W, Ctrl+L and Ctrl+C edit, clear and cancel the
+  line without breaking copy.
+
 - `fetch-lab` takes `lesson="login"`, `"caching"` or `"testing"`. Login simulates a cookie jar with the
   `credentials` option and CORS credential headers; caching simulates `Cache-Control`, `ETag`, `304` and
   `no-store` on a pretend clock the reader advances; testing runs a function against a stubbed `fetch` that
