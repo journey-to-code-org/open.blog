@@ -62,7 +62,14 @@ export function conceptEntryId(destination) {
   return id.length <= 64 && ID.test(id) ? id : null;
 }
 
-/** The page a published entry has, as the atlas publishes it. */
-export function entryHref(id) {
-  return `/atlas/${id}/`;
+const BASE_PATH = /^(?:\/[A-Za-z0-9._~-]+)*$/;
+
+/**
+ * The page a published entry has, as the atlas publishes it, under the site's base path ("" or
+ * "/blog", the way the build writes it). A base that is not a plain path (a host, a query, a
+ * traversal, doubled slashes) is ignored: the address stays on the site's own origin.
+ */
+export function entryHref(id, base = "") {
+  const prefix = String(base ?? "").replace(/\/+$/, "");
+  return `${BASE_PATH.test(prefix) && !prefix.split("/").some((part) => part === ".." || part === ".") ? prefix : ""}/atlas/${id}/`;
 }

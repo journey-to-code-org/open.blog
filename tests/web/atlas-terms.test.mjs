@@ -58,6 +58,16 @@ test("conceptEntryId agrees with the shared concept link fixtures", () => {
   assert.equal(entryHref("plato"), "/atlas/plato/");
 });
 
+test("entryHref puts the site's base path in front and ignores anything that is not a plain path", () => {
+  assert.equal(entryHref("plato", ""), "/atlas/plato/");
+  assert.equal(entryHref("plato", "/blog"), "/blog/atlas/plato/");
+  assert.equal(entryHref("plato", "/blog/"), "/blog/atlas/plato/");
+  assert.equal(entryHref("plato", "/a/b"), "/a/b/atlas/plato/");
+  for (const bad of ["https://evil.test", "//evil.test", "blog", "/..", "/a/../b", "/a?x", "/a b", "/a//b", null, undefined]) {
+    assert.equal(entryHref("plato", bad), "/atlas/plato/", String(bad));
+  }
+});
+
 test("a term looked up in prose and a concept id are different things", () => {
   // Writing a label never links it: only an explicit atlas: destination does.
   assert.equal(conceptEntryId("Plato"), null);
