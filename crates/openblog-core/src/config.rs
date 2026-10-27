@@ -108,6 +108,26 @@ pub struct SiteConfig {
         skip_serializing_if = "ReadingModesConfig::is_default"
     )]
     pub reading_modes: ReadingModesConfig,
+    /// Opt-in local highlights and private notes for readers (ADR 0454).
+    /// Omitted from the written file while it is off.
+    #[serde(skip_serializing_if = "ReaderAnnotationsConfig::is_off")]
+    pub reader_annotations: ReaderAnnotationsConfig,
+}
+
+/// Whether posts offer readers local highlights and private notes. Off by
+/// default: pages are then exactly what they were. On, each post gains a
+/// region and a script that keep a reader's annotations in that reader's own
+/// browser; the build never sees them.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ReaderAnnotationsConfig {
+    pub enabled: bool,
+}
+
+impl ReaderAnnotationsConfig {
+    fn is_off(&self) -> bool {
+        !self.enabled
+    }
 }
 
 /// The site-wide default reading mode (ADR 0142). It only decides where a
@@ -501,6 +521,7 @@ impl Default for SiteConfig {
             reading_paths: ReadingPathsConfig::default(),
             curated_context: CuratedContextConfig::default(),
             reading_modes: ReadingModesConfig::default(),
+            reader_annotations: ReaderAnnotationsConfig::default(),
         }
     }
 }

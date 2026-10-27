@@ -238,6 +238,15 @@ pub(crate) const THIRD_PERSPECTIVE_ANCHOR: &str = "ob-third-perspective";
 pub(crate) const FUTURE_SUGGESTION_ANCHOR: &str = "ob-future-suggestion";
 /// The id of the page data element that holds a post's passage text.
 pub const PASSAGE_DATA_ELEMENT_ID: &str = "ob-passages";
+/// A post's region for the reader's own highlights and notes (ADR 0454). It
+/// holds only text: the saved annotations never leave the reader's browser.
+const READER_ANNOTATIONS_REGION: &str = "<section id=\"ob-annotations\" class=\"ob-annotations\" aria-labelledby=\"ob-annotations-title\">
+<h2 id=\"ob-annotations-title\">Your highlights and notes</h2>
+<ob-annotations>
+<p class=\"ob-annotations-static\">Highlights and private notes need JavaScript. With it, you can mark words in this post and add notes that stay in this browser only; nothing is sent to anyone. Without it, the post reads as usual.</p>
+</ob-annotations>
+</section>
+";
 /// The page data element holding what a reader may name in an evidence
 /// offer (ADR 0116): only what the site publishes.
 pub const EVIDENCE_DATA_ELEMENT_ID: &str = "ob-evidence-references";
@@ -2111,6 +2120,12 @@ impl<'a> Renderer<'a> {
         if let Some((region, _)) = &passage_feedback {
             body.push_str(region);
         }
+        // A reader's own highlights and private notes (ADR 0454), kept in
+        // that reader's browser; the region's static text is the no-JavaScript path.
+        let reader_annotations = c.reader_annotations.enabled;
+        if reader_annotations {
+            body.push_str(READER_ANNOTATIONS_REGION);
+        }
         // Approved Third Perspectives, each a reader's and never an author's,
         // are shown on the canonical page only (ADRs 0111 and 0115), apart
         // from the authors' text and before the form that asks for more.
@@ -2304,6 +2319,7 @@ impl<'a> Renderer<'a> {
             reader_references: references.map(ReaderReferences::to_script_element),
             participation_scripts: [
                 passage_feedback.as_ref().map(|_| "ob-passage-feedback.js"),
+                reader_annotations.then_some("ob-annotations.js"),
                 third_perspective
                     .as_ref()
                     .map(|_| "ob-third-perspective.js"),
@@ -2318,7 +2334,7 @@ impl<'a> Renderer<'a> {
             .flatten()
             .collect(),
             passage_data: passage_feedback.map(|(_, data)| data).or_else(|| {
-                third_perspective.as_ref().map(|_| {
+                (third_perspective.is_some() || reader_annotations).then(|| {
                     passage_data_element(
                         post,
                         &crate::passage_target::PassageDocument::of_post(post, c),

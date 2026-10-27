@@ -7,9 +7,10 @@ with no account. This page is the contract those features share. It is implement
 [ADR 0450](../adr/0450-reader-annotations-are-one-reader-private-local-document-that-is-never-research-notes-and-never-public.md) (separate, local, private),
 [ADR 0451](../adr/0451-an-annotation-names-its-work-by-site-and-path-and-its-text-by-a-passage-target-and-staleness-is-derived-never-stored.md) (identity and stale state),
 [ADR 0452](../adr/0452-an-export-states-its-privacy-scope-and-leaves-note-text-out-unless-the-reader-includes-it.md) (export privacy) and
-[ADR 0453](../adr/0453-reader-annotation-validation-is-strict-scoped-to-the-record-and-never-repairs-or-repeats-reader-text.md) (validation).
+[ADR 0453](../adr/0453-reader-annotation-validation-is-strict-scoped-to-the-record-and-never-repairs-or-repeats-reader-text.md) (validation) and
+[ADR 0454](../adr/0454-highlights-and-notes-are-opt-in-per-site-keep-the-article-unchanged-and-save-only-to-bounded-local-storage.md) (highlights and notes on a page).
 
-This task defines the contract. Local highlights and notes (#85), the trail and saved-source organizer
+The contract comes first. Local highlights and notes (#85, below), the trail and saved-source organizer
 (#86) and import, export and privacy controls (#87) build on it. A site and its posts are unchanged
 until those features are used; nothing here is in the build, Admin or any feed.
 
@@ -90,3 +91,24 @@ repaired and the caller keeps what it had. Messages never repeat reader text.
 `serializeDocument` writes the canonical form: fixed field order, two-space indent, LF, trailing newline.
 Automated behaviour here never claims a passage is true, authoritative or licensed to copy; an annotation
 records only what a reader chose to keep.
+
+## Highlights and notes on a page
+
+A site opts in with `readerAnnotations.enabled`. Each post then has a "Your highlights and notes" region
+(`<ob-annotations>`, `web/components/ob-annotations.js`). Without JavaScript it is one paragraph saying what it
+needs. With it:
+
+- **Make.** Select words in the post, then "Highlight the selected words", or write a note and attach it to the
+  selected words, a section or the whole post. The buttons keep the last valid selection, so a keyboard reader
+  can select with the arrow keys, tab to a button and press it. A selection that cannot be quoted is explained.
+- **Find.** Saved passages are painted over the post (CSS Custom Highlight API, where available) without
+  changing its markup, and every annotation is a list item: "Show in the post" selects it, "Add a note" or
+  "Edit note" edits it, "Delete" asks first. Each button names its passage, changes are announced in a status
+  region, and focus returns to the control that made the change.
+- **Revisions.** Each visit looks every annotation up again against the published text: found where it was
+  saved, moved (the same words found in changed text), or not found with the reason. A not-found annotation stays
+  in the list with its quoted words and is never moved on a guess.
+- **Storage.** One key, `openblog.reader-annotations`, holds the whole document. If the browser denies storage
+  or is full, the reader is told and changes last until the page closes. Data under the key that this version
+  cannot read is never overwritten.
+- **Safety.** Everything a reader wrote is set as text. The page holds no annotation and makes no request.

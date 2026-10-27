@@ -2270,3 +2270,15 @@ The statement every annotation document and export carries: `reader-private`, an
 note text is `included` or `omitted`. It is checked, so a file cannot claim to omit notes while holding
 them (ADR 0452).
 _Avoid_: Visibility, sharing setting
+
+**Annotation region**:
+The part of a post, offered only by a site that turns on `readerAnnotations`, where a reader makes and manages
+their own highlights and notes. It carries no annotation: the build publishes only its static text, the post's
+passage text and a script, and what the reader keeps stays in their browser (ADR 0454).
+_Avoid_: Comments section, annotation feed
+
+**Moved annotation**:
+A reader's highlight whose words were found again, in the same or another section, because the post changed
+since it was saved. It is shown as moved and painted at the new place; an annotation whose words cannot be found
+is stale and stays listed with its reason, never silently moved (ADRs 0451, 0454).
+_Avoid_: Updated highlight, repaired highlight

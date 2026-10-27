@@ -49,7 +49,8 @@ default, so you can edit values in place and delete the ones you do not need.
   "comparisons": { "publish": false },
   "readingPaths": { "publish": false },
   "curatedContext": { "publish": false },
-  "readingModes": { "default": "standard" }
+  "readingModes": { "default": "standard" },
+  "readerAnnotations": { "enabled": false }
 }
 ```
 
@@ -364,6 +365,13 @@ default of its own. It never opts a post in. The order is the post's own
 `readingModes: {default: ...}`, then this site default, then standard, and a reader's saved choice
 beats all three. The key is optional and read tolerantly: a bare mode name works, and anything
 else is read as standard instead of failing the configuration.
+
+## Reader annotations
+
+`readerAnnotations.enabled` (off by default) gives every post a "Your highlights and notes" region where a
+reader can highlight words and keep private notes (see [Reader annotations](specs/reader-annotations.md#highlights-and-notes-on-a-page)).
+They are kept in that reader's own browser and are never sent to you, to the build or to any service. Turning
+it on adds the region, the post's passage text and one script to each post; with it off, pages are unchanged.
 
 ## Claim evidence
 

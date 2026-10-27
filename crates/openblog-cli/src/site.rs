@@ -175,6 +175,22 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
         include_str!("../../../web/components/ob-passage-feedback.js"),
     ),
     (
+        "components/ob-annotations.js",
+        include_str!("../../../web/components/ob-annotations.js"),
+    ),
+    (
+        "components/passage-selection.js",
+        include_str!("../../../web/components/passage-selection.js"),
+    ),
+    (
+        "components/reader-annotations.js",
+        include_str!("../../../web/components/reader-annotations.js"),
+    ),
+    (
+        "components/reader-annotations-store.js",
+        include_str!("../../../web/components/reader-annotations-store.js"),
+    ),
+    (
         "components/passage-feedback.js",
         include_str!("../../../web/components/passage-feedback.js"),
     ),
