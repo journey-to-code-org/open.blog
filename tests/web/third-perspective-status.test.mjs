@@ -105,7 +105,7 @@ test("a card offers featuring only to the site Admin, only for an approved refle
   assert.deepEqual(Object.keys(featureRequest(base, "")).sort(), ["context", "expectedVersion", "id"], "no rank, count or score is ever sent");
 });
 
-test("the features banner lists what must come off, what is hidden and what cannot be checked, with no counts of reflections", () => {
+test("the features banner lists what must come off, what is hidden and what cannot be checked, counting only Admin tasks and never anything a reader sees", () => {
   const { featureAuditNotices, featureStandingText } = featuring;
   assert.deepEqual(featureAuditNotices(undefined), []);
   assert.deepEqual(featureAuditNotices({ features: [{ id: "a", standing: "covered" }] }), []);
@@ -120,4 +120,12 @@ test("the features banner lists what must come off, what is hidden and what cann
   assert.match(featureStandingText({ standing: "hidden", explanation: "the article it is about is no longer published" }), /publishing the article again restores it/);
   assert.match(featureStandingText({ standing: "mustComeOff", explanation: "the reader withdrew this reflection" }), /^It must come off: the reader withdrew/);
   assert.doesNotMatch(JSON.stringify(notices), /popular|rank|vote|score/i);
+});
+
+test("a failed features check says so for every error except 403, which is not the site Admin", () => {
+  const { featureAuditFailure } = featuring;
+  assert.equal(featureAuditFailure({ status: 403, message: "denied" }), null);
+  for (const status of [404, 409, 500, 502, undefined]) {
+    assert.match(featureAuditFailure({ status, message: "Nope." }), /^Featured reflections could not be checked against the hosted copy\. Nope\.$/);
+  }
 });

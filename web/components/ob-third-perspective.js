@@ -350,7 +350,7 @@ export class ObThirdPerspective extends HTMLElement {
     // chooses it (ADR 0230). It is for this text only, and the receipt takes it back.
     const feature = make("input");
     feature.type = "checkbox";
-    const featureHint = hint("feature", "Separate from publishing it. If a moderator approves your reflection, an editor may also choose it to be shown again in a community section of this page, with a short note from the editors saying why. It is shown whole, as you wrote it, and only this text: if you change it you are asked again. Featuring is the editors’ choice and does not mean anyone agrees with it. You can take this back later with your receipt, but copies already published may remain.");
+    const featureHint = hint("feature", "Separate from publishing it. If a moderator approves your reflection, an editor may also choose it to be shown again in a community section of this page, with an optional short note from the editors saying why. It is shown whole, as you wrote it, and only this text: if you change it you are asked again. Featuring is the editors’ choice and does not mean anyone agrees with it. You can take this back, and agree again, from your receipt. Taking it down takes effect when the editors next update the site, and copies already published may remain.");
     feature.setAttribute("aria-describedby", featureHint.id);
 
     const privacy = hint("privacy", this.#hosted

@@ -8,7 +8,7 @@
 
 /** What a reader is told about letting an editor feature their reflection (ADR 0230, 0231, 0233). */
 export const FEATURE_CONSENT_LABEL = "An editor may feature this reflection in a community section";
-export const FEATURE_CONSENT_HINT = "This is separate from publishing it. It covers the text as it is now, shown whole with a short note from the editors, and is the editors’ choice, which does not mean anyone agrees with it. If your text changes you are asked again. Untick it to stop: it takes effect at once and the reflection stays published. Copies already published may remain.";
+export const FEATURE_CONSENT_HINT = "This is separate from publishing it. It covers the text as it is now, shown whole, with an optional short note from the editors, and is the editors’ choice, which does not mean anyone agrees with it. If your text changes you are asked again. Untick it to stop: the reflection stays published, and the feature is taken down when the editors next update the site. You can agree again from this receipt. Copies already published may remain.";
 
 const RECEIPT = /^[A-Za-z0-9_-]{43}$/;
 const SEND_TIMEOUT = 20_000;

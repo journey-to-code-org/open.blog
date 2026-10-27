@@ -782,7 +782,7 @@ export function featureRequest(item, context) {
 /** How one feature stands, in words an editor reads; `reason` is the server's fixed explanation. */
 export function featureStandingText(feature) {
   if (feature.standing === "covered") return "It stands: the reflection is approved, shown and the reader still agrees.";
-  if (feature.standing === "hidden") return `It is hidden for now: ${feature.explanation || "the article it is about is not published"}. Nothing else has changed, so publishing the article again restores it. You may also take it off.`;
+  if (feature.standing === "hidden") return `It is hidden for now: ${feature.explanation || "the article it is about is not published"}. The reflection and the reader’s agreement still stand, so publishing the article again restores it. You may also take it off.`;
   if (feature.standing === "mustComeOff") return `It must come off: ${feature.explanation || "it no longer stands"}.`;
   return "This page cannot tell whether it may stay: the hosted copy cannot say (Third Perspectives are switched off or rolled back). Look at it, and take it off if it should not be shown.";
 }
@@ -804,6 +804,16 @@ export function featureAuditNotices(audit) {
   if (unknown.length) notices.push({ kind: "unknown", items: unknown, text: `${many(unknown.length)} cannot be checked against the hosted copy, because Third Perspectives are switched off or rolled back there. Look at ${unknown.length === 1 ? "it" : "each"}, and take off any that should not be shown.` });
   if (audit?.truncated) notices.push({ kind: "truncated", items: [], text: "More features exist than one check reads; the first ones were checked." });
   return notices;
+}
+
+/**
+ * What the banner says when the audit itself fails: nothing for a 403 (not the site Admin), and for
+ * any other failure that the features could not be checked, so a silent failure is never read as
+ * "all clear".
+ */
+export function featureAuditFailure(error) {
+  if (error?.status === 403) return null;
+  return `Featured reflections could not be checked against the hosted copy. ${error?.message || ""}`.trim();
 }
 
 /** The retention dry run's summary, in words: what would expire or be purged, by kind. */
@@ -14844,7 +14854,8 @@ export class ObAdmin extends AdminElement {
       } catch (error) {
         featureMap = new Map();
         // Not a site that features anything, or not the site Admin: nothing to say.
-        featureBanner.replaceChildren(error.status === 404 || error.status === 403 ? [] : h("p", { class: "oba-notice", role: "status" }, `Featured reflections could not be checked against the hosted copy. ${error.message}`));
+        const failure = featureAuditFailure(error);
+        featureBanner.replaceChildren(failure === null ? [] : h("p", { class: "oba-notice", role: "status" }, failure));
         return;
       }
       featureMap = new Map((audit.features || []).map((entry) => [entry.id, entry]));
