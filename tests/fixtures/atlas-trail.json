@@ -51,15 +51,15 @@
     { "id": "r-authored", "depth": 1, "kind": "authored", "kindLabel": "authored", "direction": "forward", "contested": true, "uncertain": true, "again": false, "reached": "republic" },
     { "id": "r-developed", "depth": 1, "kind": "developed", "kindLabel": "developed", "direction": "forward", "contested": false, "uncertain": false, "again": false, "reached": "cave" },
     { "id": "r-influenced", "depth": 1, "kind": "influenced", "kindLabel": "influenced", "direction": "backward", "contested": false, "uncertain": false, "again": true, "reached": "cave" },
-    { "id": "r-related", "depth": 1, "kind": "related-to", "kindLabel": "related to", "direction": "backward", "contested": false, "uncertain": true, "again": false, "reached": "socrates" },
+    { "id": "r-related", "depth": 1, "kind": "related-to", "kindLabel": "related to", "direction": "symmetric", "contested": false, "uncertain": true, "again": false, "reached": "socrates" },
     { "id": "r-discusses", "depth": 2, "kind": "discusses", "kindLabel": "discusses", "direction": "forward", "contested": false, "uncertain": false, "again": true, "reached": "cave" }
   ],
   "filters": [
     { "name": "no filter shows every step", "filters": {}, "shown": ["r-authored", "r-developed", "r-influenced", "r-related", "r-discusses"] },
     { "name": "one type", "filters": { "kind": "authored" }, "shown": ["r-authored"] },
     { "name": "a type the trail does not have", "filters": { "kind": "nope" }, "shown": [] },
-    { "name": "along the stated direction", "filters": { "direction": "forward" }, "shown": ["r-authored", "r-developed", "r-discusses"] },
-    { "name": "against the stated direction", "filters": { "direction": "backward" }, "shown": ["r-influenced", "r-related"] },
+    { "name": "along the stated direction (a symmetric relationship is shown under either direction)", "filters": { "direction": "forward" }, "shown": ["r-authored", "r-developed", "r-related", "r-discusses"] },
+    { "name": "against the stated direction (a symmetric relationship is shown under either direction)", "filters": { "direction": "backward" }, "shown": ["r-influenced", "r-related"] },
     { "name": "an unknown direction shows nothing", "filters": { "direction": "sideways" }, "shown": [] },
     { "name": "within one step", "filters": { "depth": 1 }, "shown": ["r-authored", "r-developed", "r-influenced", "r-related"] },
     { "name": "within two steps", "filters": { "depth": 2 }, "shown": ["r-authored", "r-developed", "r-influenced", "r-related", "r-discusses"] },

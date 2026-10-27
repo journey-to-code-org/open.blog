@@ -19,7 +19,7 @@ would make a reader's trail look complete when it is not.
 
 - **Bounds, in the module, as constants:** 2,000 entries; 10,000 relationships; 240 characters of
   preview or uncertainty; 50 listed relationship ids per entry per direction; lookup terms of at
-  most 80 characters; 4 MiB serialized; trails of at most 3 steps deep and 200 steps. The limits a
+  most 80 characters; 4 MiB serialized; trails of at most 3 steps deep and 50 steps. The limits a
   reader may rely on (text, listed edges, trail depth and steps) are written into the file as
   `limits`.
 - **Counts and size are refused whole, never truncated.** An atlas over the entry, relationship or

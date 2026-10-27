@@ -49,7 +49,7 @@
       "maxTextChars": 240,
       "maxListedEdges": 50,
       "maxTrailDepth": 3,
-      "maxTrailSteps": 200
+      "maxTrailSteps": 50
     },
     "entries": [
       {

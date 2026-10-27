@@ -81,9 +81,24 @@ test("the status says how many are shown and every filter in force, and never cl
   const filters = { kind: "related-to", direction: "backward", depth: 1, doubtful: true };
   const shown = filterSteps(steps, filters);
   const text = statusText(steps, shown, filters);
-  assert.match(text, /^Showing 1 of 5 relationships; type: related to; against the direction stated; within one step; only contested or uncertain relationships\./);
+  assert.match(text, /^Showing 1 of 5 relationships; type: related to; against the direction stated; relationships that read the same both ways are shown under either choice; within one step; only contested or uncertain relationships\./);
   assert.match(text, /keeps its direction, evidence and uncertainty/);
   const none = filterSteps(steps, { kind: "authored", direction: "backward" });
   assert.match(statusText(steps, none, { kind: "authored", direction: "backward" }), /Showing 0 of 5 relationships.*Nothing matches; reset the filters/);
   assert.match(statusText([steps[0]], [true], {}), /^Showing 1 of 1 relationship\./);
+});
+
+test("a relationship that reads the same both ways is shown under either direction and never called against one", () => {
+  const symmetric = steps.find((step) => step.direction === "symmetric");
+  assert.equal(symmetric.id, "r-related");
+  for (const direction of ["forward", "backward"]) {
+    const shown = filterSteps(steps, { direction });
+    assert.equal(shown[steps.indexOf(symmetric)], true, direction);
+    assert.match(statusText(steps, shown, { direction }), /read the same both ways are shown under either choice/);
+  }
+  // A trail with none says nothing about them.
+  const directed = steps.filter((step) => step.direction !== "symmetric");
+  assert.doesNotMatch(statusText(directed, filterSteps(directed, { direction: "backward" }), { direction: "backward" }), /same both ways/);
+  // The kind's words come from the step's own attribute when it has one (a compact step has no Type entry).
+  assert.equal(readStep({ "data-kind": "influenced", "data-kind-label": "influenced" }).kindLabel, "influenced");
 });

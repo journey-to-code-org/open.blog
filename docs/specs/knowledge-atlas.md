@@ -386,7 +386,7 @@ bounded page data for components and search. It is not a page and is not in the 
 {
   "format": "openblog-atlas-query",
   "formatVersion": 1,
-  "limits": { "maxTextChars": 240, "maxListedEdges": 50, "maxTrailDepth": 3, "maxTrailSteps": 200 },
+  "limits": { "maxTextChars": 240, "maxListedEdges": 50, "maxTrailDepth": 3, "maxTrailSteps": 50 },
   "entries": [
     { "id": "plato", "kind": "person", "kindLabel": "Person", "label": "Plato",
       "aliases": ["Aristocles"], "preview": "An Athenian philosopher.", "previewClipped": true,
@@ -452,7 +452,7 @@ bounded page data for components and search. It is not a page and is not in the 
   `atlas.json` and the pages are unaffected, the build prints a `boundary:` warning, and the Admin
   preview says why, with the reason `over-limit` or `inconsistent`.
 - The Rust API (`entry`, `edge`, `source`, `lookup`, `edges_of`, `trail`) is closed and read-only.
-  `trail` is a breadth-first walk to depth 3 and 200 steps over either direction, crossing each
+  `trail` is a breadth-first walk to depth 3 and 50 steps over either direction, crossing each
   relationship once so a cycle ends it, and says nothing beyond its steps.
 - The publication-boundary manifest lists the file as the `atlas-query` projection, with one item
   per entry and relationship and the fields each copies, and one item per source it holds. The
@@ -534,24 +534,28 @@ exactly when the file does) and loads `/assets/components/ob-concept-previews.js
 [ADR 0207](../adr/0207-a-relationship-trail-is-a-static-ordered-list-of-published-steps-with-direction-and-evidence-and-filters-only-by-script.md).
 Every entry page with at least one published relationship ends its relationship lists with a
 "Relationship trail" region (`#atlas-section-trail`): the bounded walk of ADR 0202 (breadth first,
-either direction, each relationship crossed once, at most three steps away and 200 steps) as an
+either direction, each relationship crossed once, at most three steps away and 50 steps) as an
 ordered list of distances ("One step from X", ...), each an ordered list of steps, readable without
 CSS or JavaScript. It is rendered from the query projection that writes `atlas-query.json`; when
 that projection is not written (over its bounds, or not consistent) the page has no trail and keeps
 its relationship lists. A site that does not publish its atlas has no trail.
 
 - A step is `<li id="atlas-trail-<relationship id>" class="ob-trail-step">` with `data-depth`,
-  `data-kind`, `data-direction` (`forward` or `backward`: which way the walk crossed it),
+  `data-kind`, `data-direction` (`forward` or `backward`: which way the walk crossed it; `symmetric` for a kind that reads the same both ways), `data-kind-label`,
   `data-standing` (`asserted` or `contested`), `data-uncertain` (`true` when an uncertainty is
   stated) and `data-again` (`true` when it arrives at an entry already on the trail). Its sentence
   is the relationship in the direction it was stated; a list of facts gives its type, its direction
   (as stated, and as followed, or that the kind reads the same both ways), who asserts it, how
   firmly (never how widely accepted), its standing, its evidence (reference and locator) and its
   uncertainty (clipped visibly, with a link to read it in full; an unstated one says that is not a
-  claim of certainty). It links to the relationship in full.
+  claim of certainty). It links to the relationship in full. That list of facts is on the first step
+  out only; a step two or three away is its sentence, which way it was followed and the link, and
+  every step keeps its data attributes for the filters. When every entry page's trail together
+  would pass 20 MB, every trail is one step deep and the build prints a `warning:`. Under either
+  direction filter a `symmetric` step stays visible.
 - A step that arrives at an entry already on the trail says so and does not continue from it, so a
   cycle is a sentence. Each reached entry links to its own page, which continues the trail from
-  there. When the walk was cut at 200 steps the page says so; when it stopped at three steps it says
+  there. When the walk was cut at 50 steps the page says so; when it stopped at three steps it says
   to follow an entry's link to go further. A skip link leads to a focusable end line.
 - A trail is not a line of influence: nothing infers a relationship that was not published, joins
   steps, ranks, scores or draws them. Private or withdrawn entries and relationships cannot appear.

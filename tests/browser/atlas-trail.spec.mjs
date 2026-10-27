@@ -113,7 +113,7 @@ async function overflow(page) {
 test.describe("without JavaScript", () => {
   test.use({ javaScriptEnabled: false });
 
-  test("the trail is a complete semantic list with type, direction, evidence and uncertainty on every step", async ({ page }) => {
+  test("the trail is a complete semantic list with type, direction, evidence and uncertainty on the first steps and the sentence and a link beyond", async ({ page }) => {
     await open(page);
     const trail = page.getByRole("region", { name: "Relationship trail" });
     await expect(trail).toBeVisible();
@@ -124,11 +124,16 @@ test.describe("without JavaScript", () => {
     await expect(trail.locator("ol.ob-trail-steps > li")).toHaveCount(6);
     await expect(trail.locator("ol.ob-trail-depths > li")).toHaveCount(2);
     for (const step of await steps(page).all()) {
+      // The first step out has every fact; a step further out is its sentence, which way it was
+      // followed and a link to the relationship in full (the page keeps its data for the filters).
+      const facts = (await step.getAttribute("data-depth")) === "1" ? 1 : 0;
       for (const term of ["Type", "Direction", "Asserted by", "Confidence", "Standing", "Evidence", "Uncertainty"]) {
-        await expect(step.locator("dt", { hasText: new RegExp(`^${term}$`) })).toHaveCount(1);
+        await expect(step.locator("dt", { hasText: new RegExp(`^${term}$`) })).toHaveCount(facts);
       }
+      await expect(step.locator("p.ob-trail-statement")).toHaveCount(1);
       await expect(step.getByRole("link", { name: "The relationship in full" })).toHaveCount(1);
     }
+    await expect(page.locator("#atlas-trail-r-discusses")).toContainText("Followed in the direction it was stated");
     // Direction is said in words, both ways, and never inferred where it is not stated.
     await expect(trail).toContainText("This step follows it backward, against the direction it was stated");
     await expect(trail).toContainText("this kind of relationship reads the same in both directions");
@@ -198,8 +203,16 @@ test("the controls are a labelled group of native controls and the status says w
 test("a filter hides whole steps, keeps what a shown step says, and the status names every filter", async ({ page }) => {
   await enhanced(page);
   await tools(page).getByLabel("Direction followed").selectOption("backward");
-  await expect(status(page)).toContainText("Showing 3 of 6 relationships; against the direction stated.");
+  await expect(status(page)).toContainText("Showing 3 of 6 relationships; against the direction stated; relationships that read the same both ways are shown under either choice.");
   await expect(visibleSteps(page)).toHaveCount(3);
+  // A relationship that reads the same both ways is shown under either direction, and is never
+  // described as followed against the one it was stated in.
+  await expect(page.locator("#atlas-trail-r-related")).toBeVisible();
+  await tools(page).getByLabel("Direction followed").selectOption("forward");
+  await expect(page.locator("#atlas-trail-r-related")).toBeVisible();
+  await expect(page.locator("#atlas-trail-r-related")).toHaveAttribute("data-direction", "symmetric");
+  await expect(page.locator("#atlas-trail-r-influenced")).toBeHidden();
+  await tools(page).getByLabel("Direction followed").selectOption("backward");
   // A distance with nothing left is hidden with its heading; steps stay in the page.
   await tools(page).getByLabel("How far").selectOption("1");
   await expect(status(page)).toContainText("within one step");
@@ -315,15 +328,15 @@ test("the regions do not overflow at 320px, nor at 400% zoom, with a long label 
   }
 });
 
-test("a large graph stays bounded: 200 steps, a stated stop, and filters that still work", async ({ page }) => {
+test("a large graph stays bounded: 50 steps, compact beyond the first, a stated stop, and filters that still work", async ({ page }) => {
   await enhanced(page, "hub");
-  expect(await steps(page).count()).toBe(200);
-  await expect(section(page)).toContainText("The trail stops after 200 relationships; more exist.");
-  await expect(status(page)).toContainText("Showing 200 of 200 relationships.");
+  expect(await steps(page).count()).toBe(50);
+  await expect(section(page)).toContainText("The trail stops after 50 relationships; more exist.");
+  await expect(status(page)).toContainText("Showing 50 of 50 relationships.");
   await tools(page).getByLabel("Only contested or uncertain relationships").check();
-  // Every seventh of the 200 steps carries a stated doubt: 0, 7, ... 196.
-  await expect(visibleSteps(page)).toHaveCount(29);
-  await expect(status(page)).toContainText("Showing 29 of 200 relationships");
+  // Every seventh of the 50 steps carries a stated doubt: 0, 7, ... 49.
+  await expect(visibleSteps(page)).toHaveCount(8);
+  await expect(status(page)).toContainText("Showing 8 of 50 relationships");
   const measured = await overflow(page);
   expect(measured.content).toBeLessThanOrEqual(1);
 });

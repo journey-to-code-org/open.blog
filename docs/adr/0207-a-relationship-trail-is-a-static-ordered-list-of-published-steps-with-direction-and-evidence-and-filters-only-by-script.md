@@ -40,7 +40,7 @@ hard to read without sight or a pointer.
   order (depth, then the order entries were reached, outgoing before incoming, each by id). The
   section is a labelled region with real headings and lists, readable without CSS or JavaScript.
   A skip link ends at a focusable "End of the relationship trail." line, so a keyboard reader can
-  leave up to 200 steps at once.
+  leave up to 50 steps at once.
 - **Every step shows its relationship, as stated.** The step's sentence is always the stated one,
   from its stated side ("Plato authored Republic", never reversed to suit the walk), and the step
   lists, with the query projection's own wording: its type; its direction; who asserts it; how
@@ -52,8 +52,8 @@ hard to read without sight or a pointer.
 - **Direction is shown honestly, in two parts.** The first is the direction it was stated ("Stated
   from A to B"). The second is the way this walk crossed it: "This step follows it forward, in the
   direction it was stated" or "backward, against the direction it was stated". A kind that reads
-  the same both ways (`related to`) says so and is never described as followed against its
-  direction. A trail goes out across relationships in either direction because reading about an
+  the same both ways (`related to`) says so, carries `data-direction="symmetric"` and is never
+  described as followed against its direction. A trail goes out across relationships in either direction because reading about an
   entry means reading what others said of it, but it never reverses a relationship into one that
   was not published (no "was influenced by" that someone did not state).
 - **A cycle is a sentence.** A step that arrives at an entry already on the trail (including the
@@ -63,11 +63,27 @@ hard to read without sight or a pointer.
   each reached entry is an ordinary link to its own page, following a loop is following links with
   a Back button, never a trap. The same step can be reached again from another page; nothing
   remembers where a reader has been.
-- **Bounded and says so.** At most 200 steps and three steps of distance, as ADR 0202 defines.
-  When more exist the page says "The trail stops after 200 relationships; more exist" and that an
+- **Bounded and says so.** At most 50 steps and three steps of distance, as ADR 0202 defines.
+  When more exist the page says "The trail stops after 50 relationships; more exist" and that an
   entry's own page continues it; when the distance bound ends it the page says to follow an
   entry's link to go further. An entry past the bound is not named, and nothing implies the trail
   is complete when it is not. The summary line counts relationships and entries on the trail.
+- **Facts once, then compact, under a site-wide budget.** Only a first step (`data-depth="1"`)
+  writes every fact. A step two or three away is its stated sentence (both ends linked), one
+  sentence on which way it was followed (or that it reads the same both ways) and the link to
+  the relationship in full; its asserting party, confidence, evidence and doubt are on that page
+  and on the entry's own page. Every step keeps its `data-*` attributes, so the filters work on
+  all of them (the type comes from `data-kind-label`). The build also counts the trail markup of
+  every entry page: when the total would pass 20 MB, every entry page shows its trail one step
+  deep and the build prints `warning: knowledge atlas: relationship trails would add ...`. The
+  budget is site-wide and all or nothing so pages do not differ in kind, and a site within it
+  is unchanged. A hub of 260 entries took the built site from 2.4 MB to 64 MB with full steps at
+  200 deep; with these bounds the same site is about 8 MB.
+- **A relationship that reads the same both ways is shown under either direction filter.** Its
+  `data-direction` is `symmetric`, so it is neither "along" nor "against" anything. Choosing
+  either direction keeps it, and the status line then says relationships that read the same both
+  ways are shown under either choice, so no filter describes one as followed against its stated
+  direction. An unknown direction value shows nothing.
 - **It means nothing beyond its steps.** The section opens with a note: a trail is not a line of
   influence, and nothing infers a relationship that was not published, joins steps into a new
   claim, or treats being near as being important. There is no ranking, score, strength, shortest
@@ -101,8 +117,11 @@ hard to read without sight or a pointer.
 
 ## Consequences
 
-- Entry pages of a site that publishes its atlas grow by at most 200 steps; each is a few hundred
-  bytes of text, and the page stays bounded because the walk is.
+- Entry pages of a site that publishes its atlas grow by at most 50 steps: the first step out in
+  full (a few hundred bytes of text each) and the rest compact. The earlier plan of 200 full
+  steps made one hub's leaf pages dominate the build (260 leaves: 64 MB against 2.4 MB); the
+  compact steps, the lower cap and the 20 MB site budget bound it, at the cost that a reader
+  follows a link to read the evidence of a relationship two steps away.
 - The trail wording is English until the fixed wording of the site is localised, like the rest of
   the atlas pages.
 - A reader who wants a longer walk follows links; there is deliberately no path search between two

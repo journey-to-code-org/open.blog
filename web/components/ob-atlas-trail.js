@@ -39,7 +39,7 @@ export function readStep(attributes, kindLabel = "") {
   return {
     depth: Number.isInteger(depth) && depth > 0 ? depth : 0,
     kind: get("data-kind"),
-    kindLabel: typeof kindLabel === "string" ? kindLabel : "",
+    kindLabel: get("data-kind-label") || (typeof kindLabel === "string" ? kindLabel : ""),
     direction: get("data-direction"),
     contested: get("data-standing") === "contested",
     uncertain: get("data-uncertain") === "true",
@@ -60,7 +60,13 @@ export function filterSteps(steps, filters = {}) {
   const depth = Number.isInteger(filters.depth) && filters.depth > 0 ? filters.depth : 0;
   return steps.map((step) => {
     if (kind && step.kind !== kind) return false;
-    if (direction && step.direction !== direction) return false;
+    // A relationship that reads the same both ways was followed in neither
+    // direction: it is shown under either choice, and never described as
+    // followed against the direction it was stated.
+    if (direction) {
+      const known = DIRECTIONS.some(([value]) => value === direction);
+      if (step.direction !== direction && !(known && step.direction === "symmetric")) return false;
+    }
     if (depth && !(step.depth > 0 && step.depth <= depth)) return false;
     if (filters.doubtful && !(step.contested || step.uncertain)) return false;
     return true;
@@ -78,6 +84,9 @@ export function statusText(steps, shown, filters = {}) {
   if (filters.direction) {
     const named = DIRECTIONS.find(([value]) => value === filters.direction);
     parts.push(named ? named[1].toLowerCase() : filters.direction);
+    if (steps.some((step) => step.direction === "symmetric")) {
+      parts.push("relationships that read the same both ways are shown under either choice");
+    }
   }
   if (filters.depth) parts.push(`within ${DEPTH_WORDS[filters.depth]?.toLowerCase() || `${filters.depth} steps`}`);
   if (filters.doubtful) parts.push("only contested or uncertain relationships");
@@ -117,7 +126,7 @@ export class ObAtlasTrail extends BaseElement {
     if (!section || !list || items.length < 2) return;
     const steps = items.map((item) => {
       const attributes = {};
-      for (const name of ["data-depth", "data-kind", "data-direction", "data-standing", "data-uncertain", "data-again"]) {
+      for (const name of ["data-depth", "data-kind", "data-kind-label", "data-direction", "data-standing", "data-uncertain", "data-again"]) {
         attributes[name] = item.getAttribute(name) ?? undefined;
       }
       const type = [...item.querySelectorAll("dt")].find((term) => term.textContent.trim() === "Type");

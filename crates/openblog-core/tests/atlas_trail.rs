@@ -136,10 +136,16 @@ fn the_pages_steps_are_the_bounded_walk_and_the_shared_fixture() {
         );
         // The Type entry is the words the component filters by.
         let kind_label = step["kindLabel"].as_str().unwrap();
-        assert!(
-            page.contains(&format!("<dt>Type</dt><dd>{kind_label}</dd>")),
-            "{id}: {kind_label}"
+        assert_eq!(
+            attribute(tag, "data-kind-label").as_deref(),
+            Some(kind_label)
         );
+        if step["depth"] == 1 {
+            assert!(
+                page.contains(&format!("<dt>Type</dt><dd>{kind_label}</dd>")),
+                "{id}: {kind_label}"
+            );
+        }
     }
     // The same walk, from the real query.
     let query = openblog_core::atlas_query::AtlasQuery::project(
@@ -345,10 +351,8 @@ fn hostile_labels_and_notes_are_text_and_escaped_once() {
     assert!(page.contains("Doubt &lt;script&gt;alert(1)&lt;/script&gt; &amp; more"));
 }
 
-#[test]
-fn a_large_graph_is_bounded_and_says_where_it_stopped() {
-    let f = fixtures();
-    // A hub that 260 entries each relate to: the walk keeps its first 200 steps.
+/// A hub that 260 entries each relate to.
+fn hub_atlas(f: &Value) -> PublicAtlas {
     let mut entries =
         vec![json!({"id": "hub", "kind": "concept", "label": "Hub", "visibility": "approved"})];
     let mut relationships = Vec::new();
@@ -357,26 +361,124 @@ fn a_large_graph_is_bounded_and_says_where_it_stopped() {
         relationships.push(json!({
             "id": format!("r-{n:03}"), "kind": "influenced", "from": "hub", "to": format!("leaf-{n:03}"),
             "visibility": "approved", "assertedBy": {"kind": "author"}, "confidence": "plausible",
-            "evidence": [{"source": "plato-republic"}]
+            "evidence": [{"source": "plato-republic"}],
+            "uncertainty": "A stated doubt that is long enough to matter when it is repeated on every page of a very large graph."
         }));
     }
     let atlas = json!({"version": 1, "entries": entries, "relationships": relationships});
-    let out = built(&site(
-        Some(public_atlas(&f["library"], &atlas)),
-        "https://example.com",
-    ));
+    public_atlas(&f["library"], &atlas)
+}
+
+fn total_size(out: &BTreeMap<String, String>) -> usize {
+    out.values().map(String::len).sum()
+}
+
+#[test]
+fn a_large_graph_is_bounded_and_says_where_it_stopped() {
+    let f = fixtures();
+    // The walk keeps its first 50 steps.
+    let out = built(&site(Some(hub_atlas(&f)), "https://example.com"));
     let page = &out["atlas/hub/index.html"];
-    assert_eq!(step_tags(page).len(), 200);
+    assert_eq!(step_tags(page).len(), 50);
     assert!(
-        page.contains("The trail stops after 200 relationships; more exist."),
+        page.contains("The trail stops after 50 relationships; more exist."),
         "truncated"
     );
-    assert!(page.contains("This trail has 200 relationships across 201 entries"));
+    assert!(page.contains("This trail has 50 relationships across 51 entries"));
     // A leaf's own page starts from its one relationship, reaches the hub in one step and is bounded too.
     let leaf = &out["atlas/leaf-000/index.html"];
-    assert_eq!(step_tags(leaf).len(), 200);
+    assert_eq!(step_tags(leaf).len(), 50);
     assert!(leaf.contains("<h3 id=\"atlas-trail-depth-1\">One step from Leaf 000</h3>"));
-    assert!(leaf.contains("The trail stops after 200 relationships"));
+    assert!(leaf.contains("The trail stops after 50 relationships"));
+    // The whole built site stays small: before the bound this graph took
+    // 56.8 MB of output; it now takes a fraction of it.
+    let size = total_size(&out);
+    println!("260-leaf hub: total output {size} bytes");
+    assert!(size < 8 * 1024 * 1024, "{size} bytes");
+}
+
+#[test]
+fn steps_beyond_the_first_are_compact_and_the_first_keep_every_fact() {
+    let f = fixtures();
+    let out = built(&site(Some(hub_atlas(&f)), "https://example.com"));
+    let leaf = &out["atlas/leaf-000/index.html"];
+    let tags = step_tags(leaf);
+    assert_eq!(attribute(tags[0], "data-depth").as_deref(), Some("1"));
+    // Depth 1: the facts, once. Depth 2 and more: the sentence and the link.
+    assert_eq!(
+        leaf.matches("<dt>Evidence</dt>").count(),
+        1 + 1,
+        "one trail step and one relationship section"
+    );
+    let second = &leaf[leaf.find(tags[1]).unwrap()..];
+    let second = &second[..second.find("</li>").unwrap()];
+    assert!(second.contains("ob-trail-statement"), "{second}");
+    assert!(second.contains("The relationship in full"), "{second}");
+    assert!(!second.contains("<dl"), "{second}");
+    assert!(
+        second.contains("data-uncertain=\"true\""),
+        "filters still read it: {second}"
+    );
+    assert!(
+        second.contains("data-kind-label=\"influenced\""),
+        "{second}"
+    );
+    // The relationship's own page still says everything.
+    assert!(out["atlas/hub/index.html"].contains("A stated doubt that is long enough"));
+}
+
+#[test]
+fn a_site_over_the_trail_budget_shows_every_trail_one_step_deep_and_says_so() {
+    let f = fixtures();
+    let site = site(Some(hub_atlas(&f)), "https://example.com");
+    // A tiny budget stands in for the 20 MB one.
+    let out: BTreeMap<String, String> =
+        openblog_core::render::generate_with_trail_budget(&site, &ThemeSet::new(), 64 * 1024)
+            .expect("a build")
+            .into_iter()
+            .map(|file| (file.path, file.contents))
+            .collect();
+    for path in ["atlas/hub/index.html", "atlas/leaf-000/index.html"] {
+        let page = &out[path];
+        assert!(
+            step_tags(page)
+                .iter()
+                .all(|tag| attribute(tag, "data-depth").as_deref() == Some("1")),
+            "{path}"
+        );
+        assert!(page.contains("up to 1 relationships away"), "{path}");
+    }
+    let warning = openblog_core::render::atlas_trail_warning_with_budget(&site, 64 * 1024)
+        .expect("a warning");
+    assert!(warning.contains("relationship trails"), "{warning}");
+    assert!(warning.contains("one step deep"), "{warning}");
+    // Within the budget nothing changes and nothing is said.
+    assert!(openblog_core::render::atlas_trail_warning(&site).is_none());
+    assert!(
+        built(&site)["atlas/leaf-000/index.html"].contains("data-depth=\"2\""),
+        "the real budget leaves full depth"
+    );
+}
+
+#[test]
+fn a_symmetric_relationship_says_symmetric_and_is_never_followed_against_anything() {
+    let out = built(&fixture_site());
+    let page = &out["atlas/plato/index.html"];
+    let related = step_tags(page)
+        .into_iter()
+        .find(|tag| tag.contains("atlas-trail-r-related"))
+        .expect("the symmetric step");
+    assert_eq!(
+        attribute(related, "data-direction").as_deref(),
+        Some("symmetric")
+    );
+    let start = page.find(related).unwrap();
+    let step = &page[start..start + page[start..].find("</li>").unwrap()];
+    assert!(step.contains("reads the same in both directions"), "{step}");
+    assert!(
+        !step.contains("against the direction it was stated"),
+        "{step}"
+    );
 }
 
 #[test]

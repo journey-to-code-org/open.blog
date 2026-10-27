@@ -53,7 +53,7 @@ pub const MAX_BYTES: usize = 4 * 1024 * 1024;
 /// Deepest trail a query walks, in steps from its start.
 pub const MAX_TRAIL_DEPTH: usize = 3;
 /// Most steps one trail returns.
-pub const MAX_TRAIL_STEPS: usize = 200;
+pub const MAX_TRAIL_STEPS: usize = 50;
 
 /// Why a projection is not written.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -31,7 +31,7 @@ need, with defined behaviour for ambiguity, unknown ids and cycles.
   crossed once and an entry expanded once, so a cycle ends the walk instead of trapping it, and a
   step that closes a cycle is still shown as the relationship it is. Order is fixed: by depth, then
   by the order entries were reached, outgoing before incoming, each by id. The walk stops at depth
-  3 or 200 steps and reports `truncated` when more existed.
+  3 or 50 steps and reports `truncated` when more existed.
 - **A trail means nothing beyond its steps.** It is not a path of influence, a derivation or a
   ranking. It does not combine relationships into a new one, infer a missing one, assume that
   `related-to` is transitive, or treat proximity as strength. Each step carries its own asserter,

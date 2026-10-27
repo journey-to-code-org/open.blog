@@ -121,6 +121,49 @@ struct Renderer<'a> {
     /// or over its bound): the concept previews read that file and nothing
     /// else, and the file written is these bytes.
     atlas_query: std::cell::OnceCell<Option<QueryProjection>>,
+    /// How many steps out every entry page's trail goes, decided once for the
+    /// whole site against [`TRAIL_BUDGET_BYTES`] (ADR 0207).
+    trail_depth: std::cell::OnceCell<TrailDepth>,
+    trail_budget: usize,
+}
+
+/// The most trail markup the whole site may carry (ADR 0207). A site over it
+/// shows every trail one step deep and says so in the build log.
+pub const TRAIL_BUDGET_BYTES: usize = 20 * 1024 * 1024;
+
+/// The build log's line for a site whose relationship trails together would
+/// take more than [`TRAIL_BUDGET_BYTES`], so every entry page shows its trail
+/// one step deep (ADR 0207); `None` when every trail keeps its full depth or
+/// the site publishes no atlas.
+pub fn atlas_trail_warning(site: &Site) -> Option<String> {
+    atlas_trail_warning_with_budget(site, TRAIL_BUDGET_BYTES)
+}
+
+#[doc(hidden)]
+pub fn atlas_trail_warning_with_budget(site: &Site, trail_budget: usize) -> Option<String> {
+    let themes = HashMap::new();
+    let renderer = Renderer {
+        site,
+        themes: &themes,
+        site_references: Default::default(),
+        atlas_query: Default::default(),
+        trail_depth: Default::default(),
+        trail_budget,
+    };
+    let bytes = renderer.atlas_trail_depth().over_budget?;
+    Some(format!(
+        "knowledge atlas: relationship trails would add more than {} MB of markup (the site budget is {} MB), so every entry page shows its trail one step deep; each relationship's own page is unchanged",
+        bytes.div_ceil(1024 * 1024),
+        trail_budget.div_ceil(1024 * 1024)
+    ))
+}
+
+/// How far the trails of a site go, and what that cost.
+#[derive(Clone, Copy)]
+struct TrailDepth {
+    depth: usize,
+    /// The bytes every trail would take at full depth, when that is over the budget.
+    over_budget: Option<usize>,
 }
 
 struct Output {
@@ -438,6 +481,17 @@ fn url_to_file(url: &str) -> String {
 /// Render the whole site to files. `themes` supplies every registered theme;
 /// the ones the site uses must resolve, others are emitted when they do.
 pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, String> {
+    generate_with_trail_budget(site, themes, TRAIL_BUDGET_BYTES)
+}
+
+/// [`generate`] with the site-wide trail budget (ADR 0207) set by the caller,
+/// so a test can cross it without a site of tens of megabytes.
+#[doc(hidden)]
+pub fn generate_with_trail_budget(
+    site: &Site,
+    themes: &ThemeSet,
+    trail_budget: usize,
+) -> Result<Vec<OutputFile>, String> {
     validate_output_paths(site)?;
     let resolved = resolve_themes(site, themes)?;
 
@@ -446,6 +500,8 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
         themes: &resolved,
         site_references: Default::default(),
         atlas_query: Default::default(),
+        trail_depth: Default::default(),
+        trail_budget,
     };
     let c = &site.config;
     let mut out = Output {
@@ -659,6 +715,8 @@ pub fn generate_document(
         themes: &resolved,
         site_references: Default::default(),
         atlas_query: Default::default(),
+        trail_depth: Default::default(),
+        trail_budget: TRAIL_BUDGET_BYTES,
     };
     let (url, contents) = if let Some((index, post)) = site
         .posts
@@ -3033,9 +3091,43 @@ impl<'a> Renderer<'a> {
     /// `None` when the entry has no published relationship or the query
     /// projection is not written.
     fn atlas_trail(&self, entry: &PublicEntry) -> Option<String> {
-        use crate::atlas_query::{Direction, MAX_TRAIL_DEPTH, MAX_TRAIL_STEPS};
+        self.atlas_trail_to(entry, self.atlas_trail_depth().depth)
+    }
+
+    /// How far every trail of the site goes: full depth, unless the trails of
+    /// all entries together would take more than [`TRAIL_BUDGET_BYTES`], in
+    /// which case one step, site-wide, so no entry's page differs in kind.
+    fn atlas_trail_depth(&self) -> TrailDepth {
+        use crate::atlas_query::MAX_TRAIL_DEPTH;
+        *self.trail_depth.get_or_init(|| {
+            let full = TrailDepth {
+                depth: MAX_TRAIL_DEPTH,
+                over_budget: None,
+            };
+            let Some(atlas) = self.site.atlas.as_ref() else {
+                return full;
+            };
+            let mut total = 0usize;
+            for entry in &atlas.entries {
+                total += self
+                    .atlas_trail_to(entry, MAX_TRAIL_DEPTH)
+                    .map_or(0, |trail| trail.len());
+                if total > self.trail_budget {
+                    return TrailDepth {
+                        depth: 1,
+                        over_budget: Some(total),
+                    };
+                }
+            }
+            full
+        })
+    }
+
+    /// [`Self::atlas_trail`] for a trail that goes `max_depth` steps out.
+    fn atlas_trail_to(&self, entry: &PublicEntry, max_depth: usize) -> Option<String> {
+        use crate::atlas_query::{Direction, MAX_TRAIL_STEPS};
         let query = &self.atlas_query_projection()?.query;
-        let trail = query.trail(&entry.id, MAX_TRAIL_DEPTH);
+        let trail = query.trail(&entry.id, max_depth);
         if trail.steps.is_empty() {
             return None;
         }
@@ -3055,7 +3147,7 @@ impl<'a> Renderer<'a> {
             text(ATLAS_TRAIL_NOTE),
             plural_text(trail.steps.len(), "relationship", "relationships"),
             plural_text(entries_on_trail.len(), "entry", "entries"),
-            MAX_TRAIL_DEPTH
+            max_depth
         );
         let mut open: Option<usize> = None;
         for step in &trail.steps {
@@ -3105,6 +3197,11 @@ impl<'a> Renderer<'a> {
                     "Stated from {from_raw} to {to_raw}. This step follows it backward, against the direction it was stated, from {to_raw} to {from_raw}."
                 ),
             };
+            let compact_direction = match (step.direction, symmetric) {
+                (_, true) => "Reads the same in both directions.",
+                (Direction::Forward, false) => "Followed in the direction it was stated.",
+                (Direction::Backward, false) => "Followed against the direction it was stated.",
+            };
             let standing = match edge.standing {
                 Standing::Asserted => "asserted",
                 Standing::Contested => "contested",
@@ -3128,18 +3225,25 @@ impl<'a> Renderer<'a> {
                 .map(|item| format!("<li><cite>{}</cite></li>", text(&item.text)))
                 .collect();
             out.push_str(&format!(
-                "<li id=\"atlas-trail-{id}\" class=\"ob-trail-step\" data-depth=\"{depth}\" data-kind=\"{kind}\" data-direction=\"{dir}\" data-standing=\"{standing}\" data-uncertain=\"{uncertain}\" data-again=\"{again}\">\n",
+                "<li id=\"atlas-trail-{id}\" class=\"ob-trail-step\" data-depth=\"{depth}\" data-kind=\"{kind}\" data-kind-label=\"{kind_label}\" data-direction=\"{dir}\" data-standing=\"{standing}\" data-uncertain=\"{uncertain}\" data-again=\"{again}\">\n",
                 id = attr(&edge.id),
                 depth = step.depth,
                 kind = edge.kind.as_str(),
-                dir = match step.direction {
-                    Direction::Forward => "forward",
-                    Direction::Backward => "backward",
+                kind_label = attr(edge.label),
+                dir = match (step.direction, symmetric) {
+                    (_, true) => "symmetric",
+                    (Direction::Forward, false) => "forward",
+                    (Direction::Backward, false) => "backward",
                 },
                 uncertain = edge.uncertainty.is_some(),
             ));
+            // Facts are written in full on the first step only; a step further
+            // out is its sentence, which way it was followed and a link, so a
+            // hub's trail stays small. Its data attributes still feed the
+            // filters, and the relationship's own page has everything.
+            let full = step.depth == 1;
             out.push_str(&format!(
-                "<p class=\"ob-trail-statement\">{}{} {} {}.</p>\n<dl class=\"ob-trail-facts\">\n",
+                "<p class=\"ob-trail-statement\">{}{} {} {}.</p>\n{}",
                 if edge.standing == Standing::Contested {
                     "<strong>Contested:</strong> "
                 } else {
@@ -3156,27 +3260,43 @@ impl<'a> Renderer<'a> {
                 } else {
                     link(&edge.to)
                 },
-            ));
-            out.push_str(&format!(
-                "<dt>Type</dt><dd>{}</dd>\n<dt>Direction</dt><dd>{}</dd>\n<dt>Asserted by</dt><dd>{}</dd>\n<dt>Confidence</dt><dd>{}: how firmly the asserting party holds it, not how widely it is accepted.</dd>\n<dt>Standing</dt><dd>{}</dd>\n<dt>Evidence</dt><dd><ul>{}</ul></dd>\n<dt>Uncertainty</dt><dd>{}</dd>\n</dl>\n",
-                text(edge.label),
-                text(&direction),
-                text(&edge.asserted_by_text),
-                edge.confidence_text,
-                text(&edge.standing_text),
-                evidence,
-                uncertainty_note,
-            ));
-            out.push_str(&format!(
-                "<p class=\"ob-meta\">This step reaches {}.{} <a href=\"{}\">The relationship in full</a>.</p>\n</li>\n",
-                link(step.reached),
-                if again {
-                    " That entry is already on this trail, so the trail does not continue from it again."
+                if full {
+                    "<dl class=\"ob-trail-facts\">\n"
                 } else {
                     ""
                 },
-                attr(&edge.url),
             ));
+            if full {
+                out.push_str(&format!(
+                    "<dt>Type</dt><dd>{}</dd>\n<dt>Direction</dt><dd>{}</dd>\n<dt>Asserted by</dt><dd>{}</dd>\n<dt>Confidence</dt><dd>{}: how firmly the asserting party holds it, not how widely it is accepted.</dd>\n<dt>Standing</dt><dd>{}</dd>\n<dt>Evidence</dt><dd><ul>{}</ul></dd>\n<dt>Uncertainty</dt><dd>{}</dd>\n</dl>\n",
+                    text(edge.label),
+                    text(&direction),
+                    text(&edge.asserted_by_text),
+                    edge.confidence_text,
+                    text(&edge.standing_text),
+                    evidence,
+                    uncertainty_note,
+                ));
+            }
+            let again_note = if again {
+                " That entry is already on this trail, so the trail does not continue from it again."
+            } else {
+                ""
+            };
+            if full {
+                out.push_str(&format!(
+                    "<p class=\"ob-meta\">This step reaches {}.{} <a href=\"{}\">The relationship in full</a>.</p>\n</li>\n",
+                    link(step.reached),
+                    again_note,
+                    attr(&edge.url),
+                ));
+            } else {
+                out.push_str(&format!(
+                    "<p class=\"ob-meta\">{}{} <a href=\"{}\">The relationship in full</a>.</p>\n</li>\n",
+                    compact_direction, again_note,
+                    attr(&edge.url),
+                ));
+            }
         }
         out.push_str("</ol>\n</li>\n</ol>\n");
         if trail.truncated {

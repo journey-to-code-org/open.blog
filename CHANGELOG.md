@@ -47,7 +47,8 @@ All notable changes to open.blog are recorded here. Releases follow
   unclosed now warns. A test builds every form to unpublished ids and scans every built file.
 - An entry page of a published Knowledge Atlas now ends with a relationship trail: the entry's
   published relationships, and the relationships of the entries they reach, up to three steps away
-  and 200 relationships, as a plain ordered list that reads without JavaScript. Every step shows
+  and 50 relationships, as a plain ordered list that reads without JavaScript (the first step
+  out in full, further steps as their sentence and a link, within a 20 MB site-wide budget). Every step shows
   the relationship in the direction it was stated, which way the trail followed it, who asserts it,
   how firmly, its evidence and what is uncertain; a step that returns to an entry already on the
   trail says so instead of going round again, and each entry it reaches links to its own page,

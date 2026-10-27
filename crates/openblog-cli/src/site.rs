@@ -903,6 +903,8 @@ pub fn generate_site_with_boundary(
     // Required destinations (including full-content feeds) must succeed before
     // generated output or stale files are changed.
     let files = generate(site, themes)?;
+    site.warnings
+        .extend(openblog_core::render::atlas_trail_warning(site));
     crate::private_guard::refuse_private_research_in_output(&files)?;
     // Private text found outside a projection's machine data only warns.
     let text_matches = crate::boundary::check_output(root, site, &manifest, &files)?;
