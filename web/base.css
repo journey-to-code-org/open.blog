@@ -1929,13 +1929,6 @@ ob-comments {
   outline-offset: 2px;
 }
 
-@media print {
-  .ob-feature {
-    break-inside: avoid;
-    border-inline-start-color: currentColor;
-  }
-}
-
 @media (forced-colors: active) {
   .ob-feature,
   .ob-community-perspectives {
@@ -3071,4 +3064,12 @@ ob-reading-modes { display: block; }
 }
 @media (forced-colors: active) {
   .ob-trail-step { border-color: CanvasText; }
+}
+/* Featured reflections print whole, in text-colour marks (ADR 0184). Kept after the earlier print
+   blocks: a test reads the first one. */
+@media print {
+  .ob-feature {
+    break-inside: avoid;
+    border-inline-start-color: currentColor;
+  }
 }
