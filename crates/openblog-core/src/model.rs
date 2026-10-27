@@ -550,6 +550,10 @@ pub struct Site {
     /// site opts in to publishing comparisons (ADR 0092). `None` writes no
     /// comparison output at all.
     pub comparisons: Option<crate::comparison_publication::PublicComparisons>,
+    /// The public reading paths, supplied by the caller only when the site
+    /// publishes them (`readingPaths.publish`, ADR 0212). `None` writes no
+    /// path output at all.
+    pub reading_paths: Option<crate::reading_path::PublicPaths>,
     /// The public curated research context, supplied by the caller only when
     /// the site publishes it (`curatedContext.publish`, ADR 0185) and its
     /// selections can be read. `None` writes no curated output at all: no
@@ -1022,6 +1026,7 @@ impl Site {
             view_counts: BTreeMap::new(),
             atlas: None,
             comparisons: None,
+            reading_paths: None,
             curation: None,
             curated_cache: std::sync::OnceLock::new(),
             claim_evidence_error,
@@ -1175,7 +1180,12 @@ impl Site {
     }
 
     /// Whether `post` is public on this site's production pages: neither a draft nor dated after
-    /// the time the site was loaded for.
+    /// the time the site was loaded for. Unlike membership of `posts`, this holds even when a
+    /// preview or Admin load included drafts.
+    pub fn is_published(&self, post: &Post) -> bool {
+        self.is_public_part(post)
+    }
+
     fn is_public_part(&self, post: &Post) -> bool {
         !post.draft && self.now.is_none_or(|now| post.date <= now)
     }

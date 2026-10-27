@@ -1021,6 +1021,66 @@ over a size bound rather than cut. It is listed in the publication boundary like
 (ADRs 0168, 0169).
 _Avoid_: Graph API, public search index, a second atlas; querying the private atlas
 
+**Reading path**:
+An author's own ordered list of published posts and Knowledge Atlas entries, kept as
+`content/paths/<slug>.json`, with a rationale per step and an author-written transition from each step
+to the one before. It is its own content type: it never changes a post or a series, a post may be in
+several, and a series is not a step. It is one line of steps with no branches, no repeated target and
+no path inside a path; a draft is never published (ADRs 0207-0209).
+_Avoid_: Series, playlist, curriculum, learning journey, recommendation
+
+**Path step**:
+One place in a reading path: a stable id, a target (a published post or atlas entry), an optional
+rationale, prerequisite note, difficulty and `optional` flag, and, after the first, a transition. A step
+whose target is not published is left out of the public path and named to the author only, as
+the same sentence whether it is a draft, private or missing (ADR 0211).
+_Avoid_: Lesson, chapter, module
+
+**Path transition**:
+What an author writes to say why a step follows the one before it: required text and a relationship
+from a closed list with no default (`next` claims order only). It is about the step it follows, the
+nearest earlier step that is not optional. `influenced` joins two atlas entries and is kept only with
+a published, uncontested atlas influence from the followed entry to this one; order and dates never
+imply it, and a path that would lose a transition is withheld whole (ADR 0210, ADR 0211).
+_Avoid_: Link, edge, influence chain
+
+**Path editor**:
+Admin Studio's place to curate reading paths (`#/paths`): it offers only published posts and public atlas
+entries, marks a step that is no longer published as one readers will not see, requires a relationship and the
+author's own reason for every step after the first, reorders by Move up and Move down, and previews the one
+public projection. Saves name the revision read and are written atomically in canonical form (ADRs 0213, 0214).
+_Avoid_: Path builder, drag-and-drop curation
+
+**Public reading paths**:
+The allowlisted, deterministic projection of published paths (`openblog-reading-paths`) that later pages,
+discovery and export share, resolved against the published posts and public atlas alone (ADR 0212).
+_Avoid_: Path index, recommendation feed
+
+**Path page**:
+`/paths/<slug>/`, the static page of one published reading path: an ordered list of its shown steps, each
+linking to its post or atlas entry with the author's transition, rationale, previous and next links, and
+no JavaScript needed. `/paths/` lists only paths marked listed (ADR 0215).
+_Avoid_: Lesson, course, playlist
+
+**Path progress**:
+A reader's optional marks of which path steps they have read, kept as step targets in their own browser by
+`<ob-reading-path>` and nowhere else. It can be reset, never changes what the page says, never counts an
+optional step toward finishing and is not sent to anyone (ADR 0215).
+_Avoid_: Completion, certificate, enrolment, tracking
+
+**Path discovery**:
+The ways a reader or tool finds a published reading path: a "Part of a reading path" link on a post or atlas
+entry that is a step of it, an entry in site search, and `paths.json`. All three, and `/paths/` and the
+sitemap, include only listed paths; none changes the order of any post, and feeds never carry a path
+(ADR 0216).
+_Avoid_: Recommendation, related posts, trending
+
+**Path export**:
+`openblog paths export`'s single deterministic file of the author's path files, which `openblog paths import`
+checks as a whole and writes all-or-nothing, never replacing a different stored path without `--overwrite`
+(ADR 0217).
+_Avoid_: Backup, sync, migration
+
 **Concept link**:
 An author's explicit Markdown link to `atlas:<entry id>` in a post. The build resolves it against
 the public atlas projection alone: a published entry becomes an ordinary link to its page, and

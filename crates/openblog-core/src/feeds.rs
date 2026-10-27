@@ -489,7 +489,7 @@ fn inert_markdown_text(value: &str) -> String {
 /// The client-side search index. Body text is lower-cased and truncated to keep
 /// the file small; titles, tags, and descriptions carry most of the signal.
 pub fn search_index(site: &Site) -> String {
-    let entries = site
+    let mut entries: Vec<IndexEntry> = site
         .posts
         .iter()
         .map(|post| IndexEntry {
@@ -509,11 +509,44 @@ pub fn search_index(site: &Site) -> String {
             },
         })
         .collect();
+    // Listed reading paths are found by search after the posts (ADR 0216):
+    // from the public value only, so an unlisted path, a draft or a step
+    // that is not published never appears. They are not feed items.
+    if let Some(paths) = &site.reading_paths {
+        entries.extend(paths.listed_only().paths.iter().map(path_index_entry));
+    }
     serde_json::to_string(&Index {
         version: INDEX_VERSION,
         entries,
     })
     .unwrap_or_default()
+}
+
+fn path_index_entry(path: &crate::reading_path::PublicPath) -> IndexEntry {
+    let mut text = String::new();
+    for step in &path.steps {
+        for part in [
+            Some(step.title.as_str()),
+            step.rationale.as_deref(),
+            step.transition.as_ref().map(|t| t.why.as_str()),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            text.push_str(part);
+            text.push(' ');
+        }
+    }
+    IndexEntry {
+        title: path.title.clone(),
+        url: path.url.clone(),
+        // A path has no date, and the search page shows it as a path.
+        date: String::new(),
+        tags: vec!["reading path".to_string()],
+        series: None,
+        description: path.summary.clone().unwrap_or_default(),
+        text: text.to_lowercase().chars().take(4000).collect(),
+    }
 }
 
 /// Feed readers need absolute URLs. Rewrite root-relative `src`/`href` values.

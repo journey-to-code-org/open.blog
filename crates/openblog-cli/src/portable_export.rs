@@ -338,7 +338,7 @@ fn collect_diagnostics(site: &Site, optional: bool) -> Result<Vec<String>, Strin
     Ok(warnings)
 }
 
-fn output_path(root: &Path, output: &str) -> Result<PathBuf, String> {
+pub(crate) fn output_path(root: &Path, output: &str) -> Result<PathBuf, String> {
     let path = PathBuf::from(output);
     if path
         .components()

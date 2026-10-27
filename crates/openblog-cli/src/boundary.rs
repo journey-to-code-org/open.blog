@@ -80,6 +80,7 @@ pub fn project_with(root: &Path, site: &mut Site, shared: &Shared) -> Blocked {
         Err(error) => blocked.comparisons = Some(error),
     }
     blocked.claims = site.claim_evidence_error.clone();
+    attach_reading_paths(root, site);
     // The public curated context, resolved against exactly what this build
     // publishes (the atlas and comparisons just attached, the posts, the
     // sources they cite), so the pages and curated-context.json read the one
@@ -100,6 +101,45 @@ pub fn project_with(root: &Path, site: &mut Site, shared: &Shared) -> Blocked {
     // attached, and against nothing when it is not published or not readable.
     site.link_concepts();
     blocked
+}
+
+/// Attach the public reading paths (ADR 0212, #78), only while the site
+/// publishes them. They are resolved against exactly what this build
+/// publishes (the posts and the atlas just attached), so a path never names
+/// what production would not show. A file that does not parse, a step that is
+/// not published and a path that is withheld are warned about to the author
+/// (naming the path and step, never a value) and leave the other paths and
+/// every other output as they were. Off means the folder is never read.
+fn attach_reading_paths(root: &Path, site: &mut Site) {
+    site.reading_paths = None;
+    if !site.config.reading_paths.publish {
+        return;
+    }
+    let stored = match crate::reading_path_store::list(root, &site.config.paths.content) {
+        Ok(stored) => stored,
+        Err(error) => {
+            site.warnings
+                .push(format!("reading paths: no path is published: {error}"));
+            return;
+        }
+    };
+    let mut paths = Vec::new();
+    for file in stored {
+        match file.parsed {
+            Ok(path) => paths.push(path),
+            Err(problems) => {
+                for problem in problems {
+                    site.warnings.push(problem.to_string());
+                }
+            }
+        }
+    }
+    let targets = openblog_core::reading_path::PublishedTargets::from_site(site);
+    let resolution = openblog_core::reading_path::PublicPaths::resolve(&paths, &targets);
+    for diagnostic in &resolution.diagnostics {
+        site.warnings.push(diagnostic.to_string());
+    }
+    site.reading_paths = Some(resolution.paths);
 }
 
 /// The source library and notebook, and the atlas and alignments read
@@ -347,6 +387,7 @@ pub fn manifest(
         atlas_blocked: blocked.atlas.as_deref(),
         public_comparisons: site.comparisons.as_ref(),
         comparisons_blocked: blocked.comparisons.as_deref(),
+        public_paths: site.reading_paths.as_ref(),
         claims_blocked: blocked.claims.as_deref(),
         library: stores.library,
         notebook: stores.notebook,
@@ -829,6 +870,7 @@ fn unlisted(manifest: &BoundaryManifest, site: &Site, files: &[OutputFile]) -> V
     let curated_edges = manifest.published_ids(Projection::Curated, ItemKind::Relationship);
     let curated_sources = manifest.published_ids(Projection::Curated, ItemKind::Source);
     let file_listed = manifest.published_ids(Projection::CuratedContext, ItemKind::CuratedContext);
+    let paths = manifest.published_ids(Projection::ReadingPaths, ItemKind::Path);
     let post_slugs: BTreeSet<&str> = site.posts.iter().map(|post| post.slug.as_str()).collect();
     // A post's address as the file carries it: the base path in front.
     let base_path = site.config.base_path();
@@ -917,6 +959,25 @@ fn unlisted(manifest: &BoundaryManifest, site: &Site, files: &[OutputFile]) -> V
             }
             for id in ids_at(&value, "sources") {
                 check(&file.path, "atlas query source", &id, &query_sources);
+            }
+        } else if file.path == openblog_core::reading_path::PATHS_JSON_FILE {
+            // The paths file may only name paths the manifest publishes, over
+            // posts this build publishes and public atlas entries.
+            let value = json();
+            for path in value["paths"].as_array().into_iter().flatten() {
+                if let Some(slug) = path["slug"].as_str() {
+                    check(&file.path, "reading path", slug, &paths);
+                }
+                for step in path["steps"].as_array().into_iter().flatten() {
+                    let Some(target) = step["target"].as_str() else {
+                        continue;
+                    };
+                    match step["kind"].as_str() {
+                        Some("post") => check(&file.path, "published post", target, &post_slugs),
+                        Some("atlas") => check(&file.path, "atlas entry", target, &atlas_entries),
+                        _ => check(&file.path, "step kind", "unknown", &BTreeSet::new()),
+                    }
+                }
             }
         } else if file.path == openblog_core::curated_context::CURATED_CONTEXT_JSON_FILE {
             // The curated context file may only name what the curated
@@ -1264,6 +1325,28 @@ mod tests {
             path: path.into(),
             contents: contents.into(),
         }
+    }
+
+    #[test]
+    fn the_paths_file_may_only_name_published_paths_and_published_targets() {
+        let root = project_with_note("paths-file", r#"{"readingPaths":{"publish":true}}"#);
+        let named = |slug: &str, kind: &str, target: &str| {
+            page(
+                "paths.json",
+                &serde_json::json!({"paths":[{"slug": slug, "steps":[{"kind": kind, "target": target}]}]})
+                    .to_string(),
+            )
+        };
+        // No path is published by this site, so any path the file names is refused.
+        let error = checked(&root, &[named("ghost", "post", "ghost-post")]).unwrap_err();
+        assert!(
+            error.contains("`paths.json`") && error.contains("reading path `ghost`"),
+            "{error}"
+        );
+        assert!(error.contains("published post `ghost-post`"), "{error}");
+        let error = checked(&root, &[named("ghost", "atlas", "nobody")]).unwrap_err();
+        assert!(error.contains("atlas entry `nobody`"), "{error}");
+        assert!(checked(&root, &[page("paths.json", r#"{"paths":[]}"#)]).is_ok());
     }
 
     #[test]

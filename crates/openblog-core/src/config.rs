@@ -92,6 +92,10 @@ pub struct SiteConfig {
     /// written file while it is off.
     #[serde(skip_serializing_if = "ComparisonsConfig::is_off")]
     pub comparisons: ComparisonsConfig,
+    /// Opt-in publication of reading paths. Omitted from the written file
+    /// while it is off.
+    #[serde(skip_serializing_if = "ReadingPathsConfig::is_off")]
+    pub reading_paths: ReadingPathsConfig,
     /// Opt-in publication of the author's curated selection of research
     /// context for readers (ADR 0185). Omitted from the written file while
     /// it is off.
@@ -153,6 +157,22 @@ pub struct ComparisonsConfig {
 }
 
 impl ComparisonsConfig {
+    fn is_off(&self) -> bool {
+        !self.publish
+    }
+}
+
+/// Whether the site publishes reading paths (ADR 0212). Off by default: the
+/// address `/paths/` is then not reserved, so an existing page or post there
+/// keeps working, and `content/paths` is only edited, never published. Turning
+/// it on reserves `/paths/`, and a page or post URL that collides is refused.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ReadingPathsConfig {
+    pub publish: bool,
+}
+
+impl ReadingPathsConfig {
     fn is_off(&self) -> bool {
         !self.publish
     }
@@ -478,6 +498,7 @@ impl Default for SiteConfig {
             participation: ParticipationConfig::default(),
             claim_evidence: ClaimEvidenceConfig::default(),
             comparisons: ComparisonsConfig::default(),
+            reading_paths: ReadingPathsConfig::default(),
             curated_context: CuratedContextConfig::default(),
             reading_modes: ReadingModesConfig::default(),
         }

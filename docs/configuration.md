@@ -47,6 +47,7 @@ default, so you can edit values in place and delete the ones you do not need.
   "knowledgeAtlas": { "publish": false },
   "claimEvidence": { "publish": false },
   "comparisons": { "publish": false },
+  "readingPaths": { "publish": false },
   "curatedContext": { "publish": false },
   "readingModes": { "default": "standard" }
 }
@@ -310,6 +311,16 @@ the alignments file; clearing an approval removes the comparison from the next b
 atlas, the alignments file is private and Git-ignored, so only a build that can read it publishes
 comparisons, and `build` and `check` warn when it cannot. See the
 [passage alignments format](specs/passage-alignments.md#publication).
+
+## Reading paths
+
+`readingPaths.publish` (off by default) is the switch for publishing [reading paths](specs/reading-paths.md),
+the ordered routes you curate in Admin under **Content → Reading paths**. While it is off you can write and
+preview paths freely; nothing publishes them and `/paths/` is not reserved. Turning it on reserves
+`/paths/`, so a page named `paths` or a `postPath` that puts a post there is refused by the build and by
+`check`; while it is off, `check` warns when you have path files beside such a page or post.
+While it is on, each published path is a page at `/paths/<slug>/` (see [Pages and progress](specs/reading-paths.md#pages-and-progress)); `/paths/` lists the paths you leave `listed`.
+Listed paths are also linked from the posts and atlas entries they name, found by site search and listed in `paths.json` ([Discovery](specs/reading-paths.md#discovery)). `openblog paths export` and `openblog paths import <file>` move paths between sites ([Export and import](specs/reading-paths.md#export-and-import)).
 
 ## Curated research context
 

@@ -531,6 +531,20 @@ the Markdown and requires an explicit repair choice: inherit to remove the broke
 or set new explicit credits to replace it. Credit-only changes participate in unsaved-change
 warnings, production preview, conflict detection, and the normal save validation.
 
+### Curate a reading path
+
+A reading path is your own ordered route through published posts and public Knowledge Atlas entries.
+Open **Content → Reading paths** and choose **New reading path**. Give it a title and an address name (the
+file name, `content/paths/<name>.json`, which cannot change later), then add steps from the list of
+published posts and public atlas entries. Draft and scheduled posts and private atlas entries are not
+offered. Every step after the first needs a relationship, chosen from a closed list with no default, and a
+reason in your own words; a step after an optional one follows the last required step. Use **Move up** and
+**Move down** to reorder; nothing needs a mouse. A step whose post was later unpublished is marked, in words,
+as one readers will not see, and the preview, which is the same projection a published path would have,
+says when the path would not be published as it stands and why. Saving is refused when the file changed
+elsewhere, offering the newer copy, and **Edit as source** shows the file itself, in its canonical form,
+keeping any field this release does not know.
+
 ### Start a shared reflection
 
 A shared reflection is a private draft that several writers answer from the same source. Open

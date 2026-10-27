@@ -8124,6 +8124,7 @@ export const BOUNDARY_PROJECTIONS = Object.freeze({
   "context-links": "Links to research pages",
   curated: "Curated for readers",
   "curated-context": "Curated context data",
+  "reading-paths": "Reading paths",
 });
 
 /** How each kind of research item is named. */
@@ -8140,6 +8141,7 @@ export const BOUNDARY_KINDS = Object.freeze({
   "comparison-page": "Comparison page",
   selection: "Curated selection",
   "curated-context": "Curated context file",
+  path: "Reading path",
 });
 
 /** Why an item or a field is withheld, in a few words. The server's message says exactly which. */
@@ -9516,6 +9518,210 @@ class Api {
   }
 }
 
+// Reading paths (ADR 0213, #77). A path is the public file `content/paths/<slug>.json`; these
+// helpers turn the file's JSON into an editor draft and back without losing a field the editor
+// does not show, move steps without losing written text, and word what the server reports. The
+// server owns every rule and the canonical form; nothing here decides whether a path is valid
+// or published, it only avoids sending what it already knows will be refused.
+
+/** The step a step follows: the nearest earlier step that is not optional (ADR 0210). */
+export function pathFollowedIndex(steps, index) {
+  for (let i = index - 1; i >= 0; i -= 1) if (!steps[i].optional) return i;
+  return -1;
+}
+
+const blankTransition = () => ({ relationship: "", why: "" });
+
+/**
+ * An editor draft from the file's JSON (as the server sends it). Every step carries a
+ * transition so one that moves off the front keeps what was written in memory; the payload
+ * leaves out the first step's. Fields the editor does not know travel inside the copies and go
+ * back untouched, so a save keeps what a newer release wrote.
+ */
+export function readingPathDraft(path = null, slug = "") {
+  const source = path && typeof path === "object" ? structuredClone(path) : {};
+  delete source.format;
+  delete source.version;
+  const steps = (Array.isArray(source.steps) ? source.steps : []).map((step) => ({
+    ...step,
+    optional: step.optional === true,
+    transition: step.transition ? { ...blankTransition(), ...step.transition } : blankTransition(),
+  }));
+  return {
+    ...source,
+    slug,
+    title: typeof source.title === "string" ? source.title : "",
+    status: source.status === "published" ? "published" : "draft",
+    listed: source.listed !== false,
+    steps,
+  };
+}
+
+const emptyToNothing = (value) => (typeof value === "string" && value.trim() === "" ? undefined : value);
+
+/** The JSON a save sends: the draft without its slug, empty optional fields left out. */
+export function readingPathPayload(draft) {
+  const { slug: _slug, steps, ...rest } = draft;
+  const out = { ...rest };
+  for (const key of ["summary"]) {
+    if (emptyToNothing(out[key]) === undefined) delete out[key];
+  }
+  if (out.listed === true) delete out.listed;
+  out.steps = steps.map((step, index) => {
+    const { transition, ...own } = step;
+    const next = { ...own };
+    for (const key of ["rationale", "prerequisites", "difficulty"]) {
+      if (emptyToNothing(next[key]) === undefined) delete next[key];
+    }
+    if (next.optional !== true) delete next.optional;
+    if (index > 0) {
+      const t = { ...transition };
+      if (emptyToNothing(t.basis) === undefined || t.relationship !== "influenced") delete t.basis;
+      next.transition = t;
+    }
+    return next;
+  });
+  return out;
+}
+
+/** Whether two drafts would save the same file. */
+export function readingPathSame(a, b) {
+  return JSON.stringify(readingPathPayload(a)) === JSON.stringify(readingPathPayload(b));
+}
+
+/** A stable step id for a target, unique in the draft. Ids are lowercase slugs of at most 64 characters. */
+export function readingPathStepId(steps, kind, target) {
+  const base =
+    String(target)
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 56)
+      .replace(/-+$/g, "") || kind;
+  const used = new Set(steps.map((step) => step.id));
+  if (!used.has(base)) return base;
+  for (let n = 2; ; n += 1) {
+    const candidate = `${base}-${n}`;
+    if (!used.has(candidate)) return candidate;
+  }
+}
+
+/** A new step for a published target, without a transition's words (the author writes them). */
+export function readingPathNewStep(steps, kind, target) {
+  return {
+    id: readingPathStepId(steps, kind, target),
+    target: kind === "atlas" ? { kind: "atlas", id: target } : { kind: "post", slug: target },
+    optional: false,
+    transition: blankTransition(),
+  };
+}
+
+/** The key a step's target is known by, for "already in this path". */
+export function readingPathTargetKey(step) {
+  return step.target?.kind === "atlas" ? `atlas:${step.target.id}` : `post:${step.target?.slug}`;
+}
+
+/**
+ * The steps in a new order: the step at `from` moves to `to` (zero-based, clamped). Every step
+ * keeps its own words, including a transition it cannot show at the front. Returns the new list
+ * and where the step landed.
+ */
+export function readingPathMoveStep(steps, from, to) {
+  if (!Number.isInteger(from) || from < 0 || from >= steps.length) return { steps, index: from };
+  const target = Math.max(0, Math.min(steps.length - 1, Number.isInteger(to) ? to : from));
+  if (target === from) return { steps, index: from };
+  const next = steps.slice();
+  const [moved] = next.splice(from, 1);
+  next.splice(target, 0, moved);
+  return { steps: next, index: target };
+}
+
+/** What a move did, said for a screen reader. */
+export function readingPathMoveText(title, index, count) {
+  return `Moved ${title} to position ${index + 1} of ${count}.`;
+}
+
+/** The step ids in order, for the reorder route. */
+export function readingPathOrder(steps) {
+  return steps.map((step) => step.id);
+}
+
+/** How a step stands now, from the server's step states, as words and whether readers see it. */
+export function readingPathStateText(state) {
+  if (!state) return { text: "Not checked", published: null };
+  switch (state.state) {
+    case "published":
+      return { text: "Published", published: true };
+    case "draft":
+      return { text: "Draft: readers will not see this step", published: false };
+    case "scheduled":
+      return { text: "Scheduled: not public yet, readers will not see this step", published: false };
+    case "missing":
+      return { text: "Not found: readers will not see this step", published: false };
+    default:
+      return { text: "Not public: readers will not see this step", published: false };
+  }
+}
+
+/** The step's own state from the server's list, found by step id. */
+export function readingPathStateFor(states, id) {
+  return (states || []).find((state) => state.id === id) || null;
+}
+
+/**
+ * Problems found without the server, so a save is not sent when it is certain to be refused.
+ * Each is `{ step, message }` (`step` is an id or null). The server's own list is authoritative
+ * and replaces this one on every preview and save.
+ */
+export function readingPathProblems(draft, relationships = []) {
+  const problems = [];
+  const add = (step, message) => problems.push({ step, message });
+  if (!String(draft.title || "").trim()) add(null, "Give the path a title.");
+  if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(draft.slug || "") || draft.slug.length > 64) {
+    add(null, "The address name is lowercase letters, digits and single hyphens, at most 64 characters.");
+  }
+  const known = new Set(relationships.map((relationship) => relationship.value));
+  const seen = new Map();
+  draft.steps.forEach((step, index) => {
+    const key = readingPathTargetKey(step);
+    if (seen.has(key)) add(step.id, "This target is already a step of the path; a path never returns to a step.");
+    seen.set(key, step.id);
+    if (index === 0 && step.optional) add(step.id, "The first step is where every reader starts, so it cannot be optional.");
+    if (index === 0) return;
+    const t = step.transition || {};
+    if (!t.relationship) add(step.id, "Choose how this step relates to the step it follows.");
+    else if (known.size && !known.has(t.relationship)) add(step.id, "Choose one of the listed relationships.");
+    if (!String(t.why || "").trim()) add(step.id, "Say why this step follows, in your own words.");
+    if (t.relationship === "influenced") {
+      const followed = draft.steps[pathFollowedIndex(draft.steps, index)];
+      if (step.target?.kind !== "atlas" || followed?.target?.kind !== "atlas") {
+        add(step.id, "Influence joins two atlas entries; choose another relationship between posts.");
+      }
+      if (!String(t.basis || "").trim()) add(step.id, "Influence needs the id of a published atlas relationship that states it.");
+    }
+  });
+  return problems;
+}
+
+/** The message for a failed call: what the server said, scoped to the step when it says which. */
+export function readingPathErrorText(error) {
+  const data = error?.data || {};
+  if (data.conflict) return "This reading path changed somewhere else since you opened it. Nothing was saved.";
+  if (data.exists) return "A reading path with that address name already exists. Choose another.";
+  if (data.needsConfirmation) return data.error;
+  return data.error || error?.message || "The request failed. Nothing was changed.";
+}
+
+/** The list's words for one path. */
+export function readingPathListText(item) {
+  if (!item.valid) return `Cannot be read: ${item.firstProblem || "see the problems"}`;
+  const status = item.status === "published" ? "Published" : "Draft";
+  const steps = `${item.steps} ${item.steps === 1 ? "step" : "steps"}`;
+  const shown = item.status === "published" && item.shown === false ? "; not shown to readers yet (a required step is not published)" : "";
+  return `${status} · ${steps}${shown}`;
+}
+
 const KINDS = {
   posts: { label: "Posts", single: "post", titleKey: "title" },
   pages: { label: "Pages", single: "page", titleKey: "title" },
@@ -10007,6 +10213,7 @@ export class ObAdmin extends AdminElement {
         h("a", { class: "oba-tab", "aria-current": kind === active ? "page" : null, href: `#/${kind}` }, info.label),
       ),
       h("a", { class: "oba-tab", "aria-current": active === "shared" ? "page" : null, href: "#/shared" }, "Shared reflections"),
+      h("a", { class: "oba-tab", "aria-current": active === "paths" ? "page" : null, href: "#/paths" }, "Reading paths"),
     ];
     const activeInfo = active === "analytics"
       ? { title: "Analytics", detail: "Understand readership without tracking individual readers." }
@@ -10016,6 +10223,8 @@ export class ObAdmin extends AdminElement {
         ? { title: researchPanel(panel).title, detail: researchPanel(panel).detail }
       : active === "contributors"
         ? { title: "Contributors", detail: "Manage reusable public identities for bylines and contribution credits." }
+      : active === "paths"
+        ? { title: "Reading paths", detail: "Curate ordered routes through published posts and Knowledge Atlas entries, with your own reason for each step." }
       : active === "shared"
         ? { title: "Shared reflections", detail: "Start a private draft with other writers from a video, article, podcast, book, or other source." }
       : active === "overview"
@@ -10491,6 +10700,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "analytics") await this.showAnalytics(Number(tail) || 30);
       else if (head === "moderation" || head === "feedback") await this.showModeration(tail, params);
       else if (head === "contributors") await this.showContributors();
+      else if (head === "paths") await this.showReadingPaths(tail);
       else if (head === "research") await this.showResearchPanel(tail);
       else if (head === "shared" && tail === "new") await this.showSharedReflectionForm();
       else if (head === "shared" && tail.startsWith("accept/")) await this.showInvitationAccept(invitationTokenFromHash(location.hash));
@@ -10898,6 +11108,662 @@ export class ObAdmin extends AdminElement {
       ),
     );
     mountedView = this.viewVersion;
+  }
+
+  // ---- reading paths (ADR 0213, #77)
+
+  /** `#/paths` lists the paths, `#/paths/new` starts one and `#/paths/edit/<slug>` edits one. */
+  async showReadingPaths(tail) {
+    const [head, ...rest] = String(tail || "").split("/");
+    if (head === "new") return this.showReadingPathEditor(null);
+    if (head === "edit" && rest.length) return this.showReadingPathEditor(safeDecodeURIComponent(rest.join("/")));
+    return this.showReadingPathList();
+  }
+
+  async showReadingPathList() {
+    let list;
+    try {
+      list = await this.api.call("GET", "reading-paths");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) throw error;
+      this.mount(this.shell("paths", h("p", { class: "oba-error", role: "alert" }, readingPathErrorText(error))));
+      return;
+    }
+    const rows = list.items.map((item) =>
+      h(
+        "li",
+        { class: "oba-paths-item", "data-path": item.slug },
+        h("a", { class: "oba-paths-link", href: `#/paths/edit/${encodeURIComponent(item.slug)}` }, h("bdi", {}, item.title)),
+        h("span", { class: "oba-small oba-paths-meta" }, readingPathListText(item)),
+      ),
+    );
+    this.mount(
+      this.shell(
+        "paths",
+        h(
+          "section",
+          { class: "oba-contributor-intro" },
+          h("p", {}, "A reading path is your own ordered route through published posts and Knowledge Atlas entries. Every step after the first says, in your words, why it follows."),
+          list.publish
+            ? null
+            : h("p", { class: "oba-notice", "data-paths-switch": "off" }, "This site does not publish reading paths yet. You can write and preview them now; set readingPaths.publish to true in openblog.json when you want readers to see them."),
+        ),
+        h("div", { class: "oba-toolbar" }, h("a", { class: "oba-btn oba-btn-primary", href: "#/paths/new" }, "New reading path")),
+        list.targetsProblem ? h("p", { class: "oba-notice", role: "status" }, `Published posts and atlas entries could not be read, so every step shows as not published. ${list.targetsProblem}`) : null,
+        rows.length
+          ? h("ul", { class: "oba-paths-list", "aria-label": "Reading paths" }, rows)
+          : h("p", { class: "oba-notice", "data-paths-empty": "true" }, "No reading paths yet. Start one from published posts."),
+      ),
+    );
+  }
+
+  async showReadingPathEditor(slug) {
+    const isNew = slug === null;
+    let targets;
+    let loaded = null;
+    try {
+      targets = await this.api.call("GET", "reading-paths/targets");
+      if (!isNew) loaded = await this.api.call("GET", `reading-paths/path?slug=${encodeURIComponent(slug)}`);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) throw error;
+      this.mount(
+        this.shell(
+          "paths",
+          h("p", { class: "oba-error", role: "alert" }, readingPathErrorText(error)),
+          h("p", {}, h("a", { href: "#/paths" }, "Back to reading paths")),
+        ),
+      );
+      return;
+    }
+    const relationships = targets.relationships || [];
+    const limits = targets.limits || {};
+    let draft = loaded?.valid === false ? null : readingPathDraft(loaded?.path || null, slug || "");
+    let saved = draft ? structuredClone(draft) : null;
+    let revision = loaded?.revision || null;
+    let states = loaded?.states || [];
+    let projection = loaded?.projection || null;
+    let problems = loaded?.problems || [];
+    let sourceText = loaded?.source || "";
+    let mode = draft ? "form" : "source";
+    let dirty = false;
+    let busy = false;
+    let sequence = 0;
+    let timer = null;
+    let mountedView = 0;
+    const stepBadges = new Map();
+    const stepTitles = new Map();
+
+    const status = h("p", { class: "oba-small oba-paths-status", role: "status", "aria-live": "polite" });
+    const say = (text, kind = "small") => {
+      status.className = kind === "error" ? "oba-error oba-paths-status" : kind === "ok" ? "oba-ok oba-paths-status" : kind === "notice" ? "oba-notice oba-paths-status" : "oba-small oba-paths-status";
+      status.textContent = text;
+    };
+    const conflictBox = h("div", { class: "oba-paths-conflict", hidden: true });
+    const problemsBox = h("section", { class: "oba-paths-problems", "aria-labelledby": "oba-paths-problems-heading", hidden: true });
+    const previewBox = h("section", { class: "oba-paths-preview", "aria-labelledby": "oba-paths-preview-heading" });
+    const stepsList = h("ol", { class: "oba-paths-steps", "aria-label": "Steps in reading order" });
+    const formPanel = h("div", { class: "oba-paths-form" });
+    const sourcePanel = h("div", { class: "oba-paths-source" });
+    const modeBar = h("div", { class: "oba-toolbar oba-paths-modes", role: "group", "aria-label": "Editing mode" });
+
+    const titleFor = (step) => stepTitles.get(step.id) || readingPathStateFor(states, step.id)?.title || targetLabel(step);
+    const rememberTitles = () => {
+      for (const state of states) if (state.title && !stepTitles.has(state.id)) stepTitles.set(state.id, state.title);
+    };
+    const targetLabel = (step) => (step.target?.kind === "atlas" ? step.target.id : step.target?.slug) || step.id;
+
+    const schedulePreview = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => refresh(), 350);
+    };
+    const markDirty = () => {
+      dirty = true;
+      if (mode === "form") schedulePreview();
+    };
+
+    // ---- problems and preview
+    const focusStep = (id) => {
+      const heading = stepsList.querySelector(`[data-step-id="${CSS.escape(id)}"] .oba-paths-step-heading`);
+      heading?.focus();
+    };
+    const renderProblems = () => {
+      const list = problems || [];
+      problemsBox.hidden = list.length === 0;
+      problemsBox.replaceChildren(
+        h("h2", { id: "oba-paths-problems-heading", tabindex: "-1" }, `${list.length} ${list.length === 1 ? "problem" : "problems"} to fix`),
+        h(
+          "ul",
+          { class: "oba-paths-problem-list" },
+          list.map((problem) => {
+            const stepIndex = problem.step && draft ? draft.steps.findIndex((step) => step.id === problem.step) : -1;
+            return h(
+              "li",
+              { "data-problem-step": problem.step || "" },
+              h("span", {}, stepIndex >= 0 ? `Step ${stepIndex + 1}: ` : problem.step ? `Step ${problem.step}: ` : ""),
+              problem.message || problem.text,
+              stepIndex >= 0 ? h("button", { class: "oba-link", type: "button", onClick: () => focusStep(problem.step) }, `Go to step ${stepIndex + 1}`) : null,
+            );
+          }),
+        ),
+      );
+    };
+    const renderPreview = () => {
+      const kids = [h("h2", { id: "oba-paths-preview-heading" }, "What readers will see")];
+      if (!projection) {
+        kids.push(h("p", { class: "oba-small", "data-paths-no-preview": "true" }, draft && draft.steps.length < 2 && !(problems || []).length ? "Add at least two steps to see a preview." : "Fix the problems listed to preview this path."));
+      } else {
+        if (projection.asPublished) kids.push(h("p", { class: "oba-small", "data-paths-draft-note": "true" }, "This path is a draft. The preview shows how it would read once published."));
+        if (projection.withheld || !projection.public) {
+          kids.push(h("p", { class: "oba-notice", "data-paths-withheld": "true" }, "As it stands this path would not be published: it needs at least two published steps, and every step must follow a published step."));
+        } else {
+          const pub = projection.public;
+          kids.push(
+            h(
+              "div",
+              { class: "oba-paths-preview-path" },
+              h("h3", {}, h("bdi", {}, pub.title)),
+              pub.summary ? h("p", {}, h("bdi", {}, pub.summary)) : null,
+              h(
+                "ol",
+                { class: "oba-paths-preview-list", "aria-label": "Steps as readers see them" },
+                pub.steps.map((step) =>
+                  h(
+                    "li",
+                    { class: "oba-paths-preview-step", "data-position": String(step.position) },
+                    step.transition
+                      ? h("p", { class: "oba-paths-preview-reason" }, h("strong", {}, step.transition.label), ` (step ${step.transition.follows}): `, h("bdi", {}, step.transition.why))
+                      : null,
+                    h("p", { class: "oba-paths-preview-title" }, h("span", { class: "oba-small" }, `${step.kindLabel} · `), h("bdi", {}, step.title), step.optional ? h("span", { class: "oba-small" }, " · Optional") : null, step.difficulty ? h("span", { class: "oba-small" }, ` · ${step.difficulty}`) : null),
+                    step.rationale ? h("p", { class: "oba-small" }, h("bdi", {}, step.rationale)) : null,
+                    step.prerequisites ? h("p", { class: "oba-small" }, "Before you start: ", h("bdi", {}, step.prerequisites)) : null,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+        const diagnostics = projection.diagnostics || [];
+        if (diagnostics.length) {
+          kids.push(
+            h(
+              "div",
+              { class: "oba-paths-diagnostics", "data-paths-diagnostics": "true" },
+              h("h3", {}, "For you only: why readers do not see some steps"),
+              h("p", { class: "oba-small" }, "Readers are never told that a step was left out."),
+              h("ul", {}, diagnostics.map((d) => h("li", {}, d.text))),
+            ),
+          );
+        }
+      }
+      previewBox.replaceChildren(...kids);
+    };
+    const renderBadges = () => {
+      for (const step of draft?.steps || []) {
+        const badge = stepBadges.get(step.id);
+        if (!badge) continue;
+        const info = readingPathStateText(readingPathStateFor(states, step.id));
+        badge.textContent = info.text;
+        badge.dataset.published = String(info.published);
+        badge.className = `oba-paths-state${info.published === false ? " oba-paths-state-warn" : ""}`;
+        const heading = stepsList.querySelector(`[data-step-id="${CSS.escape(step.id)}"] .oba-paths-step-title`);
+        if (heading) heading.textContent = titleFor(step);
+      }
+    };
+
+    const refresh = async () => {
+      if (!draft || mode !== "form") return;
+      const mine = ++sequence;
+      try {
+        const result = await this.api.call("POST", "reading-paths/preview", { json: { slug: draft.slug || "draft", path: readingPathPayload(draft) } });
+        if (mine !== sequence || this.viewVersion !== mountedView) return;
+        // A draft the server cannot read yet (a reason not chosen) gives no states: keep the last ones.
+        if (result.states?.length) states = result.states;
+        rememberTitles();
+        projection = result.projection || null;
+        const local = readingPathProblems(draft, relationships);
+        problems = result.valid ? [] : result.problems?.length ? result.problems : local;
+        renderBadges();
+        renderPreview();
+        renderProblems();
+      } catch (error) {
+        if (mine !== sequence || this.viewVersion !== mountedView) return;
+        say(readingPathErrorText(error), "error");
+      }
+    };
+
+    // ---- steps
+    const stepKeyFocus = (id, selector) => requestAnimationFrame(() => stepsList.querySelector(`[data-step-id="${CSS.escape(id)}"] ${selector}`)?.focus());
+    const moveStep = (index, delta, button) => {
+      const result = readingPathMoveStep(draft.steps, index, index + delta);
+      if (result.index === index) return;
+      const step = draft.steps[index];
+      draft.steps = result.steps;
+      markDirty();
+      renderSteps();
+      say(readingPathMoveText(titleFor(step), result.index, draft.steps.length));
+      // Keep the same control in reach: the same direction if it still can move, else the other.
+      const wanted = delta < 0 ? (result.index > 0 ? "up" : "down") : result.index < draft.steps.length - 1 ? "down" : "up";
+      stepKeyFocus(step.id, `[data-move="${wanted}"]`);
+    };
+    const removeStep = (index) => {
+      const step = draft.steps[index];
+      draft.steps.splice(index, 1);
+      markDirty();
+      renderSteps();
+      say(`Removed ${titleFor(step)}. ${draft.steps.length} ${draft.steps.length === 1 ? "step" : "steps"} remain.`);
+      const next = draft.steps[Math.min(index, draft.steps.length - 1)];
+      if (next) stepKeyFocus(next.id, ".oba-paths-step-heading");
+      else requestAnimationFrame(() => formPanel.querySelector("#oba-paths-add-target")?.focus());
+    };
+    const field = (id, label, control, hint) =>
+      h("div", { class: "oba-field" }, h("label", { for: id }, label), control, hint ? h("small", { class: "oba-small", id: `${id}-hint` }, hint) : null);
+    const bindText = (control, owner, key) =>
+      control.addEventListener("input", () => {
+        owner[key] = control.value;
+        markDirty();
+      });
+    const renderSteps = () => {
+      stepBadges.clear();
+      const count = draft.steps.length;
+      stepsList.replaceChildren(
+        ...draft.steps.map((step, index) => {
+          const info = readingPathStateText(readingPathStateFor(states, step.id));
+          const nameId = `oba-paths-step-${index}`;
+          const heading = h(
+            "h3",
+            { class: "oba-paths-step-heading", id: `${nameId}-heading`, tabindex: "-1" },
+            `Step ${index + 1} of ${count}: `,
+            h("bdi", { class: "oba-paths-step-title" }, titleFor(step)),
+          );
+          const badge = h("p", { class: `oba-paths-state${info.published === false ? " oba-paths-state-warn" : ""}`, "data-published": String(info.published), id: `${nameId}-state` }, info.text);
+          stepBadges.set(step.id, badge);
+          const title = titleFor(step);
+          const controls = h(
+            "div",
+            { class: "oba-paths-step-controls", role: "group", "aria-label": `Order of step ${index + 1}` },
+            h("button", { class: "oba-btn", type: "button", "data-move": "up", disabled: index === 0, "aria-label": `Move ${title} up, to position ${index}`, onClick: () => moveStep(index, -1) }, "Move up"),
+            h("button", { class: "oba-btn", type: "button", "data-move": "down", disabled: index === count - 1, "aria-label": `Move ${title} down, to position ${index + 2}`, onClick: () => moveStep(index, 1) }, "Move down"),
+            h("button", { class: "oba-btn oba-btn-danger", type: "button", "data-remove": "true", "aria-label": `Remove ${title} from this path`, onClick: () => removeStep(index) }, "Remove"),
+          );
+          const body = [];
+          if (index === 0 && String(step.transition?.why || "").trim()) {
+            // Written for a later place, kept here only until the author moves the step back down.
+            body.push(h("p", { class: "oba-notice", "data-held-transition": "true", id: `${nameId}-held` }, "The first step follows nothing, so the reason you wrote for it as a later step is not saved while it is first. Move it down to keep it."));
+          }
+          if (index > 0) {
+            const followed = draft.steps[pathFollowedIndex(draft.steps, index)];
+            const relation = h(
+              "select",
+              { id: `${nameId}-relationship`, required: true, "aria-required": "true", "aria-describedby": `${nameId}-follows` },
+              h("option", { value: "", selected: !step.transition.relationship }, "Choose how it relates…"),
+              relationships.map((r) => h("option", { value: r.value, selected: step.transition.relationship === r.value }, `${r.label}`)),
+            );
+            const why = h("textarea", { id: `${nameId}-why`, rows: "3", maxlength: String(limits.text || 600), required: true, "aria-required": "true" }, step.transition.why);
+            const basis = h("input", { id: `${nameId}-basis`, type: "text", value: step.transition.basis || "", autocapitalize: "none", spellcheck: "false" });
+            const basisField = field(`${nameId}-basis`, "Atlas relationship that states the influence", basis, "The id of a published atlas relationship. Order and dates never imply influence.");
+            basisField.hidden = step.transition.relationship !== "influenced";
+            relation.addEventListener("change", () => {
+              step.transition.relationship = relation.value;
+              basisField.hidden = relation.value !== "influenced";
+              markDirty();
+            });
+            bindText(why, step.transition, "why");
+            bindText(basis, step.transition, "basis");
+            body.push(
+              h(
+                "fieldset",
+                { class: "oba-paths-reason" },
+                h("legend", {}, "Why this step follows"),
+                h("p", { class: "oba-small", id: `${nameId}-follows` }, followed ? `It follows step ${pathFollowedIndex(draft.steps, index) + 1}: ` : "It follows nothing yet. ", followed ? h("bdi", {}, titleFor(followed)) : null),
+                field(`${nameId}-relationship`, "How it relates to that step (required)", relation),
+                field(`${nameId}-why`, "Why it follows, in your own words (required)", why),
+                basisField,
+              ),
+            );
+          }
+          const rationale = h("textarea", { id: `${nameId}-rationale`, rows: "2", maxlength: String(limits.text || 600) }, step.rationale || "");
+          const prerequisites = h("input", { id: `${nameId}-prerequisites`, type: "text", value: step.prerequisites || "", maxlength: String(limits.prerequisites || 400) });
+          const difficulty = h(
+            "select",
+            { id: `${nameId}-difficulty` },
+            h("option", { value: "" }, "Not stated"),
+            (targets.difficulties || []).map((value) => h("option", { value, selected: step.difficulty === value }, value.charAt(0).toUpperCase() + value.slice(1))),
+          );
+          const optional = h("input", { id: `${nameId}-optional`, type: "checkbox", checked: step.optional === true, disabled: index === 0 });
+          bindText(rationale, step, "rationale");
+          bindText(prerequisites, step, "prerequisites");
+          difficulty.addEventListener("change", () => {
+            step.difficulty = difficulty.value;
+            markDirty();
+          });
+          optional.addEventListener("change", () => {
+            step.optional = optional.checked;
+            markDirty();
+            renderSteps();
+            stepKeyFocus(step.id, `#${nameId}-optional`);
+          });
+          body.push(
+            field(`${nameId}-rationale`, "Why this step is in the path (optional)", rationale),
+            field(`${nameId}-prerequisites`, "What to know first (optional)", prerequisites),
+            field(`${nameId}-difficulty`, "Difficulty, your judgement (optional)", difficulty),
+            h("div", { class: "oba-field oba-paths-optional" }, optional, h("label", { for: `${nameId}-optional` }, "Optional: a side step readers may skip"), index === 0 ? h("small", { class: "oba-small" }, "The first step is where every reader starts.") : null),
+          );
+          return h("li", { class: "oba-paths-step", "data-step-id": step.id }, h("section", { "aria-labelledby": `${nameId}-heading`, "aria-describedby": `${nameId}-state` }, h("header", { class: "oba-paths-step-header" }, heading, badge, controls), ...body));
+        }),
+      );
+      if (!count) stepsList.append(h("li", { class: "oba-notice", "data-paths-no-steps": "true" }, "No steps yet. Add a published post or atlas entry below."));
+    };
+
+    const addControls = () => {
+      const inPath = new Set(draft.steps.map(readingPathTargetKey));
+      const posts = (targets.posts || []).filter((post) => !inPath.has(`post:${post.slug}`));
+      const entries = (targets.entries || []).filter((entry) => !inPath.has(`atlas:${entry.id}`));
+      const select = h(
+        "select",
+        { id: "oba-paths-add-target", disabled: !posts.length && !entries.length },
+        h("option", { value: "" }, posts.length || entries.length ? "Choose a published post or entry…" : "Nothing published is left to add"),
+        posts.length ? h("optgroup", { label: "Published posts" }, posts.map((post) => h("option", { value: `post:${post.slug}` }, post.title))) : null,
+        entries.length ? h("optgroup", { label: "Public atlas entries" }, entries.map((entry) => h("option", { value: `atlas:${entry.id}` }, `${entry.label} (${entry.kind})`))) : null,
+      );
+      const add = h("button", { class: "oba-btn", type: "button", "data-add-step": "true" }, "Add step");
+      add.addEventListener("click", () => {
+        const [kind, ...rest] = select.value.split(":");
+        const target = rest.join(":");
+        if (!kind || !target) {
+          say("Choose a published post or atlas entry to add.", "error");
+          select.focus();
+          return;
+        }
+        if (draft.steps.length >= (limits.steps || 100)) {
+          say(`A path holds at most ${limits.steps || 100} steps.`, "error");
+          return;
+        }
+        const step = readingPathNewStep(draft.steps, kind, target);
+        const label = kind === "post" ? posts.find((p) => p.slug === target)?.title : entries.find((e) => e.id === target)?.label;
+        stepTitles.set(step.id, label || target);
+        draft.steps.push(step);
+        markDirty();
+        renderForm();
+        say(`Added ${label || target} as step ${draft.steps.length}.`);
+        stepKeyFocus(step.id, draft.steps.length > 1 ? `#oba-paths-step-${draft.steps.length - 1}-relationship` : ".oba-paths-step-heading");
+      });
+      return h(
+        "fieldset",
+        { class: "oba-paths-add" },
+        h("legend", {}, "Add a step"),
+        h("p", { class: "oba-small" }, "Only published posts and public atlas entries can be added. Drafts, scheduled posts and private atlas entries are not offered."),
+        targets.problem ? h("p", { class: "oba-notice" }, `Some published targets could not be read: ${targets.problem}`) : null,
+        h("div", { class: "oba-field" }, h("label", { for: "oba-paths-add-target" }, "Post or atlas entry"), select),
+        add,
+      );
+    };
+
+    const renderForm = () => {
+      const title = h("input", { id: "oba-paths-title", type: "text", value: draft.title, required: true, "aria-required": "true", maxlength: String(limits.title || 120) });
+      const address = h("input", { id: "oba-paths-slug", type: "text", value: draft.slug, disabled: !isNew, autocapitalize: "none", spellcheck: "false", "aria-describedby": "oba-paths-slug-hint", required: isNew });
+      const summary = h("textarea", { id: "oba-paths-summary", rows: "2", maxlength: String(limits.text || 600) }, draft.summary || "");
+      const state = h(
+        "select",
+        { id: "oba-paths-status" },
+        h("option", { value: "draft", selected: draft.status !== "published" }, "Draft: not published"),
+        h("option", { value: "published", selected: draft.status === "published" }, "Published"),
+      );
+      const listed = h("input", { id: "oba-paths-listed", type: "checkbox", checked: draft.listed !== false });
+      bindText(title, draft, "title");
+      bindText(address, draft, "slug");
+      bindText(summary, draft, "summary");
+      state.addEventListener("change", () => {
+        draft.status = state.value;
+        markDirty();
+      });
+      listed.addEventListener("change", () => {
+        draft.listed = listed.checked;
+        markDirty();
+      });
+      renderSteps();
+      formPanel.replaceChildren(
+        h(
+          "fieldset",
+          { class: "oba-paths-meta-fields" },
+          h("legend", {}, "About this path"),
+          field("oba-paths-title", "Title (required)", title),
+          h("div", { class: "oba-field" }, h("label", { for: "oba-paths-slug" }, "Address name"), address, h("small", { class: "oba-small", id: "oba-paths-slug-hint" }, isNew ? "Lowercase letters, digits and single hyphens. It cannot be changed later." : "The address name is the file name and cannot be changed.")),
+          field("oba-paths-summary", "Summary (optional)", summary),
+          field("oba-paths-status", "Status", state, "A draft is never published, whatever the site setting."),
+          h("div", { class: "oba-field oba-paths-optional" }, listed, h("label", { for: "oba-paths-listed" }, "List this path in discovery and search"), h("small", { class: "oba-small" }, "Unlisted paths are still published at their own address.")),
+        ),
+        h("h2", { id: "oba-paths-steps-heading" }, "Steps"),
+        h("p", { class: "oba-small" }, "The order here is the reading order. Use Move up and Move down to reorder."),
+        stepsList,
+        addControls(),
+      );
+    };
+
+    // ---- source mode
+    const renderSource = () => {
+      const text = h("textarea", { id: "oba-paths-source-text", rows: "24", spellcheck: "false", autocapitalize: "none", wrap: "off", class: "oba-paths-source-text" }, sourceText);
+      text.addEventListener("input", () => {
+        sourceText = text.value;
+        dirty = true;
+      });
+      sourcePanel.replaceChildren(
+        h("p", { class: "oba-small" }, "This is the file itself. Saving writes it in the canonical form, keeps any field this release does not know, and refuses anything invalid without changing the file."),
+        field("oba-paths-source-text", "Reading path source (JSON)", text),
+        h(
+          "div",
+          { class: "oba-toolbar" },
+          h("button", { class: "oba-btn", type: "button", "data-action": "check-source", onClick: () => checkSource() }, "Check source"),
+          h("button", { class: "oba-btn", type: "button", "data-action": "to-form", onClick: () => toForm() }, "Back to the form"),
+        ),
+      );
+    };
+    const sourceRequest = () => ({ slug: draft?.slug || slug || "", source: sourceText });
+    const checkSource = async () => {
+      say("Checking the source…");
+      try {
+        const result = await this.api.call("POST", "reading-paths/preview", { json: sourceRequest() });
+        problems = result.problems || [];
+        projection = result.projection || null;
+        if (result.states?.length) states = result.states;
+        rememberTitles();
+        renderProblems();
+        renderPreview();
+        if (result.valid) {
+          say("The source is valid.", "ok");
+          return result;
+        }
+        say(`${problems.length} ${problems.length === 1 ? "problem" : "problems"} in the source.`, "error");
+        problemsBox.querySelector("h2")?.focus();
+      } catch (error) {
+        say(readingPathErrorText(error), "error");
+      }
+      return null;
+    };
+    const toForm = async () => {
+      const result = await checkSource();
+      if (!result?.path) return;
+      draft = readingPathDraft(result.path, draft?.slug || slug || "");
+      mode = "form";
+      renderForm();
+      renderModes();
+      showMode();
+      markDirty();
+      say("Showing the form. Your source is checked and unchanged until you save.");
+    };
+    const toSource = async () => {
+      if (!draft) return;
+      clearTimeout(timer);
+      try {
+        const result = await this.api.call("POST", "reading-paths/preview", { json: { slug: draft.slug || "draft", path: readingPathPayload(draft) } });
+        sourceText = result.source || JSON.stringify(readingPathPayload(draft), null, 2);
+        states = result.states || states;
+        projection = result.projection || null;
+        problems = result.valid ? [] : result.problems || [];
+        if (result.source === undefined) say("The path has problems, so the source shows it as the form has it.", "notice");
+      } catch (error) {
+        say(readingPathErrorText(error), "error");
+        return;
+      }
+      mode = "source";
+      renderSource();
+      renderModes();
+      showMode();
+      renderProblems();
+      renderPreview();
+    };
+
+    const showMode = () => {
+      formPanel.hidden = mode !== "form";
+      sourcePanel.hidden = mode !== "source";
+    };
+    const renderModes = () => {
+      modeBar.replaceChildren(
+        h("button", { class: "oba-btn", type: "button", "aria-pressed": String(mode === "form"), "data-mode": "form", onClick: () => (mode === "form" ? null : toForm()) }, "Edit as a form"),
+        h("button", { class: "oba-btn", type: "button", "aria-pressed": String(mode === "source"), "data-mode": "source", onClick: () => (mode === "source" ? null : toSource()) }, "Edit as source"),
+      );
+    };
+
+    // ---- saving
+    const applySaved = (result) => {
+      revision = result.revision;
+      slug = result.slug;
+      draft = readingPathDraft(result.path, result.slug);
+      saved = structuredClone(draft);
+      sourceText = result.source;
+      states = result.states || [];
+      projection = result.projection || null;
+      problems = [];
+      dirty = false;
+      for (const key of [...stepTitles.keys()]) if (!draft.steps.some((step) => step.id === key)) stepTitles.delete(key);
+    };
+    const conflict = (error) => {
+      const current = error.data?.current?.path ? error.data.current : null;
+      conflictBox.hidden = false;
+      conflictBox.replaceChildren(
+        h("p", { class: "oba-error", role: "alert" }, readingPathErrorText(error)),
+        h("div", { class: "oba-toolbar" },
+          current ? h("button", { class: "oba-btn", type: "button", "data-action": "load-newer", onClick: () => {
+            applySaved(current);
+            conflictBox.hidden = true;
+            renderAll();
+            say("Loaded the newer version. Your unsaved edits were discarded.", "notice");
+          } }, "Load the newer version and discard my edits") : null,
+          error.data?.revision ? h("button", { class: "oba-btn", type: "button", "data-action": "keep-mine", onClick: () => {
+            revision = error.data.revision;
+            conflictBox.hidden = true;
+            say("Kept your edits. Save again to replace the newer version with them.", "notice");
+          } }, "Keep my edits") : null),
+      );
+      conflictBox.querySelector("button")?.focus();
+    };
+    const save = async () => {
+      if (busy) return;
+      conflictBox.hidden = true;
+      const bySource = mode === "source";
+      if (!bySource) {
+        const local = readingPathProblems(draft, relationships);
+        if (local.length) {
+          problems = local;
+          renderProblems();
+          say(`Fix ${local.length} ${local.length === 1 ? "problem" : "problems"} before saving. Nothing was saved.`, "error");
+          problemsBox.querySelector("h2")?.focus();
+          return;
+        }
+      }
+      busy = true;
+      saveButton.disabled = true;
+      say("Saving…");
+      const request = bySource ? sourceRequest() : { slug: draft.slug, path: readingPathPayload(draft) };
+      try {
+        const result = isCreating()
+          ? await this.api.call("POST", "reading-paths", { json: request })
+          : await this.api.call("PUT", "reading-paths", { json: { ...request, revision } });
+        if (this.viewVersion !== mountedView) return;
+        const wasNew = isCreating();
+        applySaved(result);
+        if (wasNew) {
+          creating = false;
+          const hash = `#/paths/edit/${encodeURIComponent(result.slug)}`;
+          history.replaceState(null, "", hash);
+          this.currentHash = hash;
+        }
+        renderAll();
+        say("Saved.", "ok");
+      } catch (error) {
+        if (this.viewVersion !== mountedView) return;
+        if (error.status === 409 && error.data?.conflict) conflict(error);
+        else {
+          if (error.data?.problems) {
+            problems = error.data.problems;
+            renderProblems();
+            problemsBox.querySelector("h2")?.focus();
+          }
+          say(readingPathErrorText(error), "error");
+        }
+      } finally {
+        busy = false;
+        saveButton.disabled = false;
+      }
+    };
+    let creating = isNew;
+    const isCreating = () => creating;
+    const saveButton = h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": "save", onClick: save }, "Save reading path");
+    const deleteButton = h(
+      "button",
+      {
+        class: "oba-btn oba-btn-danger",
+        type: "button",
+        "data-action": "delete",
+        hidden: isNew,
+        onClick: async () => {
+          if (busy || creating) return;
+          if (!confirm("Move this reading path to the trash? It is kept in .openblog/trash.")) return;
+          busy = true;
+          try {
+            await this.api.call("DELETE", `reading-paths?slug=${encodeURIComponent(slug)}&revision=${encodeURIComponent(revision)}`);
+            dirty = false;
+            location.hash = "#/paths";
+          } catch (error) {
+            if (error.status === 409 && error.data?.conflict) conflict(error);
+            else say(readingPathErrorText(error), "error");
+          } finally {
+            busy = false;
+          }
+        },
+      },
+      "Move to trash",
+    );
+    const refreshButton = h("button", { class: "oba-btn", type: "button", "data-action": "refresh-preview", onClick: () => (mode === "form" ? refresh() : checkSource()) }, "Refresh preview");
+
+    const renderAll = () => {
+      if (draft) renderForm();
+      renderSource();
+      renderModes();
+      showMode();
+      renderProblems();
+      renderPreview();
+    };
+    if (!draft) {
+      // A file that cannot be read is repaired in source mode; the form needs a readable path.
+      problemsBox.hidden = false;
+    }
+    rememberTitles();
+    renderAll();
+    this.mount(
+      this.shell(
+        "paths",
+        h("p", {}, h("a", { href: "#/paths" }, "← All reading paths")),
+        h("section", { class: "oba-contributor-intro" }, h("p", {}, "Steps are published posts and public atlas entries. Each step after the first says why it follows, in your own words."), loaded?.publish === false ? h("p", { class: "oba-small" }, "This site does not publish reading paths yet (readingPaths.publish is off); you can still write and preview them.") : null),
+        h("div", { class: "oba-toolbar" }, modeBar, h("span", { class: "oba-spacer" }), refreshButton, deleteButton, saveButton),
+        status,
+        conflictBox,
+        problemsBox,
+        h("div", { class: "oba-paths-layout" }, h("div", { class: "oba-paths-edit" }, formPanel, sourcePanel), previewBox),
+      ),
+    );
+    mountedView = this.viewVersion;
+    this.viewDirty = () => dirty;
+    this.viewBusy = () => busy;
   }
 
   // ---- research source library

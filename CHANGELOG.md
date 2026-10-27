@@ -7,6 +7,41 @@ All notable changes to open.blog are recorded here. Releases follow
 
 - Optional update subscriptions: a pluggable, double opt-in service for readers who ask to hear when later work takes up a question, with no provider as the link-only baseline. Requests are confirmed once within 48 hours, answered alike so they reveal nothing, and unsubscribe or deletion erases the address with no account. Hosted storage is additive SQL in `supabase/subscriptions.sql` (rollback in `subscriptions-rollback.sql`), behind `OPENBLOG_SUBSCRIPTIONS_ENABLED`. No page renders a form yet, and no function, mail transport or unsubscribe page exists yet, so readers cannot subscribe until a follow-up adds them.
 - Continuation links: a canonical page now shows "Where this question went" and, on the later work, "Earlier questions this continues" as plain links that work without JavaScript, built from `continuations.json`. Admin links an approved reflection, question or source suggestion to a later published work, previews it, removes it, and drops the links of a removed or withdrawn submission, telling the moderator plainly if they could not be dropped. A note cannot claim cause, endorsement or popularity. Update subscriptions are not part of this change.
+- Reading paths are now easier to find and to move. A post or atlas entry that is a step of a listed path
+  shows "Part of a reading path" with a link to that step; listed paths appear in site search; and
+  `paths.json` lists the listed paths for tools. Unlisted paths are in none of these, feeds never carry
+  paths, and nothing about post order changes. `openblog paths export` writes your published paths to one
+  file (add `--drafts` for drafts) and `openblog paths import <file>` checks it and says what would change;
+  nothing is written unless `--write`, and any problem writes nothing at all. See
+  [Reading paths](docs/specs/reading-paths.md#discovery).
+- With `readingPaths.publish` on, a published reading path is now a page at `/paths/<slug>/`: its steps in
+  the order you chose, each linking to its post or atlas entry with your reason and relationship (never
+  more than you wrote; order alone is not influence), previous and next links, and your rationale and
+  prerequisites notes. It works without JavaScript. `/paths/` lists the paths you leave listed; an unlisted
+  path keeps its page but is not listed or in the sitemap. Readers can optionally mark steps as read, kept
+  only in their own browser, with a link to continue and a reset. A draft step is left out with no trace,
+  and problems are build warnings for you alone. A path file named like a Windows device (`con`, `nul`, ...)
+  is refused, and unknown numbers in a path file are written back digit for digit. See
+  [Reading paths](docs/specs/reading-paths.md#pages-and-progress).
+- Admin Studio can curate reading paths: **Content → Reading paths** lists, creates, edits, reorders (with
+  Move up and Move down, no drag needed) and moves paths to the trash. Steps are chosen from published posts
+  and public atlas entries only, a step that is no longer published is marked as one readers will not see,
+  every step after the first needs a relationship and your own reason, and a preview shows the public
+  projection with diagnostics for you alone. Saves are refused when the file changed elsewhere, written
+  atomically in canonical form, and source mode keeps fields the release does not know. Nothing publishes
+  a path yet, and a site without paths builds exactly as before. See [Reading paths](docs/specs/reading-paths.md#admin).
+- Reading paths now have a defined, checked file format. A path is an ordered list of published
+  posts and Knowledge Atlas entries in `content/paths/<slug>.json`, with a rationale per step and an
+  author-written reason (and a relationship that never defaults to influence) for every step after
+  the first. It is separate from series and changes neither posts nor series. Steps that are not
+  published are left out and named to the author only, never in public output. Nothing renders or
+  exports paths yet, so existing sites build exactly as before; see
+  [Reading paths](docs/specs/reading-paths.md). `influenced` joins two atlas entries only, on an
+  uncontested published relationship in exactly that direction; a path that would show a gap (a left-out
+  step a later step follows) is withheld whole; fields the release does not define are kept and written
+  back; a repeated key is refused; messages never quote a value; and `readingPaths.publish` (off by
+  default) is the switch that reserves `/paths/`.
+
 - `<ob-search>` accepts a `no-history` attribute that stops it from writing `?q=` to the page address,
   for a search box that lives in a dialog or panel on another page.
 

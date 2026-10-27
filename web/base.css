@@ -3119,6 +3119,28 @@ ob-reading-modes { display: block; }
   .ob-trail-step { border-color: CanvasText; }
 }
 
+/* Reading path pages (#78, ADR 0215): a plain ordered list of steps, each a bordered group whose text
+   wraps anywhere so nothing overflows at 320 pixels or at 400% zoom. It reads in order without CSS or
+   JavaScript. The optional progress controls are added by <ob-reading-path>; print leaves them out and
+   keeps every step whole. */
+.ob-path-steps { list-style: none; margin: 1rem 0; padding: 0; }
+.ob-path-step { border: 1px solid var(--ob-border, currentColor); border-radius: 0.5rem; padding: 0.75rem 1rem; margin-bottom: 1rem; overflow-wrap: anywhere; }
+.ob-path-step[data-optional="true"] { border-style: dashed; }
+.ob-path-step-title { margin: 0 0 0.25rem; font-size: 1.15rem; }
+.ob-path-step p { margin: 0.35rem 0; }
+.ob-path-relation { font-weight: 600; }
+.ob-path-nav { display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; }
+.ob-path-tools { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: center; margin: 1rem 0; }
+.ob-path-tools .ob-path-status { flex-basis: 100%; margin: 0; }
+.ob-path-read { border-inline-start-width: 0.35rem; }
+@media print {
+  .ob-path-tools, .ob-path-progress { display: none !important; }
+  .ob-path-step { break-inside: avoid; }
+}
+@media (forced-colors: active) {
+  .ob-path-step { border-color: CanvasText; }
+}
+
 /* Curated research context on a post's page (#197, ADR 0197): a static ordered list of the items the
    author chose, each a bordered group whose facts stack and wrap anywhere, so nothing overflows at
    320 pixels or at 400% zoom. It reads in order without CSS or JavaScript. Print keeps every item
