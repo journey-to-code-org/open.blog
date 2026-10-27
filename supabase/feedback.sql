@@ -11,7 +11,7 @@
 -- two tables of its own. It does not
 -- rename, drop or rewrite any existing table, column, function or row, so
 -- comments and analytics keep working exactly as before. Its one change to
--- something that exists is to loosen a check (ADR 0192): a row may now have
+-- something that exists is to loosen a check (ADR 0154): a row may now have
 -- a page and no passage, as a suggestion for future work does; every row the
 -- old check allowed is still allowed. Running it twice
 -- changes nothing; running it again after an upgrade adds only what is new.
@@ -36,7 +36,7 @@ create table if not exists public.openblog_feedback (
   -- The work, the passage revision the reader saw and the passage target
   -- (ADRs 0076, 0078). All three, or no revision and no target: a kind that
   -- is about the page rather than a passage, such as a suggestion for future
-  -- work (ADR 0192), has its `work` and neither of the other two.
+  -- work (ADR 0154), has its `work` and neither of the other two.
   work text check (char_length(work) between 2 and 500),
   revision text check (revision ~ '^p[1-9][0-9]{0,3}:[0-9a-f]{32}$'),
   target jsonb check (jsonb_typeof(target) = 'object' and octet_length(target::text) <= 16384),
@@ -513,7 +513,7 @@ $$;
 revoke all on function public.openblog_record_feedback_decision(text, uuid, integer, integer, jsonb, text, text, timestamptz) from public, anon, authenticated;
 grant execute on function public.openblog_record_feedback_decision(text, uuid, integer, integer, jsonb, text, text, timestamptz) to service_role;
 
--- Suggestions for future work (ADR 0192), used only once
+-- Suggestions for future work (ADR 0154), used only once
 -- OPENBLOG_SUGGESTIONS_ENABLED is set. A suggestion is one row with kind
 -- `future-suggestion`: the page it was sent from in `work`, and no passage
 -- revision or target, which the check above used to refuse. Only that kind

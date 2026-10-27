@@ -200,7 +200,7 @@ exactly what step 1 added; a note sent with evidence keeps its text and state an
 version 1 note it then is, and the `decide` audit events stay.
 ## Suggestions for future work (optional)
 
-A reader's question or suggested source for the author's future work (ADRs 0190 to 0199) is one
+A reader's question or suggested source for the author's future work (ADRs 0152 to 0161) is one
 `openblog_feedback` row of kind `future-suggestion`: the page in `work`, no passage `revision` or
 `target`, the reader's words in `body` and `{type, url?, hints?, about?, contact?}` in `details`.
 Every hosted suggestion has a receipt, so the reader can always take it back; suggestions therefore

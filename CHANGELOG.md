@@ -3,7 +3,7 @@
 All notable changes to open.blog are recorded here. Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.43.0] - 2026-10-26
 
 - Readers can suggest a question, text, video, audio or other source for the author's future work
   (RD13). Set `"future-suggestion": "open"` in `participation.kinds` and a post gets a "Suggest
@@ -55,6 +55,52 @@ All notable changes to open.blog are recorded here. Releases follow
   Hosted: the receipt route gains a `credit` action; no SQL change.
 - Fixed: a suggestion with wide text and long links could be accepted and stored but not read back
   from the editors' inbox; the stored record is now read up to the sum of what its columns bound.
+
+## [0.42.0] - 2026-10-26
+
+- The research checks now have author documentation, [Research checks](docs/research-checks.md),
+  explaining every finding in plain language, how to fix it, and what acknowledging one does and
+  does not mean, and a regression corpus of invented works, editions, translations, witnesses,
+  lecture claims, quotations, interpretations and contradictions keeps every check producing its
+  finding, each distinction failing on its own, and no private research reaching a public file.
+
+- `openblog check` and `openblog build` now review the sources your opted-in posts cite: a
+  quotation (a block quotation or quoted words with a citation) that gives no location, or only
+  a chapter or section; a page in an edition recorded in several volumes that names no volume;
+  a quotation of a work whose editions or translations are recorded; and a post that cites one
+  source under two records with the same DOI or ISBN, or several versions of one work.
+  `openblog check` also reviews the private source library and notebook: two records with the
+  same identifier (an ISBN-10 meets its ISBN-13), two DOIs on one record, an ISBN on a work whose
+  editions are recorded, a translation without a translator, a witness without its repository or
+  shelfmark, and a passage without a location. Every prompt is advisory, runs offline, changes
+  nothing and names records by id; none says whether a source or quotation is accurate.
+
+- Research checks now have one report. Every check on your research (the research profile and
+  citations, claims and their evidence, source review, atlas, chronology, comparison and context
+  link checks, and the private files a build reads) is gathered into the same findings, with the
+  same codes in the same order, wherever you look. **What will be public** in the research
+  workspace lists them under what the next build publishes, with where each one is and how to
+  repair it; **What this post makes public** and the Research panel beside a draft show the same
+  checks for one post, with **Review research checks** opening the review before publishing.
+  `openblog check`, `openblog build` and the preview server print the same findings, grouped the
+  same way, and `openblog check --json` writes the report as deterministic JSON. `check --json`
+  always prints one JSON document on standard output, with the full report shape (empty when the
+  site could not be loaded) and an `error` field when the site could not be loaded or its checks
+  failed, and exits as `check` does: `openblog check` now also exits with an error, after printing
+  the report, when a failure of a private file the build reads would refuse the next build.
+  `check` and `build` list each finding once, in the report, instead of also printing it as an
+  `evidence` line, and a research site that raised nothing prints `Research checks: nothing to
+  review`. The report covers every saved post, drafts included, wherever you look, and a post's
+  own review now includes its source-review findings. A finding you have considered can be
+  acknowledged from the keyboard; it stays listed and counted, is never called resolved, and the
+  acknowledgement stops applying when the finding changes. Only a failure of a private file the
+  build reads stops a build (an unreadable or invalid claims file included, while the site
+  publishes claim evidence), and it stops it before any public file is written. A production
+  `openblog build` counts findings about posts it does not publish yet, as "N finding(s) in posts
+  not yet published; see `openblog check`", rather than naming them; `check`, Admin and `serve
+  --drafts` list each one. Sites without research print exactly what they printed before. The
+  review before publication and the readiness report now share one contract, so acknowledgements
+  you already made keep working.
 
 ## [0.41.0] - 2026-10-26
 

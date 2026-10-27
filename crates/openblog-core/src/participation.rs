@@ -87,7 +87,7 @@ pub struct KindRules {
     /// matter. Comments use `comments:`; abuse reports are site-wide.
     pub per_post: bool,
     /// Whether approval admits the item to the editors' private queue
-    /// instead of publishing it (ADR 0190): such an item is never public,
+    /// instead of publishing it (ADR 0152): such an item is never public,
     /// is kept after approval until an author closes it, and is closed by
     /// the same `remove` an approved public item is.
     pub editorial: bool,

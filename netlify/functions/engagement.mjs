@@ -180,7 +180,7 @@ const inboxItem = (source, row, targets) => {
 const receiptDetails = (row) => {
   const details = row.details || {};
   // The links an author recorded name their account and their own drafts, series and sources: the
-  // reader sees none of them, only the standing the receipt derives from them (ADR 0211).
+  // reader sees none of them, only the standing the receipt derives from them (ADR 0163).
   if (row.kind === FUTURE_SUGGESTION_KIND) {
     const { conversions, creditRevision, ...own } = details;
     return own;
@@ -225,10 +225,10 @@ const receiptViewOf = (row, hidden = false) => {
     purged,
     ...(purged ? {} : { body: row.body, details: receiptDetails(row) }),
     // Where a suggestion stands, honestly and in the words of ACCEPTANCE_NOTICE: a stage and one
-    // sentence, never a rank, a count, a promise or what it was linked to (ADR 0211).
+    // sentence, never a rank, a count, a promise or what it was linked to (ADR 0163).
     ...(row.kind === FUTURE_SUGGESTION_KIND && !purged ? { standing: readerStanding(row.status, readConversions(row.details) ?? []) } : {}),
     // Whether a reader who gave a name has agreed to be credited by it for this text as it stands
-    // (ADR 0215); null when they gave none, so there is nothing to agree to.
+    // (ADR 0167); null when they gave none, so there is nothing to agree to.
     ...(row.kind === FUTURE_SUGGESTION_KIND && !purged ? { credit: row.reader_name ? { agreed: suggestionCredit(row) !== null } : null } : {}),
   };
 };
@@ -291,7 +291,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
     values.thirdPerspectives = values.protection && values.feedback && String(env.OPENBLOG_THIRD_PERSPECTIVES_ENABLED || "").trim() === "true";
     // Author responses (ADR 0132): the same store and inbox, opt in on top of Third Perspectives.
     values.authorResponses = values.thirdPerspectives && String(env.OPENBLOG_AUTHOR_RESPONSES_ENABLED || "").trim() === "true";
-    // Suggestions for future work (ADR 0192): set only after running supabase/feedback.sql again,
+    // Suggestions for future work (ADR 0154): set only after running supabase/feedback.sql again,
     // which loosens the one check that kept a row about a page from having no passage, on top of
     // passage feedback and protection, because every hosted suggestion needs its reader's receipt.
     values.suggestions = values.protection && values.feedback && String(env.OPENBLOG_SUGGESTIONS_ENABLED || "").trim() === "true";
@@ -403,9 +403,9 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         `and(status.in.(rejected,removed),purged_at.is.null,${since(cutoffs.closedUntil)})`,
         "and(status.eq.withdrawn,purged_at.is.null)",
         // An approved suggestion is kept, but its private contact and unpublished name are not
-        // (ADR 0193): only one that holds some is a candidate, or the batch could fill with
+        // (ADR 0155): only one that holds some is a candidate, or the batch could fill with
         // suggestions already cleared.
-        // One an author linked to future work owes it at once, whatever its age (ADR 0211).
+        // One an author linked to future work owes it at once, whatever its age (ADR 0163).
         `and(status.eq.approved,kind.eq.${FUTURE_SUGGESTION_KIND},purged_at.is.null,or(${since(cutoffs.closedUntil)},details->conversions.not.is.null),or(details->contact.not.is.null,and(reader_name.not.is.null,publish_name.eq.false)))`,
       ],
       report: [
@@ -500,7 +500,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
       retained,
       parent: source === "report" ? String(row.target_id).toLowerCase() : null,
       since: row.moderated_at || row[rowTimeColumn(source)],
-      // A kept suggestion owes retention only the clearing of what is private to it (ADR 0193).
+      // A kept suggestion owes retention only the clearing of what is private to it (ADR 0155).
       ...(source === "feedback" && row.kind === FUTURE_SUGGESTION_KIND ? { identityHeld: holdsIdentity(row), linked: (readConversions(row.details) ?? []).length > 0 } : {}),
     };
   };
@@ -730,7 +730,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
           return json(202, { id: rows[0]?.id, status: "pending", receivedAt: row.received_at, receipt }, corsOrigin);
         }
         if (submissionKind(text) === FUTURE_SUGGESTION_KIND) {
-          // A suggestion for future work (ADR 0192): the same route and store, read by its own
+          // A suggestion for future work (ADR 0154): the same route and store, read by its own
           // contract. The page it was sent from is the request's `work`, not part of the reader's
           // submission, and must be one the site publishes with the kind open. Every hosted
           // suggestion has a receipt, so the reader can always withdraw it.
@@ -886,7 +886,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         }
         if (action === "credit") {
           // A reader's own change to whether the editors may credit them by the name they gave
-          // (ADR 0215): for this text as it stands, or withdrawn. It never publishes anything.
+          // (ADR 0167): for this text as it stands, or withdrawn. It never publishes anything.
           // Agreeing binds the agreement to the current revision, so a later clarification needs
           // fresh agreement; the version is raised so an editor acting on the earlier view is
           // refused instead of acting on a credit that has changed.
@@ -1082,7 +1082,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
           const version = body.expectedVersion;
           const role = body.actorRole === undefined ? "site-admin" : body.actorRole;
           const protectedAction = settings.protection && (body.action === "erase" || (body.action === "uphold-report" && source === "report"));
-          // Linking a suggestion to future work is not a moderation transition: the state is unchanged (ADR 0210).
+          // Linking a suggestion to future work is not a moderation transition: the state is unchanged (ADR 0162).
           const linkAction = body.action === "convert" && source === "feedback";
           if (!source || !UUID.test(id) || !Number.isInteger(version) || version < 1 || version > 2147483647 || !MODERATION_STATES.includes(body.from)
             || !(INBOX_ACTIONS.includes(body.action) || protectedAction || linkAction) || !MODERATOR_ROLES.includes(role)) {
@@ -1103,7 +1103,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
           };
           if (body.action === "convert") {
             // An author's record that an accepted suggestion became, or is becoming, future work
-            // (ADR 0210): only the Admin's chosen role and the stored row decide, and the row is
+            // (ADR 0162): only the Admin's chosen role and the stored row decide, and the row is
             // changed only while it still has the version and approval Admin saw. It creates,
             // fetches and publishes nothing; the link is kept in the row's details, and the audit
             // event holds neither the target nor anything the reader wrote.
@@ -1390,7 +1390,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
             } else if (item.step === "scrub-identity") {
               // Clears the kept suggestion's contact and unpublished name and nothing else, only
               // while it is still the approved suggestion the dry run listed, raising its version
-              // so no view from before can act on it (ADR 0193).
+              // so no view from before can act on it (ADR 0155).
               const cleared = scrubbedIdentity(row);
               const params = new URLSearchParams({
                 site_id: `eq.${settings.siteId}`, id: `eq.${id}`, version: `eq.${facts.version}`, status: "eq.approved",

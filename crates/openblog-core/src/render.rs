@@ -1078,7 +1078,7 @@ impl<'a> Renderer<'a> {
         ))
     }
 
-    /// The suggestion region of one post (ADRs 0190 to 0195): only a post where
+    /// The suggestion region of one post (ADRs 0152 to 0157): only a post where
     /// the site has switched `future-suggestion` on and the post's mode is
     /// `open` has it. Its static text is the no-JavaScript path, naming the
     /// site's feedback contact; where the site has a hosted transport it also

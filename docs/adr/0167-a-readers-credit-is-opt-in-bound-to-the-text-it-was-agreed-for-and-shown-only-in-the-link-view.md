@@ -1,15 +1,15 @@
-# ADR 0215: A reader's credit is opt-in, bound to the text it was agreed for, and shown only in the link view
+# ADR 0167: A reader's credit is opt-in, bound to the text it was agreed for, and shown only in the link view
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#228](https://github.com/journey-to-code-org/open.blog/issues/228)
 - Parent story: [#204](https://github.com/journey-to-code-org/open.blog/issues/204)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0193](0193-attribution-and-contact-are-optional-consented-and-contact-stays-private-to-the-site-admin.md), [ADR 0210](0210-a-link-to-future-work-is-kept-in-the-suggestions-details-with-an-audit-event-and-needs-no-new-schema.md)
+- Builds on: [ADR 0155](0155-attribution-and-contact-are-optional-consented-and-contact-stays-private-to-the-site-admin.md), [ADR 0162](0162-a-link-to-future-work-is-kept-in-the-suggestions-details-with-an-audit-event-and-needs-no-new-schema.md)
 
 ## Context
 
-The story says public credit is opt-in and revision-bound. [ADR 0193](0193-attribution-and-contact-are-optional-consented-and-contact-stays-private-to-the-site-admin.md)
+The story says public credit is opt-in and revision-bound. [ADR 0155](0155-attribution-and-contact-are-optional-consented-and-contact-stays-private-to-the-site-admin.md)
 made credit opt-in (`publishName`) but a clarification replaces the text and raises the revision,
 and the old `publishName` stayed in force for words the reader had not agreed to be credited for.
 
@@ -35,8 +35,8 @@ and the old `publishName` stayed in force for words the reader had not agreed to
   or any public page. Nothing publishes it automatically, and nothing in the system acts on it.
 - **Withdrawal and retention remove it.** A withdrawal or a retention purge deletes the text,
   `details` and name (`publish_name` is reset), so there is nothing to credit and no view to show
-  it in. The clearing of private identity after a link (ADR 0211) is unchanged: it keeps the name a
+  it in. The clearing of private identity after a link (ADR 0163) is unchanged: it keeps the name a
   reader agreed to show and clears the rest, but the agreement still has to match the text to be
   offered.
 - **The stored record's size is unaffected in practice.** `creditRevision` adds under 30 bytes to
-  `details`, which the room kept for links (ADR 0213) covers, and a test includes it.
+  `details`, which the room kept for links (ADR 0165) covers, and a test includes it.

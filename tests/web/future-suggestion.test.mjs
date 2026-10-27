@@ -1,4 +1,4 @@
-// Suggestions for future work (#227, ADRs 0191 to 0195): the browser and hosted-function half of the
+// Suggestions for future work (#227, ADRs 0153 to 0157): the browser and hosted-function half of the
 // contract in crates/openblog-core/src/future_suggestion.rs, held to the Rust side case by case
 // through two shared fixtures, plus the pure helpers the form and the function use.
 import test from "node:test";
@@ -122,7 +122,7 @@ test("stored details are measured as Postgres measures jsonb text, below the col
   assert.equal(result.error.code, "tooLarge");
 });
 
-// ---- Standing, outcomes, links and the clearing of private identity (#228, ADRs 0210 to 0212)
+// ---- Standing, outcomes, links and the clearing of private identity (#228, ADRs 0162 to 0164)
 
 const outcomes = read("../fixtures/future-suggestion-outcomes.json");
 
@@ -239,7 +239,7 @@ test("a reader's receipt words an accepted, linked, closed or declined suggestio
   assert.equal(say("removed", null, { purged: true }).startsWith("The editors closed it."), true);
 });
 
-// ---- Credit is opt-in and bound to the revision it was agreed for (ADR 0215)
+// ---- Credit is opt-in and bound to the revision it was agreed for (ADR 0167)
 
 test("a credit is offered only for the revision the reader agreed to be credited for", () => {
   const sent = readSuggestionSubmissionJson(JSON.stringify({ version: 1, kind: "future-suggestion", type: "text", text: "Her letters.", attribution: { name: "Ada", publishName: true } }));

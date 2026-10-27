@@ -31,12 +31,12 @@ export function receiptNoun(item) {
 }
 
 /**
- * A suggestion for future work's state, in words (ADR 0194). It is never shown on the site, so
+ * A suggestion for future work's state, in words (ADR 0156). It is never shown on the site, so
  * nothing here says it is published, and accepting it only means the editors are interested: it
  * is not agreement, a check or permission to use it.
  */
 function suggestionStateText(item, purged) {
-  // Where it stands, as the service derived it (ADR 0211): a stage and one sentence that never ranks,
+  // Where it stands, as the service derived it (ADR 0163): a stage and one sentence that never ranks,
   // counts, promises or says what it was linked to. Nothing is added to it here.
   const note = typeof item.standing?.note === "string" && item.standing.note !== "" ? ` ${item.standing.note}` : "";
   const linked = item.standing?.id === "converted" || item.standing?.id === "closed-converted";
@@ -268,7 +268,7 @@ export function receiptManager({ endpoint, noun: managed = "note" }) {
     }
     if (item.kind === SUGGESTION && item.credit && !item.purged) {
       // Whether the editors may credit them by the name they gave, for this text as it stands (ADR
-      // 0215). Agreement is for one version of the text: after a clarification they are asked again.
+      // 0167). Agreement is for one version of the text: after a clarification they are asked again.
       const credit = make("input");
       credit.type = "checkbox";
       credit.checked = item.credit.agreed === true;

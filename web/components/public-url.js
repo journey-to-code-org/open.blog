@@ -1,4 +1,4 @@
-// The one rule for a web address that must reach the public web (ADR 0191, #213): the browser and
+// The one rule for a web address that must reach the public web (ADR 0153, #213): the browser and
 // hosted-function half of `openblog_core::citations::public_url_problem`, which the publication
 // boundary, the citation review and a suggestion's link all use. Both read
 // tests/fixtures/public-urls.json and must agree on every address and its reason.

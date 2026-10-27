@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Suggestions for future work on a published reader page (#227, ADRs 0190 to 0195): keyboard use
+// Suggestions for future work on a published reader page (#227, ADRs 0152 to 0157): keyboard use
 // through native radio groups, a closed set of kinds, a question that is words only, optional
 // source details, consent for a shown name and for contact, announced errors with focus on the
 // field, an explicit pending state and a double submit that waits, success with the receipt, network
@@ -389,7 +389,7 @@ for (const [name, viewport, zoom] of [["320px", { width: 320, height: 640 }, 1],
   });
 }
 
-// The standing a receipt shows (#228, ADR 0211): a stage and one honest sentence, derived by the service.
+// The standing a receipt shows (#228, ADR 0163): a stage and one honest sentence, derived by the service.
 const NOTICE = "Accepted means the editors are interested in exploring this. It does not mean they agree with it, have checked it, or have permission to use it.";
 const LINK_NOTICE = "An editor has recorded a link between it and work they are doing. That is a record, not a promise to publish, and it says nothing about who is right.";
 const DECLINE_NOTICE = "Not taking an idea forward is about this site's plans. It is not a judgement of the idea or of you.";
@@ -513,7 +513,7 @@ test("without JavaScript the region explains how to write instead, and a locked 
   await context.close();
 });
 
-// Credit is opt-in and bound to the text it was agreed for (ADR 0215): the reader changes it by their
+// Credit is opt-in and bound to the text it was agreed for (ADR 0167): the reader changes it by their
 // receipt, and a change of text or of consent takes it away until they agree again.
 test("a reader sees whether the editors may credit them for this text, changes it from the keyboard, and is asked again after a clarification", async ({ page }) => {
   let item = suggestionReceipt("approved", "interested", { credit: { agreed: true } });

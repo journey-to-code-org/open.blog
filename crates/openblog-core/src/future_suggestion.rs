@@ -1,5 +1,5 @@
 //! Future-question and source suggestions: what a reader sends the editors
-//! for possible future work (RD13, ADRs 0190 to 0199).
+//! for possible future work (RD13, ADRs 0152 to 0161).
 //!
 //! A suggestion is one participation kind (`future-suggestion`) in the one
 //! participation and moderation policy (#211), not another system. It is a
@@ -80,14 +80,14 @@ pub const MAX_SUBMISSION_BYTES: usize = 12 * 1024;
 /// reader's name, the receipt and the revision (about 1.5 KiB between them).
 /// The columns bound the parts, so this bound is their sum with room to spare:
 /// no accepted suggestion, with eight links and any number of clarifications,
-/// can be refused when it is read back (ADR 0213).
+/// can be refused when it is read back (ADR 0165).
 pub const MAX_JSON_BYTES: usize = 32 * 1024;
 /// The most a suggestion's stored `details` may measure, as Postgres measures
 /// them (`octet_length(details::text)`: jsonb text puts one space after every
 /// `:` and `,`). It is below the 16 KiB of the column's check by the room
 /// [`MAX_CONVERSIONS`] links at their largest need (about 5 KiB), so neither a
 /// link that percent-encoding made longer nor an author's links can ever make
-/// a write fail (ADR 0210).
+/// a write fail (ADR 0162).
 pub const MAX_STORED_DETAILS_BYTES: usize = 11 * 1024;
 /// The most conversion references one suggestion keeps.
 pub const MAX_CONVERSIONS: usize = 8;
@@ -768,12 +768,12 @@ pub struct Suggestion {
     pub submission: Submission,
     pub receipt: Receipt,
     pub revision: u32,
-    /// What an author has linked this suggestion to (ADR 0195), newest last.
+    /// What an author has linked this suggestion to (ADR 0157), newest last.
     /// Kept in the row's `details` beside the suggestion, holding nothing of
     /// the reader, and never part of what the reader sent.
     pub conversions: Vec<Conversion>,
     /// The text revision the reader agreed to be credited by name for
-    /// (ADR 0215): set when they send it with `publishName`, or when they
+    /// (ADR 0167): set when they send it with `publishName`, or when they
     /// agree again later, and left behind when a clarification raises the
     /// revision, so consent never covers text they did not agree to. Kept in
     /// the row's `details`.
@@ -811,7 +811,7 @@ impl Suggestion {
     }
 
     /// The name the reader agreed to be credited by for this text as it
-    /// stands now, if any (ADR 0215): consent given for the current revision,
+    /// stands now, if any (ADR 0167): consent given for the current revision,
     /// and not withdrawn. A clarification that changed the text, or a changed
     /// consent, needs the reader's fresh agreement before this is `Some`
     /// again. It is only ever offered to an editor in the link view; using it
@@ -949,7 +949,7 @@ impl Suggestion {
         value.to_string()
     }
 
-    /// What one `openblog_feedback` row keeps in `details` (ADR 0192):
+    /// What one `openblog_feedback` row keeps in `details` (ADR 0154):
     /// `{type, url?, hints?, about?, contact?, conversions?, creditRevision?}`. The text is the row's `body`,
     /// its revision `item_revision`, the page `work` (with no passage
     /// `revision` or `target`: the one hosted schema change is the loosened
@@ -1077,7 +1077,7 @@ impl Suggestion {
     }
 }
 
-/// The stored `details` of a suggestion row, read strictly (ADR 0192).
+/// The stored `details` of a suggestion row, read strictly (ADR 0154).
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StoredDetails {

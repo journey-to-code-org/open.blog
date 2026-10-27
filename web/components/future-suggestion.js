@@ -1,4 +1,4 @@
-// Suggestions for future work (RD13, ADRs 0190 to 0195): the browser and hosted-function half of the
+// Suggestions for future work (RD13, ADRs 0152 to 0157): the browser and hosted-function half of the
 // contract in crates/openblog-core/src/future_suggestion.rs. Both read
 // tests/fixtures/future-suggestion-submissions.json and must agree on every code and record.
 //
@@ -34,7 +34,7 @@ export const MAX_ACTOR_CHARS = 64;
 export const MAX_SUBMISSION_BYTES = 12 * 1024;
 // Below the 16 KiB of the column's check, measured as Postgres measures jsonb text (a space after
 // every `:` and `,`), by the room eight links at their largest need, so neither a link that percent-encoding
-// made longer nor an author's links ever make a write fail (ADR 0210).
+// made longer nor an author's links ever make a write fail (ADR 0162).
 export const MAX_STORED_DETAILS_BYTES = 11 * 1024;
 // The build's JSON reader refuses documents nested deeper than this.
 const MAX_JSON_DEPTH = 127;
@@ -375,7 +375,7 @@ export function suggestionDetails(submission) {
 }
 
 /**
- * What a receiver keeps of a hosted submission (ADR 0192): the canonical record, as the build
+ * What a receiver keeps of a hosted submission (ADR 0154): the canonical record, as the build
  * writes it, and the `openblog_feedback` row's columns. `work` is the published page it was sent
  * from and `receivedAt` the receiver's own canonical time; the reader's clock is not used.
  */
@@ -383,7 +383,7 @@ export function receiveSuggestion(submission, work, receivedAt) {
   if (!isWorkPath(work)) throw new TypeError("work must be the site-relative path of a published page");
   if (!isCanonicalTime(receivedAt)) throw new TypeError("receivedAt must be a canonical UTC time");
   const attribution = submission.attribution;
-  // A reader who agrees to be credited by name does so for revision 1 of the text (ADR 0215).
+  // A reader who agrees to be credited by name does so for revision 1 of the text (ADR 0167).
   const credited = attribution?.publishName === true && typeof attribution.name === "string";
   const record = { ...submission, receipt: { work, receivedAt, channel: "hosted" }, revision: 1, ...(credited ? { creditRevision: 1 } : {}) };
   return {
@@ -409,7 +409,7 @@ export function receiveSuggestion(submission, work, receivedAt) {
 export const readClarification = (value) => readerText(value, MAX_TEXT_CHARS);
 
 /**
- * The name a reader agreed to be credited by for the text as it stands now, or null (ADR 0215): the
+ * The name a reader agreed to be credited by for the text as it stands now, or null (ADR 0167): the
  * agreement stands only for the revision it was given for (`details.creditRevision`), so a
  * clarification that changed the text, or a withdrawn consent, offers none until they agree again.
  * Nothing credits anyone on this alone; it is shown to an author in the link view and nowhere else.
@@ -438,7 +438,7 @@ export function planCredit(row, agree) {
 export const holdsIdentity = (row) => isObject(row?.details?.contact) || (typeof row?.reader_name === "string" && row.reader_name !== "" && row.publish_name !== true);
 
 /**
- * What clearing a kept suggestion's private identity changes (ADR 0193): its details without the
+ * What clearing a kept suggestion's private identity changes (ADR 0155): its details without the
  * contact, and no name unless the reader agreed to show it. The text, the link, the hints and the
  * page stay.
  */
@@ -469,7 +469,7 @@ export function suggestionCopyText(submission, canonicalUrl = "") {
   return lines.join("\n");
 }
 
-// ---- Editorial standing, outcomes and links to future work (ADRs 0194, 0195, 0210 to 0212)
+// ---- Editorial standing, outcomes and links to future work (ADRs 0156, 0157, 0162 to 0164)
 
 /** What a link points at: a draft or a series by its slug, a Source Library record by its source id. */
 export const CONVERSION_KINDS = Object.freeze(["draft", "series", "library-source"]);

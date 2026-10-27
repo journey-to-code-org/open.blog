@@ -1,5 +1,5 @@
 // <ob-future-suggestion> turns a post's suggestion region into a form for a reader's question or
-// source for possible future work (ADR 0190 to 0195). The page is complete without it: the region's
+// source for possible future work (ADR 0152 to 0157). The page is complete without it: the region's
 // static text tells a reader how to write to the author instead.
 //
 // A suggestion is a question, text, video, audio or other source, in the reader's own words, with

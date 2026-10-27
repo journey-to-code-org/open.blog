@@ -348,7 +348,7 @@ other way to take part is a participation kind, off until you switch it on in `p
 - `kinds` takes `question`, `source-suggestion`, `correction-suggestion`,
   `alternative-interpretation`, `third-perspective`, `author-response`, `abuse-report` and
   `future-suggestion` (readers' questions and sources for future work, private to the editors;
-  [ADR 0190](adr/0190-a-future-suggestion-is-one-more-participation-kind-whose-approval-publishes-nothing.md)). Each is
+  [ADR 0152](adr/0152-a-future-suggestion-is-one-more-participation-kind-whose-approval-publishes-nothing.md)). Each is
   `off` (the default: front matter cannot turn it on), `hidden`, `locked` or `open` (switched on,
   and the mode of posts that do not name it), or `follow-comments` (each post's mode is its
   `comments:` setting). `abuse-report` is `off` or `open` for the whole site. A post chooses its
@@ -377,8 +377,8 @@ other way to take part is a participation kind, off until you switch it on in `p
   nothing when none is set). Editors read, decide and, for an accepted one, copy it into a private
   research note in the **Moderation inbox**; its contact and unshown name are cleared after
   `retention.closedDays`
-  ([ADRs 0196](adr/0196-suggestions-are-sent-through-the-one-feedback-route-behind-their-own-opt-in-with-the-page-as-work.md)
-  to [0198](adr/0198-editors-read-suggestions-in-the-one-inbox-and-copying-one-into-a-research-note-is-an-explicit-unverified-export.md)).
+  ([ADRs 0158](adr/0158-suggestions-are-sent-through-the-one-feedback-route-behind-their-own-opt-in-with-the-page-as-work.md)
+  to [0160](adr/0160-editors-read-suggestions-in-the-one-inbox-and-copying-one-into-a-research-note-is-an-explicit-unverified-export.md)).
 - `third-perspective` adds an "Offer a Third Perspective" region to each post where it is `open`:
   a reader writes their own reflection on the whole work or one section, may choose a prompt
   (never a score or a vote), and decides whether it may be published, whether their name may be

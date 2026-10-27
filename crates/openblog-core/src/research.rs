@@ -141,7 +141,7 @@ pub struct EvidenceFinding {
     /// The position-free facts the finding states: the keys, locators,
     /// identifiers and stated values it is about, never a line, byte offset
     /// or sentence. They identify what the finding says for an author's
-    /// acknowledgement (ADR 0145) and are never serialized, so the finding's
+    /// acknowledgement (ADR 0147) and are never serialized, so the finding's
     /// JSON is unchanged.
     #[serde(skip)]
     pub facts: Vec<String>,

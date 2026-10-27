@@ -1,5 +1,5 @@
 // The hosted function's mirror of the retention policy for an accepted suggestion for future work
-// (ADR 0193): it is kept, and owes only the clearing of its private contact and unpublished name.
+// (ADR 0155): it is kept, and owes only the clearing of its private contact and unpublished name.
 // The Rust policy is the authority; this is held to it case by case by
 // tests/fixtures/participation-protection.json, and these cases name the edges for this kind.
 import test from "node:test";

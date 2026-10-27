@@ -1,4 +1,4 @@
-// Suggestions for future work through the one hosted engagement function (#227, ADRs 0190 to 0195),
+// Suggestions for future work through the one hosted engagement function (#227, ADRs 0152 to 0157),
 // exercised through HTTP-shaped events with a fake Supabase and site: a suggestion always enters
 // pending as one feedback row for the page it was sent from, with no passage and a private receipt;
 // the shared contract's refusals; quotas, replays, the opt-in and the site's mode; the reader's
@@ -454,7 +454,7 @@ test("a retention run lists and clears only suggestions that still hold a contac
   assert.deepEqual(JSON.parse(refused.body).purged, 0);
 });
 
-// ---- Editorial outcomes and links to future work (#228, ADRs 0210 to 0212)
+// ---- Editorial outcomes and links to future work (#228, ADRs 0162 to 0164)
 
 const approvedRow = (extra = {}) => stored({ status: "approved", approved_revision: 1, version: 3, moderated_at: "2026-10-26T12:00:00+00:00", ...extra });
 const LINK = { kind: "draft", id: "tide-tables", at: "2026-10-26T10:00:00Z", by: "mikey" };
@@ -664,7 +664,7 @@ test("no public route and no inbox of another kind ever shows a link", async () 
   assert.doesNotMatch(unauthorized.body, /tide-tables|mikey/);
 });
 
-// ---- Credit is opt-in and bound to the revision it was agreed for (ADR 0215)
+// ---- Credit is opt-in and bound to the revision it was agreed for (ADR 0167)
 
 test("a reader's credit is for the text as it stands: changed consent and a clarification reset it, withdrawal and purge remove it", async () => {
   const agreed = (extra = {}) => stored({ publish_name: true, details: { type: "text", url: "https://example.org/letters", creditRevision: 1 }, ...extra });

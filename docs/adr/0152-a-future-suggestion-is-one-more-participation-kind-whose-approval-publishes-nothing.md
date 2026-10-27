@@ -1,4 +1,4 @@
-# ADR 0190: A future suggestion is one more participation kind whose approval admits it to the editors' queue and publishes nothing
+# ADR 0152: A future suggestion is one more participation kind whose approval admits it to the editors' queue and publishes nothing
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -32,7 +32,7 @@ is kept.
   ordinary closed-item retention applies. The reader may still withdraw it or ask for deletion.
   What is kept is the idea, not the person: once `closedDays` have passed since approval, or when an
   author links it to future work, retention clears the reader's contact and unpublished name and
-  nothing else ([ADR 0193](0193-attribution-and-contact-are-optional-consented-and-contact-stays-private-to-the-site-admin.md)),
+  nothing else ([ADR 0155](0155-attribution-and-contact-are-optional-consented-and-contact-stays-private-to-the-site-admin.md)),
   as a fourth retention step beside expiry and the two purges.
 - **Approval is the site Admin's or a coordinator's**, as everywhere (the one grant list). A
   contributing author, the public and the retention job never decide.
@@ -40,7 +40,7 @@ is kept.
   `participation.kinds` changed nothing while RD13.1 shipped alone. RD13.2
   ([#227](https://github.com/journey-to-code-org/open.blog/issues/227)) adds the form, the hosted
   route and the inbox listing together
-  ([ADR 0196](0196-suggestions-are-sent-through-the-one-feedback-route-behind-their-own-opt-in-with-the-page-as-work.md)),
+  ([ADR 0158](0158-suggestions-are-sent-through-the-one-feedback-route-behind-their-own-opt-in-with-the-page-as-work.md)),
   and the setting is live from then on.
 
 ## Consequences
@@ -51,6 +51,6 @@ is kept.
   (`publishable`, `editorial`), never compare kinds, which the policy already did for abuse
   reports only. The hosted function asks `isPublishable(kind)` before any receipt says an item is
   "published" or a report treats it as shown
-  ([ADR 0199](0199-a-kind-that-is-never-public-is-never-called-published-shown-or-reportable.md)).
+  ([ADR 0161](0161-a-kind-that-is-never-public-is-never-called-published-shown-or-reportable.md)).
 - Retention gains a step, `scrub-identity`, for an approved editorial item; the retention fixture
   gains that value for this kind and no other row changes.

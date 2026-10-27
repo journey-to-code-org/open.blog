@@ -1,4 +1,4 @@
-# ADR 0191: A suggestion is untrusted reader text with a safe public link and bibliographic hints that are never fetched or verified
+# ADR 0153: A suggestion is untrusted reader text with a safe public link and bibliographic hints that are never fetched or verified
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -48,7 +48,7 @@ a stranger typed. The Source Library has strict, author-owned records with stabl
   non-ASCII ones too, lowercased, joined by single hyphens, at most 64 characters), so a series
   titled in another script can be named. It is a hint for the editors, not a target the policy
   resolves; the policy's work is the page the form was on. There is no passage target in version 1
-  ([ADR 0192](0192-a-suggestion-is-one-feedback-row-with-no-passage-target-and-one-loosened-check.md)).
+  ([ADR 0154](0154-a-suggestion-is-one-feedback-row-with-no-passage-target-and-one-loosened-check.md)).
 - **Strict, versioned, deterministic.** Format version 1; unknown fields, a newer version, a wrong
   kind, oversize input (16 KiB) and any broken rule are refused with a code and a message that
   never repeats what the reader wrote. Output is canonical JSON in a fixed field order. A

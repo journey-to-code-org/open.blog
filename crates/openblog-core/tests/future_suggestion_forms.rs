@@ -1,4 +1,4 @@
-//! The suggestion region on published pages (#227, ADRs 0190 to 0195): only a post where the kind is
+//! The suggestion region on published pages (#227, ADRs 0152 to 0157): only a post where the kind is
 //! `open` under the one participation policy carries the region. With a hosted service it holds the
 //! no-JavaScript text with the site's contact and the form's script; with none, a site that names a
 //! contact still shows a static way to write to the author, and one that names none shows nothing.

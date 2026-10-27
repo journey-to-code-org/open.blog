@@ -1,5 +1,5 @@
-//! The contracts a suggestion keeps with the hosted function and the browser (#227, ADRs 0191 and
-//! 0192): the one rule for a public address and the one submission format, each read by this crate
+//! The contracts a suggestion keeps with the hosted function and the browser (#227, ADRs 0153 and
+//! 0154): the one rule for a public address and the one submission format, each read by this crate
 //! and by `web/components/public-url.js` / `web/components/future-suggestion.js` from the same
 //! fixture. The Rust side decides; the fixtures are regenerated with `OPENBLOG_BLESS=1` after a
 //! reviewed change, and the node tests must agree case by case.
@@ -712,7 +712,7 @@ fn the_submission_format_is_the_one_the_hosted_function_reads() {
     bless_or_compare(
         SUBMISSIONS_PATH,
         &json!({
-            "description": "Suggestions for future work (RD13, ADRs 0190 to 0195), read and received by both crates/openblog-core/src/future_suggestion.rs and web/components/future-suggestion.js. A case's `request` (or its exact `text`) is received for the page `work` at `receivedAt`; `expect` is the canonical record and the openblog_feedback row it is stored as, or the code of the first problem. Regenerate with OPENBLOG_BLESS=1 cargo test -p openblog-core --test future_suggestion_contract.",
+            "description": "Suggestions for future work (RD13, ADRs 0152 to 0157), read and received by both crates/openblog-core/src/future_suggestion.rs and web/components/future-suggestion.js. A case's `request` (or its exact `text`) is received for the page `work` at `receivedAt`; `expect` is the canonical record and the openblog_feedback row it is stored as, or the code of the first problem. Regenerate with OPENBLOG_BLESS=1 cargo test -p openblog-core --test future_suggestion_contract.",
             "work": WORK,
             "receivedAt": RECEIVED_AT,
             "cases": cases,
@@ -720,7 +720,7 @@ fn the_submission_format_is_the_one_the_hosted_function_reads() {
     );
 }
 
-// ---- Standing, outcomes, links and the clearing of private identity (RD13.3, ADRs 0210 to 0212)
+// ---- Standing, outcomes, links and the clearing of private identity (RD13.3, ADRs 0162 to 0164)
 
 const OUTCOMES_PATH: &str = "../../tests/fixtures/future-suggestion-outcomes.json";
 const WORKS: [&str; 1] = [WORK];
@@ -1271,7 +1271,7 @@ fn standing_outcomes_links_and_clearing_are_the_ones_the_hosted_function_reads()
     bless_or_compare(
         OUTCOMES_PATH,
         &json!({
-            "description": "Editorial standing, outcomes, links to future work and the clearing of private identity (RD13.3, ADRs 0210 to 0212), decided by crates/openblog-core/src/future_suggestion.rs and read by web/components/future-suggestion.js and the hosted function. `standings`: a moderation state with and without a recorded link, and the standing, outcome and reader's receipt text derived. `links`: a stored row and a request, and the links the details hold afterwards or the code that refused it. `details`: stored details read for their links. `scrub`: a stored row, and whether it owes the clearing of its contact and unshown name now (`periodPassed` says the closed-item period has passed). Regenerate with OPENBLOG_BLESS=1 cargo test -p openblog-core --test future_suggestion_contract.",
+            "description": "Editorial standing, outcomes, links to future work and the clearing of private identity (RD13.3, ADRs 0162 to 0164), decided by crates/openblog-core/src/future_suggestion.rs and read by web/components/future-suggestion.js and the hosted function. `standings`: a moderation state with and without a recorded link, and the standing, outcome and reader's receipt text derived. `links`: a stored row and a request, and the links the details hold afterwards or the code that refused it. `details`: stored details read for their links. `scrub`: a stored row, and whether it owes the clearing of its contact and unshown name now (`periodPassed` says the closed-item period has passed). Regenerate with OPENBLOG_BLESS=1 cargo test -p openblog-core --test future_suggestion_contract.",
             "standings": standings,
             "links": links,
             "details": details,

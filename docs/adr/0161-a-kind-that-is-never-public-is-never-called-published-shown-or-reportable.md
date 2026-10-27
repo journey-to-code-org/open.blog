@@ -1,11 +1,11 @@
-# ADR 0199: A kind that is never public is never called published, shown or reportable
+# ADR 0161: A kind that is never public is never called published, shown or reportable
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#213](https://github.com/journey-to-code-org/open.blog/issues/213)
 - Parent story: [#204](https://github.com/journey-to-code-org/open.blog/issues/204)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0190](0190-a-future-suggestion-is-one-more-participation-kind-whose-approval-publishes-nothing.md), [ADR 0107](0107-reader-receipts-deletion-requests-and-anonymous-abuse-reports.md)
+- Builds on: [ADR 0152](0152-a-future-suggestion-is-one-more-participation-kind-whose-approval-publishes-nothing.md), [ADR 0107](0107-reader-receipts-deletion-requests-and-anonymous-abuse-reports.md)
 
 ## Context
 

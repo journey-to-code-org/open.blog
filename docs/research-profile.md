@@ -174,3 +174,6 @@ text. See [ADR 0048](adr/0048-citations-publish-through-the-one-publication-proj
 For the product boundary and supporting standards research, see
 [Research and evidence publishing](research/research-evidence-publishing.md) and
 [ADR 0002](adr/0002-research-profile-and-evidence-capability.md).
+
+Every code the research checks can report, with what it means and how to fix it, is explained in
+[Research checks](research-checks.md).

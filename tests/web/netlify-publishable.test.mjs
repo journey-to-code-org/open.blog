@@ -1,4 +1,4 @@
-// A kind that is never public is never called published, shown or reportable (ADR 0199): the hosted
+// A kind that is never public is never called published, shown or reportable (ADR 0161): the hosted
 // function asks the policy's `publishable` rule before a receipt says an item is published or a report
 // treats it as shown. Exercised with an approved suggestion for future work, whose approval admits it
 // to the editors' private queue and publishes nothing.

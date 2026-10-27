@@ -1,11 +1,11 @@
-# ADR 0196: Suggestions are sent through the one feedback route, behind their own opt-in, with the page as `work`
+# ADR 0158: Suggestions are sent through the one feedback route, behind their own opt-in, with the page as `work`
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#227](https://github.com/journey-to-code-org/open.blog/issues/227)
 - Parent story: [#204](https://github.com/journey-to-code-org/open.blog/issues/204)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0192](0192-a-suggestion-is-one-feedback-row-with-no-passage-target-and-one-loosened-check.md), [ADR 0113](0113-third-perspectives-are-one-feedback-row-submitted-through-the-one-route-with-a-receipt.md), [ADR 0107](0107-reader-receipts-deletion-requests-and-anonymous-abuse-reports.md), [ADR 0108](0108-retention-runs-from-a-dry-run-and-quotas-keep-only-hourly-digests.md)
+- Builds on: [ADR 0154](0154-a-suggestion-is-one-feedback-row-with-no-passage-target-and-one-loosened-check.md), [ADR 0113](0113-third-perspectives-are-one-feedback-row-submitted-through-the-one-route-with-a-receipt.md), [ADR 0107](0107-reader-receipts-deletion-requests-and-anonymous-abuse-reports.md), [ADR 0108](0108-retention-runs-from-a-dry-run-and-quotas-keep-only-hourly-digests.md)
 
 ## Context
 
@@ -31,7 +31,7 @@ who is asked what; a second route would be a second way to get each of those wro
   with passage feedback, the inbox's schema and engagement protection on, because every hosted
   suggestion has a receipt so the reader can always take it back (the inbox's `issues_receipts`
   rule). Without it the route answers 404 `unavailable` and the reader gets the copy-and-send path.
-  The only schema change is the loosened check of ADR 0192, with its rollback.
+  The only schema change is the loosened check of ADR 0154, with its rollback.
 - **A quota and a replay bound of its own.** Five suggestions an hour per client and 500 per site
   (bucket `suggestions`), and the same suggestion for the same page from the same client once an hour
   (bucket `suggestions-repeat`), whose claim is released if storing fails so a retry is never told it

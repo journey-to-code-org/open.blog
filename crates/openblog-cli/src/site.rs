@@ -258,8 +258,13 @@ pub struct BuildReport {
     pub warnings: Vec<String>,
     pub accessibility: Vec<AccessibilityFinding>,
     pub evidence: Vec<EvidenceFinding>,
+    /// Source-review findings about the sources posts cite (ADR 0148).
+    pub source_review: Vec<openblog_core::source_review::SourceReviewFinding>,
     /// What the research projections published and withheld (ADR 0125).
     pub boundary: openblog_core::publication_boundary::BoundaryManifest,
+    /// The research readiness report the build was checked against (ADR 0150),
+    /// when the site has research to report on; `None` for a site without any.
+    pub readiness: Option<crate::readiness::Readiness>,
 }
 
 pub fn load_config(root: &Path) -> Result<SiteConfig, String> {
@@ -917,6 +922,13 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
     // with the other evidence findings, never written to the output. They are
     // reviewed against the posts this build read, before the load takes them.
     let claim_findings = crate::claims_store::build_findings(root, &config.contributors, &sources);
+    // What the research report needs to know without loading the site again:
+    // how many posts there are to hold, and whether any is a research post.
+    let saved_posts = sources.posts.len();
+    let research_in_posts = sources
+        .posts
+        .iter()
+        .any(|post| crate::readiness::is_research_source(&post.contents));
     let (mut site, themes) = load_site_from_sources(
         root,
         config,
@@ -927,7 +939,26 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
             preview_source: None,
         },
     )?;
-    let (files, boundary) = generate_site_with_boundary(root, &mut site, &themes)?;
+    let (files, boundary) = generate_site_with_boundary(root, &mut site, &themes)
+        .map_err(|error| crate::readiness::alongside(root, &site, error))?;
+    // The one research report, read before anything is written: a failure of a
+    // private file the build reads refuses the build while the output folder is
+    // still exactly as it was (ADR 0150). Every other finding is for the
+    // author to decide and never stops anything.
+    let every_post = site.posts.len() == saved_posts;
+    let mut readiness =
+        crate::readiness::report_of_held(root, &site, every_post, Some(research_in_posts));
+    // A production build's log counts the findings about posts it does not
+    // publish and never names them; `check` and Admin list each one.
+    readiness.limit_text_to_published(site.posts.iter().map(|post| post.source.clone()).collect());
+    if readiness.blocking() > 0 {
+        return Err(format!(
+            "research readiness: {} finding(s) refuse this build. Nothing was written.\n{}",
+            readiness.blocking(),
+            readiness.text().trim_end()
+        ));
+    }
+    let readiness = readiness.applies.then_some(readiness);
     let config = &site.config;
     let mut warnings = site.warnings.clone();
     warnings.extend(
@@ -1022,7 +1053,9 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
         warnings,
         accessibility: site.accessibility.clone(),
         evidence,
+        source_review: site.source_review.clone(),
         boundary,
+        readiness,
     })
 }
 

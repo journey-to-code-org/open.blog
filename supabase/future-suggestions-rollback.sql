@@ -1,4 +1,4 @@
--- Roll back Suggestions for future work's storage (ADR 0192). Run in the
+-- Roll back Suggestions for future work's storage (ADR 0154). Run in the
 -- Supabase SQL editor, before feedback-rollback.sql if you are undoing that
 -- too (it drops the table, and with it the check this file restores).
 --

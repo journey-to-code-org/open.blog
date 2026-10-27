@@ -1,4 +1,4 @@
-# ADR 0194: Acceptance means editorial interest only, and nothing ranks or counts suggestions
+# ADR 0156: Acceptance means editorial interest only, and nothing ranks or counts suggestions
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -14,7 +14,7 @@ the project forbids popularity-based truth signals.
 
 ## Decision
 
-- **Acceptance is the one `approve` of the moderation policy**, with the meaning ADR 0190 gives
+- **Acceptance is the one `approve` of the moderation policy**, with the meaning ADR 0152 gives
   it for this kind. Its words, in every editor screen and receipt, are `ACCEPTANCE_NOTICE`:
   "Accepted means the editors are interested in exploring this. It does not mean they agree with
   it, have checked it, or have permission to use it." No state, label or field says a suggestion is

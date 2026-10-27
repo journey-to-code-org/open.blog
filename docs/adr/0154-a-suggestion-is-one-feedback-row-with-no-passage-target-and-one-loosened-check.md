@@ -1,4 +1,4 @@
-# ADR 0192: A suggestion is one feedback row with no passage target and one loosened check
+# ADR 0154: A suggestion is one feedback row with no passage target and one loosened check
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -21,9 +21,9 @@ fields.
 
 ## Decision
 
-_Amended by [ADR 0213](0213-a-suggestions-stored-details-are-held-to-a-bound-below-the-columns-check-measured-as-postgres-measures-them.md)
-(the size `details` may reach), [ADR 0214](0214-only-a-suggestion-may-have-a-page-without-a-passage-and-the-rollback-names-the-audit-guard.md)
-(the loosened check names the kind) and [ADR 0210](0210-a-link-to-future-work-is-kept-in-the-suggestions-details-with-an-audit-event-and-needs-no-new-schema.md)
+_Amended by [ADR 0165](0165-a-suggestions-stored-details-are-held-to-a-bound-below-the-columns-check-measured-as-postgres-measures-them.md)
+(the size `details` may reach), [ADR 0166](0166-only-a-suggestion-may-have-a-page-without-a-passage-and-the-rollback-names-the-audit-guard.md)
+(the loosened check names the kind) and [ADR 0162](0162-a-link-to-future-work-is-kept-in-the-suggestions-details-with-an-audit-event-and-needs-no-new-schema.md)
 (`details` may also hold `conversions`)._
 
 - **A suggestion is one row of that table** with kind `future-suggestion`: the page it was sent from
@@ -37,7 +37,7 @@ _Amended by [ADR 0213](0213-a-suggestions-stored-details-are-held-to-a-bound-bel
   creates a fresh table with it, and for an existing table drops the constraint if it exists and adds
   the new one, so running the file again is safe. A site opts in by running it again, as for every
   hosted addition, and by `OPENBLOG_SUGGESTIONS_ENABLED`
-  ([ADR 0196](0196-suggestions-are-sent-through-the-one-feedback-route-behind-their-own-opt-in-with-the-page-as-work.md)).
+  ([ADR 0158](0158-suggestions-are-sent-through-the-one-feedback-route-behind-their-own-opt-in-with-the-page-as-work.md)).
 - **The rollback refuses before it harms.** `supabase/future-suggestions-rollback.sql` restores the old
   check, but only while no row has a page and no passage, which is what every suggestion is. It
   raises an error naming what to do (export the rows, delete them and the audit events that refer to

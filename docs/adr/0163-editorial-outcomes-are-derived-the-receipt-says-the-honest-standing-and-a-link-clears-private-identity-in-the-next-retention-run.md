@@ -1,11 +1,11 @@
-# ADR 0211: Editorial outcomes are derived, the receipt says the honest standing, and a link clears private identity in the next retention run
+# ADR 0163: Editorial outcomes are derived, the receipt says the honest standing, and a link clears private identity in the next retention run
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#228](https://github.com/journey-to-code-org/open.blog/issues/228)
 - Parent story: [#204](https://github.com/journey-to-code-org/open.blog/issues/204)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0193](0193-attribution-and-contact-are-optional-consented-and-contact-stays-private-to-the-site-admin.md), [ADR 0194](0194-acceptance-means-editorial-interest-only-and-nothing-ranks-or-counts-suggestions.md), [ADR 0210](0210-a-link-to-future-work-is-kept-in-the-suggestions-details-with-an-audit-event-and-needs-no-new-schema.md)
+- Builds on: [ADR 0155](0155-attribution-and-contact-are-optional-consented-and-contact-stays-private-to-the-site-admin.md), [ADR 0156](0156-acceptance-means-editorial-interest-only-and-nothing-ranks-or-counts-suggestions.md), [ADR 0162](0162-a-link-to-future-work-is-kept-in-the-suggestions-details-with-an-audit-event-and-needs-no-new-schema.md)
 
 ## Context
 
@@ -22,7 +22,7 @@ or counted. A conversion also releases the reason the contact and unshown name w
   withdrawal is the reader's. Every change of state and every link is already in the private audit
   trail, so the outcome is recorded where decisions are. No outcome is a verdict on the idea.
 - **The reader's receipt shows the honest standing**, derived by the function from the same two
-  facts: `standing: {id, label, note, acceptance}`. The note is [`ACCEPTANCE_NOTICE`](0194-acceptance-means-editorial-interest-only-and-nothing-ranks-or-counts-suggestions.md)
+  facts: `standing: {id, label, note, acceptance}`. The note is [`ACCEPTANCE_NOTICE`](0156-acceptance-means-editorial-interest-only-and-nothing-ranks-or-counts-suggestions.md)
   for interest, the same notice plus "an editor has recorded a link between it and work they are doing.
   That is a record, not a promise to publish" once linked, and for a decline "not taking an idea
   forward is about this site's plans; it is not a judgement of the idea or of you". Nothing ranks,

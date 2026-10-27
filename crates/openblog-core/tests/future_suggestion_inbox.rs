@@ -1,4 +1,4 @@
-//! Suggestions in the one moderation inbox (#227, ADRs 0190 to 0195): a hosted row read back into
+//! Suggestions in the one moderation inbox (#227, ADRs 0152 to 0157): a hosted row read back into
 //! a checked suggestion, shown to editors only as far as the one view rule allows (a viewer with no
 //! role on its work sees nothing, a coordinator never sees the reader's contact or unpublished name),
 //! decided by the one state machine with acceptance meaning editorial interest only, never public,

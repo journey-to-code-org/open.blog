@@ -29,13 +29,15 @@ If you are new, read these in order; each one stands alone otherwise.
 12. [Research posts and Evidence Studio](research-profile.md): DOI and license fields,
    visible references, contributor-credit demonstration, scholarly metadata, deterministic
    evidence checks, and their limits.
-13. [Video productions and release kits](video-production.md): YouTube embeds, transcripts,
+13. [Research checks](research-checks.md): what every finding in the research report means, how to
+   fix it, and what acknowledging one does and does not mean.
+14. [Video productions and release kits](video-production.md): YouTube embeds, transcripts,
    chapter validation, structured data, and reusable release copy.
-14. [Field journals and private-by-default tracks](field-journal.md): local GPX analysis,
+15. [Field journals and private-by-default tracks](field-journal.md): local GPX analysis,
    trail facts, route drawings, and enforceable location-privacy modes.
-15. [Showing your posts on another site](integrations.md): feeds and the latest-posts JSON.
-16. [Migrating from Hashnode](hashnode-migration.md): with or without a paid plan.
-17. [Migrating inherited authorship](contributor-migration.md): dry-run-first contributor credits.
+16. [Showing your posts on another site](integrations.md): feeds and the latest-posts JSON.
+17. [Migrating from Hashnode](hashnode-migration.md): with or without a paid plan.
+18. [Migrating inherited authorship](contributor-migration.md): dry-run-first contributor credits.
 
 Architecture decisions and their supporting primary-source research live under
 [`docs/adr`](adr/) and [`docs/research`](research/).
@@ -107,7 +109,10 @@ authored from a selection in Evidence Studio with supporting and contradicting e
 side ([ADR 0073](adr/0073-claims-are-authored-from-a-selection-in-evidence-studio.md)), with
 evidence gaps and provenance prompts that `openblog check`, builds and Evidence Studio report
 alike and that never judge whether a claim is true
-([ADR 0074](adr/0074-evidence-gaps-are-prompts-in-the-shared-finding-contract.md)), and, when a
+([ADR 0074](adr/0074-evidence-gaps-are-prompts-in-the-shared-finding-contract.md)), gathered with
+every other research check into one readiness report that Admin, `openblog check`, builds and the
+preview show with the same codes in the same order
+([ADR 0150](adr/0150-one-research-readiness-report-across-admin-check-build-and-preview.md)), and, when a
 site opts in, publishes approved claims with their evidence side by side as a section of the
 post, with revision notes the post itself carries
 ([ADR 0075](adr/0075-publish-approved-claim-evidence-in-the-post-with-public-revision-notes.md)),
@@ -133,7 +138,8 @@ openblog init [dir] [--title "..."] [--github-pages]
 openblog new "Title" [--series s] [--tags a,b] [--draft] [--recipe]
 openblog build [--drafts] [--out dir]   Write the site to dist/
 openblog serve [--admin] [--drafts] [--host 127.0.0.1] [--port 8080]
-openblog check                          Validate content, themes, and the private source library, notebook, Knowledge Atlas and claims, write nothing
+openblog check [--json]                 Validate content, themes, and the private source library, notebook, Knowledge Atlas and claims, write nothing;
+                                        --json prints the research readiness report as JSON
 openblog export <slug> [--format markdown|csl-json|bibtex] [--out path] [--write]
                                         Preview or write portable Markdown, or the post's
                                         cited references as CSL JSON or BibTeX

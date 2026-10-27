@@ -25,7 +25,7 @@ const KIND_RULES = Object.freeze({
   "third-perspective": { publishable: true, clarification: true },
   "author-response": { publishable: true, clarification: false },
   "abuse-report": { publishable: false, clarification: false },
-  // Approval admits it to the editors' private queue; it is never public (ADR 0190).
+  // Approval admits it to the editors' private queue; it is never public (ADR 0152).
   "future-suggestion": { publishable: false, editorial: true, clarification: true },
 });
 export const PARTICIPATION_KINDS = Object.freeze(Object.keys(KIND_RULES));
@@ -199,7 +199,7 @@ export function timeKey(value) {
  * the site set retention itself; an approved item is kept while it can be published. An approved
  * editorial item (a suggestion for future work) is kept too, but owes `scrub-identity`, the
  * clearing of its private contact and unpublished name, once the closed-item period has passed
- * since its approval (ADR 0193), or at once when `item.linked` says an author linked it to future
+ * since its approval (ADR 0155), or at once when `item.linked` says an author linked it to future
  * work; `item.identityHeld === false` says it holds none, so it owes nothing (a fixture row, which says nothing of it, is due as the policy decides).
  */
 export function retentionStep(item, cutoffs) {
@@ -214,7 +214,7 @@ export function retentionStep(item, cutoffs) {
   if (item.state === "withdrawn") return retained ? "purge-content" : null;
   if (item.state === "approved" && KIND_RULES[kind].publishable) return null;
   if (item.state === "approved" && KIND_RULES[kind].editorial === true) {
-    // One an author linked to future work (`item.linked`) owes the clearing at once (ADR 0211).
+    // One an author linked to future work (`item.linked`) owes the clearing at once (ADR 0163).
     return retained && item.identityHeld !== false && (item.linked === true || due(cutoffs.closedUntil)) ? "scrub-identity" : null;
   }
   return retained && due(cutoffs.closedUntil) ? "purge-content" : null;

@@ -91,7 +91,7 @@ fn the_registry_is_closed_and_ids_round_trip() {
     assert_eq!(ParticipationKind::from_id("Comment"), None);
     assert_eq!(ParticipationKind::from_id("vote"), None);
     // Only abuse reports and future suggestions are never public (a
-    // suggestion's approval admits it to the editors' queue, ADR 0190); only
+    // suggestion's approval admits it to the editors' queue, ADR 0152); only
     // authors write responses.
     for kind in ParticipationKind::ALL {
         let rules = kind.rules();

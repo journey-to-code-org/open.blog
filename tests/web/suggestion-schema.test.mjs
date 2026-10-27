@@ -1,4 +1,4 @@
-// The one hosted schema change suggestions for future work need (ADR 0192): a check loosened so a row
+// The one hosted schema change suggestions for future work need (ADR 0154): a check loosened so a row
 // may have a page and no passage, additive and idempotent in supabase/feedback.sql, with a rollback that
 // refuses while such a row exists. Nothing here needs the function or any other part of the feature.
 import test from "node:test";

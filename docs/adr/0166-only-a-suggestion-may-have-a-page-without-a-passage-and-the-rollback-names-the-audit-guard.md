@@ -1,15 +1,15 @@
-# ADR 0214: Only a suggestion may have a page without a passage, and the rollback names the audit guard
+# ADR 0166: Only a suggestion may have a page without a passage, and the rollback names the audit guard
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#227](https://github.com/journey-to-code-org/open.blog/issues/227)
 - Parent story: [#204](https://github.com/journey-to-code-org/open.blog/issues/204)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0192](0192-a-suggestion-is-one-feedback-row-with-no-passage-target-and-one-loosened-check.md), [ADR 0193](0193-attribution-and-contact-are-optional-consented-and-contact-stays-private-to-the-site-admin.md)
+- Builds on: [ADR 0154](0154-a-suggestion-is-one-feedback-row-with-no-passage-target-and-one-loosened-check.md), [ADR 0155](0155-attribution-and-contact-are-optional-consented-and-contact-stays-private-to-the-site-admin.md)
 
 ## Context
 
-[ADR 0192](0192-a-suggestion-is-one-feedback-row-with-no-passage-target-and-one-loosened-check.md)
+[ADR 0154](0154-a-suggestion-is-one-feedback-row-with-no-passage-target-and-one-loosened-check.md)
 loosened `openblog_feedback_passage_complete` so a row may have no revision and no target whatever its
 `work`. That also let any other kind have a page and no passage, which no code writes and no reader
 expects.

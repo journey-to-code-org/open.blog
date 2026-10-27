@@ -1,4 +1,4 @@
-//! Future-question and source-suggestion records (RD13.1, ADRs 0190 to 0195):
+//! Future-question and source-suggestion records (RD13.1, ADRs 0152 to 0157):
 //! one more kind in the one participation policy, untrusted by default,
 //! private to the editors, never entering the Source Library by itself, with
 //! acceptance meaning editorial interest and nothing more.
@@ -1571,7 +1571,7 @@ fn series_and_conversion_ids_accept_the_sites_own_slugs() {
 }
 
 // ---------------------------------------------------------------------------
-// Outcomes and persisted links (RD13.3, ADRs 0210 to 0212)
+// Outcomes and persisted links (RD13.3, ADRs 0162 to 0164)
 
 fn link(kind: ConversionKind, id: &str) -> Conversion {
     Conversion {
@@ -1824,7 +1824,7 @@ fn an_accepted_record_over_16_kib_reads_back_with_eight_links_and_a_clarificatio
 }
 
 // ---------------------------------------------------------------------------
-// Credit is opt-in and bound to the revision it was agreed for (ADR 0215)
+// Credit is opt-in and bound to the revision it was agreed for (ADR 0167)
 
 fn stored(
     record: &Suggestion,

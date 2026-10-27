@@ -1,11 +1,11 @@
-# ADR 0197: The suggestion form is one progressive region, and a site with no service shows only its contact
+# ADR 0159: The suggestion form is one progressive region, and a site with no service shows only its contact
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#227](https://github.com/journey-to-code-org/open.blog/issues/227)
 - Parent story: [#204](https://github.com/journey-to-code-org/open.blog/issues/204)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0114](0114-the-third-perspective-form-is-one-progressive-region-with-explicit-consent.md), [ADR 0101](0101-one-registry-of-participation-kinds-enabled-per-site-and-post.md), [ADR 0194](0194-acceptance-means-editorial-interest-only-and-nothing-ranks-or-counts-suggestions.md)
+- Builds on: [ADR 0114](0114-the-third-perspective-form-is-one-progressive-region-with-explicit-consent.md), [ADR 0101](0101-one-registry-of-participation-kinds-enabled-per-site-and-post.md), [ADR 0156](0156-acceptance-means-editorial-interest-only-and-nothing-ranks-or-counts-suggestions.md)
 
 ## Context
 

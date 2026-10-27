@@ -1,11 +1,11 @@
-# ADR 0212: A link to a source is the author's record of a library record they made, and the hints are copied by hand
+# ADR 0164: A link to a source is the author's record of a library record they made, and the hints are copied by hand
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#228](https://github.com/journey-to-code-org/open.blog/issues/228)
 - Parent story: [#204](https://github.com/journey-to-code-org/open.blog/issues/204)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0195](0195-converting-a-suggestion-is-an-explicit-author-action-that-records-an-id-and-never-enters-the-source-library.md), [ADR 0198](0198-editors-read-suggestions-in-the-one-inbox-and-copying-one-into-a-research-note-is-an-explicit-unverified-export.md), [ADR 0009](0009-research-source-library-identity.md), [ADR 0085](0085-rights-are-the-authors-declaration-per-version.md)
+- Builds on: [ADR 0157](0157-converting-a-suggestion-is-an-explicit-author-action-that-records-an-id-and-never-enters-the-source-library.md), [ADR 0160](0160-editors-read-suggestions-in-the-one-inbox-and-copying-one-into-a-research-note-is-an-explicit-unverified-export.md), [ADR 0009](0009-research-source-library-identity.md), [ADR 0085](0085-rights-are-the-authors-declaration-per-version.md)
 
 ## Context
 
@@ -26,7 +26,7 @@ library holds stable identities and per-version rights; a reader's hints are unt
   (the library is private and Admin does not read it here), and it is not followed. A link to a draft
   or series is the slug of one, as the site writes slugs, and likewise unchecked.
 - **The explicit export stays two separate acts**: the research note copy
-  ([ADR 0198](0198-editors-read-suggestions-in-the-one-inbox-and-copying-one-into-a-research-note-is-an-explicit-unverified-export.md))
+  ([ADR 0160](0160-editors-read-suggestions-in-the-one-inbox-and-copying-one-into-a-research-note-is-an-explicit-unverified-export.md))
   records no link, and a link copies no text. An author may do either, both or neither.
 - **Output is deterministic**: the hints come out in a fixed order, from the same stored record,
   and a site that has no link and no candidate prints what it printed before.

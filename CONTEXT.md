@@ -1106,6 +1106,80 @@ how the post's evidence changed, optionally naming one claim. It is versioned wi
 removing private research or withdrawing a claim never removes it.
 _Avoid_: Changelog entry, correction notice from a reader; storing the note in private research
 
+## Research completeness
+
+These terms describe how every research check is gathered into one contract before publication.
+They never describe whether a work is true, credible, agreed or fit to publish.
+
+**Research completeness finding**:
+Any finding, notice, prompt or diagnostic of a research check, described in one shape: its owning
+validator, check, own code, category, outcome (detected, potential or needs-review), gate, the one
+object it is scoped to, related objects, its validator's message and a repair. Mapping into it
+changes nothing a check reports or where.
+_Avoid_: Readiness score, issue, verdict; renaming a check's code
+
+**Owning validator**:
+The one core check function that reports a given check. Every check has exactly one; presentations
+such as Admin, the CLI and the readiness report gather findings and own none.
+_Avoid_: Treating Admin or a report as a second validator
+
+**Finding category**:
+What kind of gap or prompt a finding is (integrity, public boundary, structure, reference,
+identifier, version, locator, citation, claim anchor, evidence, provenance, chronology, rights).
+Categories group findings and never rank them.
+_Avoid_: Severity, priority
+
+**Finding gate**:
+What the owning validator does about a finding: advisory (nothing is refused), refuses when
+published (a post publishing the citation is refused), withholds (a stale approval leaves one
+comparison out of the build and cannot be acknowledged), or refuses (the save or build is
+refused). Only deterministic integrity and privacy failures refuse; potential and needs-review
+findings are always advisory.
+_Avoid_: Blocking review, mandatory resolution
+
+**Research readiness report**:
+The one report of what every research check says about the site as the next build would publish
+it: the contract's findings in its one order, grouped by what the build refuses and then by
+outcome, counted apart, with the author's acknowledgements matched. Admin (What will be public,
+What this post makes public, the Research panel beside a draft), `openblog check` (also as
+`--json`), `openblog build` and the preview that serves a build all show it with the same codes in
+the same order (ADR 0150). It is prompts, never a verdict: it has no score, and only a failure of
+a private file the build reads stops a build, before any public file is written.
+_Avoid_: Readiness score, pass or fail, completeness percentage
+
+**Finding acknowledgement**:
+An author's record that they have considered an advisory finding. It names the finding's key and
+fingerprint, never makes the finding resolved, is counted apart from what was found, and goes
+stale when what the finding says changes.
+_Avoid_: Dismissal, resolution, waiver; acknowledging an integrity or privacy failure
+
+**Finding fingerprint**:
+A digest of a finding's validator, code, object, file, id, field, related objects and the
+structured facts its validator states for that code (cited keys and locators, source and passage
+ids, identifier values, stated dates), never its message, lines or positions, so it changes
+exactly when what the finding is about changes and not when text moves or wording is edited.
+_Avoid_: Finding id, revision; hashing the message
+
+**Source review**:
+The validator that prompts about identifiers two records share or one record holds twice,
+version details a citation, passage or record leaves out (a volume, a translator, a witness's
+shelfmark), quotations without a narrow location, and posts that cite one source under two
+records or several versions of one work. Every prompt is advisory and offline, and none says
+whether a source or quotation is accurate.
+_Avoid_: Fact check, quotation verification, metadata repair
+
+**Quotation**:
+For source review, a citation inside or directly after a block quotation, a citation directly
+after quoted words, or a notebook passage. A quotation needs a location in its source; whether
+the words are there is only ever for a person to check. A GitHub-style alert is not one.
+_Avoid_: Excerpt check, verified quote
+
+**Identifier comparison key**:
+The form two identifiers are compared in (a DOI case-folded in its resolver form, an ISBN-10 as
+its ISBN-13, a PMCID with its prefix upper-cased). It is only compared, never written back: the
+record keeps the identifier as written.
+_Avoid_: Normalizing, deduplicating, merging
+
 ## Reader participation
 
 These terms describe how readers point at published text, where their feedback came from, and
@@ -1158,7 +1232,7 @@ that agreement the name is private to moderation; anonymous is the default.
 _Avoid_: Author, contributor, credit, account
 
 **Suggestion credit**:
-The name a suggestion's reader agreed to be credited by for the text as it stands (ADR 0215): bound to
+The name a suggestion's reader agreed to be credited by for the text as it stands (ADR 0167): bound to
 the text revision they agreed it for, so a clarification that changes the text or a changed consent
 leaves it unoffered until they agree again by their receipt. It is shown only in Admin's link view and
 nothing publishes it; withdrawal and retention remove it.
@@ -1538,12 +1612,6 @@ The check that each context link in a post names a page the next build publishes
 repair, never a privacy failure.
 _Avoid_: Broken link check, link validation
 
-**Finding acknowledgement**:
-An author's record that they have considered an advisory finding. It names the finding's key and
-fingerprint, never makes the finding resolved, is counted apart from what was found, and goes
-stale when what the finding says changes.
-_Avoid_: Dismissal, resolution, waiver; acknowledging an integrity or privacy failure
-
 **Publication boundary**:
 The line between private research and what the public site carries. Nothing crosses it because it
 exists: only what a projection publishes, and only the fields that projection copies, are public
@@ -1772,7 +1840,7 @@ _Avoid_: Reply thread, discussion, notification
 
 ## Future suggestions
 
-What a reader sends the editors for possible future work (ADRs 0190 to 0195). One more participation
+What a reader sends the editors for possible future work (ADRs 0152 to 0157). One more participation
 kind, `future-suggestion`, in the one policy; private to the editors and never public.
 
 **Future suggestion**:
@@ -1792,39 +1860,39 @@ The private list of future suggestions an editor has accepted. Approving a futur
 it here and publishes nothing; it is kept while accepted and leaves only when an editor closes it,
 the reader withdraws it or retention purges it after it is closed. What is kept is the idea: its
 contact and unpublished name are cleared after `closedDays`, or when it is linked to future work
-(ADRs 0190, 0193).
+(ADRs 0152, 0155).
 _Avoid_: Published suggestions, backlog, roadmap, public wishlist
 
 **Editorial interest**:
 All that accepting a future suggestion means: the editors are interested in exploring it. Not
-agreement, checking, endorsement, rights clearance or a promise to publish (ADR 0194).
+agreement, checking, endorsement, rights clearance or a promise to publish (ADR 0156).
 _Avoid_: Approval of the claim, endorsement, verified, cleared
 
 **Suggestion hints**:
 The reader's own statement of a suggested source's title, creators, year, publisher and identifiers,
 checked for shape only and never fetched or verified. Never a stable source identifier or a citation
-(ADR 0191).
+(ADR 0153).
 _Avoid_: Metadata, source record, citation
 
 **Suggestion contact**:
 An optional e-mail address a reader gives with their agreement to be contacted about one
 suggestion. Private to the site Admin and the submitter, excluded from audit events, conversions,
 library candidates, research notes and debug output, cleared by retention while the suggestion is
-kept, and never used by the system to send anything (ADR 0193).
+kept, and never used by the system to send anything (ADR 0155).
 _Avoid_: Subscription, mailing list, account email
 
 **Private identity clearing**:
 The retention step (`scrub-identity`) that removes a kept, accepted suggestion's contact and any name
 the reader did not agree to show, once `closedDays` have passed since approval or, at the next
 retention run, when an author has linked it to future work; it changes nothing else and keeps the
-links. A name the reader agreed to show stays (ADRs 0193, 0211).
+links. A name the reader agreed to show stays (ADRs 0155, 0163).
 _Avoid_: Purge, anonymising the idea, deleting the suggestion
 
 **Suggestion standing**:
 Where a suggestion is with the editors (received, waiting for the reader, editors are interested,
 linked to future work, linked to future work and now closed, not taken forward, withdrawn), derived
 from the moderation state and any conversion and never stored as a state of its own. Closing a
-suggestion that was already linked is not a decline (ADR 0194).
+suggestion that was already linked is not a decline (ADR 0156).
 _Avoid_: Status, ranking, score, popularity
 
 **Duplicate suggestion group**:
@@ -1832,7 +1900,7 @@ Suggestions that share any source key: a DOI by its name whether bare, `doi:` or
 ISBN-10 and its ISBN-13 as one, an ISSN without its hyphen, or the link without scheme, `www.`,
 fragment, trailing slash and tracking parameters. Shown to editors as lists of ids so they can be
 handled together, only among items that editor may see. Never a count or a signal of demand
-(ADR 0194).
+(ADR 0156).
 _Avoid_: Most requested, trending, vote count
 
 **Conversion**:
@@ -1840,44 +1908,44 @@ A recorded link from an accepted suggestion to a draft, series or Source Library
 made from it: the target's id, when and which Admin account recorded it, and nothing of the reader.
 Recording one creates nothing, is kept in the row's `details` as `conversions` (no schema change,
 at most eight, none twice) with an audit event `convert`, and is never opened or checked
-(ADRs 0195, 0210).
+(ADRs 0157, 0162).
 _Avoid_: Import, promotion, automatic episode
 
 **Editorial outcome**:
 How the editors dealt with a suggestion: held (accepted, not linked), converted (linked, even if
 since closed), declined (rejected before it was accepted) or closed (accepted, then removed without a
 link). Derived from the moderation state and the links and never stored; undecided and withdrawn
-suggestions have none. Never a verdict on the idea (ADR 0211).
+suggestions have none. Never a verdict on the idea (ADR 0163).
 _Avoid_: Priority, score, status of the idea
 
 **Receipt standing**:
 What a reader's receipt says of their own suggestion: its stage and one honest sentence in the words
 of the acceptance notice, with a link described as a record and not a promise. Never a rank, a count,
-a promise to publish or what it was linked to (ADR 0211).
+a promise to publish or what it was linked to (ADR 0163).
 _Avoid_: Progress, ranking, roadmap position
 
 **Library candidate**:
 The unverified link and hints of an accepted suggestion, offered to its author to copy into a
 Source Library record they choose to make. Never the reader's words, name or contact, and never
-written to the library by the system (ADR 0195).
+written to the library by the system (ADR 0157).
 _Avoid_: Imported source, pending source, library suggestion
 
 **Suggestion form**:
 The one region on a post where the kind is `open`: a progressive Web Component with native controls
 that sends a suggestion through the hosted feedback route where the site issues receipts, and
 otherwise (offline, closed, off, failing, or no service at all) prepares it to copy and send to the
-site's feedback contact. A static site with no service shows only that contact (ADRs 0196, 0197).
+site's feedback contact. A static site with no service shows only that contact (ADRs 0158, 0159).
 _Avoid_: Wishlist, request box, voting widget
 
 **Suggestion route**:
 `POST /feedback` with a `future-suggestion` body and the page as the request's `work`, behind
 `OPENBLOG_SUGGESTIONS_ENABLED` and the loosened `openblog_feedback_passage_complete` check. Always
-pending, with a receipt, five an hour per client, and the same suggestion once an hour (ADR 0196).
+pending, with a receipt, five an hour per client, and the same suggestion once an hour (ADR 0158).
 _Avoid_: Suggestion endpoint, tip line
 
 **Research note export**:
 The author's own, explicit copy of an accepted suggestion into a note of the private research
 notebook: labelled unverified reader text with the page it came from, the reader's words and what
 they said about the source as quoted statements, and no name, contact or time. It creates no passage,
-source, draft or link and changes nothing about the suggestion (ADR 0198).
+source, draft or link and changes nothing about the suggestion (ADR 0160).
 _Avoid_: Import, conversion, promotion to the library

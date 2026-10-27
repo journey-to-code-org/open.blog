@@ -1,15 +1,15 @@
-# ADR 0210: A link to future work is kept in the suggestion's details with an audit event, and needs no new schema
+# ADR 0162: A link to future work is kept in the suggestion's details with an audit event, and needs no new schema
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#228](https://github.com/journey-to-code-org/open.blog/issues/228)
 - Parent story: [#204](https://github.com/journey-to-code-org/open.blog/issues/204)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0192](0192-a-suggestion-is-one-feedback-row-with-no-passage-target-and-one-loosened-check.md), [ADR 0195](0195-converting-a-suggestion-is-an-explicit-author-action-that-records-an-id-and-never-enters-the-source-library.md), [ADR 0108](0108-retention-runs-from-a-dry-run-and-quotas-keep-only-hourly-digests.md)
+- Builds on: [ADR 0154](0154-a-suggestion-is-one-feedback-row-with-no-passage-target-and-one-loosened-check.md), [ADR 0157](0157-converting-a-suggestion-is-an-explicit-author-action-that-records-an-id-and-never-enters-the-source-library.md), [ADR 0108](0108-retention-runs-from-a-dry-run-and-quotas-keep-only-hourly-digests.md)
 
 ## Context
 
-[ADR 0195](0195-converting-a-suggestion-is-an-explicit-author-action-that-records-an-id-and-never-enters-the-source-library.md)
+[ADR 0157](0157-converting-a-suggestion-is-an-explicit-author-action-that-records-an-id-and-never-enters-the-source-library.md)
 decided what a link is and who may record one, and left where it is kept and how an editor records it to
 this task. A link holds only a kind, the id of what the author made, a time and the Admin account that
 recorded it. A hosted change that adds a table or column would be a one-way door for every site.
@@ -40,7 +40,7 @@ recorded it. A hosted change that adds a table or column would be a one-way door
   the suggestion was sent from. Withdrawal and retention purge the row's `details`, links included,
   with its text.
 - **The stored details have room for them.** A submission's `details` are held to 11 KiB, measured as
-  Postgres measures them ([ADR 0213](0213-a-suggestions-stored-details-are-held-to-a-bound-below-the-columns-check-measured-as-postgres-measures-them.md)),
+  Postgres measures them ([ADR 0165](0165-a-suggestions-stored-details-are-held-to-a-bound-below-the-columns-check-measured-as-postgres-measures-them.md)),
   so eight links at their widest (non-ASCII slugs, the longest account name) always fit the column's
   16 KiB. A test measures the sum.
 - **The generic feedback route never decides a suggestion**: `PATCH admin/feedback` refuses it with

@@ -7,7 +7,7 @@
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
 - Builds on: [ADR 0034](0034-private-passages-and-research-notes.md),
   [ADR 0123](0123-the-research-review-before-publication-adapts-todays-findings-to-the-completeness-contract.md)
-- Coordinates with: ADR 0145 on `story/rw9-research-completeness`, which defines the
+- Coordinates with: ADR 0147 on `story/rw9-research-completeness`, which defines the
   acknowledgement and its fingerprint and leaves where they are kept to the report that shows
   them, and [#194](https://github.com/journey-to-code-org/open.blog/issues/194)
 
@@ -25,7 +25,7 @@ acknowledgements. #62 is the first such report, so it decides storage now; #194 
   `.openblog/private/research/acknowledgements.json`, beside the other research files, inside
   the Git-ignored private directory that no build, feed, search index or export reads, and that
   the private-research guards already refuse to copy into public inputs or output.
-- **Exactly ADR 0145's record.** The file is `{ "version": 1, "acknowledgements": [...] }`. Each
+- **Exactly ADR 0147's record.** The file is `{ "version": 1, "acknowledgements": [...] }`. Each
   record is the finding's `validator`, `code`, `object`, optional `path`, `id` and `field` (the
   key) and its `fingerprint` (32 lowercase hexadecimal characters). There is no note, person,
   time or `resolved` field, and unknown fields are refused, so a record cannot claim more or

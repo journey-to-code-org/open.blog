@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 
-// Suggestions for future work in the editors' inbox (#227, ADRs 0190 to 0195). The hosted inbox is
+// Suggestions for future work in the editors' inbox (#227, ADRs 0152 to 0157). The hosted inbox is
 // mocked at the Admin API (the real Admin keeps the hosted token, resolves each item's actor and
 // sends only what that actor may see); everything else is the real Admin. Covers a suggestion read as
 // the reader's own unchecked statements with hostile text kept as text, its link left for the editor

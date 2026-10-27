@@ -208,7 +208,7 @@ pub enum Content {
     /// with the responder it stores (ADRs 0130 to 0132).
     AuthorResponse(Box<HostedAuthorResponse>),
     /// A reader's suggestion for future work, in the editors' private queue
-    /// (ADRs 0190 to 0195). It is never public.
+    /// (ADRs 0152 to 0157). It is never public.
     Suggestion(Box<Suggestion>),
     /// An abuse report: the reader's ground and what they wrote, if anything.
     /// It never names the reporter.
@@ -353,7 +353,7 @@ struct WirePurged {
 }
 
 /// A suggestion row as the hosted function lists it: the feedback item shape,
-/// whose provenance has the page and no passage (ADR 0192).
+/// whose provenance has the page and no passage (ADR 0154).
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct WireSuggestion {
@@ -928,8 +928,8 @@ impl InboxItem {
         now: DateTime,
     ) -> Option<RetentionStep> {
         // A kept suggestion an author has linked to future work owes the
-        // clearing at once, not only after the closed-item period (ADR 0193
-        // and ADR 0211): the core's `identity_scrub_due` is the one rule.
+        // clearing at once, not only after the closed-item period (ADR 0155
+        // and ADR 0163): the core's `identity_scrub_due` is the one rule.
         if let Content::Suggestion(suggestion) = &self.content {
             let facts = self.facts();
             if identity_scrub_due(policy, &facts, suggestion, &suggestion.conversions, now) {
@@ -1339,14 +1339,14 @@ impl<'a> Inbox<'a> {
 
     /// A suggestion as a draft of a private research note, for the author's
     /// own explicit export: only the site Admin or a coordinator of its work,
-    /// and only an accepted suggestion (ADR 0195). Nothing is written here.
+    /// and only an accepted suggestion (ADR 0157). Nothing is written here.
     pub fn research_draft(&self, item: &InboxItem) -> Result<ResearchDraft, ConversionError> {
         let suggestion = item.suggestion().ok_or(ConversionError::WrongKind)?;
         research_draft(suggestion, &self.actor(item), &item.facts())
     }
 
     /// Record that the author linked an accepted suggestion to future work
-    /// they made (ADR 0195 and ADR 0210), for the viewer who may (the site
+    /// they made (ADR 0157 and ADR 0162), for the viewer who may (the site
     /// Admin, or a coordinator of its work): the link. Nothing is created,
     /// fetched or sent; the caller stores the link where the hosted row keeps
     /// it.
@@ -1392,7 +1392,7 @@ impl<'a> Inbox<'a> {
             "full": suggestion.conversions.len() >= crate::future_suggestion::MAX_CONVERSIONS,
             // The name the reader agreed to be credited by for this text as
             // it stands now, shown here and nowhere else, and never used by
-            // anything on its own (ADR 0215).
+            // anything on its own (ADR 0167).
             "credit": suggestion.credit().map(|name| json!({
                 "name": name,
                 "line": format!("The reader agreed to be credited as {name} for this text. Nothing credits them unless you do."),
@@ -1737,7 +1737,7 @@ impl<'a> Inbox<'a> {
                 view["details"] = json!({});
                 let attribution = &suggestion.submission.attribution;
                 // Whether the reader agreed to be credited for this text as it
-                // stands, not whether they ever ticked the box (ADR 0215).
+                // stands, not whether they ever ticked the box (ADR 0167).
                 let mut reader = json!({ "publishName": suggestion.credit().is_some() });
                 match &shown.name {
                     Some(name) => reader["name"] = json!(name),
@@ -1766,7 +1766,7 @@ impl<'a> Inbox<'a> {
                     "notice": shown.notice,
                     "standing": {"id": stands.id(), "label": stands.label()},
                     // How the editors dealt with it, once they have; never a
-                    // count, a rank or a verdict on the idea (ADR 0211).
+                    // count, a rank or a verdict on the idea (ADR 0163).
                     "outcome": outcome.map(|outcome| json!({"id": outcome.id(), "label": outcome.label()})),
                     // What an author linked it to: ids and dates only, never
                     // anything of the reader. The target is the author's own
@@ -1787,7 +1787,7 @@ impl<'a> Inbox<'a> {
                     "link": self.link_offer(item, suggestion),
                     // The hints an author may copy into a Source Library
                     // record of their own making: unverified, never written
-                    // to the library by anything here (ADR 0212).
+                    // to the library by anything here (ADR 0164).
                     "libraryCandidate": self.library_candidate(item).ok().map(|candidate| json!({
                         "label": "Show hints for a Source Library record",
                         "guidance": "Shows the link and details the reader gave, marked unverified, to copy into a source record you make yourself. Nothing is written to your library, fetched or published, and rights stay your own declaration.",

@@ -739,10 +739,10 @@ pub enum AuditAction {
     /// Retention purged the text, details and reader name.
     PurgeContent,
     /// Retention cleared a kept editorial item's private contact and
-    /// unpublished name and nothing else (ADR 0193).
+    /// unpublished name and nothing else (ADR 0155).
     ScrubIdentity,
     /// An author linked an accepted suggestion for future work to something
-    /// they made from it (ADR 0210). The item's state is unchanged, so the
+    /// they made from it (ADR 0162). The item's state is unchanged, so the
     /// event's `from` and `to` are the same state; it holds no link target.
     Convert,
     /// The author recorded a correction decision on an evidence submission
@@ -994,7 +994,7 @@ pub enum RetentionStep {
     /// Delete the text, details and reader name; keep the state and audit.
     PurgeContent,
     /// Clear only the private contact and the unpublished name of an
-    /// approved editorial item, which is otherwise kept (ADR 0193). The text,
+    /// approved editorial item, which is otherwise kept (ADR 0155). The text,
     /// the link, the hints, the state and the audit trail stay. The item is
     /// due once `closed_days` have passed since it was approved; a caller
     /// that knows the item holds no such detail owes it nothing.

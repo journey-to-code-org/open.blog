@@ -1,11 +1,11 @@
-# ADR 0198: Editors read suggestions in the one inbox, and copying one into a research note is an explicit, unverified export
+# ADR 0160: Editors read suggestions in the one inbox, and copying one into a research note is an explicit, unverified export
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#227](https://github.com/journey-to-code-org/open.blog/issues/227)
 - Parent story: [#204](https://github.com/journey-to-code-org/open.blog/issues/204)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0105](0105-one-moderation-inbox-decided-per-item-by-the-one-policy.md), [ADR 0192](0192-a-suggestion-is-one-feedback-row-with-no-passage-target-and-one-loosened-check.md), [ADR 0193](0193-attribution-and-contact-are-optional-consented-and-contact-stays-private-to-the-site-admin.md), [ADR 0195](0195-converting-a-suggestion-is-an-explicit-author-action-that-records-an-id-and-never-enters-the-source-library.md)
+- Builds on: [ADR 0105](0105-one-moderation-inbox-decided-per-item-by-the-one-policy.md), [ADR 0154](0154-a-suggestion-is-one-feedback-row-with-no-passage-target-and-one-loosened-check.md), [ADR 0155](0155-attribution-and-contact-are-optional-consented-and-contact-stays-private-to-the-site-admin.md), [ADR 0157](0157-converting-a-suggestion-is-an-explicit-author-action-that-records-an-id-and-never-enters-the-source-library.md)
 
 ## Context
 
@@ -24,7 +24,7 @@ untrusted until an author makes it theirs.
   plain text everywhere; the link is an anchor with `rel="noopener noreferrer nofollow"` whose
   caption says nothing fetched it for the editor; each statement about the source is labelled as the
   reader's own words or "not checked"; what is still missing is listed; the card carries the words of
-  acceptance (ADR 0194).
+  acceptance (ADR 0156).
 - **Decisions are the one state machine's.** Accepting admits the suggestion to the editors' list and
   its guidance says nothing is published; a decline needs a reason and reads "Not taken forward"; a
   closed one reads "Closed". Nothing is published to any file: accepting, closing and deleting never
@@ -34,7 +34,7 @@ untrusted until an author makes it theirs.
 - **Retention clears identity, not ideas.** The hosted retention run's `scrub-identity` step and the
   Admin retention panel say what it does: clears the private contact and unshown name of accepted
   suggestions past `closedDays`, nothing else
-  ([ADR 0193](0193-attribution-and-contact-are-optional-consented-and-contact-stays-private-to-the-site-admin.md)).
+  ([ADR 0155](0155-attribution-and-contact-are-optional-consented-and-contact-stays-private-to-the-site-admin.md)).
 - **Export to a research note is the author's explicit act.** The site Admin or a coordinator of the
   work sees "Copy into a private research note" on an accepted suggestion. Pressing it sends only the
   item's id and the version they saw. The server reads the item again, applies the grant and the
