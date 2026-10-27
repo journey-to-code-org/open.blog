@@ -245,6 +245,14 @@ test("errors are announced on their field with focus there, and nothing is sent"
     await expect(form.getByRole("alert")).toContainText("public web page");
   }
   await form.getByLabel("Link", { exact: true }).fill("");
+  // Agreeing to be thanked by a name needs a name.
+  const credit = form.getByRole("checkbox", { name: "You may thank me by this name" });
+  await credit.check();
+  await send.click();
+  await expect(credit).toBeFocused();
+  await expect(credit).toHaveAttribute("aria-invalid", "true");
+  await expect(form.getByRole("alert")).toContainText("Enter your name to be thanked by it");
+  await credit.uncheck();
   // Contact needs the reader's agreement, and a half-filled identifier is theirs to fix.
   await form.getByLabel("E-mail address", { exact: true }).fill("ada@example.org");
   await send.click();

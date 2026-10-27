@@ -58,6 +58,7 @@ const FIELD_PROBLEMS = Object.freeze({
   invalidUrl: ["url", "Use a link to a public web page that starts with http: or https:, without a password and without a key or token in it."],
   invalidHint: ["hints", "Check the details: a title, creators, a year or an identifier is not in a form this page can use."],
   invalidName: ["name", "Use plain text of up to 80 characters for your name."],
+  consentWithoutName: ["showName", "Enter your name to be thanked by it, or leave this unchecked."],
   invalidContact: ["contact", "Use one plain e-mail address such as name@example.org."],
   contactWithoutConsent: ["followUp", "Agree to be contacted, or clear the address."],
 });
@@ -348,7 +349,8 @@ export class ObFutureSuggestion extends HTMLElement {
       if (Object.keys(hints).length) value.hints = hints;
     }
     if (ui.aboutArticle.checked) value.about = { article: this.#work };
-    if (ui.name.value.trim() !== "" || ui.credit.checked) value.attribution = { name: ui.name.value, publishName: ui.credit.checked };
+    // An empty name is no name, so agreeing to be thanked without one is that choice's own error.
+    if (ui.name.value.trim() !== "" || ui.credit.checked) value.attribution = { ...(ui.name.value.trim() !== "" ? { name: ui.name.value } : {}), publishName: ui.credit.checked };
     if (ui.address.value.trim() !== "" || ui.followUp.checked) value.contact = { address: ui.address.value.trim(), followUp: ui.followUp.checked };
     return value;
   }
