@@ -25,7 +25,9 @@ All notable changes to open.blog are recorded here. Releases follow
   unchanged. A linked word is underlined with dots and read as "(atlas entry)" by a screen reader;
   Admin's preview shows the links the build makes; an `atlas:` link inside an image description,
   a page, a series description or the home introduction is shown as its words with a warning,
-  never as a raw address; and a stray unclosed link tag no longer links the rest of the post.
+  never as a raw address (nor in raw HTML: an `atlas:` `href`, `src`, `srcset`, `poster` and the like
+  is removed with a warning that names the document, not the address); and a stray unclosed link
+  tag no longer links the rest of the post.
 
 - A concept link in a post now previews its entry. On a page with a concept link, focusing or
   hovering the link (or a first tap on a touch screen) shows a small card with the entry's type,

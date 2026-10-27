@@ -63,21 +63,42 @@ also did not look or sound different from any other link.
 - **An image description keeps the label only.** A concept link inside an image's alt text is not
   marked; its label stays in the alt text and the build warns (once per id and post) that a link
   cannot be there. The private id never reaches a page.
-- **Every Admin document preview that shows a post with the syntax resolves it** through the same
-  place the build does (`boundary::project_with` over `Shared::read`), under the content lock the
-  draft holds and before the research stores are read, and reports the same warnings. A document
-  without the syntax is previewed exactly as before and reads no research file.
+- **Every Admin document preview that shows a post with the syntax resolves it,** and the content
+  lock is released first. The draft is loaded under the lock (`load_draft_site`), then
+  `DraftSite::release` lets go of it, and only then are the research stores read: the plain
+  preview attaches the published atlas alone (`site::published_atlas`), and the boundary preview
+  reads the stores through the build's own `boundary::project_with` over `Shared::read`. Neither
+  holds the lock while it reads a store, so a slow store cannot block another save. Both report
+  the build's warnings. A document without the syntax is previewed exactly as before and reads no
+  research file.
 - **A page, a series description and the home introduction do not resolve the syntax, and say so.**
   The label is shown as plain text, never a raw `atlas:` address, and the site load warns once per
   document and id (`<file>: atlas link ...`). Resolving there was not chosen: those documents have
   no preview data and no manifest entry yet, and a link to an entry from a page would be a new
   publication path to review. Reversible by resolving in the same place later.
+- **Raw HTML cannot carry the scheme either.** Any address attribute of a raw HTML tag whose
+  value has the scheme `atlas:` (after character references are decoded, a browser's trimming and
+  case folding) is removed in every document, post, page, series description, home introduction
+  and footnote: `href`, `src`, each candidate of `srcset` and `imagesrcset`, `poster`, `data`,
+  `action`, `formaction`, `cite`, `xlink:href`, `background` and a few legacy ones, quoted or not.
+  The lines of an HTML block are read as one tag, and a tag that never ends and holds the scheme
+  is removed whole. The same step runs in the one place the Markdown renderer makes `atlas:`
+  forms safe, and on the Markdown copies that leave the site. The build warns once per document
+  with the count, never the address (`<file>: concept link `atlas:` ... is not shown: raw HTML
+  cannot carry an `atlas:` address`). The leak guard's corpus has a row per form and reads the
+  built files' attributes the way a browser does (decoded, any case, quoted or not).
 - **A mark closes inside its own block.** A raw `<ob-concept ...>` with no closing tag in its block is
   dropped and its text kept, so it can never link the rest of the post.
 - **A warning names the id as the author wrote it,** not HTML-escaped, cut by characters (never
   through an escape or a character), with control characters and the characters that reorder or hide
   text (U+202A to U+202E, U+2066 to U+2069, U+200B to U+200F, U+061C, U+2028, U+2029, U+2060 and
   U+FEFF) replaced.
+- **The hint's id is reserved.** `ob-concept-hint` is the id the one hint element carries, so no
+  heading slug or written heading id may be it: `assign_heading_ids` starts with it taken, and a
+  heading that would have it gets `ob-concept-hint-2`.
+- **The pre-publication review reads `atlas:` as the build does,** in any letter case and with a
+  browser's padding, and includes images; an autolink or an image is "not shown", and a link whose
+  scheme is not lowercase "is shown as plain text", whether or not the entry is published.
 - **A concept link looks and sounds like one.** The resolved link is
   `<a class="ob-concept" ...>label<span class="ob-visually-hidden"> (atlas entry)</span></a>`: the
   theme draws a dotted underline (not colour alone, solid on hover and focus), and the hidden words
