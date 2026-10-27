@@ -201,13 +201,15 @@ export class ObWebSandbox extends HTMLElement {
     const panels = el("div", "ob-web-sandbox-editors");
     const settings = codeSettings(this);
     let active = "html";
-    const select = (name) => {
+    // Only a reader's own action moves focus into an editor; selecting the first tab while the page
+    // loads must not, or the browser scrolls to the last example on every page that has one.
+    const select = (name, focus = true) => {
       active = name;
       for (const [key, editor] of Object.entries(editors)) {
         editor.shell.hidden = key !== name;
         editor.button.setAttribute("aria-pressed", String(key === name));
       }
-      editors[name].focus();
+      if (focus) editors[name].focus();
     };
     for (const name of ["html", "css", "js"]) {
       const label = name === "js" ? "JavaScript" : name.toUpperCase();
@@ -307,7 +309,7 @@ export class ObWebSandbox extends HTMLElement {
     shell.append(tabs, panels, controls, warning, status, frame, output);
     this.append(shell);
     this.dataset.enhanced = "true";
-    select("html");
+    select("html", false);
     render();
   }
 }

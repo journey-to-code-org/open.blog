@@ -5,6 +5,10 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- `web runnable` examples no longer take keyboard focus when the page loads. Selecting each example's
+  first tab used to focus its editor, so the browser scrolled to the last example on the page. Choosing a
+  tab or pressing Reset still moves focus into the editor.
+
 ## [0.46.0] - 2026-10-27
 
 - Portable copies carry the research context: portable HTML, Markdown and text, syndicated copies,
