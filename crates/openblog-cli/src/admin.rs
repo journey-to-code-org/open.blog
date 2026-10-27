@@ -6227,6 +6227,13 @@ fn featured_audit(state: &AppState, session: &auth::Session) -> Response {
         Ok(file) => file,
         Err(response) => return response,
     };
+    // A site that features nothing has nothing to check, and needs no hosted service.
+    if file.items.is_empty() {
+        return Response::json(
+            200,
+            &json!({ "checked": 0, "truncated": false, "features": [] }),
+        );
+    }
     let sources = match inbox_sources(state) {
         Ok(sources) => sources,
         Err(response) => return response,

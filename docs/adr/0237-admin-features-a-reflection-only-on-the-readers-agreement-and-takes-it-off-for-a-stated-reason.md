@@ -1,0 +1,92 @@
+# ADR 0237: Admin features a reflection only on the reader's agreement, previews exactly what the page will show, and takes it off for a stated reason
+
+- Status: Accepted
+- Date: 2026-10-27
+- Decision issue: [#229](https://github.com/journey-to-code-org/open.blog/issues/229)
+- Parent story: [#205](https://github.com/journey-to-code-org/open.blog/issues/205)
+- Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
+- Builds on: [ADR 0115](0115-approved-third-perspectives-publish-from-a-versioned-public-file-and-portable-copies-link-to-them.md),
+  [ADR 0230](0230-featuring-a-reflection-is-an-editorial-selection-of-one-approved-reflection-with-the-readers-own-consent.md),
+  [ADR 0231](0231-feature-consent-binds-the-exact-text-and-the-name-and-a-material-edit-needs-renewed-consent.md),
+  [ADR 0232](0232-withdrawal-retention-and-a-lost-source-take-a-feature-off-for-a-stated-reason.md),
+  [ADR 0233](0233-taking-a-feature-off-leaves-no-public-tombstone-and-the-moderation-audit-stays-private.md),
+  [ADR 0234](0234-a-feature-says-whose-reflection-it-is-and-why-it-is-shown-and-nothing-counts-ranks-or-claims-consensus.md),
+  [ADR 0236](0236-a-featured-reflection-stays-in-the-third-perspectives-list-under-its-own-anchor-and-that-lists-counts-stay.md)
+- Coordinates with: [#230](https://github.com/journey-to-code-org/open.blog/issues/230) (public section)
+
+## Context
+
+#214 defined what a feature is and when it must come off. #229 is where an editor does it: select an
+approved reflection whose reader agreed, say why it is worth reading, see what the page will show, and
+take it off when it must or should come off. It reuses RD10's publication file and RD12's inbox and adds
+no state, no hosted column and no route that decides anything the pure module does not.
+
+## Decision
+
+- **Only the reader's agreement for this text makes a reflection selectable.** The inbox view gains
+  `featureConsent` (`agreed`, `earlier-text` or `not-agreed`, from `FeatureConsent::of`), and the card
+  offers Preview and Feature only for `agreed`. Approval never changes it, and an Admin user cannot
+  agree for the reader. A reader agrees on the submission form or by their receipt (ADR 0230, 0231). The
+  card says in words which case it is, including that an agreement for an earlier text does not cover
+  this one.
+- **Five Admin routes, all the site Admin's, all deny-by-default.** `GET engagement/community/features`
+  (the audit), `POST .../preview`, `.../feature`, `.../note` and `.../unfeature`. Each runs inside the
+  existing Admin authentication and CSRF handling, then resolves the reflection's hosted row and requires
+  the account to be the site Admin for its work (`feature_target`, `feature_admin`); anything else is
+  `403 denied` before any file is read. Choosing needs the `expectedVersion` the editor saw, so a
+  reflection that changed (a consent change raises the version) is `409 stale`. Choosing refuses when
+  Third Perspectives are off on the hosted side, because the reader's consent cannot then be checked.
+- **Choosing is one atomic step under the content lock.** Locks are taken in the existing order (the
+  build lock, then the content transaction), the two files are read, `FeatureRecord::new` runs every
+  check of ADR 0230 against the published copy, and then the files are written with the safe write
+  already used for `third-perspectives.json`: the published reflection first when it was not yet on the
+  file (so a feature never stands without it), the feature second. A file that cannot be read is refused
+  and never overwritten. A published reflection that differs from the hosted copy (for example a name
+  the reader hid since) is `409 publishedDiffers`: Admin does not quietly republish text inside a
+  feature; the card's "Republish without the name" comes first (ADR 0231).
+- **The preview is the page's own projection and writes nothing.** It builds the record exactly as
+  choosing does, adds the reflection to an in-memory copy of the published file when it is not on it,
+  and returns `community_feature::project_post`'s `FeaturedPerspective` with the fixed
+  `NON_CONSENSUS_NOTICE`. The card renders it as text only (the reader's words, the provenance line, the
+  editors' note labelled as theirs); an editor never previews something choosing would refuse, and the
+  preview carries no id of a moderator, no consent record and no count, rank or score. #230 renders the
+  same value on the canonical page.
+- **The note is the editors' own words, changed without the reader.** `POST .../note` re-runs ADR 0234's
+  lint and replaces only the note; the reader's text, the digest and the day featured are untouched.
+  There is no reorder: features are listed by the day they were featured and the id, so there is no
+  position to set (ADR 0234).
+- **Taking off is for a stated reason, or by choice.** The audit checks every feature against its
+  hosted row on each load (`FeatureRecord::hosted_standing`, up to 200 at a time) and says `covered`,
+  `hidden` (the article is not published now; kept, not a take-off), `mustComeOff` with the fixed reason,
+  or `unknown` where the hosted service does not read consent. Admin shows them in a banner on every tab
+  and on the reflection's card. `.../unfeature` removes only the feature record; the reflection stays
+  published. Taking a reflection off (`unpublish_perspective`) removes its feature first, in the same
+  step, so a feature never outlives its reflection. An editor may take a feature off by choice at any
+  time; nothing is e-mailed and no tombstone is left (ADR 0233).
+- **The build reads the file strictly and changes nothing.** `community-perspectives.json` is read with
+  the same rules at build time: a file that cannot be read refuses the build, naming the item and never
+  its contents, and an item about something that is not a post is a warning. No page, feed, export or
+  portable copy changes by a byte (a test compares the whole output tree with and without a valid file),
+  and a site without the file is untouched. The section is #230.
+- **Hosted changes are additive.** The one hosted addition is the receipt's `feature` action, which
+  reuses the consent-append path and the version raise (ADR 0230); there is no schema change, route,
+  environment variable or setting.
+- **Nothing counts, ranks or claims consensus.** No route, field or message states how many reflections
+  were received, approved or featured; the banner's sentences name what must be done, not a tally of
+  merit, and the editors' note is refused when it does.
+
+## Considered options
+
+- **Let Admin publish and feature in two clicks.** Rejected as the only path: choosing publishes a
+  reflection that is approved and shown but not yet on the file, because the editor already decided it
+  may be shown, and doing both in one locked step avoids a half-done state.
+- **Let Admin edit the reader's text when featuring.** Rejected: ADR 0231; the reader clarifies and
+  agrees again.
+- **A "featured" column on the hosted row.** Rejected: ADR 0230.
+- **An audit that auto-removes features.** Rejected: the static build cannot see the hosted copy, and a
+  server that rewrote committed content on a read would surprise an owner (ADR 0232).
+
+## Consequences
+
+- #230 reads `FeaturesFile` and calls `project_post`; it needs no new Admin route.
+- A site's committed history shows when features were added and removed (ADR 0233).

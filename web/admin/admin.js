@@ -746,6 +746,66 @@ export function perspectiveAuditNotices(audit) {
   return notices;
 }
 
+// Featured reflections (#229, ADRs 0230 to 0236). The server decides what may be featured and says
+// how each feature stands; these helpers only word and shape what it sent. Nothing here counts,
+// ranks or scores a reflection, and no reader's words are shown except the reflection itself.
+
+/** The longest editors' note, as the server holds it. */
+export const FEATURE_NOTE_MAX = 280;
+
+/** What the reader agreed about featuring, in words, from the card's `featureConsent`. */
+export function featureConsentLine(consent) {
+  if (consent === "agreed") return "The reader agreed to have this text featured.";
+  if (consent === "earlier-text") return "The reader agreed to feature an earlier text, which does not cover this one. They can agree again from their receipt; you cannot do it for them.";
+  return "The reader has not agreed to have this reflection featured. You cannot feature it, and approving it does not change that.";
+}
+
+/**
+ * What the Featuring section of a card offers, for a reflection and the feature record that holds
+ * it (or none): null where it has no place (not a reflection, not approved, not the site Admin's),
+ * "featured" with its standing, "choose" when the reader agreed for this text, or "unavailable"
+ * with the reason in words. Approval never makes a reflection featurable.
+ */
+export function featureCardState(item, feature) {
+  if (item?.kind !== "third-perspective" || item.source !== "feedback" || item.role !== "site-admin") return null;
+  if (feature) return { kind: "featured", feature };
+  if (item.status !== "approved" || item.purged) return null;
+  if (item.featureConsent === "agreed") return { kind: "choose" };
+  return { kind: "unavailable", text: featureConsentLine(item.featureConsent) };
+}
+
+/** The body of choosing a feature: the id, the editors' note and the version the editor saw. */
+export function featureRequest(item, context) {
+  return { id: item.id, context: String(context ?? "").trim(), expectedVersion: item.version };
+}
+
+/** How one feature stands, in words an editor reads; `reason` is the server's fixed explanation. */
+export function featureStandingText(feature) {
+  if (feature.standing === "covered") return "It stands: the reflection is approved, shown and the reader still agrees.";
+  if (feature.standing === "hidden") return `It is hidden for now: ${feature.explanation || "the article it is about is not published"}. Nothing else has changed, so publishing the article again restores it. You may also take it off.`;
+  if (feature.standing === "mustComeOff") return `It must come off: ${feature.explanation || "it no longer stands"}.`;
+  return "This page cannot tell whether it may stay: the hosted copy cannot say (Third Perspectives are switched off or rolled back). Look at it, and take it off if it should not be shown.";
+}
+
+/**
+ * What the audit of the site's features (`engagement/community/features`) says, in words, for the
+ * banner shown on every tab: the features that must come off, those hidden because their article is
+ * gone, and those that cannot be checked. Each is listed by post and day, never by the reflection.
+ */
+export function featureAuditNotices(audit) {
+  const list = (standing) => (Array.isArray(audit?.features) ? audit.features.filter((entry) => entry.standing === standing) : []);
+  const many = (n) => `${n} featured reflection${n === 1 ? "" : "s"}`;
+  const notices = [];
+  const off = list("mustComeOff");
+  const hidden = list("hidden");
+  const unknown = list("unknown");
+  if (off.length) notices.push({ kind: "mustComeOff", items: off, text: `${many(off.length)} must come off ${off.length === 1 ? "its post" : "their posts"}: the reader withdrew or no longer agrees, or the reflection or its text no longer stands.` });
+  if (hidden.length) notices.push({ kind: "hidden", items: hidden, text: `${many(hidden.length)} ${hidden.length === 1 ? "is" : "are"} hidden because the article ${hidden.length === 1 ? "it is" : "they are"} about is not published now. ${hidden.length === 1 ? "It is" : "They are"} kept, and shown again when the article is.` });
+  if (unknown.length) notices.push({ kind: "unknown", items: unknown, text: `${many(unknown.length)} cannot be checked against the hosted copy, because Third Perspectives are switched off or rolled back there. Look at ${unknown.length === 1 ? "it" : "each"}, and take off any that should not be shown.` });
+  if (audit?.truncated) notices.push({ kind: "truncated", items: [], text: "More features exist than one check reads; the first ones were checked." });
+  return notices;
+}
+
 /** The retention dry run's summary, in words: what would expire or be purged, by kind. */
 export function retentionSummaryLines(report) {
   const lines = (report?.summary || []).map((entry) => {
@@ -14756,6 +14816,111 @@ export class ObAdmin extends AdminElement {
       )));
     };
 
+    // Featured reflections (#229): the features the audit found, by id, and the banner for the ones
+    // that must come off or are hidden. The card reads the map so it never offers a second placement.
+    let featureMap = new Map();
+    const featureBanner = h("div", { class: "oba-feature-banner", "data-feature-banner": "" });
+    const takeFeatureOff = async (button, id, line) => {
+      button.disabled = true;
+      try {
+        await this.api.call("POST", "engagement/community/unfeature", { json: { id } });
+        await reloadAll("The feature was taken off its post. The reflection stays published. Rebuild or publish to update the live site.", "ok");
+      } catch (error) {
+        button.disabled = false;
+        announce(line, error.message, "error");
+        line.focus();
+      }
+    };
+    const loadFeatureAudit = async () => {
+      let audit;
+      try {
+        audit = await this.api.call("GET", "engagement/community/features");
+      } catch (error) {
+        featureMap = new Map();
+        // Not a site that features anything, or not the site Admin: nothing to say.
+        featureBanner.replaceChildren(error.status === 404 || error.status === 403 ? [] : h("p", { class: "oba-notice", role: "status" }, `Featured reflections could not be checked against the hosted copy. ${error.message}`));
+        return;
+      }
+      featureMap = new Map((audit.features || []).map((entry) => [entry.id, entry]));
+      const urgent = (kind) => kind === "mustComeOff";
+      featureBanner.replaceChildren(...featureAuditNotices(audit).map((notice) => {
+        const line = h("p", { class: "oba-small", role: "status", "aria-live": "polite", tabindex: "-1" });
+        return h("div", { class: urgent(notice.kind) ? "oba-notice oba-feature-must-come-off" : "oba-notice", role: urgent(notice.kind) ? "alert" : "status", "data-feature-notice": notice.kind },
+          h("p", {}, h("strong", {}, notice.text)),
+          notice.items.length ? h("ul", {}, notice.items.map((entry) => h("li", {}, `${entry.post}, featured ${entry.featured}${entry.explanation ? `: ${entry.explanation}` : ""} `, h("button", { class: "oba-btn", type: "button", "data-feature-id": entry.id, onClick: (event) => takeFeatureOff(event.currentTarget, entry.id, line) }, "Take the feature off")))) : null,
+          line);
+      }));
+    };
+
+    // The Featuring section of an approved reflection's card.
+    const featureSection = (item, offer) => {
+      const base = `oba-feature-${item.id}`;
+      const line = h("p", { class: "oba-small", role: "status", "aria-live": "polite", tabindex: "-1" });
+      const section = h("section", { class: "oba-feature", "aria-labelledby": `${base}-title`, "data-feature-section": item.id }, h("h4", { id: `${base}-title` }, "Feature on the post"));
+      section.append(h("p", { class: "oba-small" }, featureConsentLine(item.featureConsent)));
+      if (offer.kind === "unavailable") return section;
+      const note = h("textarea", { id: `${base}-note`, rows: "3", maxlength: String(FEATURE_NOTE_MAX), name: "note", "aria-describedby": `${base}-note-hint` });
+      note.value = offer.feature?.context || "";
+      const hint = h("p", { class: "oba-small", id: `${base}-note-hint` }, `Optional, up to ${FEATURE_NOTE_MAX} characters of plain text, shown as the editors’ own words. Say why the reflection is worth reading. It is checked and refused if it claims popularity, agreement or a count of readers; featuring is an editorial choice, never a vote.`);
+      const noteLabel = h("label", { for: `${base}-note` }, "The editors’ note");
+      if (offer.kind === "featured") {
+        const feature = offer.feature;
+        section.append(
+          h("p", { class: feature.standing === "mustComeOff" ? "oba-notice" : "oba-small", role: feature.standing === "mustComeOff" ? "alert" : null }, `Featured on ${feature.featured} in the post’s community section. ${featureStandingText(feature)}`),
+          noteLabel, " ", note, hint,
+          h("button", { class: "oba-btn", type: "button", onClick: async (event) => {
+            const button = event.currentTarget;
+            button.disabled = true;
+            try {
+              await this.api.call("POST", "engagement/community/note", { json: { id: item.id, context: note.value } });
+              await reloadAll("The editors’ note was saved. Rebuild or publish to update the live site.", "ok");
+            } catch (error) {
+              button.disabled = false;
+              announce(line, error.message, "error");
+              note.focus();
+            }
+          } }, "Save the note"), " ",
+          h("button", { class: "oba-btn oba-btn-danger", type: "button", onClick: (event) => takeFeatureOff(event.currentTarget, item.id, line) }, "Take the feature off"),
+          line);
+        return section;
+      }
+      const preview = h("div", { class: "oba-feature-preview", "aria-live": "polite", "data-feature-preview": "" });
+      const run = async (event, choose) => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        announce(line, choose ? "Featuring…" : "Preparing the preview…");
+        try {
+          const request = featureRequest(item, note.value);
+          if (choose) {
+            await this.api.call("POST", "engagement/community/feature", { json: request });
+            await reloadAll("Featured in the post’s community section. Rebuild or publish to update the live site.", "ok");
+            return;
+          }
+          const result = await this.api.call("POST", "engagement/community/preview", { json: { id: request.id, context: request.context } });
+          const shown = result.preview;
+          preview.replaceChildren(
+            h("h5", {}, "Preview: how the post will show it"),
+            h("p", { class: "oba-small" }, result.notice),
+            h("p", { class: "oba-small" }, shown.provenance),
+            h("blockquote", { class: "oba-feedback-body" }, shown.response.body),
+            shown.context ? h("p", {}, h("strong", {}, "The editors’ note: "), shown.context) : null,
+            result.willPublish ? h("p", { class: "oba-small" }, "Choosing this also adds the reflection to the post’s Third Perspectives, which it is not on yet.") : null,
+          );
+          announce(line, "The preview is below. Nothing has been changed.");
+          button.disabled = false;
+        } catch (error) {
+          button.disabled = false;
+          announce(line, error.message, "error");
+          if (error.status === 409 || error.status === 422) line.focus();
+        }
+      };
+      section.append(noteLabel, " ", note, hint,
+        h("button", { class: "oba-btn", type: "button", onClick: (event) => run(event, false) }, "Preview"), " ",
+        h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: (event) => run(event, true) }, "Feature on the post"),
+        line, preview);
+      return section;
+    };
+
     // One page of the inbox; `append` keeps what is shown and moves focus to the first new item.
     const loadQueue = async (append = false) => {
       const query = new URLSearchParams({ state });
@@ -14786,6 +14951,7 @@ export class ObAdmin extends AdminElement {
     more.addEventListener("click", () => loadQueue(true));
 
     const reloadAll = async (message, kind_) => {
+      await loadFeatureAudit();
       await Promise.all([loadQueue(), loadPublished(), loadPerspectiveAudit()]);
       if (message) {
         announce(queueStatus, message, kind_);
@@ -15091,6 +15257,8 @@ export class ObAdmin extends AdminElement {
           document.getElementById(`oba-published-${item.id}-response`)?.focus();
         } }, "Respond or record a revision note")));
       }
+      const featuring = featureCardState(item, featureMap.get(item.id));
+      if (featuring) card.append(featureSection(item, featuring));
       const offer = answerOffer(item);
       if (offer && item.kind === "third-perspective") {
         // The author of the section the reflection is about may answer it (ADR 0132). The server
@@ -15371,6 +15539,7 @@ export class ObAdmin extends AdminElement {
         "moderation",
         h("p", {}, "Comments, the questions, suggested sources, suggested corrections and other interpretations readers sent about passages, and abuse reports, in one list. Nothing is published until it is approved, approving never changes your post, and a suggested source or correction stays a suggestion until you record your decision on it. Nothing here e-mails anyone."),
         perspectiveBanner,
+        featureBanner,
         h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-moderation-queue-title" }, h("h2", { id: "oba-moderation-queue-title" }, "Moderation queue"), stateTabs, kindFilter, stateNote, queueStatus, queue, more),
         h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-feedback-published-title" }, h("h2", { id: "oba-feedback-published-title" }, "Published on your posts"), publishedStatus, published),
         h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-retention-title" },
@@ -15379,6 +15548,7 @@ export class ObAdmin extends AdminElement {
           checkRetention, retentionStatus, retentionReport),
       ),
     );
+    await loadFeatureAudit();
     await Promise.all([loadQueue(), loadPublished(), loadPerspectiveAudit()]);
   }
 

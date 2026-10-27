@@ -82,3 +82,42 @@ test("a name the reader hid after publication is offered for republishing withou
   assert.equal(notice.kind, "nameNarrowed");
   assert.match(notice.text, /^1 published reflection still shows a name the reader hid after approval/);
 });
+
+const featuring = await import("../../web/admin/admin.js");
+
+test("a card offers featuring only to the site Admin, only for an approved reflection, and only on the reader's agreement", () => {
+  const { featureCardState, featureConsentLine, featureRequest } = featuring;
+  const base = { source: "feedback", kind: "third-perspective", role: "site-admin", status: "approved", purged: false, version: 7, id: "a", featureConsent: "agreed" };
+  assert.deepEqual(featureCardState(base, undefined), { kind: "choose" });
+  assert.equal(featureCardState({ ...base, role: "moderator" }, undefined), null, "never another role");
+  assert.equal(featureCardState({ ...base, kind: "question" }, undefined), null);
+  assert.equal(featureCardState({ ...base, status: "pending" }, undefined), null, "approval first");
+  assert.equal(featureCardState({ ...base, status: "pending" }, undefined), null);
+  for (const consent of ["not-agreed", "earlier-text", undefined]) {
+    const state = featureCardState({ ...base, featureConsent: consent }, undefined);
+    assert.equal(state.kind, "unavailable");
+    assert.match(state.text, /not agreed|earlier text|has not agreed/);
+  }
+  assert.match(featureConsentLine("earlier-text"), /you cannot do it for them/);
+  const featured = featureCardState({ ...base, status: "withdrawn" }, { id: "a", standing: "mustComeOff" });
+  assert.equal(featured.kind, "featured");
+  assert.deepEqual(featureRequest(base, "  A careful reading.  "), { id: "a", context: "A careful reading.", expectedVersion: 7 });
+  assert.deepEqual(Object.keys(featureRequest(base, "")).sort(), ["context", "expectedVersion", "id"], "no rank, count or score is ever sent");
+});
+
+test("the features banner lists what must come off, what is hidden and what cannot be checked, with no counts of reflections", () => {
+  const { featureAuditNotices, featureStandingText } = featuring;
+  assert.deepEqual(featureAuditNotices(undefined), []);
+  assert.deepEqual(featureAuditNotices({ features: [{ id: "a", standing: "covered" }] }), []);
+  const notices = featureAuditNotices({ truncated: true, features: [
+    { id: "a", post: "posts/x.md", featured: "2026-10-28", standing: "mustComeOff", explanation: "the reader withdrew this reflection" },
+    { id: "b", post: "posts/y.md", featured: "2026-10-28", standing: "hidden", explanation: "the article it is about is no longer published" },
+    { id: "c", post: "posts/z.md", featured: "2026-10-28", standing: "unknown" },
+  ] });
+  assert.deepEqual(notices.map((notice) => notice.kind), ["mustComeOff", "hidden", "unknown", "truncated"]);
+  assert.match(notices[0].text, /^1 featured reflection must come off its post/);
+  assert.match(notices[1].text, /hidden because the article it is about is not published now/);
+  assert.match(featureStandingText({ standing: "hidden", explanation: "the article it is about is no longer published" }), /publishing the article again restores it/);
+  assert.match(featureStandingText({ standing: "mustComeOff", explanation: "the reader withdrew this reflection" }), /^It must come off: the reader withdrew/);
+  assert.doesNotMatch(JSON.stringify(notices), /popular|rank|vote|score/i);
+});

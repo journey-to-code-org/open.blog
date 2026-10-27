@@ -5,6 +5,15 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Admin can now feature an approved Third Perspective in its post's community section (RD14): a
+  "Feature on the post" section on the reflection's card, offered only when the reader agreed to
+  feature this exact text, with an optional editors' note (checked so it cannot claim popularity,
+  agreement or a count), a preview of what the page will show with the fixed notice that featuring is an
+  editorial choice and not a vote, and "Take the feature off". A banner on every tab lists features that
+  must come off (the reader withdrew or no longer agrees, or the text no longer stands) or are hidden
+  because their article is not published. Selections are kept in a new `content/community-perspectives.json`,
+  checked strictly when the site is built; no page, feed or export changes yet, and nothing counts or
+  ranks reflections.
 - Readers can now agree, or decline, to let an editor feature their Third Perspective in a community
   section: an unticked choice on the form (separate from publishing, with a note that copies already
   published may remain) and a choice on their private receipt that works while the reflection is

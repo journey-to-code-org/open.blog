@@ -1867,8 +1867,9 @@ _Avoid_: Top reflections, community voice, leaderboard
 **Feature take-off**:
 A feature stops showing and its record is removed because the source is gone, the copy is deleted or
 withdrawn, it is no longer approved, the reader declined, the text or name no longer matches what was
-agreed. It leaves no public tombstone and no audit action in the hosted store; copies already
-published may remain (ADR 0232, 0233).
+agreed. A lost source article only hides it, and restoring the article restores it. It leaves no public
+tombstone and no audit action in the hosted store; copies already published may remain (ADR 0232, 0233,
+0237). Admin takes one off by choice or when its banner says it must come off.
 _Avoid_: Removal notice, tombstone, retraction banner
 
 ## Future suggestions
