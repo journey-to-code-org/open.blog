@@ -1007,6 +1007,33 @@ over a size bound rather than cut. It is listed in the publication boundary like
 (ADRs 0168, 0169).
 _Avoid_: Graph API, public search index, a second atlas; querying the private atlas
 
+**Reading path**:
+An author's own ordered list of published posts and Knowledge Atlas entries, kept as
+`content/paths/<slug>.json`, with a rationale per step and an author-written transition from each step
+to the one before. It is its own content type: it never changes a post or a series, a post may be in
+several, and a series is not a step. It is one line of steps with no branches, no repeated target and
+no path inside a path; a draft is never published (ADRs 0240-0242).
+_Avoid_: Series, playlist, curriculum, learning journey, recommendation
+
+**Path step**:
+One place in a reading path: a stable id, a target (a published post or atlas entry), an optional
+rationale, prerequisite note, difficulty and `optional` flag, and, after the first, a transition. A step
+whose target is not published is left out of the public path and named to the author only, as
+the same sentence whether it is a draft, private or missing (ADR 0244).
+_Avoid_: Lesson, chapter, module
+
+**Path transition**:
+What an author writes to say why a step follows the one before it: required text and a relationship
+from a closed list with no default (`next` claims order only). `influenced` is kept only with a
+published atlas influence from the earlier step to the later one; order and dates never imply it, and
+a transition after a left-out step is dropped (ADR 0243).
+_Avoid_: Link, edge, influence chain
+
+**Public reading paths**:
+The allowlisted, deterministic projection of published paths (`openblog-reading-paths`) that later pages,
+discovery and export share, resolved against the published posts and public atlas alone (ADR 0245).
+_Avoid_: Path index, recommendation feed
+
 **Concept link**:
 An author's explicit Markdown link to `atlas:<entry id>` in a post. The build resolves it against
 the public atlas projection alone: a published entry becomes an ordinary link to its page, and

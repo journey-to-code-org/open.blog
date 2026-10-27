@@ -3,6 +3,16 @@
 All notable changes to open.blog are recorded here. Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+- Reading paths now have a defined, checked file format. A path is an ordered list of published
+  posts and Knowledge Atlas entries in `content/paths/<slug>.json`, with a rationale per step and an
+  author-written reason (and a relationship that never defaults to influence) for every step after
+  the first. It is separate from series and changes neither posts nor series. Steps that are not
+  published are left out and named to the author only, never in public output. Nothing renders or
+  exports paths yet, so existing sites build exactly as before; see
+  [Reading paths](docs/specs/reading-paths.md).
+
 ## [0.44.0] - 2026-10-26
 
 - A site that publishes its Knowledge Atlas now also publishes `atlas-query.json`, a small, bounded
