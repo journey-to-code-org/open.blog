@@ -2764,8 +2764,9 @@ export function curationPostSlug(value) {
  * change names the revision it was based on, so a change made elsewhere is a conflict that
  * reloads and writes nothing. Nothing here touches the draft or the research itself.
  */
-export function createCurationSection({ api, getPost = () => "", onSessionEnded, onChange, idPrefix = "oba-curation" }) {
+export function createCurationSection({ api, getPost = () => "", onSessionEnded, onChange, idPrefix = "oba-curation", rebuildDelay = 800 }) {
   let view = null;
+  let rebuildTimer = null;
   let busy = false;
   let draft = null; // { kind, target, label } while the author is choosing fields
   let open = null; // { id, what } while a withdraw or unselect is being confirmed
@@ -2775,9 +2776,37 @@ export function createCurationSection({ api, getPost = () => "", onSessionEnded,
   const form = h("div", { class: "oba-curation-form", "data-curation-form": "true" });
   const list = h("div", { class: "oba-curation-list" });
   const preview = h("div", { class: "oba-curation-preview" });
-  const say = (text) => {
+  const say = (text, failed = false) => {
     status.textContent = text;
+    status.className = failed ? "oba-small oba-error" : "oba-small";
   };
+  /** What happened to the served site, in words: a rebuild can fail after the selection was saved. */
+  const buildText = (build) => {
+    if (!build) return "";
+    if (build.pending) return " The served site will be rebuilt in a moment.";
+    if (build.ok === false) return ` The change was saved, but rebuilding the served site failed: ${build.error || "no reason was given"} Readers still see the site as it was.`;
+    return " The served site was rebuilt.";
+  };
+  /** One rebuild after a run of reorders, so each step does not rebuild the whole site. */
+  const rebuildNow = async () => {
+    rebuildTimer = null;
+    if (busy) return scheduleRebuild();
+    busy = true;
+    try {
+      const result = await api.call("POST", "research/curation/rebuild", { json: {} });
+      if (view) delete view.build;
+      say(`Order saved.${buildText(result.build)}`, result.build?.ok === false);
+    } catch (error) {
+      if (error?.status === 401) return onSessionEnded?.();
+      say(`The order was saved, but rebuilding the served site failed: ${error?.data?.error || error?.message || "no reason was given"} Readers still see the site as it was.`, true);
+    } finally {
+      busy = false;
+    }
+  };
+  function scheduleRebuild() {
+    clearTimeout(rebuildTimer);
+    rebuildTimer = setTimeout(rebuildNow, rebuildDelay);
+  }
   const fail = (message) => {
     problem.textContent = message;
     problem.hidden = false;
@@ -2832,7 +2861,8 @@ export function createCurationSection({ api, getPost = () => "", onSessionEnded,
       open = null;
       render();
       onChange?.();
-      say(typeof done === "function" ? done(result) : done);
+      say(`${typeof done === "function" ? done(result) : done}${buildText(result.build)}`, result.build?.ok === false);
+      if (result.build?.pending) scheduleRebuild();
       if (after) focusLater(after(result));
       return true;
     } catch (error) {
@@ -2979,11 +3009,11 @@ export function createCurationSection({ api, getPost = () => "", onSessionEnded,
       controls.push(
         button("Move up", { "aria-label": `Move ${name} up`, disabled: at <= 0, "data-curation-move": `${selection.id}:up` }, () => {
           const next = curationMove(ordered, selection.id, -1);
-          return send("PUT", "/order", { order: next }, `${name} is now ${next.indexOf(selection.id) + 1} of ${next.length}.`, () => `move:${selection.id}:${next.indexOf(selection.id) === 0 ? "down" : "up"}`);
+          return send("PUT", "/order", { order: next, rebuild: false }, `${name} is now ${next.indexOf(selection.id) + 1} of ${next.length}.`, () => `move:${selection.id}:${next.indexOf(selection.id) === 0 ? "down" : "up"}`);
         }, `move:${selection.id}:up`),
         button("Move down", { "aria-label": `Move ${name} down`, disabled: at < 0 || at >= ordered.length - 1, "data-curation-move": `${selection.id}:down` }, () => {
           const next = curationMove(ordered, selection.id, 1);
-          return send("PUT", "/order", { order: next }, `${name} is now ${next.indexOf(selection.id) + 1} of ${next.length}.`, () => `move:${selection.id}:${next.indexOf(selection.id) === next.length - 1 ? "up" : "down"}`);
+          return send("PUT", "/order", { order: next, rebuild: false }, `${name} is now ${next.indexOf(selection.id) + 1} of ${next.length}.`, () => `move:${selection.id}:${next.indexOf(selection.id) === next.length - 1 ? "up" : "down"}`);
         }, `move:${selection.id}:down`),
       );
     }
@@ -3169,7 +3199,8 @@ export function createCurationSection({ api, getPost = () => "", onSessionEnded,
       render();
       onChange?.();
       const given = orderedIds().length;
-      say(`${selections().filter(applies).length} selection${selections().filter(applies).length === 1 ? "" : "s"} for this post, ${given} given to readers.`);
+      say(`${selections().filter(applies).length} selection${selections().filter(applies).length === 1 ? "" : "s"} for this post, ${given} given to readers.${buildText(view?.build)}`);
+      if (view?.build?.pending) scheduleRebuild();
     } catch (error) {
       if (error?.status === 401) {
         onSessionEnded?.();
@@ -8023,7 +8054,7 @@ export const BOUNDARY_REASONS = Object.freeze({
   "missing-target": "What it selects no longer exists",
   "selection-cycle": "Its required selections lead back to it",
   "over-limit": "Over a size or count limit, so the file is left out",
-  inconsistent: "The published atlas does not agree with itself, so the file is left out",
+  inconsistent: "The published data does not agree with itself, so the file is left out",
 });
 
 const BOUNDARY_STORES = Object.freeze({

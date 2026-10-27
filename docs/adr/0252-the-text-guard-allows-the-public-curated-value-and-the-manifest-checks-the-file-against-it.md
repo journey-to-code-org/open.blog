@@ -32,7 +32,9 @@ an allowance, and only for what is public.
   the text. The same words in a page are a warning, as for every other page.
 - **The file may only name what the manifest publishes.** The output check refuses a file that names a
   selection, a piece of context or a post that the manifest's curated projection and the published
-  posts do not (an entry or relationship also has to be published by the atlas projection), and one
+  posts do not, wherever it names one: an item's `posts`, the keys of its `positions`, its `requires`, a
+  context entry's `via`, and the address of each post and of each item's anchor (a published post's
+  address and the item's own `ob-curated-` fragment) (an entry or relationship also has to be published by the atlas projection), and one
   that the manifest does not list.
 - **A damaged selections file still refuses a full build** (ADR 0224). The curated selections are
   resolved against what the build publishes, never against the private files.

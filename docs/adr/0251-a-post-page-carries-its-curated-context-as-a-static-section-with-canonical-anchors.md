@@ -44,3 +44,16 @@ with who holds each view and how firmly.
   pixels or at 400% zoom; the styles ship in `base.css`.
 - **Where the data file is not written** (a bound, or an inconsistency), the page's section still
   renders, without the link to the file.
+- **A link is never a backslash or a control character.** A value is a link only when it has no
+  whitespace, control character or backslash (a browser reads `/\evil` as `//evil`) and is a
+  root-relative page or an `https` address. An address that cannot be a link, an `http` one for
+  instance, is not dropped: the item shows it as a plain-text row, "Address (not a link)", and a
+  reference in the list shows it in the same way.
+- **A notice is a sentence.** The page words each caveat from its code and field alone ("The source
+  does not record the date issued; it is left out, not invented."), never the Admin's message, which
+  names selection ids and fields in backticks. The data file keeps the author's message for tools.
+- **Lookups are by index and the page is bounded.** Rendering finds an item by id, and a context item
+  or a selection by kind and target, through a map built once, so a large selection is not quadratic.
+  A post's section shows at most `MAX_PAGE_ITEMS` (1,000) items and says how many more are in the data
+  file, so a page stays bounded however large the file is. Lists carry `role="list"` because the
+  styles remove the markers.

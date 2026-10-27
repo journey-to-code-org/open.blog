@@ -198,6 +198,28 @@ fn with_basis<R>(
     with(site, &owned.basis(site, &stores), assumed)
 }
 
+/// The author's view of `set` against one basis.
+fn view_value(
+    set: &SelectionSet,
+    basis: &Basis<'_>,
+    post: Option<&str>,
+    revision: &str,
+    publish: bool,
+    assumed: bool,
+) -> Json {
+    let resolution = openblog_core::curated_selection::resolve(set, basis);
+    serde_json::to_value(curation_view(
+        set,
+        &resolution,
+        basis,
+        post,
+        revision,
+        publish,
+        assumed,
+    ))
+    .unwrap_or_else(|_| json!({}))
+}
+
 fn view_json(
     state: &AppState,
     site: &mut openblog_core::Site,
@@ -207,17 +229,7 @@ fn view_json(
 ) -> Json {
     let publish = site.config.curated_context.publish;
     with_basis(state, site, post, |_, basis, assumed| {
-        let resolution = openblog_core::curated_selection::resolve(set, basis);
-        serde_json::to_value(curation_view(
-            set,
-            &resolution,
-            basis,
-            post,
-            revision,
-            publish,
-            assumed,
-        ))
-        .unwrap_or_else(|_| json!({}))
+        view_value(set, basis, post, revision, publish, assumed)
     })
 }
 
@@ -241,25 +253,30 @@ pub(super) fn view(state: &AppState, req: &Request) -> Response {
         Ok(snapshot) => snapshot,
         Err(error) => return failure_response(state, error.into()),
     };
-    Response::json(
-        200,
-        &view_json(
-            state,
-            &mut site,
-            &snapshot.selections,
-            &snapshot.revision,
-            post.as_deref(),
-        ),
-    )
+    let mut view = view_json(
+        state,
+        &mut site,
+        &snapshot.selections,
+        &snapshot.revision,
+        post.as_deref(),
+    );
+    // An ordering saved with its rebuild deferred has not reached the served
+    // site yet: the view says so, so the Admin never claims otherwise.
+    if lock(&state.build).curation_rebuild_pending {
+        view["build"] = json!({ "ok": true, "pending": true });
+    }
+    Response::json(200, &view)
 }
 
 /// What an attempted change leaves: the set as written, its revision and the
 /// id the next view should focus. The view is computed from it after the
 /// locks are dropped, so no lock is held across the projections.
 struct Attempted {
-    set: SelectionSet,
-    revision: String,
     focus: Option<String>,
+    /// The author's view of the set as written, computed from the one read of
+    /// the research stores the change was resolved against (the revision is
+    /// filled in once the file is written).
+    view: Json,
 }
 
 /// One attempt at a change: read the set, check the revision, apply the
@@ -278,17 +295,22 @@ fn attempt(
         return Err(Failure::Store(StoreError::Conflict));
     }
     let mut set = snapshot.selections.clone();
-    let focus = with_basis(state, site, post, |_, basis, _| change(&mut set, basis))
-        .map_err(Failure::Refused)?;
+    let publish = site.config.curated_context.publish;
+    let (focus, view) = with_basis(state, site, post, |_, basis, assumed| {
+        let focus = change(&mut set, basis)?;
+        Ok((
+            focus,
+            view_value(&set, basis, post, expected, publish, assumed),
+        ))
+    })
+    .map_err(Failure::Refused)?;
     let revision = match locks {
         Some(locks) => selection_store::commit(&state.root, locks, &set, expected)?.revision,
         None => expected.to_string(),
     };
-    Ok(Attempted {
-        set,
-        revision,
-        focus,
-    })
+    let mut view = view;
+    view["revision"] = json!(revision);
+    Ok(Attempted { focus, view })
 }
 
 /// Apply one change under the content lock first and then the store locks.
@@ -296,6 +318,7 @@ fn change(
     state: &AppState,
     req: &Request,
     status: u16,
+    deferrable: bool,
     prepare: impl FnOnce(&Json) -> Result<(Option<String>, Box<Change<'static>>), Response>,
 ) -> Response {
     if let Err(response) = require_json(req) {
@@ -311,6 +334,11 @@ fn change(
     let Some(revision) = body["revision"].as_str().map(str::to_string) else {
         return Response::error(400, "Missing curated selections revision");
     };
+    // A client that is ordering step by step may say `"rebuild": false`: the
+    // change is written, the served site is marked as behind, and one
+    // `POST research/curation/rebuild` after the last step brings it up to
+    // date. Only an ordering can be deferred.
+    let defer = deferrable && body["rebuild"] == json!(false);
     let (post, apply) = match prepare(&body) {
         Ok(prepared) => prepared,
         Err(response) => return response,
@@ -359,24 +387,19 @@ fn change(
                 // (#197), so what an author previews is what the next build
                 // writes. The build's outcome travels as `build`.
                 let build = site.config.curated_context.publish.then(|| {
-                    match state.rebuild_locked(&mut content) {
-                        Ok(report) => json!({ "ok": true, "files": report.files }),
-                        Err(error) => json!({ "ok": false, "error": error }),
+                    if defer {
+                        content.curation_rebuild_pending = true;
+                        return json!({ "ok": true, "pending": true });
                     }
+                    rebuild_report(state, &mut content)
                 });
-                (site, attempted, build)
+                (attempted, build)
             }
             Err(failure) => return failure_response(state, failure),
         }
     };
-    let (mut site, attempted, build) = written;
-    let mut view = view_json(
-        state,
-        &mut site,
-        &attempted.set,
-        &attempted.revision,
-        post.as_deref(),
-    );
+    let (attempted, build) = written;
+    let mut view = attempted.view;
     if let Some(id) = attempted.focus {
         view["changed"] = json!(id);
     }
@@ -384,6 +407,40 @@ fn change(
         view["build"] = build;
     }
     Response::json(status, &view)
+}
+
+/// Rebuild the served site and say how it went. A rebuild that follows a
+/// change always clears the pending mark, whether or not it succeeded: the
+/// outcome is what the Admin shows.
+fn rebuild_report(state: &AppState, content: &mut super::BuildStatus) -> Json {
+    content.curation_rebuild_pending = false;
+    match state.rebuild_locked(content) {
+        Ok(report) => json!({ "ok": true, "files": report.files }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    }
+}
+
+/// `POST research/curation/rebuild`: bring the served site up to date after
+/// deferred orderings. It changes no selection and reads no private file.
+pub(super) fn rebuild(state: &AppState, req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let mut content = lock(&state.build);
+    let _filesystem = match content_transaction(state) {
+        Ok(guard) => guard,
+        Err(response) => return response,
+    };
+    let (site, _) = match load_saved_site(state) {
+        Ok(loaded) => loaded,
+        Err(response) => return response,
+    };
+    if !site.config.curated_context.publish {
+        content.curation_rebuild_pending = false;
+        return Response::json(200, &json!({ "build": { "ok": true, "pending": false } }));
+    }
+    let build = rebuild_report(state, &mut content);
+    Response::json(200, &json!({ "build": build }))
 }
 
 fn post_of(body: &Json) -> Result<Option<String>, Response> {
@@ -425,7 +482,7 @@ fn unknown(id: &str) -> Vec<Diagnostic> {
 
 /// `POST research/curation/selections`: select something the build publishes.
 pub(super) fn select(state: &AppState, req: &Request) -> Response {
-    change(state, req, 201, |body| {
+    change(state, req, 201, false, |body| {
         let post = post_of(body)?;
         let request: SelectRequest = serde_json::from_value(body["selection"].clone())
             .map_err(|error| Response::error(422, &format!("Invalid selection: {error}")))?;
@@ -440,7 +497,7 @@ pub(super) fn select(state: &AppState, req: &Request) -> Response {
 /// `PUT research/curation/selections`: `{ action: "reselect" | "withdraw" |
 /// "scope", id, ... }`.
 pub(super) fn update(state: &AppState, req: &Request) -> Response {
-    change(state, req, 200, |body| {
+    change(state, req, 200, false, |body| {
         let post = post_of(body)?;
         let id = id_of(body)?;
         let action = body["action"].as_str().unwrap_or("").to_string();
@@ -501,7 +558,7 @@ pub(super) fn update(state: &AppState, req: &Request) -> Response {
 /// selections take places 1..n among the items of that post, and of no other.
 /// All or nothing: a stale or unknown selection refuses the whole ordering.
 pub(super) fn order(state: &AppState, req: &Request) -> Response {
-    change(state, req, 200, |body| {
+    change(state, req, 200, true, |body| {
         let post = post_of(body)?.ok_or_else(|| Response::error(400, "Name the post to order"))?;
         let ids: Vec<String> = serde_json::from_value(body["order"].clone())
             .map_err(|_| Response::error(422, "`order` is a list of selection ids"))?;
@@ -530,7 +587,7 @@ pub(super) fn order(state: &AppState, req: &Request) -> Response {
 /// `DELETE research/curation/selections`: remove the record. The research it
 /// selected is untouched.
 pub(super) fn unselect(state: &AppState, req: &Request) -> Response {
-    change(state, req, 200, |body| {
+    change(state, req, 200, false, |body| {
         let post = post_of(body)?;
         let id = id_of(body)?;
         Ok((

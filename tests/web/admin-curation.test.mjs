@@ -47,8 +47,8 @@ function server(initial = view(), answer = () => null) {
   };
 }
 
-async function mount(api, post = "cave") {
-  const section = createCurationSection({ api, getPost: () => post });
+async function mount(api, post = "cave", options = {}) {
+  const section = createCurationSection({ api, getPost: () => post, ...options });
   document.body.append(section.element);
   await section.load();
   return { section, root: section.element, api };
@@ -201,7 +201,7 @@ test("moving an item sends the whole new order with the revision, keeps focus on
   const down = named(root, "Move Relationship: Plato authored Republic down");
   await click(down);
   const call = api.calls.find((entry) => entry.method === "PUT");
-  assert.deepEqual(call.body, { revision: data.revision, post: "cave", order: [ids[1], ids[0], ...ids.slice(2)] });
+  assert.deepEqual(call.body, { revision: data.revision, post: "cave", order: [ids[1], ids[0], ...ids.slice(2)], rebuild: false });
   assert.deepEqual(given(root).slice(0, 2), [ids[1], ids[0]]);
   assert.match(status(root), /Relationship: Plato authored Republic is now 2 of 5\./);
   // The same control, which now sits one place down, still has the focus.
@@ -209,6 +209,55 @@ test("moving an item sends the whole new order with the revision, keeps focus on
   // The next change names the revision the last one returned.
   await click(named(root, "Move Relationship: Plato authored Republic up"));
   assert.equal(api.calls.filter((entry) => entry.method === "PUT").at(-1).body.revision, moved.revision);
+}));
+
+test("a run of reorders is saved step by step and rebuilds the served site once, saying how it went", withDom(async () => {
+  const data = view();
+  const ids = data.preview.items.map((item) => item.id);
+  const moved = structuredClone(data);
+  moved.revision = "b".repeat(64);
+  moved.build = { ok: true, pending: true };
+  const api = server(data, (method, path) => {
+    if (method === "PUT" && path === "research/curation/order") return moved;
+    if (method === "POST" && path === "research/curation/rebuild") return { build: { ok: true, files: 12 } };
+    return null;
+  });
+  const { root } = await mount(api, "cave", { rebuildDelay: 20 });
+  await click(named(root, "Move Relationship: Plato authored Republic down"));
+  assert.match(status(root), /The served site will be rebuilt in a moment\./);
+  await click(named(root, "Move Relationship: Plato authored Republic up"));
+  assert.equal(api.calls.filter((entry) => entry.method === "POST").length, 0, "nothing rebuilds between steps");
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  const rebuilds = api.calls.filter((entry) => entry.method === "POST" && entry.path === "research/curation/rebuild");
+  assert.equal(rebuilds.length, 1, "one rebuild after the last step");
+  assert.match(status(root), /Order saved\. The served site was rebuilt\./);
+  assert.ok(ids.length > 1);
+}));
+
+test("a rebuild that fails after a change is shown in the status line, with the reason", withDom(async () => {
+  const data = view();
+  const created = structuredClone(data);
+  created.revision = "c".repeat(64);
+  created.changed = "annotation-new";
+  created.build = { ok: false, error: "the site could not be built: disk full." };
+  const api = server(data, (method, path) => (method === "POST" && path === "research/curation/selections" ? created : null));
+  const { section, root } = await mount(api);
+  section.start({ kind: "source-annotation", target: "burnet", label: "Platonis Opera" });
+  const form = all(root, "form").find((node) => node.getAttribute("aria-labelledby"));
+  form.querySelector("#oba-curation-form-text").value = "A comment of mine.";
+  form.querySelector("#oba-curation-form-by").value = "The author";
+  await form.dispatch("submit");
+  const line = all(root, "p").find((node) => node.dataset.curationStatus === "true");
+  assert.match(line.textContent, /was saved, but rebuilding the served site failed: the site could not be built: disk full\. Readers still see the site as it was\./);
+  assert.match(line.className, /oba-error/);
+  // A reload that finds a rebuild still owed says so and schedules it.
+  const pending = structuredClone(data);
+  pending.build = { ok: true, pending: true };
+  const later = server(pending, (method, path) => (method === "POST" && path === "research/curation/rebuild" ? { build: { ok: false, error: "no space" } } : null));
+  const second = await mount(later, "cave", { rebuildDelay: 10 });
+  assert.match(status(second.root), /will be rebuilt in a moment/);
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert.match(status(second.root), /Order saved\. The change was saved, but rebuilding the served site failed: no space/);
 }));
 
 test("selecting walks through the fields, sends only what was chosen and keeps the form when it is refused", withDom(async () => {

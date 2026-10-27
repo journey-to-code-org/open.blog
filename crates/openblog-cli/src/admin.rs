@@ -133,6 +133,9 @@ pub struct BuildStatus {
     pub last_error: Option<String>,
     /// (title, slug, date) of posts waiting for their publish time.
     pub scheduled: Vec<(String, String, String)>,
+    /// An ordering of curated selections was saved with its rebuild deferred
+    /// and the served site has not caught up yet.
+    pub curation_rebuild_pending: bool,
 }
 
 struct PreviewDocument {
@@ -803,6 +806,7 @@ fn authenticated_api(
         ("PUT", "research/curation/selections") => curation::update(state, req),
         ("DELETE", "research/curation/selections") => curation::unselect(state, req),
         ("PUT", "research/curation/order") => curation::order(state, req),
+        ("POST", "research/curation/rebuild") => curation::rebuild(state, req),
         ("POST", "research/boundary") => boundary_post(state, req),
         ("PUT", "research/review/acknowledgements") => change_acknowledgement(state, req, true),
         ("DELETE", "research/review/acknowledgements") => change_acknowledgement(state, req, false),
@@ -37637,6 +37641,7 @@ series: letters
             ("PUT", "/admin/api/research/curation/selections"),
             ("DELETE", "/admin/api/research/curation/selections"),
             ("PUT", "/admin/api/research/curation/order"),
+            ("POST", "/admin/api/research/curation/rebuild"),
         ] {
             assert_eq!(handle(&f.state, &req(method, path)).status, 401, "{path}");
         }
@@ -37647,6 +37652,7 @@ series: letters
             ("PUT", "/admin/api/research/curation/selections"),
             ("DELETE", "/admin/api/research/curation/selections"),
             ("PUT", "/admin/api/research/curation/order"),
+            ("POST", "/admin/api/research/curation/rebuild"),
         ] {
             let without = handle(
                 &f.state,
@@ -38445,6 +38451,96 @@ series: letters
             .unwrap();
         assert_eq!(record["positions"], json!({ "cave": 2, "second": 2 }));
         assert!(record.get("position").is_none());
+    }
+
+    #[test]
+    fn a_deferred_ordering_marks_the_site_as_behind_until_one_rebuild_catches_it_up() {
+        let f = boundary_fixture("curation-order-deferred");
+        let session = login_ok(&f);
+        let revision = curation_get(&f, &session, Some("cave"))["revision"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let first = select_in(
+            &f,
+            &session,
+            &revision,
+            "cave",
+            json!({ "kind": "contextual-entry", "target": "plato-person", "posts": ["cave"] }),
+        );
+        let second = select_in(
+            &f,
+            &session,
+            first["revision"].as_str().unwrap(),
+            "cave",
+            json!({ "kind": "contextual-entry", "target": "politeia", "posts": ["cave"] }),
+        );
+        let (a, b) = (
+            first["changed"].as_str().unwrap().to_string(),
+            second["changed"].as_str().unwrap().to_string(),
+        );
+        let mut revision = second["revision"].as_str().unwrap().to_string();
+        let built = || fs::read_to_string(f.dir.join("dist/curated-context.json")).ok();
+        let mut previous = String::new();
+        // Each step is saved and none rebuilds; the answer says the site is behind.
+        for order in [vec![&b, &a], vec![&a, &b], vec![&b, &a]] {
+            let response = curation_call(
+                &f,
+                &session,
+                "PUT",
+                &format!("{CURATION}/order"),
+                json!({ "revision": revision, "post": "cave", "order": order, "rebuild": false }),
+            );
+            assert_eq!(response.status, 200);
+            let body = body_json(&response);
+            assert_eq!(
+                body["build"],
+                json!({ "ok": true, "pending": true }),
+                "{body}"
+            );
+            revision = body["revision"].as_str().unwrap().to_string();
+            // The view the author reloads still says so.
+            let view = curation_get(&f, &session, Some("cave"));
+            assert_eq!(view["build"], json!({ "ok": true, "pending": true }));
+            let now = built().unwrap_or_default();
+            assert!(previous.is_empty() || now == previous, "no rebuild ran");
+            previous = now;
+        }
+        // One rebuild after the last step catches the served site up and clears the mark.
+        let rebuilt = curation_call(
+            &f,
+            &session,
+            "POST",
+            &format!("{CURATION}/rebuild"),
+            json!({}),
+        );
+        assert_eq!(rebuilt.status, 200);
+        let rebuilt = body_json(&rebuilt);
+        assert_eq!(rebuilt["build"]["ok"], true, "{rebuilt}");
+        assert!(rebuilt["build"].get("pending").is_none());
+        assert!(curation_get(&f, &session, Some("cave"))
+            .get("build")
+            .is_none());
+        // An ordinary ordering, with no `rebuild` member, still rebuilds at once.
+        let response = curation_call(
+            &f,
+            &session,
+            "PUT",
+            &format!("{CURATION}/order"),
+            json!({ "revision": revision, "post": "cave", "order": [&a, &b] }),
+        );
+        let body = body_json(&response);
+        assert_eq!(body["build"]["ok"], true, "{body}");
+        assert!(body["build"].get("pending").is_none());
+        // Only an ordering can be deferred: a selection always rebuilds.
+        let again = curation_call(
+            &f,
+            &session,
+            "PUT",
+            &format!("{CURATION}/selections"),
+            json!({ "revision": body["revision"], "post": "cave", "id": a, "selection": {}, "rebuild": false }),
+        );
+        assert!(again.status >= 400 || body_json(&again)["build"].get("pending").is_none());
     }
 
     #[test]

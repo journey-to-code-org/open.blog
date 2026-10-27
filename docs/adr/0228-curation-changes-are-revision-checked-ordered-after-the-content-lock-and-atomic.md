@@ -43,3 +43,14 @@ a write that cannot half-happen.
   every private store until the build publishes it. While the site publishes curated context, a
   successful change rebuilds the served site, as an atlas change does, and returns the outcome as
   `build` (ADR 0254); a site that does not publish it is not rebuilt.
+- **A run of orderings rebuilds once.** An ordering may say `"rebuild": false`: it is written, the
+  served site is marked as behind (`build: { ok: true, pending: true }`, also on the next view), and one
+  `POST research/curation/rebuild` after the last step rebuilds it and returns the outcome. The Admin
+  waits for a short pause after the last move, then asks for that rebuild, so dragging an item through
+  ten places builds the site once. Only an ordering can be deferred; every other change rebuilds at
+  once. Whichever rebuild runs, its outcome, including a failure, is in the Admin's status line, and a
+  failed rebuild never undoes a saved change. A change answers with the view computed from the one read
+  of the research stores it was resolved against.
+- **Stale places never refuse an ordering.** Giving a selection a place among a post's items can take it
+  over the bound on how many posts it orders. When that happens the places for posts that are no longer
+  published are dropped first; a selection that really orders that many published posts is still refused.
