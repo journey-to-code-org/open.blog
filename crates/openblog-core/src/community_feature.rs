@@ -67,7 +67,15 @@ pub const MAX_CONTEXT_CHARS: usize = 280;
 
 /// What a section says about why a reflection is there, always shown with it
 /// and never replaceable by an editor's note.
-pub const NON_CONSENSUS_NOTICE: &str = "The editors chose this reflection to feature. It is one reader's view: featuring it is an editorial choice, not a vote, and it does not mean the authors, the editors or the community agree with it.";
+pub const NON_CONSENSUS_NOTICE: &str = "The editors chose these reflections to feature. Each is one reader's view: featuring a reflection is an editorial choice, not a vote, and it does not mean the authors, the editors or the community agree with it.";
+
+/// The id of the element that shows one feature. It is not the reflection's
+/// own `ob-perspective-<id>` in the Third Perspectives section, which keeps
+/// that id because a reflection stays listed there (ADR 0236), so one page
+/// never repeats an id.
+pub fn feature_anchor(id: &str) -> String {
+    format!("ob-feature-{id}")
+}
 
 /// The honest provenance line of one feature.
 fn provenance(response: &ApprovedResponse, featured: &str) -> String {
@@ -637,15 +645,7 @@ impl FeatureRecord {
         {
             return off(FeatureOff::TextChanged);
         }
-        let work = crate::third_perspective::PublishedWork::of_post(post, config);
-        let document = crate::passage_target::PassageDocument::of_post(post, config);
-        let target = crate::third_perspective::TargetStatus::from(
-            &document.resolve(&copy.provenance.target, Some(&copy.provenance.revision)),
-        );
-        if copy
-            .approved_response(facts, mode, &work, &target)
-            .is_none()
-        {
+        if PublishedPerspective::response_in(hosted, post, config, mode).is_none() {
             return off(FeatureOff::NotApproved);
         }
         HostedStanding::Covered

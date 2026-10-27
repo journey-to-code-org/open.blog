@@ -8,7 +8,7 @@
 //! gave. It is one participation kind (`third-perspective`) in the one
 //! participation and moderation policy (#211), not another comment system.
 //!
-//! Four things are kept apart, each its own type:
+//! Three things are kept apart, each its own type:
 //!
 //! - [`LocalReflection`]: the reader's private draft. It has no id, no
 //!   provenance and no consent, and nothing here sends or stores it.
@@ -16,8 +16,12 @@
 //!   history and moderation provenance. Private to moderation.
 //! - [`ApprovedResponse`]: the one public projection of an approved copy, for
 //!   the canonical page only.
-//! - [`FeaturedPublication`]: an approved response an editor features, which
-//!   needs the reader's separate feature consent for that approved revision.
+//!
+//! Featuring an approved response in a community section is an editor's
+//! choice that needs the reader's separate feature consent for that approved
+//! revision. It lives in [`crate::community_feature`] (ADR 0230), which
+//! replaced the earlier `FeatureSelection` and `FeaturedPublication` types
+//! this module had no caller for.
 //!
 //! The policy is pure. Callers bring the moderation facts (see
 //! [`ModerationFacts`]) and the published work, and apply what a decision
@@ -882,14 +886,6 @@ pub struct PublishedWork {
     pub credited: Vec<String>,
 }
 
-/// An editor's choice to feature one approved revision (RD14 owns where and
-/// why). It never comes from counts or reactions.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FeatureSelection {
-    pub selected_by: String,
-    pub revision: u32,
-}
-
 // ---------------------------------------------------------------------------
 // Text
 
@@ -1714,24 +1710,6 @@ impl SubmittedCopy {
         )
     }
 
-    /// An approved response an editor features: only while it is public and
-    /// the reader's current consent covers featuring exactly the approved
-    /// revision the editor chose.
-    pub fn featured(
-        &self,
-        facts: &ModerationFacts,
-        mode: ParticipationMode,
-        work: &PublishedWork,
-        target: &TargetStatus,
-        selection: &FeatureSelection,
-    ) -> Option<FeaturedPublication> {
-        let response = self.approved_response(facts, mode, work, target)?;
-        let covered = crate::collaboration::valid_admin_username(&selection.selected_by)
-            && facts.approved_revision == Some(selection.revision)
-            && self.feature_covers(selection.revision);
-        covered.then_some(FeaturedPublication { response })
-    }
-
     /// Whether the reader's consent in effect agrees to feature exactly
     /// `revision` of their text (ADR 0110); none agrees to feature any other.
     pub fn feature_covers(&self, revision: u32) -> bool {
@@ -1941,21 +1919,6 @@ impl ApprovedResponse {
 
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).expect("a public response always serializes")
-    }
-}
-
-/// An approved response an editor chose to feature, with the reader's
-/// feature consent for that revision. Selection is editorial, never a count
-/// or a consensus; RD14 owns its placement and context.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FeaturedPublication {
-    pub response: ApprovedResponse,
-}
-
-impl FeaturedPublication {
-    pub fn to_json(&self) -> String {
-        serde_json::to_string(self).expect("a featured response always serializes")
     }
 }
 

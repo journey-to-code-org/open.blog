@@ -59,6 +59,10 @@ system beside them: a new state, a new store, or a notion of "featured" that qui
 
 ## Consequences
 
+- RD10's first-draft `FeatureSelection`, `FeaturedPublication` and `SubmittedCopy::featured` (ADR 0111)
+  had no caller and a second, weaker version of the check; they are removed, and `feature_covers` stays.
+  Admin's standing, the feature itself and the page all ask the one projection
+  (`PublishedPerspective::response_in`).
 - Curation (#229) and the page (#230) read and write one file and call this module; they need no new
   hosted route to decide what may be featured.
 

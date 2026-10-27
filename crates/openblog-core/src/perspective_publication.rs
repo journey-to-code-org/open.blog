@@ -297,6 +297,18 @@ impl PublishedPerspective {
         post: &Post,
         config: &SiteConfig,
     ) -> Option<crate::third_perspective::ApprovedResponse> {
+        Self::response_in(hosted, post, config, ParticipationMode::Open)
+    }
+
+    /// The one projection of a hosted copy in `mode`: what a publication, a
+    /// feature and Admin's standing check all ask, so none can differ from
+    /// another about what is shown.
+    pub(crate) fn response_in(
+        hosted: &HostedPerspective,
+        post: &Post,
+        config: &SiteConfig,
+        mode: ParticipationMode,
+    ) -> Option<crate::third_perspective::ApprovedResponse> {
         let copy = &hosted.copy;
         let work = PublishedWork::of_post(post, config);
         let document = PassageDocument::of_post(post, config);
@@ -311,7 +323,7 @@ impl PublishedPerspective {
             clarification_asked: hosted.clarification_asked,
             content_retained: true,
         };
-        copy.approved_response(&facts, ParticipationMode::Open, &work, &target)
+        copy.approved_response(&facts, mode, &work, &target)
     }
 
     fn validate(&self) -> Result<(), String> {

@@ -4,7 +4,7 @@
 //! claims consensus.
 
 use openblog_core::community_feature::{
-    body_digest, normalize_context, project_post, resolve_post, FeatureError, FeatureOff,
+    body_digest, feature_anchor, normalize_context, project_post, resolve_post, FeatureError, FeatureOff,
     FeatureRecord, FeatureRequest, FeaturedPerspective, FeaturesFile, HiddenReason, HostedStanding,
     NotShown, COMMUNITY_FEATURES_FILE, MAX_CONTEXT_CHARS, NON_CONSENSUS_NOTICE,
 };
@@ -780,6 +780,9 @@ fn the_page_form_is_honest_provenance_with_no_count_rank_or_editor() {
     assert!(shown.provenance.contains("approved by the editors"));
     assert!(shown.provenance.contains("separate permission"));
     assert!(NON_CONSENSUS_NOTICE.contains("not a vote"));
+    assert!(NON_CONSENSUS_NOTICE.starts_with("The editors chose these reflections"));
+    assert_eq!(feature_anchor(ID_1), format!("ob-feature-{ID_1}"));
+    assert_ne!(feature_anchor(ID_1), format!("ob-perspective-{ID_1}"));
     assert!(NON_CONSENSUS_NOTICE.contains("does not mean"));
     let json = shown.to_json().to_lowercase();
     for forbidden in [

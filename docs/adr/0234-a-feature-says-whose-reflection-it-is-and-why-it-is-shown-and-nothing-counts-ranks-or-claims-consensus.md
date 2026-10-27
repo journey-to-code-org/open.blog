@@ -23,9 +23,10 @@ opposite: a short list reads as "the best" or "what people think".
   that the editors approved it, the day it was featured with the reader's separate permission, and, when
   true, that the reader read an earlier version or that the part it is about has changed. A reader's
   reflection is never shown as an author's, a member's or the group's (`role` is `reader`, ADR 0111).
-- **Why it appears is a fixed sentence.** `NON_CONSENSUS_NOTICE` ("The editors chose this reflection to
-  feature. It is one reader's view: featuring it is an editorial choice, not a vote, and it does not mean
-  the authors, the editors or the community agree with it.") heads the section; no setting turns it off
+- **Why it appears is a fixed sentence.** `NON_CONSENSUS_NOTICE` ("The editors chose these reflections to
+  feature. Each is one reader's view: featuring a reflection is an editorial choice, not a vote, and it does
+  not mean the authors, the editors or the community agree with it."; plural because a section may hold
+  several, and it reads correctly for one) heads the section; no setting turns it off
   or replaces it.
 - **The editors' note is theirs, and checked by a lint.** At most 280 characters of plain text, labelled
   as the editors' note, optional. Control, format (Unicode category Cf) and other invisible

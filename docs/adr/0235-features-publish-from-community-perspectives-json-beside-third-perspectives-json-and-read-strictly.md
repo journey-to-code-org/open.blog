@@ -25,11 +25,14 @@ without breaking sites that already have it. It must not become a second copy of
   at most 500 items and 2 MiB, canonical output (items sorted by post, day and id, two-space
   indentation and a final line break) so a change is a small, deterministic diff. A reader refuses a
   newer version, an unknown field, a repeated id, a malformed value or a note that fails ADR 0234,
-  naming the item and never its contents. Nothing is repaired or dropped.
+  naming the item by its position ("item 3") and never its contents. Nothing is repaired or dropped.
 - **Public fields only.** An item has `id`, `post`, `revision`, `digest`, `featured`
   and an optional `context`. It has no reader text, no receipt or its digest, no consent records, no
-  editor or moderator, no reason and no time of day; the strict reader refuses each of those by name,
-  and a test pins it.
+  editor or moderator, no reason and no time of day; the strict reader refuses each of those as a field this version does not
+  define, and a test pins it. For an unknown field the error says only that the item has a field this
+  version does not define or one of the wrong type: it names the item, not the field or its value, so a
+  private or hostile value is never echoed into a log. A value that is wrong (not a field that is extra)
+  does name its field, as in `` `digest` must be 64 lowercase hexadecimal digits``.
 - **Additive growth.** A later field (for example editor-named groups) raises the version only for files
   that use it, as answers did for `third-perspectives.json`, so a site that never uses it keeps its file
   byte for byte. This task adds no hosted column, route, environment variable or setting, and changes no
