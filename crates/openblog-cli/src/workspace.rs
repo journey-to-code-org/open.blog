@@ -16,6 +16,19 @@ const MAX_TEXT: usize = 2 * 1024 * 1024;
 /// The research source library may reach the core 4 MiB library limit.
 const MAX_LIBRARY_TEXT: usize = 4 * 1024 * 1024;
 const LIBRARY_PATH: &str = ".openblog/private/research/sources.json";
+/// The private research notebook shares the library limit.
+const NOTEBOOK_PATH: &str = ".openblog/private/research/notebook.json";
+/// The private Knowledge Atlas shares the library limit too.
+const ATLAS_PATH: &str = ".openblog/private/research/atlas.json";
+/// Private claims and evidence links share the library limit as well.
+const CLAIMS_PATH: &str = ".openblog/private/research/claims.json";
+/// Private passage alignments share the library limit as well.
+const ALIGNMENTS_PATH: &str = ".openblog/private/research/alignments.json";
+/// The private curated selections (ADR 0185) share the library limit too.
+const SELECTIONS_PATH: &str = openblog_core::curated_selection::SELECTIONS_FILE;
+/// The private review acknowledgements (ADR 0124), up to their own limit.
+const ACKNOWLEDGEMENTS_PATH: &str = crate::research_review::ACKNOWLEDGEMENTS_FILE;
+const MAX_ACKNOWLEDGEMENTS_TEXT: usize = crate::research_review::MAX_ACKNOWLEDGEMENTS_BYTES;
 const MAX_TOTAL: usize = 64 * 1024 * 1024;
 const MAX_MANIFEST: usize = 8 * 1024 * 1024;
 const BUCKET: &str = "openblog-workspace";
@@ -254,6 +267,12 @@ impl Policy {
             ".openblog/private/context".into(),
             ".openblog/private/admin-preferences".into(),
             LIBRARY_PATH.into(),
+            NOTEBOOK_PATH.into(),
+            ATLAS_PATH.into(),
+            CLAIMS_PATH.into(),
+            ALIGNMENTS_PATH.into(),
+            SELECTIONS_PATH.into(),
+            ACKNOWLEDGEMENTS_PATH.into(),
             ".openblog/pending-tracks".into(),
             ".openblog/trash".into(),
         ]
@@ -264,7 +283,18 @@ impl Policy {
             return false;
         }
         let extension = path.rsplit('.').next().unwrap_or("");
-        if matches!(path, "openblog.json" | ".gitignore" | LIBRARY_PATH) {
+        if matches!(
+            path,
+            "openblog.json"
+                | ".gitignore"
+                | LIBRARY_PATH
+                | NOTEBOOK_PATH
+                | ATLAS_PATH
+                | CLAIMS_PATH
+                | ALIGNMENTS_PATH
+                | SELECTIONS_PATH
+                | ACKNOWLEDGEMENTS_PATH
+        ) {
             return true;
         }
         if let Some(relative) = path.strip_prefix(&format!("{}/", self.content)) {
@@ -311,7 +341,19 @@ impl Policy {
     }
 
     fn text_limit(&self, path: &str) -> usize {
-        if path == LIBRARY_PATH {
+        if path == ACKNOWLEDGEMENTS_PATH {
+            return MAX_ACKNOWLEDGEMENTS_TEXT;
+        }
+        if [
+            LIBRARY_PATH,
+            NOTEBOOK_PATH,
+            ATLAS_PATH,
+            CLAIMS_PATH,
+            ALIGNMENTS_PATH,
+            SELECTIONS_PATH,
+        ]
+        .contains(&path)
+        {
             MAX_LIBRARY_TEXT
         } else {
             MAX_TEXT
@@ -956,7 +998,8 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
         file.write_all(bytes)
             .and_then(|_| file.sync_all())
             .map_err(|_| "cannot write workspace restore")?;
-        fs::rename(&staging, path).map_err(|_| "cannot install workspace restore".to_string())
+        crate::fsutil::replace_file(&staging, path)
+            .map_err(|_| "cannot install workspace restore".to_string())
     })();
     if result.is_err() {
         let _ = fs::remove_file(staging);
@@ -1264,6 +1307,22 @@ mod tests {
             ".openblog/private/arbitrary.json",
             ".openblog/private/research/other.json",
             ".openblog/private/research/sources.json/extra",
+            ".openblog/private/research/notebook.json/extra",
+            ".openblog/private/research/atlas.json/extra",
+            ".openblog/private/research/atlas.json.lock",
+            ".openblog/private/research/atlas.json.1-2.tmp",
+            ".openblog/private/research/claims.json/extra",
+            ".openblog/private/research/claims.json.lock",
+            ".openblog/private/research/claims.json.1-2.tmp",
+            ".openblog/private/research/alignments.json/extra",
+            ".openblog/private/research/alignments.json.lock",
+            ".openblog/private/research/alignments.json.1-2.tmp",
+            ".openblog/private/research/selections.json/extra",
+            ".openblog/private/research/selections.json.lock",
+            ".openblog/private/research/selections.json.1-2.tmp",
+            ".openblog/private/research/acknowledgements.json/extra",
+            ".openblog/private/research/acknowledgements.json.lock",
+            ".openblog/private/research/acknowledgements.json.1-2.tmp",
             "content/../.git/config",
             "content/posts/../../secret.md",
             "content\\posts\\escape.md",
@@ -1280,6 +1339,12 @@ mod tests {
             "static/tracks/uploads/2026/trip.gpx",
             ".openblog/private/context/site.md",
             ".openblog/private/research/sources.json",
+            ".openblog/private/research/notebook.json",
+            ".openblog/private/research/atlas.json",
+            ".openblog/private/research/claims.json",
+            ".openblog/private/research/alignments.json",
+            ".openblog/private/research/selections.json",
+            ".openblog/private/research/acknowledgements.json",
             ".openblog/private/admin-preferences/0000000000000000000000000000000000000000000000000000000000000000.json",
             ".openblog/pending-tracks/0000000000000000000000000000000000000000000000000000000000000000.gpx",
             ".openblog/trash/deleted.md",
@@ -1297,6 +1362,11 @@ mod tests {
         fs::write(&library, &body).unwrap();
         let policy = policy();
         assert_eq!(policy.text_limit("content/posts/a.md"), MAX_TEXT);
+        assert_eq!(
+            policy.text_limit(ACKNOWLEDGEMENTS_PATH),
+            2 * 1024 * 1024,
+            "acknowledgements keep their own 2 MiB limit"
+        );
         let files = policy.scan(&fixture.0).unwrap();
         assert_eq!(files[LIBRARY_PATH], body.as_bytes());
         fs::write(&library, "x".repeat(MAX_LIBRARY_TEXT + 1)).unwrap();
@@ -1315,6 +1385,91 @@ mod tests {
         fs::remove_file(&library).unwrap();
         workspace.restore(&fixture.0).unwrap();
         assert_eq!(fs::read_to_string(&library).unwrap(), "{\"sources\":[]}");
+    }
+
+    #[test]
+    fn research_notebook_is_durable_and_allowed_up_to_the_notebook_limit() {
+        let fixture = Fixture::new();
+        let notebook = fixture.0.join(NOTEBOOK_PATH);
+        fs::create_dir_all(notebook.parent().unwrap()).unwrap();
+        let body = format!("{{\"pad\":\"{}\"}}", "x".repeat(3 * 1024 * 1024));
+        fs::write(&notebook, &body).unwrap();
+        let policy = policy();
+        assert_eq!(policy.text_limit(NOTEBOOK_PATH), MAX_LIBRARY_TEXT);
+        let files = policy.scan(&fixture.0).unwrap();
+        assert_eq!(files[NOTEBOOK_PATH], body.as_bytes());
+        fs::write(&notebook, "x".repeat(MAX_LIBRARY_TEXT + 1)).unwrap();
+        assert!(policy.scan(&fixture.0).is_err());
+    }
+
+    #[test]
+    fn knowledge_atlas_is_durable_and_allowed_up_to_the_library_limit() {
+        let fixture = Fixture::new();
+        let atlas = fixture.0.join(ATLAS_PATH);
+        fs::create_dir_all(atlas.parent().unwrap()).unwrap();
+        let body = format!("{{\"pad\":\"{}\"}}", "x".repeat(3 * 1024 * 1024));
+        fs::write(&atlas, &body).unwrap();
+        let policy = policy();
+        assert_eq!(policy.text_limit(ATLAS_PATH), MAX_LIBRARY_TEXT);
+        let files = policy.scan(&fixture.0).unwrap();
+        assert_eq!(files[ATLAS_PATH], body.as_bytes());
+        fs::write(&atlas, "x".repeat(MAX_LIBRARY_TEXT + 1)).unwrap();
+        assert!(policy.scan(&fixture.0).is_err());
+    }
+
+    #[test]
+    fn alignments_file_is_durable_and_allowed_up_to_the_library_limit() {
+        let fixture = Fixture::new();
+        let alignments = fixture.0.join(ALIGNMENTS_PATH);
+        fs::create_dir_all(alignments.parent().unwrap()).unwrap();
+        let body = format!("{{\"pad\":\"{}\"}}", "x".repeat(3 * 1024 * 1024));
+        fs::write(&alignments, &body).unwrap();
+        let policy = policy();
+        assert!(policy.allowed(ALIGNMENTS_PATH));
+        assert_eq!(policy.text_limit(ALIGNMENTS_PATH), MAX_LIBRARY_TEXT);
+        let files = policy.scan(&fixture.0).unwrap();
+        assert_eq!(files[ALIGNMENTS_PATH], body.as_bytes());
+        fs::write(&alignments, "x".repeat(MAX_LIBRARY_TEXT + 1)).unwrap();
+        assert!(policy.scan(&fixture.0).is_err());
+    }
+
+    #[test]
+    fn selections_file_is_durable_and_allowed_up_to_the_library_limit() {
+        let fixture = Fixture::new();
+        let selections = fixture.0.join(SELECTIONS_PATH);
+        fs::create_dir_all(selections.parent().unwrap()).unwrap();
+        let body = format!("{{\"pad\":\"{}\"}}", "x".repeat(3 * 1024 * 1024));
+        fs::write(&selections, &body).unwrap();
+        let policy = policy();
+        assert!(policy.allowed(SELECTIONS_PATH));
+        assert!(policy.roots().iter().any(|root| root == SELECTIONS_PATH));
+        assert_eq!(policy.text_limit(SELECTIONS_PATH), MAX_LIBRARY_TEXT);
+        let files = policy.scan(&fixture.0).unwrap();
+        assert_eq!(files[SELECTIONS_PATH], body.as_bytes());
+        fs::write(&selections, "x".repeat(MAX_LIBRARY_TEXT + 1)).unwrap();
+        assert!(policy.scan(&fixture.0).is_err());
+        // A lock or an interrupted write beside it is never persisted.
+        for beside in [".lock", ".1-2.tmp", "/extra"] {
+            assert!(
+                !policy.allowed(&format!("{SELECTIONS_PATH}{beside}")),
+                "{beside}"
+            );
+        }
+    }
+
+    #[test]
+    fn claims_file_is_durable_and_allowed_up_to_the_library_limit() {
+        let fixture = Fixture::new();
+        let claims = fixture.0.join(CLAIMS_PATH);
+        fs::create_dir_all(claims.parent().unwrap()).unwrap();
+        let body = format!("{{\"pad\":\"{}\"}}", "x".repeat(3 * 1024 * 1024));
+        fs::write(&claims, &body).unwrap();
+        let policy = policy();
+        assert_eq!(policy.text_limit(CLAIMS_PATH), MAX_LIBRARY_TEXT);
+        let files = policy.scan(&fixture.0).unwrap();
+        assert_eq!(files[CLAIMS_PATH], body.as_bytes());
+        fs::write(&claims, "x".repeat(MAX_LIBRARY_TEXT + 1)).unwrap();
+        assert!(policy.scan(&fixture.0).is_err());
     }
 
     #[test]

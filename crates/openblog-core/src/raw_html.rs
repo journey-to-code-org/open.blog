@@ -213,6 +213,54 @@ fn next_token(source: &str, at: usize) -> (Token<'_>, usize) {
     }
 }
 
+/// Each start tag in `html` that gives its element an id, as a browser reads
+/// it: the tag's byte range and its decoded id. The attribute name matches in
+/// any case after any whitespace (or `/`), `=` may have whitespace around it,
+/// and the value may be double-quoted, single-quoted or unquoted; the first of
+/// a repeated `id` wins and an empty one names nothing. Comments, doctypes and
+/// text that is not complete markup hold no elements. Raw text such as a
+/// script's is read as markup too, which only ever finds more ids.
+pub(crate) fn id_attributes(html: &str) -> Vec<(std::ops::Range<usize>, String)> {
+    let mut found = Vec::new();
+    let mut at = 0;
+    while at < html.len() {
+        let (token, next) = next_token(html, at);
+        if let Token::Start { attributes, .. } = token {
+            if let Some((_, id)) = attributes.into_iter().find(|(name, _)| name == "id") {
+                if !id.is_empty() {
+                    found.push((at..next, id));
+                }
+            }
+        }
+        at = next;
+    }
+    found
+}
+
+/// [`id_attributes`], but with the byte range of the written `id` value
+/// itself (inside its quotes, character references as written) instead of
+/// the tag's. Only a value that is really the `id` attribute is found, never
+/// the same text inside `title=` or `data-x=`.
+pub(crate) fn id_value_ranges(html: &str) -> Vec<(std::ops::Range<usize>, String)> {
+    let mut found = Vec::new();
+    let mut at = 0;
+    while at < html.len() {
+        let (token, next) = next_token(html, at);
+        if let Token::Start { attributes, .. } = token {
+            if let Some((_, id)) = attributes.into_iter().find(|(name, _)| name == "id") {
+                let mut spans = Vec::new();
+                if !id.is_empty() && parse_tag_spans(&html[at..next], 1, &mut spans).is_some() {
+                    if let Some((_, range)) = spans.into_iter().find(|(name, _)| name == "id") {
+                        found.push((at + range.start..at + range.end, id));
+                    }
+                }
+            }
+        }
+        at = next;
+    }
+    found
+}
+
 #[derive(Clone)]
 pub(crate) struct SemanticLink {
     pub kind: crate::portability::SemanticLinkKind,
@@ -310,6 +358,127 @@ pub(crate) fn semantic_content(html: &str) -> String {
     output
 }
 
+/// Attributes whose value is, or holds, an address a browser may follow or
+/// load. `srcset` and `imagesrcset` hold several, each a candidate.
+const ADDRESS_ATTRIBUTES: &[&str] = &[
+    "href",
+    "src",
+    "srcset",
+    "imagesrcset",
+    "poster",
+    "data",
+    "action",
+    "formaction",
+    "cite",
+    "xlink:href",
+    "background",
+    "ping",
+    "longdesc",
+    "codebase",
+    "manifest",
+    "lowsrc",
+];
+
+/// Whether an attribute's decoded value holds an address whose scheme is
+/// `atlas:` in any letter case, after the trimming a browser does. A set of
+/// candidates (`srcset`) is checked piece by piece.
+fn atlas_address(name: &str, value: &str) -> bool {
+    if !ADDRESS_ATTRIBUTES.contains(&name) {
+        return false;
+    }
+    let atlas = |piece: &str| crate::concept_links::atlas_destination(piece).is_some();
+    if name.ends_with("srcset") {
+        value
+            .split(|c: char| c == ',' || c.is_whitespace())
+            .any(atlas)
+    } else {
+        atlas(value)
+    }
+}
+
+/// `html` without any attribute that gives an element an `atlas:` address
+/// (ADR 0173), and how many were removed; `None` when it holds none. An
+/// attribute is found as a browser reads it: its name in any case, quoted
+/// either way or not at all, character references decoded, and every
+/// candidate of a `srcset` checked. A tag that never ends and holds the
+/// scheme is escaped to text, since a later fragment could end it.
+pub(crate) fn strip_atlas_addresses(html: &str) -> Option<(String, usize)> {
+    if !html.contains('<') {
+        return None;
+    }
+    let mut out = String::with_capacity(html.len());
+    let mut removed = 0;
+    let mut changed = false;
+    let mut at = 0;
+    while at < html.len() {
+        let (token, next) = next_token(html, at);
+        let tag = &html[at..next];
+        match token {
+            Token::Start { attributes, .. }
+                if attributes
+                    .iter()
+                    .any(|(name, value)| atlas_address(name, value)) =>
+            {
+                let mut spans = Vec::new();
+                if parse_tag_spans(tag, 1, &mut spans).is_none() {
+                    out.push_str(&tag.replace('<', "&lt;"));
+                    changed = true;
+                    at = next;
+                    continue;
+                }
+                let bytes = tag.as_bytes();
+                let mut cuts: Vec<std::ops::Range<usize>> = Vec::new();
+                for (name, value) in &attributes {
+                    if !atlas_address(name, value) {
+                        continue;
+                    }
+                    let Some((_, written)) = spans.iter().find(|(span, _)| span == name) else {
+                        continue;
+                    };
+                    let mut start = written.start;
+                    let mut end = written.end;
+                    if start > 0 && matches!(bytes[start - 1], b'"' | b'\'') {
+                        start -= 1;
+                        end += 1;
+                    }
+                    while start > 0 && is_space(bytes[start - 1]) {
+                        start -= 1;
+                    }
+                    start = start.saturating_sub(1);
+                    while start > 0 && is_space(bytes[start - 1]) {
+                        start -= 1;
+                    }
+                    start = start.saturating_sub(name.len());
+                    cuts.push(start..end.min(tag.len()));
+                    removed += 1;
+                }
+                cuts.sort_by_key(|range| range.start);
+                let mut cursor = 0;
+                for cut in cuts {
+                    if cut.start >= cursor {
+                        out.push_str(&tag[cursor..cut.start]);
+                        cursor = cut.end;
+                    }
+                }
+                out.push_str(&tag[cursor..]);
+                changed = true;
+            }
+            Token::Text(text)
+                if text.starts_with('<')
+                    && next == html.len()
+                    && parse_tag(text, 1).is_none()
+                    && decode(text).to_ascii_lowercase().contains("atlas:") =>
+            {
+                removed += 1;
+                changed = true;
+            }
+            _ => out.push_str(tag),
+        }
+        at = next;
+    }
+    changed.then_some((out, removed))
+}
+
 /// Where a comment that is open at the start of `text` ends: the length
 /// through its `-->` (or `--!>`), or `None` when `text` does not end it.
 pub(crate) fn comment_end(text: &str) -> Option<usize> {
@@ -342,6 +511,17 @@ type ParsedTag = (String, Vec<(String, String)>, bool, usize);
 /// A tag's lowercase name, decoded attributes (the first of a repeated name
 /// wins), whether it ends in `/>`, and its length; `None` when it never ends.
 fn parse_tag(rest: &str, name_at: usize) -> Option<ParsedTag> {
+    parse_tag_spans(rest, name_at, &mut Vec::new())
+}
+
+/// [`parse_tag`], also recording where in `rest` the written value of each
+/// attribute that counts (the first of a repeated name) starts and ends,
+/// without its quotes.
+fn parse_tag_spans(
+    rest: &str,
+    name_at: usize,
+    spans: &mut Vec<(String, std::ops::Range<usize>)>,
+) -> Option<ParsedTag> {
     let bytes = rest.as_bytes();
     let length = bytes.len();
     let mut i = name_at;
@@ -374,6 +554,7 @@ fn parse_tag(rest: &str, name_at: usize) -> Option<ParsedTag> {
             i += 1;
         }
         let mut value = String::new();
+        let mut written = i..i;
         if i < length && bytes[i] == b'=' {
             i += 1;
             while i < length && is_space(bytes[i]) {
@@ -383,6 +564,7 @@ fn parse_tag(rest: &str, name_at: usize) -> Option<ParsedTag> {
                 quote @ (b'"' | b'\'') => {
                     let end = i + 1 + rest[i + 1..].find(*quote as char)?;
                     value = decode(&rest[i + 1..end]);
+                    written = i + 1..end;
                     i = end + 1;
                 }
                 _ => {
@@ -391,10 +573,12 @@ fn parse_tag(rest: &str, name_at: usize) -> Option<ParsedTag> {
                         i += 1;
                     }
                     value = decode(&rest[start..i]);
+                    written = start..i;
                 }
             }
         }
         if seen.insert(attribute.clone()) {
+            spans.push((attribute.clone(), written));
             attributes.push((attribute, value));
         }
     }
@@ -1313,6 +1497,67 @@ mod tests {
         );
         assert_eq!(decode("&Tab;&NewLine;"), "\t\n");
         assert_eq!(decode("&#;&#x;&"), "&#;&#x;&");
+    }
+
+    #[test]
+    fn atlas_addresses_are_removed_from_every_address_attribute() {
+        let (clean, count) = strip_atlas_addresses(
+            "<a class=x HREF = ' AtLaS:a ' title=t>l</a><img src=atlas&#58;b srcset=\"/p 1x,atlas:c 2x\"><svg xlink:href=\"atlas:d\"></svg>",
+        )
+        .unwrap();
+        assert_eq!(count, 4);
+        assert!(!clean.to_ascii_lowercase().contains("atlas"), "{clean}");
+        assert!(
+            clean.contains("class=x") && clean.contains("title=t"),
+            "{clean}"
+        );
+        assert!(strip_atlas_addresses("<a href=\"/atlas:x\" data-href=\"atlas:y\">").is_none());
+    }
+
+    #[test]
+    fn ids_are_read_in_any_case_spacing_and_quoting() {
+        let ids = |html: &str| {
+            id_attributes(html)
+                .into_iter()
+                .map(|(tag, id)| (html[tag].to_string(), id))
+                .collect::<Vec<_>>()
+        };
+        for html in [
+            "<span id=\"notes\">",
+            "<span ID=\"notes\">",
+            "<span Id = \"notes\">",
+            "<span id='notes'>",
+            "<span id=notes>",
+            "<span	id
+=
+'notes'>",
+            "<span/id=notes />",
+            "<span class=x id=\"notes\" id=\"other\">",
+            "<span id=&#110;otes>",
+        ] {
+            assert_eq!(
+                ids(html),
+                [(html.to_string(), "notes".to_string())],
+                "{html}"
+            );
+        }
+        for html in [
+            "<span data-id=\"notes\">",
+            "<span title=' id=\"notes\"'>",
+            "<!-- <span id=\"notes\"> -->",
+            "<span id=\"\">",
+            "<span id>",
+            "id=\"notes\"",
+            "</span id=\"notes\">",
+            "<span id=\"notes\"",
+        ] {
+            assert!(ids(html).is_empty(), "{html}");
+        }
+        assert_eq!(
+            ids("<p id=a>x</p><b ID='b'>").len(),
+            2,
+            "every element is read"
+        );
     }
 
     #[test]

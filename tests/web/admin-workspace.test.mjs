@@ -10,7 +10,7 @@ test("admin shell exposes a grouped publishing workspace", () => {
   assert.match(admin, /oba-tool-group/);
   assert.match(admin, /"aria-label": "Admin tools"/);
   assert.match(admin, /oba-context-bar/);
-  assert.match(admin, /h\("h1", \{\}, activeInfo\.title\)/);
+  assert.match(admin, /h\("h1", \{ id: "oba-page-heading", tabindex: "-1" \}, activeInfo\.title\)/);
 });
 
 test("posts edit an optional subtitle directly under the title", () => {
@@ -176,9 +176,10 @@ test("site tools expose a contributor registry workspace with manual identity pr
 test("Analytics configures hosted Supabase engagement without exposing service credentials", () => {
   assert.match(admin, /engagement\/settings/);
   assert.match(admin, /engagement\/analytics/);
-  assert.match(admin, /engagement\/comments\?status=\$\{selectedStatus\}/);
-  assert.match(admin, /COMMENT_MODERATION_STATUSES = \["pending", "approved", "rejected"\]/);
-  assert.match(admin, /Comment moderation/);
+  // Comments are moderated with reader feedback in the one inbox (ADR 0105).
+  assert.match(admin, /engagement\/moderation\?\$\{query\}/);
+  assert.doesNotMatch(admin, /engagement\/comments/);
+  assert.match(admin, /Moderate comments, with reader feedback, in the /);
   assert.match(admin, /Open — show comments and submission form/);
   assert.match(admin, /Locked — show approved comments only/);
   assert.match(admin, /Hidden — do not show comments/);

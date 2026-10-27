@@ -36,6 +36,11 @@ pub struct Rendered {
     pub headings: Vec<Heading>,
     /// Body text with markup removed; code blocks are excluded.
     pub text: String,
+    /// The post's own prose: [`Rendered::text`] without the generated
+    /// citation notes region. Descriptions, word counts and reading time
+    /// come from it; search keeps the full text.
+    pub prose: String,
+    /// Words of [`Rendered::prose`].
     pub word_count: usize,
     /// Languages of fenced code blocks, in order of first appearance.
     pub code_languages: Vec<String>,
@@ -46,6 +51,13 @@ pub struct Rendered {
     pub recipe_ingredients: Vec<String>,
     pub recipe_steps: Vec<String>,
     pub recipe_anchor: Option<String>,
+    /// With [`RenderOptions::supplements`]: the supplements read and what was
+    /// reported about their markers.
+    pub reading_depth: Option<crate::reading_depth::ReadingDepth>,
+    /// Every `atlas:` link or image the renderer refused to show as a link
+    /// (ADR 0173), whatever its form, for the build to warn about. Its
+    /// destination, title and id never reach the HTML.
+    pub concept_refusals: Vec<crate::concept_links::Refusal>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -73,6 +85,22 @@ pub struct RenderOptions<'a> {
     pub web_libraries: Option<&'a BTreeMap<String, Vec<String>>>,
     /// Offer "Open in Rust Playground" beside Rust examples. A fence's `playgroundLink=` overrides it.
     pub playground_link: bool,
+    /// Set for a post whose citations were published as notes: the native
+    /// page gives those generated notes accessible citation anchors and links
+    /// back to each citation. `None` renders every footnote as before.
+    pub citation_notes: Option<crate::bibliography::CitationNoteLabels<'a>>,
+    /// Set for a post whose publication Markdown carries a claim evidence
+    /// section (ADR 0075): its prose (description, word count, reading time)
+    /// ends at that section's heading, as it ends at generated citation notes.
+    pub claim_evidence_section: bool,
+    /// Set for a post that opts in to reading modes (ADR 0140): marked
+    /// supplements are wrapped in labelled groups and kept out of the post's
+    /// own prose. `false` renders every block quote as before.
+    pub supplements: bool,
+    /// Set for a post (ADR 0172): a link to `atlas:<entry id>` is marked so
+    /// the build can resolve it against the public atlas. `false` renders
+    /// every such link as the ordinary link it is written as.
+    pub concept_links: bool,
 }
 
 impl Default for RenderOptions<'_> {
@@ -86,6 +114,10 @@ impl Default for RenderOptions<'_> {
             code_runner: None,
             web_libraries: None,
             playground_link: true,
+            citation_notes: None,
+            claim_evidence_section: false,
+            supplements: false,
+            concept_links: false,
         }
     }
 }
@@ -332,6 +364,39 @@ fn quiz_inline(source: &str) -> Result<String, String> {
         .and_then(|s| s.strip_suffix("</p>"))
         .unwrap_or(html)
         .to_string())
+}
+
+/// The HTML writer percent-encodes `[` and `]` in an address, which breaks the
+/// host of an IPv6 literal (`http://%5B2001:db8::1%5D/` names no host).
+/// Write the brackets of an address's authority back, and nothing else.
+fn restore_bracketed_hosts(html: String) -> String {
+    const MARKER: &str = "://%5B";
+    if !html.contains(MARKER) && !html.contains("://%5b") {
+        return html;
+    }
+    let mut out = String::with_capacity(html.len());
+    let mut rest = html.as_str();
+    while let Some(at) = rest
+        .find("://%5")
+        .filter(|&at| matches!(rest.as_bytes().get(at + 5..at + 6), Some(b"B" | b"b")))
+    {
+        let authority = at + 3;
+        let end = rest[authority..]
+            .find(['/', '?', '#', '"', '\'', '<', ' '])
+            .map_or(rest.len(), |end| authority + end);
+        out.push_str(&rest[..authority]);
+        let span = &rest[authority..end];
+        out.push_str(
+            &span
+                .replace("%5B", "[")
+                .replace("%5b", "[")
+                .replace("%5D", "]")
+                .replace("%5d", "]"),
+        );
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    out
 }
 
 fn quiz_key(source: &str) -> String {
@@ -1141,6 +1206,23 @@ pub(crate) fn standalone_embed(inner: &[Event<'_>]) -> Option<crate::embed::Embe
     standalone_url(inner).and_then(|url| crate::embed::detect(&url))
 }
 
+/// Whether any paragraph of `markdown`, parsed either way, is a standalone link the production
+/// renderer would replace with an embed when embeds are on.
+pub(crate) fn has_standalone_embed(markdown: &str) -> bool {
+    [false, true].into_iter().any(|smart| {
+        let events: Vec<_> = Parser::new_ext(markdown, parser_options(smart)).collect();
+        events.iter().enumerate().any(|(index, event)| {
+            matches!(event, Event::Start(Tag::Paragraph))
+                && events[index + 1..]
+                    .iter()
+                    .position(|e| matches!(e, Event::End(TagEnd::Paragraph)))
+                    .is_some_and(|len| {
+                        standalone_embed(&events[index + 1..index + 1 + len]).is_some()
+                    })
+        })
+    })
+}
+
 /// Replace standalone embeddable links with their embed HTML.
 fn apply_embeds(events: Vec<Event<'_>>) -> Vec<Event<'_>> {
     let mut out = Vec::with_capacity(events.len());
@@ -1275,6 +1357,143 @@ fn apply_portable_footnotes<'a>(
             Event::Html(CowStr::from(html))
         })
         .collect()
+}
+
+/// Give generated citation notes accessible anchors on the native page: each
+/// marker is a `doc-noteref` link with a visually hidden "Citation" before its
+/// number and an id of its own, and each note ends with a `doc-backlink` to
+/// every place it is cited. The generated heading and notes, which always
+/// close the post, are one `doc-endnotes` region named by that heading, and
+/// each note can take focus, so following a marker without JavaScript lands
+/// keyboard and screen-reader focus on the note it names. The author's own
+/// footnotes are written exactly as the HTML writer writes them, with the same
+/// numbers (first use), because every footnote in the post shares one
+/// numbering.
+fn apply_citation_notes<'a>(
+    events: Vec<Event<'a>>,
+    labels: crate::bibliography::CitationNoteLabels<'_>,
+) -> Vec<Event<'a>> {
+    let mut uses: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut first_note = None;
+    let mut generated_notes = 0;
+    for (index, event) in events.iter().enumerate() {
+        match event {
+            Event::FootnoteReference(name) if labels.number(name).is_some() => {
+                *uses.entry(name.to_string()).or_default() += 1;
+            }
+            Event::Start(Tag::FootnoteDefinition(name)) if labels.number(name).is_some() => {
+                first_note.get_or_insert(index);
+                generated_notes += 1;
+            }
+            _ => {}
+        }
+    }
+    let region = first_note.and_then(|first| notes_heading(&events, first));
+    let mut notes_closed = 0;
+    let mut in_generated_note = false;
+    let mut numbers: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut open_note: Option<(String, usize)> = None;
+    let mut out = Vec::with_capacity(events.len());
+    for (index, event) in events.into_iter().enumerate() {
+        if let Some((start, id)) = &region {
+            if index == *start {
+                out.push(Event::Html(CowStr::from(format!(
+                    "<section class=\"ob-citation-notes\" role=\"doc-endnotes\" aria-labelledby=\"{}\">\n",
+                    escape::attr(id)
+                ))));
+            }
+        }
+        let (name, reference) = match &event {
+            Event::FootnoteReference(name) => (name.to_string(), true),
+            Event::Start(Tag::FootnoteDefinition(name)) => (name.to_string(), false),
+            Event::End(TagEnd::FootnoteDefinition) => {
+                out.push(event);
+                if std::mem::take(&mut in_generated_note) {
+                    notes_closed += 1;
+                    if region.is_some() && notes_closed == generated_notes {
+                        out.push(Event::Html(CowStr::from("</section>\n")));
+                    }
+                }
+                continue;
+            }
+            Event::End(TagEnd::Paragraph) => {
+                // The note's text is one paragraph; its links back close it.
+                if let Some((name, number)) = open_note.take() {
+                    let count = uses.get(&name).copied().unwrap_or(0);
+                    for occurrence in 1..=count {
+                        let which = if count > 1 {
+                            format!(" ({occurrence})")
+                        } else {
+                            String::new()
+                        };
+                        out.push(Event::Html(CowStr::from(format!(
+                            " <a class=\"ob-citation-back\" href=\"#{}-ref-{occurrence}\" role=\"doc-backlink\"><span aria-hidden=\"true\">\u{21a9}\u{fe0e}</span><span class=\"ob-visually-hidden\">{} {number}{which}</span></a>",
+                            escape::attr(&name),
+                            escape::text(labels.locale.back_words())
+                        ))));
+                    }
+                }
+                out.push(event);
+                continue;
+            }
+            _ => {
+                out.push(event);
+                continue;
+            }
+        };
+        let next = numbers.len() + 1;
+        let number = *numbers.entry(name.clone()).or_insert(next);
+        let generated = labels.number(&name).is_some();
+        let html = match (reference, generated) {
+            (true, true) => {
+                let occurrence = seen.entry(name.clone()).or_default();
+                *occurrence += 1;
+                format!(
+                    "<sup class=\"footnote-reference ob-citation\"><a href=\"#{name}\" id=\"{name}-ref-{occurrence}\" role=\"doc-noteref\"><span class=\"ob-visually-hidden\">{} </span>{number}</a></sup>",
+                    escape::text(labels.locale.citation_word()),
+                    name = escape::attr(&name),
+                )
+            }
+            (true, false) => format!(
+                "<sup class=\"footnote-reference\"><a href=\"#{}\">{number}</a></sup>",
+                escape::attr(&name)
+            ),
+            (false, generated) => {
+                if generated {
+                    open_note = Some((name.clone(), number));
+                    in_generated_note = true;
+                }
+                format!(
+                    "<div class=\"footnote-definition{}\" id=\"{}\"{}><sup class=\"footnote-definition-label\">{number}</sup>",
+                    if generated { " ob-citation-note" } else { "" },
+                    escape::attr(&name),
+                    if generated { " tabindex=\"-1\"" } else { "" },
+                )
+            }
+        };
+        out.push(Event::Html(CowStr::from(html)));
+    }
+    out
+}
+
+/// Where the generated notes' region starts and the id of the heading that
+/// names it: the heading that ends straight before the first generated note.
+/// `None` (and no region) if the events are not in that shape.
+fn notes_heading(events: &[Event<'_>], first_note: usize) -> Option<(usize, String)> {
+    if !matches!(
+        events.get(first_note.checked_sub(1)?),
+        Some(Event::End(TagEnd::Heading(_)))
+    ) {
+        return None;
+    }
+    events[..first_note]
+        .iter()
+        .rposition(|event| matches!(event, Event::Start(Tag::Heading { .. })))
+        .and_then(|start| match &events[start] {
+            Event::Start(Tag::Heading { id: Some(id), .. }) => Some((start, id.to_string())),
+            _ => None,
+        })
 }
 
 /// A chapter list for a tight bulleted list whose items are all timestamp
@@ -1420,11 +1639,58 @@ pub(crate) fn parser_options(smart_punctuation: bool) -> Options {
     options
 }
 
+/// CommonMark reads U+0000 as U+FFFD. For a post with supplements it is
+/// replaced before parsing, so a NUL in the text can never look like the tag
+/// the renderer uses to mark a supplement. Posts without a NUL are untouched,
+/// and posts that have not opted in are never rewritten.
+fn without_nul(markdown: &str, supplements: bool) -> std::borrow::Cow<'_, str> {
+    if supplements && markdown.contains('\u{0}') {
+        std::borrow::Cow::Owned(markdown.replace('\u{0}', "\u{FFFD}"))
+    } else {
+        std::borrow::Cow::Borrowed(markdown)
+    }
+}
+
 pub fn render(markdown: &str, options: RenderOptions<'_>) -> Rendered {
+    let source = without_nul(markdown, options.supplements);
     let mut parsed_events =
-        Parser::new_ext(markdown, parser_options(options.smart_punctuation)).collect::<Vec<_>>();
-    assign_heading_ids(&mut parsed_events);
-    render_events(parsed_events, markdown.len(), options, None)
+        Parser::new_ext(&source, parser_options(options.smart_punctuation)).collect::<Vec<_>>();
+    let mut findings = Vec::new();
+    if options.supplements {
+        findings = crate::reading_depth::reserve_ids(&mut parsed_events);
+        crate::reading_depth::name_headings(&mut parsed_events);
+    }
+    // Every `atlas:` link and image is made safe before anything reads the
+    // events' text, so no id reaches a heading's slug either.
+    let marked = crate::concept_links::mark_events(&mut parsed_events, options.concept_links);
+    assign_heading_ids(
+        &mut parsed_events,
+        options.citation_notes.as_ref(),
+        options.supplements,
+    );
+    let refusals = marked.refused;
+    let mut rendered = render_events(parsed_events, markdown.len(), options, None, findings);
+    rendered.concept_refusals = refusals;
+    rendered
+}
+
+/// The start of an attributed section's anchor, which no heading id may have
+/// (the same text as `attributed_perspective::ANCHOR_PREFIX`).
+const RESERVED_ANCHOR_PREFIX: &str = crate::attributed_perspective::ANCHOR_PREFIX;
+
+/// Every start of an anchor the build itself writes on a post's page, which no
+/// heading id may have: attributed sections (ADR 0126) and the research-context
+/// section and its items (ADR 0197). Local to this function by design.
+const RESERVED_ANCHOR_PREFIXES: [&str; 3] = [
+    RESERVED_ANCHOR_PREFIX,
+    crate::curated_context::ANCHOR_PREFIX,
+    crate::curated_context::SECTION_ID,
+];
+
+fn reserved_anchor(id: &str) -> bool {
+    RESERVED_ANCHOR_PREFIXES
+        .iter()
+        .any(|prefix| id.starts_with(prefix))
 }
 
 /// Give every heading its id: the `{#id}` the author wrote, or a slug of its
@@ -1432,8 +1698,28 @@ pub fn render(markdown: &str, options: RenderOptions<'_>) -> Rendered {
 /// existing native anchors keep their targets; the portable projection makes
 /// its own copy's ids unique. Done before rendering so the portable projection
 /// knows every heading anchor before it checks raw HTML ids.
-fn assign_heading_ids(events: &mut [Event<'_>]) {
-    let mut used_ids = std::collections::HashSet::new();
+///
+/// The author's headings get exactly these ids whether or not the post
+/// publishes citations, so turning citations on never moves an inbound link.
+/// Only the generated notes heading (`notes`), which always closes the post
+/// and names the notes' region, must be the only element with its id: it
+/// alone also avoids the ids the post's own markup writes ([`written_ids`]:
+/// `{#id}` values, footnote labels and raw HTML `id`s).
+fn assign_heading_ids(
+    events: &mut [Event<'_>],
+    notes: Option<&crate::bibliography::CitationNoteLabels<'_>>,
+    supplements: bool,
+) {
+    let notes_start = notes.and_then(|labels| generated_notes_heading(events, labels));
+    let written = if notes_start.is_some() {
+        written_ids(events)
+    } else {
+        std::collections::HashSet::new()
+    };
+    // The one hint element a post's concept links inside headings describe
+    // themselves with (ADR 0173) owns its id: no heading takes it.
+    let mut used_ids: std::collections::HashSet<String> =
+        std::iter::once(crate::concept_links::HEADING_HINT_ID.to_string()).collect();
     let mut heading: Option<(usize, String)> = None;
     for index in 0..events.len() {
         match &events[index] {
@@ -1452,20 +1738,52 @@ fn assign_heading_ids(events: &mut [Event<'_>]) {
                 let Some((start, title)) = heading.take() else {
                     continue;
                 };
+                // A heading written inside a supplement already has the id
+                // that names it (ADR 0142); it takes no slug from the post's.
+                if supplements
+                    && matches!(
+                        &events[start],
+                        Event::Start(Tag::Heading { id: Some(id), .. })
+                            if id.starts_with(crate::reading_depth::ID_PREFIX)
+                    )
+                {
+                    continue;
+                }
                 let mut id = slugify(&title);
                 if id.is_empty() {
                     id = "section".to_string();
                 }
+                // `ob-supplement-` names the supplements' own ids only, for a
+                // post that has them; any other post's slugs are as they were.
+                if supplements && id.starts_with(crate::reading_depth::ID_PREFIX) {
+                    id = format!("section-{id}");
+                }
+                // `ob-by-` belongs to attributed sections (ADR 0126). A
+                // heading whose text begins "OB by" must not take it.
+                if reserved_anchor(&id) {
+                    id = format!("heading-{id}");
+                }
+                let Event::Start(Tag::Heading { id: existing, .. }) = &mut events[start] else {
+                    continue;
+                };
+                // A heading with a written id still takes its slug, as it
+                // always has, so the slugs after it keep their values.
+                let generated = existing.is_none();
+                let avoid_written = generated && notes_start == Some(start);
                 let base = id.clone();
                 let mut n = 2;
-                while !used_ids.insert(id.clone()) {
+                while (avoid_written && written.contains(&id)) || !used_ids.insert(id.clone()) {
                     id = format!("{base}-{n}");
                     n += 1;
                 }
-                if let Event::Start(Tag::Heading { id: existing, .. }) = &mut events[start] {
-                    if existing.is_none() {
-                        *existing = Some(CowStr::from(id));
-                    }
+                // An id the author wrote in the reserved space is replaced by
+                // the heading's own slug: only a section's real author may
+                // own an `ob-by-` anchor.
+                let reserved = existing.as_deref().is_some_and(|written| {
+                    reserved_anchor(written) || written == crate::concept_links::HEADING_HINT_ID
+                });
+                if generated || reserved {
+                    *existing = Some(CowStr::from(id));
                 }
             }
             _ => {}
@@ -1473,14 +1791,199 @@ fn assign_heading_ids(events: &mut [Event<'_>]) {
     }
 }
 
+/// Where the generated notes heading starts: the heading that ends straight
+/// before the first generated note, as [`notes_heading`] finds it once ids
+/// are assigned.
+fn generated_notes_heading(
+    events: &[Event<'_>],
+    labels: &crate::bibliography::CitationNoteLabels<'_>,
+) -> Option<usize> {
+    let first_note = events.iter().position(|event| {
+        matches!(event, Event::Start(Tag::FootnoteDefinition(name)) if labels.number(name).is_some())
+    })?;
+    if !matches!(
+        events.get(first_note.checked_sub(1)?),
+        Some(Event::End(TagEnd::Heading(_)))
+    ) {
+        return None;
+    }
+    events[..first_note]
+        .iter()
+        .rposition(|event| matches!(event, Event::Start(Tag::Heading { .. })))
+}
+
+/// Where the claim evidence section starts: the last level-two heading that
+/// reads exactly "Claims and evidence", which `claim_publication::check_section`
+/// has already confirmed is the composed section's.
+fn claim_section_heading(events: &[Event<'_>]) -> Option<usize> {
+    events.windows(3).rposition(|window| {
+        matches!(
+            window,
+            [
+                Event::Start(Tag::Heading {
+                    level: HeadingLevel::H2,
+                    ..
+                }),
+                Event::Text(title),
+                Event::End(TagEnd::Heading(HeadingLevel::H2)),
+            ] if title.as_ref() == crate::claim_publication::SECTION_HEADING
+        )
+    })
+}
+
+/// The element ids a post's own markup writes: each heading's `{#id}`, each
+/// footnote definition's label (its note's id) and each `id` attribute found
+/// in raw HTML, read as a browser reads it ([`crate::raw_html::id_attributes`]).
+/// Consecutive raw HTML fragments are read together, so a tag that spans
+/// lines still counts.
+fn written_ids(events: &[Event<'_>]) -> std::collections::HashSet<String> {
+    let mut ids = std::collections::HashSet::new();
+    let mut raw = String::new();
+    for event in events {
+        match event {
+            Event::Html(html) | Event::InlineHtml(html) => {
+                raw.push_str(html);
+                continue;
+            }
+            Event::Start(Tag::Heading { id: Some(id), .. })
+            | Event::Start(Tag::FootnoteDefinition(id)) => {
+                ids.insert(id.to_string());
+            }
+            _ => {}
+        }
+        ids.extend(
+            crate::raw_html::id_attributes(&std::mem::take(&mut raw))
+                .into_iter()
+                .map(|(_, id)| id),
+        );
+    }
+    ids.extend(
+        crate::raw_html::id_attributes(&raw)
+            .into_iter()
+            .map(|(_, id)| id),
+    );
+    ids
+}
+
+/// For a post that opted in to reading modes, the renames [`render`] makes
+/// before it assigns heading ids: ids that belong to the supplements are
+/// freed and supplement headings are named. Everything that reads heading
+/// ids outside the renderer runs the same steps, so its ids are the page's.
+fn reserve_supplement_ids(events: &mut [Event<'_>], supplements: bool) {
+    if supplements {
+        crate::reading_depth::reserve_ids(events);
+        crate::reading_depth::name_headings(events);
+    }
+}
+
+/// Every heading id the author's Markdown gets, as [`render`] assigns them
+/// with or without citations: the author's `{#id}` values and the generated
+/// slugs. `supplements` is whether the post opted in to reading modes.
+pub(crate) fn heading_ids(markdown: &str, supplements: bool) -> Vec<String> {
+    let source = without_nul(markdown, supplements);
+    let mut events = Parser::new_ext(&source, parser_options(false)).collect::<Vec<_>>();
+    reserve_supplement_ids(&mut events, supplements);
+    crate::concept_links::mark_events(&mut events, false);
+    assign_heading_ids(&mut events, None, supplements);
+    events
+        .into_iter()
+        .filter_map(|event| match event {
+            Event::Start(Tag::Heading { id: Some(id), .. }) => Some(id.to_string()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The passage text of a publication body (ADR 0076), section by section:
+/// the text before the first heading (no anchor), then each heading's id
+/// with its title and the text up to the next heading of any level. Text is
+/// read from the same events and with the same heading ids as [`render`],
+/// so it is the text the native page shows, without what the page generates
+/// around it: footnote and citation markers, image alternative text, raw
+/// HTML, code blocks and the generated citation notes region. Whitespace is
+/// not yet collapsed; [`crate::passage_target`] does that. With `embeds`
+/// on, a paragraph that is only an embeddable link is left out, as
+/// [`apply_embeds`] replaces it with a frame that has no prose.
+pub(crate) fn passage_sections(
+    markdown: &str,
+    smart_punctuation: bool,
+    embeds: bool,
+    notes: Option<&crate::bibliography::CitationNoteLabels<'_>>,
+    supplements: bool,
+) -> Vec<(Option<String>, String)> {
+    let source = without_nul(markdown, supplements);
+    let mut events =
+        Parser::new_ext(&source, parser_options(smart_punctuation)).collect::<Vec<_>>();
+    reserve_supplement_ids(&mut events, supplements);
+    crate::concept_links::mark_events(&mut events, false);
+    assign_heading_ids(&mut events, notes, supplements);
+    let notes_start = notes.and_then(|labels| generated_notes_heading(&events, labels));
+    let mut sections: Vec<(Option<String>, String)> = vec![(None, String::new())];
+    let mut in_code_block = false;
+    let mut images = 0usize;
+    let mut index = 0;
+    while index < events.len() {
+        let event = &events[index];
+        let position = index;
+        index += 1;
+        if notes_start == Some(position) {
+            break;
+        }
+        if embeds && matches!(event, Event::Start(Tag::Paragraph)) {
+            if let Some(len) = events[index..]
+                .iter()
+                .position(|e| matches!(e, Event::End(TagEnd::Paragraph)))
+            {
+                if standalone_embed(&events[index..index + len]).is_some() {
+                    index += len + 1;
+                    continue;
+                }
+            }
+        }
+        if let Event::Start(Tag::Heading { id, .. }) = event {
+            sections.push((id.as_ref().map(|id| id.to_string()), String::new()));
+            continue;
+        }
+        let text = &mut sections
+            .last_mut()
+            .expect("the lead section is always there")
+            .1;
+        match event {
+            Event::Start(Tag::CodeBlock(_)) => in_code_block = true,
+            Event::End(TagEnd::CodeBlock) => in_code_block = false,
+            Event::Start(Tag::Image { .. }) => images += 1,
+            Event::End(TagEnd::Image) => images = images.saturating_sub(1),
+            Event::Text(t) | Event::Code(t) if !in_code_block && images == 0 => text.push_str(t),
+            Event::SoftBreak | Event::HardBreak => text.push(' '),
+            Event::End(
+                TagEnd::Heading(_)
+                | TagEnd::Paragraph
+                | TagEnd::Item
+                | TagEnd::TableCell
+                | TagEnd::BlockQuote(_)
+                | TagEnd::FootnoteDefinition,
+            ) => text.push(' '),
+            _ => {}
+        }
+    }
+    sections
+}
+
 pub fn render_portable(
     markdown: &str,
     options: RenderOptions<'_>,
     projection: &crate::portability::PortableProjection<'_>,
 ) -> Result<Rendered, String> {
+    let source = without_nul(markdown, options.supplements);
     let mut parsed_events =
-        Parser::new_ext(markdown, parser_options(options.smart_punctuation)).collect::<Vec<_>>();
-    assign_heading_ids(&mut parsed_events);
+        Parser::new_ext(&source, parser_options(options.smart_punctuation)).collect::<Vec<_>>();
+    let mut findings = Vec::new();
+    if options.supplements {
+        findings = crate::reading_depth::reserve_ids(&mut parsed_events);
+        crate::reading_depth::name_headings(&mut parsed_events);
+    }
+    crate::concept_links::mark_events(&mut parsed_events, false);
+    assign_heading_ids(&mut parsed_events, None, options.supplements);
     for event in &mut parsed_events {
         let destination = match event {
             Event::Start(Tag::Link { dest_url, .. })
@@ -1497,6 +2000,7 @@ pub fn render_portable(
         markdown.len(),
         options,
         Some(projection.markdown_context()),
+        findings,
     );
     // Recipe sections are added after raw HTML is balanced inside its own
     // containers, so the finished body is balanced once more as a whole.
@@ -1513,8 +2017,15 @@ pub(crate) fn portable_semantic_facts(
     projection: &crate::portability::PortableProjection<'_>,
 ) -> Result<Vec<crate::portability::SemanticFact>, String> {
     use crate::portability::SemanticFact;
-    let events = Parser::new_ext(markdown, parser_options(options.smart_punctuation));
-    let sanitized = crate::raw_html::sanitize(events.collect(), projection)?;
+    let source = without_nul(markdown, options.supplements);
+    let events = Parser::new_ext(&source, parser_options(options.smart_punctuation));
+    let mut sanitized = crate::raw_html::sanitize(events.collect(), projection)?;
+    if options.supplements {
+        crate::reading_depth::reserve_ids(&mut sanitized.events);
+        // The marker line is replaced by a label in the HTML and kept as
+        // written in Markdown, so it is not a fact either must carry.
+        sanitized.events = crate::reading_depth::transform(sanitized.events, false).events;
+    }
     let mut facts = Vec::new();
     let mut semantic_events = Vec::new();
     let mut index = 0;
@@ -1733,7 +2244,28 @@ fn render_events<'a>(
     source_length: usize,
     options: RenderOptions<'_>,
     portable: Option<PortableContext<'_>>,
+    id_findings: Vec<crate::reading_depth::Finding>,
 ) -> Rendered {
+    let (parsed_events, inside_supplement, reading_depth) = if options.supplements {
+        let transformed = crate::reading_depth::transform(parsed_events, true);
+        let mut depth = transformed.depth;
+        // Renamed ids come first, within the findings' limit.
+        depth.findings.splice(0..0, id_findings);
+        depth.findings.truncate(crate::reading_depth::MAX_FINDINGS);
+        (transformed.events, transformed.inside, Some(depth))
+    } else {
+        (parsed_events, Vec::new(), None)
+    };
+    // The post's own words, built with every push `text` gets except the
+    // words of a supplement (ADR 0140). Only a post with supplements keeps it.
+    let mut own = options.supplements.then(String::new);
+    let mut own_end = None;
+    // Per open block quote: the supplement it is, for its end marker.
+    let mut quote_supplements: Vec<Option<usize>> = Vec::new();
+    // Footnote labels cited inside a supplement, and the supplements citing.
+    let mut cited_in: std::collections::HashMap<String, Vec<usize>> =
+        std::collections::HashMap::new();
+    let mut cited_outside: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut events: Vec<Event> = Vec::new();
     let mut headings = Vec::new();
     let mut text = String::new();
@@ -1742,9 +2274,83 @@ fn render_events<'a>(
 
     let mut in_code_block = false;
     let mut heading: Option<(HeadingLevel, usize, String)> = None;
+    // Where the generated notes begin, and the text before them. A marker
+    // removed from the text takes the space before it when punctuation follows.
+    let notes_start = match (portable, options.citation_notes.as_ref()) {
+        (None, Some(labels)) => generated_notes_heading(&parsed_events, labels),
+        _ => None,
+    };
+    // The claim evidence section comes before any notes, and ends the prose
+    // too: it records the author's reading, not the post's own words.
+    let claims_start = match portable {
+        None if options.claim_evidence_section => claim_section_heading(&parsed_events),
+        _ => None,
+    };
+    let mut prose_end = None;
+    let mut after_marker = false;
 
-    for event in parsed_events {
+    // Spacing goes to both texts; a word goes to the post's own only outside
+    // a supplement.
+    macro_rules! space {
+        ($($piece:expr),+) => {{
+            $(text.push_str($piece);
+            if let Some(own) = own.as_mut() {
+                own.push_str($piece);
+            })+
+        }};
+    }
+
+    for (index, event) in parsed_events.into_iter().enumerate() {
+        if notes_start == Some(index) || claims_start == Some(index) {
+            prose_end.get_or_insert(text.len());
+            if let Some(own) = &own {
+                own_end.get_or_insert(own.len());
+            }
+        }
+        let followed_marker = std::mem::take(&mut after_marker);
+        let inside = inside_supplement.get(index).copied().unwrap_or(false);
+        if let Event::FootnoteReference(name) = &event {
+            if inside {
+                let holder = quote_supplements.iter().rev().flatten().next().copied();
+                if let Some(holder) = holder {
+                    let held = cited_in.entry(name.to_string()).or_default();
+                    if !held.contains(&holder) {
+                        held.push(holder);
+                    }
+                }
+            } else {
+                cited_outside.insert(name.to_string());
+            }
+        }
         match &event {
+            Event::Start(Tag::BlockQuote(_)) => quote_supplements.push(None),
+            Event::Html(html) if reading_depth.is_some() => {
+                // The tag [`reading_depth::transform`] left on a supplement's
+                // quote: its boundary words go in the page's text, so a text
+                // copy shows where it starts and stops.
+                let ordinal = crate::reading_depth::sentinel_ordinal(html);
+                if let (Some(ordinal), Some(depth)) = (ordinal, reading_depth.as_ref()) {
+                    if let (Some(slot), Some(supplement)) = (
+                        quote_supplements.last_mut(),
+                        depth.supplements.get(ordinal.wrapping_sub(1)),
+                    ) {
+                        *slot = Some(ordinal - 1);
+                        text.push_str(&crate::reading_depth::start_words(supplement));
+                        space!(" ");
+                    }
+                }
+            }
+            _ => {}
+        }
+        match &event {
+            Event::FootnoteReference(name)
+                if options
+                    .citation_notes
+                    .as_ref()
+                    .is_some_and(|labels| labels.number(name).is_some()) =>
+            {
+                after_marker = true;
+            }
             Event::Start(Tag::CodeBlock(kind)) => {
                 in_code_block = true;
                 if let CodeBlockKind::Fenced(info) = kind {
@@ -1761,7 +2367,9 @@ fn render_events<'a>(
                     first_image = Some(dest_url.to_string());
                 }
             }
-            Event::Start(Tag::Heading { level, .. }) => {
+            // A heading inside a supplement is a heading, but not an entry of
+            // the outline (ADR 0142).
+            Event::Start(Tag::Heading { level, .. }) if !inside => {
                 heading = Some((*level, events.len(), String::new()));
             }
             Event::Text(t) | Event::Code(t) => {
@@ -1769,23 +2377,47 @@ fn render_events<'a>(
                     buf.push_str(t);
                 }
                 if !in_code_block {
+                    if followed_marker
+                        && t.starts_with(|c: char| ",.;:!?)]}\u{2019}\u{201d}".contains(c))
+                    {
+                        text.truncate(text.trim_end_matches(' ').len());
+                        if let (Some(own), false) = (own.as_mut(), inside) {
+                            own.truncate(own.trim_end_matches(' ').len());
+                        }
+                    }
                     text.push_str(t);
+                    if let (Some(own), false) = (own.as_mut(), inside) {
+                        own.push_str(t);
+                    }
                 }
             }
             Event::SoftBreak | Event::HardBreak => {
                 if let Some((_, _, buf)) = heading.as_mut() {
                     buf.push(' ');
                 }
-                text.push(' ');
+                space!(" ");
+            }
+            Event::End(TagEnd::BlockQuote(_)) => {
+                if let Some(Some(held)) = quote_supplements.pop() {
+                    if let Some(supplement) = reading_depth
+                        .as_ref()
+                        .and_then(|depth| depth.supplements.get(held))
+                    {
+                        space!(" ");
+                        text.push_str(&crate::reading_depth::end_words(supplement));
+                    }
+                }
+                space!(" ");
             }
             Event::End(TagEnd::Paragraph)
             | Event::End(TagEnd::Item)
-            | Event::End(TagEnd::TableCell)
-            | Event::End(TagEnd::BlockQuote(_)) => text.push(' '),
+            | Event::End(TagEnd::TableCell) => space!(" "),
             _ => {}
         }
 
-        if let Event::End(TagEnd::Heading(_)) = &event {
+        if let (Event::End(TagEnd::Heading(_)), true) = (&event, inside) {
+            space!(" ");
+        } else if let Event::End(TagEnd::Heading(_)) = &event {
             if let Some((level, start_index, title)) = heading.take() {
                 let id = match &events[start_index] {
                     Event::Start(Tag::Heading { id: Some(id), .. }) => id.to_string(),
@@ -1807,7 +2439,7 @@ fn render_events<'a>(
                     id,
                     text: title.trim().to_string(),
                 });
-                text.push(' ');
+                space!(" ");
             }
         }
 
@@ -1833,29 +2465,91 @@ fn render_events<'a>(
         options.playground_link,
         portable,
     );
+    // After block transforms, which track footnote containers by their events.
+    let events = match (portable, options.citation_notes) {
+        (None, Some(labels)) => apply_citation_notes(events, labels),
+        _ => events,
+    };
+    // Last, so every transform above saw each supplement as the quote it is.
+    let events = match &reading_depth {
+        Some(depth) => crate::reading_depth::wrap(events, depth),
+        None => events,
+    };
     let mut html = String::with_capacity(source_length * 2);
     pulldown_cmark::html::push_html(&mut html, events.into_iter());
+    if portable.is_none() {
+        // A note cited only inside supplements says which, so the page can
+        // show a supplement a reader navigates into (ADR 0142).
+        let mut notes: Vec<_> = cited_in
+            .iter()
+            .filter(|(name, _)| !cited_outside.contains(*name))
+            .collect();
+        notes.sort();
+        for (name, holders) in notes {
+            let ids = holders
+                .iter()
+                .filter_map(|holder| reading_depth.as_ref()?.supplements.get(*holder))
+                .map(|supplement| supplement.id.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
+            let name = escape::attr(name);
+            for class in [
+                "footnote-definition ob-citation-note",
+                "footnote-definition",
+            ] {
+                let opening = format!("<div class=\"{class}\" id=\"{name}\"");
+                if html.contains(&opening) {
+                    html = html.replacen(
+                        &opening,
+                        &format!("{opening} data-ob-supplement=\"{ids}\""),
+                        1,
+                    );
+                    break;
+                }
+            }
+        }
+    }
+    let mut html = restore_bracketed_hosts(html);
     if options.lazy_images {
         html = html.replace("<img src=", "<img loading=\"lazy\" decoding=\"async\" src=");
     }
 
+    // Supplements are not the post's own words: they stay in the search text
+    // but not in the description, word count or reading time.
+    let prose = match &own {
+        Some(own) => collapse_whitespace(&own[..own_end.unwrap_or(own.len())]),
+        None => collapse_whitespace(&text[..prose_end.unwrap_or(text.len())]),
+    };
     let text = collapse_whitespace(&text);
-    let word_count = text.split_whitespace().count();
+    let mut capabilities = blocks.capabilities;
+    if reading_depth
+        .as_ref()
+        .is_some_and(|depth| !depth.is_empty())
+    {
+        capabilities.push(CapabilityDescriptor::describe(
+            crate::reading_depth::CAPABILITY_ID,
+            None,
+        ));
+    }
+    let word_count = prose.split_whitespace().count();
     Rendered {
         html,
         portable_images: Vec::new(),
         portable_has_raw_html: false,
         portable_video_ids,
-        capabilities: blocks.capabilities,
+        capabilities,
         errors: blocks.errors,
         headings,
         text,
+        prose,
         word_count,
         code_languages,
         first_image,
         recipe_ingredients: blocks.ingredients,
         recipe_steps: blocks.steps,
         recipe_anchor: blocks.recipe_anchor,
+        reading_depth,
+        concept_refusals: Vec::new(),
     }
 }
 

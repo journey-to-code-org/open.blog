@@ -11,10 +11,15 @@ const PORTABLE_FALLBACKS: &[&str] = &[
     "web-sandbox",
     "comments",
     "raw-html",
+    "citations",
+    "claim-evidence",
+    "guided-reading-supplements",
 ];
 
 /// Planned capabilities registered in `docs/portability/planned-capability-contracts.json`,
 /// with the label a portable copy shows until the owning story ships a fallback.
+/// A capability the registry marks `implemented` has its own fallback in
+/// [`PORTABLE_FALLBACKS`] and is not listed here.
 /// `None` marks private state that has no public representation at all.
 const PLANNED_CAPABILITIES: &[(&str, Option<&str>)] = &[
     (
@@ -27,7 +32,6 @@ const PLANNED_CAPABILITIES: &[(&str, Option<&str>)] = &[
         Some("Research context"),
     ),
     ("citation-source-previews", Some("Source previews")),
-    ("guided-reading-supplements", Some("Guided explanations")),
     ("knowledge-relationships", Some("Knowledge relationships")),
     ("curated-reading-paths", Some("Reading path")),
     (
@@ -38,6 +42,7 @@ const PLANNED_CAPABILITIES: &[(&str, Option<&str>)] = &[
     ("scholarly-interpretations", Some("Interpretations")),
     ("shared-source-led-reflections", Some("Shared reflections")),
     ("protected-reflection-drafts", None),
+    ("third-perspectives", Some("Third Perspectives")),
     ("diagrams", Some("Diagram")),
 ];
 
@@ -127,6 +132,21 @@ impl CapabilityDescriptor {
                 "Markup the author wrote as raw HTML or Markdown attributes.",
                 Some("allowlisted-html"),
                 PortabilityLevel::GracefullyTransformed,
+            ),
+            "citations" => (
+                "Citations of saved references, published as numbered notes or a bibliography.",
+                Some("markdown-footnotes"),
+                PortabilityLevel::FullyPortable,
+            ),
+            "claim-evidence" => (
+                "The author's approved claims with their supporting and contradicting evidence side by side, and revision notes.",
+                Some("markdown-section"),
+                PortabilityLevel::FullyPortable,
+            ),
+            "guided-reading-supplements" => (
+                "Author-approved supplements, each labelled with its kind and the least reading mode that shows it; a mode only hides or shows them.",
+                Some("labeled-static-group"),
+                PortabilityLevel::FullyPortable,
             ),
             planned if matches!(planned_entry(planned), Some(Some(_))) => (
                 "A planned capability: its authored content stays visible and the canonical article carries the rest.",
@@ -257,10 +277,14 @@ mod tests {
             "../../../docs/portability/planned-capability-contracts.json"
         ))
         .unwrap();
+        let implemented = |contract: &serde_json::Value| {
+            contract["implementation_status"].as_str() == Some("implemented")
+        };
         let ids = registry["contracts"]
             .as_array()
             .unwrap()
             .iter()
+            .filter(|contract| !implemented(contract))
             .map(|contract| contract["id"].as_str().unwrap())
             .collect::<Vec<_>>();
         assert_eq!(
@@ -270,6 +294,30 @@ mod tests {
                 .collect::<Vec<_>>(),
             ids
         );
+        // An implemented capability names the fallback it ships, and the
+        // descriptor agrees; it has no canonical-only label to fall back to.
+        for contract in registry["contracts"].as_array().unwrap() {
+            if !implemented(contract) {
+                continue;
+            }
+            let id = contract["id"].as_str().unwrap();
+            let descriptor = CapabilityDescriptor::describe(id, None);
+            assert!(PORTABLE_FALLBACKS.contains(&id), "{id}");
+            assert!(descriptor.has_portable_fallback(), "{id}");
+            assert!(descriptor.diagnostics.is_empty(), "{id}");
+            assert_eq!(
+                descriptor.fallback_renderer,
+                contract["implemented_fallback"].as_str(),
+                "{id}"
+            );
+            // Whatever level it ships at, it is not left as an interaction
+            // that only the canonical page can carry.
+            assert_ne!(
+                descriptor.portability,
+                PortabilityLevel::CanonicalOnlyInteraction,
+                "{id}"
+            );
+        }
         for id in ids {
             let descriptor = CapabilityDescriptor::describe(id, None);
             assert_eq!(descriptor.id, id);

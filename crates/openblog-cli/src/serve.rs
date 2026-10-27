@@ -17,6 +17,7 @@ use crate::http::{self, Conn, Request, Response};
 use crate::site;
 use openblog_core::accessibility::{AccessibilityFinding, FindingLocation};
 use openblog_core::research::EvidenceFinding;
+use openblog_core::source_review::SourceReviewFinding;
 
 /// Concurrent connections served at once; extras are dropped, so a flood of
 /// slow clients cannot exhaust threads.
@@ -95,6 +96,7 @@ pub fn run(root: &Path, options: &ServeOptions) -> Result<(), String> {
     admin::register(&state);
     let report = state.rebuild()?;
     print_report(&report);
+    let mut last_readiness = readiness_text(&report);
     let out_dir = report.out_dir.clone();
 
     let config = site::load_config(root)?;
@@ -124,7 +126,12 @@ pub fn run(root: &Path, options: &ServeOptions) -> Result<(), String> {
             if now != last {
                 last = now;
                 match watch_state.rebuild() {
-                    Ok(r) => println!("rebuilt: {} posts, {} files", r.posts, r.files),
+                    Ok(r) => {
+                        println!("rebuilt: {} posts, {} files", r.posts, r.files);
+                        if let Some(text) = changed_readiness(&mut last_readiness, &r) {
+                            eprint!("{text}");
+                        }
+                    }
                     Err(e) => eprintln!("build failed (still serving the previous build):\n{e}"),
                 }
             }
@@ -218,6 +225,9 @@ pub fn print_report(report: &site::BuildReport) {
         report.files,
         report.out_dir.display()
     );
+    if let Some(summary) = report.boundary.summary() {
+        println!("{summary}");
+    }
     if report.scheduled > 0 {
         let next = report
             .next_due
@@ -229,7 +239,47 @@ pub fn print_report(report: &site::BuildReport) {
         eprintln!("warning: {w}");
     }
     print_accessibility_findings(&report.accessibility);
-    print_evidence_findings(&report.evidence);
+    // The research report lists every evidence and source-review finding with
+    // the same codes, so a site that has one prints them there, once.
+    match &report.readiness {
+        Some(readiness) => eprint!("{}", readiness.text()),
+        None => {
+            print_evidence_findings(&report.evidence);
+            print_source_review_findings(&report.source_review);
+        }
+    }
+}
+
+/// The research report as the terminal prints it, empty when the build has none.
+pub(crate) fn readiness_text(report: &site::BuildReport) -> String {
+    report
+        .readiness
+        .as_ref()
+        .map(|readiness| readiness.text())
+        .unwrap_or_default()
+}
+
+/// The report to print after a rebuild, only when it differs from the last one
+/// printed, so an unchanged report is not repeated on every save (ADR 0150).
+pub(crate) fn changed_readiness(last: &mut String, report: &site::BuildReport) -> Option<String> {
+    let text = readiness_text(report);
+    if text == *last {
+        return None;
+    }
+    last.clone_from(&text);
+    (!text.is_empty()).then_some(text)
+}
+
+/// Source-review findings (ADR 0148), one line each in the shape evidence
+/// findings use: outcome, place, message, repair and code.
+pub fn print_source_review_findings(findings: &[SourceReviewFinding]) {
+    for finding in findings {
+        eprintln!("{}", source_review_line(finding));
+    }
+}
+
+pub(crate) fn source_review_line(finding: &SourceReviewFinding) -> String {
+    format!("source review {}: {finding}", finding.outcome)
 }
 
 pub fn print_evidence_findings(findings: &[EvidenceFinding]) {

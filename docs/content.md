@@ -45,6 +45,7 @@ a `#` heading, which is then used. Everything else is optional:
 | `coverAlt` | Alternative text for the cover. |
 | `draft` | `true` keeps the post out of every build and feed. |
 | `comments` | `open` (default), `locked` (read-only), or `hidden` when hosted comments are enabled. |
+| `participation` | This post's mode for reader participation beyond comments, as `kind: mode` entries: `participation: [question: open, third-perspective: locked]`, or one `- kind: mode` per line. Modes are `open`, `locked` and `hidden`, as for `comments`. A kind only takes effect once the site switches it on; see [Reader participation](configuration.md#reader-participation). |
 | `theme` | A theme name, to render this post differently from the rest. |
 | `canonical` | If the post was first published elsewhere, that address. Search engines then credit the original. |
 | `sourceUrl` | Shown as "Originally published at" under the post. The Hashnode importer fills this in. |
@@ -56,6 +57,8 @@ a `#` heading, which is then used. Everything else is optional:
 | `recipe` | Legacy recipe marker. `true` remains supported; new posts should use `profile: recipe`. |
 | `doi` | Research profile only. A DOI name or `https://doi.org/` URL for this work. |
 | `license` | Research profile only. An absolute HTTP or HTTPS URL for the work's license. |
+| `citations` | `notes` or `bibliography` publishes the post's `[@key, locator]` citations from the private source library as numbered notes or a reference list. Without it, `[@...]` stays text. See [Research posts](research-profile.md#citations-notes-and-bibliographies). |
+| `citationLocale` | With `citations`: `en`, `de`, `fr` or `es` for the generated notes. Defaults to the site language when it is one of those, otherwise English. |
 | `videoUrl` | Video profile only. A YouTube watch, short-link, or Shorts URL. |
 | `duration` | Video profile only. A duration such as `12 min 34 sec`, `12:34`, or `PT12M34S`. |
 | `thumbnail` | Video profile only. A site-relative or absolute video thumbnail URL. A `cover` is used as the fallback. |
@@ -213,6 +216,21 @@ Callouts are quotes whose first line names a kind, as on GitHub:
 The kinds are `NOTE`, `TIP`, `IMPORTANT`, `WARNING`, and `CAUTION` (any case); each gets
 its own colour and is titled with its kind. Put the marker alone on the first line: any
 other text after it, or another kind, leaves an ordinary quote that shows the marker.
+
+#### Linking a word to the Knowledge Atlas
+
+When your site publishes its [Knowledge Atlas](configuration.md#knowledge-atlas), link a word to an
+approved entry by writing a Markdown link to `atlas:` and the entry's id:
+
+```markdown
+In the [allegory of the cave](atlas:allegory-of-the-cave), [Plato](atlas:plato) imagines prisoners.
+```
+
+Only the words you link are linked; the same word elsewhere stays plain text, and nothing is
+recognised automatically. The build turns each link into an ordinary link to the entry's page. If
+the entry is unknown, not approved, withdrawn, or the atlas is off, the words are published as plain
+text and the build, `check` and Admin tell you which link and why. Feeds and portable copies keep
+the words without the link. See the [format](specs/knowledge-atlas.md#concept-links-in-articles).
 
 ### Knowledge checks
 
@@ -536,6 +554,14 @@ Optional Markdown shown at the top of the series page.
 Posts join with `series: getting-started`. Each post then shows "Part 2 of 3" with
 previous and next links and a list of all parts. If you reference a series that has no
 file, one is created from the slug and the build prints a warning.
+
+A series that holds a collaborative work, a published post whose credits name two or more
+authors (such as a shared reflection), also says who wrote what: its page lists the series'
+contributors, and every part, ordinary posts included, shows "By ..." on the series page, in the
+previous and next links and in the list of all parts. Names come from each post's credits and are
+shown as plain text. Every other series looks exactly as before. Feeds, exports and syndicated
+copies of such a series' parts say the same: the series and a link to it, the part's place in it,
+and who wrote it.
 
 ## Pages
 

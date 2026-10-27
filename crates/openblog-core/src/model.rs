@@ -5,7 +5,11 @@
 use std::collections::BTreeMap;
 
 use crate::accessibility::{self, AccessibilityFinding, DocumentAuditInput};
+use crate::bibliography::{
+    self, CitationLocale, CitationNoteLabels, CitationStyle, CitationSummary,
+};
 use crate::capability::CapabilityDescriptor;
+use crate::claim_publication::{ClaimEvidence, ClaimEvidenceSource, PostEvidence};
 use crate::config::SiteConfig;
 use crate::contributor::{self, CreditProvenance, ResolvedCredit};
 use crate::date::DateTime;
@@ -17,6 +21,7 @@ use crate::recipe::Recipe;
 use crate::research::{self, EvidenceFinding, ResearchMetadata};
 use crate::shared_source::SharedAttribution;
 use crate::slug::{from_file_stem, slugify};
+use crate::source_library::SourceLibrary;
 use crate::video::VideoMetadata;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -33,7 +38,69 @@ pub struct Sources {
     pub credits: Vec<SourceFile>,
     pub series: Vec<SourceFile>,
     pub pages: Vec<SourceFile>,
+    /// Where the private source library comes from, if anywhere. A load
+    /// reads it only when a post that opts in to citations cites something,
+    /// and publishes only the cited references' public description (ADR 0048).
+    pub source_library: Option<LibrarySource>,
+    /// The projection of the private claims file, read only while the site
+    /// publishes claim evidence (ADR 0075); `None` otherwise.
+    pub claim_evidence: Option<ClaimEvidenceSource>,
+    /// The site's published reader feedback (`reader-feedback.json` in the
+    /// content folder, ADR 0083), when the file exists.
+    pub reader_feedback: Option<SourceFile>,
+    /// The site's published Third Perspectives (`third-perspectives.json` in
+    /// the content folder, ADR 0115), when the file exists.
+    pub third_perspectives: Option<SourceFile>,
+    /// The site's featured reflections (`community-perspectives.json` in the
+    /// content folder, ADR 0181), when the file exists. Read strictly; nothing
+    /// in a page, feed or export changes (the section is #230).
+    pub community_features: Option<SourceFile>,
 }
+
+/// The private source library as a site load receives it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LibrarySource {
+    /// The library file's project-relative path and text, already in memory.
+    Text(SourceFile),
+    /// A read the load makes at most once, on first need, so a site whose
+    /// posts cite nothing never reads the library at all.
+    Deferred(LibraryReader),
+}
+
+/// Reads the private source library on demand: its project-relative path and
+/// text, `None` while no library is stored, or why it cannot be read safely
+/// (reported only to the posts that need it, never with its contents).
+#[derive(Clone)]
+pub struct LibraryReader(
+    std::sync::Arc<dyn Fn() -> Result<Option<SourceFile>, String> + Send + Sync>,
+);
+
+impl LibraryReader {
+    pub fn new(
+        read: impl Fn() -> Result<Option<SourceFile>, String> + Send + Sync + 'static,
+    ) -> Self {
+        Self(std::sync::Arc::new(read))
+    }
+
+    fn read(&self) -> Result<Option<SourceFile>, String> {
+        (self.0)()
+    }
+}
+
+impl std::fmt::Debug for LibraryReader {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("LibraryReader(..)")
+    }
+}
+
+/// Two readers are equal only when they are the same reader.
+impl PartialEq for LibraryReader {
+    fn eq(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for LibraryReader {}
 
 /// Validated association between Markdown posts and their adjacent credit
 /// sidecars. Consumers such as Admin Studio use this same index as `Site::load`
@@ -169,6 +236,10 @@ pub struct Post {
     pub description: String,
     pub draft: bool,
     pub comments: CommentsPolicy,
+    /// This post's own modes for participation kinds beyond comments, from
+    /// its `participation:` front matter (ADR 0101). A kind the site has
+    /// switched off stays off whatever this says.
+    pub participation: crate::participation::PostParticipation,
     /// `<link rel="canonical">` override, for cross-posted articles.
     pub canonical: Option<String>,
     /// Where the article was first published (shown in the footer).
@@ -179,7 +250,51 @@ pub struct Post {
     pub aliases: Vec<String>,
     /// Canonical Markdown body retained for portable representations.
     pub(crate) authored_markdown: String,
+    /// The body with its citations published as notes, for a post that opts
+    /// in and cites; every public representation reads it instead of the
+    /// authored body (ADR 0048).
+    pub(crate) published_markdown: Option<String>,
+    /// Why an opted-in post's citations could not be published, for the site
+    /// load to decide: it refuses a post this load publishes and warns about a
+    /// draft or a held-back post, whose citations stay text (ADR 0049).
+    pub(crate) citation_error: Option<String>,
+    /// What the published citations made public, for a post that publishes
+    /// them; portable bibliography exports read it (ADR 0050).
+    pub(crate) citations: Option<CitationSummary>,
+    /// The supplements of a post that opts in to reading modes with
+    /// `readingModes: true` (ADR 0140); `None` for every other post.
+    pub(crate) reading_depth: Option<crate::reading_depth::ReadingDepth>,
+    /// What the post publishes of its approved claims and its revision notes,
+    /// for a site that publishes claim evidence (ADR 0075).
+    pub(crate) claim_evidence: Option<PostEvidence>,
+    /// Why its claim evidence could not be published, for the site load to
+    /// decide as for citations: refuse a post it publishes, warn otherwise.
+    pub(crate) evidence_error: Option<String>,
+    /// The approved reader notes this post's canonical page shows, read
+    /// through the public projection (ADR 0083); empty for most posts.
+    pub(crate) reader_feedback: Vec<crate::feedback_publication::PublicFeedback>,
+    /// The approved Third Perspectives this post's canonical page shows, read
+    /// through the one public projection (ADRs 0111 and 0115).
+    pub(crate) third_perspectives: Vec<crate::perspective_publication::PublicPerspective>,
+    /// The reflections the editors chose to feature on this post's canonical
+    /// page, by the day they were featured (ADRs 0180 and 0184); empty for
+    /// most posts. Each is the one public projection of a reflection that is
+    /// also in `third_perspectives`.
+    pub(crate) community_features: Vec<crate::community_feature::FeaturedPerspective>,
+    /// The body HTML. A concept link (ADR 0172) is the plain text of its
+    /// label here until [`Site::link_concepts`] resolves it against the
+    /// public atlas, so a post nobody resolved never carries a link that
+    /// leads nowhere.
     pub html: String,
+    /// The body HTML with each concept link still marked, for
+    /// [`Site::link_concepts`]; `None` for a post with no concept link.
+    pub(crate) concept_html: Option<String>,
+    /// The ids (as written) of concept links inside an image's description,
+    /// which are plain text there; each is a warning for the author.
+    pub(crate) concept_refusals: Vec<crate::concept_links::Refusal>,
+    /// The publication Markdown with each concept link written as its label,
+    /// for copies that leave the site; `None` for a post with no concept link.
+    pub(crate) portable_markdown: Option<String>,
     pub text: String,
     pub headings: Vec<Heading>,
     pub word_count: usize,
@@ -195,6 +310,9 @@ pub struct Post {
     pub(crate) profile_warnings: Vec<String>,
     pub(crate) accessibility: Vec<AccessibilityFinding>,
     pub(crate) evidence: Vec<EvidenceFinding>,
+    /// Identifier, version, quotation-location and citation-consistency
+    /// findings about the sources this post cites (ADR 0148), for the author.
+    pub(crate) source_review: Vec<crate::source_review::SourceReviewFinding>,
     /// Semantic capabilities detected in the authored Markdown.
     pub capabilities: Vec<CapabilityDescriptor>,
     /// Set for posts using the recipe profile: times, servings, ingredients, steps.
@@ -221,12 +339,89 @@ impl Post {
         &self.authored_markdown
     }
 
+    /// The Markdown every public representation is built from: the authored
+    /// body, or for a post that publishes citations, that body with them
+    /// written as generated notes. One body, so the native page, portable
+    /// copies and feeds can never disagree about a citation.
+    pub fn publication_markdown(&self) -> &str {
+        self.published_markdown
+            .as_deref()
+            .unwrap_or(&self.authored_markdown)
+    }
+
+    /// Whether the post links an atlas entry with `atlas:` (ADR 0172), so it
+    /// needs the public atlas attached before it is shown.
+    pub fn has_concept_links(&self) -> bool {
+        self.concept_html.is_some()
+    }
+
+    /// The Markdown portable copies, feeds and exports are built from: the
+    /// publication Markdown, with each atlas link written as its label and
+    /// each raw concept mark removed, since a copy cannot resolve an atlas
+    /// entry (ADR 0173).
+    pub fn portable_markdown(&self) -> &str {
+        self.portable_markdown
+            .as_deref()
+            .unwrap_or_else(|| self.publication_markdown())
+    }
+
+    /// The supplements this post publishes for its reading modes, or `None`
+    /// when it has not opted in (ADR 0140).
+    pub fn reading_depth(&self) -> Option<&crate::reading_depth::ReadingDepth> {
+        self.reading_depth.as_ref()
+    }
+
+    /// What this post's published citations made public, or `None` when it
+    /// publishes none. Its references are the only input of the portable
+    /// bibliography exports, so they hold exactly what the page shows.
+    pub fn citations(&self) -> Option<&CitationSummary> {
+        self.citations.as_ref()
+    }
+
+    /// What this post publishes of its approved claims, evidence and revision
+    /// notes, or `None` when it publishes none (ADR 0075).
+    pub fn claim_evidence(&self) -> Option<&PostEvidence> {
+        self.claim_evidence.as_ref()
+    }
+
+    /// The approved reader notes this post's canonical page shows (ADR 0083).
+    pub fn reader_feedback(&self) -> &[crate::feedback_publication::PublicFeedback] {
+        &self.reader_feedback
+    }
+
+    /// The approved Third Perspectives this post's canonical page shows (ADR 0115).
+    pub fn third_perspectives(&self) -> &[crate::perspective_publication::PublicPerspective] {
+        &self.third_perspectives
+    }
+
+    /// The featured reflections this post's canonical page shows now (ADR 0184).
+    pub fn community_features(&self) -> &[crate::community_feature::FeaturedPerspective] {
+        &self.community_features
+    }
+
+    /// The reader-facing reference data of this post's published citations
+    /// (ADR 0059), or `None` when it publishes none.
+    pub fn reader_references(&self) -> Option<crate::reader_references::ReaderReferences> {
+        self.citations.as_ref().and_then(|summary| {
+            crate::reader_references::ReaderReferences::from_summary(summary).ok()
+        })
+    }
+
     /// Actual authors only, in authored credit order. Secondary contributors
     /// remain available through `credits` but never leak into author metadata.
     pub fn authors(&self) -> impl Iterator<Item = &ResolvedCredit> {
         self.credits
             .iter()
             .filter(|credit| credit.roles.iter().any(|role| role.is_author()))
+    }
+
+    /// Whether this is a collaborative work: its approved work credits (an explicit credit
+    /// sidecar, which is what the shared-publication gate writes) name two or more authors
+    /// (ADR 0040). A legacy post's default site-author credit never makes it one, and neither
+    /// does a single credited author.
+    pub fn is_collaborative(&self) -> bool {
+        self.credit_provenance == CreditProvenance::ExplicitSidecar
+            && self.authors().nth(1).is_some()
     }
 
     /// The escaped "Originally published at" notice for a post first published
@@ -249,6 +444,9 @@ pub struct Series {
     pub slug: String,
     pub url: String,
     pub description_html: String,
+    /// What the renderer refused in the description (ADR 0173), for the
+    /// author's warnings written when the site loads.
+    pub(crate) concept_refusals: Vec<crate::concept_links::Refusal>,
     pub description_text: String,
     pub theme: Option<String>,
     pub cover: Option<String>,
@@ -260,6 +458,25 @@ pub struct Series {
     pub(crate) accessibility: Vec<AccessibilityFinding>,
     /// Semantic capabilities detected in the authored description.
     pub capabilities: Vec<CapabilityDescriptor>,
+}
+
+/// One published part's place in a collaborative series, as feeds and portable copies state it
+/// (ADR 0041). Built by `Site::series_context`; every value is already public on the series page.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SeriesContext {
+    /// The series name, from its series definition or its slug.
+    pub name: String,
+    /// The series page, relative to the site root (`/series/<slug>/`).
+    pub url: String,
+    /// One-based position in the series' published reading order.
+    pub part: usize,
+    /// How many published parts the series has. Only the regenerated feeds state it (JSON Feed,
+    /// llms-full.txt); portable copies leave it out so a growing series does not change them.
+    pub parts: usize,
+    /// This part's named authors, in credit order.
+    pub part_authors: Vec<String>,
+    /// The series' named authors, once each, in order of first appearance.
+    pub contributors: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -278,6 +495,9 @@ pub struct Page {
     pub url: String,
     pub description: String,
     pub html: String,
+    /// What the renderer refused in the page (ADR 0173), for the author's
+    /// warnings written when the site loads.
+    pub(crate) concept_refusals: Vec<crate::concept_links::Refusal>,
     pub text: String,
     pub headings: Vec<Heading>,
     pub theme: Option<String>,
@@ -305,12 +525,129 @@ pub struct Site {
     pub accessibility: Vec<AccessibilityFinding>,
     /// Structured research/evidence guidance for the CLI and Admin Studio.
     pub evidence: Vec<EvidenceFinding>,
+    /// Source-review findings about the sources posts cite (ADR 0148), for
+    /// `openblog check` and builds. Never written to the output.
+    pub source_review: Vec<crate::source_review::SourceReviewFinding>,
     /// Known view totals per page path, supplied by the caller (for example from
     /// the analytics backup) so static builds can show counts.
     pub view_counts: BTreeMap<String, u64>,
+    /// The public Knowledge Atlas projection, supplied by the caller only when
+    /// the site opts in to publishing it (ADR 0058). `None` writes no atlas
+    /// output at all.
+    pub atlas: Option<crate::atlas_publication::PublicAtlas>,
+    /// The public comparison projection, supplied by the caller only when the
+    /// site opts in to publishing comparisons (ADR 0092). `None` writes no
+    /// comparison output at all.
+    pub comparisons: Option<crate::comparison_publication::PublicComparisons>,
+    /// The public curated research context, supplied by the caller only when
+    /// the site publishes it (`curatedContext.publish`, ADR 0185) and its
+    /// selections can be read. `None` writes no curated output at all: no
+    /// file and no section on any page.
+    pub curation: Option<crate::curated_selection::PublicCuration>,
+    /// The curated context projected once over every post (ADR 0202), shared
+    /// by the portable copies so a long feed does not project it per post.
+    /// Built on first use from `curation`; assign `curation` through
+    /// [`Site::set_curation`], which drops it.
+    curated_cache:
+        std::sync::OnceLock<Option<std::sync::Arc<crate::curated_context::CuratedContext>>>,
+    /// Why this site's claim evidence cannot be published (ADR 0075): the
+    /// claims file, or the library or notebook it is checked against, cannot
+    /// be read or validated. A full build or `check` refuses while it is set,
+    /// where a damaged published atlas refuses it; `generate` itself does not,
+    /// so a load or render that only validates content (an Admin save, a
+    /// preview) is not stopped by it.
+    pub claim_evidence_error: Option<String>,
+    /// Why the site's published reader feedback cannot be read (ADR 0083).
+    /// Like `claim_evidence_error`, a full build or `check` refuses while it
+    /// is set, and a load that only validates content is not stopped.
+    pub reader_feedback_error: Option<String>,
+    /// Why the site's published Third Perspectives cannot be read (ADR 0115),
+    /// refused like `reader_feedback_error`.
+    pub third_perspectives_error: Option<String>,
+    /// Why the site's featured reflections cannot be read (ADR 0181), refused
+    /// like `third_perspectives_error`.
+    pub community_features_error: Option<String>,
+    /// The time the site was loaded for (`LoadOptions::now`). A post dated after it is scheduled,
+    /// even when a preview or the admin editor loaded it, so it is never a series part.
+    now: Option<DateTime>,
 }
 
 impl Site {
+    /// Attach (or remove) the public curated context. Anything projected from
+    /// the earlier value is dropped.
+    pub fn set_curation(&mut self, curation: Option<crate::curated_selection::PublicCuration>) {
+        self.curation = curation;
+        self.curated_cache = std::sync::OnceLock::new();
+    }
+
+    /// The curated context a portable copy of `post` carries (ADR 0202): the
+    /// public curated value's projection, when the site publishes one and
+    /// offers this post something. It is the same projection the post's page
+    /// is rendered from; where the whole file is not written (a bound, an
+    /// inconsistency) it is the projection of this post alone, as its page's.
+    /// `None` leaves every copy exactly as it was.
+    pub fn curated_context_for(
+        &self,
+        post: &Post,
+    ) -> Option<std::sync::Arc<crate::curated_context::CuratedContext>> {
+        use crate::curated_context::{CuratedContext, PostRef};
+        let curation = self.curation.as_ref()?;
+        let whole = self.curated_cache.get_or_init(|| {
+            let posts: Vec<PostRef<'_>> = self
+                .posts
+                .iter()
+                .map(|post| PostRef {
+                    slug: post.slug.as_str(),
+                    url: post.url.as_str(),
+                })
+                .collect();
+            CuratedContext::project(curation, &posts, &self.config.base_path())
+                .ok()
+                .filter(|context| !context.items.is_empty())
+                .map(std::sync::Arc::new)
+        });
+        let context = match whole {
+            Some(context) => context.clone(),
+            None => std::sync::Arc::new(CuratedContext::for_one_post(
+                curation,
+                PostRef {
+                    slug: &post.slug,
+                    url: &post.url,
+                },
+            )?),
+        };
+        context.for_post(&post.slug).is_some().then_some(context)
+    }
+
+    /// Resolve every post's concept links (ADR 0172) against the public atlas
+    /// the caller attached, as it is now: a published entry becomes a link to
+    /// its page, and anything else the label as plain text with a warning for
+    /// the author, scoped to the post and the id. Safe to call again after the
+    /// atlas changes; each call replaces the earlier concept warnings.
+    pub fn link_concepts(&mut self) {
+        self.warnings
+            .retain(|warning| !warning.contains(crate::concept_links::WARNING_MARK));
+        let mut found = Vec::new();
+        for post in &mut self.posts {
+            if let Some(marked) = &post.concept_html {
+                let linked = crate::concept_links::link_html(marked, self.atlas.as_ref());
+                post.html = linked.html;
+                found.extend(
+                    linked
+                        .uses
+                        .iter()
+                        .filter_map(|used| used.warning(&post.source)),
+                );
+            }
+            found.extend(
+                crate::concept_links::refusal_uses(&post.concept_refusals)
+                    .iter()
+                    .filter_map(|used| used.warning(&post.source)),
+            );
+        }
+        self.warnings.extend(found);
+    }
+
     /// Build the site model. Hard errors (unparseable front matter, missing
     /// titles, duplicate slugs) fail the build; softer problems become warnings.
     pub fn load(
@@ -323,15 +660,63 @@ impl Site {
         let mut accessibility =
             accessibility::audit_site_language("openblog.json", &config.language);
         let mut evidence = Vec::new();
+        let mut source_review = Vec::new();
         let render_options = config.render_options();
         let credit_sidecars = associate_credit_sidecars(&sources);
+        // Read and parsed on first need only, so a site whose posts cite
+        // nothing never reads it and a broken library refuses only the posts
+        // that cite.
+        let parsed_library = std::cell::OnceCell::new();
+        let library = || -> Result<Option<&SourceLibrary>, String> {
+            parsed_library
+                .get_or_init(|| read_library(sources.source_library.as_ref(), &config))
+                .as_ref()
+                .map(Option::as_ref)
+                .map_err(Clone::clone)
+        };
         errors.extend(credit_sidecars.errors.iter().cloned());
+        // Claim evidence, only while the site publishes it (ADR 0075). Without
+        // the switch the private claims file is never consulted and every post
+        // is published as before.
+        let mut claim_evidence_error = None;
+        // A site that takes passage feedback publishes the author's revision
+        // notes too, without reading any claims file (ADR 0083): a note
+        // recorded after a reader's suggestion led to a change.
+        let feedback_notes = crate::participation::transport_available(&config)
+            && config.participation.passage_feedback_enabled();
+        let claim_mode = if config.claim_evidence.publish {
+            match &sources.claim_evidence {
+                Some(ClaimEvidenceSource::Stored(projection)) => {
+                    ClaimEvidenceMode::Publish(Some(projection))
+                }
+                Some(ClaimEvidenceSource::Unstored { warning }) => {
+                    warnings.push(warning.clone());
+                    ClaimEvidenceMode::Publish(None)
+                }
+                Some(ClaimEvidenceSource::Unreadable(error)) => {
+                    claim_evidence_error = Some(error.clone());
+                    ClaimEvidenceMode::Publish(None)
+                }
+                None => ClaimEvidenceMode::Publish(None),
+            }
+        } else if feedback_notes {
+            ClaimEvidenceMode::Publish(None)
+        } else {
+            ClaimEvidenceMode::Off
+        };
 
         // Series definitions first, so posts can reference them.
         let mut series: Vec<Series> = Vec::new();
         for file in &sources.series {
-            match load_series(file, render_options) {
-                Ok(s) => {
+            match load_series(file, concept_options(render_options)) {
+                Ok(mut s) => {
+                    let (html, notes) = crate::concept_links::plain_outside_post(
+                        &s.description_html,
+                        &s.concept_refusals,
+                        &file.path,
+                    );
+                    s.description_html = html;
+                    warnings.extend(notes);
                     if series.iter().any(|existing| existing.slug == s.slug) {
                         errors.push(format!("{}: duplicate series slug `{}`", file.path, s.slug));
                     } else {
@@ -362,7 +747,13 @@ impl Site {
                 continue;
             }
             let sidecar = credit_sidecars.by_post.get(&normalized_path).copied();
-            match load_post(file, &config, render_options) {
+            match load_post_in(
+                file,
+                &config,
+                render_options,
+                Citations::Publish(&library),
+                claim_mode,
+            ) {
                 Ok(mut post) => {
                     if let Err(error) = apply_credits(&mut post, &config, sidecar) {
                         errors.push(format!(
@@ -401,13 +792,45 @@ impl Site {
                     }
                     let is_preview_target =
                         options.preview_source.as_deref() == Some(post.source.as_str());
-                    if post.draft && !options.include_drafts && !is_preview_target {
+                    let held_back = !options.include_drafts && !is_preview_target;
+                    let scheduled_out = held_back && options.now.is_some_and(|now| post.date > now);
+                    // Only a post this load publishes is refused (ADR 0049).
+                    // A draft, a post waiting for its date and, in a preview,
+                    // every other document keep their citations as text and
+                    // publish no claim evidence.
+                    let reason = if post.draft {
+                        Some("while the post is a draft")
+                    } else if scheduled_out {
+                        Some("until the post is due, and must resolve before then")
+                    } else if options.preview_source.is_some() && !is_preview_target {
+                        Some("in this preview")
+                    } else {
+                        None
+                    };
+                    let mut refused = false;
+                    for (what, error) in [
+                        ("citations are", post.citation_error.take()),
+                        ("claim evidence is", post.evidence_error.take()),
+                    ] {
+                        let Some(error) = error else { continue };
+                        match reason {
+                            Some(reason) => warnings.push(format!(
+                                "{}: {what} not published {reason}: {error}",
+                                file.path
+                            )),
+                            None => {
+                                errors.push(format!("{}: {error}", file.path));
+                                refused = true;
+                            }
+                        }
+                    }
+                    if refused {
                         continue;
                     }
-                    if !options.include_drafts
-                        && !is_preview_target
-                        && options.now.is_some_and(|now| post.date > now)
-                    {
+                    if post.draft && held_back {
+                        continue;
+                    }
+                    if scheduled_out {
                         scheduled.push(Scheduled {
                             title: post.title.clone(),
                             slug: post.slug.clone(),
@@ -421,17 +844,31 @@ impl Site {
                     }
                     accessibility.extend(post.accessibility.iter().cloned());
                     evidence.extend(post.evidence.iter().cloned());
+                    source_review.extend(post.source_review.iter().cloned());
                     posts.push(post);
                 }
                 Err(error) => errors.push(format!("{}: {error}", file.path)),
             }
         }
         posts.sort_by(|a, b| b.date.cmp(&a.date).then_with(|| a.slug.cmp(&b.slug)));
+        let reader_feedback_error =
+            attach_reader_feedback(&mut posts, &sources, &config, &mut warnings);
+        let third_perspectives_error =
+            attach_third_perspectives(&mut posts, &sources, &config, &mut warnings);
+        let community_features_error =
+            attach_community_features(&mut posts, &sources, &config, &mut warnings);
 
         let mut pages: Vec<Page> = Vec::new();
         for file in &sources.pages {
-            match load_page(file, render_options) {
-                Ok(page) => {
+            match load_page(file, concept_options(render_options)) {
+                Ok(mut page) => {
+                    let (html, notes) = crate::concept_links::plain_outside_post(
+                        &page.html,
+                        &page.concept_refusals,
+                        &file.path,
+                    );
+                    page.html = html;
+                    warnings.extend(notes);
                     if pages.iter().any(|p| p.slug == page.slug) {
                         errors.push(format!(
                             "{}: duplicate page slug `{}`",
@@ -446,6 +883,25 @@ impl Site {
             }
         }
         pages.sort_by(|a, b| a.title.cmp(&b.title));
+        if config.home.intro.contains(crate::concept_links::SCHEME) {
+            // The home introduction shows an `atlas:` link as its label (the
+            // renderer does the same); the author hears about it here.
+            let intro = markdown::render(
+                &config.home.intro,
+                RenderOptions {
+                    concept_links: true,
+                    ..Default::default()
+                },
+            );
+            warnings.extend(
+                crate::concept_links::plain_outside_post(
+                    &intro.html,
+                    &intro.concept_refusals,
+                    "openblog.json (home.intro)",
+                )
+                .1,
+            );
+        }
 
         if !errors.is_empty() {
             return Err(errors);
@@ -468,6 +924,7 @@ impl Site {
                         slug: series_slug.clone(),
                         url: format!("/series/{series_slug}/"),
                         description_html: String::new(),
+                        concept_refusals: Vec::new(),
                         description_text: String::new(),
                         theme: None,
                         cover: None,
@@ -545,7 +1002,17 @@ impl Site {
             warnings,
             accessibility,
             evidence,
+            source_review,
             view_counts: BTreeMap::new(),
+            atlas: None,
+            comparisons: None,
+            curation: None,
+            curated_cache: std::sync::OnceLock::new(),
+            claim_evidence_error,
+            reader_feedback_error,
+            third_perspectives_error,
+            community_features_error,
+            now: options.now,
         })
     }
 
@@ -616,6 +1083,97 @@ impl Site {
         (prev, next)
     }
 
+    /// Everyone credited as an author on any published part of the series, once each, in the
+    /// order they first appear reading the series from its first part (ADR 0038). Derived from
+    /// the posts' resolved work credits at read time and never stored, so a changed credit
+    /// changes the answer and a removed one cannot linger. Secondary contributors are not
+    /// included. One person is listed once even when credited under two ids: a legacy post's
+    /// default site-author credit and the owner's registry credit on a shared reflection are the
+    /// same person when their names match (and their profile URLs, when both have one). Two
+    /// distinct registry ids are always two people, whatever their names (ADR 0040).
+    pub fn series_contributors(&self, series: &Series) -> Vec<&crate::contributor::ResolvedCredit> {
+        self.contributors_among(series.posts.iter().copied())
+    }
+
+    fn contributors_among(
+        &self,
+        parts: impl Iterator<Item = usize>,
+    ) -> Vec<&crate::contributor::ResolvedCredit> {
+        let mut out: Vec<&crate::contributor::ResolvedCredit> = Vec::new();
+        for index in parts {
+            for credit in self.posts[index].authors() {
+                if !out.iter().any(|known| same_person(known, credit)) {
+                    out.push(credit);
+                }
+            }
+        }
+        out
+    }
+
+    /// The public series context feeds and portable copies carry for `post` (ADR 0041): only
+    /// when the post is a published part of a collaborative series, and `None` otherwise, so
+    /// every other post's feed items and portable copies stay exactly as they were. Drafts and
+    /// scheduled posts (dated after the time the site was loaded for) are not parts here, even
+    /// on a site that holds them because it was loaded with drafts or to preview one, so they
+    /// neither get a context nor count towards another part's position, total or contributors.
+    /// Any site loaded at the same time therefore gives a post the same context. Everything in it
+    /// is already public on the series page: the series name and URL, the part's place in the
+    /// reading order, and author names from approved work credits. It reads no collaboration
+    /// state.
+    pub fn series_context(&self, post: &Post) -> Option<SeriesContext> {
+        if !self.is_public_part(post) {
+            return None;
+        }
+        let series = self.series_by_slug(post.series.as_deref()?)?;
+        let parts: Vec<usize> = series
+            .posts
+            .iter()
+            .copied()
+            .filter(|&index| self.is_public_part(&self.posts[index]))
+            .collect();
+        let position = parts
+            .iter()
+            .position(|&index| self.posts[index].source == post.source)?;
+        if !parts
+            .iter()
+            .any(|&index| self.posts[index].is_collaborative())
+        {
+            return None;
+        }
+        let names = |credits: Vec<&crate::contributor::ResolvedCredit>| {
+            credits
+                .into_iter()
+                .map(|credit| credit.contributor.name.trim().to_string())
+                .filter(|name| !name.is_empty())
+                .collect::<Vec<_>>()
+        };
+        Some(SeriesContext {
+            name: series.name.clone(),
+            url: series.url.clone(),
+            part: position + 1,
+            parts: parts.len(),
+            part_authors: names(self.posts[parts[position]].authors().collect()),
+            contributors: names(self.contributors_among(parts.iter().copied())),
+        })
+    }
+
+    /// Whether `post` is public on this site's production pages: neither a draft nor dated after
+    /// the time the site was loaded for.
+    fn is_public_part(&self, post: &Post) -> bool {
+        !post.draft && self.now.is_none_or(|now| post.date <= now)
+    }
+
+    /// Whether the series names its parts' authors on its page and in its navigation: only when
+    /// one of its published parts is a collaborative work (ADR 0040). Drafts and scheduled posts
+    /// are not parts, so they never switch it on, and a series without a collaborative part
+    /// renders exactly as before.
+    pub fn series_is_collaborative(&self, series: &Series) -> bool {
+        series
+            .posts
+            .iter()
+            .any(|&index| self.posts[index].is_collaborative())
+    }
+
     /// When the next scheduled post becomes public, if any.
     pub fn next_scheduled(&self) -> Option<DateTime> {
         self.scheduled.first().map(|s| s.date)
@@ -653,6 +1211,27 @@ impl Site {
     pub fn latest_update(&self) -> Option<DateTime> {
         self.posts.iter().map(|p| p.updated.unwrap_or(p.date)).max()
     }
+}
+
+/// Whether two author credits name the same person for a series' contributor list. The same id
+/// always does. A legacy site-author credit matches a registry credit with the same name when
+/// their profile URLs agree or either has none. Two distinct registry ids never match: the
+/// registry is where people are told apart, so two entries are two people even when they share a
+/// name, or a name and a URL.
+fn same_person(
+    a: &crate::contributor::ResolvedCredit,
+    b: &crate::contributor::ResolvedCredit,
+) -> bool {
+    use crate::contributor::SITE_AUTHOR_ID;
+    if a.contributor_id == b.contributor_id {
+        return true;
+    }
+    if a.contributor_id != SITE_AUTHOR_ID && b.contributor_id != SITE_AUTHOR_ID {
+        return false;
+    }
+    let (a_url, b_url) = (a.contributor.url.trim(), b.contributor.url.trim());
+    a.contributor.name.trim() == b.contributor.name.trim()
+        && (a_url == b_url || a_url.is_empty() || b_url.is_empty())
 }
 
 fn seo_warnings(post: &Post) -> Vec<String> {
@@ -710,6 +1289,263 @@ fn seo_warnings(post: &Post) -> Vec<String> {
     warnings
 }
 
+fn is_draft(fm: &FrontMatter) -> bool {
+    fm.get_bool("draft").unwrap_or(false)
+        || first(fm, &["status"]).is_some_and(|s| s.eq_ignore_ascii_case("draft"))
+}
+
+/// The file line of the first citation that would stop `source` publishing
+/// against `library`, for a post that is not a draft and opts in to
+/// citations; `None` for any other post or when every citation resolves.
+/// The source library uses it to refuse an edit that would make a published
+/// post's citations fail (ADR 0049). It reads nothing but its inputs.
+pub fn uncitable_line(source: &str, library: &SourceLibrary) -> Option<usize> {
+    let doc = frontmatter::parse(source).ok()?;
+    let fm = &doc.front_matter;
+    if is_draft(fm) {
+        return None;
+    }
+    CitationStyle::from_front_matter(first(fm, &["citations"])).ok()??;
+    let file_line = |line: Option<usize>| line.unwrap_or(1) + doc.body_line.max(1) - 1;
+    let scan = crate::citations::scan_citations(&doc.body);
+    if let Some(found) = scan.diagnostics.first() {
+        return Some(file_line(found.line));
+    }
+    crate::citations::resolve_citations(&scan.mentions, library)
+        .diagnostics
+        .first()
+        .map(|found| file_line(found.line))
+}
+
+/// Give each post the approved reader notes its canonical page shows (ADR
+/// 0083), or say why the file cannot be read. A note is shown only where its
+/// kind's site and post mode shows approved items (ADR 0101), so a post that
+/// hides a kind shows none of it, while a site without its hosted service
+/// keeps showing what it published; a note about a post that no longer exists
+/// is a warning, and one about a draft or scheduled post waits for it.
+fn attach_reader_feedback(
+    posts: &mut [Post],
+    sources: &Sources,
+    config: &SiteConfig,
+    warnings: &mut Vec<String>,
+) -> Option<String> {
+    let file = sources.reader_feedback.as_ref()?;
+    let published = match crate::feedback_publication::ReaderFeedbackFile::from_json(&file.contents)
+    {
+        Ok(published) => published,
+        Err(error) => return Some(format!("{}: {error}", file.path)),
+    };
+    let known: std::collections::HashSet<String> = sources
+        .posts
+        .iter()
+        .map(|post| post.path.replace('\\', "/"))
+        .collect();
+    for (index, item) in published.items.iter().enumerate() {
+        if !known.contains(&item.post) {
+            warnings.push(format!(
+                "{}: item {} is about {}, which is not a post; it is not published",
+                file.path,
+                index + 1,
+                item.post
+            ));
+        }
+    }
+    for post in posts.iter_mut() {
+        let mut items = published.for_post(&post.source.replace('\\', "/"));
+        items.retain(|item| {
+            crate::participation::published_mode(config, post, item.kind.participation_kind())
+                .shows_approved()
+        });
+        if items.is_empty() {
+            continue;
+        }
+        let document = crate::passage_target::PassageDocument::of_post(post, config);
+        // A suggestion the author has not decided reads as unresolved only where the
+        // site takes evidence submissions (ADR 0119): any other site's page is as before.
+        post.reader_feedback = crate::feedback_publication::project(
+            &items,
+            post,
+            &document,
+            config.engagement.evidence,
+        );
+        // Portable copies and feeds carry a labelled link to the canonical
+        // page instead of the notes (P6.2).
+        post.capabilities.push(CapabilityDescriptor::describe(
+            "passage-questions-and-corrections",
+            Some(crate::feedback_publication::READER_FEEDBACK_ANCHOR),
+        ));
+    }
+    None
+}
+
+/// Give each post the approved Third Perspectives its canonical page shows
+/// (ADR 0115), or say why the file cannot be read. Each is re-read through
+/// the one public projection against the post as published now, and only
+/// where RD12's published mode for the kind shows approved items, so a site
+/// without its hosted service keeps showing what was approved while a post
+/// that hides the kind shows none. A record about a post that no longer
+/// exists, or about an address the post no longer has, is a warning and is
+/// not shown; one about a draft or scheduled post waits for it. A post that
+/// shows Third Perspectives, or offers the form for them, carries a labelled
+/// link to its canonical page in portable copies and feeds instead (P6.2).
+fn attach_third_perspectives(
+    posts: &mut [Post],
+    sources: &Sources,
+    config: &SiteConfig,
+    warnings: &mut Vec<String>,
+) -> Option<String> {
+    use crate::participation::{ParticipationKind, ParticipationMode};
+    use crate::perspective_publication as publication;
+    let published = match &sources.third_perspectives {
+        None => None,
+        Some(file) => match publication::ThirdPerspectivesFile::from_json(&file.contents) {
+            Ok(published) => Some((file.path.as_str(), published)),
+            Err(error) => return Some(format!("{}: {error}", file.path)),
+        },
+    };
+    if let Some((path, published)) = &published {
+        let known: std::collections::HashSet<String> = sources
+            .posts
+            .iter()
+            .map(|post| post.path.replace('\\', "/"))
+            .collect();
+        for (index, item) in published.items.iter().enumerate() {
+            if !known.contains(&item.post) {
+                warnings.push(format!(
+                    "{path}: item {} is about {}, which is not a post; it is not published",
+                    index + 1,
+                    item.post
+                ));
+            }
+        }
+    }
+    for post in posts.iter_mut() {
+        let kind = ParticipationKind::ThirdPerspective;
+        if let Some((path, published)) = &published {
+            let items = published.for_post(&post.source.replace('\\', "/"));
+            let mode = crate::participation::published_mode(config, post, kind);
+            if !items.is_empty() && mode.shows_approved() {
+                for item in items.iter().filter(|item| item.work != post.url) {
+                    warnings.push(format!(
+                        "{path}: Third Perspective {} is about {}, but {} is now published at {}; it is not shown",
+                        item.id, item.work, item.post, post.url
+                    ));
+                }
+                let answer_mode = crate::participation::published_mode(
+                    config,
+                    post,
+                    ParticipationKind::AuthorResponse,
+                );
+                post.third_perspectives =
+                    publication::project_post(&items, post, config, mode, answer_mode);
+            }
+        }
+        let offered =
+            crate::participation::effective_mode(config, post, kind) == ParticipationMode::Open;
+        if !post.third_perspectives.is_empty() || offered {
+            post.capabilities.push(CapabilityDescriptor::describe(
+                publication::THIRD_PERSPECTIVES_CAPABILITY,
+                // The region's component renders only the form: with reflections to
+                // show, the canonical section is plain HTML and has no renderer.
+                post.third_perspectives
+                    .is_empty()
+                    .then_some(crate::render::THIRD_PERSPECTIVE_ANCHOR),
+            ));
+        }
+    }
+    None
+}
+
+/// Read the site's featured reflections strictly (ADR 0181), or say why the
+/// file cannot be read. Nothing is repaired or dropped. A feature is attached
+/// to its post only while everything that allowed it still holds, checked
+/// against the committed `third-perspectives.json` the page is built from
+/// (ADR 0178): a feature that does not stand is absent from the page with no
+/// mark of a gap, and is only warned about, naming the id and a fixed reason
+/// and never any content. A post whose Third Perspectives are hidden shows no
+/// feature. A post without a feature, and a site without the file, are
+/// untouched.
+fn attach_community_features(
+    posts: &mut [Post],
+    sources: &Sources,
+    config: &SiteConfig,
+    warnings: &mut Vec<String>,
+) -> Option<String> {
+    use crate::community_feature as community;
+    use crate::participation::ParticipationKind;
+    let file = sources.community_features.as_ref()?;
+    let features = match community::FeaturesFile::from_json(&file.contents) {
+        Ok(features) => features,
+        Err(error) => return Some(format!("{}: {error}", file.path)),
+    };
+    let known: std::collections::HashSet<String> = sources
+        .posts
+        .iter()
+        .map(|post| post.path.replace('\\', "/"))
+        .collect();
+    for (index, item) in features.items.iter().enumerate() {
+        if !known.contains(&item.post) {
+            warnings.push(format!(
+                "{}: item {} is about {}, which is not a post; it is not shown",
+                file.path,
+                index + 1,
+                item.post
+            ));
+        }
+    }
+    // The reflections the page is built from. A file that cannot be read is
+    // already the build's error; no feature is shown without its reflection.
+    let published = match &sources.third_perspectives {
+        None => crate::perspective_publication::ThirdPerspectivesFile::default(),
+        Some(third) => {
+            match crate::perspective_publication::ThirdPerspectivesFile::from_json(&third.contents)
+            {
+                Ok(published) => published,
+                Err(_) => return None,
+            }
+        }
+    };
+    for post in posts.iter_mut() {
+        let records = features.for_post(&post.source.replace('\\', "/"));
+        if records.is_empty() {
+            continue;
+        }
+        let mode =
+            crate::participation::published_mode(config, post, ParticipationKind::ThirdPerspective);
+        if !mode.shows_approved() {
+            continue;
+        }
+        let answer_mode =
+            crate::participation::published_mode(config, post, ParticipationKind::AuthorResponse);
+        let mut shown = Vec::new();
+        for (id, result) in
+            community::resolve_post(&records, &published, Some(post), config, mode, answer_mode)
+        {
+            match result {
+                Ok(feature) => shown.push(feature),
+                Err(community::NotShown::Off(reason)) => warnings.push(format!(
+                    "{}: feature {id} is not shown: {}",
+                    file.path,
+                    reason.explanation()
+                )),
+                Err(community::NotShown::Hidden(_)) => {}
+            }
+        }
+        post.community_features = shown;
+    }
+    None
+}
+
+/// A post's revision notes as written: each item of the list, or one note
+/// written as a single value (which is never split at its commas).
+fn revision_items(fm: &FrontMatter) -> Vec<String> {
+    match fm.fields.get(crate::claim_publication::REVISIONS_FIELD) {
+        Some(frontmatter::Value::List(items)) => items.clone(),
+        Some(frontmatter::Value::Scalar(item)) if !item.trim().is_empty() => vec![item.clone()],
+        _ => Vec::new(),
+    }
+}
+
 fn first<'a>(fm: &'a FrontMatter, keys: &[&str]) -> Option<&'a str> {
     keys.iter()
         .find_map(|k| fm.get(k))
@@ -726,26 +1562,244 @@ fn optional_string(value: Option<&str>) -> Option<String> {
     value.map(str::to_string).filter(|v| !v.is_empty())
 }
 
-/// Parse one post file.
+/// Parse the private library for a load, with a message that names the file
+/// and how to see the problems, never the library's contents.
+fn read_library(
+    source: Option<&LibrarySource>,
+    config: &SiteConfig,
+) -> Result<Option<SourceLibrary>, String> {
+    let read;
+    let file = match source {
+        None => return Ok(None),
+        Some(LibrarySource::Text(file)) => file,
+        Some(LibrarySource::Deferred(reader)) => {
+            read = reader.read().map_err(|reason| {
+                format!("the private source library cannot be read ({reason})")
+            })?;
+            match &read {
+                Some(file) => file,
+                None => return Ok(None),
+            }
+        }
+    };
+    // Builds never output interpretations, so their problems cannot fail one.
+    SourceLibrary::parse_for_build(&file.contents, &config.contributors)
+        .map(Some)
+        .map_err(|problems| {
+            format!(
+                "the private source library {} has {} problem(s); run `openblog check` to see them",
+                file.path,
+                problems.len()
+            )
+        })
+}
+
+/// How a post load treats a post that opts in to citations.
+enum Citations<'l> {
+    /// Keep them as authored text, for callers that read a post's metadata
+    /// (listings, publication status) without the private library.
+    Unpublished,
+    /// Publish them as notes, reading the library on first need.
+    Publish(&'l dyn Fn() -> Result<Option<&'l SourceLibrary>, String>),
+}
+
+/// Parse one post file. A post that opts in to citations keeps them as
+/// authored text here, since this reads no private library; a site load
+/// ([`Site::load`]) and [`load_post_cited`] publish them.
 pub fn load_post(
     file: &SourceFile,
     config: &SiteConfig,
     options: RenderOptions<'_>,
 ) -> Result<Post, String> {
+    load_post_in(
+        file,
+        config,
+        options,
+        Citations::Unpublished,
+        ClaimEvidenceMode::Off,
+    )
+}
+
+/// Parse one post file and publish its citations against `library` exactly
+/// as a site load publishes a post it includes: any citation problem refuses
+/// the post.
+pub fn load_post_cited(
+    file: &SourceFile,
+    config: &SiteConfig,
+    options: RenderOptions<'_>,
+    library: Option<&SourceLibrary>,
+) -> Result<Post, String> {
+    let library = || Ok(library);
+    let mut post = load_post_in(
+        file,
+        config,
+        options,
+        Citations::Publish(&library),
+        ClaimEvidenceMode::Off,
+    )?;
+    match post.citation_error.take() {
+        Some(error) => Err(error),
+        None => Ok(post),
+    }
+}
+
+/// How a post load treats claim evidence (ADR 0075).
+#[derive(Clone, Copy)]
+enum ClaimEvidenceMode<'e> {
+    /// The site does not publish it: the post is read exactly as before.
+    Off,
+    /// Publish the post's approved claims from this projection (none while
+    /// no claims file is stored) and its revision notes.
+    Publish(Option<&'e ClaimEvidence>),
+}
+
+fn load_post_in(
+    file: &SourceFile,
+    config: &SiteConfig,
+    options: RenderOptions<'_>,
+    citations: Citations<'_>,
+    claim_evidence: ClaimEvidenceMode<'_>,
+) -> Result<Post, String> {
     let doc = frontmatter::parse(&file.contents)?;
     let fm = &doc.front_matter;
     let mut profile = profile::resolve(fm);
     let is_recipe = profile.behavior == ProfileBehavior::Recipe;
-    let rendered = markdown::render(
-        &doc.body,
+    // `readingModes: true`, or `{default: guided}` (ADR 0142).
+    let reading_setting =
+        crate::reading_depth::setting(fm.get("readingModes").or_else(|| fm.get("reading_modes")));
+    // Citations are opt-in (ADR 0043): a post without `citations` is read
+    // exactly as before, and so is one that opts in but cites nothing.
+    let citation_style = CitationStyle::from_front_matter(first(fm, &["citations"]))?;
+    // Claim evidence (ADR 0075): the post's approved claims and the author's
+    // revision notes become one section of the publication Markdown, ahead of
+    // any citation notes. A post with neither is read exactly as before.
+    let mut evidence_error = None;
+    let mut claim_section = match claim_evidence {
+        ClaimEvidenceMode::Off => None,
+        ClaimEvidenceMode::Publish(projection) => {
+            match crate::claim_publication::revision_notes(&revision_items(fm)) {
+                Err(error) => {
+                    evidence_error = Some(error);
+                    None
+                }
+                Ok(notes) => {
+                    let slug = first(fm, &["slug"])
+                        .map(slugify)
+                        .unwrap_or_else(|| from_file_stem(file_stem(&file.path)));
+                    let draft = crate::claims::anchor_text(&file.contents).ok();
+                    crate::claim_publication::compose(
+                        projection,
+                        &slug,
+                        &config.post_url(&slug),
+                        draft.as_deref(),
+                        notes,
+                    )
+                }
+            }
+        }
+    };
+    // The section must read back exactly as composed before anything else is
+    // added; a post whose body would swallow it publishes no evidence.
+    let with_evidence = claim_section.as_mut().and_then(|(section, post_evidence)| {
+        let mut markdown = doc.body.clone();
+        if !markdown.ends_with('\n') {
+            markdown.push('\n');
+        }
+        markdown.push_str(section);
+        match crate::claim_publication::check_section(
+            &markdown,
+            post_evidence,
+            reading_setting.enabled,
+        ) {
+            Ok(()) => Some(markdown),
+            Err(error) => {
+                evidence_error = Some(error);
+                None
+            }
+        }
+    });
+    if with_evidence.is_none() {
+        claim_section = None;
+    }
+    let base = with_evidence.as_deref().unwrap_or(&doc.body);
+    let mut citation_error = None;
+    let mut citation_findings = Vec::new();
+    let mut source_review = Vec::new();
+    let published = match (citation_style, citations) {
+        (Some(style), Citations::Publish(library)) => {
+            citation_findings = crate::citation_review::review_citations(
+                &file.path,
+                &doc.body,
+                doc.body_line,
+                library,
+            );
+            source_review =
+                crate::source_review::review_post(&file.path, &doc.body, doc.body_line, library);
+            let locale = CitationLocale::for_post(
+                first(fm, &["citationLocale", "citation_locale"]),
+                &config.language,
+            )?;
+            // A failure keeps the citations as text and is left to the site
+            // load, which knows whether this post is published now.
+            match bibliography::publish_citations(
+                base,
+                doc.body_line,
+                style,
+                locale,
+                reading_setting.enabled,
+                library,
+            ) {
+                Ok(published) => published.map(|published| (published, locale)),
+                Err(error) => {
+                    citation_error = Some(error);
+                    None
+                }
+            }
+        }
+        _ => None,
+    };
+    let mut rendered = markdown::render(
+        published
+            .as_ref()
+            .map_or(base, |(published, _)| &published.markdown),
         RenderOptions {
             recipe: is_recipe,
+            citation_notes: published
+                .as_ref()
+                .map(|(published, locale)| CitationNoteLabels {
+                    prefix: &published.prefix,
+                    locale: *locale,
+                }),
+            claim_evidence_section: with_evidence.is_some(),
+            concept_links: true,
+            // Reading modes are opt-in (ADR 0140): without the key every
+            // block quote renders exactly as before.
+            supplements: reading_setting.enabled,
             ..options
         },
     );
     if !rendered.errors.is_empty() {
         return Err(rendered.errors.join("; "));
     }
+    if let Some(depth) = rendered.reading_depth.as_mut() {
+        // The post's own default, else the site's, else standard (ADR 0142).
+        depth.default_mode = if reading_setting.default_written {
+            reading_setting.default_mode
+        } else {
+            config.reading_modes.default
+        };
+        // Each unread marker, and each adjustment, is the author's to see in
+        // the build, `check` and Admin warnings (ADR 0142).
+        for finding in &depth.findings {
+            let marker = finding.marker.trim();
+            profile.warnings.push(if marker.is_empty() {
+                format!("reading modes: {}", finding.message)
+            } else {
+                format!("reading modes: `{marker}`: {}", finding.message)
+            });
+        }
+    }
+    profile.warnings.extend(reading_setting.warning.clone());
     let recipe = if is_recipe {
         let mut r = Recipe::from_front_matter(
             fm,
@@ -780,9 +1834,10 @@ pub fn load_post(
     if slug.is_empty() {
         return Err("could not derive a slug; add `slug:` to the front matter".into());
     }
-    let draft = fm.get_bool("draft").unwrap_or(false)
-        || first(fm, &["status"]).is_some_and(|s| s.eq_ignore_ascii_case("draft"));
+    let draft = is_draft(fm);
     let comments = CommentsPolicy::parse(first(fm, &["comments"]))?;
+    let participation =
+        crate::participation::PostParticipation::parse(&fm.get_list("participation"))?;
     let date = match first(fm, &["date", "published", "publishedAt", "pubDate"]) {
         Some(raw) => DateTime::parse(raw)
             .ok_or_else(|| format!("unrecognised date `{raw}` (use YYYY-MM-DD or RFC 3339)"))?,
@@ -828,7 +1883,7 @@ pub fn load_post(
         .filter(|s| !s.is_empty());
     let description = first(fm, &["description", "summary", "brief", "excerpt"])
         .map(str::to_string)
-        .unwrap_or_else(|| markdown::excerpt(&rendered.text, 180));
+        .unwrap_or_else(|| markdown::excerpt(&rendered.prose, 180));
     let authored_cover = optional_string(first(fm, &["cover", "image", "coverImage", "hero"]));
     let cover = authored_cover.clone().or(rendered.first_image.clone());
     if let Some(video) = &video {
@@ -864,14 +1919,67 @@ pub fn load_post(
         embeds_enabled: options.embeds,
         cover_alt: authored_cover.as_ref().map(|_| cover_alt.as_str()),
     });
-    let evidence = if profile.behavior == ProfileBehavior::Research {
+    let mut evidence = if profile.behavior == ProfileBehavior::Research {
         research::audit_document(&file.path, fm, &doc.body, doc.body_line)
     } else {
         Vec::new()
     };
+    // `citations: bibliography` appends the References heading (in the post's
+    // locale) to the published text only, so the authored-body audit above
+    // must not report it missing.
+    if published.is_some() && citation_style == Some(CitationStyle::Bibliography) {
+        evidence.retain(|finding| finding.code != research::EvidenceCode::ReferencesMissing);
+    }
+    evidence.extend(citation_findings);
+    let citation_summary = published
+        .as_ref()
+        .map(|(published, locale)| CitationSummary {
+            style: citation_style.unwrap_or(CitationStyle::Notes),
+            locale: *locale,
+            citations: published.citations,
+            notes: published.notes,
+            references: published.references.clone(),
+            prefix: published.prefix.clone(),
+            placements: published.placements.clone(),
+        });
     let (credits, credit_provenance) =
         contributor::resolve(&config.author, &config.contributors, None)
             .expect("legacy author resolution cannot fail");
+    let mut capabilities = rendered.capabilities;
+    if published.is_some() {
+        capabilities.push(CapabilityDescriptor::describe(
+            "citations",
+            Some("ob-citation-notes"),
+        ));
+    }
+    if claim_section.is_some() {
+        capabilities.push(CapabilityDescriptor::describe("claim-evidence", None));
+    }
+
+    // Concept links (ADR 0172): the page holds each as its label until the
+    // build resolves it against the public atlas.
+    let (html, concept_html) = if crate::concept_links::has_raw_mark(&rendered.html) {
+        (
+            crate::concept_links::link_html(&rendered.html, None).html,
+            rendered
+                .html
+                .contains(crate::concept_links::MARK_PREFIX)
+                .then(|| rendered.html.clone()),
+        )
+    } else {
+        (rendered.html.clone(), None)
+    };
+    let portable_markdown = (concept_html.is_some()
+        || !rendered.concept_refusals.is_empty()
+        || crate::concept_links::has_raw_mark(&rendered.html))
+    .then_some(())
+    .and_then(|()| {
+        crate::concept_links::plain_markdown(
+            published
+                .as_ref()
+                .map_or(base, |(published, _)| &published.markdown),
+        )
+    });
 
     Ok(Post {
         url: config.post_url(&slug),
@@ -888,6 +1996,7 @@ pub fn load_post(
         description,
         draft,
         comments,
+        participation,
         canonical: optional_string(first(fm, &["canonical", "canonicalUrl", "canonical_url"])),
         source_url: optional_string(first(
             fm,
@@ -896,7 +2005,21 @@ pub fn load_post(
         theme: optional_string(first(fm, &["theme"])),
         aliases: aliases(fm)?,
         authored_markdown: doc.body,
-        html: rendered.html,
+        published_markdown: published
+            .map(|(published, _)| published.markdown)
+            .or(with_evidence),
+        citation_error,
+        citations: citation_summary,
+        claim_evidence: claim_section.map(|(_, post_evidence)| post_evidence),
+        evidence_error,
+        reader_feedback: Vec::new(),
+        third_perspectives: Vec::new(),
+        community_features: Vec::new(),
+        reading_depth: rendered.reading_depth.clone(),
+        html,
+        concept_html,
+        concept_refusals: rendered.concept_refusals.clone(),
+        portable_markdown,
         text: rendered.text,
         headings: rendered.headings,
         word_count: rendered.word_count,
@@ -908,7 +2031,8 @@ pub fn load_post(
         profile_warnings: profile.warnings,
         accessibility,
         evidence,
-        capabilities: rendered.capabilities,
+        source_review,
+        capabilities,
         recipe,
         research,
         video,
@@ -967,6 +2091,16 @@ fn apply_credits(
     Ok(())
 }
 
+/// The options a page or a series is rendered with: its concept links are
+/// marked so they can be replaced by their labels with a warning, never left
+/// as an `atlas:` address (ADR 0172).
+fn concept_options(options: RenderOptions<'_>) -> RenderOptions<'_> {
+    RenderOptions {
+        concept_links: true,
+        ..options
+    }
+}
+
 fn load_series(file: &SourceFile, options: RenderOptions<'_>) -> Result<Series, String> {
     let doc = frontmatter::parse(&file.contents)?;
     let fm = &doc.front_matter;
@@ -993,6 +2127,7 @@ fn load_series(file: &SourceFile, options: RenderOptions<'_>) -> Result<Series, 
         name,
         slug,
         description_html: rendered.html,
+        concept_refusals: rendered.concept_refusals,
         description_text: first(fm, &["description"])
             .map(str::to_string)
             .unwrap_or_else(|| markdown::excerpt(&rendered.text, 200)),
@@ -1041,6 +2176,7 @@ fn load_page(file: &SourceFile, options: RenderOptions<'_>) -> Result<Page, Stri
             .map(str::to_string)
             .unwrap_or_else(|| markdown::excerpt(&rendered.text, 180)),
         html: rendered.html,
+        concept_refusals: rendered.concept_refusals,
         text: rendered.text,
         headings: rendered.headings,
         theme: optional_string(first(fm, &["theme"])),
@@ -1132,6 +2268,11 @@ mod tests {
             credits: Vec::new(),
             series: vec![post("series/guide.md", "---\nname: The Guide\ntheme: paper\n---\nAbout the guide")],
             pages: vec![post("pages/about.md", "---\ntitle: About\nnav: true\n---\nHi")],
+            source_library: None,
+            claim_evidence: None,
+            reader_feedback: None,
+            third_perspectives: None,
+            community_features: None,
         });
         assert_eq!(s.posts.len(), 2);
         assert_eq!(s.posts[0].slug, "second");

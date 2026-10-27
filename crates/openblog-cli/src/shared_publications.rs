@@ -17,6 +17,9 @@ use openblog_core::collaboration::{
 };
 use openblog_core::draft::{DraftSet, MAX_DRAFT_SET_BYTES};
 use openblog_core::invitation::InvitationState;
+use openblog_core::media_moment::{MomentSet, MAX_MOMENT_SET_BYTES};
+use openblog_core::reflection::ReflectionStructure;
+use openblog_core::synthesis::{SynthesisSet, MAX_SYNTHESIS_SET_BYTES};
 
 use crate::auth;
 
@@ -30,6 +33,9 @@ pub const APPROVALS_DIRECTORY: &str = ".openblog/private/collaboration/approvals
 /// What happened to each publication after approval (scheduled, or published), one small file
 /// per publication. Private like the rest, and written only by the publish gate (ADR 0022).
 pub const OUTCOMES_DIRECTORY: &str = ".openblog/private/collaboration/outcomes";
+/// Private shared synthesis sets (ADR 0025), one file per publication, beside the drafts. Prose
+/// lives here, so the directory stays out of Git, generated output, feeds and exports.
+pub const SYNTHESIS_DIRECTORY: &str = ".openblog/private/collaboration/synthesis";
 const MAX_ID_ATTEMPTS: usize = 8;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -185,24 +191,52 @@ pub fn replace(
     }
     let directory = directory(root).map_err(ReplaceError::Storage)?;
     let target = directory.join(format!("{}.json", previous.publication_id));
-    let current = fs::symlink_metadata(&target)
-        .ok()
-        .filter(|metadata| {
-            metadata.is_file() && metadata.len() <= MAX_SHARED_PUBLICATION_BYTES as u64
-        })
-        .and_then(|_| fs::read_to_string(&target).ok())
-        .and_then(|text| SharedPublication::from_json(&text).ok());
-    if current.as_ref() != Some(previous) {
+    let unchanged = || {
+        let current = crate::fsutil::retry_transient(|| fs::symlink_metadata(&target))
+            .ok()
+            .filter(|metadata| {
+                metadata.is_file() && metadata.len() <= MAX_SHARED_PUBLICATION_BYTES as u64
+            })
+            .and_then(|_| crate::fsutil::read_to_string(&target).ok())
+            .and_then(|text| SharedPublication::from_json(&text).ok());
+        current.as_ref() == Some(previous)
+    };
+    if !unchanged() {
         return Err(ReplaceError::Conflict);
     }
     let text = record_text(next).map_err(ReplaceError::Storage)?;
+    // A record that would not load again is never written: the old one stays in place.
+    if text.len() > MAX_SHARED_PUBLICATION_BYTES {
+        return Err(ReplaceError::TooLarge);
+    }
     let temporary =
         temporary_path(&directory, &next.publication_id).map_err(ReplaceError::Storage)?;
     write_private_file(&temporary, text.as_bytes()).map_err(ReplaceError::Storage)?;
-    fs::rename(&temporary, &target).map_err(|error| {
-        let _ = fs::remove_file(&temporary);
-        ReplaceError::Storage(format!("cannot update the shared publication: {error}"))
-    })
+    commit_if_unchanged(&temporary, &target, unchanged, "the shared publication")
+}
+
+/// Rename a complete `temporary` over `target` while `unchanged` still holds, so neither a
+/// conflict nor waiting out a transient Windows hold can overwrite a newer file. On any refusal
+/// the temporary file is removed and `target` is untouched.
+fn commit_if_unchanged(
+    temporary: &Path,
+    target: &Path,
+    unchanged: impl FnMut() -> bool,
+    what: &str,
+) -> Result<(), ReplaceError> {
+    match crate::fsutil::replace_file_if_unchanged(temporary, target, unchanged) {
+        Ok(true) => Ok(()),
+        Ok(false) => {
+            let _ = fs::remove_file(temporary);
+            Err(ReplaceError::Conflict)
+        }
+        Err(error) => {
+            let _ = fs::remove_file(temporary);
+            Err(ReplaceError::Storage(format!(
+                "cannot update {what}: {error}"
+            )))
+        }
+    }
 }
 
 /// The record with this ID, if it is readable.
@@ -225,7 +259,7 @@ pub fn revoke_admin_user(root: &Path, admin_user: &str) -> Result<usize, String>
         let directory = path.parent().ok_or("invalid shared publication path")?;
         let temporary = temporary_path(directory, &revoked.publication_id)?;
         write_private_file(&temporary, text.as_bytes())?;
-        fs::rename(&temporary, &path).map_err(|error| {
+        crate::fsutil::replace_file(&temporary, &path).map_err(|error| {
             let _ = fs::remove_file(&temporary);
             format!("cannot update a shared publication: {error}")
         })?;
@@ -247,7 +281,7 @@ fn drafts_directory(root: &Path) -> Result<PathBuf, String> {
 }
 
 fn read_drafts_file(target: &Path) -> Result<Option<String>, String> {
-    let metadata = match fs::symlink_metadata(target) {
+    let metadata = match crate::fsutil::retry_transient(|| fs::symlink_metadata(target)) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(_) => return Err("cannot read the draft file".into()),
@@ -257,7 +291,7 @@ fn read_drafts_file(target: &Path) -> Result<Option<String>, String> {
     if !metadata.is_file() || metadata.len() > MAX_DRAFT_SET_BYTES as u64 {
         return Err("the draft file is not usable".into());
     }
-    fs::read_to_string(target)
+    crate::fsutil::read_to_string(target)
         .map(Some)
         .map_err(|_| "cannot read the draft file".to_string())
 }
@@ -327,12 +361,12 @@ fn replace_text(
     max_bytes: usize,
 ) -> Result<(), ReplaceError> {
     let target = directory.join(format!("{publication_id}.json"));
-    let current = read_drafts_file(&target).map_err(|_| ReplaceError::Conflict)?;
-    if &current != previous {
+    let unchanged = || read_drafts_file(&target).is_ok_and(|current| &current == previous);
+    if !unchanged() {
         return Err(ReplaceError::Conflict);
     }
     let Some(text) = next else {
-        return match fs::remove_file(&target) {
+        return match crate::fsutil::retry_transient(|| fs::remove_file(&target)) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
             Err(error) => Err(ReplaceError::Storage(format!(
@@ -346,10 +380,7 @@ fn replace_text(
     create_private_directory(directory).map_err(ReplaceError::Storage)?;
     let temporary = temporary_path(directory, publication_id).map_err(ReplaceError::Storage)?;
     write_private_file(&temporary, text.as_bytes()).map_err(ReplaceError::Storage)?;
-    fs::rename(&temporary, &target).map_err(|error| {
-        let _ = fs::remove_file(&temporary);
-        ReplaceError::Storage(format!("cannot update the file: {error}"))
-    })
+    commit_if_unchanged(&temporary, &target, unchanged, "the file")
 }
 
 /// An approval set as read from disk, with the exact text it came from, so a write built on a
@@ -397,6 +428,156 @@ pub fn replace_approvals(
         &previous.text,
         Some(&text),
         MAX_APPROVAL_SET_BYTES,
+    )
+}
+
+/// A shared reflection's private arrangement (ADR 0031), one small file per publication beside
+/// the drafts. Absent means nothing was arranged: the piece publishes in participant order.
+pub const STRUCTURES_DIRECTORY: &str = ".openblog/private/collaboration/structures";
+
+/// An arrangement as read from disk, with the exact text it came from, so a write built on a
+/// stale read is refused.
+pub struct StoredStructure {
+    pub structure: Option<ReflectionStructure>,
+    text: Option<String>,
+}
+
+fn structures_directory(root: &Path) -> Result<PathBuf, String> {
+    crate::assistant_storage::contained_target(root, Path::new(STRUCTURES_DIRECTORY))
+        .map_err(|_| "arrangement storage resolves outside the project".to_string())
+}
+
+/// The arrangement, or none when nobody arranged anything. A file that exists but is malformed
+/// is an error, never "no arrangement", so a bad file cannot change what gets published.
+pub fn load_structure(root: &Path, publication_id: &str) -> Result<StoredStructure, String> {
+    let target = structures_directory(root)?.join(format!("{publication_id}.json"));
+    let text = read_drafts_file(&target).map_err(|_| "the arrangement file is not usable")?;
+    let structure = match &text {
+        Some(text) => Some(
+            ReflectionStructure::from_json(text)
+                .map_err(|_| "the arrangement file is not usable".to_string())?,
+        ),
+        None => None,
+    };
+    Ok(StoredStructure { structure, text })
+}
+
+/// Atomically store `next` when the file still holds exactly what `previous` was read from.
+pub fn replace_structure(
+    root: &Path,
+    publication_id: &str,
+    previous: &StoredStructure,
+    next: &ReflectionStructure,
+) -> Result<(), ReplaceError> {
+    let directory = structures_directory(root).map_err(ReplaceError::Storage)?;
+    let text = format!(
+        "{}\n",
+        serde_json::to_string(next).expect("a structure serializes")
+    );
+    replace_text(
+        &directory,
+        publication_id,
+        &previous.text,
+        Some(&text),
+        openblog_core::reflection::MAX_STRUCTURE_BYTES,
+    )
+}
+
+/// A synthesis set as read from disk, with the exact text it came from, so a write built on a
+/// stale read is refused.
+pub struct StoredSynthesis {
+    pub set: SynthesisSet,
+    text: Option<String>,
+}
+
+fn synthesis_directory(root: &Path) -> Result<PathBuf, String> {
+    crate::assistant_storage::contained_target(root, Path::new(SYNTHESIS_DIRECTORY))
+        .map_err(|_| "synthesis storage resolves outside the project".to_string())
+}
+
+/// The synthesis for a publication: empty when nothing was stored. A file that exists but is
+/// malformed is an error, never an empty set, so a bad file cannot make a piece look
+/// synthesis-free and publishable.
+pub fn load_synthesis(root: &Path, publication_id: &str) -> Result<StoredSynthesis, String> {
+    let target = synthesis_directory(root)?.join(format!("{publication_id}.json"));
+    let text = read_drafts_file(&target).map_err(|_| "the synthesis file is not usable")?;
+    let set = match &text {
+        Some(text) => SynthesisSet::from_json(text)
+            .map_err(|_| "the synthesis file is not usable".to_string())?,
+        None => SynthesisSet::new(),
+    };
+    Ok(StoredSynthesis { set, text })
+}
+
+/// Atomically store `next` when the file still holds exactly what `previous` was read from.
+pub fn replace_synthesis(
+    root: &Path,
+    publication_id: &str,
+    previous: &StoredSynthesis,
+    next: &SynthesisSet,
+) -> Result<(), ReplaceError> {
+    let directory = synthesis_directory(root).map_err(ReplaceError::Storage)?;
+    let text = format!(
+        "{}
+",
+        next.to_json()
+    );
+    replace_text(
+        &directory,
+        publication_id,
+        &previous.text,
+        Some(&text),
+        MAX_SYNTHESIS_SET_BYTES,
+    )
+}
+
+/// Private media moment sets (ADR 0063, 0064), one file per publication, beside the drafts. They
+/// hold quotations and observations, so the directory stays out of Git, generated output, feeds
+/// and exports like the drafts and the synthesis.
+pub const MOMENTS_DIRECTORY: &str = ".openblog/private/collaboration/moments";
+
+/// A moment set as read from disk, with the exact text it came from, so a write built on a stale
+/// read is refused.
+pub struct StoredMoments {
+    pub set: MomentSet,
+    text: Option<String>,
+}
+
+fn moments_directory(root: &Path) -> Result<PathBuf, String> {
+    crate::assistant_storage::contained_target(root, Path::new(MOMENTS_DIRECTORY))
+        .map_err(|_| "moment storage resolves outside the project".to_string())
+}
+
+/// The moments for a publication: empty when nothing was stored. A file that exists but is
+/// malformed is an error, never an empty set, so a bad file cannot drop a proposed moment from
+/// the approval binding and make a piece look approved.
+pub fn load_moments(root: &Path, publication_id: &str) -> Result<StoredMoments, String> {
+    let target = moments_directory(root)?.join(format!("{publication_id}.json"));
+    let text = read_drafts_file(&target).map_err(|_| "the moments file is not usable")?;
+    let set = match &text {
+        Some(text) => {
+            MomentSet::from_json(text).map_err(|_| "the moments file is not usable".to_string())?
+        }
+        None => MomentSet::new(),
+    };
+    Ok(StoredMoments { set, text })
+}
+
+/// Atomically store `next` when the file still holds exactly what `previous` was read from.
+pub fn replace_moments(
+    root: &Path,
+    publication_id: &str,
+    previous: &StoredMoments,
+    next: &MomentSet,
+) -> Result<(), ReplaceError> {
+    let directory = moments_directory(root).map_err(ReplaceError::Storage)?;
+    let text = format!("{}\n", next.to_json());
+    replace_text(
+        &directory,
+        publication_id,
+        &previous.text,
+        Some(&text),
+        MAX_MOMENT_SET_BYTES,
     )
 }
 

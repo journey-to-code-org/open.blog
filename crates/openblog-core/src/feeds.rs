@@ -43,7 +43,7 @@ pub fn rss(site: &Site) -> Result<String, String> {
         .filter(|post| !post.draft)
         .take(c.feeds.limit.max(1))
     {
-        let projection = PortableProjection::from_post(post, c)?;
+        let projection = PortableProjection::for_site(site, post)?;
         let link = projection.canonical_url().to_string();
         out.push_str("<item>\n");
         out.push_str(&format!("<title>{}</title>\n", escape::xml(&post.title)));
@@ -76,6 +76,17 @@ pub fn rss(site: &Site) -> Result<String, String> {
                 escape::xml(&tag.name)
             ));
         }
+        // A part of a collaborative series names its series as a category in the site's series
+        // taxonomy, whose domain is the series index (ADR 0041). RSS 2.0's `domain` identifies the
+        // taxonomy and is not a link, so the series page itself, the part's place and its authors
+        // are only in the full content.
+        if let Some(series) = projection.series() {
+            out.push_str(&format!(
+                "<category domain=\"{}\">{}</category>\n",
+                escape::xml(&projection.resolve_link("/series/")?),
+                escape::xml(&series.name)
+            ));
+        }
         out.push_str(&format!(
             "<description>{}</description>\n",
             escape::xml(&post.description)
@@ -86,6 +97,17 @@ pub fn rss(site: &Site) -> Result<String, String> {
                 escape::xml(&projection.resolve_link(cover)?),
                 mime_for(cover)
             ));
+        }
+        // Where the post's research context is on the canonical page, whether or
+        // not the feed carries the post's words (ADR 0202). A related link, which
+        // readers that do not know it ignore.
+        if let Some(context) = projection.curated_context_summary() {
+            if let Some(url) = context["url"].as_str() {
+                out.push_str(&format!(
+                    "<atom:link rel=\"related\" type=\"text/html\" title=\"Research context\" href=\"{}\"/>\n",
+                    escape::xml(url)
+                ));
+            }
         }
         if c.feeds.full_content {
             let portable_html = projection.portable_html()?.html;
@@ -100,6 +122,10 @@ pub fn rss(site: &Site) -> Result<String, String> {
     Ok(out)
 }
 
+/// Where the `_openblog` JSON Feed extension is documented.
+pub const JSON_FEED_EXTENSION_ABOUT: &str =
+    "https://github.com/journey-to-code-org/open.blog/blob/main/docs/integrations.md#series-in-feeds";
+
 /// JSON Feed 1.1: <https://jsonfeed.org/version/1.1>
 pub fn json_feed(site: &Site) -> Result<String, String> {
     let c = &site.config;
@@ -109,7 +135,7 @@ pub fn json_feed(site: &Site) -> Result<String, String> {
         .filter(|post| !post.draft)
         .take(c.feeds.limit.max(1))
         .map(|post| {
-            let projection = PortableProjection::from_post(post, c)?;
+            let projection = PortableProjection::for_site(site, post)?;
             let url = projection.canonical_url();
             let mut item = serde_json::json!({
                 "id": url,
@@ -158,6 +184,31 @@ pub fn json_feed(site: &Site) -> Result<String, String> {
                 if !authors.is_empty() {
                     item["authors"] = serde_json::Value::Array(authors);
                 }
+            }
+            // A part of a collaborative series carries its series as a JSON Feed extension
+            // object, which readers that do not know it ignore (ADR 0041). `about` points to its
+            // documentation, as JSON Feed recommends for extensions.
+            if let Some(series) = projection.series() {
+                item["_openblog"] = serde_json::json!({
+                    "about": JSON_FEED_EXTENSION_ABOUT,
+                    "series": {
+                        "title": series.name,
+                        "url": projection.resolve_link(&series.url)?,
+                        "part": series.part,
+                        "parts": series.parts,
+                        "authors": series.part_authors,
+                        "contributors": series.contributors,
+                    }
+                });
+            }
+            // A post with a research context says where it is on the canonical page
+            // and which items it holds, by id, kind and anchor, even when the feed
+            // carries no full content (ADR 0202). The words are in `content_*`.
+            if let Some(context) = projection.curated_context_summary() {
+                if item.get("_openblog").is_none() {
+                    item["_openblog"] = serde_json::json!({ "about": JSON_FEED_EXTENSION_ABOUT });
+                }
+                item["_openblog"]["researchContext"] = context;
             }
             Ok(item)
         })
@@ -325,7 +376,7 @@ pub fn llms_full(site: &Site) -> Result<String, String> {
         markdown_text(&c.description)
     );
     for post in site.posts.iter().filter(|post| !post.draft) {
-        let projection = PortableProjection::from_post(post, c)?;
+        let projection = PortableProjection::for_site(site, post)?;
         out.push_str(&format!(
             "\n---\n\n## {}\n\n- URL: {}\n- Published: {}\n",
             markdown_text(&post.title),
@@ -345,6 +396,35 @@ pub fn llms_full(site: &Site) -> Result<String, String> {
                     .join(", ")
             ));
         }
+        if let Some(series) = projection.series() {
+            let names = |names: &[String]| {
+                crate::render::human_list(
+                    &names
+                        .iter()
+                        .map(|name| inert_markdown_text(name))
+                        .collect::<Vec<_>>(),
+                )
+            };
+            out.push_str(&format!(
+                "- Series: Part {} of {} in [{}](<{}>)\n",
+                series.part,
+                series.parts,
+                inert_markdown_text(&series.name),
+                projection.resolve_link(&series.url)?
+            ));
+            if !series.part_authors.is_empty() {
+                out.push_str(&format!(
+                    "- Part authors: {}\n",
+                    names(&series.part_authors)
+                ));
+            }
+            if !series.contributors.is_empty() {
+                out.push_str(&format!(
+                    "- Series contributors: {}\n",
+                    names(&series.contributors)
+                ));
+            }
+        }
         if let Some(shared) = &post.shared_attribution {
             if let Some(question) = &shared.question {
                 out.push_str(&format!(
@@ -361,10 +441,30 @@ pub fn llms_full(site: &Site) -> Result<String, String> {
                 out.push_str(&format!("- Source ({}): {name}\n", source.kind.label()));
             }
         }
-        out.push_str(&format!(
-            "\n{}\n",
-            projection.representation(RepresentationFormat::Text).trim()
-        ));
+        // Readers' Third Perspectives stay on the canonical page: only a link to them, never
+        // their words (ADR 0115, P6.2).
+        if post.capabilities.iter().any(|capability| {
+            capability.id == crate::perspective_publication::THIRD_PERSPECTIVES_CAPABILITY
+        }) {
+            out.push_str(&format!(
+                "- Third Perspectives: on the canonical page, <{}>\n",
+                projection.canonical_url()
+            ));
+        }
+        // A shared reflection keeps each round prompt and each author's name and label with the
+        // words they belong to; the page's search text is the words alone (ADR 0033).
+        let body = match projection.reflection_text()? {
+            Some(text) => text,
+            None => projection
+                .representation(RepresentationFormat::Text)
+                .to_string(),
+        };
+        out.push_str(&format!("\n{}\n", body.trim()));
+        // The research context the post is offered, in the same words as every
+        // other portable copy, with its links back to the canonical page (ADR 0202).
+        if let Some(context) = projection.curated_context_markdown() {
+            out.push_str(&format!("\n{}\n", context.trim()));
+        }
     }
     Ok(out)
 }
@@ -378,6 +478,12 @@ fn markdown_text(value: &str) -> String {
         .replace('\\', "\\\\")
         .replace('[', "\\[")
         .replace(']', "\\]")
+}
+
+/// `markdown_text` that also keeps `<` and `&` literal, so a name cannot become an autolink, raw
+/// HTML or an entity.
+fn inert_markdown_text(value: &str) -> String {
+    markdown_text(value).replace('<', "\\<").replace('&', "\\&")
 }
 
 /// The client-side search index. Body text is lower-cased and truncated to keep

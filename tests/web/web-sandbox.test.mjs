@@ -90,3 +90,13 @@ test("the bootstrap forwards console output and replaces throwing storage", asyn
   assert.equal(window.localStorage.length, 1);
   assert.equal(window.sessionStorage.getItem("theme"), null);
 });
+
+test("selecting the first tab while the page loads never moves focus into an editor", async () => {
+  const { readFileSync } = await import("node:fs");
+  const source = readFileSync(new URL("../../web/components/ob-web-sandbox.js", import.meta.url), "utf8");
+  assert.match(source, /const select = \(name, focus = true\) =>/);
+  assert.match(source, /if \(focus\) editors\[name\]\.focus\(\);/);
+  assert.match(source, /select\("html", false\);/, "the initial selection does not take focus");
+  assert.match(source, /button\.addEventListener\("click", \(\) => select\(name\)\);/, "a reader's own tab click still does");
+  assert.equal([...source.matchAll(/\bselect\("html"\)/g)].length, 0);
+});
