@@ -38,6 +38,8 @@ All notable changes to open.blog are recorded here. Releases follow
 - A series can declare `aliases:` in its front matter and the site can write a `_redirects` file with real
   301s for moved posts, pages and series (`"redirectsFile": true`); alias pages still carry a meta refresh,
   canonical and `noindex` for hosts without redirect rules.
+- The Web Sandbox source tabs (HTML, CSS, JavaScript) are now a proper underlined tab strip, with a hover state and a larger touch target, instead of loose outlined buttons.
+
 - `<ob-search>` accepts a `no-history` attribute that stops it from writing `?q=` to the page address,
   for a search box that lives in a dialog or panel on another page.
 

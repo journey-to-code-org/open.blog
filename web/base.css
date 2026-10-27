@@ -1314,8 +1314,10 @@ ob-web-sandbox { display: block; margin: 1.5em 0; }
 .ob-code-block ob-web-sandbox { margin: 0; }
 /* The HTML, CSS, and JavaScript editors use the shared editable-code styles above;
    only the source tabs and the preview frame are sandbox-specific. */
-.ob-web-sandbox-tabs { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem; }
-.ob-web-sandbox-tab[aria-pressed="true"] { border-color: var(--ob-color-accent); color: var(--ob-color-accent); font-weight: 700; }
+.ob-web-sandbox-tabs { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-bottom: 0.65rem; border-bottom: var(--ob-border-width) solid var(--ob-color-border); }
+.ob-web-sandbox-tab { min-height: 2rem; margin-bottom: calc(var(--ob-border-width) * -1); padding: 0.3rem 0.8rem; border-color: transparent; border-bottom: 2px solid transparent; border-radius: var(--ob-radius-sm) var(--ob-radius-sm) 0 0; background: transparent; color: var(--ob-color-muted); }
+.ob-web-sandbox-tab:hover { color: var(--ob-color-text); }
+.ob-web-sandbox-tab[aria-pressed="true"] { border-bottom-color: var(--ob-color-accent); color: var(--ob-color-accent); font-weight: 600; }
 .ob-web-sandbox-preview { display: block; box-sizing: border-box; width: 100%; min-height: 18rem; margin-top: 0.65rem; border: var(--ob-border-width) solid var(--ob-color-border); border-radius: var(--ob-radius-sm); background: #fff; }
 /* Console output forwarded from the preview, shown only once something is logged. */
 .ob-web-sandbox-console { margin-top: 0.5rem; border: var(--ob-border-width) solid var(--ob-color-border); border-radius: var(--ob-radius-sm); background: var(--ob-color-code-bg); color: var(--ob-color-code-text); }
