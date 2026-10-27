@@ -31,7 +31,7 @@ to be emailed, listed or thanked in public.
   `Contact(<private>)`, and prints a name the reader did not agree to show as `<private>`, in
   `Submission`, `Suggestion` and the editor's view alike), and is purged with the text on
   withdrawal, deletion and retention.
-- **They are not kept as long as the idea.** An accepted suggestion is kept, but its contact and
+- **They are not kept as long as the idea.** (Amended by [ADR 0211](0211-editorial-outcomes-are-derived-the-receipt-says-the-honest-standing-and-a-link-clears-private-identity-in-the-next-retention-run.md): the identity is cleared at the next confirmed retention run after a link, not the moment of the link.) An accepted suggestion is kept, but its contact and
   unpublished name are cleared (and nothing else) once `closedDays` have passed since it was
   approved, or the moment an author links it to future work
   (`RetentionStep::ScrubIdentity`, `identity_scrub_due`). A name the reader agreed to show stays. The
