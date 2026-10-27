@@ -13,6 +13,9 @@ All notable changes to open.blog are recorded here. Releases follow
   Markdown show the starter and tuck the checks into a `<details>` block headed "Spoiler: the checks for
   this challenge"; the semantic-fact check fails an export that loses either.
 
+- `<ob-search>` accepts a `no-history` attribute that stops it from writing `?q=` to the page address,
+  for a search box that lives in a dialog or panel on another page.
+
 ## [0.47.0] - 2026-10-27
 
 - Netlify builds only what it deploys: pull request previews and branch deploys (such as `develop`)

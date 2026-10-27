@@ -3,7 +3,8 @@
 // Searches the build's JSON index with the same Rust ranking code the CLI
 // ships, compiled to WebAssembly. If the module can't load (old browser,
 // blocked WASM), a small JavaScript fallback does plain substring matching so
-// search still works. Supports ?q= in the URL.
+// search still works. Supports ?q= in the URL; add the `no-history` attribute when the
+// element sits in a dialog or panel on another page, so typing never rewrites that address.
 
 const MAX_RESULTS = 20;
 
@@ -57,6 +58,7 @@ class ObSearch extends HTMLElement {
     this.status = this.querySelector(".ob-search-status");
     this.results = this.querySelector(".ob-search-results");
     this.form = this.querySelector("form");
+    this.syncUrl = !this.hasAttribute("no-history");
     if (!this.input || !this.results) return;
 
     this.form?.addEventListener("submit", (e) => e.preventDefault());
@@ -83,7 +85,7 @@ class ObSearch extends HTMLElement {
       console.info("ob-search: WebAssembly unavailable, using JavaScript fallback", err);
     }
 
-    const initial = new URLSearchParams(location.search).get("q");
+    const initial = this.syncUrl ? new URLSearchParams(location.search).get("q") : null;
     if (initial) this.input.value = initial;
     this.status.textContent = "";
     this.#run();
@@ -91,10 +93,12 @@ class ObSearch extends HTMLElement {
 
   #run() {
     const query = this.input.value.trim();
-    const url = new URL(location.href);
-    if (query) url.searchParams.set("q", query);
-    else url.searchParams.delete("q");
-    history.replaceState(null, "", url);
+    if (this.syncUrl) {
+      const url = new URL(location.href);
+      if (query) url.searchParams.set("q", query);
+      else url.searchParams.delete("q");
+      history.replaceState(null, "", url);
+    }
 
     if (!query) {
       this.results.replaceChildren();
