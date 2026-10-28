@@ -1901,7 +1901,7 @@ impl<'a> Renderer<'a> {
         let mut body = String::from("<div class=\"ob-container\">\n");
         // A landing page with a visible section replaces the home settings'
         // layout on the first page; every other page, and every site without
-        // one, is built exactly as before (ADR 0352).
+        // one, is built exactly as before (ADR 0247).
         let landing = self
             .site
             .landing

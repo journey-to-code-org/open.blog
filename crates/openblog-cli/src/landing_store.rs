@@ -1,7 +1,7 @@
-//! File-backed storage for the landing page (ADR 0351, #323).
+//! File-backed storage for the landing page (ADR 0246, #323).
 //!
 //! The page is the public, author-written file `<content>/landing.json`
-//! (ADR 0350). Admin reads and writes it through this module and nothing
+//! (ADR 0245). Admin reads and writes it through this module and nothing
 //! else, and never touches `openblog.json` to do so. A save names the
 //! revision (SHA-256 of the stored bytes) it was based on, is checked by
 //! `openblog_core::landing` before anything is written, and replaces the file

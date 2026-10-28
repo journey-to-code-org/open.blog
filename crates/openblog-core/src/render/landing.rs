@@ -1,4 +1,4 @@
-//! The home page built from landing sections (ADR 0352, #324).
+//! The home page built from landing sections (ADR 0247, #324).
 //!
 //! Every section renders from the validated [`LandingPage`] alone, as
 //! theme-neutral `ob-home-*` markup that reads nothing but `--ob-*` tokens.

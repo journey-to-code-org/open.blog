@@ -1,4 +1,4 @@
-//! The landing page on the home page (ADR 0350 to 0352, #324).
+//! The landing page on the home page (ADR 0245 to 0247, #324).
 //!
 //! The hard invariant: a site with no visible landing sections builds exactly
 //! as it did before landing sections existed. The golden files in

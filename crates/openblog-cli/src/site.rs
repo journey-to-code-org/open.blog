@@ -472,8 +472,8 @@ pub fn read_sources_excluding(
         config,
         openblog_core::community_feature::COMMUNITY_FEATURES_FILE,
     )?;
-    // The landing page (ADR 0350), the same way. A file that cannot be used
-    // is a build warning, never an error (ADR 0351).
+    // The landing page (ADR 0245), the same way. A file that cannot be used
+    // is a build warning, never an error (ADR 0246).
     sources.landing = read_content_file(root, config, openblog_core::landing::LANDING_FILE)?;
     // Continuation links (ADR 0219), the same way.
     sources.continuations = read_content_file(

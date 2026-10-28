@@ -59,7 +59,7 @@ pub struct Sources {
     /// folder, ADR 0219), when the file exists.
     pub continuations: Option<SourceFile>,
     /// The site's landing page (`landing.json` in the content folder, ADR
-    /// 0350), when the file exists. Without it, or with no visible section,
+    /// 0245), when the file exists. Without it, or with no visible section,
     /// the home page is built from `home.*` exactly as before.
     pub landing: Option<SourceFile>,
 }
@@ -576,7 +576,7 @@ pub struct Site {
     curated_cache:
         std::sync::OnceLock<Option<std::sync::Arc<crate::curated_context::CuratedContext>>>,
     /// The landing page, when the site has a valid `landing.json`
-    /// (ADR 0350). The home page renders its visible sections instead of the
+    /// (ADR 0245). The home page renders its visible sections instead of the
     /// `home.*` layout; `None` leaves the home page as it always was.
     pub landing: Option<crate::landing::LandingPage>,
     /// Why this site's claim evidence cannot be published (ADR 0075): the

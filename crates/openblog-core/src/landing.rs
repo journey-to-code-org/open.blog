@@ -1,4 +1,4 @@
-//! The landing page as an ordered list of typed sections (ADR 0350, #322).
+//! The landing page as an ordered list of typed sections (ADR 0245, #322).
 //!
 //! A site owner arranges the home page from a closed set of sections: a
 //! welcome banner, rich text, the latest posts, the series, a featured post

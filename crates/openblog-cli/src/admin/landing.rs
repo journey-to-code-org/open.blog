@@ -1,4 +1,4 @@
-//! Admin routes for the landing page (ADR 0351, #323).
+//! Admin routes for the landing page (ADR 0246, #323).
 //!
 //! `GET landing` reads the stored page and `PUT landing` replaces it. Both sit
 //! behind the session, and the write behind the CSRF check (`api`); an unknown

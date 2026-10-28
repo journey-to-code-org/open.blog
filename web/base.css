@@ -3096,7 +3096,7 @@ ob-reading-modes { display: block; }
   .ob-supplement-skip:focus { outline: 2px solid Highlight; }
 }
 
-/* ---------- Landing sections (ob-home-*, ADR 0352) ---------- */
+/* ---------- Landing sections (ob-home-*, ADR 0247) ---------- */
 /* Theme-neutral: these rules read --ob-* tokens only, so every theme gets a
    legible, accessible result and restyles by changing tokens. */
 

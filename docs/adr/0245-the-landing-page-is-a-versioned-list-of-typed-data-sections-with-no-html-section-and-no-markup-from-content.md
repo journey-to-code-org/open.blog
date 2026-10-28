@@ -1,4 +1,4 @@
-# ADR 0350: The landing page is a versioned list of typed data sections, with no HTML section and no markup from content
+# ADR 0245: The landing page is a versioned list of typed data sections, with no HTML section and no markup from content
 
 - Status: Accepted
 - Date: 2026-10-28

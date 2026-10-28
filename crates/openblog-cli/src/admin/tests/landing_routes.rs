@@ -1,4 +1,4 @@
-//! Admin landing page routes (ADR 0351, #323): deny by default, CSRF, origin,
+//! Admin landing page routes (ADR 0246, #323): deny by default, CSRF, origin,
 //! stale writes, the size limit, atomic canonical writes, and no other file
 //! changing.
 

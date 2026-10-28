@@ -1,4 +1,4 @@
-//! Landing sections are styled in every bundled theme (ADR 0352, #325).
+//! Landing sections are styled in every bundled theme (ADR 0247, #325).
 //!
 //! The section styles live once, in `web/base.css`, and read `--ob-*` tokens
 //! only; a theme restyles by changing tokens. These tests check that every

@@ -1,11 +1,11 @@
-# ADR 0352: The home page renders landing sections from validated data, with one h1 and no change when there are none
+# ADR 0247: The home page renders landing sections from validated data, with one h1 and no change when there are none
 
 - Status: Accepted
 - Date: 2026-10-28
 - Decision issue: [#324](https://github.com/journey-to-code-org/open.blog/issues/324)
 - Parent story: [#315](https://github.com/journey-to-code-org/open.blog/issues/315)
 - Parent epic: [#314](https://github.com/journey-to-code-org/open.blog/issues/314)
-- Builds on: ADR 0350, ADR 0351
+- Builds on: ADR 0245, ADR 0246
 - Serves: [#325](https://github.com/journey-to-code-org/open.blog/issues/325)
 
 ## Context
@@ -46,8 +46,8 @@ site that never uses the feature must not change by a byte.
 
 - **Replace `home()` wholesale and express today's page as a landing page.** Rejected: byte-identical output is
   the invariant, and it is cheapest to keep by not running new code for sites that do not use it.
-- **Fail the build on a bad file.** Rejected (ADR 0351).
-- **Embedded video and map frames.** Deferred (ADR 0350).
+- **Fail the build on a bad file.** Rejected (ADR 0246).
+- **Embedded video and map frames.** Deferred (ADR 0245).
 
 ## Consequences
 

@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Landing sections (ADR 0352, #325), built and served by the real binary in every bundled theme.
+// Landing sections (ADR 0247, #325), built and served by the real binary in every bundled theme.
 // Each section type is visible and legible at 320px and 1280px in light and dark without
 // overflowing, buttons and links show a focus ring, the page has one h1, markup typed into a
 // field is plain text, and reduced motion turns the button transitions off.
