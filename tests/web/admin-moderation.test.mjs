@@ -95,6 +95,10 @@ test("counts say only how many are shown, and clarification and removal read as 
   assert.equal(moderationOutcome(comment, "remove", {}), "Removed from “Tides”.");
   assert.match(moderationOutcome(note, "remove", { published: true, publishError: "reader-feedback.json could not be written" }), /still on the post/);
   assert.equal(moderationOutcome({ ...comment, post: null }, "remove", {}), "Removed from /posts/tides/.");
+  // Links that could not be taken off the pages are said, after the decision itself.
+  const stuck = "The submission’s continuation links could not be removed.";
+  assert.equal(moderationOutcome(note, "reject", { continuationsError: stuck }), `Rejected. Nothing was published. ${stuck}`);
+  assert.equal(moderationOutcome(note, "reject", { continuationsDropped: 1, continuationsError: null }), "Rejected. Nothing was published.");
 });
 
 test("the public preview never quotes a changed passage, and a mismatch with the published file is offered a fix", () => {

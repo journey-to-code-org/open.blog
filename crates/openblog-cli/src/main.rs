@@ -11,16 +11,19 @@ mod auth;
 mod boundary;
 mod claims_store;
 mod clock;
+mod comparison_store;
 mod contributor_migration;
 mod fsutil;
 mod git;
 mod hashnode;
 mod http;
 mod notebook_store;
+mod paths_exchange;
 mod portable_export;
 mod private_guard;
 mod publish;
 mod readiness;
+mod reading_path_store;
 mod research_review;
 mod safe_http;
 mod scaffold;
@@ -57,6 +60,8 @@ COMMANDS
     check                      Validate content and themes without writing anything
     export <slug>              Preview or write a portable Markdown article, or the
                                post's cited references as CSL JSON or BibTeX
+    paths export|import        Export reading paths to one file, or check and import one
+                               (dry run unless --write)
     publish [summary]          Commit changed content with git and push (deploys via CI)
     publish setup              Create the repository and Pages workflow, report what is left
     syndicate <slug>           Plan cross-posting (add --write to create/update remote drafts)
@@ -93,6 +98,15 @@ export OPTIONS
     --out <path>               Output file for an explicit --write
     --write                    Write the export (otherwise print a dry-run preview)
     --json                     Print a versioned dry-run manifest with exact content
+
+paths OPTIONS
+    paths export [--out <file>] [--drafts] [--write]
+                               Print the published reading paths as one portable JSON file,
+                               or with --out and --write create that file (never replaces one)
+    paths import <file> [--overwrite] [--write]
+                               Check an export and say what would change; with --write apply
+                               it all or not at all. A stored path that differs is a conflict
+                               unless --overwrite
 
 new OPTIONS
     --series <slug>            Put the post in a series
@@ -305,6 +319,23 @@ fn run(raw: &[String]) -> Result<(), String> {
                     json: args.switches.contains("json"),
                 },
             )
+        }
+        "paths" => {
+            let options = paths_exchange::Options {
+                file: args
+                    .options
+                    .get("out")
+                    .map(String::as_str)
+                    .or_else(|| args.positional.get(1).map(String::as_str)),
+                write: args.switches.contains("write"),
+                drafts,
+                overwrite: args.switches.contains("overwrite"),
+            };
+            match args.positional.first().map(String::as_str) {
+                Some("export") => paths_exchange::export(&root, &options),
+                Some("import") => paths_exchange::import(&root, &options),
+                _ => Err("usage: openblog paths export|import (see `openblog help`)".into()),
+            }
         }
         "export" => {
             let slug = args.positional.first().ok_or(
@@ -747,6 +778,35 @@ fn user_command_with(
 }
 
 /// The checks `openblog check` has always printed, for a site that loaded.
+/// While `readingPaths.publish` is off, warn when path files exist beside a
+/// page or post that would collide with `/paths/` once it is switched on, so
+/// the author learns before the build refuses (ADR 0212). With it on the build
+/// refuses the collision itself, so there is nothing more to say here.
+fn reading_paths_warning(root: &std::path::Path, site: &openblog_core::Site) -> Option<String> {
+    if site.config.reading_paths.publish {
+        return None;
+    }
+    let stored = reading_path_store::list(root, &site.config.paths.content).ok()?;
+    if stored.is_empty() {
+        return None;
+    }
+    openblog_core::render::reading_paths_address_conflict(site)
+}
+
+/// Like [`reading_paths_warning`] for `/interpretations/` (ADR 0232): while
+/// `interpretations.publish` is off, warn when comparison files exist beside a
+/// page or post that would collide once it is switched on.
+fn interpretations_warning(root: &std::path::Path, site: &openblog_core::Site) -> Option<String> {
+    if site.config.interpretations.publish {
+        return None;
+    }
+    let stored = comparison_store::list(root, &site.config.paths.content).ok()?;
+    if stored.is_empty() {
+        return None;
+    }
+    openblog_core::render::interpretations_address_conflict(site)
+}
+
 fn check_site(
     root: &std::path::Path,
     site: &mut openblog_core::Site,
@@ -780,6 +840,12 @@ fn check_site(
     }
     for warning in portable_export::diagnostics(site)? {
         eprintln!("warning: portability: {warning}");
+    }
+    if let Some(warning) = reading_paths_warning(root, site) {
+        eprintln!("warning: {warning}");
+    }
+    if let Some(warning) = interpretations_warning(root, site) {
+        eprintln!("warning: {warning}");
     }
     serve::print_accessibility_findings(&site.accessibility);
     if own_lines {
@@ -1225,6 +1291,88 @@ fn revoke_shared_publication_bindings(root: &std::path::Path, name: &str) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn check_warns_before_reading_paths_are_switched_on_over_a_colliding_page() {
+        let root = std::env::temp_dir().join(format!(
+            "openblog-check-paths-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        scaffold::init(&root, Some("T"), false).unwrap();
+        std::fs::write(
+            root.join("content/pages/paths.md"),
+            "---
+title: Paths
+---
+Mine.
+",
+        )
+        .unwrap();
+        let load = || site::load_site(&root, false, None).unwrap().0;
+        // No path files: nothing to warn about, and the page works.
+        assert_eq!(reading_paths_warning(&root, &load()), None);
+        std::fs::create_dir_all(root.join("content/paths")).unwrap();
+        std::fs::write(root.join("content/paths/tour.json"), "{}").unwrap();
+        let warning = reading_paths_warning(&root, &load()).expect("a warning");
+        assert!(warning.contains("pages/paths.md") && warning.contains("readingPaths.publish"));
+        // Switched on, the build itself refuses, and the warning steps aside.
+        let mut config = site::load_config(&root).unwrap();
+        config.reading_paths.publish = true;
+        let mut site = load();
+        site.config = config;
+        assert_eq!(reading_paths_warning(&root, &site), None);
+        let mut themes_site = site::load_site(&root, false, None).unwrap();
+        themes_site.0.config.reading_paths.publish = true;
+        let refused = site::generate_site(&root, &mut themes_site.0, &themes_site.1);
+        assert!(refused.unwrap_err().contains("reserved"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn check_warns_before_interpretations_collide_with_a_page() {
+        let root = std::env::temp_dir().join(format!(
+            "openblog-check-interpretations-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        scaffold::init(&root, Some("T"), false).unwrap();
+        std::fs::write(
+            root.join("content/pages/interpretations.md"),
+            "---
+title: Mine
+---
+Mine.
+",
+        )
+        .unwrap();
+        let load = || site::load_site(&root, false, None).unwrap().0;
+        // No comparison files: nothing to warn about.
+        assert_eq!(interpretations_warning(&root, &load()), None);
+        std::fs::create_dir_all(root.join("content/comparisons")).unwrap();
+        std::fs::write(root.join("content/comparisons/cave.json"), "{}").unwrap();
+        let warning = interpretations_warning(&root, &load()).expect("a warning");
+        assert!(
+            warning.contains("pages/interpretations.md")
+                && warning.contains("interpretations.publish"),
+            "{warning}"
+        );
+        // Switched on, the build itself refuses, and the warning steps aside.
+        let mut site = load();
+        site.config.interpretations.publish = true;
+        assert_eq!(interpretations_warning(&root, &site), None);
+        let mut loaded = site::load_site(&root, false, None).unwrap();
+        loaded.0.config.interpretations.publish = true;
+        let refused = site::generate_site(&root, &mut loaded.0, &loaded.1);
+        assert!(refused.unwrap_err().contains("reserved"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn check_reports_the_private_notebook_only_when_it_is_stored() {
