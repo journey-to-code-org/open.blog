@@ -2295,6 +2295,31 @@ fn unique_evidence_range(markdown: &[char], evidence: &str) -> Option<FindingRan
     })
 }
 
+/// The built-in skill that compares a document with the voice guide and voice samples.
+pub const VOICE_REVIEW_SKILL: &str = "voice-review";
+
+fn has_voice_context(context: &[ReviewContext]) -> bool {
+    context
+        .iter()
+        .any(|document| document.voice().is_some() || document.is_voice_guide())
+}
+
+/// Whether `explanation` names a selected voice sample (by file name) or a heading of the selected
+/// voice guide. Deterministic and case-sensitive: a vague nod to "your voice" is not evidence.
+fn cites_voice_context(explanation: &str, context: &[ReviewContext]) -> bool {
+    context.iter().any(|document| {
+        if document.voice().is_some() {
+            return explanation.contains(document.name());
+        }
+        document.is_voice_guide()
+            && document.content().lines().any(|line| {
+                line.strip_prefix("## ")
+                    .map(str::trim)
+                    .is_some_and(|heading| !heading.is_empty() && explanation.contains(heading))
+            })
+    })
+}
+
 pub fn validate_review_findings(
     value: &Json,
     request: &AssistantRequest,
@@ -2424,6 +2449,16 @@ pub fn validate_review_findings(
                     "finding {number} has an invalid verification label"
                 )))
             }
+        };
+        // A voice finding is only supplied-context when it names its evidence (ADR 0352).
+        let verification = if skill_id == VOICE_REVIEW_SKILL
+            && verification == FindingVerification::SuppliedContext
+            && has_voice_context(context)
+            && !cites_voice_context(&explanation, context)
+        {
+            FindingVerification::UnverifiedAdvice
+        } else {
+            verification
         };
         findings.push(ReviewFinding {
             id,

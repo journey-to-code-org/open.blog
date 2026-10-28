@@ -391,3 +391,151 @@ fn a_skill_may_declare_the_voice_guide_output_and_an_unknown_output_is_still_ref
         vec!["Unsupported output kind `poem`; use review, interactions or voice-guide."]
     );
 }
+
+// ---- voice-review prefers the guide and samples (#458) ---------------------------------------
+
+fn builtin_skill(id: &str) -> SkillDefinition {
+    let source = BUILTIN_SKILL_SOURCES
+        .iter()
+        .find(|(known, _)| *known == id)
+        .map(|(_, source)| *source)
+        .unwrap();
+    parse_skill(source).unwrap()
+}
+
+fn voice_review_request(context: Vec<ReviewContext>) -> AssistantRequest {
+    let skill = builtin_skill("voice-review");
+    AssistantRequest::document_review(
+        "test-model".into(),
+        AssistantDocument {
+            title: "Unsaved".into(),
+            metadata: json!({}),
+            markdown: "It is what it is, and so forth.".into(),
+            hash: "abc".into(),
+        },
+        vec![ReviewSkill {
+            id: skill.id,
+            version: skill.version,
+            instructions: skill.body,
+        }],
+        context,
+    )
+}
+
+fn voice_context() -> Vec<ReviewContext> {
+    vec![
+        ReviewContext::new(
+            "portable:voice",
+            "voice.md",
+            "# Voice guide\n\n## Word choice\n\n- Plain words: \"so i deleted\" (a-rough.md)\n",
+        )
+        .unwrap(),
+        sample(ROUGH, ROUGH_TEXT),
+    ]
+}
+
+fn finding(explanation: &str, verification: &str) -> Json {
+    json!({ "findings": [{
+        "id": "f1",
+        "skillId": "voice-review",
+        "skillVersion": "1.1.0",
+        "category": "voice",
+        "severity": "low",
+        "title": "Stock phrase",
+        "explanation": explanation,
+        "range": { "start": 0, "end": 17 },
+        "evidence": "It is what it is",
+        "suggestion": null,
+        "sources": [],
+        "verification": verification,
+    }]})
+}
+
+fn verification(value: &Json, request: &AssistantRequest) -> FindingVerification {
+    validate_review_findings(value, request).unwrap().findings[0].verification
+}
+
+#[test]
+fn a_voice_review_request_carries_the_prefer_the_guide_instructions_the_guide_and_the_samples() {
+    let payload = provider_payload(&voice_review_request(voice_context())).unwrap();
+    let instructions = payload["skills"][0]["instructions"].as_str().unwrap();
+    assert_eq!(payload["skills"][0]["version"], "1.1.0");
+    assert!(instructions.contains("Prefer them over any general idea of good style"));
+    assert!(instructions.contains("Never flatten deliberate stylistic choices"));
+    assert!(instructions.contains("`unverified-advice`"));
+    let context = payload["untrustedData"]["context"].as_array().unwrap();
+    assert_eq!(context[0]["kind"], "voice-guide");
+    assert!(context[0]["content"]
+        .as_str()
+        .unwrap()
+        .contains("Word choice"));
+    assert_eq!(context[1]["kind"], "voice-sample");
+    assert_eq!(context[1]["content"], ROUGH_TEXT);
+    assert_eq!(context[1]["name"], ROUGH);
+}
+
+#[test]
+fn a_voice_finding_that_names_a_sample_or_a_guide_section_keeps_supplied_context() {
+    let request = voice_review_request(voice_context());
+    for explanation in [
+        format!("You write plainly in {ROUGH}; this is stock."),
+        "The guide's Word choice section prefers plain words.".to_string(),
+    ] {
+        assert_eq!(
+            verification(&finding(&explanation, "supplied-context"), &request),
+            FindingVerification::SuppliedContext,
+            "{explanation}"
+        );
+    }
+}
+
+#[test]
+fn a_voice_finding_with_no_evidence_is_marked_unverified_advice() {
+    let request = voice_review_request(voice_context());
+    assert_eq!(
+        verification(
+            &finding("This does not sound like you.", "supplied-context"),
+            &request
+        ),
+        FindingVerification::UnverifiedAdvice
+    );
+    // A different sample's name, or a heading the guide does not have, is not evidence.
+    assert_eq!(
+        verification(
+            &finding(
+                "See 2026-01-01-other-rough.md and the Humor section.",
+                "supplied-context"
+            ),
+            &request
+        ),
+        FindingVerification::UnverifiedAdvice
+    );
+    assert_eq!(
+        verification(&finding("Stock phrase.", "unverified-advice"), &request),
+        FindingVerification::UnverifiedAdvice
+    );
+}
+
+#[test]
+fn voice_review_without_voice_context_and_other_skills_behave_as_before() {
+    let author = ReviewContext::new("portable:author", "author.md", "Plain words.").unwrap();
+    let request = voice_review_request(vec![author]);
+    assert_eq!(
+        verification(
+            &finding("Nothing cited at all.", "supplied-context"),
+            &request
+        ),
+        FindingVerification::SuppliedContext
+    );
+    // Another skill's findings are not held to the voice citation rule.
+    let mut other = voice_review_request(voice_context());
+    if let AssistantTask::DocumentReview { skills, .. } = &mut other.task {
+        skills[0].id = "copy-review".into();
+    }
+    let mut value = finding("Nothing cited.", "supplied-context");
+    value["findings"][0]["skillId"] = json!("copy-review");
+    assert_eq!(
+        verification(&value, &other),
+        FindingVerification::SuppliedContext
+    );
+}
