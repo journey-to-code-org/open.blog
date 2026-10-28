@@ -11,6 +11,38 @@ import { VOICE_LIMITS, byteLength, createPolishedDraftStore, polishedDirty, voic
 let uid = 0;
 
 /**
+ * Keeps the action bar reachable on a phone (ADR 0375), as the landing builder's bar is: it floats at the bottom
+ * of the screen, rides above the on-screen keyboard, and joins the flow of the page when its own height would
+ * take more than 40% of the screen (wide fallback fonts, large text, a short screen), so it can never cover
+ * the work. Returns the function that decides, for a caller that wants to run it again.
+ */
+export function keepBarReachable(bar, isCurrent) {
+  if (!bar) return () => {};
+  const viewport = globalThis.visualViewport;
+  const settle = () => {
+    if (!isCurrent()) return;
+    const height = bar.getBoundingClientRect?.().height ?? 0;
+    bar.classList?.toggle?.("oba-voice-bar-static", height > globalThis.innerHeight * 0.4);
+  };
+  const lift = () => {
+    if (!isCurrent()) {
+      viewport?.removeEventListener("resize", lift);
+      viewport?.removeEventListener("scroll", lift);
+      return;
+    }
+    if (!viewport) return;
+    const covered = Math.max(0, Math.round(globalThis.innerHeight - viewport.height - viewport.offsetTop));
+    bar.style.transform = covered ? `translateY(-${covered}px)` : "";
+  };
+  if (typeof ResizeObserver !== "undefined") new ResizeObserver(settle).observe(bar);
+  globalThis.addEventListener?.("resize", settle);
+  viewport?.addEventListener("resize", lift);
+  viewport?.addEventListener("scroll", lift);
+  settle();
+  return settle;
+}
+
+/**
  * `rough` is `{ file, title, body }`, the locked rough draft. `polished` is the saved polished sample as the
  * server describes it, or null for a draft that has not been saved yet; it then starts as a copy of the rough
  * text. Returns `{ element, isDirty, isBusy, focus, current }`.

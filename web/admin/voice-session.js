@@ -5,7 +5,7 @@
 // edited. Every rule about time and files lives on the server; this file displays it and asks.
 
 import { el } from "./block-forms.js";
-import { createPolishedEditor } from "./voice-polished.js";
+import { createPolishedEditor, keepBarReachable } from "./voice-polished.js";
 import {
   PORTABLE_NOTE,
   PRIVATE_NOTE,
@@ -46,6 +46,8 @@ const realClock = () => ({
   setTimeout: (run, ms) => globalThis.setTimeout(run, ms),
   clearTimeout: (timer) => globalThis.clearTimeout(timer),
 });
+
+const one = (node, selector) => node.querySelector(selector);
 
 const wordRange = (prompt) => (prompt.wordsMax ? `About ${prompt.wordsMin} to ${prompt.wordsMax} words.` : "");
 
@@ -491,6 +493,7 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
       scrapBox,
       el("div", { class: "oba-voice-bar", "data-voice-bar": "true" }, el("div", { class: "oba-landing-actions oba-voice-actions", role: "group", "aria-label": "Voice session actions" }, finishButton, overButton)),
     );
+    keepBarReachable(one(root, "[data-voice-bar]"), () => mine === generation);
     const tick = clock.setInterval(() => {
       if (mine !== generation) return;
       // Admin moved to another view: the clock stops with this one.
@@ -584,6 +587,7 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
         el("a", { class: "oba-btn", href: libraryHash(), "data-action": "voice-library" }, "Open your samples"),
       ),
     );
+    keepBarReachable(editor.bar(), () => mine === generation);
     if (mine === generation) editor.focus();
   }
 

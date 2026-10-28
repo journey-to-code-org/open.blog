@@ -5760,3 +5760,43 @@ ob-voice-library {
     transform: none;
   }
 }
+
+/* The voice view on a phone (ADR 0375). The prompt cards stack, the rough box is at least 40% of the screen
+   tall, the action bar stays within reach and above the keyboard, the gutters are the page's own (16px or
+   more), and a long unbroken word wraps instead of pushing the page sideways. */
+.oba-voice,
+.oba-voice-stage,
+.oba-voice-bar {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.oba-voice p,
+.oba-voice li,
+.oba-voice label,
+.oba-voice h2,
+.oba-voice h3,
+.oba-voice strong {
+  overflow-wrap: anywhere;
+}
+
+.oba-voice-bar.oba-voice-bar-static {
+  position: static;
+  box-shadow: none;
+}
+
+@media (max-height: 30rem) {
+  .oba-voice-bar {
+    position: static;
+    box-shadow: none;
+  }
+}
+
+/* Fields keep clear of the bar when the browser scrolls them into view. */
+.oba-voice :is(input, select, textarea, button) {
+  scroll-margin-bottom: 8rem;
+}
+
+.oba-voice :is(input[type="text"], textarea) {
+  font-size: max(1rem, 16px);
+}
