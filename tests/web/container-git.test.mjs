@@ -58,6 +58,20 @@ test("container Git recovery restores exact source HEAD without replacing shippe
     assert.notEqual(rejected.status, 0);
     assert.match(rejected.stderr, /differ from RENDER_GIT_COMMIT/);
     assert.equal(fs.readFileSync(path.join(mismatch, "post.md"), "utf8"), "Different source");
+
+    const sshImage = path.join(root, "ssh-image");
+    fs.mkdirSync(sshImage);
+    fs.copyFileSync(path.join(source, "post.md"), path.join(sshImage, "post.md"));
+    const sshEnv = {
+      ...env,
+      OPENBLOG_GIT_SSH_KEY_PATH: "/run/secrets/deploy-key",
+      GIT_CONFIG_VALUE_0: "git@github.com:example/blog.git",
+    };
+    const sshRecovered = spawnSync(bash, [script], { cwd: sshImage, env: sshEnv, encoding: "utf8", timeout: 30_000 });
+    assert.equal(sshRecovered.status, 0, sshRecovered.stderr);
+    assert.equal(spawnSync("git", ["remote", "get-url", "origin"], { cwd: sshImage, encoding: "utf8" }).stdout.trim(), "git@github.com:example/blog.git");
+    assert.equal(spawnSync("git", ["rev-parse", "HEAD"], { cwd: sshImage, encoding: "utf8" }).stdout.trim(), commit);
+    assert.equal(fs.readFileSync(path.join(sshImage, "post.md"), "utf8"), "Shipped draft");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

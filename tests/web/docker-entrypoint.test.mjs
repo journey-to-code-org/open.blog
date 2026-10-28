@@ -99,3 +99,16 @@ test("Git token refuses an unexpected remote host", () => {
   assert.match(result.stderr, /github.com origin/);
   assert.doesNotMatch(result.log, /openblog serve/);
 });
+
+test("SSH publishing requires readable pinned credentials and cannot share token mode", () => {
+  for (const extra of [
+    { OPENBLOG_GIT_SSH_KEY_PATH: "/missing/deploy-key" },
+    { OPENBLOG_GIT_SSH_KEY_PATH: "/missing/deploy-key", OPENBLOG_GIT_TOKEN: "example-test-token" },
+  ]) {
+    const result = run(extra);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /readable deploy-key|Configure only one/);
+    assert.doesNotMatch(result.log, /openblog serve/);
+    assert.doesNotMatch(result.stderr, /example-test-token/);
+  }
+});

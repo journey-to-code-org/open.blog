@@ -184,7 +184,8 @@ from Git. This does not change the engagement database or expose editorial data 
    from Render's `RENDER_GIT_REPO_SLUG`, `RENDER_GIT_COMMIT`, and `RENDER_GIT_BRANCH`.
    It fetches the exact shipped commit and checks the existing file contents before
    attaching HEAD; it does not replace files or create a synthetic publishing baseline.
-   Private repositories require `OPENBLOG_GIT_TOKEN` for that fetch. Non-Render images
+   Private repositories require `OPENBLOG_GIT_TOKEN` or the SSH deploy key described
+   below for that fetch. Non-Render images
    must include a valid Git checkout or explicitly provide these source identifiers.
    When opted in, Rust startup fetches `publish.remote` / `publish.branch` into its
    remote-tracking ref, verifies that `HEAD` is an ancestor, then uses a fast-forward-only
@@ -266,6 +267,23 @@ curl https://sh.rustup.rs -sSf | sh -s -- -y && . "$HOME/.cargo/env" \
   && cargo install --git https://github.com/journey-to-code-org/open.blog openblog-cli \
   && openblog build
 ```
+
+### Publishing from the container with an SSH deploy key
+
+Instead of a token, the container can push with a write-enabled SSH deploy key registered on
+this one repository, so a leaked credential cannot reach any other repository. Mount the
+private key and a pinned GitHub known-hosts file as secret files (Render calls them secret
+files) and point to them:
+
+- `OPENBLOG_GIT_SSH_KEY_PATH`: the private deploy key.
+- `OPENBLOG_GIT_SSH_KNOWN_HOSTS_PATH`: GitHub's host keys, taken from GitHub's authenticated
+  HTTPS metadata API. Refresh them when GitHub rotates keys; never disable host verification.
+
+At startup the entrypoint copies the key to a private file (mode 600), requires strict host-key
+checking, and rewrites an `https://github.com/...` origin to `git@github.com:...`. Git metadata
+recovery on Render (`scripts/container-git.sh`) uses the same key for its first fetch. Startup
+fails if either file is unreadable, if the remote is not a GitHub repository, or if
+`OPENBLOG_GIT_TOKEN` is also set: configure only one credential method.
 
 ## Execution gateway
 

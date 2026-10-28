@@ -5,6 +5,12 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- The container can publish with a repository-scoped SSH deploy key (`OPENBLOG_GIT_SSH_KEY_PATH` and
+  `OPENBLOG_GIT_SSH_KNOWN_HOSTS_PATH`) instead of a token. The image now ships `openssh-client`; host keys
+  are pinned and verified strictly, Git metadata recovery on Render uses the same key, and the entrypoint
+  refuses to start if both a key and `OPENBLOG_GIT_TOKEN` are configured. A new `tests/docker-entrypoint.sh`
+  check runs in CI.
+  
 ## [0.48.0] - 2026-10-28
 
 - Export, delete and send a copy of your readings (with `readerAnnotations.enabled`): each reading can be deleted (after asking, and checked afterwards) or all readings of a post removed; the export preview says how many reflections are left out unless you include them; and a reading can be sent as a separate, previewed Third Perspective copy only after you agree to publication, through the site form where there is one or by copying it yourself. Nothing is sent or recorded as sent unless you do it, and the reading itself stays private and unchanged. See [reader annotations](docs/specs/reader-annotations.md).
