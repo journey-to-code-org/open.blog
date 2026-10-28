@@ -1177,7 +1177,8 @@ pub fn safe_address(value: &str, pictures: bool) -> bool {
 /// images keep only `https`, `mailto`, `tel` and relative addresses (anything
 /// else shows as its text), headings are all set at `heading_level` so a
 /// section never skips a level, and no heading carries an id, class or other
-/// attribute from the text.
+/// attribute from the text. A `heading_level` of 0 sets headings as bold
+/// paragraphs instead, for text that sits inside another section.
 pub fn render_inert_markdown(markdown: &str, heading_level: u8) -> String {
     use pulldown_cmark::{html, HeadingLevel};
 
@@ -1201,6 +1202,14 @@ pub fn render_inert_markdown(markdown: &str, heading_level: u8) -> String {
     ) {
         match event {
             Event::Html(raw) | Event::InlineHtml(raw) => events.push(Event::Text(raw)),
+            Event::Start(Tag::Heading { .. }) if heading_level == 0 => {
+                events.push(Event::Start(Tag::Paragraph));
+                events.push(Event::Start(Tag::Strong));
+            }
+            Event::End(TagEnd::Heading(_)) if heading_level == 0 => {
+                events.push(Event::End(TagEnd::Strong));
+                events.push(Event::End(TagEnd::Paragraph));
+            }
             Event::Start(Tag::Heading { .. }) => events.push(Event::Start(Tag::Heading {
                 level,
                 id: None,
