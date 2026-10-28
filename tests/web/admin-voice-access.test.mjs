@@ -8,7 +8,7 @@ import { VOICE_LIMITS, createAnnouncer, timerLabel } from "../../web/admin/voice
 import { choose, type, withDom } from "./dom-shim.mjs";
 import { accessibilityProblems, all, button, fakeClock, fakeServer, fakeStorage, flush, one, tabStops, text } from "./voice-harness.mjs";
 
-// Timer announcements, focus order and reduced motion (ADR 0374, #450). The scan below is an axe-style check run
+// Timer announcements, focus order and reduced motion (ADR 0275, #450). The scan below is an axe-style check run
 // on every step of the view; the announcements are tested at exact seconds.
 
 const css = readFileSync(new URL("../../web/admin/admin.css", import.meta.url), "utf8");

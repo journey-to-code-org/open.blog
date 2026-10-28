@@ -3523,7 +3523,7 @@ a.oba-btn-primary {
   }
 }
 
-/* Voice sessions (ADR 0371). One column from 320px; the cards stack on a phone and sit side by side from
+/* Voice sessions (ADR 0272). One column from 320px; the cards stack on a phone and sit side by side from
    48rem. The rough box is at least 40% of the screen tall, every control is at least 44px, and nothing
    depends on hover or on a color alone: the timer says its state in words and a shape. */
 ob-voice-session,
@@ -3729,7 +3729,7 @@ ob-voice-library {
   }
 }
 
-/* The voice sample library (ADR 0373). Packs are groups; a row is a prompt with badges that say the stage in a
+/* The voice sample library (ADR 0274). Packs are groups; a row is a prompt with badges that say the stage in a
    word and a shape. Everything wraps, and long titles never push the page sideways. */
 .oba-voice-nav {
   display: flex;
@@ -3805,7 +3805,7 @@ ob-voice-library {
   min-height: 44px;
 }
 
-/* Voice accessibility (ADR 0374). The timer says its state in words and a shape; its warning state also
+/* Voice accessibility (ADR 0275). The timer says its state in words and a shape; its warning state also
    pulses a little, which is switched off for people who asked their system for less motion. */
 .oba-voice-timer,
 .oba-voice-card,
@@ -3840,7 +3840,7 @@ ob-voice-library {
   }
 }
 
-/* The voice view on a phone (ADR 0375). The prompt cards stack, the rough box is at least 40% of the screen
+/* The voice view on a phone (ADR 0276). The prompt cards stack, the rough box is at least 40% of the screen
    tall, the action bar stays within reach and above the keyboard, the gutters are the page's own (16px or
    more), and a long unbroken word wraps instead of pushing the page sideways. */
 .oba-voice,

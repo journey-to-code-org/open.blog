@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 
-// Voice sessions in Admin Studio, from the real binary and the real page (ADR 0371 to 0375): the flow, the
+// Voice sessions in Admin Studio, from the real binary and the real page (ADR 0272 to 0276): the flow, the
 // rough box that refuses corrections, a reload in the middle of the window, and the phone-first layout at 400px
 // and on a desktop. Layout is measured on the region under test with a small tolerance: CI fonts are wider than
 // the ones on a developer machine, so nothing here depends on a font's metrics.

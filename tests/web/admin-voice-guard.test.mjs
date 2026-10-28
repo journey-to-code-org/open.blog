@@ -8,7 +8,7 @@ import { createPolishedDraftStore, polishedDirty } from "../../web/admin/voice.j
 import { choose, type, withDom } from "./dom-shim.mjs";
 import { all, button, fakeClock, fakeServer, fakeStorage, flush, one, text } from "./voice-harness.mjs";
 
-// The unsaved guard for polished edits (ADR 0372, #447). Admin's own guard asks `viewDirty()` before it leaves a
+// The unsaved guard for polished edits (ADR 0273, #447). Admin's own guard asks `viewDirty()` before it leaves a
 // view; the Voice view answers with the polished editor's state. A rough draft is saved on the server as it is
 // written and locked at the end, so it never counts as unsaved work.
 
@@ -263,4 +263,39 @@ test("a draft that would not fit a sample is not kept on the device", () => {
   const store = createPolishedDraftStore("big-polished", () => fakeStorage());
   assert.equal(store.save({ base: null, title: "t", body: "x".repeat(60 * 1024 + 1) }), false);
   assert.equal(store.save({ base: "r", title: "t", body: "fits" }), true);
+});
+
+test("the action bar's observers and listeners are removed once its view is gone", async () => {
+  const { keepBarReachable } = await import("../../web/admin/voice-polished.js");
+  const added = new Map();
+  const real = { add: globalThis.addEventListener, remove: globalThis.removeEventListener, observer: globalThis.ResizeObserver, height: globalThis.innerHeight };
+  let disconnected = 0;
+  globalThis.addEventListener = (name, fn) => added.set(name, fn);
+  globalThis.removeEventListener = (name, fn) => {
+    if (added.get(name) === fn) added.delete(name);
+  };
+  globalThis.innerHeight = 800;
+  globalThis.ResizeObserver = class {
+    observe() {}
+    disconnect() {
+      disconnected += 1;
+    }
+  };
+  try {
+    let current = true;
+    const bar = { getBoundingClientRect: () => ({ height: 10 }), classList: { toggle() {} }, style: {} };
+    const settle = keepBarReachable(bar, () => current);
+    assert.equal(added.has("resize"), true);
+    current = false;
+    settle();
+    assert.equal(added.has("resize"), false, "the window listener is gone");
+    assert.equal(disconnected, 1, "the observer is disconnected");
+    // An explicit stop is safe to repeat.
+    settle.stop();
+  } finally {
+    globalThis.addEventListener = real.add;
+    globalThis.removeEventListener = real.remove;
+    globalThis.ResizeObserver = real.observer;
+    globalThis.innerHeight = real.height;
+  }
 });

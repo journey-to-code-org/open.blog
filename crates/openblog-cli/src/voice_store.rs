@@ -554,7 +554,6 @@ fn replace(path: &Path, bytes: &[u8]) -> Result<()> {
 
 /// The names of the sample and, if it has one, its polished or rough partner that exist.
 // Used by the Admin voice screen, not by the CLI.
-#[allow(dead_code)]
 fn pair(root: &Path, visibility: Visibility, file: &str) -> Result<(String, Option<String>)> {
     check_file_name(file)?;
     let path = path_of(root, visibility, file)?;
@@ -585,7 +584,6 @@ fn pair(root: &Path, visibility: Visibility, file: &str) -> Result<(String, Opti
 
 /// Remove one original after its copy was verified. A test can make a named file fail here.
 // Used by the Admin voice screen, not by the CLI.
-#[allow(dead_code)]
 fn remove_source(path: &Path) -> std::io::Result<()> {
     #[cfg(test)]
     {
@@ -611,7 +609,6 @@ thread_local! {
 /// The polished original is removed first and the rough original last; once any original is gone
 /// no copy is ever deleted, and a failure reports that the move is partly done.
 // Used by the Admin voice screen, not by the CLI.
-#[allow(dead_code)]
 pub fn move_visibility(
     root: &Path,
     from: Visibility,
@@ -685,7 +682,7 @@ pub fn move_visibility(
 
 /// Erase a sample. Erasing a rough draft that has a polished draft is refused unless
 /// `with_polished` says to erase both; erasing a polished draft leaves the rough draft.
-// Used by the Admin voice screen, not by the CLI.
+// Used by the Admin voice screen, not by the CLI; no Admin route erases yet, so it stays allowed.
 #[allow(dead_code)]
 pub fn erase(
     root: &Path,

@@ -1,4 +1,4 @@
-// <ob-voice-library>: the samples the author has, grouped by prompt pack (ADR 0373). Each pack shows how much
+// <ob-voice-library>: the samples the author has, grouped by prompt pack (ADR 0274). Each pack shows how much
 // of it is written, each prompt with a sample shows its stage as a badge (a word and a shape, not a color),
 // its length, where it is kept and when it was written, and every pack offers a draw from just that pack. A
 // file that cannot be read is listed with guidance and never hidden. The order is the catalog's, and newest
@@ -59,7 +59,7 @@ function groupNode(group, ids) {
 }
 
 /**
- * The one-time invitation to the Voice view, shown on the Admin home (ADR 0376). `onDismiss()` remembers the
+ * The one-time invitation to the Voice view, shown on the Admin home (ADR 0277). `onDismiss()` remembers the
  * dismissal (it resolves true when it did, false when it cannot) and `onGone()` runs once the card is removed.
  * Start is an ordinary link to the Voice view. A dismissal that could not be saved keeps the card and says so.
  */
@@ -223,6 +223,33 @@ export function createVoiceLibrary({ api, user = "", storage, clock, onDirty = (
     );
   }
 
+  // Make a post draft from the saved polished draft. The rough draft has no such control; the server refuses it too.
+  function promoteBlock(polished) {
+    const status = el("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-voice-promote-status": "true" });
+    const button = el("button", { class: "oba-btn", type: "button", "data-action": "voice-promote" }, "Make a post draft");
+    button.addEventListener("click", async () => {
+      if (editor?.isDirty()) {
+        status.className = "oba-small oba-error";
+        status.textContent = "Save your polished draft first. The post draft is made from the saved copy.";
+        return;
+      }
+      button.disabled = true;
+      status.className = "oba-small";
+      status.textContent = "Making the post draft…";
+      try {
+        const made = await api.call("POST", `voice/samples/${polished.id}/promote`, { json: {} });
+        status.className = "oba-small oba-ok";
+        status.textContent = "Created a post draft. It stays a draft until you publish it, and your voice samples were not changed. ";
+        status.append(el("a", { href: `#/edit/${encodeURIComponent(made.editPath)}`, "data-action": "voice-open-post" }, "Open it in Write"));
+      } catch (error) {
+        button.disabled = false;
+        status.className = "oba-small oba-error";
+        status.textContent = voiceErrorText(error);
+      }
+    });
+    return el("div", { class: "oba-voice-promote", "data-voice-promote": "true" }, button, status);
+  }
+
   function showSample(sample, rough, polished, mine) {
     const heading = el("h2", { id: `${ids}-open`, tabindex: "-1", "data-voice-heading": "true" }, rough.promptTitle || rough.title);
     const roughView = buildRoughView({ api, sample: rough });
@@ -242,6 +269,7 @@ export function createVoiceLibrary({ api, user = "", storage, clock, onDirty = (
       roughView.element,
       el("h3", { class: "oba-voice-polish-heading", "data-voice-polish-heading": "true" }, polished ? "Edit your polished draft" : "Polish a copy"),
       editor.element,
+      ...(polished ? [promoteBlock(polished)] : []),
     );
     keepBarReachable(editor.bar(), () => mine === generation);
     // The stage names where the author goes next: a polished draft to its editor, a rough one to its heading.

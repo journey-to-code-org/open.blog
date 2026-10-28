@@ -6,9 +6,8 @@ import { ROUGH_NOTE, libraryHash } from "../../web/admin/voice.js";
 import { ApiError, type, withDom } from "./dom-shim.mjs";
 import { accessibilityProblems, all, button, fakeClock, fakeServer, fakeStorage, flush, link, one, text } from "./voice-harness.mjs";
 
-// Open and edit from the library (ADR 0373, #449): a rough sample opens read-only with the reason, a polished one
-// opens editable with revision checks, and either stage opens with both drafts. (Promoting a polished draft to a
-// post is a separate task and has no control here.)
+// Open and edit from the library (ADR 0274, #449): a rough sample opens read-only with the reason, a polished one
+// opens editable with revision checks, and either stage opens with both drafts. A saved polished draft can become a post draft.
 
 const ROUGH = { id: "2026-10-22-a-mistake-i-made-rough", file: "2026-10-22-a-mistake-i-made-rough.md", visibility: "private", stage: "rough", pack: "stories", prompt: "a-mistake-i-made", promptTitle: "A mistake I made", title: "A mistake I made", words: 5, date: "2026-10-22T09:00:00Z", body: "teh rough words, as typed", valid: true, revision: "rev-rough", roughOf: null };
 const POLISHED = { ...ROUGH, id: "2026-10-22-a-mistake-i-made-polished", file: "2026-10-22-a-mistake-i-made-polished.md", stage: "polished", roughOf: ROUGH.file, title: "My polished title", body: "The polished words.", words: 3, revision: "rev-polished" };
@@ -222,5 +221,35 @@ test("the opened views pass the accessibility scan", async () => {
       assert.deepEqual(accessibilityProblems(m.root), [], `${id} with the reset question open`);
       document.body.replaceChildren();
     }
+  })();
+});
+
+test("a saved polished draft can be made a post draft and links to it in Write; a rough sample has no such button", async () => {
+  await withDom(async () => {
+    const rough = await open(ROUGH.id, { samples: [ROUGH] });
+    assert.equal(all(rough.root, "[data-action=voice-promote]").length, 0);
+    const m = await open(POLISHED.id);
+    await typeInto(body(m.root), "Edited but not saved.");
+    await button(m.root, "voice-promote").click();
+    await flush();
+    assert.equal(m.api.calls.some((c) => c.path.endsWith("/promote")), false, "unsaved edits are not promoted");
+    assert.match(text(one(m.root, "[data-voice-promote-status]")), /Save your polished draft first/);
+    await typeInto(body(m.root), POLISHED.body);
+    await button(m.root, "voice-promote").click();
+    await flush();
+    const call = m.api.calls.find((c) => c.path.endsWith("/promote"));
+    assert.equal(call.path, `voice/samples/${POLISHED.id}/promote`);
+    assert.equal(link(m.root, "voice-open-post").attributes.href, "#/edit/posts%2Fmy-polished-title.md");
+  })();
+});
+
+test("a taken slug is said in words and the button works again", async () => {
+  await withDom(async () => {
+    const m = await open(POLISHED.id);
+    m.api.state.promoteTaken = true;
+    await button(m.root, "voice-promote").click();
+    await flush();
+    assert.match(text(one(m.root, "[data-voice-promote-status]")), /already uses the slug/);
+    assert.equal(button(m.root, "voice-promote").disabled, false);
   })();
 });

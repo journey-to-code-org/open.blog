@@ -1,11 +1,11 @@
-# ADR 0376: The voice invitation is shown once on the Admin home, and a dismissal is an admin preference
+# ADR 0277: The voice invitation is shown once on the Admin home, and a dismissal is an admin preference
 
 - Status: Accepted
 - Date: 2026-10-28
 - Decision issue: [#452](https://github.com/journey-to-code-org/open.blog/issues/452)
 - Parent story: [#421](https://github.com/journey-to-code-org/open.blog/issues/421)
 - Parent epic: [#408](https://github.com/journey-to-code-org/open.blog/issues/408)
-- Builds on: ADR 0371, ADR 0120 (progressive workspace layout)
+- Builds on: ADR 0272, ADR 0120 (progressive workspace layout)
 
 ## Context
 

@@ -1,11 +1,11 @@
-# ADR 0374: The voice timer is not live, and the view speaks only its marks and the lock
+# ADR 0275: The voice timer is not live, and the view speaks only its marks and the lock
 
 - Status: Accepted
 - Date: 2026-10-28
 - Decision issue: [#450](https://github.com/journey-to-code-org/open.blog/issues/450)
 - Parent story: [#420](https://github.com/journey-to-code-org/open.blog/issues/420)
 - Parent epic: [#408](https://github.com/journey-to-code-org/open.blog/issues/408)
-- Builds on: ADR 0371, ADR 0251 (the landing builder's phone comfort)
+- Builds on: ADR 0272, ADR 0251 (the landing builder's phone comfort)
 
 ## Context
 

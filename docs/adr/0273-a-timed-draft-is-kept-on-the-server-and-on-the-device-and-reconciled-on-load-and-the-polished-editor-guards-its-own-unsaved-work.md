@@ -1,11 +1,11 @@
-# ADR 0372: A timed draft is kept on the server and on the device and reconciled on load, and the polished editor guards its own unsaved work
+# ADR 0273: A timed draft is kept on the server and on the device and reconciled on load, and the polished editor guards its own unsaved work
 
 - Status: Accepted
 - Date: 2026-10-28
 - Decision issue: [#446](https://github.com/journey-to-code-org/open.blog/issues/446)
 - Parent story: [#418](https://github.com/journey-to-code-org/open.blog/issues/418)
 - Parent epic: [#408](https://github.com/journey-to-code-org/open.blog/issues/408)
-- Builds on: ADR 0267, ADR 0370, ADR 0371, ADR 0249 and ADR 0264 (the landing builder's drafts)
+- Builds on: ADR 0267, ADR 0271, ADR 0272, ADR 0249 and ADR 0264 (the landing builder's drafts)
 
 ## Context
 

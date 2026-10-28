@@ -11303,7 +11303,7 @@ export class ObAdmin extends AdminElement {
         "nav",
         { class: "oba-toolbelt", "aria-label": "Admin tools" },
         toolGroup("Content", ...contentTabs),
-        // Voice sessions follow the Assistant module of the chosen layout (ADR 0371), and are always shown on their own page.
+        // Voice sessions follow the Assistant module of the chosen layout (ADR 0272), and are always shown on their own page.
         h("div", { class: "oba-progressive-tools", "data-admin-module": "assistant", hidden: !visibleModules.has("assistant") }, toolGroup("Assistant", h("a", { class: "oba-tab", "aria-current": active === "voice" ? "page" : null, href: "#/voice" }, "Voice"))),
         h("div", { class: "oba-progressive-tools", "data-admin-module": "analytics", hidden: !visibleModules.has("analytics") }, toolGroup("Observe", h("a", { class: "oba-tab", "aria-current": active === "analytics" ? "page" : null, href: "#/analytics" }, "Analytics"), h("a", { class: "oba-tab", "aria-current": active === "moderation" ? "page" : null, href: "#/moderation" }, "Moderation inbox"))),
         // One entry for the whole research workspace; its panels are listed in the workspace's own navigation.
@@ -11960,7 +11960,7 @@ export class ObAdmin extends AdminElement {
   }
 
   /**
-   * The one-time invitation to the Voice view (ADR 0376): only with no samples, no open session and no earlier
+   * The one-time invitation to the Voice view (ADR 0277): only with no samples, no open session and no earlier
    * dismissal. If the question cannot be answered the card is simply not shown, and if Admin has moved to
    * another view by the time the answer comes, nothing is added to it.
    */
@@ -13804,7 +13804,7 @@ export class ObAdmin extends AdminElement {
     this.viewBusy = () => busy || publishing;
   }
 
-  // ---- voice sessions (ADR 0371)
+  // ---- voice sessions (ADR 0272)
 
   /**
    * `#/voice`: draw three prompts, write a rough draft against the server's clock, then refine a polished

@@ -1,11 +1,11 @@
-# ADR 0375: The voice view is phone-first, and its layout is checked in a real browser without relying on font metrics
+# ADR 0276: The voice view is phone-first, and its layout is checked in a real browser without relying on font metrics
 
 - Status: Accepted
 - Date: 2026-10-28
 - Decision issue: [#451](https://github.com/journey-to-code-org/open.blog/issues/451)
 - Parent story: [#420](https://github.com/journey-to-code-org/open.blog/issues/420)
 - Parent epic: [#408](https://github.com/journey-to-code-org/open.blog/issues/408)
-- Builds on: ADR 0251 (the landing builder's phone comfort), ADR 0371, ADR 0374
+- Builds on: ADR 0251 (the landing builder's phone comfort), ADR 0272, ADR 0275
 
 ## Context
 

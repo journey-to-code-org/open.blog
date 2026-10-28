@@ -1,4 +1,4 @@
-// <ob-voice-session>: the Voice view's session (ADR 0371). Three steps: draw three prompts and choose one,
+// <ob-voice-session>: the Voice view's session (ADR 0272). Three steps: draw three prompts and choose one,
 // write a rough draft against a clock the server owns, then refine a polished copy of the locked rough
 // draft. Nothing here edits rough text: the rough box turns off spell-check, autocorrect, autocapitalize
 // and every writing assistant the browser lets a page refuse, and once the draft locks it is shown, not
@@ -71,7 +71,7 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
   let finishing = false;
   let stopTicking = () => {};
   let generation = 0;
-  // A bounded copy of the rough draft on this device, one per site and sign-in (ADR 0372).
+  // A bounded copy of the rough draft on this device, one per site and sign-in (ADR 0273).
   const drafts = createVoiceDraftStore(`ob-voice-draft:${user}`, storage);
 
   const render = (...nodes) => {

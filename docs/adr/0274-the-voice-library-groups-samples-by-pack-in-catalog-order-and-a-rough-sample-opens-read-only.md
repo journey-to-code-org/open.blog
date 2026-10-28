@@ -1,11 +1,11 @@
-# ADR 0373: The voice library groups samples by pack in catalog order, and a rough sample opens read-only
+# ADR 0274: The voice library groups samples by pack in catalog order, and a rough sample opens read-only
 
 - Status: Accepted
 - Date: 2026-10-28
 - Decision issue: [#448](https://github.com/journey-to-code-org/open.blog/issues/448)
 - Parent story: [#419](https://github.com/journey-to-code-org/open.blog/issues/419)
 - Parent epic: [#408](https://github.com/journey-to-code-org/open.blog/issues/408)
-- Builds on: ADR 0266, ADR 0267, ADR 0268, ADR 0370
+- Builds on: ADR 0266, ADR 0267, ADR 0268, ADR 0271
 
 ## Context
 
@@ -43,7 +43,7 @@ the way its stage says: a rough draft to read, a polished draft to edit.
   was read at, beside the rough draft. Nothing is written by opening.
 - No call made from these views can write a rough draft: the only writes are `POST samples` (a new polished
   draft), `PUT samples/<polished id>` with a revision, and `visibility`. A save that finds a newer draft is the
-  conflict choice of ADR 0372. The unsaved guard covers the open view.
+  conflict choice of ADR 0273. The unsaved guard covers the open view.
 - A file that cannot be read, or a polished draft whose rough draft is missing, opens as guidance and no editor.
 - **Not here:** promoting a polished draft to a post (`POST samples/{id}/promote` and the Promote button) waits for
   the shared store function that makes the post draft; this change has no promotion logic of its own.

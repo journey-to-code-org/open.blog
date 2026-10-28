@@ -1,4 +1,4 @@
-// The polished draft editor (ADR 0371): the author's own revision of one rough draft. It is used after a
+// The polished draft editor (ADR 0272): the author's own revision of one rough draft. It is used after a
 // session locks and when a polished sample is opened from the library. The text is the author's, so the
 // browser's spell-check is welcome here (the rough draft is the only text that turns it off). Saving is
 // revision-checked by the server; this editor keeps a copy of unsaved edits on the device, offers it back
@@ -11,7 +11,7 @@ import { PORTABLE_NOTE, PRIVATE_NOTE, ROUGH_NOTE, VOICE_LIMITS, byteLength, crea
 let uid = 0;
 
 /**
- * Keeps the action bar reachable on a phone (ADR 0375), as the landing builder's bar is: it floats at the bottom
+ * Keeps the action bar reachable on a phone (ADR 0276), as the landing builder's bar is: it floats at the bottom
  * of the screen, rides above the on-screen keyboard, and joins the flow of the page when its own height would
  * take more than 40% of the screen (wide fallback fonts, large text, a short screen), so it can never cover
  * the work. Returns the function that decides, for a caller that wants to run it again.
@@ -51,7 +51,7 @@ export function keepBarReachable(bar, isCurrent) {
 }
 
 /**
- * A locked rough draft, shown and never edited (ADR 0266, ADR 0371): the words in a labelled region that is a plain
+ * A locked rough draft, shown and never edited (ADR 0266, ADR 0272): the words in a labelled region that is a plain
  * `div` (nothing to type into, nothing for an extension to attach to), the sentence that says why, where it is kept
  * and a button that moves the pair to the other folder. `sample` is the rough sample as the server describes it
  * (`id`, `body`, `words`, `visibility`). Returns `{ element, status }`.

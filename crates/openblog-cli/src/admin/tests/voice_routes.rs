@@ -1,4 +1,4 @@
-//! Admin voice routes (ADR 0266 to 0268, ADR 0370, #444): deny by default, CSRF and origin, bounds,
+//! Admin voice routes (ADR 0266 to 0268, ADR 0271, #444): deny by default, CSRF and origin, bounds,
 //! the server-side deadline, the lock and its grace, revision-checked polished saves, a rough draft
 //! that nothing changes, visibility moves, and responses that carry no absolute path and no
 //! sample text in an error.
@@ -83,6 +83,11 @@ fn every_route_requires_a_session_and_a_write_the_csrf_token_and_the_same_origin
             "/admin/api/voice/samples/2026-10-28-a-rough/visibility",
             true,
         ),
+        (
+            "POST",
+            "/admin/api/voice/samples/2026-10-28-a-rough/promote",
+            true,
+        ),
     ];
     let session = login_ok(&f);
     for &(method, path, writes) in routes {
@@ -127,10 +132,7 @@ fn every_route_requires_a_session_and_a_write_the_csrf_token_and_the_same_origin
         ("DELETE", "/admin/api/voice/samples"),
         ("PATCH", "/admin/api/voice/catalog"),
         ("GET", "/admin/api/voice/other"),
-        (
-            "POST",
-            "/admin/api/voice/samples/2026-10-28-a-rough/promote",
-        ),
+        ("POST", "/admin/api/voice/samples/2026-10-28-a-rough/erase"),
         ("DELETE", "/admin/api/voice/samples/2026-10-28-a-rough"),
         ("GET", "/admin/api/voice/samples/..%2F..%2Fsecret"),
         ("GET", "/admin/api/voice/samples/Bad_Name"),
@@ -866,4 +868,97 @@ fn dismissing_the_voice_invitation_is_a_saved_preference_that_changes_nothing_el
         json!({ "etag": back["etag"], "preferences": bad }),
     );
     assert_eq!(status, 400);
+}
+
+#[test]
+fn a_polished_draft_becomes_a_post_draft_and_a_rough_draft_or_a_taken_slug_is_refused() {
+    let f = fixture("voice-promote");
+    let s = login_ok(&f);
+    let (_, rough) = locked_sample(&f, &s, "private");
+    let rough_id = rough["id"].as_str().unwrap().to_string();
+    let rough_path = rough["path"].as_str().unwrap().to_string();
+    let rough_bytes = fs::read(f.dir.join(&rough_path)).unwrap();
+    let rough_url = format!("/admin/api/voice/samples/{rough_id}/promote");
+    let (status, refused) = call(&f, &s, "POST", &rough_url, json!({}));
+    assert_eq!(status, 409, "{refused}");
+    assert!(
+        refused["error"].as_str().unwrap().contains("polished"),
+        "{refused}"
+    );
+    assert_eq!(
+        call(
+            &f,
+            &s,
+            "POST",
+            &rough_url.replace(&rough_id, "2020-01-01-nope-polished"),
+            json!({})
+        )
+        .0,
+        404
+    );
+
+    let (_, polished) = call(
+        &f,
+        &s,
+        "POST",
+        "/admin/api/voice/samples",
+        json!({ "roughOf": rough["file"], "title": "My Promoted Title", "body": "polished words" }),
+    );
+    let url = format!(
+        "/admin/api/voice/samples/{}/promote",
+        polished["id"].as_str().unwrap()
+    );
+    assert_eq!(
+        call(&f, &s, "POST", &url, json!({ "dir": "../outside" })).0,
+        409
+    );
+    assert_eq!(call(&f, &s, "POST", &url, json!({ "dir": 7 })).0, 400);
+    let (status, made) = call(&f, &s, "POST", &url, json!({}));
+    assert_eq!(status, 201, "{made}");
+    let path = made["path"].as_str().unwrap();
+    assert!(
+        !path.contains('\\') && !path.starts_with('/') && !path.contains(':'),
+        "{path}"
+    );
+    let edit = made["editPath"].as_str().unwrap();
+    assert!(edit.starts_with("posts/") && path.ends_with(edit), "{made}");
+    let text = fs::read_to_string(f.dir.join(path)).unwrap();
+    assert!(
+        text.contains("draft: \"true\"") && text.contains("polished words"),
+        "{text}"
+    );
+    // The samples were not touched, and promoting again hits the slug the first one took.
+    assert_eq!(fs::read(f.dir.join(&rough_path)).unwrap(), rough_bytes);
+    let (status, taken) = call(&f, &s, "POST", &url, json!({}));
+    assert_eq!(status, 409, "{taken}");
+    let dir = f.dir.to_string_lossy().replace('\\', "/");
+    assert!(!taken.to_string().contains(&dir), "{taken}");
+}
+
+#[test]
+fn a_session_lock_that_lost_a_race_reads_back_as_no_session() {
+    let f = fixture("voice-race");
+    let s = login_ok(&f);
+    let prompt = first_prompt(&f, &s);
+    let session = start(&f, &s, &prompt);
+    call(
+        &f,
+        &s,
+        "PUT",
+        "/admin/api/voice/session/draft",
+        json!({ "sessionId": session["sessionId"], "text": "words" }),
+    );
+    age_session(&f, 500);
+    let (status, first) = get(&f, &s, "/admin/api/voice/session");
+    assert_eq!(
+        (status, first["state"].as_str()),
+        (200, Some("locked")),
+        "{first}"
+    );
+    let (status, second) = get(&f, &s, "/admin/api/voice/session");
+    assert_eq!(
+        (status, second["state"].as_str()),
+        (200, Some("none")),
+        "{second}"
+    );
 }

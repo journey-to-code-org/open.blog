@@ -7,7 +7,7 @@ import { invitationVisible } from "../../web/admin/voice.js";
 import { withDom } from "./dom-shim.mjs";
 import { all, flush, link, text } from "./voice-harness.mjs";
 
-// The one-time invitation (ADR 0376, #452): shown on the Admin home only when there are no samples, no open
+// The one-time invitation (ADR 0277, #452): shown on the Admin home only when there are no samples, no open
 // session and no earlier dismissal; Dismiss stores the flag; Start opens the Voice view.
 
 const idle = { session: { open: false }, samples: 0 };

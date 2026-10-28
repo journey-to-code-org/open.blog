@@ -6,7 +6,7 @@ import { ROUGH_NOTE, createCountdown, formatClock, spokenTime, timerLabel, timer
 import { choose, type, withDom } from "./dom-shim.mjs";
 import { all, button, fakeClock, fakeServer, flush, link, one, text } from "./voice-harness.mjs";
 
-// The Voice session (ADR 0371, #445): draw three prompts, write against the server's clock, lock, refine.
+// The Voice session (ADR 0272, #445): draw three prompts, write against the server's clock, lock, refine.
 // The page is driven with a fake server that follows the real routes' rules and a clock the test moves.
 
 let users = 0;

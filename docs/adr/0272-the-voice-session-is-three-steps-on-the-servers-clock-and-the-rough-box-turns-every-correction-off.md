@@ -1,11 +1,11 @@
-# ADR 0371: The voice session is three steps on the server's clock, and the rough box turns every correction off
+# ADR 0272: The voice session is three steps on the server's clock, and the rough box turns every correction off
 
 - Status: Accepted
 - Date: 2026-10-28
 - Decision issue: [#445](https://github.com/journey-to-code-org/open.blog/issues/445)
 - Parent story: [#417](https://github.com/journey-to-code-org/open.blog/issues/417)
 - Parent epic: [#408](https://github.com/journey-to-code-org/open.blog/issues/408)
-- Builds on: ADR 0266, ADR 0370, ADR 0249 (the landing builder's patterns)
+- Builds on: ADR 0266, ADR 0271, ADR 0249 (the landing builder's patterns)
 
 ## Context
 
@@ -26,7 +26,7 @@ author's words are never rewritten, the clock cannot be gamed, nothing is lost, 
   When the clock reaches zero the page locks with the text on screen; the server accepts it only within its
   10 second grace and otherwise locks what it saved. A draft save the server refuses as late becomes a lock, not a
   lost draft. If the page is away and comes back after the deadline, loading the session locks it from the
-  saved text on the server (ADR 0370).
+  saved text on the server (ADR 0271).
 - **The rough box refuses every correction.** `spellcheck="false"`, `autocorrect="off"`, `autocapitalize="off"`,
   `autocomplete="off"`, `writingsuggestions="false"` and the attributes that make Grammarly-style extensions keep
   out. This is on the rough textarea only: the polished editor is the author's own text, so the browser's
@@ -43,7 +43,7 @@ author's words are never rewritten, the clock cannot be gamed, nothing is lost, 
   editing. Edits typed while a save is in flight stay unsaved instead of being overwritten by the answer.
 - **Voice follows the Assistant module of the layout.** Its tab sits in an "Assistant" group that the Simple
   layout hides like the other optional modules, and is shown on its own page whatever the layout. The
-  invitation card (ADR 0376) is how a Simple-layout author finds it.
+  invitation card (ADR 0277) is how a Simple-layout author finds it.
 
 ## Considered options
 

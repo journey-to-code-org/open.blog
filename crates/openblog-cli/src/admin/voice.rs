@@ -1,4 +1,4 @@
-//! Admin routes for voice sessions (ADR 0266 to 0268, ADR 0370, #444).
+//! Admin routes for voice sessions (ADR 0266 to 0268, ADR 0271, #444).
 //!
 //! The routes are thin: the session record (`voice_session`) and the sample store
 //! (`voice_store`) decide what may be written and the same core draws the prompts, so the CLI
@@ -43,6 +43,7 @@ pub(super) fn request_limit(req: &Request, name: &str) -> usize {
 pub(super) enum SampleRoute<'a> {
     One(&'a str),
     Visibility(&'a str),
+    Promote(&'a str),
 }
 
 pub(super) fn sample_route(name: &str) -> Option<SampleRoute<'_>> {
@@ -62,6 +63,7 @@ pub(super) fn sample_route(name: &str) -> Option<SampleRoute<'_>> {
     match action {
         None => Some(SampleRoute::One(id)),
         Some("visibility") => Some(SampleRoute::Visibility(id)),
+        Some("promote") => Some(SampleRoute::Promote(id)),
         Some(_) => None,
     }
 }
@@ -897,7 +899,7 @@ fn write_polished(
             }
         }
         Err(StoreError::Stale { message, current }) => {
-            // Say what is stored now, so the page can offer the author's choice (ADR 0372).
+            // Say what is stored now, so the page can offer the author's choice (ADR 0273).
             let latest = current.as_ref().and_then(|_| {
                 let file = sample
                     .voice
@@ -956,6 +958,64 @@ pub(super) fn set_visibility(state: &AppState, req: &Request, id: &str) -> Respo
                 })
                 .collect();
             Response::json(200, &json!({ "moved": moved, "visibility": to.as_str() }))
+        }
+        Err(error) => store_error(state, error),
+    }
+}
+
+/// `POST voice/samples/{id}/promote`: make a post draft from a polished sample. The body is `{ dir? }`
+/// (a folder inside `posts`). A rough draft is refused with guidance, a slug already used by a post is
+/// refused, and the sample itself is never touched. Writing a post takes the content transaction lock like
+/// every other Admin post write. The answer names the new draft so the page can link to it in Write.
+pub(super) fn promote(state: &AppState, req: &Request, id: &str) -> Response {
+    let body = match body_object(req, MAX_SMALL_REQUEST_BYTES) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let dir = match &body["dir"] {
+        Json::Null => None,
+        Json::String(dir) if dir.len() <= 200 => Some(dir.as_str()),
+        _ => return Response::error(400, "`dir` must be a folder inside posts"),
+    };
+    let file = format!("{id}.md");
+    let (visibility, loaded) = match locate(state, &file, None) {
+        Ok(found) => found,
+        Err(response) => return response,
+    };
+    if loaded.listed.stage != Some(VoiceStage::Polished) {
+        return Response::json(
+            409,
+            &json!({
+                "error": "Only a polished draft can become a post. A rough draft is never edited: polish a copy first, then make the post from that.",
+                "refused": true,
+                "rough": loaded.listed.stage == Some(VoiceStage::Rough),
+            }),
+        );
+    }
+    let _transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    match voice_store::promote_to_post_draft(&state.root, visibility, &file, dir) {
+        Ok(created) => {
+            let path = created.to_string_lossy().replace('\\', "/");
+            let content = site::load_config(&state.root)
+                .map(|config| config.paths.content)
+                .unwrap_or_default();
+            let edit = path
+                .strip_prefix(&format!("{}/", content.trim_matches('/')))
+                .unwrap_or(&path)
+                .to_string();
+            Response::json(
+                201,
+                &json!({
+                    "created": true,
+                    "path": path,
+                    "editPath": edit,
+                    "draft": true,
+                    "message": "Created a post draft. It is not published while it says `draft: true`. Your voice samples were not changed.",
+                }),
+            )
         }
         Err(error) => store_error(state, error),
     }

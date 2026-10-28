@@ -1,4 +1,4 @@
-# ADR 0370: Admin voice routes are thin calls to the session and the store, and the server owns the deadline
+# ADR 0271: Admin voice routes are thin calls to the session and the store, and the server owns the deadline
 
 - Status: Accepted
 - Date: 2026-10-28

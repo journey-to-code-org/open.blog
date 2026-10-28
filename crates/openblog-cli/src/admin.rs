@@ -668,6 +668,7 @@ fn authenticated_api(
             ("GET", voice::SampleRoute::One(id)) => voice::get(state, req, id),
             ("PUT", voice::SampleRoute::One(id)) => voice::save_polished(state, req, id),
             ("POST", voice::SampleRoute::Visibility(id)) => voice::set_visibility(state, req, id),
+            ("POST", voice::SampleRoute::Promote(id)) => voice::promote(state, req, id),
             _ => Response::error(404, "Unknown API route"),
         };
     }

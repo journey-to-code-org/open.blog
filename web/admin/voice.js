@@ -1,4 +1,4 @@
-// The logic behind Admin's Voice view (ADR 0370 to 0372): the countdown, what the page announces
+// The logic behind Admin's Voice view (ADR 0271 to 0273): the countdown, what the page announces
 // and when, the copy of a draft kept on this device, how that copy and the server's are reconciled,
 // the library's grouping, and the invitation's rule. Nothing here touches the document, so every
 // rule is a plain function a test can call at an exact second.
@@ -407,7 +407,7 @@ export const EMPTY_LIBRARY_TEXT =
 // ---------------------------------------------------------------- the invitation
 
 /**
- * Whether the one-time invitation shows (ADR 0372): only when the author has no samples, has not dismissed it
+ * Whether the one-time invitation shows (ADR 0273): only when the author has no samples, has not dismissed it
  * and no session is open. A status the page could not read shows nothing.
  */
 export function invitationVisible({ dismissed, status }) {

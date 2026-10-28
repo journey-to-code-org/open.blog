@@ -6,7 +6,7 @@ import { EMPTY_LIBRARY_TEXT, STAGE_BADGES, coverageText, groupLibrary, voiceHash
 import { ApiError, withDom } from "./dom-shim.mjs";
 import { all, flush, link, one, text } from "./voice-harness.mjs";
 
-// The sample library (ADR 0373, #448): packs as groups in the catalog's order, prompts with stage badges,
+// The sample library (ADR 0274, #448): packs as groups in the catalog's order, prompts with stage badges,
 // words, visibility and date, newest first inside a pack, invalid files with guidance, an empty state that says
 // what a sample is, and a draw from one pack.
 

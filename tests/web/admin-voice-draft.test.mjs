@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createVoiceSession } from "../../web/admin/voice-session.js";
-import { VOICE_LIMITS, byteLength, createVoiceDraftStore, expiredPlan, reconcileDraft } from "../../web/admin/voice.js";
+import { POLISHED_COPY_TTL_MS, ROUGH_COPY_TTL_MS, VOICE_LIMITS, byteLength, clearVoiceCopies, copyIsPastGrace, createPolishedDraftStore, createVoiceDraftStore, expiredPlan, reconcileDraft } from "../../web/admin/voice.js";
 import { choose, type, withDom } from "./dom-shim.mjs";
 import { all, button, fakeClock, fakeServer, fakeStorage, flush, one, text } from "./voice-harness.mjs";
 
-// Never lose a timed draft (ADR 0372, #446): a bounded copy on this device, a debounced autosave to the
+// Never lose a timed draft (ADR 0273, #446): a bounded copy on this device, a debounced autosave to the
 // server, and a reconciliation on load where the server's session wins for the deadline and the longer of the
 // two drafts wins for the text. An expired session never gets time back.
 
@@ -43,16 +43,16 @@ const stored = (s) => JSON.parse(s.storage.values.get(s.key));
 test("the copy on this device is bounded, versioned, and ignores records it does not recognise", () => {
   const storage = fakeStorage();
   const store = createVoiceDraftStore("k", () => storage);
-  assert.equal(store.load(), null);
+  assert.equal(store.load(10), null);
   assert.equal(store.save({ sessionId: "s@1", deadline: "2026-10-28T09:03:00Z", text: "hello" }, 5), true);
-  assert.deepEqual(store.load(), { v: 1, sessionId: "s@1", deadline: "2026-10-28T09:03:00Z", text: "hello", savedAt: 5 });
+  assert.deepEqual(store.load(10), { v: 1, sessionId: "s@1", deadline: "2026-10-28T09:03:00Z", text: "hello", savedAt: 5 });
   assert.equal(store.save({ sessionId: "s@1", deadline: "d", text: "x".repeat(VOICE_LIMITS.maxDraftBytes + 1) }), false, "more than a sample can hold is not kept");
-  assert.equal(store.load().text, "hello", "a refused copy leaves the last one");
+  assert.equal(store.load(10).text, "hello", "a refused copy leaves the last one");
   assert.equal(byteLength("é"), 2);
   storage.values.set("k", JSON.stringify({ v: 9, sessionId: "s", text: "x", deadline: "d", savedAt: 1 }));
-  assert.equal(store.load()?.text, "hello", "a record from another version is not used (the memory copy stands)");
+  assert.equal(store.load(10)?.text, "hello", "a record from another version is not used (the memory copy stands)");
   store.clear();
-  assert.equal(store.load(), null);
+  assert.equal(store.load(10), null);
 });
 
 test("with storage that throws, the copy lives in memory and nothing breaks", () => {
@@ -281,4 +281,39 @@ test("an expired session with nothing saved is discarded, and the copy goes with
     assert.equal(s.storage.values.has(s.key), false);
     assert.equal(s.api.state.samples.length, 0);
   })();
+});
+
+test("a device copy of private text expires: a rough draft after a day, a polished one after thirty days", () => {
+  const storage = fakeStorage();
+  const rough = createVoiceDraftStore("ob-voice-draft:ttl", () => storage);
+  rough.save({ sessionId: "s", deadline: new Date(1000).toISOString(), text: "private words" }, 1000);
+  assert.equal(rough.load(1000 + ROUGH_COPY_TTL_MS)?.text, "private words", "still kept at the limit");
+  assert.equal(rough.load(1001 + ROUGH_COPY_TTL_MS), null);
+  assert.equal(storage.values.size, 0, "an expired copy is removed from the device, not just hidden");
+  const polished = createPolishedDraftStore("ob-voice-polished:ttl:f", () => storage);
+  polished.save({ base: null, title: "T", body: "private polished" }, 5000);
+  assert.equal(polished.load(5000 + ROUGH_COPY_TTL_MS + 1)?.body, "private polished", "a day is not enough to drop a polished copy");
+  assert.equal(polished.load(5001 + POLISHED_COPY_TTL_MS), null);
+  assert.equal(storage.values.size, 0);
+});
+
+test("signing out clears every voice copy by prefix and nothing else, and a blocked storage does not throw", () => {
+  const storage = fakeStorage();
+  storage.setItem("ob-voice-draft:a", "1");
+  storage.setItem("ob-voice-draft:b", "1");
+  storage.setItem("ob-voice-polished:a:f.md", "1");
+  storage.setItem("ob-landing-draft:a", "keep");
+  const rough = createVoiceDraftStore("ob-voice-draft:a", () => storage);
+  rough.save({ sessionId: "s", deadline: new Date().toISOString(), text: "x" });
+  clearVoiceCopies(() => storage);
+  assert.deepEqual([...storage.values.keys()], ["ob-landing-draft:a"]);
+  assert.equal(rough.load(), null, "the in-memory copy goes too");
+  assert.doesNotThrow(() => clearVoiceCopies(() => fakeStorage({ blocked: true })));
+});
+
+test("a rough copy whose deadline and grace are past is recognised as dead", () => {
+  const deadline = new Date(1_000_000).toISOString();
+  assert.equal(copyIsPastGrace({ deadline }, 1_000_000 + VOICE_LIMITS.graceSeconds * 1000), false);
+  assert.equal(copyIsPastGrace({ deadline }, 1_000_001 + VOICE_LIMITS.graceSeconds * 1000), true);
+  assert.equal(copyIsPastGrace(null), false);
 });

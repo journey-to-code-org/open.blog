@@ -225,6 +225,13 @@ export function fakeServer(clock, { seconds = 180 } = {}) {
       const partner = state.samples.find((s) => (sample.stage === "rough" ? s.roughOf === sample.file : s.file === sample.roughOf));
       return { ...sampleView(sample), partner: partner ? { id: partner.id, file: partner.file, stage: partner.stage } : null };
     }
+    const promote = /^voice\/samples\/([a-z0-9-]+)\/promote$/.exec(route);
+    if (method === "POST" && promote) {
+      const sample = state.samples.find((s) => s.id === promote[1]);
+      if (sample.stage !== "polished") throw refuse(409, { error: "Only a polished draft can become a post." });
+      if (state.promoteTaken) throw refuse(409, { error: "A post already uses the slug my-polished-title. Nothing was written." });
+      return { created: true, path: "content/posts/my-polished-title.md", editPath: "posts/my-polished-title.md", draft: true };
+    }
     const move = /^voice\/samples\/([a-z0-9-]+)\/visibility$/.exec(route);
     if (method === "POST" && move) {
       const sample = state.samples.find((s) => s.id === move[1]);
@@ -250,6 +257,10 @@ export function fakeStorage({ blocked = false } = {}) {
     getItem: (key) => (guard(), values.get(key) ?? null),
     setItem: (key, value) => (guard(), values.set(key, String(value))),
     removeItem: (key) => (guard(), values.delete(key)),
+    get length() {
+      return guard() ?? values.size;
+    },
+    key: (index) => (guard(), [...values.keys()][index] ?? null),
   };
 }
 

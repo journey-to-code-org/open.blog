@@ -456,7 +456,7 @@ fn drive(root: &Path, catalog: &Catalog, session: &Session, opts: &Options) -> R
         voice_capture::editor_command()
     };
     let save = |text: &str| {
-        let _ = voice_session::save_draft(root, text, clock::now());
+        let _ = voice_session::save_draft(root, None, text, clock::now());
     };
 
     println!();
@@ -538,9 +538,16 @@ fn finish(
         return Ok(());
     }
     // Keep what was written even if the lock below is refused.
-    let _ = voice_session::save_draft(root, &captured.text, clock::now());
-    let locked = voice_session::lock(root, catalog, Some(&captured.text), None, clock::now())
-        .map_err(store_error)?;
+    let _ = voice_session::save_draft(root, None, &captured.text, clock::now());
+    let locked = voice_session::lock(
+        root,
+        None,
+        catalog,
+        Some(&captured.text),
+        None,
+        clock::now(),
+    )
+    .map_err(store_error)?;
     println!();
     print_saved(
         &locked.written.visibility,
