@@ -119,7 +119,8 @@ fn unknown_keys_are_preserved_in_a_fixed_order() {
 
 #[test]
 fn every_field_domain_is_checked_with_a_sentence_naming_the_field() {
-    let cases: Vec<(Box<dyn Fn(&mut VoiceSample)>, &str)> = vec![
+    type Change = Box<dyn Fn(&mut VoiceSample)>;
+    let cases: Vec<(Change, &str)> = vec![
         (Box::new(|s| s.title = "  ".into()), "`title`"),
         (Box::new(|s| s.title = "a\nb".into()), "`title`"),
         (Box::new(|s| s.title = "x".repeat(201)), "`title`"),
