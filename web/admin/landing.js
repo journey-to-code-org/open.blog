@@ -509,3 +509,29 @@ export function landingErrorText(error) {
   if (error?.status === 403) return "That change was refused. Reload the page and try again.";
   return error?.message || "That did not work. Check your connection and try again.";
 }
+
+// ---------------------------------------------------------------- preview sizes (ADR 0354, #327)
+
+/** The three sizes of the preview. Widths are what a visitor's screen is; the frame is scaled down to fit. */
+export const PREVIEW_SIZES = Object.freeze([
+  Object.freeze({ id: "phone", label: "Phone", width: 375, height: 667 }),
+  Object.freeze({ id: "tablet", label: "Tablet", width: 768, height: 1024 }),
+  Object.freeze({ id: "desktop", label: "Desktop", width: 1280, height: 800 }),
+]);
+
+/** A preview size by id; the phone when the id is not one. */
+export function previewSize(id) {
+  return PREVIEW_SIZES.find((size) => size.id === id) || PREVIEW_SIZES[0];
+}
+
+/** How much to shrink a frame of `width` so it fits `available` pixels. Never enlarges. */
+export function previewScale(available, width) {
+  if (!(available > 0) || !(width > 0)) return 1;
+  return Math.min(1, available / width);
+}
+
+/** What the preview says when some sections are left out because they are not complete yet. */
+export function previewLeftOutText(count) {
+  if (!count) return "";
+  return count === 1 ? "1 section needs attention and is left out of this preview." : `${count} sections need attention and are left out of this preview.`;
+}

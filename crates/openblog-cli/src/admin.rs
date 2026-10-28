@@ -695,6 +695,7 @@ fn authenticated_api(
         ("DELETE", "comparisons") => comparisons::remove(state, req),
         ("GET", "landing") => landing::get(state),
         ("PUT", "landing") => landing::save(state, req),
+        ("POST", "landing/preview") => landing::preview(state, req),
         ("GET", "reading-paths") => reading_paths::list(state),
         ("GET", "reading-paths/targets") => reading_paths::targets(state),
         ("GET", "reading-paths/path") => reading_paths::get(state, req),
@@ -17419,26 +17420,8 @@ fn preview(state: &AppState, req: &Request) -> Response {
         Ok(token) => token,
         Err(e) => return Response::error(500, &e),
     };
-    let asset_origin = http_origin(&preview_site.config.cdn.url);
-    let script_sources = asset_origin
-        .as_deref()
-        .map(|origin| format!("'self' {origin}"))
-        .unwrap_or_else(|| "'self'".to_string());
-    let frame_sources = openblog_core::embed::FRAME_SOURCES;
-    let csp = format!(
-        "default-src 'none'; script-src 'unsafe-inline' {script_sources}; style-src 'unsafe-inline' 'self' https:; \
-         img-src 'self' https: data:; font-src 'self' https: data:; connect-src 'self' https://play.rust-lang.org; \
-         frame-src {frame_sources}; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'"
-    );
-    let mut previews = lock(&state.previews);
-    previews.push(PreviewDocument {
-        token: token.clone(),
-        html: document.contents,
-        csp,
-    });
-    if previews.len() > 16 {
-        previews.remove(0);
-    }
+    let csp = preview_csp(&preview_site.config);
+    store_preview(state, &token, document.contents, csp);
     let accessibility: Vec<_> = preview_site
         .accessibility
         .iter()
@@ -17503,6 +17486,35 @@ fn citation_preview(slug: &str, summary: &openblog_core::bibliography::CitationS
             ),
         },
     })
+}
+
+/// The policy every preview document is served under: it can load this site's own assets and the
+/// configured asset origin, and nothing else.
+fn preview_csp(config: &SiteConfig) -> String {
+    let asset_origin = http_origin(&config.cdn.url);
+    let script_sources = asset_origin
+        .as_deref()
+        .map(|origin| format!("'self' {origin}"))
+        .unwrap_or_else(|| "'self'".to_string());
+    let frame_sources = openblog_core::embed::FRAME_SOURCES;
+    format!(
+        "default-src 'none'; script-src 'unsafe-inline' {script_sources}; style-src 'unsafe-inline' 'self' https:; \
+         img-src 'self' https: data:; font-src 'self' https: data:; connect-src 'self' https://play.rust-lang.org; \
+         frame-src {frame_sources}; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'"
+    )
+}
+
+/// Keep a preview document for `preview_document` to serve; only the newest sixteen are kept.
+fn store_preview(state: &AppState, token: &str, html: String, csp: String) {
+    let mut previews = lock(&state.previews);
+    previews.push(PreviewDocument {
+        token: token.to_string(),
+        html,
+        csp,
+    });
+    if previews.len() > 16 {
+        previews.remove(0);
+    }
 }
 
 fn preview_document(state: &AppState, token: &str) -> Response {

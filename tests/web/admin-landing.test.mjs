@@ -179,3 +179,17 @@ test("a failed request is worded for a person, not a developer", () => {
   assert.match(landingErrorText({ status: 413 }), /too big/);
   assert.match(landingErrorText(new Error("Failed to fetch")), /Failed to fetch/);
 });
+
+test("the preview has phone, tablet and desktop sizes and shrinks a frame to fit, never enlarging it", async () => {
+  const { PREVIEW_SIZES, previewScale, previewSize, previewLeftOutText } = await import("../../web/admin/landing.js");
+  assert.deepEqual(PREVIEW_SIZES.map((size) => size.label), ["Phone", "Tablet", "Desktop"]);
+  assert.deepEqual(PREVIEW_SIZES.map((size) => size.width), [375, 768, 1280]);
+  assert.equal(previewSize("tablet").width, 768);
+  assert.equal(previewSize("nonsense").id, "phone");
+  assert.equal(previewScale(320, 1280), 0.25);
+  assert.equal(previewScale(2000, 375), 1);
+  assert.equal(previewScale(0, 375), 1);
+  assert.equal(previewLeftOutText(0), "");
+  assert.match(previewLeftOutText(1), /1 section needs attention and is left out/);
+  assert.match(previewLeftOutText(3), /3 sections need attention and are left out/);
+});

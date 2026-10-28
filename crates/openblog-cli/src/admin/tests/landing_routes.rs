@@ -244,3 +244,115 @@ fn a_file_from_a_newer_release_reads_as_invalid_and_is_never_overwritten() {
     assert_eq!(refused["newerVersion"], true);
     assert_eq!(fs::read_to_string(landing_file(&f)).unwrap(), newer);
 }
+
+fn preview(f: &Fixture, session: &(String, String), body: Json) -> (u16, Json) {
+    source_call(f, session, "POST", "/admin/api/landing/preview", body)
+}
+
+fn preview_html(f: &Fixture, session: &(String, String), url: &str) -> String {
+    let r = handle(&f.state, &authed(req("GET", url), session, false));
+    assert_eq!(r.status, 200);
+    String::from_utf8_lossy(&r.body).into_owned()
+}
+
+#[test]
+fn a_preview_builds_the_home_page_from_unsaved_sections_and_writes_nothing() {
+    let f = fixture("landing-preview");
+    let session = login_ok(&f);
+    // Not a route without a session or a CSRF token.
+    assert_eq!(
+        handle(&f.state, &req("POST", "/admin/api/landing/preview")).status,
+        401
+    );
+    let no_csrf = handle(
+        &f.state,
+        &authed(
+            json_req(
+                "POST",
+                "/admin/api/landing/preview",
+                json!({"page": page()}),
+            ),
+            &session,
+            false,
+        ),
+    );
+    assert_eq!(no_csrf.status, 403);
+    let before = fs::read_dir(&f.dir.join("content")).unwrap().count();
+    let (status, shown) = preview(
+        &f,
+        &session,
+        json!({"page": {"sections": [
+            {"id": "hi", "type": "welcome", "heading": "Preview heading <b>x</b>"},
+            {"id": "gone", "type": "callout", "body": "Hidden note", "hidden": true}
+        ]}}),
+    );
+    assert_eq!(status, 200, "{shown}");
+    assert_eq!(shown["visible"], 1);
+    let html = preview_html(&f, &session, shown["previewUrl"].as_str().unwrap());
+    assert!(
+        html.contains("Preview heading &lt;b&gt;x&lt;/b&gt;"),
+        "{html}"
+    );
+    assert!(!html.contains("Hidden note"));
+    assert!(html.contains("<base target=\"_blank\">"));
+    // Nothing was saved: no landing file and no new file in the content folder.
+    assert!(!landing_file(&f).exists());
+    assert_eq!(
+        fs::read_dir(&f.dir.join("content")).unwrap().count(),
+        before
+    );
+    assert_eq!(get(&f, &session).1["exists"], false);
+}
+
+#[test]
+fn a_preview_refuses_an_invalid_page_with_the_same_problems_a_save_gives() {
+    let f = fixture("landing-preview-invalid");
+    let session = login_ok(&f);
+    let (status, refused) = preview(
+        &f,
+        &session,
+        json!({"page": {"sections": [{"id": "hi", "type": "welcome", "heading": ""}]}}),
+    );
+    assert_eq!(status, 422, "{refused}");
+    assert_eq!(refused["problems"][0]["section"], "hi");
+    assert!(!landing_file(&f).exists());
+    let (status, _) = preview(&f, &session, json!({"nothing": true}));
+    assert_eq!(status, 400);
+}
+
+#[test]
+fn a_preview_does_not_change_a_stored_page() {
+    let f = fixture("landing-preview-stored");
+    let session = login_ok(&f);
+    let (_, saved) = put(&f, &session, json!({"page": page()}));
+    let bytes = fs::read(landing_file(&f)).unwrap();
+    let (status, shown) = preview(
+        &f,
+        &session,
+        json!({"page": {"sections": [{"id": "x", "type": "series", "heading": "Other"}]}}),
+    );
+    assert_eq!(status, 200);
+    let html = preview_html(&f, &session, shown["previewUrl"].as_str().unwrap());
+    assert!(!html.contains("Welcome in"));
+    assert_eq!(fs::read(landing_file(&f)).unwrap(), bytes);
+    assert_eq!(get(&f, &session).1["revision"], saved["revision"]);
+}
+
+#[test]
+fn a_save_rebuilds_the_served_site_and_a_preview_does_not() {
+    let f = fixture("landing-rebuild");
+    let session = login_ok(&f);
+    let home = f.dir.join("dist/index.html");
+    let (status, _) = preview(
+        &f,
+        &session,
+        json!({"page": {"sections": [{"id": "p", "type": "series", "heading": "Previewed only"}]}}),
+    );
+    assert_eq!(status, 200);
+    let after_preview = fs::read_to_string(&home).unwrap_or_default();
+    assert!(!after_preview.contains("Previewed only"));
+    let (status, saved) = put(&f, &session, json!({"page": page()}));
+    assert_eq!(status, 201, "{saved}");
+    assert_eq!(saved["build"]["ok"], true, "{saved}");
+    assert!(fs::read_to_string(&home).unwrap().contains("Welcome in"));
+}

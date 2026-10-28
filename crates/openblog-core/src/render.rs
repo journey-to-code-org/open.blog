@@ -926,6 +926,33 @@ pub fn generate_document(
     })
 }
 
+/// Render the first page of the home page through the same shell as [`generate`], without any
+/// other page. Admin uses it to preview the landing page from unsaved sections (ADR 0354).
+pub fn generate_home(site: &Site, themes: &ThemeSet) -> Result<OutputFile, String> {
+    validate_output_paths(site)?;
+    let resolved = resolve_themes(site, themes)?;
+    let renderer = Renderer {
+        site,
+        themes: &resolved,
+        site_references: Default::default(),
+        atlas_query: Default::default(),
+        curated: Default::default(),
+        trail_depth: Default::default(),
+        trail_budget: TRAIL_BUDGET_BYTES,
+    };
+    let c = &site.config;
+    let per_page = if c.posts_per_page == 0 {
+        site.posts.len().max(1)
+    } else {
+        c.posts_per_page
+    };
+    let page_count = site.posts.len().div_ceil(per_page).max(1);
+    Ok(OutputFile {
+        path: "index.html".to_string(),
+        contents: renderer.home(&resolved[&c.theme], 1, page_count, per_page),
+    })
+}
+
 /// What stops `readingPaths.publish` from being switched on: a page or a post
 /// whose address is under `/paths/`. `None` when nothing collides. The build
 /// refuses the same collision while the switch is on; `check` uses this to

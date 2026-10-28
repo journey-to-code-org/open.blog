@@ -4682,3 +4682,113 @@ a.oba-btn-primary {
   align-items: center;
   gap: 0.5rem 0.75rem;
 }
+
+/* Landing page preview (ADR 0354, #327). On a phone it opens as a full-screen sheet with Back; on a
+   wide screen it sits beside the builder. The frame is shown at the visitor's width and scaled to
+   fit, so it never makes the page scroll sideways. */
+.oba-landing-layout {
+  display: block;
+  min-width: 0;
+}
+
+.oba-landing-sizes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem;
+}
+
+.oba-landing-sizes .oba-btn[aria-pressed="true"] {
+  border: 2px solid var(--ob-color-accent-border);
+  background: var(--ob-color-glow);
+  font-weight: 700;
+}
+
+.oba-landing-preview {
+  min-width: 0;
+}
+
+.oba-landing-stage {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface-raised);
+}
+
+.oba-landing-frame {
+  display: block;
+  border: 0;
+  background: #fff;
+  max-width: none;
+}
+
+.oba-landing-sheet {
+  inset: 0;
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  max-height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--ob-color-page);
+  color: var(--ob-color-text);
+  overflow: auto;
+}
+
+.oba-landing-sheet:not([open]) {
+  display: none;
+}
+
+.oba-landing-sheet-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  padding: 0.5rem 1rem;
+  border-bottom: var(--ob-border-width) solid var(--oba-panel-border);
+  background: var(--ob-color-surface);
+}
+
+.oba-landing-sheet-head h2,
+.oba-landing-side-head h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.oba-landing-sheet-body {
+  padding: 0.75rem 1rem 1rem;
+}
+
+.oba-landing-side-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+@media (min-width: 64rem) {
+  .oba-landing-layout:has(.oba-landing-side:not([hidden])) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 1.5rem;
+    align-items: start;
+  }
+
+  .oba-landing-side {
+    position: sticky;
+    top: 1rem;
+    min-width: 0;
+    padding: 1rem;
+    border: var(--ob-border-width) solid var(--oba-panel-border);
+    border-radius: var(--ob-radius);
+    background: var(--ob-color-surface);
+  }
+}

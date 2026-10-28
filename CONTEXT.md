@@ -1042,6 +1042,12 @@ plain words, and edited in a plain form. Nothing is written until Save, a deleti
 takes HTML or CSS (ADR 0353).
 _Avoid_: Page editor, theme editor, drag-and-drop designer
 
+**Landing preview**:
+The home page as the build would make it from the sections in the builder, saved or not, shown in a
+script-free sandboxed frame in Phone, Tablet and Desktop sizes. It is built in memory by the production
+renderer and never writes, saves or publishes (ADR 0354).
+_Avoid_: Draft site, staging page, live edit
+
 **Reading path**:
 An author's own ordered list of published posts and Knowledge Atlas entries, kept as
 `content/paths/<slug>.json`, with a rationale per step and an author-written transition from each step

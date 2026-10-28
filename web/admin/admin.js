@@ -6,6 +6,7 @@
 import { normalizeCodeRunnerLanguage } from "../components/ob-code-runner-language.js";
 import {
   LIMITS as LANDING_LIMITS,
+  PREVIEW_SIZES,
   SECTION_CATALOG,
   addSection,
   landingErrorText,
@@ -15,6 +16,9 @@ import {
   pageProblems,
   pageSame,
   parseNumberInput,
+  previewLeftOutText,
+  previewScale,
+  previewSize,
   removeSection,
   restoreSection,
   sectionInfo,
@@ -9672,6 +9676,60 @@ function landingIsObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+/**
+ * The preview frame (ADR 0354, #327): Phone, Tablet and Desktop views of a page the server built, in
+ * a sandboxed frame with no scripts, scaled to fit the space it has. It only shows what it is
+ * given; it never saves or publishes. The Customize look screen reuses it.
+ */
+export function previewFrame({ title = "Preview of your landing page" } = {}) {
+  let size = previewSize("phone");
+  const status = h("p", { class: "oba-small oba-landing-preview-status", role: "status", "aria-live": "polite", "data-preview-status": "true" });
+  const note = h("p", { class: "oba-notice oba-landing-preview-note", hidden: true, "data-preview-note": "true" });
+  const frame = h("iframe", { class: "oba-landing-frame", title: `${title}, ${size.label.toLowerCase()} view`, sandbox: "", tabindex: "-1", "data-landing-frame": "true" });
+  const stage = h("div", { class: "oba-landing-stage" }, frame);
+  const buttons = PREVIEW_SIZES.map((item) =>
+    h("button", { class: "oba-btn", type: "button", "data-size": item.id, "aria-pressed": String(item.id === size.id), onClick: () => choose(item.id) }, item.label),
+  );
+  const switcher = h("div", { class: "oba-landing-sizes", role: "group", "aria-label": "Preview size" }, buttons);
+  const root = h("div", { class: "oba-landing-preview", "data-landing-preview": "true" }, switcher, status, note, stage);
+  const layout = () => {
+    const available = stage.clientWidth || size.width;
+    const scale = previewScale(available, size.width);
+    frame.style.width = `${size.width}px`;
+    frame.style.height = `${size.height}px`;
+    frame.style.transform = `scale(${scale})`;
+    frame.style.transformOrigin = "top left";
+    stage.style.height = `${Math.ceil(size.height * scale)}px`;
+  };
+  const choose = (id, announce = true) => {
+    size = previewSize(id);
+    for (const button of buttons) button.setAttribute("aria-pressed", String(button.dataset.size === size.id));
+    frame.setAttribute("title", `${title}, ${size.label.toLowerCase()} view`);
+    layout();
+    if (announce) status.textContent = `${size.label} view, ${size.width} pixels wide.`;
+  };
+  if (typeof ResizeObserver !== "undefined") new ResizeObserver(layout).observe(stage);
+  layout();
+  return {
+    root,
+    layout,
+    choose,
+    get size() {
+      return size.id;
+    },
+    say: (text) => {
+      status.textContent = text;
+    },
+    leftOut: (text) => {
+      note.hidden = !text;
+      note.textContent = text || "";
+    },
+    show: (url) => {
+      frame.setAttribute("src", url);
+    },
+  };
+}
+
 // Reading paths (ADR 0213, #77). A path is the public file `content/paths/<slug>.json`; these
 // helpers turn the file's JSON into an editor draft and back without losing a field the editor
 // does not show, move steps without losing written text, and word what the server reports. The
@@ -12382,6 +12440,7 @@ export class ObAdmin extends AdminElement {
     const onEdited = () => {
       if (undo) clearUndo();
       renderBar();
+      schedulePreview();
     };
 
     const toggleEdit = (id) => {
@@ -12443,6 +12502,7 @@ export class ObAdmin extends AdminElement {
       );
       say(`Deleted ${name}. Choose Undo to put it back.`);
       renderBar();
+      schedulePreview();
       // Focus moves to the next card (or the one before it), else to Add a section.
       const next = sections()[Math.min(index, sections().length - 1)];
       if (next) focusAction(next.id, "edit");
@@ -12459,6 +12519,7 @@ export class ObAdmin extends AdminElement {
       say(`Put ${shortName(back)} back at position ${at + 1} of ${sections().length}.`);
       focusAction(back.id, "edit");
       renderBar();
+      schedulePreview();
     };
     const actionsFocus = () => actions.querySelector("button:not(:disabled)")?.focus();
 
@@ -12560,7 +12621,8 @@ export class ObAdmin extends AdminElement {
         clearUndo();
         renderCards();
         renderBar();
-        say("Saved. Your landing page is ready to publish.", "ok");
+        if (result.build && result.build.ok === false) say(`Saved, but your site could not be rebuilt yet: ${result.build.error}`, "error");
+        else say("Saved. Your landing page is ready to publish.", "ok");
       } catch (error) {
         if (this.viewVersion !== mountedView) return;
         if (error.data?.problems) {
@@ -12573,7 +12635,86 @@ export class ObAdmin extends AdminElement {
         saveButton.disabled = false;
       }
     };
-    actions.replaceChildren(saveButton, dirtyNote);
+
+    // ----- preview (ADR 0354): the home page as the server would build it from these unsaved sections
+    const frame = previewFrame();
+    const wide = () => globalThis.matchMedia?.("(min-width: 64rem)").matches ?? false;
+    let previewOpen = false;
+    let previewTimer = null;
+    let previewSeq = 0;
+    const side = h("aside", { class: "oba-landing-side", "aria-labelledby": "oba-landing-side-title", hidden: true, "data-landing-side": "true" });
+    const sheetBody = h("div", { class: "oba-landing-sheet-body" });
+    const sheet = h(
+      "dialog",
+      { class: "oba-landing-sheet", "aria-labelledby": "oba-landing-sheet-title", "data-landing-sheet": "true" },
+      h(
+        "div",
+        { class: "oba-landing-sheet-head" },
+        h("button", { class: "oba-btn", type: "button", "data-action": "preview-back", onClick: () => closePreview() }, "Back to editing"),
+        h("h2", { id: "oba-landing-sheet-title" }, "Preview"),
+      ),
+      sheetBody,
+    );
+    sheet.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      closePreview();
+    });
+    const previewButton = h("button", { class: "oba-btn", type: "button", "data-action": "preview", "aria-expanded": "false", onClick: () => (previewOpen ? closePreview() : openPreview()) }, "Preview");
+    const placePreview = () => {
+      if (!previewOpen) return;
+      if (wide()) {
+        if (sheet.open) sheet.close();
+        side.hidden = false;
+        side.replaceChildren(h("div", { class: "oba-landing-side-head" }, h("h2", { id: "oba-landing-side-title" }, "Preview"), h("button", { class: "oba-btn", type: "button", "data-action": "preview-close", onClick: () => closePreview() }, "Close preview")), frame.root);
+      } else {
+        side.hidden = true;
+        sheetBody.replaceChildren(frame.root);
+        if (!sheet.open) sheet.showModal();
+      }
+      frame.layout();
+    };
+    const openPreview = () => {
+      previewOpen = true;
+      previewButton.setAttribute("aria-expanded", "true");
+      placePreview();
+      if (!wide()) sheet.querySelector('[data-action="preview-back"]')?.focus();
+      frame.say("Updating the preview\u2026");
+      refreshPreview();
+    };
+    function closePreview() {
+      previewOpen = false;
+      clearTimeout(previewTimer);
+      previewButton.setAttribute("aria-expanded", "false");
+      if (sheet.open) sheet.close();
+      side.hidden = true;
+      side.replaceChildren();
+      previewButton.focus();
+    }
+    const refreshPreview = async () => {
+      if (!previewOpen) return;
+      const ticket = ++previewSeq;
+      const payload = pagePayload(draft, { leaveOut: true });
+      const left = draft.sections.length - payload.sections.length;
+      try {
+        const result = await this.api.call("POST", "landing/preview", { json: { page: payload } });
+        if (ticket !== previewSeq || !previewOpen || this.viewVersion !== mountedView) return;
+        frame.show(result.previewUrl);
+        frame.leftOut(previewLeftOutText(left));
+        frame.say(result.visible ? "The preview shows your unsaved changes." : "No section is shown yet, so the preview shows your current home page.");
+      } catch (error) {
+        if (ticket !== previewSeq || this.viewVersion !== mountedView) return;
+        frame.say(`The preview could not be updated. ${landingErrorText(error)}`);
+      }
+    };
+    function schedulePreview() {
+      if (!previewOpen) return;
+      clearTimeout(previewTimer);
+      previewTimer = setTimeout(() => refreshPreview(), 500);
+    }
+    globalThis.matchMedia?.("(min-width: 64rem)").addEventListener?.("change", () => {
+      if (this.viewVersion === mountedView) placePreview();
+    });
+    actions.replaceChildren(previewButton, saveButton, dirtyNote);
 
     const intro = h(
       "section",
@@ -12593,13 +12734,19 @@ export class ObAdmin extends AdminElement {
         status,
         h(
           "div",
-          { class: "oba-landing" },
-          h("div", { class: "oba-landing-head" }, h("h2", { id: "oba-landing-sections-title" }, "Sections"), count),
-          empty,
-          cards,
-          h("div", { class: "oba-landing-add-row" }, addButton),
-          picker,
+          { class: "oba-landing-layout" },
+          h(
+            "div",
+            { class: "oba-landing" },
+            h("div", { class: "oba-landing-head" }, h("h2", { id: "oba-landing-sections-title" }, "Sections"), count),
+            empty,
+            cards,
+            h("div", { class: "oba-landing-add-row" }, addButton),
+            picker,
+          ),
+          side,
         ),
+        sheet,
         h("div", { class: "oba-landing-bar", "data-landing-bar": "true" }, toast, actions),
       ),
     );

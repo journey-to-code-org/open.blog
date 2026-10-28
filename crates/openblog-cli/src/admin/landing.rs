@@ -156,7 +156,7 @@ pub(super) fn save(state: &AppState, req: &Request) -> Response {
         Ok(page) => page,
         Err(problems) => return store_error(state, LandingError::Invalid(problems), &config),
     };
-    let _build = lock(&state.build);
+    let mut build = lock(&state.build);
     let _transaction = match content_transaction(state) {
         Ok(lock) => lock,
         Err(response) => return response,
@@ -173,11 +173,99 @@ pub(super) fn save(state: &AppState, req: &Request) -> Response {
                 text: saved.text,
                 parsed: Ok(saved.page),
             };
-            Response::json(
-                if revision.is_some() { 200 } else { 201 },
-                &view(Some(&stored), &config.home),
-            )
+            let mut saved_view = view(Some(&stored), &config.home);
+            // The served site follows the saved page, as it does after a post is saved. A build
+            // that fails does not undo the save; the answer says so.
+            saved_view["build"] = match state.rebuild_locked(&mut build) {
+                Ok(report) => json!({ "ok": true, "files": report.files }),
+                Err(error) => json!({ "ok": false, "error": error }),
+            };
+            Response::json(if revision.is_some() { 200 } else { 201 }, &saved_view)
         }
         Err(error) => store_error(state, error, &config),
     }
+}
+
+/// `POST landing/preview`: the home page as it would be built from the sections in the request,
+/// which are not saved (ADR 0354). The page is checked as a save would check it, built in memory
+/// with the same code as the production build, and kept as a short-lived preview document; no file
+/// is written and nothing is published.
+pub(super) fn preview(state: &AppState, req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    if req.body.len() > MAX_REQUEST_BYTES {
+        return Response::error(413, "A landing page is limited to 256 KiB");
+    }
+    let request = match serde_json::from_slice::<Json>(&req.body) {
+        Ok(body) if body.is_object() => body,
+        _ => return Response::error(400, "Invalid JSON"),
+    };
+    let Json::Object(mut page) = request["page"].clone() else {
+        return Response::error(400, "Send the landing page as `page` (an object)");
+    };
+    page.insert("format".into(), json!(LANDING_FORMAT));
+    page.insert("version".into(), json!(LANDING_VERSION));
+    let mut config = match site::load_config(&state.root) {
+        Ok(config) => config,
+        Err(error) => return Response::error(500, &error),
+    };
+    let page = match LandingPage::parse(&Json::Object(page).to_string()) {
+        Ok(page) => page,
+        Err(problems) => return store_error(state, LandingError::Invalid(problems), &config),
+    };
+    // Owner-supplied scripts and analytics stay off in a preview, as in the document preview.
+    config.snippets = Default::default();
+    config.analytics.builtin = false;
+    config.analytics.show_views = false;
+    config.analytics.endpoint.clear();
+    config.engagement.enabled = false;
+    let guard = lock(&state.build);
+    let mut sources = match site::read_sources(&state.root, &config) {
+        Ok(sources) => sources,
+        Err(error) => return Response::error(500, &error),
+    };
+    sources.landing = Some(SourceFile {
+        path: format!(
+            "{}/{}",
+            config.paths.content.trim_end_matches(['/', '\\']),
+            openblog_core::landing::LANDING_FILE
+        ),
+        contents: page.to_canonical_json(),
+    });
+    let (preview_site, themes) = match site::load_site_from_sources_listing(
+        &state.root,
+        config,
+        sources,
+        LoadOptions {
+            include_drafts: false,
+            now: Some(clock::now()),
+            preview_source: None,
+        },
+    ) {
+        Ok(loaded) => loaded,
+        Err(errors) => return Response::error(422, &site::content_problems(&errors)),
+    };
+    drop(guard);
+    let document = match openblog_core::generate_home(&preview_site, &themes) {
+        Ok(document) => document,
+        Err(error) => return Response::error(422, &error),
+    };
+    let token = match auth::random_token() {
+        Ok(token) => token,
+        Err(error) => return Response::error(500, &error),
+    };
+    // Links in a preview lead nowhere: they would only load the live site inside the frame.
+    let html = document
+        .contents
+        .replacen("<head>", "<head>\n<base target=\"_blank\">", 1);
+    let csp = preview_csp(&preview_site.config);
+    store_preview(state, &token, html, csp);
+    Response::json(
+        200,
+        &json!({
+            "previewUrl": format!("/admin/api/preview/{token}"),
+            "visible": page.sections.iter().filter(|s| !s.hidden).count(),
+        }),
+    )
 }

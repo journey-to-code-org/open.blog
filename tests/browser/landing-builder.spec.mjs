@@ -282,3 +282,140 @@ test("a featured post is chosen from the published posts by name", async ({ page
   await expect(page.locator("[data-landing-status]")).toContainText("Saved.");
   expect(stored().sections.at(-1)).toMatchObject({ type: "featured-post", post: "one" });
 });
+
+// ----- the live preview (ADR 0354, #327)
+
+const preview = (page) => page.frameLocator("[data-landing-frame]");
+const watchRequests = (page) => {
+  const seen = [];
+  page.on("request", (request) => seen.push({ method: request.method(), url: request.url() }));
+  return seen;
+};
+
+test.describe("preview beside the builder on a wide screen", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test("shows unsaved edits within a second or two, matches the built page, and writes nothing", async ({ page }) => {
+    seed(THREE());
+    const before = readFileSync(landingFile(), "utf8");
+    const seen = watchRequests(page);
+    await openLanding(page);
+    await page.getByRole("button", { name: "Preview", exact: true }).click();
+    await expect(page.locator("[data-landing-side]")).toBeVisible();
+    await expect(preview(page).getByRole("heading", { name: "Hello there" })).toBeVisible();
+    // An unsaved edit appears in the preview.
+    await card(page, "hello").getByRole("button", { name: /^Edit/ }).click();
+    await card(page, "hello").getByLabel("Welcome heading").fill("A brand new welcome");
+    await expect(preview(page).getByRole("heading", { name: "A brand new welcome" })).toBeVisible({ timeout: 2500 });
+    // A moved section changes the order in the preview.
+    await card(page, "hello").getByRole("button", { name: "Done" }).click();
+    await card(page, "hello").locator('[data-action="move-down"]').click();
+    await expect.poll(async () => preview(page).locator(".ob-home-section").evaluateAll((nodes) => nodes.map((node) => node.id)), { timeout: 2500 }).toEqual(["ob-home-text", "ob-home-hello", "ob-home-latest"]);
+    // Nothing is stored and nothing was saved or published to get here.
+    expect(readFileSync(landingFile(), "utf8")).toBe(before);
+    expect(seen.filter((r) => r.url.includes("/admin/api/") && !["GET", "POST"].includes(r.method))).toEqual([]);
+    expect(seen.filter((r) => r.method === "POST" && !/\/admin\/api\/(landing\/preview|login)$/.test(r.url))).toEqual([]);
+    // Parity: once saved, the built home page has the same sections in the same order and text.
+    const shown = await preview(page).locator(".ob-home-section").evaluateAll((nodes) => nodes.map((node) => ({ id: node.id, text: node.innerText.replace(/\s+/g, "") })));
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.locator("[data-landing-status]")).toContainText("Saved.");
+    const html = await (await page.request.get(`${origin}/`)).text();
+    const built = await page.evaluate((markup) => {
+      const doc = new DOMParser().parseFromString(markup, "text/html");
+      return [...doc.querySelectorAll(".ob-home-section")].map((node) => ({ id: node.id, text: node.textContent.replace(/\s+/g, "") }));
+    }, html);
+    expect(built.map((section) => section.id)).toEqual(shown.map((section) => section.id));
+    expect(built.map((section) => section.id)).toEqual(["ob-home-text", "ob-home-hello", "ob-home-latest"]);
+    for (const [index, section] of shown.entries()) expect(built[index].text).toBe(section.text);
+  });
+
+  test("the size switch is keyboard operable, announces the active size and scales the frame", async ({ page }) => {
+    seed(THREE());
+    await openLanding(page);
+    await page.getByRole("button", { name: "Preview", exact: true }).click();
+    const group = page.getByRole("group", { name: "Preview size" });
+    await expect(group.getByRole("button", { name: "Phone" })).toHaveAttribute("aria-pressed", "true");
+    const frame = page.locator("[data-landing-frame]");
+    await expect(frame).toHaveCSS("width", "375px");
+    await group.getByRole("button", { name: "Tablet" }).focus();
+    await page.keyboard.press("Enter");
+    await expect(group.getByRole("button", { name: "Tablet" })).toHaveAttribute("aria-pressed", "true");
+    await expect(group.getByRole("button", { name: "Phone" })).toHaveAttribute("aria-pressed", "false");
+    await expect(page.locator("[data-preview-status]")).toHaveText("Tablet view, 768 pixels wide.");
+    await expect(frame).toHaveCSS("width", "768px");
+    await expect(frame).toHaveAccessibleName(/tablet view/);
+    await group.getByRole("button", { name: "Desktop" }).focus();
+    await page.keyboard.press("Space");
+    await expect(page.locator("[data-preview-status]")).toHaveText("Desktop view, 1280 pixels wide.");
+    // The frame is scaled to the space it has, so it never grows wider than its column.
+    const box = await page.locator(".oba-landing-stage").boundingBox();
+    const framed = await frame.boundingBox();
+    expect(framed.width).toBeLessThanOrEqual(box.width + 1);
+    await expect(preview(page).getByRole("heading", { name: "Hello there" })).toBeVisible();
+  });
+
+  test("a section that is not complete yet is left out of the preview, and the preview says so", async ({ page }) => {
+    seed(THREE());
+    await openLanding(page);
+    await page.getByRole("button", { name: "Preview", exact: true }).click();
+    await page.getByRole("button", { name: "Add a section" }).click();
+    await page.locator('[data-add-type="image"]').click();
+    await expect(page.locator("[data-preview-note]")).toHaveText("1 section needs attention and is left out of this preview.", { timeout: 2500 });
+    await expect(preview(page).getByRole("heading", { name: "Hello there" })).toBeVisible();
+  });
+
+  test("the preview loads nothing from outside this site and runs no scripts", async ({ page }) => {
+    seed([{ id: "text", type: "rich-text", markdown: "<script>window.top.__pwned = 1</script> plain" }, ...THREE().slice(2)]);
+    const seen = watchRequests(page);
+    await openLanding(page);
+    await page.getByRole("button", { name: "Preview", exact: true }).click();
+    await expect(preview(page).locator("#ob-home-text")).toBeVisible();
+    await expect(preview(page).locator("#ob-home-text")).toContainText("<script>window.top.__pwned = 1</script>");
+    expect(await page.evaluate(() => window.__pwned)).toBeUndefined();
+    const outside = seen.filter((request) => /^https?:/.test(request.url) && !request.url.startsWith(origin));
+    expect(outside).toEqual([]);
+  });
+});
+
+test.describe("preview as a full-screen sheet on a phone", () => {
+  test.use({ viewport: { width: 375, height: 667 } });
+
+  test("opens over the builder with an obvious Back, keeps focus inside, and returns focus", async ({ page }) => {
+    seed(THREE());
+    const before = readFileSync(landingFile(), "utf8");
+    await openLanding(page);
+    const open = page.getByRole("button", { name: "Preview", exact: true });
+    await open.click();
+    const sheet = page.locator("[data-landing-sheet]");
+    await expect(sheet).toBeVisible();
+    await expect(sheet.getByRole("heading", { name: "Preview" })).toBeVisible();
+    await expect(sheet.getByRole("button", { name: "Back to editing" })).toBeFocused();
+    await expect(page.locator("[data-landing-side]")).toBeHidden();
+    await expect(preview(page).getByRole("heading", { name: "Hello there" })).toBeVisible();
+    // The sheet fills the screen and the frame fits without sideways scrolling.
+    const box = await sheet.boundingBox();
+    expect(box.width).toBeGreaterThanOrEqual(374);
+    expect(box.height).toBeGreaterThanOrEqual(660);
+    expect(await sheet.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+    await page.getByRole("group", { name: "Preview size" }).getByRole("button", { name: "Desktop" }).click();
+    expect(await sheet.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+    // Tab never reaches the builder behind the sheet: focus is in the sheet, or has left the page.
+    for (let i = 0; i < 8; i += 1) {
+      await page.keyboard.press("Tab");
+      expect(await page.evaluate(() => {
+        const active = document.activeElement;
+        return !active || active === document.body || Boolean(active.closest("[data-landing-sheet]"));
+      })).toBe(true);
+    }
+    await page.locator("[data-landing-sheet]").getByRole("button", { name: "Back to editing" }).focus();
+    await page.keyboard.press("Escape");
+    await expect(sheet).toBeHidden();
+    await expect(open).toBeFocused();
+    // Back works too, and nothing was stored.
+    await open.click();
+    await sheet.getByRole("button", { name: "Back to editing" }).click();
+    await expect(sheet).toBeHidden();
+    await expect(open).toBeFocused();
+    expect(readFileSync(landingFile(), "utf8")).toBe(before);
+  });
+});
