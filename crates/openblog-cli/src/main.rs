@@ -39,6 +39,7 @@ mod syndication;
 mod transaction;
 mod url_context;
 mod voice_prompts;
+mod voice_store;
 mod workspace;
 
 use std::collections::{HashMap, HashSet};

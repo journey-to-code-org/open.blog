@@ -57,6 +57,36 @@ rough draft is never the thing an author would publish and never changes; the po
 stays where it is. A slug already used by a post is an error naming the slug, never renamed silently. The
 result loads through the ordinary post loader (tested).
 
+### The store
+
+`crates/openblog-cli/src/voice_store.rs` is the only code that reads or writes sample files.
+
+- **Contained, bounded, revision-checked.** Paths are resolved with `assistant_storage::contained_target`
+  (a symlinked folder cannot redirect a write), files are at most 64 KiB of UTF-8, and a change to a polished
+  draft carries the revision (SHA-256 of the file's bytes) the caller read. A different current revision is a
+  `Stale` error that says what the revision is now, and nothing is written. Writers hold a lock file under
+  `.openblog/private/voice/`.
+- **Rough is create-once.** `write_rough` is allowed only while a session record is open for that prompt
+  (below), creates the file with a no-replace atomic write, and refuses everything afterwards, with one
+  exception that is not a change: writing the identical bytes again (a lock repeated after a crash) succeeds
+  and touches nothing. No other function replaces a file that is, or claims to be, a rough draft.
+- **Polished is update-with-revision.** `write_polished` requires the rough draft to exist in the same folder
+  with the same prompt, takes its own file name from it (so there is one polished draft per rough draft),
+  and refuses to overwrite a file whose front matter says it is rough.
+- **Moving and erasing.** A move copies the pair's bytes unchanged, checks the copies, then removes the
+  originals; it never overwrites. Erasing a rough draft that has a polished one needs both to be named.
+- **Listing never hides trouble.** Every `.md` file in either folder is listed. A file that cannot be read
+  (not UTF-8, too large, bad front matter, a name that disagrees with its content, a link instead of a file,
+  a polished draft whose rough draft is gone) is listed as invalid with a sentence on how to repair it.
+- **Opt-in by construction.** Reads and listing create nothing. The first write creates the folders. A private
+  write adds `/.openblog/private/` to a Git project's `.gitignore` if it is not already ignored, as landing
+  history does (ADR 0264).
+- **Never public.** A build reads only the content folder; tests prove a build is byte-identical with and
+  without samples, that no sample text reaches any built file (including a drafts preview build), that
+  `openblog init` creates nothing voice-related, and that publishing never stages `.openblog/private/` (it
+  refuses if one is force-added). A portable sample is committed only if the author's `publish.paths`
+  includes `assistant`, like other portable Assistant context.
+
 ## Considered options
 
 - **Nested `voice:` map as in the epic text.** Rejected: it needs a second front matter parser, and a

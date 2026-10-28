@@ -161,6 +161,14 @@ pub fn parse_file_name(name: &str) -> Option<(&str, &str, VoiceStage)> {
     (rest.as_bytes().get(10) == Some(&b'-') && is_kebab(prompt)).then_some((day, prompt, stage))
 }
 
+/// The file name of the polished draft of the rough draft named `rough`.
+pub fn polished_file_name(rough: &str) -> Option<String> {
+    match parse_file_name(rough)? {
+        (day, prompt, VoiceStage::Rough) => Some(format!("{day}-{prompt}-polished.md")),
+        _ => None,
+    }
+}
+
 fn no_control(label: &str, value: &str) -> Result<(), String> {
     if value.chars().any(char::is_control) {
         Err(format!(

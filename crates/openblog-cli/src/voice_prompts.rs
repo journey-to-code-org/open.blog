@@ -3,7 +3,7 @@
 //! The text lives in `voice_prompts/catalog.md`, compiled into the binary. Parsing, merging with a
 //! site's own prompts and drawing are pure functions in `openblog_core::voice`.
 // The Admin, CLI and Assistant layers of the voice-samples family call this API.
-#![cfg_attr(not(test), allow(dead_code))]
+#![allow(dead_code)]
 
 /// The bundled catalog source.
 pub const BUNDLED: &str = include_str!("voice_prompts/catalog.md");

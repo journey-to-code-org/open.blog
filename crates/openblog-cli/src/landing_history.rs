@@ -213,7 +213,7 @@ pub fn summarize(previous: Option<&LandingPage>, page: &LandingPage) -> String {
 }
 
 /// Keep `.openblog/private/` out of Git for a project that uses it, as `openblog init` does.
-fn keep_out_of_git(root: &Path) {
+pub(crate) fn keep_out_of_git(root: &Path) {
     if !root.join(".git").exists() {
         return;
     }
