@@ -54,6 +54,13 @@ Every key under `colors.<scheme>` becomes `--ob-color-<kebab-name>`; every key u
 A font face takes `family`, `src` (relative to the theme folder), and optionally `format`,
 `weight` (default `400`), `style` (default `normal`), `display` (default `swap`), and
 `unicodeRange`. Declare one entry per file, so a bold or italic face is its own entry.
+Set `"preload": true` on the faces nearly every page draws (the body and heading text):
+each page then fetches them alongside its stylesheets, so text paints in the theme's font
+from the start instead of shifting when the font swaps in. Leave it off for a subset most
+pages never use, or every page downloads it for nothing. A child theme that draws its first
+screen in fewer of its parent's fonts sets `"fonts": { "preloadOnly": ["Body"] }`: of the
+faces marked `preload`, inherited or its own, only those families are preloaded (the rest stay
+declared) ([ADR 0267](adr/0267-a-theme-preloads-the-fonts-its-first-screen-draws.md)).
 Relative `src`, `stylesheets`, and `scripts` paths resolve against the theme folder.
 A theme's scripts are linked on every page that uses it; see
 [Adding web components to a theme](theme-components.md) and the `demo` theme.

@@ -45,6 +45,9 @@ pub struct Fonts {
     pub mono: Option<String>,
     /// `@font-face` declarations. `src` is relative to the theme directory.
     pub faces: Vec<FontFace>,
+    /// Of the faces this theme has, inherited or its own, preload only those of these families,
+    /// for a theme that draws its first screen in fewer of its parent's fonts.
+    pub preload_only: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -57,6 +60,11 @@ pub struct FontFace {
     pub style: Option<String>,
     pub display: Option<String>,
     pub unicode_range: Option<String>,
+    /// Fetch the file alongside the stylesheets instead of after them, so text
+    /// paints in this face from the start and never shifts when it swaps in.
+    /// For the faces nearly every page draws; a subset most pages never use
+    /// would be downloaded for nothing.
+    pub preload: bool,
 }
 
 /// Rendering behaviour a theme can switch on. Everything else is CSS.
@@ -229,6 +237,11 @@ impl ThemeSet {
                 let mut face = face.clone();
                 face.src = absolutize(&base_url, &face.src);
                 theme.faces.push(face);
+            }
+            if let Some(families) = &file.fonts.preload_only {
+                for face in &mut theme.faces {
+                    face.preload &= families.contains(&face.family);
+                }
             }
             for (k, v) in &file.tokens {
                 theme.tokens.insert(k.clone(), v.clone());
@@ -583,6 +596,44 @@ mod tests {
         }
         assert_eq!(theme.faces[0].src, "/themes/kid/fonts/x.woff2");
         assert!(theme.tokens_css().contains("--ob-color-accent: #e3de13;"));
+    }
+
+    #[test]
+    fn a_child_preloads_only_the_families_it_names() {
+        let mut set = ThemeSet::new();
+        set.insert(
+            "parent",
+            ThemeFile::from_json(
+                r#"{"extends":"base","fonts":{"faces":[
+                    {"family":"Body","src":"fonts/body.woff2","preload":true},
+                    {"family":"Heading","src":"fonts/heading.woff2","preload":true}]}}"#,
+            )
+            .unwrap(),
+        );
+        set.insert(
+            "child",
+            ThemeFile::from_json(
+                r#"{"extends":"parent","fonts":{"preloadOnly":["Body","Own"],"faces":[
+                    {"family":"Own","src":"fonts/own.woff2","preload":true}]}}"#,
+            )
+            .unwrap(),
+        );
+        let preloaded = |name: &str| -> Vec<String> {
+            set.resolve(name)
+                .unwrap()
+                .faces
+                .iter()
+                .filter(|face| face.preload)
+                .map(|face| face.family.clone())
+                .collect()
+        };
+        assert_eq!(preloaded("parent"), ["Body", "Heading"]);
+        assert_eq!(
+            preloaded("child"),
+            ["Body", "Own"],
+            "the parent's heading face is still declared, just not preloaded"
+        );
+        assert_eq!(set.resolve("child").unwrap().faces.len(), 3);
     }
 
     #[test]

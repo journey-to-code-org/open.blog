@@ -1224,6 +1224,19 @@ impl<'a> Renderer<'a> {
         if c.color_scheme_toggle.unwrap_or(theme.color_scheme_toggle) {
             h.push_str("<script>try{var s=localStorage.getItem(\"ob-scheme\");if(s===\"light\"||s===\"dark\")document.documentElement.dataset.theme=s}catch(e){}</script>\n");
         }
+        // Fonts are found only once tokens.css arrives; a preload starts them
+        // with the stylesheets (fonts are always fetched in CORS mode).
+        for face in theme.faces.iter().filter(|face| face.preload) {
+            let kind = face
+                .format
+                .as_deref()
+                .map(|format| format!(" type=\"font/{}\"", attr(format)))
+                .unwrap_or_default();
+            h.push_str(&format!(
+                "<link rel=\"preload\" href=\"{}\" as=\"font\"{kind} crossorigin>\n",
+                attr(&face.src)
+            ));
+        }
         // Order matters: structure, then tokens, then the theme's own rules.
         h.push_str("<link rel=\"stylesheet\" href=\"/assets/base.css\">\n");
         h.push_str(&format!(
@@ -4738,6 +4751,32 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn only_preloaded_font_faces_start_with_the_stylesheets() {
+        let (site, mut themes) = model(r#"{"theme":"fonts","postPath":"/{slug}/"}"#, true);
+        themes.insert(
+            "fonts",
+            ThemeFile::from_json(
+                r#"{"extends":"base","fonts":{"faces":[
+                    {"family":"Body","src":"fonts/body.woff2","format":"woff2","preload":true},
+                    {"family":"Body","src":"fonts/extra.woff2","unicodeRange":"U+100-17F"}]}}"#,
+            )
+            .unwrap(),
+        );
+        let files = generate(&site, &themes).unwrap();
+        for path in ["index.html", "solo/index.html", "404.html"] {
+            let html = file(&files, path);
+            let preload = "<link rel=\"preload\" href=\"/themes/fonts/fonts/body.woff2\" as=\"font\" type=\"font/woff2\" crossorigin>";
+            let at = html
+                .find(preload)
+                .unwrap_or_else(|| panic!("{path}: {html}"));
+            assert!(at < html.find("rel=\"stylesheet\"").unwrap(), "{path}");
+            assert!(!html.contains("extra.woff2"), "{path}");
+        }
+        // The series keeps its own theme, which preloads nothing.
+        assert!(!file(&files, "series/s/index.html").contains("rel=\"preload\""));
     }
 
     #[test]
