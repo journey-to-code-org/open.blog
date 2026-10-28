@@ -684,13 +684,8 @@ fn a_failed_original_removal_never_costs_the_rough_draft_and_the_move_can_be_fin
     let rough_bytes = fs::read(private.join(ROUGH)).unwrap();
 
     FAIL_REMOVE.with(|f| *f.borrow_mut() = Some(POLISHED.to_string()));
-    let error = move_visibility(
-        &project.0,
-        Visibility::Private,
-        ROUGH,
-        Visibility::Portable,
-    )
-    .unwrap_err();
+    let error =
+        move_visibility(&project.0, Visibility::Private, ROUGH, Visibility::Portable).unwrap_err();
     FAIL_REMOVE.with(|f| *f.borrow_mut() = None);
     // The polished original is removed first, so nothing was lost yet: the copies are undone
     // and every original, the rough draft included, is untouched.
@@ -701,13 +696,8 @@ fn a_failed_original_removal_never_costs_the_rough_draft_and_the_move_can_be_fin
 
     // A failure after the polished original is gone keeps the copies too.
     FAIL_REMOVE.with(|f| *f.borrow_mut() = Some(ROUGH.to_string()));
-    let error = move_visibility(
-        &project.0,
-        Visibility::Private,
-        ROUGH,
-        Visibility::Portable,
-    )
-    .unwrap_err();
+    let error =
+        move_visibility(&project.0, Visibility::Private, ROUGH, Visibility::Portable).unwrap_err();
     FAIL_REMOVE.with(|f| *f.borrow_mut() = None);
     assert!(error.to_string().contains("partly done"), "{error}");
     assert!(!private.join(POLISHED).exists());
@@ -716,13 +706,8 @@ fn a_failed_original_removal_never_costs_the_rough_draft_and_the_move_can_be_fin
     assert_eq!(fs::read(portable.join(ROUGH)).unwrap(), rough_bytes);
 
     // Repeating the move finishes it: identical copies already there count as moved.
-    let moved = move_visibility(
-        &project.0,
-        Visibility::Private,
-        ROUGH,
-        Visibility::Portable,
-    )
-    .unwrap();
+    let moved =
+        move_visibility(&project.0, Visibility::Private, ROUGH, Visibility::Portable).unwrap();
     assert_eq!(moved, [ROUGH]);
     assert!(!private.join(ROUGH).exists());
     assert_eq!(fs::read(portable.join(ROUGH)).unwrap(), rough_bytes);
@@ -773,4 +758,83 @@ fn saving_a_polished_draft_keeps_keys_a_newer_release_added() {
     let saved = fs::read_to_string(project.0.join(PRIVATE_DIR).join(POLISHED)).unwrap();
     assert!(saved.contains("futureKey: kept"), "{saved}");
     assert!(saved.contains("Cleaner."));
+}
+
+#[test]
+fn writing_a_private_sample_keeps_the_private_folder_out_of_git_whatever_the_session_said() {
+    let project = Project::with_session("a-mistake-i-made");
+    fs::create_dir_all(project.0.join(".git")).unwrap();
+    let ignored = |project: &Project| {
+        fs::read_to_string(project.0.join(".gitignore"))
+            .map(|t| t.lines().any(|l| l == "/.openblog/private/"))
+            .unwrap_or(false)
+    };
+    // A portable write does not touch .gitignore.
+    lock_rough(&project, Visibility::Portable);
+    assert!(!ignored(&project));
+    // A private polished write does.
+    fs::remove_file(project.0.join("assistant/context/voice").join(ROUGH)).unwrap();
+    lock_rough(&project, Visibility::Private);
+    fs::remove_file(project.0.join(".gitignore")).ok();
+    write_polished(&project.0, Visibility::Private, &polished("Clean."), None).unwrap();
+    assert!(ignored(&project));
+}
+
+#[test]
+fn locking_with_a_private_override_on_a_portable_session_keeps_the_folder_out_of_git() {
+    use crate::voice_session;
+    use openblog_core::DateTime;
+    let project = Project::new();
+    fs::create_dir_all(project.0.join(".git")).unwrap();
+    let catalog = Catalog::parse_bundled(crate::voice_prompts::BUNDLED).unwrap();
+    let t = |s: i64| DateTime::from_unix(1_792_000_000 + s);
+    voice_session::start(
+        &project.0,
+        &catalog,
+        "a-mistake-i-made",
+        "cli",
+        Visibility::Portable,
+        180,
+        t(0),
+    )
+    .unwrap();
+    voice_session::save_draft(&project.0, "words", t(5)).unwrap();
+    let ignore_path = project.0.join(".gitignore");
+    fs::write(&ignore_path, "/dist\n").unwrap();
+    voice_session::lock(&project.0, &catalog, None, Some(Visibility::Private), t(10)).unwrap();
+    assert!(fs::read_to_string(&ignore_path)
+        .unwrap()
+        .lines()
+        .any(|l| l == "/.openblog/private/"));
+}
+
+#[test]
+fn a_portable_export_never_carries_a_voice_sample() {
+    let project = Project::new();
+    crate::scaffold::init(&project.0, Some("Voice test"), false).unwrap();
+    project.open_session("a-mistake-i-made");
+    let marker = "ZEBRAEXPORT";
+    write_rough(
+        &project.0,
+        Visibility::Portable,
+        &rough(&format!("portable {marker} rough")),
+    )
+    .unwrap();
+    let mut private = rough(&format!("private {marker} rough"));
+    private.date = "2026-10-29T09:30:00Z".into();
+    write_rough(&project.0, Visibility::Private, &private).unwrap();
+    for (name, format) in [("a.md", crate::portable_export::Format::Markdown)] {
+        let out = project.0.join("exports").join(name);
+        crate::portable_export::run(
+            &project.0,
+            "hello-world",
+            format,
+            Some(out.to_str().unwrap()),
+            true,
+            false,
+        )
+        .unwrap();
+        let text = fs::read_to_string(&out).unwrap();
+        assert!(!text.contains(marker), "{name} leaks a sample");
+    }
 }

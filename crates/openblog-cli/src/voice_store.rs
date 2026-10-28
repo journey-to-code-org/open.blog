@@ -382,6 +382,13 @@ fn write_text(sample: &VoiceSample) -> Result<Vec<u8>> {
         .map_err(StoreError::Refused)
 }
 
+/// Whatever the session said, a sample written to the private folder keeps that folder out of Git.
+fn keep_private_out_of_git(root: &Path, visibility: Visibility) {
+    if visibility == Visibility::Private {
+        crate::landing_history::keep_out_of_git(root);
+    }
+}
+
 /// Create the rough draft. Allowed only while a session is open for `sample.voice.prompt`, and
 /// only once: the file is created without replacing anything. Writing the identical bytes again
 /// (a lock repeated after a crash) succeeds without touching the file; anything else for an
@@ -404,12 +411,15 @@ pub fn write_rough(root: &Path, visibility: Visibility, sample: &VoiceSample) ->
     let path = path_of(root, visibility, &file)?;
     let _lock = lock(root)?;
     match read_bounded(&path)? {
-        Some(existing) if existing == bytes => Ok(Written {
-            visibility,
-            file,
-            revision: revision(&bytes),
-            created: false,
-        }),
+        Some(existing) if existing == bytes => {
+            keep_private_out_of_git(root, visibility);
+            Ok(Written {
+                visibility,
+                file,
+                revision: revision(&bytes),
+                created: false,
+            })
+        }
         Some(_) => refused("This rough draft is locked. A rough draft is never changed after its session ends; polish a copy instead."),
         None => {
             // The same prompt on the same day in the other folder would split the pair.
@@ -419,6 +429,7 @@ pub fn write_rough(root: &Path, visibility: Visibility, sample: &VoiceSample) ->
                 }
             }
             fsutil::write_new_atomic(&path, &bytes).map_err(StoreError::Failed)?;
+            keep_private_out_of_git(root, visibility);
             Ok(Written {
                 visibility,
                 file,
@@ -520,6 +531,7 @@ pub fn write_polished(
             replace(&path, &bytes)?;
         }
     }
+    keep_private_out_of_git(root, visibility);
     Ok(Written {
         visibility,
         file,
@@ -663,9 +675,7 @@ pub fn move_visibility(
         }
         return Err(error);
     }
-    if to == Visibility::Private {
-        crate::landing_history::keep_out_of_git(root);
-    }
+    keep_private_out_of_git(root, to);
     Ok(names)
 }
 
