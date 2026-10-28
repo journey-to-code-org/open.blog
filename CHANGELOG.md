@@ -19,6 +19,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 - A library of pieces for posts and the landing page: button, image with caption, video, map, opening hours, contact details, social links, questions and answers, and call-out. Each is a few form fields, validated and escaped by the engine, with required alt text, `https`-only providers and no way to type HTML. In a post a piece is a `piece` fence of `field: value` lines (a call-out stays the `> [!NOTE]` call-out), so Markdown remains the saved format and posts that do not use the new fences build unchanged. Videos (YouTube without cookies, Vimeo with do-not-track) and maps (OpenStreetMap) are now lazy-loaded, titled frames with a plain link beside them, on the landing page too, where they were links before; portable exports keep only the link. `GET /admin/api/meta` lists the shared form schema as `pieces`. See [Pieces](docs/content.md#pieces-buttons-videos-maps-and-more) and ADR 0370.
 
+- The Visual editor edits callouts, tables, task lists, embedded videos and pieces with forms instead of locking them. Each such block now has an **Edit** button that opens a labelled form inside the block (callout kind and text; table rows and columns; task items and their checkboxes; an embed's provider and address; a piece's details), writing the same Markdown as before. Escape or Cancel leaves the block untouched, an unedited post is saved byte for byte, and knowledge checks, footnotes and raw HTML stay protected. `POST /admin/api/pieces` checks a piece with the build's own rules and returns its Markdown. See ADR 0371.
+
 ## [0.49.0] - 2026-10-28
 
 - The container can publish with a repository-scoped SSH deploy key (`OPENBLOG_GIT_SSH_KEY_PATH` and

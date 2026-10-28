@@ -4,6 +4,7 @@
 // previews are served from an authenticated URL into an opaque-origin sandbox.
 
 import { normalizeCodeRunnerLanguage } from "../components/ob-code-runner-language.js";
+import { blockEditor, editableBlockKind } from "./block-forms.js";
 
 const ADMIN_SCHEME_KEY = "ob-admin-scheme";
 const ADMIN_PREVIEW_WIDTH_KEY = "ob-admin-preview-width";
@@ -9128,6 +9129,7 @@ function visualProtectedLabel(lines, index) {
   const text = visualLineText(lines[index]);
   const fence = visualFence(lines[index]);
   if (fence && fence[2].trim().toLowerCase() === "quiz") return "Knowledge check";
+  if (fence && /^piece(?:\s|$)/.test(fence[2].trim())) return "Piece";
   if (visualQuote(lines[index]) && /^ {0,3}>\s*\[![A-Z]+\]/.test(text)) return "Callout";
   if (visualRawHtml(lines[index]) || /<\/?[a-z][^>]*>/i.test(text)) return "Raw HTML";
   if (/~~|<(?:https?:|mailto:)[^>]+>|\[[^\]]+\]\[[^\]]*\]|^\s*\[[^\]]+\]:| {2,}$/.test(text)) return "Advanced formatting";
@@ -19597,18 +19599,21 @@ export class Editor {
   /** The visual-editor element for one parsed Markdown block (not a space). */
   visualBlockElement(block) {
     if (block.type === "protected") {
+      const formKind = editableBlockKind(block.label, block.source);
       const card = h(
         "section",
         {
           class: "oba-protected-block",
           contenteditable: "false",
           "data-markdown": block.source,
+          "data-block-kind": formKind || null,
           "aria-label": `${block.label} block`,
         },
-        h("div", {}, h("strong", {}, block.label), h("span", {}, "Preserved exactly in Markdown")),
+        h("div", {}, h("strong", {}, block.label), h("span", {}, formKind ? "Edit with a form, or in Markdown" : "Preserved exactly in Markdown")),
         h(
           "div",
           { class: "oba-protected-actions" },
+          formKind ? h("button", { type: "button", "data-block-edit": "true", "aria-label": `Edit ${block.label.toLowerCase()}`, onClick: () => this.editBlockWithForm(card, block.label, formKind) }, "Edit") : null,
           h("button", { type: "button", onClick: () => this.editProtectedBlock(card) }, "Edit in Markdown"),
           h("button", { type: "button", "aria-label": `Move ${block.label} up`, onClick: () => this.moveProtectedBlock(card, -1) }, "↑"),
           h("button", { type: "button", "aria-label": `Move ${block.label} down`, onClick: () => this.moveProtectedBlock(card, 1) }, "↓"),
@@ -19674,6 +19679,71 @@ export class Editor {
     const start = this.ui.body.value.indexOf(source.replace(/\n+$/, ""));
     if (start >= 0) this.ui.body.setSelectionRange(start, start + source.replace(/\n+$/, "").length);
     this.ui.body.focus();
+  }
+
+  /** The engine checks and writes a piece; a refusal comes back as a list of sentences, not an error. */
+  async buildPiece(kind, values) {
+    try {
+      return await this.app.api.call("POST", "pieces", { json: { kind, values } });
+    } catch (error) {
+      if (error.status === 422 && Array.isArray(error.data?.problems)) return { problems: error.data.problems };
+      throw error;
+    }
+  }
+
+  /**
+   * Edit a callout, table, task list, embed or piece with a form inside its card (ADR 0371).
+   * Apply writes the same Markdown the block uses today; Cancel and an unchanged Apply leave
+   * the card, and so the draft, exactly as it was.
+   */
+  editBlockWithForm(card, label, kind) {
+    const source = card.dataset.markdown || "";
+    const editor = blockEditor(kind, source, { pieces: this.app.meta?.pieces || [], build: (pieceKind, values) => this.buildPiece(pieceKind, values) });
+    if (!editor) return;
+    const original = [...card.childNodes];
+    const status = h("p", { class: "oba-error", role: "alert", hidden: true });
+    const restore = (focusEdit) => {
+      card.replaceChildren(...original);
+      card.removeAttribute("data-editing");
+      if (focusEdit) card.querySelector("[data-block-edit]")?.focus();
+    };
+    const apply = h("button", { type: "button", class: "oba-btn oba-btn-primary", "data-block-apply": "true", onClick: async () => {
+      apply.disabled = true;
+      status.hidden = true;
+      try {
+        const result = await editor.read();
+        if (result.problem) {
+          status.textContent = result.problem;
+          status.hidden = false;
+          return;
+        }
+        const next = String(result.markdown).replace(/\n+$/, "");
+        restore(false);
+        if (next !== source.replace(/\n+$/, "")) {
+          card.dataset.markdown = `${next}\n`;
+          this.visualChanged();
+        }
+        card.querySelector("[data-block-edit]")?.focus();
+      } catch (error) {
+        status.textContent = `This could not be checked: ${error.message}. Your draft is unchanged.`;
+        status.hidden = false;
+      } finally {
+        apply.disabled = false;
+      }
+    } }, "Apply");
+    const cancel = h("button", { type: "button", class: "oba-btn", onClick: () => restore(true) }, "Cancel");
+    const form = h("div", { class: "oba-block-form", role: "group", "aria-label": `Edit ${label.toLowerCase()}` }, h("strong", {}, `Edit ${label.toLowerCase()}`), editor.element, status, h("div", { class: "oba-dialog-actions" }, apply, cancel));
+    // Keys typed in the form belong to the form, not to the writing surface around it.
+    for (const type of ["keydown", "keyup", "beforeinput", "input", "paste", "cut"]) form.addEventListener(type, (event) => event.stopPropagation());
+    form.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        restore(true);
+      }
+    });
+    card.dataset.editing = "true";
+    card.replaceChildren(form);
+    editor.focus();
   }
 
   moveProtectedBlock(card, direction) {
