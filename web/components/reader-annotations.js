@@ -41,7 +41,7 @@ const TRAIL_FIELDS = new Set(["id", "kind", "title", "text", "steps", "createdAt
 const STEP_FIELDS = new Set(["ref"]);
 
 export const ANNOTATION_KINDS = Object.freeze(["highlight", "note"]);
-/** How a reflection snapshot came to be on this device (ADR 0500). */
+/** How a reflection snapshot came to be on this device (ADR 0244). */
 export const REFLECTION_PROVENANCE = Object.freeze(["written", "imported"]);
 /** How a reader sent a copy: to the site's service, or by copying the text to send themselves (ADR 0113). */
 export const SUBMISSION_CHANNELS = Object.freeze(["hosted", "copy-and-send"]);
@@ -390,7 +390,7 @@ export function readDocument(value) {
   if (value.version > READER_ANNOTATIONS_VERSION) {
     return { ok: false, problems: [problem("unsupportedVersion", "document", "this document is newer than this site understands")] };
   }
-  // Version 1 had no reflections; it is read as version 2 with none (migration, ADR 0500).
+  // Version 1 had no reflections; it is read as version 2 with none (migration, ADR 0244).
   const legacy = value.version < READER_ANNOTATIONS_VERSION;
   const unknown = unknownField(value, DOCUMENT_FIELDS, "document");
   if (unknown) return { ok: false, problems: [unknown] };
@@ -563,7 +563,7 @@ export function exportDocument(document, { notes = false } = {}) {
       annotations,
       sources,
       trails,
-      // A reflection is nothing but the reader's own words, so the default export holds none (ADR 0500).
+      // A reflection is nothing but the reader's own words, so the default export holds none (ADR 0244).
       reflections: [],
     },
     omittedNotes: dropped,

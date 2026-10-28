@@ -3641,7 +3641,7 @@ ob-annotations [hidden] {
   outline-offset: 2px;
 }
 
-/* Reader interpretation history (ADR 0500): the same quiet controls. Two readings sit side by side where
+/* Reader interpretation history (ADR 0244): the same quiet controls. Two readings sit side by side where
    there is room and one after the other where there is not; the order in the page is the same either way. */
 
 .ob-reflection-history {

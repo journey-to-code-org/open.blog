@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Comparing earlier and later private readings on-device (#233, ADR 0500): saving a reading as a snapshot,
+// Comparing earlier and later private readings on-device (#233, ADR 0244): saving a reading as a snapshot,
 // following an earlier one, a keyboard-only comparison with no scoring, an article that changed since a
 // reading, long and right-to-left text, a large history, storage that is denied, and the page without JavaScript.
 // No request leaves the page.
@@ -247,7 +247,7 @@ test("without JavaScript the post reads as usual and the region says what it nee
   await context.close();
 });
 
-// Export, delete and an explicit copy (#234, ADR 0500).
+// Export, delete and an explicit copy (#234, ADR 0244).
 
 const trailsPanel = (page) => page.getByRole("region", { name: "Your reading trails and saved sources" });
 const HOSTED = "https://hosted.example.org";

@@ -1,5 +1,5 @@
 // <ob-reflection-history> lets a reader keep private snapshots of how they read this post and compare an
-// earlier one with a later one, entirely in their own browser (ADR 0500, docs/specs/reader-annotations.md).
+// earlier one with a later one, entirely in their own browser (ADR 0244, docs/specs/reader-annotations.md).
 // The page is complete without it: the region's static text says what it needs. Nothing is sent anywhere,
 // nothing is scored or summarised, and nothing is stored until the reader saves a reading.
 //

@@ -1,4 +1,4 @@
-// The reader's private interpretation history (ADR 0500, docs/specs/reader-annotations.md).
+// The reader's private interpretation history (ADR 0244, docs/specs/reader-annotations.md).
 //
 // A reflection is a snapshot of how the reader read a work or one section of it
 // at one time: the reader's own words, a label they chose, the revision of the

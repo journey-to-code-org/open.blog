@@ -2353,15 +2353,15 @@ _Avoid_: Updated highlight, repaired highlight
 **Reflection snapshot**:
 One of a reader's own readings of a work or a section of it, kept in the reader-annotation document on
 their device with the revision of the page they read and an optional label they chose. Its words never
-change; it is private, never public and never a submitted copy (ADR 0500).
+change; it is private, never public and never a submitted copy (ADR 0244).
 _Avoid_: Draft, saved comment, journal entry
 
 **Interpretation history**:
 The line of a reader's reflection snapshots on one work, each following the one before it. It claims
-nothing about what changed or why (ADR 0500).
+nothing about what changed or why (ADR 0244).
 _Avoid_: Belief profile, reading log
 
 **Submission record**:
 A line on a reflection snapshot saying the reader sent a copy, when and by which channel. It is not the
-copy, not a receipt, and not a sign the snapshot is public (ADR 0500).
+copy, not a receipt, and not a sign the snapshot is public (ADR 0244).
 _Avoid_: Receipt, publication status

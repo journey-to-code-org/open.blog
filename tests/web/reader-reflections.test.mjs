@@ -1,4 +1,4 @@
-// The reader's private interpretation history (ADR 0500): snapshots of a reading kept in the
+// The reader's private interpretation history (ADR 0244): snapshots of a reading kept in the
 // reader-annotation document, with revisions, derived stale state, migration, storage failures,
 // hostile imports, and an explicit, bounded, non-converting submission copy.
 import test from "node:test";

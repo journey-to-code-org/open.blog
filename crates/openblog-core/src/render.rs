@@ -263,7 +263,7 @@ const READER_TRAIL_REGION: &str = "<section id=\"ob-reading-trail\" class=\"ob-r
 </ob-reading-trail>
 </section>
 ";
-/// A post's region for the reader's private interpretation history (ADR 0500),
+/// A post's region for the reader's private interpretation history (ADR 0244),
 /// after the highlights and notes. It holds only text: readings are kept and
 /// compared in the reader's browser and never leave it.
 const READER_REFLECTION_HISTORY_REGION: &str = "<section id=\"ob-reflection-history\" class=\"ob-reflection-history\" aria-labelledby=\"ob-reflection-history-title\">

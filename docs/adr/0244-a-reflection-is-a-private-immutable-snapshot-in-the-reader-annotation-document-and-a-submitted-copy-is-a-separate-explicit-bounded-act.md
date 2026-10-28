@@ -1,4 +1,4 @@
-# ADR 0500: A reflection is a private, immutable snapshot in the reader-annotation document, and a submitted copy is a separate, explicit, bounded act
+# ADR 0244: A reflection is a private, immutable snapshot in the reader-annotation document, and a submitted copy is a separate, explicit, bounded act
 
 - Status: Accepted
 - Date: 2026-10-27

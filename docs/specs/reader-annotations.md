@@ -173,7 +173,7 @@ the logic, `ob-reading-trail.js` the controls). Nothing here is uploaded or sent
 
 ## Interpretation history
 
-[ADR 0500](../adr/0500-a-reflection-is-a-private-immutable-snapshot-in-the-reader-annotation-document-and-a-submitted-copy-is-a-separate-explicit-bounded-act.md)
+[ADR 0244](../adr/0244-a-reflection-is-a-private-immutable-snapshot-in-the-reader-annotation-document-and-a-submitted-copy-is-a-separate-explicit-bounded-act.md)
 extends the document to version 2 with `reflections`: snapshots of how the reader read a work, kept
 beside highlights and notes in the same key. `web/components/reader-reflections.js` holds the pure
 functions; tests are `tests/web/reader-reflections.test.mjs`. The comparison view is described below; the
