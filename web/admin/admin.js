@@ -8,6 +8,7 @@ import { blockEditor, editableBlockKind, openPieceDialog } from "./block-forms.j
 import { buildChecksPanel } from "./checks-panel.js";
 import { buildHistory } from "./landing-history.js";
 import { pasteNotice, pasteToMarkdown } from "./paste.js";
+import { createVoiceSession } from "./voice-session.js";
 import {
   LIMITS as LANDING_LIMITS,
   PREVIEW_SIZES,
@@ -10932,6 +10933,7 @@ export class ObAdmin extends AdminElement {
     if (["analytics", "contributors"].includes(this.activeRoute)) visible.add(this.activeRoute);
     if (researchPanelForRoute(this.activeRoute)) visible.add("research");
     if (this.activeRoute === "moderation") visible.add("analytics");
+    if (this.activeRoute === "voice") visible.add("assistant");
     return visible;
   }
 
@@ -11253,6 +11255,8 @@ export class ObAdmin extends AdminElement {
         ? { title: researchPanel(panel).title, detail: researchPanel(panel).detail }
       : active === "contributors"
         ? { title: "Contributors", detail: "Manage reusable public identities for bylines and contribution credits." }
+      : active === "voice"
+        ? { title: "Voice", detail: "Gather your own voice: three prompts, three minutes, a rough draft that stays exactly as you wrote it, and a polished copy that is yours to refine." }
       : active === "landing"
         ? { title: "Landing page", detail: "Build the first page your visitors see from sections you add, order and preview, without writing any code." }
       : active === "paths"
@@ -11294,6 +11298,8 @@ export class ObAdmin extends AdminElement {
         "nav",
         { class: "oba-toolbelt", "aria-label": "Admin tools" },
         toolGroup("Content", ...contentTabs),
+        // Voice sessions follow the Assistant module of the chosen layout (ADR 0371), and are always shown on their own page.
+        h("div", { class: "oba-progressive-tools", "data-admin-module": "assistant", hidden: !visibleModules.has("assistant") }, toolGroup("Assistant", h("a", { class: "oba-tab", "aria-current": active === "voice" ? "page" : null, href: "#/voice" }, "Voice"))),
         h("div", { class: "oba-progressive-tools", "data-admin-module": "analytics", hidden: !visibleModules.has("analytics") }, toolGroup("Observe", h("a", { class: "oba-tab", "aria-current": active === "analytics" ? "page" : null, href: "#/analytics" }, "Analytics"), h("a", { class: "oba-tab", "aria-current": active === "moderation" ? "page" : null, href: "#/moderation" }, "Moderation inbox"))),
         // One entry for the whole research workspace; its panels are listed in the workspace's own navigation.
         h("div", { class: "oba-progressive-tools", "data-admin-module": "research", hidden: !visibleModules.has("research") }, toolGroup("Research", h("a", { class: "oba-tab", "aria-current": panel ? "true" : null, href: researchHref("overview") }, "Research workspace"))),
@@ -11513,6 +11519,7 @@ export class ObAdmin extends AdminElement {
     const go = (hash) => (location.hash = hash);
     const commands = [
       { label: "Overview", category: "Workspace", keywords: "home dashboard status", run: () => go("#/overview") },
+      { label: "Voice session", category: "Assistant", keywords: "voice writing prompt rough draft timer samples", run: () => go("#/voice") },
       { label: "Landing page", category: "Site", keywords: "home page sections welcome builder layout", run: () => go("#/landing") },
       { label: "Customize look", category: "Site", keywords: "colors fonts theme text size corners spacing width customize style", run: () => go("#/look") },
       { label: "Appearance", category: "Site", keywords: "theme light dark mode button system preference", run: () => go("#/appearance") },
@@ -11737,6 +11744,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "analytics") await this.showAnalytics(Number(tail) || 30);
       else if (head === "moderation" || head === "feedback") await this.showModeration(tail, params);
       else if (head === "contributors") await this.showContributors();
+      else if (head === "voice") await this.showVoice(tail, params);
       else if (head === "landing") await this.showLanding();
       else if (head === "paths") await this.showReadingPaths(tail);
       else if (head === "comparisons") await this.showComparisons(tail);
@@ -13759,6 +13767,28 @@ export class ObAdmin extends AdminElement {
     if (wide()) openPreview();
     this.viewDirty = () => isDirty();
     this.viewBusy = () => busy || publishing;
+  }
+
+  // ---- voice sessions (ADR 0371)
+
+  /**
+   * `#/voice`: draw three prompts, write a rough draft against the server's clock, then refine a polished
+   * copy. The view's own unsaved-changes test is the polished draft's: a rough draft is saved on the server
+   * as it is written and locked at the end, so it never counts as unsaved work.
+   */
+  async showVoice(tail, params) {
+    const session = createVoiceSession({
+      api: this.api,
+      user: this.user,
+      params,
+      go: (hash) => {
+        location.hash = hash;
+      },
+    });
+    this.mount(this.shell("voice", session.element));
+    this.viewDirty = () => session.isDirty();
+    this.viewBusy = () => session.isBusy();
+    await session.load();
   }
 
   // ---- customize look (ADR 0256, #350)

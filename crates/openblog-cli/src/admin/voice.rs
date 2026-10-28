@@ -343,8 +343,20 @@ pub(super) fn status(state: &AppState) -> Response {
     let now = clock::now();
     let session = match voice_session::status(&state.root, now) {
         Ok(Status::None) => json!({ "open": false }),
-        Ok(Status::Active { .. }) => json!({ "open": true, "expired": false }),
-        Ok(Status::Expired { .. }) => json!({ "open": true, "expired": true }),
+        Ok(Status::Active { session, .. }) => json!({
+            "open": true,
+            "expired": false,
+            "sessionId": session_id(&session),
+            "deadline": session.deadline,
+            "draftChars": session.draft.chars().count(),
+        }),
+        Ok(Status::Expired { session }) => json!({
+            "open": true,
+            "expired": true,
+            "sessionId": session_id(&session),
+            "deadline": session.deadline,
+            "draftChars": session.draft.chars().count(),
+        }),
         // A record that cannot be used still means a session is in the way.
         Err(_) => json!({ "open": true, "unreadable": true }),
     };

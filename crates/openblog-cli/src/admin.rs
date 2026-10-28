@@ -546,6 +546,9 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/landing-history.js" => "landing-history.js",
         "/admin/checks.js" => "checks.js",
         "/admin/checks-panel.js" => "checks-panel.js",
+        "/admin/voice.js" => "voice.js",
+        "/admin/voice-session.js" => "voice-session.js",
+        "/admin/voice-polished.js" => "voice-polished.js",
         _ => return Response::error(404, "Not found"),
     };
     let config = site::load_config(&state.root).unwrap_or_default();

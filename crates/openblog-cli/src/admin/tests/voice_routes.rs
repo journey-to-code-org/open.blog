@@ -789,3 +789,24 @@ fn the_status_reports_an_open_session_and_the_number_of_samples_without_changing
         "reading the status does not lock"
     );
 }
+
+#[test]
+fn the_voice_scripts_are_served_to_the_admin_page_and_are_the_embedded_ones() {
+    let f = fixture("voice-assets");
+    for (path, marker) in [
+        ("/admin/voice.js", "createCountdown"),
+        ("/admin/voice-session.js", "ROUGH_ATTRIBUTES"),
+        ("/admin/voice-polished.js", "createPolishedEditor"),
+    ] {
+        let response = handle(&f.state, &req("GET", path));
+        assert_eq!(response.status, 200, "{path}");
+        assert!(
+            String::from_utf8_lossy(&response.body).contains(marker),
+            "{path}"
+        );
+        assert!(response
+            .headers
+            .iter()
+            .any(|(k, v)| k == "Content-Type" && v.starts_with("text/javascript")));
+    }
+}
