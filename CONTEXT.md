@@ -2278,3 +2278,74 @@ message was sent, and a single-use link in it, followed within 48 hours, makes i
 unused request is erased. Every request is answered alike so the answer never reveals who is
 subscribed (ADR 0225).
 _Avoid_: Verification, activation email
+
+**Reader annotation document**:
+One versioned JSON document (`openblog.reader-annotations`) holding a reader's highlights, notes, saved
+sources and reading trails, kept in that reader's own browser. It is reader-private, never public, never
+read by the build, Admin or a hosted service, and unrelated to the author's research notebook (ADRs 0237,
+0240).
+_Avoid_: Research notebook, comments, bookmarks file
+
+**Highlight**:
+A reader's marked quotation in a published work: a passage target of the quoted text with its context,
+the passage revision the reader saw and a time, and no words of the reader's own. Its stale state is
+worked out when it is read, not stored (ADR 0238).
+_Avoid_: Citation, claim, quote of record
+
+**Reader note**:
+A reader's own private text attached to a quotation, a section or a whole work. Left out of an export
+unless the reader includes it, and never a research note or a comment (ADRs 0237, 0239).
+_Avoid_: Comment, research note, feedback
+
+**Saved source**:
+A source a reader keeps in their annotation document: a title and either an http(s) link or a work on a
+site, with an optional note. A linked source also records the work it was found in (`from`). It is not an
+entry in the source library or a reference (ADRs 0237, 0242).
+_Avoid_: Reference, source library entry, bibliography
+
+**Reading trail**:
+A reader's own ordered line of up to 200 highlights, notes and saved sources, each once. Unlike an
+author's reading path it is private, local, built by hand and implies no relationship between steps (ADRs 0240, 0242).
+_Avoid_: Reading path, history
+
+**Trail panel**:
+The second part of a post offered by a site that turns on `readerAnnotations`: "Your reading trails and saved
+sources", where a reader saves this post or a reference it cites, starts trails by hand, orders them, and
+removes one thing or everything. Nothing is recorded as a reader reads; it holds only what the reader added,
+in their browser (ADR 0242).
+_Avoid_: History, recently read, tracking
+
+**Reading-trail export**:
+The file a reader downloads from the trail panel: the annotation document and nothing else, with the text of
+their own notes left out unless they chose to include it, and a sentence before the download saying what it holds.
+Nothing is uploaded (ADRs 0239, 0243).
+_Avoid_: Backup, sync, share
+
+**Import preview**:
+What the trail panel shows after a reader chooses a file and before anything is saved: what would be added, what is
+already saved, records that share an id but differ (the reader chooses which version stays), and imported highlights
+on the post being read that no longer match its text. A file that fails validation is refused whole (ADR 0243).
+_Avoid_: Restore, merge dialog
+
+**Annotation switch**:
+The reader's own setting, kept in their browser, that turns highlights, notes, saved sources and trails off on a
+site without removing what is saved. Erasing is separate and removes the data (ADR 0243).
+_Avoid_: Disable (a site setting), opt-out
+
+**Annotation privacy scope**:
+The statement every annotation document and export carries: `reader-private`, and whether the reader's own
+note text is `included` or `omitted`. It is checked, so a file cannot claim to omit notes while holding
+them (ADR 0239).
+_Avoid_: Visibility, sharing setting
+
+**Annotation region**:
+The part of a post, offered only by a site that turns on `readerAnnotations`, where a reader makes and manages
+their own highlights and notes. It carries no annotation: the build publishes only its static text, the post's
+passage text and a script, and what the reader keeps stays in their browser (ADR 0241).
+_Avoid_: Comments section, annotation feed
+
+**Moved annotation**:
+A reader's highlight whose words were found again, in the same or another section, because the post changed
+since it was saved. It is shown as moved and painted at the new place; an annotation whose words cannot be found
+is stale and stays listed with its reason, never silently moved (ADRs 0238, 0241).
+_Avoid_: Updated highlight, repaired highlight

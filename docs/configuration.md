@@ -50,7 +50,8 @@ default, so you can edit values in place and delete the ones you do not need.
   "readingPaths": { "publish": false },
   "interpretations": { "publish": false },
   "curatedContext": { "publish": false },
-  "readingModes": { "default": "standard" }
+  "readingModes": { "default": "standard" },
+  "readerAnnotations": { "enabled": false }
 }
 ```
 
@@ -377,6 +378,18 @@ default of its own. It never opts a post in. The order is the post's own
 `readingModes: {default: ...}`, then this site default, then standard, and a reader's saved choice
 beats all three. The key is optional and read tolerantly: a bare mode name works, and anything
 else is read as standard instead of failing the configuration.
+
+## Reader annotations
+
+`readerAnnotations.enabled` (off by default) gives every post a "Your highlights and notes" region where a
+reader can highlight words and keep private notes (see [Reader annotations](specs/reader-annotations.md#highlights-and-notes-on-a-page)).
+They are kept in that reader's own browser and are never sent to you, to the build or to any service. Turning
+it on adds the region, the post's passage text and one script to each post; with it off, pages are unchanged.
+It also adds a second region, "Your reading trails and saved sources", where a reader saves this post or a
+reference it cites and builds trails by hand (see [Reading trails and saved sources](specs/reader-annotations.md#reading-trails-and-saved-sources-on-a-page)).
+Nothing is recorded as a reader reads, and what they keep stays in their browser.
+The same panel lets a reader export that data to a file, import one after a preview, turn the feature off in their
+browser, and erase it (see [Export, import and privacy controls](specs/reader-annotations.md#export-import-and-privacy-controls)).
 
 ## Claim evidence
 

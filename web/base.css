@@ -3505,3 +3505,327 @@ ob-native-lab .ob-native-target.ob-native-in-view { border-color: var(--ob-color
 ob-native-lab .ob-native-field { display: grid; gap: 0.25rem; margin-top: 0.75rem; }
 ob-native-lab .ob-native-field label { font-size: 0.85em; }
 ob-native-lab input[type="range"] { width: 100%; min-height: 2.75rem; accent-color: var(--ob-color-accent, currentColor); }
+
+/* Reader highlights and private notes (ADR 0241): one column, native controls, visible focus. */
+
+ob-annotations {
+  display: block;
+  max-inline-size: 42rem;
+}
+
+/* Painted over the saved words with the CSS Custom Highlight API; the post's markup is never changed.
+   System colours keep the words legible in every theme and in forced-colours mode. */
+::highlight(ob-annotation) {
+  background-color: Mark;
+  color: MarkText;
+}
+
+.ob-annotations-make {
+  display: grid;
+  gap: 1rem;
+}
+
+.ob-annotations-make fieldset {
+  display: grid;
+  gap: .5rem;
+  min-inline-size: 0;
+  margin: 0;
+  padding: .75rem 1rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: .35rem;
+}
+
+.ob-annotations-choice {
+  display: flex;
+  gap: .5rem;
+  align-items: baseline;
+}
+
+.ob-annotations-field {
+  display: grid;
+  gap: .35rem;
+}
+
+.ob-annotations textarea,
+.ob-annotations select {
+  box-sizing: border-box;
+  inline-size: 100%;
+  min-inline-size: 0;
+  font: inherit;
+  padding: .65rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: .35rem;
+  background: var(--ob-color-surface);
+  color: inherit;
+}
+
+.ob-annotations-lead,
+.ob-annotations-selection,
+.ob-annotations-hint,
+.ob-annotations-notice,
+.ob-annotations-status,
+.ob-annotations-error,
+.ob-annotations-quote,
+.ob-annotations-state,
+.ob-annotations-text,
+.ob-annotations-kind {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ob-annotations-hint,
+.ob-annotations-state,
+.ob-annotations-selection,
+.ob-annotations-kind {
+  color: var(--ob-color-muted);
+}
+
+.ob-annotations-notice,
+.ob-annotations-error {
+  font-weight: 600;
+}
+
+.ob-annotations-error::before {
+  content: "Error: ";
+}
+
+.ob-annotations-status:empty {
+  display: none;
+}
+
+.ob-annotations-text,
+.ob-annotations-quote {
+  white-space: pre-wrap;
+}
+
+blockquote.ob-annotations-quote {
+  margin-inline: 0;
+  padding-inline-start: .75rem;
+  border-inline-start: 3px solid var(--ob-color-border);
+}
+
+.ob-annotations-list {
+  display: grid;
+  gap: 1rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-annotations-item {
+  display: grid;
+  gap: .5rem;
+  padding: .75rem 1rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: .35rem;
+}
+
+.ob-annotations-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1rem;
+  align-items: center;
+}
+
+ob-annotations [hidden] {
+  display: none;
+}
+
+.ob-annotations :focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.ob-annotations [aria-invalid="true"] {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* Reader saved sources and reading trails (ADR 0242): the same quiet, one-column controls. */
+
+.ob-reading-trail {
+  max-inline-size: 42rem;
+}
+
+ob-reading-trail {
+  display: block;
+}
+
+.ob-reading-trail [hidden] {
+  display: none !important;
+}
+
+.ob-reading-trail .ob-trail-body,
+.ob-reading-trail .ob-trail-section,
+.ob-reading-trail .ob-trail-form,
+.ob-reading-trail .ob-trail-field,
+.ob-reading-trail .ob-trail-item {
+  display: grid;
+  gap: .75rem;
+}
+
+.ob-reading-trail .ob-trail-section {
+  margin-block-start: 1.5rem;
+}
+
+.ob-reading-trail .ob-trail-heading {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.ob-reading-trail .ob-trail-lead,
+.ob-reading-trail .ob-trail-hint,
+.ob-reading-trail .ob-trail-meta,
+.ob-reading-trail .ob-trail-empty,
+.ob-reading-trail .ob-trail-status,
+.ob-reading-trail .ob-trail-notice,
+.ob-reading-trail .ob-trail-error,
+.ob-reading-trail .ob-trail-title {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ob-reading-trail .ob-trail-hint,
+.ob-reading-trail .ob-trail-meta,
+.ob-reading-trail .ob-trail-empty {
+  color: var(--ob-color-muted);
+}
+
+.ob-reading-trail .ob-trail-notice,
+.ob-reading-trail .ob-trail-error {
+  font-weight: 600;
+}
+
+.ob-reading-trail .ob-trail-error::before {
+  content: "Error: ";
+}
+
+.ob-reading-trail .ob-trail-status:empty {
+  display: none;
+}
+
+.ob-reading-trail .ob-trail-title {
+  font-weight: 600;
+}
+
+.ob-reading-trail .ob-trail-list,
+.ob-reading-trail .ob-trail-steps {
+  display: grid;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-reading-trail .ob-trail-item {
+  padding: .75rem 1rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: .35rem;
+}
+
+.ob-reading-trail .ob-trail-steps {
+  gap: .75rem;
+  counter-reset: ob-trail-step;
+}
+
+.ob-reading-trail .ob-trail-step {
+  display: grid;
+  gap: .35rem;
+  padding-inline-start: .75rem;
+  border-inline-start: 3px solid var(--ob-color-border);
+}
+
+.ob-reading-trail .ob-trail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1rem;
+  align-items: center;
+}
+
+.ob-reading-trail input[type="text"],
+.ob-reading-trail select {
+  box-sizing: border-box;
+  inline-size: 100%;
+  min-inline-size: 0;
+  font: inherit;
+  padding: .65rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: .35rem;
+  background: var(--ob-color-surface);
+  color: inherit;
+}
+
+.ob-reading-trail :focus-visible,
+.ob-reading-trail [aria-invalid="true"] {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* Reader export, import and privacy controls (ADR 0243). */
+
+.ob-reading-trail .ob-trail-subheading {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.ob-reading-trail .ob-trail-kept {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.ob-reading-trail .ob-trail-preview,
+.ob-reading-trail .ob-trail-choice,
+.ob-reading-trail .ob-trail-details {
+  display: grid;
+  gap: .75rem;
+  min-inline-size: 0;
+  margin: 0;
+  padding: .75rem 1rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: .35rem;
+}
+
+.ob-reading-trail .ob-trail-details {
+  padding: .5rem 1rem;
+}
+
+.ob-reading-trail .ob-trail-file {
+  box-sizing: border-box;
+  max-block-size: 20rem;
+  max-inline-size: 100%;
+  margin: .5rem 0 0;
+  overflow: auto;
+  font-size: .85rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ob-reading-trail input[type="file"] {
+  max-inline-size: 100%;
+  font: inherit;
+}
+
+.ob-reading-trail .ob-trail-field:has(> input[type="checkbox"], > input[type="radio"]) {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+
+.ob-reading-trail .ob-trail-body,
+.ob-reading-trail .ob-trail-section,
+.ob-reading-trail .ob-trail-form,
+.ob-reading-trail .ob-trail-preview,
+.ob-reading-trail .ob-trail-choice,
+.ob-reading-trail .ob-trail-details {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ob-reading-trail .ob-trail-field:has(> input[type="file"]) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ob-reading-trail input[type="file"] {
+  box-sizing: border-box;
+  inline-size: 100%;
+}
