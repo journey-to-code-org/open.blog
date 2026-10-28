@@ -48,6 +48,22 @@ landing page and the post editor must ask for them the same way, and a post must
   check requires the pieces' names and labels to survive.
 - **Allowlist.** Providers are `youtube`, `vimeo` and `openstreetmap`. The Admin preview's frame policy
   (`embed::FRAME_SOURCES`) gains the two new origins; no other origin is added.
+- **Supersedes ADR 0247's "no frame or third-party request on the home page" rule for Video and Map sections.**
+  ADR 0247 rendered a video as a link and a map as a link, and ADR 0245 deferred embedded frames. Issue #331 asks
+  for privacy-enhanced lazy embeds, so a Video or Map section now renders the frame described above. Landing
+  sections are unreleased, so no live site regresses. A page with no Video or Map section still has no frame and
+  makes no third-party request, and the frame is lazy, titled, no-cookie where the provider offers it, and keeps
+  its link fallback.
+- **The Admin preview's Content Security Policy widens for every preview.** `frame-src` now also allows
+  `https://player.vimeo.com` and `https://www.openstreetmap.org` (besides the existing YouTube and CodePen
+  origins), because the preview shares one policy. It applies to all previews, not only those that contain a
+  video or map; no other directive changes.
+- **No HTML in a call-out.** A call-out's heading or text that holds `<` followed by an ASCII letter, `/`,
+  `!` or `?` is refused (`Piece::from_values`, so `/admin/api/pieces` answers 422, and the Visual call-out
+  form says so early; hint: "HTML tags are not allowed"). A call-out is written into the post as ordinary
+  Markdown and the post renderer passes raw HTML through, so typed markup would become live. Every other piece
+  is written as a `piece` fence whose values the renderer escapes (the FAQ answer through the inert Markdown
+  renderer), so those fields stay free text.
 
 ## Considered options
 
