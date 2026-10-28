@@ -100,6 +100,7 @@ pub mod knowledge_atlas;
 pub mod look;
 pub mod look_contrast;
 pub mod look_css;
+pub mod look_presets;
 pub mod markdown;
 pub mod media_moment;
 pub mod members;

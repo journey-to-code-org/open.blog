@@ -12,6 +12,7 @@ use crate::look::{
     FontStyle, HeadingWeight, LookSettings, PageWidth, Roundness, Spacing, TextSize,
 };
 use crate::look_contrast::{derive_accent, Ground, Rgb, Shift, HIGH, TEXT};
+use crate::look_presets::{self, CuratedLook};
 use crate::theme::Theme;
 
 /// The generated override block and its content hash.
@@ -175,9 +176,17 @@ impl SchemeColors {
     }
 }
 
-/// The page and surface colors an accent has to be readable against, read from the theme with the
-/// base theme's colors as the fallback for anything that is not a plain hex value.
-fn ground(theme: &Theme, scheme: &str) -> Ground {
+/// The curated palette the look chose, if the theme honors palettes.
+fn palette_of(look: &LookSettings, theme: &Theme) -> Option<&'static CuratedLook> {
+    look.palette
+        .as_deref()
+        .filter(|_| theme.honors("palette"))
+        .and_then(look_presets::find)
+}
+
+/// The page and surface colors an accent has to be readable against: the chosen palette's, or the
+/// theme's own with the base theme's colors as the fallback for anything that is not a plain hex value.
+fn ground(theme: &Theme, scheme: &str, palette: Option<&CuratedLook>) -> Ground {
     let (page, surface, raised, text, ink) = if scheme == "light" {
         ("#ffffff", "#ffffff", "#f1f3f6", "#14171c", "#0b0d11")
     } else {
@@ -192,32 +201,56 @@ fn ground(theme: &Theme, scheme: &str) -> Ground {
             .or_else(|| Rgb::parse(fallback))
             .unwrap_or(Rgb(0, 0, 0))
     };
-    Ground {
-        page: read("page", page),
-        surface: read("surface", surface),
-        surface_raised: Some(read("surfaceRaised", raised)),
-        text: read("text", text),
-        ink: read("ink", ink),
+    let from_palette = |hex: &str| Rgb::parse(hex).unwrap_or(Rgb(0, 0, 0));
+    match palette.map(|p| p.scheme(scheme)) {
+        Some(p) => Ground {
+            page: from_palette(p.page),
+            surface: from_palette(p.surface),
+            surface_raised: Some(from_palette(p.surface_raised)),
+            text: from_palette(p.text),
+            ink: read("ink", ink),
+        },
+        None => Ground {
+            page: read("page", page),
+            surface: read("surface", surface),
+            surface_raised: Some(read("surfaceRaised", raised)),
+            text: read("text", text),
+            ink: read("ink", ink),
+        },
     }
 }
 
 /// The colors a look sets for one scheme at a contrast target.
 fn scheme_colors(look: &LookSettings, theme: &Theme, scheme: &str, target: f64) -> SchemeColors {
     let mut out = SchemeColors::none();
-    let Some(accent) = look
-        .accent
-        .as_deref()
-        .filter(|_| theme.honors("accent"))
-        .and_then(Rgb::parse)
-    else {
+    let palette = palette_of(look, theme);
+    if let Some(palette) = palette {
+        let p = palette.scheme(scheme);
+        out.colors = vec![
+            (ColorToken::Page, p.page.to_string()),
+            (ColorToken::Outer, p.outer.to_string()),
+            (ColorToken::Surface, p.surface.to_string()),
+            (ColorToken::SurfaceRaised, p.surface_raised.to_string()),
+            (ColorToken::Text, p.text.to_string()),
+            (ColorToken::Muted, p.muted.to_string()),
+            (ColorToken::Subtle, p.subtle.to_string()),
+            (ColorToken::Border, p.border.to_string()),
+        ];
+    }
+    // An accent the owner picked wins over the palette's own.
+    let chosen = look.accent.as_deref().filter(|_| theme.honors("accent"));
+    let accent = chosen
+        .or_else(|| palette.map(|p| p.scheme(scheme).accent))
+        .and_then(Rgb::parse);
+    let Some(accent) = accent else {
         return out;
     };
-    match derive_accent(accent, &ground(theme, scheme), target) {
+    match derive_accent(accent, &ground(theme, scheme, palette), target) {
         Some(set) => {
             out.shift = set.shift;
             let accent = set.accent.hex();
             let on_accent = set.accent_contrast.hex();
-            out.colors = vec![
+            out.colors.extend([
                 (ColorToken::Accent, accent.clone()),
                 (ColorToken::AccentSoft, accent.clone()),
                 (ColorToken::AccentBorder, set.accent_border.hex()),
@@ -226,7 +259,7 @@ fn scheme_colors(look: &LookSettings, theme: &Theme, scheme: &str, target: f64) 
                 (ColorToken::Glow, set.glow.hex()),
                 (ColorToken::HoverText, on_accent.clone()),
                 (ColorToken::HoverInk, on_accent),
-            ];
+            ]);
         }
         None => out.refused = true,
     }
@@ -697,7 +730,7 @@ mod tests {
                         let compiled = compile(&chosen, theme).unwrap();
                         assert_confined(&compiled.css);
                         for scheme in ["light", "dark"] {
-                            let ground = ground(theme, scheme);
+                            let ground = ground(theme, scheme, None);
                             let opener = if theme.color_scheme == scheme {
                                 ":root {\n".to_string()
                             } else {
@@ -805,5 +838,104 @@ mod tests {
             .contains("--ob-color-accent"));
         // Only custom properties are written, so forced-colors mode (which ignores them) is untouched.
         assert!(!compiled.css.contains("!important") && !compiled.css.contains("forced-colors"));
+    }
+
+    #[test]
+    fn every_curated_look_is_readable_on_every_theme_that_honors_palettes() {
+        let mut checked = 0;
+        for theme in bundled_themes().iter().filter(|t| t.honors("palette")) {
+            for curated in &look_presets::LOOKS {
+                let chosen = look_presets::apply(curated.id, &LookSettings::default()).unwrap();
+                let compiled = compile(&chosen, theme).unwrap();
+                assert_confined(&compiled.css);
+                assert!(compiled.notes.is_empty(), "{} {}", theme.name, curated.id);
+                assert!(
+                    compiled.css.contains("--ob-font-body"),
+                    "font style comes with the look"
+                );
+                for scheme in ["light", "dark"] {
+                    let opener = if theme.color_scheme == scheme {
+                        ":root {\n".to_string()
+                    } else {
+                        format!(":root[data-theme=\"{scheme}\"] {{\n")
+                    };
+                    let colors = block(&compiled.css, &opener);
+                    let page = color_in(colors, "--ob-color-page");
+                    let surface = color_in(colors, "--ob-color-surface");
+                    let raised = color_in(colors, "--ob-color-surface-raised");
+                    let accent = color_in(colors, "--ob-color-accent");
+                    for bg in [page, surface, raised] {
+                        for token in [
+                            "--ob-color-muted",
+                            "--ob-color-subtle",
+                            "--ob-color-accent",
+                            "--ob-color-link",
+                        ] {
+                            assert!(
+                                contrast(color_in(colors, token), bg) >= TEXT,
+                                "{} {} {scheme} {token}",
+                                theme.name,
+                                curated.id
+                            );
+                        }
+                        assert!(contrast(color_in(colors, "--ob-color-text"), bg) >= 7.0);
+                        // The theme's own callout colors keep working on the palette's grounds.
+                        for key in [
+                            "calloutNote",
+                            "calloutTip",
+                            "calloutWarning",
+                            "calloutCaution",
+                        ] {
+                            if let Some(value) = theme.colors[scheme].get(key) {
+                                let callout = Rgb::parse(value).unwrap();
+                                assert!(
+                                    contrast(callout, bg) >= 3.0,
+                                    "{} {} {scheme} {key}: {:.2}",
+                                    theme.name,
+                                    curated.id,
+                                    contrast(callout, bg)
+                                );
+                            }
+                        }
+                    }
+                    assert!(
+                        contrast(color_in(colors, "--ob-color-accent-contrast"), accent) >= TEXT
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked >= 3 * 8 * 2);
+    }
+
+    #[test]
+    fn a_chosen_accent_wins_over_the_palette_accent_and_both_stay_readable() {
+        let theme = base();
+        let with_palette = compile(&look(json!({"palette": "night"})), &theme).unwrap();
+        let tweaked = compile(
+            &look(json!({"palette": "night", "accent": "#00aa44"})),
+            &theme,
+        )
+        .unwrap();
+        let light = ":root {\n";
+        assert_ne!(
+            color_in(block(&with_palette.css, light), "--ob-color-accent"),
+            color_in(block(&tweaked.css, light), "--ob-color-accent")
+        );
+        // The palette's page is kept either way.
+        assert_eq!(
+            color_in(block(&with_palette.css, light), "--ob-color-page"),
+            color_in(block(&tweaked.css, light), "--ob-color-page")
+        );
+        // A theme that does not honor palettes ignores the palette but still honors the accent.
+        let mut limited = base();
+        limited.customizable = vec!["accent".into()];
+        let only_accent = compile(
+            &look(json!({"palette": "night", "accent": "#00aa44"})),
+            &limited,
+        )
+        .unwrap();
+        assert!(!only_accent.css.contains("--ob-color-page"));
+        assert!(only_accent.css.contains("--ob-color-accent"));
     }
 }

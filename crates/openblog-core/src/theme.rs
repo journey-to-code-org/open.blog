@@ -736,9 +736,6 @@ mod tests {
             let compiled = theme.clone().with_look(&everything);
             let css = compiled.look.as_ref().map(|l| l.css.as_str()).unwrap_or("");
             for control in crate::look::CONTROLS {
-                if control == "palette" {
-                    continue; // curated palettes arrive with the curated looks
-                }
                 let first = properties(control)[0];
                 assert_eq!(
                     css.contains(&format!("{first}:")),
