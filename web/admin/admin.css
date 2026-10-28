@@ -5725,3 +5725,38 @@ ob-voice-library {
 .oba-voice-group > .oba-btn {
   min-height: 44px;
 }
+
+/* Voice accessibility (ADR 0374). The timer says its state in words and a shape; its warning state also
+   pulses a little, which is switched off for people who asked their system for less motion. */
+.oba-voice-timer,
+.oba-voice-card,
+.oba-voice-choice {
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+@keyframes oba-voice-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--oba-danger) 35%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .oba-voice-timer[data-state="warning"] {
+    animation: oba-voice-pulse 2s ease-in-out infinite;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .oba-voice *,
+  .oba-voice-bar .oba-btn {
+    transition: none;
+    animation: none;
+    scroll-behavior: auto;
+    transform: none;
+  }
+}

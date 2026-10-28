@@ -102,6 +102,48 @@ export function createCountdown(now = () => (typeof performance !== "undefined" 
   };
 }
 
+/**
+ * What the polite live region says, and when. Thresholds are one minute and thirty seconds; each is said once
+ * as the clock passes it, no timer announcement comes within 30 seconds of the last, and the lock is said once
+ * when it happens (it is an event, not a tick). The first update of a resumed session says where it stands.
+ */
+export function createAnnouncer(gapMs = VOICE_LIMITS.announceGapMs) {
+  const said = new Set();
+  let first = true;
+  let lastAt = -Infinity;
+  let lockSaid = false;
+  return {
+    update(remaining, nowMs) {
+      if (remaining <= 0) return null;
+      let message = null;
+      if (first) {
+        first = false;
+        for (const threshold of [60, 30]) if (remaining <= threshold) said.add(threshold);
+        if (remaining < VOICE_LIMITS.defaultSeconds) {
+          message = `Resumed. ${spokenTime(remaining)} left.`;
+          lastAt = nowMs;
+        }
+        return message;
+      }
+      for (const threshold of [60, 30]) {
+        if (remaining <= threshold && !said.has(threshold)) {
+          said.add(threshold);
+          if (nowMs - lastAt >= gapMs) {
+            message = `${spokenTime(threshold)} left.`;
+            lastAt = nowMs;
+          }
+        }
+      }
+      return message;
+    },
+    lock(expired = true) {
+      if (lockSaid) return null;
+      lockSaid = true;
+      return expired ? "Time is up. Your rough draft is locked." : "Your rough draft is locked.";
+    },
+  };
+}
+
 /** The sentence for a failed call. The server's sentences never contain the author's text. */
 export function voiceErrorText(error) {
   const sentence = error?.data?.error;

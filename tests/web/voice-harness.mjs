@@ -243,3 +243,75 @@ export const one = (root, selector) => root.querySelector(selector);
 export const text = (node) => node.textContent.replace(/\s+/g, " ").trim();
 export const button = (root, action) => root.querySelector(`button[data-action]`) && all(root, "button").find((b) => b.dataset.action === action) || null;
 export const link = (root, action) => all(root, "a").find((a) => a.dataset.action === action) || null;
+
+// ---------------------------------------------------------------- an axe-style check for the view
+
+const walk = (node, visit) => {
+  for (const child of node.children || []) {
+    if (child.hidden) continue;
+    visit(child);
+    walk(child, visit);
+  }
+};
+
+/**
+ * The problems a quick accessibility scan would report in `root`: names, labels, references, duplicate ids,
+ * positive tabindex, headings that skip a level, groups without names. Hidden subtrees are skipped.
+ */
+export function accessibilityProblems(root) {
+  const problems = [];
+  const everything = [];
+  walk(root, (node) => everything.push(node));
+  const byId = new Map();
+  for (const node of everything) {
+    const id = node.attributes?.id || node.id;
+    if (!id) continue;
+    if (byId.has(id)) problems.push(`duplicate id ${id}`);
+    byId.set(id, node);
+  }
+  const textOf = (node) => (node ? node.textContent.replace(/\s+/g, " ").trim() : "");
+  const nameOf = (node) => {
+    if (node.attributes["aria-label"]) return node.attributes["aria-label"];
+    if (node.attributes["aria-labelledby"]) return node.attributes["aria-labelledby"].split(/\s+/).map((id) => textOf(byId.get(id))).join(" ").trim();
+    return "";
+  };
+  let lastHeading = 0;
+  for (const node of everything) {
+    const tag = node.tagName.toLowerCase();
+    const where = `${tag}${node.attributes.id ? `#${node.attributes.id}` : ""}${node.dataset?.action ? `[${node.dataset.action}]` : ""}`;
+    for (const attribute of ["aria-labelledby", "aria-describedby", "aria-controls"]) {
+      for (const id of (node.attributes[attribute] || "").split(/\s+/).filter(Boolean)) if (!byId.has(id)) problems.push(`${where} ${attribute} names a missing id ${id}`);
+    }
+    if (Number(node.attributes.tabindex) > 0) problems.push(`${where} has a positive tabindex`);
+    const control = tag === "textarea" || tag === "select" || (tag === "input" && node.attributes.type !== "hidden");
+    if (control) {
+      const labelled = nameOf(node) || everything.some((l) => l.tagName === "LABEL" && (l.attributes.for === node.attributes.id || l.contains(node)) && textOf(l));
+      if (!labelled) problems.push(`${where} has no accessible name`);
+    }
+    if (tag === "button" && !textOf(node) && !nameOf(node)) problems.push(`${where} has no accessible name`);
+    if (tag === "a" && !(textOf(node) || nameOf(node))) problems.push(`${where} is a link with no name`);
+    if (tag === "a" && !node.attributes.href) problems.push(`${where} is a link with no href`);
+    if (["timer", "region", "group", "radiogroup"].includes(node.attributes.role) && !nameOf(node)) problems.push(`${where} role ${node.attributes.role} has no name`);
+    if (tag === "fieldset" && !node.children.some((c) => c.tagName === "LEGEND")) problems.push(`${where} has no legend`);
+    if (/^h[1-6]$/.test(tag)) {
+      const level = Number(tag[1]);
+      if (lastHeading && level > lastHeading + 1) problems.push(`${where} skips from h${lastHeading} to h${level}`);
+      lastHeading = level;
+      if (!textOf(node)) problems.push(`${where} is an empty heading`);
+    }
+    if (node.attributes["aria-hidden"] === "true" && (control || tag === "button" || tag === "a")) problems.push(`${where} is focusable but aria-hidden`);
+  }
+  return problems;
+}
+
+/** The elements a Tab key reaches, in document order. */
+export function tabStops(root) {
+  const stops = [];
+  walk(root, (node) => {
+    const tag = node.tagName.toLowerCase();
+    const focusable = (tag === "button" || tag === "textarea" || tag === "select" || (tag === "input" && node.attributes.type !== "hidden") || (tag === "a" && node.attributes.href)) && !node.disabled;
+    const tabbable = focusable ? node.attributes.tabindex !== "-1" : node.attributes.tabindex === "0";
+    if (tabbable) stops.push(node);
+  });
+  return stops;
+}

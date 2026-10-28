@@ -11,6 +11,7 @@ import {
   PRIVATE_NOTE,
   ROUGH_NOTE,
   VOICE_LIMITS,
+  createAnnouncer,
   createCountdown,
   createVoiceDraftStore,
   expiredPlan,
@@ -52,10 +53,19 @@ const wordRange = (prompt) => (prompt.wordsMax ? `About ${prompt.wordsMin} to ${
  * Returns `{ element, load, isDirty, isBusy, destroy }`. `api.call(method, path, { json })` is the Admin API.
  * `params` may name a `pack` to draw from. `go(hash)` moves to another Admin address.
  */
-export function createVoiceSession({ api, user = "", params = new URLSearchParams(), go = () => {}, clock = realClock(), onDirty = () => {}, storage }) {
+export function createVoiceSession({ api, user = "", params = new URLSearchParams(), go = () => {}, clock = realClock(), onDirty = () => {}, onAnnounce = () => {}, storage }) {
   const root = el("ob-voice-session", { class: "oba-voice", "data-voice-session": "true" });
   const stage = el("div", { class: "oba-voice-stage" });
-  root.append(stage);
+  // One polite live region for the whole view, outside the steps so a message made as a step changes is still
+  // read. The clock itself is not live: only the one-minute and thirty-second marks and the lock are said.
+  const live = el("p", { class: "oba-sr", role: "status", "aria-live": "polite", "data-voice-announce": "true" });
+  root.append(live, stage);
+  const announce = (message) => {
+    if (!message) return;
+    live.textContent = "";
+    live.textContent = message;
+    onAnnounce(message, clock.now());
+  };
   const base = `oba-voice-${++uid}`;
   let editor = null;
   let finishing = false;
@@ -123,7 +133,7 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
   }
 
   // ----- step 1: draw
-  async function showDraw({ notice = "" } = {}) {
+  async function showDraw({ notice = "", focus = false } = {}) {
     const mine = ++generation;
     editor = null;
     finishing = false;
@@ -246,6 +256,8 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
       status,
       el("div", { class: "oba-landing-actions oba-voice-actions", role: "group", "aria-label": "Voice session actions" }, startButton, redrawButton, el("a", { class: "oba-btn", href: libraryHash(), "data-action": "voice-library" }, "Your samples")),
     );
+    // After the author chose to start over, focus goes to the new step's heading.
+    if (focus) stage.querySelector("[data-voice-heading]")?.focus();
   }
 
   /** A session is already open (from the command line, or another tab): continue it or scrap it. */
@@ -269,7 +281,7 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
         try {
           await api.call("DELETE", "voice/session", { json: {} });
           drafts.clear();
-          showDraw({ notice: "Scrapped the open session. Nothing was saved." });
+          showDraw({ notice: "Scrapped the open session. Nothing was saved.", focus: true });
         } catch (error) {
           box.append(errorBox(voiceErrorText(error)));
         }
@@ -286,6 +298,7 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
     finishing = false;
     editor = null;
     const countdown = createCountdown(clock.now);
+    const announcer = createAnnouncer();
     countdown.sync(session.remainingSeconds);
     const sessionId = session.sessionId;
     const roughId = `${base}-rough`;
@@ -395,6 +408,7 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
       lastShown = -1;
       paintTimer();
       message.textContent = "Locking your rough draft…";
+      announce(announcer.lock(reason !== "early"));
       const text = rough.value;
       for (let attempt = 0; attempt < 8; attempt += 1) {
         try {
@@ -445,7 +459,7 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
             try {
               await api.call("DELETE", "voice/session", { json: {} });
               drafts.clear();
-              if (mine === generation) showDraw({ notice: "Started over. Nothing was saved." });
+              if (mine === generation) showDraw({ notice: "Started over. Nothing was saved.", focus: true });
             } catch (error) {
               message.textContent = voiceErrorText(error);
             }
@@ -486,6 +500,7 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
         return;
       }
       paintTimer();
+      if (!finishing) announce(announcer.update(countdown.remaining(), clock.now()));
       if (!finishing && countdown.expired()) finish("time");
     }, 250);
     stopTicking = () => {
@@ -494,6 +509,8 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
       clock.clearTimeout(copyTimer);
       globalThis.removeEventListener?.("pagehide", leaving);
     };
+    // The cursor is in the box the moment writing starts, so typing can begin without a click or a Tab.
+    rough.focus();
     // A page that was away may find the time already gone.
     if (countdown.expired()) finish("time");
   }
@@ -562,7 +579,7 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
           }
           editor = null;
           onDirty(false);
-          showDraw();
+          showDraw({ focus: true });
         } }, "Start another session"),
         el("a", { class: "oba-btn", href: libraryHash(), "data-action": "voice-library" }, "Open your samples"),
       ),
