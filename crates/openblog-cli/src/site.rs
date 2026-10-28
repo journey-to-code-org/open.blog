@@ -1344,6 +1344,28 @@ mod tests {
                 }
             }
         }
+        // openblog.js imports each component by element name when its element
+        // is on the page (`./components/<name>.js`), one quoted name per line.
+        let (_, entry) = EMBEDDED_WEB
+            .iter()
+            .find(|(path, _)| *path == "openblog.js")
+            .unwrap();
+        let mut named = 0;
+        for line in entry.lines() {
+            let Some(name) = line
+                .trim()
+                .strip_prefix("\"ob-")
+                .and_then(|rest| rest.strip_suffix("\","))
+            else {
+                continue;
+            };
+            named += 1;
+            let target = format!("components/ob-{name}.js");
+            if !embedded.contains(target.as_str()) {
+                missing.push(format!("openblog.js loads {target}"));
+            }
+        }
+        assert!(named > 0, "openblog.js names no components");
         assert!(missing.is_empty(), "not embedded: {missing:?}");
     }
 
