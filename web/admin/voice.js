@@ -112,6 +112,88 @@ export function voiceErrorText(error) {
   return "The server could not be reached. Your writing is kept on this device.";
 }
 
+// ---------------------------------------------------------------- the copy kept on this device
+
+const DRAFT_VERSION = 1;
+const memory = new Map();
+const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+
+/**
+ * A bounded copy of the draft kept on this device, one record per site and sign-in, so a reload or a lost
+ * connection loses nothing. `storage` is a function so a browser that throws on access (a private window,
+ * blocked site data) is handled where it is read: the copy then lives in memory until the page closes, and
+ * the server's autosave is what protects the writing.
+ */
+export function createVoiceDraftStore(key, storage = () => globalThis.localStorage) {
+  let blocked = false;
+  const valid = (record) =>
+    isObject(record) && record.v === DRAFT_VERSION && typeof record.sessionId === "string" && typeof record.text === "string" && typeof record.deadline === "string" && Number.isFinite(record.savedAt);
+  return {
+    get inMemoryOnly() {
+      return blocked;
+    },
+    load() {
+      try {
+        const text = storage()?.getItem(key);
+        const record = text ? JSON.parse(text) : null;
+        if (valid(record)) return record;
+      } catch {
+        blocked = true;
+      }
+      return memory.get(key) || null;
+    },
+    /** Keep `text` for the session. A draft over the limit is not kept (the server would refuse it too). */
+    save({ sessionId, deadline, text }, now = Date.now()) {
+      if (byteLength(text) > VOICE_LIMITS.maxDraftBytes) return false;
+      const record = { v: DRAFT_VERSION, sessionId, deadline, text, savedAt: now };
+      memory.set(key, record);
+      try {
+        storage().setItem(key, JSON.stringify(record));
+        blocked = false;
+      } catch {
+        blocked = true;
+      }
+      return true;
+    },
+    clear() {
+      memory.delete(key);
+      try {
+        storage()?.removeItem(key);
+      } catch {
+        blocked = true;
+      }
+    },
+  };
+}
+
+/**
+ * Which text an open session continues with. The server's session wins for the deadline (it is not in this
+ * function: the page only ever takes the time left from the server). For the text, the longer of the copy on
+ * this device and the server's wins when both belong to the same session, because the one that was cut short
+ * is the one that missed some typing. `push` says the server is behind and should be sent the text.
+ */
+export function reconcileDraft({ sessionId, serverDraft }, local) {
+  const server = String(serverDraft ?? "");
+  if (local && local.sessionId === sessionId && [...local.text].length > [...server].length) {
+    return { text: local.text, from: "device", push: true };
+  }
+  return { text: server, from: "server", push: false };
+}
+
+/**
+ * What to do with a session whose time ran out while the page was away. The best text is the longer of the
+ * device's copy and the server's, but only a copy last kept before the deadline (plus the server's grace)
+ * counts, and the server still decides: it takes a final text only within its own grace and otherwise locks
+ * what it saved. Nothing here gives time back.
+ */
+export function expiredPlan(session, local) {
+  if (!session?.open || !session.expired || !local || local.sessionId !== session.sessionId) return { useDevice: false };
+  const deadline = Date.parse(session.deadline);
+  const keptInTime = Number.isFinite(deadline) && local.savedAt <= deadline + VOICE_LIMITS.graceSeconds * 1000;
+  const longer = [...local.text].length > Number(session.draftChars || 0);
+  return { useDevice: keptInTime && longer && local.text.trim() !== "" };
+}
+
 // ---------------------------------------------------------------- polished drafts
 
 /** Whether the polished editor differs from the state that was saved (or pre-filled), so the guard asks. */

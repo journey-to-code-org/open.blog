@@ -73,6 +73,8 @@ const sha = (text) => `rev-${[...text].reduce((h, c) => (h * 31 + c.charCodeAt(0
  */
 export function fakeServer(clock, { seconds = 180 } = {}) {
   const calls = [];
+  const epoch = Date.now();
+  const iso = (ms) => new Date(epoch + ms).toISOString();
   const state = { session: null, samples: [], failures: [], drawn: 0, status: null };
   const api = {
     calls,
@@ -157,7 +159,7 @@ export function fakeServer(clock, { seconds = 180 } = {}) {
       if (state.session) throw refuse(409, { error: `A writing session for "${state.session.promptId}" is already open.`, alreadyOpen: true, expired: clock.now() >= state.session.deadlineMs });
       const prompt = PROMPT_LIST.find((p) => p.id === body.promptId);
       const now = clock.now();
-      state.session = { promptId: prompt.id, pack: prompt.pack, title: prompt.title, invitation: prompt.invitation, startedAt: `T${now}`, deadlineMs: now + seconds * 1000, deadline: `D${now + seconds * 1000}`, draft: "", visibility: body.visibility || "private" };
+      state.session = { promptId: prompt.id, pack: prompt.pack, title: prompt.title, invitation: prompt.invitation, startedAt: `T${now}`, deadlineMs: now + seconds * 1000, deadline: iso(now + seconds * 1000), draft: "", visibility: body.visibility || "private" };
       return sessionView();
     }
     if (method === "PUT" && route === "voice/session/draft") {
@@ -218,6 +220,20 @@ export function fakeServer(clock, { seconds = 180 } = {}) {
     throw new ApiError(`unexpected ${method} ${path}`, 500, null);
   }
   return api;
+}
+
+/** A stand-in for `localStorage`; `blocked` makes every access throw, as a private window can. */
+export function fakeStorage({ blocked = false } = {}) {
+  const values = new Map();
+  const guard = () => {
+    if (blocked) throw new Error("blocked");
+  };
+  return {
+    values,
+    getItem: (key) => (guard(), values.get(key) ?? null),
+    setItem: (key, value) => (guard(), values.set(key, String(value))),
+    removeItem: (key) => (guard(), values.delete(key)),
+  };
 }
 
 export const all = (root, selector) => root.querySelectorAll(selector);

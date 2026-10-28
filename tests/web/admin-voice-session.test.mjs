@@ -9,11 +9,12 @@ import { all, button, fakeClock, fakeServer, flush, link, one, text } from "./vo
 // The Voice session (ADR 0371, #445): draw three prompts, write against the server's clock, lock, refine.
 // The page is driven with a fake server that follows the real routes' rules and a clock the test moves.
 
+let users = 0;
 async function mount(options = {}) {
   const clock = fakeClock();
   const api = fakeServer(clock, options.server);
   api.state.listing = null;
-  const session = createVoiceSession({ api, user: "mikey", clock, params: options.params || new URLSearchParams(), onDirty: options.onDirty });
+  const session = createVoiceSession({ api, user: `writer-${++users}`, clock, params: options.params || new URLSearchParams(), onDirty: options.onDirty });
   document.body.append(session.element);
   await session.load();
   await flush();

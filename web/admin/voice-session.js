@@ -12,8 +12,11 @@ import {
   ROUGH_NOTE,
   VOICE_LIMITS,
   createCountdown,
+  createVoiceDraftStore,
+  expiredPlan,
   formatClock,
   libraryHash,
+  reconcileDraft,
   timerLabel,
   voiceErrorText,
   wordCount,
@@ -49,7 +52,7 @@ const wordRange = (prompt) => (prompt.wordsMax ? `About ${prompt.wordsMin} to ${
  * Returns `{ element, load, isDirty, isBusy, destroy }`. `api.call(method, path, { json })` is the Admin API.
  * `params` may name a `pack` to draw from. `go(hash)` moves to another Admin address.
  */
-export function createVoiceSession({ api, user = "", params = new URLSearchParams(), go = () => {}, clock = realClock(), onDirty = () => {} }) {
+export function createVoiceSession({ api, user = "", params = new URLSearchParams(), go = () => {}, clock = realClock(), onDirty = () => {}, storage }) {
   const root = el("ob-voice-session", { class: "oba-voice", "data-voice-session": "true" });
   const stage = el("div", { class: "oba-voice-stage" });
   root.append(stage);
@@ -58,6 +61,8 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
   let finishing = false;
   let stopTicking = () => {};
   let generation = 0;
+  // A bounded copy of the rough draft on this device, one per site and sign-in (ADR 0372).
+  const drafts = createVoiceDraftStore(`ob-voice-draft:${user}`, storage);
 
   const render = (...nodes) => {
     stopTicking();
@@ -73,6 +78,25 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
     editor = null;
     render(el("p", { class: "oba-small", role: "status", "data-voice-loading": "true" }, "Loading…"));
     try {
+      // A copy on this device may hold more than the server does after a lost connection. If the time has
+      // run out, the server still decides: it takes that text only within its grace, otherwise it locks what
+      // it saved. Either way the page never gives time back.
+      const local = drafts.load();
+      if (local) {
+        const standing = await api.call("GET", "voice/status");
+        if (mine !== generation) return;
+        if (expiredPlan(standing.session, local).useDevice) {
+          try {
+            const reply = await api.call("POST", "voice/session/lock", { json: { sessionId: standing.session.sessionId, text: local.text } });
+            if (mine !== generation) return;
+            drafts.clear();
+            showRefine(reply.sample, { expired: reply.expired, resumed: true });
+            return;
+          } catch {
+            // The server's own resume below locks from what it saved.
+          }
+        }
+      }
       const answer = await api.call("GET", "voice/session");
       if (mine !== generation) return;
       enter(answer);
@@ -82,6 +106,8 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
   }
 
   function enter(answer) {
+    // A session that is over leaves no copy behind: the locked draft is on the server.
+    if (answer.state !== "active") drafts.clear();
     if (answer.state === "active") showWrite(answer);
     else if (answer.state === "locked") showRefine(answer.sample, { expired: answer.expired, resumed: true });
     else if (answer.state === "discarded") showDraw({ notice: "Your last session ran out of time with nothing written, so it was discarded." });
@@ -242,6 +268,7 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
       el("button", { class: "oba-btn oba-btn-danger", type: "button", "data-action": "voice-scrap-confirm", onClick: async () => {
         try {
           await api.call("DELETE", "voice/session", { json: {} });
+          drafts.clear();
           showDraw({ notice: "Scrapped the open session. Nothing was saved." });
         } catch (error) {
           box.append(errorBox(voiceErrorText(error)));
@@ -269,7 +296,12 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
       rows: "12",
       "aria-describedby": `${base}-rule ${base}-count`,
     });
-    rough.value = session.draft || "";
+    // The longer of this device's copy and the server's draft wins when both are this session's; a copy of
+    // another session is stale and is dropped.
+    const copy = drafts.load();
+    if (copy && copy.sessionId !== sessionId) drafts.clear();
+    const choice = reconcileDraft({ sessionId, serverDraft: session.draft }, copy);
+    rough.value = choice.text;
     const clockText = el("span", { class: "oba-voice-clock", role: "timer", "aria-label": "Time remaining", "data-voice-clock": "true" }, formatClock(countdown.remaining()));
     const symbol = el("span", { class: "oba-voice-symbol", "aria-hidden": "true" });
     const stateText = el("span", { class: "oba-voice-timer-state", "data-voice-timer-state": "true" });
@@ -281,9 +313,25 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
     const overButton = el("button", { class: "oba-btn", type: "button", "data-action": "voice-over", onClick: () => askScrap() }, "Start over");
     const scrapBox = el("div", { class: "oba-notice", role: "group", "aria-labelledby": `${base}-scrap`, hidden: true, "data-voice-scrap": "true" });
     let lastShown = -1;
-    let lastSent = rough.value;
+    let lastSent = session.draft || "";
     let saving = false;
     let timer = null;
+    let copyTimer = null;
+    const deviceNote = el("span", { class: "oba-small", "data-voice-device": "true" });
+    const keepCopy = () => {
+      clock.clearTimeout(copyTimer);
+      if (finishing || !rough.value) return;
+      drafts.save({ sessionId, deadline: session.deadline, text: rough.value });
+      deviceNote.textContent = drafts.inMemoryOnly ? "This device would not keep a copy, so your writing is protected by the server only." : "A copy is kept on this device.";
+    };
+    const leaving = () => {
+      if (mine !== generation) {
+        globalThis.removeEventListener?.("pagehide", leaving);
+        return;
+      }
+      keepCopy();
+    };
+    globalThis.addEventListener?.("pagehide", leaving);
 
     const paintCount = () => {
       count.textContent = `${wordsText(wordCount(rough.value))}. ${wordRange(session)}`.trim();
@@ -332,12 +380,15 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
     rough.addEventListener("input", () => {
       paintCount();
       schedule();
+      clock.clearTimeout(copyTimer);
+      copyTimer = clock.setTimeout(keepCopy, VOICE_LIMITS.localSaveMs);
     });
 
     async function finish(reason) {
       if (finishing || mine !== generation) return;
       finishing = true;
       clock.clearTimeout(timer);
+      clock.clearTimeout(copyTimer);
       freeze();
       finishButton.disabled = true;
       overButton.disabled = true;
@@ -348,7 +399,11 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
       for (let attempt = 0; attempt < 8; attempt += 1) {
         try {
           const reply = await api.call("POST", "voice/session/lock", { json: { sessionId, text } });
-          if (mine === generation) showRefine(reply.sample, { expired: reply.expired });
+          if (mine === generation) {
+            // The rough draft is on the server and can never change: the copy has done its job.
+            drafts.clear();
+            showRefine(reply.sample, { expired: reply.expired });
+          }
           return;
         } catch (error) {
           if (mine !== generation) return;
@@ -389,6 +444,7 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
           el("button", { class: "oba-btn oba-btn-danger", type: "button", "data-action": "voice-over-confirm", onClick: async () => {
             try {
               await api.call("DELETE", "voice/session", { json: {} });
+              drafts.clear();
               if (mine === generation) showDraw({ notice: "Started over. Nothing was saved." });
             } catch (error) {
               message.textContent = voiceErrorText(error);
@@ -402,6 +458,12 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
 
     paintCount();
     paintTimer();
+    if (choice.push) {
+      // The server is behind this device's copy (a lost connection): bring it up to date at once.
+      saveNote.textContent = "Restored the longer copy kept on this device.";
+      schedule(0);
+    }
+    if (rough.value) keepCopy();
     render(
       heading(session.title, `${base}-write`),
       el("p", { class: "oba-voice-invitation" }, session.invitation),
@@ -410,6 +472,7 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
       el("div", { class: "oba-field" }, el("label", { for: roughId }, "Your rough draft"), rough),
       count,
       saveNote,
+      deviceNote,
       message,
       scrapBox,
       el("div", { class: "oba-voice-bar", "data-voice-bar": "true" }, el("div", { class: "oba-landing-actions oba-voice-actions", role: "group", "aria-label": "Voice session actions" }, finishButton, overButton)),
@@ -428,6 +491,8 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
     stopTicking = () => {
       clock.clearInterval(tick);
       clock.clearTimeout(timer);
+      clock.clearTimeout(copyTimer);
+      globalThis.removeEventListener?.("pagehide", leaving);
     };
     // A page that was away may find the time already gone.
     if (countdown.expired()) finish("time");
