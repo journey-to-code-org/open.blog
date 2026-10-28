@@ -56,6 +56,8 @@ pub struct FontFace {
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ThemeOptions {
+    /// Offer a saved light/dark override; false follows the system preference only.
+    pub color_scheme_toggle: Option<bool>,
     /// Decorate headings with `<h2>` / `</h2>` code labels, a code-themed look.
     pub heading_code_labels: Option<bool>,
     /// Template for navigation labels, e.g. `//{index}. <{label}/>`.
@@ -82,6 +84,7 @@ pub struct Theme {
     /// Theme names from the root ancestor to this theme.
     pub chain: Vec<String>,
     pub color_scheme: String,
+    pub color_scheme_toggle: bool,
     pub colors: BTreeMap<String, BTreeMap<String, String>>,
     pub font_body: String,
     pub font_heading: String,
@@ -176,6 +179,7 @@ impl ThemeSet {
             name: name.to_string(),
             chain: chain.clone(),
             color_scheme: "dark".into(),
+            color_scheme_toggle: true,
             list_style: "rows".into(),
             post_covers: true,
             code_highlighting: true,
@@ -216,6 +220,9 @@ impl ThemeSet {
             }
             if let Some(v) = file.options.heading_code_labels {
                 theme.heading_code_labels = v;
+            }
+            if let Some(v) = file.options.color_scheme_toggle {
+                theme.color_scheme_toggle = v;
             }
             if let Some(v) = &file.options.nav_label {
                 theme.nav_label = if v.is_empty() { None } else { Some(v.clone()) };
@@ -406,6 +413,7 @@ impl Theme {
             "fonts": { "body": self.font_body, "heading": self.font_heading, "mono": self.font_mono },
             "tokens": self.tokens,
             "options": {
+                "colorSchemeToggle": self.color_scheme_toggle,
                 "headingCodeLabels": self.heading_code_labels,
                 "navLabel": self.nav_label,
                 "headingWrapper": self.heading_wrapper,
@@ -453,6 +461,33 @@ mod tests {
         assert!(css.contains("--ob-font-body:"));
         assert!(css.contains("@media (prefers-color-scheme:"));
         assert_eq!(theme.chain, vec!["base"]);
+        assert!(theme.color_scheme_toggle);
+    }
+
+    #[test]
+    fn color_scheme_toggle_can_be_disabled_inherited_and_reenabled() {
+        let mut set = ThemeSet::new();
+        for (name, json) in [
+            (
+                "system",
+                r#"{"extends":"base","options":{"colorSchemeToggle":false}}"#,
+            ),
+            ("child", r#"{"extends":"system"}"#),
+            (
+                "override",
+                r#"{"extends":"system","options":{"colorSchemeToggle":true}}"#,
+            ),
+        ] {
+            set.insert(name, ThemeFile::from_json(json).unwrap());
+        }
+        for name in ["system", "child"] {
+            let theme = set.resolve(name).unwrap();
+            assert!(!theme.color_scheme_toggle);
+            let manifest: serde_json::Value = serde_json::from_str(&theme.manifest_json()).unwrap();
+            assert_eq!(manifest["options"]["colorSchemeToggle"], false);
+            assert!(theme.tokens_css().contains("@media (prefers-color-scheme:"));
+        }
+        assert!(set.resolve("override").unwrap().color_scheme_toggle);
     }
 
     #[test]

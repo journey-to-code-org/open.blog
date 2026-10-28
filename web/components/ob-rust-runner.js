@@ -2,6 +2,8 @@
 // the UI component makes the fixed destination and privacy-sensitive request
 // options easy to audit and test.
 
+import { MAX_CHECK_BYTES, buildCheckProgram, interpretCheck, parseChecks } from "./ob-rust-check-model.js";
+
 export const MAX_RUST_SOURCE_BYTES = 20_000;
 export const MAX_RUST_OUTPUT_BYTES = 64_000;
 
@@ -65,11 +67,7 @@ export function playgroundUrl(code) {
   return url.toString();
 }
 
-export async function runRust(code, { fetcher = fetch, signal } = {}) {
-  if (new TextEncoder().encode(code).byteLength > MAX_RUST_SOURCE_BYTES) {
-    throw new Error("Runnable Rust examples are limited to 20,000 bytes.");
-  }
-
+async function execute(code, { crateType, tests, fetcher, signal }) {
   const response = await fetcher(`${PLAYGROUND}/execute`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -80,8 +78,8 @@ export async function runRust(code, { fetcher = fetch, signal } = {}) {
       channel: "stable",
       mode: "debug",
       edition: "2021",
-      crateType: "bin",
-      tests: false,
+      crateType,
+      tests,
       code,
       backtrace: false,
     }),
@@ -99,4 +97,27 @@ export async function runRust(code, { fetcher = fetch, signal } = {}) {
     throw new Error("Rust Playground returned an unexpected response.");
   }
   return { success: result.success, ...boundedOutput(result.stdout, result.stderr) };
+}
+
+export async function runRust(code, { fetcher = fetch, signal } = {}) {
+  if (new TextEncoder().encode(code).byteLength > MAX_RUST_SOURCE_BYTES) {
+    throw new Error("Runnable Rust examples are limited to 20,000 bytes.");
+  }
+  return execute(code, { crateType: "bin", tests: false, fetcher, signal });
+}
+
+// Compile the reader's code together with the author's hidden checks in test mode (a library
+// crate, so the reader's `fn main` is optional) and turn the result into the author's feedback.
+// Only the reader's code and the author's checks are sent, to the same fixed Playground.
+export async function runRustChecks(code, checks, { fetcher = fetch, signal } = {}) {
+  const encoder = new TextEncoder();
+  if (encoder.encode(code).byteLength > MAX_RUST_SOURCE_BYTES) {
+    throw new Error("Runnable Rust examples are limited to 20,000 bytes.");
+  }
+  const program = buildCheckProgram(code, checks);
+  if (encoder.encode(program).byteLength > MAX_CHECK_BYTES) {
+    throw new Error("This example and its checks are too large to run together.");
+  }
+  const result = await execute(program, { crateType: "lib", tests: true, fetcher, signal });
+  return { ...interpretCheck(result, parseChecks(checks)), success: result.success };
 }

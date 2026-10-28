@@ -100,6 +100,39 @@ All notable changes to open.blog are recorded here. Releases follow
   back; a repeated key is refused; messages never quote a value; and `readingPaths.publish` (off by
   default) is the switch that reserves `/paths/`.
 
+- New `rust runnable check` fence option: a `---checks` line inside a Rust runnable fence separates the
+  reader's starter code from hidden `#[test]` functions. **Check my code** sends both to the Rust Playground
+  with `tests: true`, reads `test ob_checks::name ... ok|FAILED` (the first line for a name wins, so a test
+  cannot be forged by printing), and shows the author's `///` feedback line for each failing check. Checks
+  live in a `data-ob-rust-checks` JSON script, never in the editor. Feeds, portable HTML and portable
+  Markdown show the starter and tuck the checks into a `<details>` block headed "Spoiler: the checks for
+  this challenge"; the semantic-fact check fails an export that loses either.
+
+- New `demo git-practice` kind with `lesson="<id>"`: a guided practice terminal where the reader types each
+  Git command and sees what it would print. Lessons are scripted in `ob-practice-model.js` with accepted
+  alternates, hints after wrong answers, and long output that opens in a simulated `less` (space, `b`, `j`/`k`,
+  `g`/`G`, `q`). The prompt answers to shell keys: Up and Down (or Ctrl+P and Ctrl+N) walk earlier commands and
+  restore a half-typed line, and Ctrl+A, Ctrl+E, Ctrl+U, Ctrl+W, Ctrl+L and Ctrl+C edit, clear and cancel the
+  line without breaking copy.
+
+- `fetch-lab` takes `lesson="login"`, `"caching"` or `"testing"`. Login simulates a cookie jar with the
+  `credentials` option and CORS credential headers; caching simulates `Cache-Control`, `ETag`, `304` and
+  `no-store` on a pretend clock the reader advances; testing runs a function against a stubbed `fetch` that
+  succeeds, returns 404, fails, times out or returns broken JSON. A plain fence keeps its original presets.
+
+- A new `colorSchemeToggle` setting (`null` follows each page's theme, `true` shows the public light/dark button,
+  `false` hides it and follows the visitor's system preference, ignoring any saved manual choice) overrides the
+  theme for the whole site. **Admin → Appearance** edits it with the same authentication, CSRF and ETag conflict
+  checks as other settings, and rebuilds the site. Theme authors can set the inherited default with
+  `options.colorSchemeToggle` in `theme.json`; it is also reported in the theme JSON, so the citation golden
+  fixture gained that one field. Existing sites are unchanged until they set it.
+
+- Terminal fences (`bash`, `sh`, `console`, `powershell` and friends) are no longer numbered by default,
+  and in a `console` session an output line that starts with `##` (for example `git status -sb`) is output,
+  not a comment.
+- A series can declare `aliases:` in its front matter and the site can write a `_redirects` file with real
+  301s for moved posts, pages and series (`"redirectsFile": true`); alias pages still carry a meta refresh,
+  canonical and `noindex` for hosts without redirect rules.
 - `<ob-search>` accepts a `no-history` attribute that stops it from writing `?q=` to the page address,
   for a search box that lives in a dialog or panel on another page.
 
