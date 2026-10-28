@@ -23,7 +23,7 @@ with them.
   `.openblog/private/voice/`). Other Assistant context, posts and settings are never touched. A folder found
   inside a sample folder is not touched; the post-check reports its parent.
 - **The guide's location is named once**, in `voice_store::guide_paths(root)`: today
-  `assistant/context/voice-guide.md` (portable) and `.openblog/private/context/voice-guide.md` (private). The
+  `assistant/context/voice.md` (portable) and `.openblog/private/context/voice.md` (private). The
   Assistant guide (VS4) is wired in by changing that one function.
 - **Confirmation.** The CLI lists and stops unless `--yes` is given. Admin lists first, asks the author to type the
   word `erase` (the button stays disabled until it matches), and the server refuses a request without that word,

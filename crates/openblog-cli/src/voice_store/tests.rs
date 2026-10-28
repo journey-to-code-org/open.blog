@@ -463,13 +463,10 @@ fn the_guide_lives_in_one_named_place_per_visibility() {
     assert_eq!(paths.len(), 2);
     assert!(paths
         .iter()
-        .any(|(v, p)| *v == Visibility::Portable && p == "assistant/context/voice-guide.md"));
-    assert!(
-        paths
-            .iter()
-            .any(|(v, p)| *v == Visibility::Private
-                && p == ".openblog/private/context/voice-guide.md")
-    );
+        .any(|(v, p)| *v == Visibility::Portable && p == "assistant/context/voice.md"));
+    assert!(paths
+        .iter()
+        .any(|(v, p)| *v == Visibility::Private && p == ".openblog/private/context/voice.md"));
 }
 
 /// A project holding every kind of thing an erase must find.

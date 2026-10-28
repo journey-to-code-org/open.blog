@@ -984,7 +984,7 @@ fn erase_lists_first_needs_the_typed_word_and_removes_everything_with_a_post_che
     fs::create_dir_all(f.dir.join(SESSION_PATH).parent().unwrap()).unwrap();
     fs::write(f.dir.join(SESSION_PATH), "{}").unwrap();
     fs::create_dir_all(f.dir.join("assistant/context")).unwrap();
-    fs::write(f.dir.join("assistant/context/voice-guide.md"), "guide").unwrap();
+    fs::write(f.dir.join("assistant/context/voice.md"), "guide").unwrap();
     fs::write(f.dir.join("assistant/context/author.md"), "keep").unwrap();
 
     let (status, plan) = get(&f, &s, "/admin/api/voice/erase");
@@ -1027,7 +1027,7 @@ fn erase_lists_first_needs_the_typed_word_and_removes_everything_with_a_post_che
     assert_eq!(done["remaining"], json!([]));
     assert_eq!(done["erased"], plan["items"]);
     assert_eq!(get(&f, &s, "/admin/api/voice/erase").1["items"], json!([]));
-    assert!(!f.dir.join("assistant/context/voice-guide.md").exists());
+    assert!(!f.dir.join("assistant/context/voice.md").exists());
     assert_eq!(
         fs::read_to_string(f.dir.join("assistant/context/author.md")).unwrap(),
         "keep"

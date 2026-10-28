@@ -687,11 +687,11 @@ pub fn guide_paths(_root: &Path) -> Vec<(Visibility, String)> {
     vec![
         (
             Visibility::Portable,
-            "assistant/context/voice-guide.md".to_string(),
+            "assistant/context/voice.md".to_string(),
         ),
         (
             Visibility::Private,
-            ".openblog/private/context/voice-guide.md".to_string(),
+            ".openblog/private/context/voice.md".to_string(),
         ),
     ]
 }

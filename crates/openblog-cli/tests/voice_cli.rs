@@ -729,7 +729,7 @@ fn erase_lists_then_removes_everything_only_with_yes_and_checks_nothing_is_left(
     assert!(portable.status.success(), "{}", text(&portable));
     assert_eq!(samples(&dir, PORTABLE).len(), 1);
     fs::create_dir_all(dir.join("assistant/context")).unwrap();
-    fs::write(dir.join("assistant/context/voice-guide.md"), "guide").unwrap();
+    fs::write(dir.join("assistant/context/voice.md"), "guide").unwrap();
     fs::write(dir.join(".openblog/private/voice/editing-9-9.md"), "ed").unwrap();
     write_session(&dir, 10, 180, "unsaved");
     fs::write(dir.join("assistant/context/author.md"), "keep").unwrap();
@@ -737,7 +737,7 @@ fn erase_lists_then_removes_everything_only_with_yes_and_checks_nothing_is_left(
     let refused = run(&dir, &["voice", "erase"], "");
     let printed = text(&refused);
     assert!(!refused.status.success(), "{printed}");
-    assert!(printed.contains("voice-guide.md") && printed.contains("session.json"));
+    assert!(printed.contains("voice.md") && printed.contains("session.json"));
     assert!(printed.contains("--yes"), "{printed}");
     assert!(!samples(&dir, PRIVATE).is_empty() && session_path(&dir).exists());
 
@@ -747,7 +747,7 @@ fn erase_lists_then_removes_everything_only_with_yes_and_checks_nothing_is_left(
     assert!(printed.contains("nothing is left"), "{printed}");
     assert!(samples(&dir, PRIVATE).is_empty() && samples(&dir, PORTABLE).is_empty());
     assert!(!session_path(&dir).exists());
-    assert!(!dir.join("assistant/context/voice-guide.md").exists());
+    assert!(!dir.join("assistant/context/voice.md").exists());
     assert!(!dir.join(".openblog/private/voice/editing-9-9.md").exists());
     assert_eq!(
         fs::read_to_string(dir.join("assistant/context/author.md")).unwrap(),
