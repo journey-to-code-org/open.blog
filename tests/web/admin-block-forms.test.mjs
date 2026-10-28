@@ -110,3 +110,35 @@ test("existing content round-trips unchanged with the new labels", () => {
   const source = "# Title\n\nIntro with a [link](/x/).\n\n> [!TIP]\n> Toast.\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n- [ ] one\n- [x] two\n\n```piece button\nlabel: Go\nhref: /go/\n```\n\nEnd.\n";
   assert.equal(visualBlocksToMarkdown(parseVisualMarkdown(source)), source);
 });
+
+test("tables and task lists the form would rewrite stay protected", () => {
+  for (const source of [
+    "|a|b|\n|---|---|\n|1|2|\n",
+    "| a | b |\n|:-:|--:|\n| 1 | 2 |\n",
+    "| a | b |\n| --- | --- |\n| 1 | 2 |  \n",
+    "| a | b |\n| ----- | --- |\n| 1 | 2 |\n",
+  ]) {
+    assert.equal(parseTable(source), null, source);
+    assert.equal(editableBlockKind("Table", source), "", source);
+  }
+  for (const source of ["* [ ] a\n* [x] b\n", "- [X] a\n", "- [ ] a  \n", "- [ ]  two spaces\n"]) {
+    assert.equal(parseTaskList(source), null, source);
+    assert.equal(editableBlockKind("Task list", source), "", source);
+  }
+  assert.notEqual(parseTable("| a | b |\n| --- | --- |\n| 1 | 2 |\n"), null);
+});
+
+test("a piece fence with unknown or repeated fields stays protected", () => {
+  const hours = {
+    kind: "hours",
+    fields: [{ name: "note" }],
+    list: { fields: [{ name: "days" }, { name: "hours" }] },
+  };
+  const ok = "```piece hours\nnote: x\ndays: Mon\nhours: 9\ndays: Tue\nhours: 5\n```\n";
+  assert.notEqual(parsePieceFence(ok, hours), null);
+  assert.equal(editableBlockKind("Piece", ok, [hours]), "piece");
+  assert.equal(parsePieceFence("```piece hours\nnote: x\nbogus: y\n```\n", hours), null);
+  assert.equal(parsePieceFence("```piece hours\nnote: x\nnote: y\n```\n", hours), null);
+  assert.equal(editableBlockKind("Piece", "```piece hours\nbogus: y\n```\n", [hours]), "");
+  assert.equal(editableBlockKind("Piece", "```piece nothing\nnote: y\n```\n", [hours]), "");
+});

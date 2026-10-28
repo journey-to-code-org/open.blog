@@ -19600,7 +19600,7 @@ export class Editor {
   /** The visual-editor element for one parsed Markdown block (not a space). */
   visualBlockElement(block) {
     if (block.type === "protected") {
-      const formKind = editableBlockKind(block.label, block.source);
+      const formKind = editableBlockKind(block.label, block.source, this.app.meta?.pieces || []);
       const card = h(
         "section",
         {
