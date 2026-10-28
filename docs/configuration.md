@@ -65,6 +65,27 @@ default, so you can edit values in place and delete the ones you do not need.
   ignoring old manual choices. Edit this under **Admin → Appearance**; it does not
   change the Admin's own color scheme. Theme authors can set the inherited
   `options.colorSchemeToggle` default in `theme.json`.
+- **`appearance`** is the owner's look: simple presets, never CSS. It is optional, and a site without it
+  builds exactly as before. Every value is a choice or a hex color, and a bad value fails the build with
+  a plain message:
+
+  ```json
+  "appearance": {
+    "version": 1,
+    "palette": "calm",          // calm, warm, bold, night, garden, paper, ocean, sunset
+    "accent": "#2f6690",        // #rgb or #rrggbb; made readable in light and dark if needed
+    "fontStyle": "classic-serif", // modern-sans, classic-serif, friendly-rounded, techie-mono
+    "textSize": "large",        // small, medium, large, extra-large
+    "roundness": "soft",        // square, soft, round
+    "spacing": "airy",          // compact, comfortable, airy
+    "pageWidth": "wide",        // narrow, medium, wide
+    "headingWeight": "bold"     // normal, bold
+  }
+  ```
+
+  Leave out any field to keep the theme's own value. The engine compiles these into a short block of
+  `--ob-*` tokens after the theme's, only for the controls the theme honors (see
+  [Look controls](themes.md#look-controls)). Fields it does not know are kept when Admin saves.
 - **`url`** is used for canonical links, feeds, the sitemap, and social cards, so set it to
   the real public address. If it includes a path (`https://user.github.io/blog`), the site
   is built to live under that path. See [Deploying](deploy.md).
@@ -86,6 +107,9 @@ default, so you can edit values in place and delete the ones you do not need.
   credit sidecars, so treat them as stable identifiers. They can also be managed under
   **Site → Contributors** in Admin Studio. See
   [Work-specific credits](content.md#work-specific-credits).
+- **Landing page**: when `content/landing.json` exists, the home page is built from its sections instead of
+  `home.heading`, `home.intro` and `home.showSeries`. It is written by **Admin → Landing page**; see
+  [Landing page sections](content.md#landing-page-sections).
 - **`home.intro`** is Markdown shown above the post list on the first page.
 
 ## Share, analytics, related posts, snippets, CDN

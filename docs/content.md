@@ -217,6 +217,64 @@ The kinds are `NOTE`, `TIP`, `IMPORTANT`, `WARNING`, and `CAUTION` (any case); e
 its own colour and is titled with its kind. Put the marker alone on the first line: any
 other text after it, or another kind, leaves an ordinary quote that shows the marker.
 
+#### Pieces: buttons, videos, maps and more
+
+Besides call-outs, a post can hold a few ready-made pieces, written as a `piece` fence of `field: value` lines
+(the Admin's **Add something** writes them for you). A value continues on lines indented by two spaces, and a
+list piece repeats its first field to start each item:
+
+````markdown
+```piece video
+provider: youtube
+video: dQw4w9WgXcQ
+title: A short tour of the shop
+```
+
+```piece hours
+note: Closed on public holidays.
+days: Monday to Friday
+hours: 9am to 5pm
+days: Saturday
+hours: Closed
+```
+````
+
+The pieces are `button` (`label`, `href`, `style`), `image` (`src`, `alt`, `caption`; alt text is required),
+`video` (`provider` of `youtube` or `vimeo`, `video`, `title`), `map` (`provider: openstreetmap`, `label`, `lat`,
+`lon`), `hours` (`note`, then `days`/`hours` pairs), `contact` (`email`, `phone`, `address`), `social` (`label`/`href`
+pairs, `https` only) and `faq` (`question`/`answer` pairs; answers are Markdown with raw HTML shown as text). A
+call-out is the `> [!NOTE]` call-out above. Addresses must be `https`, `mailto`, `tel` or a page of the site;
+anything else is refused with a message, and a piece that is not valid shows an error in place and is reported by
+the build. Videos and maps are lazy-loaded, titled, privacy-enhanced frames (`youtube-nocookie.com`, Vimeo with
+`dnt`, OpenStreetMap) with a plain link beside them; in portable copies they are links only. See ADR 0253.
+
+#### Landing page sections
+
+When `content/landing.json` exists, the home page is built from it instead of the fixed intro, post list and
+series (without the file the home page is built from `home.heading`, `home.intro` and `home.showSeries` as
+before). The Admin [Landing page](admin.md#the-landing-page) writes it; you can also edit it by hand:
+
+```json
+{ "format": "openblog-landing", "version": 1, "sections": [
+  { "id": "hello", "type": "welcome", "heading": "Welcome", "button": { "label": "Read the blog", "href": "/archive/", "style": "primary" } },
+  { "id": "about", "type": "rich-text", "markdown": "About **this** blog." },
+  { "id": "latest", "type": "latest-posts", "heading": "Newest", "count": 5 }
+] }
+```
+
+Each section has a unique `id` (lowercase letters, digits and single hyphens), a `type`, and an optional
+`hidden: true`. The types are `welcome`, `rich-text`, `latest-posts`, `series`, `featured-post`, `buttons`,
+`image`, `video`, `map`, `opening-hours`, `contact`, `social-links`, `faq` and `callout`; the media, hours,
+contact, social, question and call-out types hold the same fields as the
+[pieces](#pieces-buttons-videos-maps-and-more) above. There are at most 40 sections and 256 KiB. The page is
+accepted whole or not at all, and a file from a newer release is never overwritten.
+
+Landing content never accepts markup. There is no HTML section; a button is a label and an address, a video is
+a provider and an id, a map is coordinates. Only Markdown is rich (the text section, answers, call-out bodies)
+and it is read with raw HTML turned off, so a tag typed into it shows as text; addresses must be `https`,
+`mailto`, `tel` or a page of the site. Saving a section touches only this file. See ADRs 0245 to 0247 and the
+overview in ADR 0265.
+
 #### Linking a word to the Knowledge Atlas
 
 When your site publishes its [Knowledge Atlas](configuration.md#knowledge-atlas), link a word to an

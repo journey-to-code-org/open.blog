@@ -71,7 +71,8 @@ body {
   background: var(--ob-color-page);
   color: var(--ob-color-text);
   font-family: var(--ob-font-body);
-  font-size: var(--ob-body-size);
+  /* --ob-text-scale is 1 unless the owner picked a text size (ADR 0248). */
+  font-size: calc(var(--ob-body-size) * var(--ob-text-scale, 1));
   line-height: var(--ob-body-leading);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -259,12 +260,12 @@ samp {
 
 h1.ob-title {
   margin: 0.5rem 0 1rem;
-  font-size: var(--ob-title-size);
+  font-size: calc(var(--ob-title-size) * var(--ob-text-scale, 1));
 }
 
 h2.ob-title {
   margin: 0.5rem 0 1rem;
-  font-size: var(--ob-section-title-size);
+  font-size: calc(var(--ob-section-title-size) * var(--ob-text-scale, 1));
 }
 
 .ob-heading {
@@ -341,13 +342,13 @@ h2.ob-title {
 .ob-row:focus-visible .ob-meta,
 .ob-row:hover .ob-row-title,
 .ob-row:focus-visible .ob-row-title {
-  color: var(--ob-color-ink);
+  color: var(--ob-hover-ink, var(--ob-color-ink));
 }
 
 .ob-row-title {
   margin: 0;
   font-family: var(--ob-font-heading);
-  font-size: var(--ob-row-title-size);
+  font-size: calc(var(--ob-row-title-size) * var(--ob-text-scale, 1));
   font-weight: var(--ob-heading-weight);
   line-height: 1.4;
   overflow-wrap: anywhere;
@@ -1645,9 +1646,26 @@ ob-recipe.ob-cooking .ob-recipe-part {
   background: var(--ob-color-surface-raised);
 }
 
-.ob-embed-youtube iframe {
+.ob-embed-youtube iframe,
+.ob-embed-vimeo iframe {
   height: auto;
   aspect-ratio: 16 / 9;
+}
+
+.ob-embed-openstreetmap iframe {
+  height: auto;
+  aspect-ratio: 4 / 3;
+  max-height: 24rem;
+}
+
+.ob-piece {
+  margin-block: 1.5em;
+}
+
+.ob-piece-error {
+  padding: 0.75rem 1rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius);
 }
 
 .ob-embed figcaption {
@@ -3094,6 +3112,228 @@ ob-reading-modes { display: block; }
   .ob-supplement { border: 1px solid CanvasText; border-inline-start: 4px solid CanvasText; background: none; }
   .ob-supplement[data-ob-revealed] { outline-color: Highlight; }
   .ob-supplement-skip:focus { outline: 2px solid Highlight; }
+}
+
+/* ---------- Landing sections (ob-home-*, ADR 0247) ---------- */
+/* Theme-neutral: these rules read --ob-* tokens only, so every theme gets a
+   legible, accessible result and restyles by changing tokens. */
+
+.ob-home-section {
+  min-width: 0;
+  margin-block: 2.5rem;
+  overflow-wrap: anywhere;
+}
+
+.ob-home-section > :first-child {
+  margin-top: 0;
+}
+
+.ob-home-section > :last-child {
+  margin-bottom: 0;
+}
+
+.ob-home-welcome {
+  padding: var(--ob-space-5, 1.5rem);
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+  color: var(--ob-color-text);
+}
+
+.ob-home-lede {
+  max-width: var(--ob-reading-width);
+  color: var(--ob-color-muted);
+  font-size: 1.15em;
+}
+
+.ob-home-rich-text,
+.ob-home-faq {
+  max-width: var(--ob-reading-width);
+}
+
+.ob-home-image,
+.ob-home-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--ob-radius);
+}
+
+.ob-home-figure {
+  margin: 0;
+}
+
+.ob-home-figure figcaption {
+  margin-top: 0.5rem;
+  color: var(--ob-color-muted);
+  font-size: 0.9em;
+}
+
+.ob-home-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-block: 1rem;
+}
+
+.ob-home-button {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-height: 44px;
+  max-width: 100%;
+  padding: 0.6rem 1.25rem;
+  border: var(--ob-border-width) solid var(--ob-color-accent);
+  border-radius: var(--ob-radius);
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: center;
+  text-decoration: none;
+}
+
+.ob-home-button-primary,
+.ob-home-button-primary:is(:hover, :focus-visible) {
+  background: var(--ob-color-accent);
+  color: var(--ob-color-accent-contrast);
+}
+
+.ob-home-button-primary:is(:hover, :focus-visible) {
+  text-decoration: underline;
+}
+
+.ob-home-button-secondary {
+  border-color: var(--ob-color-accent-border);
+  background: transparent;
+  color: var(--ob-color-link);
+}
+
+.ob-home-button-secondary:is(:hover, :focus-visible) {
+  background: var(--ob-hover-background);
+  color: var(--ob-hover-text);
+}
+
+.ob-home-link {
+  display: inline-block;
+  padding-block: 0.4rem;
+}
+
+.ob-home-hours {
+  width: 100%;
+  max-width: 32rem;
+  border-collapse: collapse;
+}
+
+.ob-home-hours caption {
+  padding-bottom: 0.5rem;
+  color: var(--ob-color-muted);
+  font-weight: 600;
+  text-align: start;
+}
+
+.ob-home-hours :is(th, td) {
+  padding: 0.5rem 0.75rem 0.5rem 0;
+  border-bottom: var(--ob-row-border-width) solid var(--ob-color-border);
+  text-align: start;
+  vertical-align: top;
+}
+
+.ob-home-hours th {
+  font-weight: 600;
+}
+
+.ob-home-note {
+  color: var(--ob-color-muted);
+}
+
+.ob-home-contact {
+  font-style: normal;
+}
+
+.ob-home-contact p {
+  margin: 0.25rem 0;
+}
+
+.ob-home-social {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-home-social a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 0.4rem 1rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius);
+}
+
+.ob-home-faq-item {
+  border-bottom: var(--ob-row-border-width) solid var(--ob-color-border);
+}
+
+.ob-home-faq-item summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding-block: 0.5rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.ob-home-faq-item[open] > summary {
+  color: var(--ob-color-accent-soft);
+}
+
+.ob-home-faq-item > div {
+  padding-bottom: 0.75rem;
+}
+
+.ob-home-callout-box {
+  padding: var(--ob-space-4, 1rem) var(--ob-space-5, 1.5rem);
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-inline-start: 6px solid var(--ob-color-accent);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface);
+  color: var(--ob-color-text);
+}
+
+.ob-home-callout-success .ob-home-callout-box {
+  border-inline-start-color: var(--ob-color-success, var(--ob-color-accent-soft));
+}
+
+/* The tone is also a different line, not only a different color. */
+.ob-home-callout-warning .ob-home-callout-box {
+  border-inline-start-style: double;
+  border-inline-start-color: var(--ob-color-warning, var(--ob-color-accent));
+}
+
+.ob-home-callout-title {
+  margin: 0 0 0.25rem;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ob-home-button {
+    transition:
+      background-color var(--ob-motion) ease-out,
+      color var(--ob-motion) ease-out;
+  }
+}
+
+@media (max-width: 30rem) {
+  .ob-home-welcome {
+    padding: var(--ob-space-4, 1rem);
+  }
+
+  .ob-home-actions .ob-home-button {
+    flex: 1 1 100%;
+  }
 }
 
 /* Knowledge Atlas datings and timeline (ADR 0099, ADR 0100): static lists that read in order

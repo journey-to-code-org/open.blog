@@ -85,6 +85,8 @@ use crate::assistant::{
     BUILTIN_SKILL_SOURCES,
 };
 mod comparisons;
+mod landing;
+mod look;
 mod reading_paths;
 
 use crate::atlas_store;
@@ -101,6 +103,10 @@ use crate::source_store::{self, StoreError};
 pub const SESSION_COOKIE: &str = "ob_session";
 pub(crate) const CODE_RUNNER_LANGUAGE_PATH: &str = "/components/ob-code-runner-language.js";
 const CODE_RUNNER_LANGUAGE_ASSET: &str = "components/ob-code-runner-language.js";
+/// The largest request to `pieces`: one piece's form values, never a page (ADR 0263).
+const MAX_PIECE_REQUEST_BYTES: usize = 64 * 1024;
+/// The most `[field, value]` pairs a piece request may carry; the largest piece has far fewer.
+const MAX_PIECE_VALUES: usize = 64;
 const MAX_JSON_BODY: usize = 2 * 1024 * 1024 + 64 * 1024;
 const MAX_LOGIN_BODY: usize = 4 * 1024;
 const MAX_DOCUMENT_BYTES: usize = 2 * 1024 * 1024;
@@ -486,6 +492,18 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         if name == "research/import" {
             return Ok(MAX_RESEARCH_IMPORT_BYTES);
         }
+        if name == "look" || name == "look/preview" {
+            return Ok(look::MAX_REQUEST_BYTES);
+        }
+        if name == "landing" || name == "landing/preview" {
+            return Ok(landing::MAX_REQUEST_BYTES);
+        }
+        if name == "landing/history/restore" {
+            return Ok(landing::MAX_RESTORE_BYTES);
+        }
+        if name == "pieces" {
+            return Ok(MAX_PIECE_REQUEST_BYTES);
+        }
         return Ok(MAX_JSON_BODY);
     }
     Ok(0)
@@ -516,14 +534,21 @@ fn route(state: &AppState, req: &Request) -> Response {
     let file = match path {
         "/admin" | "/admin/" => "index.html",
         "/admin/admin.js" => "admin.js",
+        "/admin/block-forms.js" => "block-forms.js",
         "/admin/admin.css" => "admin.css",
+        "/admin/landing.js" => "landing.js",
+        "/admin/look.js" => "look.js",
+        "/admin/paste.js" => "paste.js",
+        "/admin/landing-history.js" => "landing-history.js",
+        "/admin/checks.js" => "checks.js",
+        "/admin/checks-panel.js" => "checks-panel.js",
         _ => return Response::error(404, "Not found"),
     };
     let config = site::load_config(&state.root).unwrap_or_default();
     match site::admin_file(&state.root, &config, file) {
         Some(bytes) => {
             let ctype = match file {
-                "admin.js" => "text/javascript; charset=utf-8",
+                name if name.ends_with(".js") => "text/javascript; charset=utf-8",
                 "admin.css" => "text/css; charset=utf-8",
                 _ => "text/html; charset=utf-8",
             };
@@ -639,6 +664,9 @@ fn authenticated_api(
         ("GET", "meta") => meta(state),
         ("GET", "appearance") => appearance_settings(state),
         ("PUT", "appearance") => save_appearance_settings(state, req),
+        ("GET", "look") => look::get_look(state),
+        ("PUT", "look") => look::save_look(state, req),
+        ("POST", "look/preview") => look::preview(state, req),
         ("GET", "preferences") => admin_preferences(state, &session.user),
         ("PUT", "preferences") => save_admin_preferences(state, req, &session.user),
         ("GET", "sources") => list_sources(state),
@@ -691,6 +719,12 @@ fn authenticated_api(
         ("POST", "comparisons") => comparisons::save(state, req, true),
         ("PUT", "comparisons") => comparisons::save(state, req, false),
         ("DELETE", "comparisons") => comparisons::remove(state, req),
+        ("GET", "landing") => landing::get(state),
+        ("PUT", "landing") => landing::save(state, req),
+        ("POST", "landing/preview") => landing::preview(state, req),
+        ("GET", "landing/history") => landing::history_list(state),
+        ("GET", "landing/history/item") => landing::history_item(state, req),
+        ("POST", "landing/history/restore") => landing::history_restore(state, req),
         ("GET", "reading-paths") => reading_paths::list(state),
         ("GET", "reading-paths/targets") => reading_paths::targets(state),
         ("GET", "reading-paths/path") => reading_paths::get(state, req),
@@ -834,6 +868,7 @@ fn authenticated_api(
         ("POST", "track-upload") => upload_track(state, req),
         ("DELETE", "track-upload") => discard_track(state, req),
         ("POST", "preview") => preview(state, req),
+        ("POST", "pieces") => build_piece(req),
         ("POST", "research/review") => review_before_publication(state, req),
         ("GET", "research/boundary") => boundary_site(state),
         ("GET", "research/readiness") => readiness_site(state),
@@ -3834,6 +3869,7 @@ fn meta(state: &AppState) -> Response {
             "profiles": profiles,
             "contributors": config.contributors,
             "creditRoles": credit_roles,
+            "pieces": openblog_core::piece::schema_json(),
             "series": series,
             "tags": tags,
             "maxUploadMb": config.admin.max_upload_mb,
@@ -17185,6 +17221,50 @@ fn change_acknowledgement(state: &AppState, req: &Request, add: bool) -> Respons
     }
 }
 
+/// Check one piece's form values and return the Markdown that holds it in a
+/// post (ADR 0253). The engine is the only place a piece is validated or
+/// written, so the Admin cannot save one the build would refuse. Nothing is
+/// stored.
+fn build_piece(req: &Request) -> Response {
+    if let Err(r) = require_json(req) {
+        return r;
+    }
+    if req.body.len() > MAX_PIECE_REQUEST_BYTES {
+        return Response::error(413, "A piece is limited to 64 KiB");
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(b) => b,
+        Err(_) => return Response::error(400, "Invalid JSON"),
+    };
+    let kind = body["kind"].as_str().unwrap_or("");
+    if body["values"]
+        .as_array()
+        .is_some_and(|pairs| pairs.len() > MAX_PIECE_VALUES)
+    {
+        return Response::error(413, "That piece has too many details");
+    }
+    let Some(values) = body["values"].as_array().map(|pairs| {
+        pairs
+            .iter()
+            .map(|pair| {
+                (
+                    pair[0].as_str().unwrap_or("").to_string(),
+                    pair[1].as_str().unwrap_or("").to_string(),
+                )
+            })
+            .collect::<Vec<_>>()
+    }) else {
+        return Response::error(400, "values must be a list of [field, value] pairs");
+    };
+    match openblog_core::piece::Piece::from_values(kind, &values) {
+        Ok(piece) => Response::json(200, &json!({ "markdown": piece.to_markdown() })),
+        Err(problems) => Response::json(
+            422,
+            &json!({ "error": "Check the highlighted details", "problems": problems }),
+        ),
+    }
+}
+
 fn preview(state: &AppState, req: &Request) -> Response {
     if let Err(r) = require_json(req) {
         return r;
@@ -17415,26 +17495,8 @@ fn preview(state: &AppState, req: &Request) -> Response {
         Ok(token) => token,
         Err(e) => return Response::error(500, &e),
     };
-    let asset_origin = http_origin(&preview_site.config.cdn.url);
-    let script_sources = asset_origin
-        .as_deref()
-        .map(|origin| format!("'self' {origin}"))
-        .unwrap_or_else(|| "'self'".to_string());
-    let frame_sources = openblog_core::embed::FRAME_SOURCES;
-    let csp = format!(
-        "default-src 'none'; script-src 'unsafe-inline' {script_sources}; style-src 'unsafe-inline' 'self' https:; \
-         img-src 'self' https: data:; font-src 'self' https: data:; connect-src 'self' https://play.rust-lang.org; \
-         frame-src {frame_sources}; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'"
-    );
-    let mut previews = lock(&state.previews);
-    previews.push(PreviewDocument {
-        token: token.clone(),
-        html: document.contents,
-        csp,
-    });
-    if previews.len() > 16 {
-        previews.remove(0);
-    }
+    let csp = preview_csp(&preview_site.config);
+    store_preview(state, &token, document.contents, csp);
     let accessibility: Vec<_> = preview_site
         .accessibility
         .iter()
@@ -17499,6 +17561,35 @@ fn citation_preview(slug: &str, summary: &openblog_core::bibliography::CitationS
             ),
         },
     })
+}
+
+/// The policy every preview document is served under: it can load this site's own assets and the
+/// configured asset origin, and nothing else.
+fn preview_csp(config: &SiteConfig) -> String {
+    let asset_origin = http_origin(&config.cdn.url);
+    let script_sources = asset_origin
+        .as_deref()
+        .map(|origin| format!("'self' {origin}"))
+        .unwrap_or_else(|| "'self'".to_string());
+    let frame_sources = openblog_core::embed::FRAME_SOURCES;
+    format!(
+        "default-src 'none'; script-src 'unsafe-inline' {script_sources}; style-src 'unsafe-inline' 'self' https:; \
+         img-src 'self' https: data:; font-src 'self' https: data:; connect-src 'self' https://play.rust-lang.org; \
+         frame-src {frame_sources}; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'"
+    )
+}
+
+/// Keep a preview document for `preview_document` to serve; only the newest sixteen are kept.
+fn store_preview(state: &AppState, token: &str, html: String, csp: String) {
+    let mut previews = lock(&state.previews);
+    previews.push(PreviewDocument {
+        token: token.to_string(),
+        html,
+        csp,
+    });
+    if previews.len() > 16 {
+        previews.remove(0);
+    }
 }
 
 fn preview_document(state: &AppState, token: &str) -> Response {
@@ -17823,7 +17914,11 @@ fn xml_attribute<'a>(tag: &'a str, key: &str) -> Option<&'a str> {
 #[cfg(test)]
 mod tests {
     mod comparison_routes;
+    mod landing_history_routes;
+    mod landing_routes;
+    mod look_routes;
     mod reading_path_routes;
+    mod safety_audit;
 
     use super::*;
     use crate::scaffold;
@@ -32046,6 +32141,77 @@ What I read:
             &authed(req("GET", "/admin/api/meta"), &session, false),
         ));
         assert_eq!(meta["contributors"]["ada"]["name"], "Ada");
+        let pieces = meta["pieces"].as_array().unwrap();
+        assert_eq!(pieces.len(), 9);
+        assert!(pieces
+            .iter()
+            .any(|p| p["kind"] == "video" && p["fields"][1]["name"] == "video"));
+        let built = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/pieces",
+                    json!({"kind": "button", "values": [["label", "Read"], ["href", "/about/"]]}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(built.status, 200);
+        assert_eq!(
+            body_json(&built)["markdown"],
+            "```piece button
+label: Read
+href: /about/
+```
+"
+        );
+        let refused = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/pieces",
+                    json!({"kind": "button", "values": [["label", "Read"], ["href", "javascript:x"]]}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(refused.status, 422);
+        assert!(body_json(&refused)["problems"][0]
+            .as_str()
+            .unwrap()
+            .contains("not allowed"));
+        for (field, value) in [("body", "<script>alert(1)</script>"), ("title", "</p><b>x")] {
+            let html = handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "POST",
+                        "/admin/api/pieces",
+                        json!({"kind": "callout", "values": [["tone", "info"], ["title", "T"], ["body", "ok"], [field, value]]}),
+                    ),
+                    &session,
+                    true,
+                ),
+            );
+            assert_eq!(html.status, 422, "{field}");
+            assert!(body_json(&html)["problems"][0]
+                .as_str()
+                .unwrap()
+                .contains("HTML tags are not allowed"));
+        }
+        let unauthenticated = handle(
+            &f.state,
+            &json_req(
+                "POST",
+                "/admin/api/pieces",
+                json!({"kind": "button", "values": []}),
+            ),
+        );
+        assert_eq!(unauthenticated.status, 401);
         assert!(meta["creditRoles"].as_array().unwrap().iter().any(|role| {
             role["vocabulary"] == "crossref"
                 && role["role"] == "author"
@@ -34157,6 +34323,21 @@ series: letters
         let styles = handle(&f.state, &req("GET", "/admin/admin.css"));
         assert_eq!(styles.status, 200);
         assert!(String::from_utf8_lossy(&styles.body).contains(".oba-theme-toggle"));
+        // The landing page builder's model is its own module beside the Admin script.
+        let landing = handle(&f.state, &req("GET", "/admin/landing.js"));
+        assert_eq!(landing.status, 200);
+        assert!(landing
+            .headers
+            .iter()
+            .any(|(name, value)| name.eq_ignore_ascii_case("content-type")
+                && value.starts_with("text/javascript")));
+        assert!(String::from_utf8_lossy(&landing.body).contains("SECTION_CATALOG"));
+        let look = handle(&f.state, &req("GET", "/admin/look.js"));
+        assert_eq!(look.status, 200);
+        assert!(String::from_utf8_lossy(&look.body).contains("CONTROL_ORDER"));
+        let paste = handle(&f.state, &req("GET", "/admin/paste.js"));
+        assert_eq!(paste.status, 200);
+        assert!(String::from_utf8_lossy(&paste.body).contains("pasteToMarkdown"));
         assert_eq!(
             handle(&f.state, &req("GET", "/admin/secrets.txt")).status,
             404

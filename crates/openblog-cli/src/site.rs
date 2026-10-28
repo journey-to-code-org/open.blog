@@ -269,7 +269,23 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
 pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
     ("index.html", include_str!("../../../web/admin/index.html")),
     ("admin.js", include_str!("../../../web/admin/admin.js")),
+    (
+        "block-forms.js",
+        include_str!("../../../web/admin/block-forms.js"),
+    ),
     ("admin.css", include_str!("../../../web/admin/admin.css")),
+    ("landing.js", include_str!("../../../web/admin/landing.js")),
+    ("look.js", include_str!("../../../web/admin/look.js")),
+    ("paste.js", include_str!("../../../web/admin/paste.js")),
+    (
+        "landing-history.js",
+        include_str!("../../../web/admin/landing-history.js"),
+    ),
+    ("checks.js", include_str!("../../../web/admin/checks.js")),
+    (
+        "checks-panel.js",
+        include_str!("../../../web/admin/checks-panel.js"),
+    ),
 ];
 
 pub const EMBEDDED_BASE_THEME: &str = include_str!("../../../themes/base/theme.json");
@@ -472,6 +488,9 @@ pub fn read_sources_excluding(
         config,
         openblog_core::community_feature::COMMUNITY_FEATURES_FILE,
     )?;
+    // The landing page (ADR 0245), the same way. A file that cannot be used
+    // is a build warning, never an error (ADR 0246).
+    sources.landing = read_content_file(root, config, openblog_core::landing::LANDING_FILE)?;
     // Continuation links (ADR 0219), the same way.
     sources.continuations = read_content_file(
         root,
@@ -1697,6 +1716,42 @@ The cave educates.
                 .all(|path| !path.starts_with("interpretations/cave/")));
         }
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_landing_page_file_changes_only_the_home_page_and_leaves_drafts_out() {
+        let root = reading_path_project("landing-build", "{}");
+        production_build(&root);
+        let before = dist_bytes(&root);
+        fs::write(
+            root.join("content/landing.json"),
+            r#"{"format":"openblog-landing","version":1,"sections":[
+                {"id":"hi","type":"welcome","heading":"Hello from the landing page"},
+                {"id":"pick","type":"featured-post","post":"secret","heading":"Draft"},
+                {"id":"new","type":"latest-posts","heading":"Latest"}]}"#,
+        )
+        .unwrap();
+        production_build(&root);
+        let after = dist_bytes(&root);
+        let home = String::from_utf8(after["index.html"].clone()).unwrap();
+        assert!(home.contains("Hello from the landing page"));
+        assert!(home.contains("Post one"));
+        assert!(!home.contains("Post secret"), "a draft is never featured");
+        // The landing file itself is not published, and no other page changes.
+        assert!(!after.contains_key("landing.json"));
+        for (path, bytes) in &before {
+            if path == "index.html" || path == "search.json" {
+                continue;
+            }
+            assert_eq!(after.get(path), Some(bytes), "{path} changed");
+        }
+        fs::remove_file(root.join("content/landing.json")).unwrap();
+        production_build(&root);
+        assert_eq!(
+            dist_bytes(&root),
+            before,
+            "removing the file restores the site"
+        );
     }
 
     #[test]

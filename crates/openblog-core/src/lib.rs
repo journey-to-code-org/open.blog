@@ -97,6 +97,11 @@ pub mod interpretation;
 pub mod interpretation_publication;
 pub mod invitation;
 pub mod knowledge_atlas;
+pub mod landing;
+pub mod look;
+pub mod look_contrast;
+pub mod look_css;
+pub mod look_presets;
 pub mod markdown;
 pub mod media_moment;
 pub mod members;
@@ -106,6 +111,7 @@ pub mod moderation_inbox;
 pub mod participation;
 pub mod passage_target;
 pub mod perspective_publication;
+pub mod piece;
 pub mod portability;
 pub mod preview;
 pub mod profile;
@@ -144,7 +150,9 @@ pub mod video;
 pub use config::SiteConfig;
 pub use date::DateTime;
 pub use model::{LoadOptions, Page, Post, Scheduled, Series, Site, SourceFile, Sources, Tag};
-pub use render::{generate, generate_document, social_metadata, OutputFile, SocialMetadata};
+pub use render::{
+    generate, generate_document, generate_home, social_metadata, OutputFile, SocialMetadata,
+};
 pub use theme::{Theme, ThemeFile, ThemeSet};
 
 /// Classify a content file path into the source bucket it belongs to.

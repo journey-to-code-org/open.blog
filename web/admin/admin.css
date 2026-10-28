@@ -10,7 +10,8 @@
 }
 
 body {
-  min-width: 20rem;
+  /* A floor for very narrow windows that never forces sideways scrolling when text is enlarged. */
+  min-width: min(20rem, 100vw);
   background: var(--ob-color-outer);
 }
 
@@ -224,6 +225,26 @@ kbd {
   border-color: var(--ob-color-accent-border);
   background: var(--ob-color-surface-raised);
   transform: translateY(-1px);
+}
+
+/* The landing page builder (ADR 0251) turns the button lift and every transition off under reduced
+   motion. It sits here, beside the rule it overrides, rather than with the builder's other styles. */
+@media (prefers-reduced-motion: reduce) {
+  .oba-landing .oba-btn,
+  .oba-landing-bar .oba-btn,
+  .oba-landing-sheet .oba-btn,
+  .oba-landing-type,
+  .oba-landing-form :is(input, select, textarea) {
+    transition: none;
+    transform: none;
+    animation: none;
+  }
+
+  .oba-landing .oba-btn:hover,
+  .oba-landing-bar .oba-btn:hover,
+  .oba-landing-sheet .oba-btn:hover {
+    transform: none;
+  }
 }
 
 .oba-btn:focus-visible,
@@ -1724,6 +1745,137 @@ html[data-admin-density="compact"] .oba-pane {
   border-color: var(--ob-color-accent);
   background: var(--ob-color-accent);
   color: var(--ob-color-accent-contrast);
+}
+
+/* Forms inside a protected block's card, and the Add something dialog (ADR 0254). */
+.oba-protected-block[data-editing] {
+  display: block;
+}
+
+.oba-block-form {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.oba-bf-body {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.oba-bf-field {
+  margin-bottom: 0.25rem;
+}
+
+.oba-bf-hint {
+  margin: 0;
+  color: var(--ob-color-muted);
+}
+
+.oba-bf-button,
+.oba-block-form .oba-btn,
+.oba-piece-dialog .oba-btn {
+  min-height: 44px;
+}
+
+.oba-bf-rows,
+.oba-bf-items,
+.oba-piece-choices {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-bf-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.oba-bf-row input[type="checkbox"] {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.oba-bf-row input[type="text"],
+.oba-bf-table input[type="text"] {
+  width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 0.45rem 0.6rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-page);
+  color: var(--ob-color-text);
+  font: inherit;
+}
+
+.oba-bf-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.oba-bf-table {
+  border-collapse: separate;
+  border-spacing: 0.25rem;
+}
+
+.oba-bf-table input[type="text"] {
+  min-width: 8rem;
+}
+
+.oba-bf-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.oba-bf-item {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius);
+}
+
+.oba-piece-dialog {
+  width: min(36rem, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+}
+
+.oba-piece-dialog .oba-field input[type="text"],
+.oba-piece-dialog .oba-field select,
+.oba-piece-dialog .oba-field textarea {
+  min-height: 44px;
+  box-sizing: border-box;
+}
+
+.oba-piece-choice {
+  display: grid;
+  gap: 0.15rem;
+  width: 100%;
+  min-height: 56px;
+  padding: 0.75rem 1rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-page);
+  color: var(--ob-color-text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.oba-piece-choice:hover {
+  border-color: var(--ob-color-accent);
+}
+
+.oba-piece-choice:focus-visible {
+  outline: 2px solid var(--ob-color-accent);
+  outline-offset: 2px;
 }
 
 .oba-editor-mode {
@@ -4429,4 +4581,865 @@ a.oba-btn-primary {
 .oba-cmp-form input[type="text"] {
   max-width: 100%;
   box-sizing: border-box;
+}
+
+/* Landing page builder (ADR 0249, #326). One column from 320px; every control is a real button or
+   input at least 44px tall; state is always said in words, never by colour alone. */
+.oba-landing {
+  min-width: 0;
+}
+
+.oba-landing-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 1rem;
+}
+
+.oba-landing-head h2 {
+  margin: 0;
+}
+
+.oba-landing-cards,
+.oba-landing-items,
+.oba-landing-types {
+  margin: 0.75rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-landing-card {
+  min-width: 0;
+  margin: 0 0 0.75rem;
+  padding: 0.75rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+}
+
+.oba-landing-card-hidden {
+  border-style: dashed;
+  background: var(--ob-color-surface-raised);
+}
+
+.oba-landing-card-head {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.oba-landing-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface-raised);
+  font-size: 1.25rem;
+}
+
+.oba-landing-card-text {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.oba-landing-card-title {
+  margin: 0;
+  font-size: 1.05rem;
+  overflow-wrap: anywhere;
+}
+
+.oba-landing-card-summary,
+.oba-landing-hint {
+  margin: 0.15rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.oba-landing-hidden-note {
+  font-weight: 400;
+  color: var(--ob-color-muted);
+}
+
+.oba-landing-attention {
+  margin: 0.25rem 0 0;
+  font-weight: 600;
+  color: var(--oba-danger);
+}
+
+.oba-landing-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.oba-landing-button {
+  min-width: 44px;
+}
+
+.oba-landing-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.oba-landing-form {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: var(--ob-border-width) solid var(--oba-panel-border);
+}
+
+.oba-landing-form .oba-field input[type="url"],
+.oba-landing-form .oba-field input[type="email"],
+.oba-landing-form .oba-field input[type="tel"],
+.oba-landing-form .oba-field input[type="number"],
+.oba-landing-form .oba-field input[type="text"],
+.oba-landing-form .oba-field select,
+.oba-landing-form .oba-field textarea {
+  width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 0.55rem 0.7rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-page);
+  color: var(--ob-color-text);
+  font: inherit;
+  /* 16px stops phone browsers zooming in when a field takes focus. */
+  font-size: 1rem;
+}
+
+.oba-landing-form .oba-field > label {
+  font-size: 0.95rem;
+}
+
+.oba-landing-form .oba-field input[aria-invalid="true"],
+.oba-landing-form .oba-field select[aria-invalid="true"],
+.oba-landing-form .oba-field textarea[aria-invalid="true"] {
+  border-color: var(--oba-danger);
+  border-width: 2px;
+}
+
+.oba-field-error {
+  margin: 0;
+  color: var(--oba-danger);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.oba-landing-group,
+.oba-landing-list,
+.oba-landing-item fieldset {
+  min-width: 0;
+  margin: 0 0 1rem;
+  padding: 0.75rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius-sm);
+}
+
+.oba-landing-item {
+  margin-bottom: 0.75rem;
+}
+
+.oba-landing-item fieldset {
+  margin-bottom: 0;
+}
+
+.oba-landing-group legend,
+.oba-landing-list legend,
+.oba-landing-item legend {
+  max-width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 0 0.35rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* A fieldset never grows to its widest word, and labels and legends wrap in a wider fallback font. */
+.oba-landing-form fieldset,
+.oba-look-control {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.oba-landing-form label,
+.oba-landing-form legend,
+.oba-look-control legend {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+/* Buttons in a form shrink to the column and wrap their words rather than push past the screen. */
+.oba-landing-form .oba-btn {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding-inline: 0.6rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 40rem) {
+  .oba-landing-form fieldset {
+    margin-inline: 0;
+    padding-inline: 0.5rem;
+  }
+}
+
+.oba-landing-add-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.5rem 0 1rem;
+}
+
+.oba-landing-add-row .oba-btn {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+}
+
+.oba-landing-confirm {
+  margin: 0 0 1rem;
+}
+
+.oba-landing-confirm[hidden] {
+  display: none;
+}
+
+.oba-landing-picker {
+  margin: 0 0 1rem;
+  padding: 0.75rem;
+  border: 2px solid var(--ob-color-accent-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+}
+
+.oba-landing-picker h3 {
+  margin-top: 0;
+}
+
+.oba-landing-type {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  width: 100%;
+  min-height: 44px;
+  margin: 0 0 0.5rem;
+  padding: 0.65rem 0.75rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-page);
+  color: var(--ob-color-text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.oba-landing-type:hover {
+  border-color: var(--ob-color-accent-border);
+}
+
+.oba-landing-type:focus-visible {
+  outline: var(--ob-focus-ring);
+  outline-offset: 2px;
+}
+
+.oba-landing-type-text {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.oba-landing-status:empty {
+  display: none;
+}
+
+.oba-landing-toast {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin: 0 0 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: var(--ob-border-width) solid var(--ob-color-accent-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface-raised);
+}
+
+.oba-landing-toast[hidden] {
+  display: none;
+}
+
+.oba-landing-toast-text {
+  flex: 1 1 12rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.oba-landing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+/* Landing page preview (ADR 0250, #327). On a phone it opens as a full-screen sheet with Back; on a
+   wide screen it sits beside the builder. The frame is shown at the visitor's width and scaled to
+   fit, so it never makes the page scroll sideways. */
+.oba-landing-layout {
+  display: block;
+  min-width: 0;
+}
+
+.oba-landing-sizes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem;
+}
+
+.oba-landing-sizes .oba-btn[aria-pressed="true"] {
+  border: 2px solid var(--ob-color-accent-border);
+  background: var(--ob-color-glow);
+  font-weight: 700;
+}
+
+.oba-landing-preview {
+  min-width: 0;
+}
+
+.oba-landing-stage {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface-raised);
+}
+
+.oba-landing-frame {
+  display: block;
+  border: 0;
+  background: #fff;
+  max-width: none;
+}
+
+.oba-landing-sheet {
+  inset: 0;
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  max-height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--ob-color-page);
+  color: var(--ob-color-text);
+  overflow: auto;
+}
+
+.oba-landing-sheet:not([open]) {
+  display: none;
+}
+
+.oba-landing-sheet-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  padding: 0.5rem 1rem;
+  border-bottom: var(--ob-border-width) solid var(--oba-panel-border);
+  background: var(--ob-color-surface);
+}
+
+.oba-landing-sheet-head h2,
+.oba-landing-side-head h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.oba-landing-sheet-body {
+  padding: 0.75rem 1rem 1rem;
+}
+
+.oba-landing-side-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+@media (min-width: 64rem) {
+  .oba-landing-layout:has(.oba-landing-side:not([hidden])) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 1.5rem;
+    align-items: start;
+  }
+
+  .oba-landing-side {
+    position: sticky;
+    top: 1rem;
+    min-width: 0;
+    padding: 1rem;
+    border: var(--ob-border-width) solid var(--oba-panel-border);
+    border-radius: var(--ob-radius);
+    background: var(--ob-color-surface);
+  }
+}
+
+/* Landing page builder on a phone (ADR 0251, #328). One column from 320px, the Preview, Save and
+   Publish bar stays at the bottom of the screen (and above the on-screen keyboard), controls are
+   at least 44px, nothing depends on hover, and text can grow to 400% without sideways scrolling. */
+.oba-landing,
+.oba-landing-bar {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.oba-landing-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  margin: 1rem calc(-1 * clamp(1rem, 2vw, 2rem)) 0;
+  padding: 0.5rem clamp(1rem, 2vw, 2rem) calc(0.5rem + env(safe-area-inset-bottom, 0px));
+  border-top: var(--ob-border-width) solid var(--oba-panel-border);
+  background: var(--ob-color-surface);
+  box-shadow: 0 -6px 16px rgb(0 0 0 / 0.08);
+}
+
+.oba-landing-actions .oba-btn {
+  flex: 1 1 7rem;
+  min-height: 44px;
+}
+
+.oba-landing-dirty,
+.oba-landing-publish-note {
+  flex: 1 1 100%;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.oba-landing-card-actions .oba-btn {
+  flex: 1 1 6rem;
+}
+
+/* A short screen (a phone on its side, or very large text) has no room for a bar that stays put. */
+.oba-landing-bar.oba-landing-bar-static {
+  position: static;
+  box-shadow: none;
+}
+
+@media (max-height: 30rem) {
+  .oba-landing-bar {
+    position: static;
+    box-shadow: none;
+  }
+}
+
+/* Fields keep clear of the bar when the browser scrolls them into view. */
+.oba-landing-form :is(input, select, textarea, button),
+.oba-landing-picker button {
+  scroll-margin-bottom: 8rem;
+}
+
+@media (min-width: 40rem) {
+  .oba-landing-card-actions .oba-btn {
+    flex: 0 0 auto;
+  }
+
+  .oba-landing-actions .oba-btn {
+    flex: 0 0 auto;
+  }
+
+  .oba-landing-dirty {
+    flex: 1 1 12rem;
+  }
+
+  .oba-landing-type {
+    max-width: 48rem;
+  }
+}
+
+/* Customize look (ADR 0256, #350). One column from 320px; every choice is a real radio button in a
+   card that is at least 44px tall; the selection shows as a border and a mark, never color alone. */
+.oba-look-control {
+  min-width: 0;
+  margin: 0 0 1.25rem;
+  padding: 0.75rem 1rem 1rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+}
+
+.oba-look-control legend {
+  padding: 0 0.25rem;
+  font-weight: 700;
+}
+
+.oba-look-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 9.5rem), 1fr));
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+}
+
+.oba-look-options-palette {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr));
+}
+
+.oba-look-option {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0.6rem 0.75rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface);
+  cursor: pointer;
+}
+
+.oba-look-option input[type="radio"] {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0.15rem 0 0;
+}
+
+.oba-look-option[data-selected="true"] {
+  border: 3px solid var(--ob-color-accent-border);
+  padding: calc(0.6rem - 2px) calc(0.75rem - 2px);
+  background: var(--ob-color-glow);
+}
+
+.oba-look-option:has(input:focus-visible) {
+  outline: var(--ob-focus-ring);
+  outline-offset: 2px;
+}
+
+.oba-look-card-text {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.oba-look-pair {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.oba-look-swatches {
+  display: inline-flex;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.oba-look-chip {
+  display: inline-block;
+  width: 1.4rem;
+  height: 1.4rem;
+  border: 1px solid var(--oba-panel-border);
+}
+
+.oba-look-chip-big {
+  flex: none;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+}
+
+.oba-look-swatch {
+  align-items: center;
+}
+
+.oba-look-swatch > span:not(.oba-look-chip) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.oba-look-picker-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.oba-look-picker-row input[type="color"] {
+  width: 4rem;
+  height: 44px;
+  padding: 2px;
+}
+
+.oba-look-sample {
+  font-size: 1.1rem;
+}
+
+.oba-look-font-modern-sans .oba-look-sample {
+  font-family: system-ui, "Segoe UI", sans-serif;
+}
+
+.oba-look-font-classic-serif .oba-look-sample {
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+.oba-look-font-friendly-rounded .oba-look-sample {
+  font-family: ui-rounded, "Trebuchet MS", "Segoe UI", sans-serif;
+}
+
+.oba-look-font-techie-mono .oba-look-sample {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+.oba-look-summary {
+  margin: 0.25rem 0 0.5rem;
+}
+
+.oba-look-default,
+.oba-look-tools .oba-btn,
+.oba-look-modes .oba-btn {
+  min-height: 44px;
+}
+
+.oba-look-tools {
+  margin-bottom: 1rem;
+}
+
+.oba-look-adjustments[hidden] {
+  display: none;
+}
+
+/* Rich text landing section (ADR 0257, #330). The same word-processor surface as the Visual editor,
+   with a toolbar of words. The toolbar stays in view while the text scrolls and every button is at
+   least 44px tall. */
+.oba-landing-rich-label {
+  display: block;
+  font-weight: 700;
+}
+
+.oba-landing-rich-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.35rem 0;
+  background: var(--ob-color-surface);
+}
+
+.oba-landing-rich-toolbar .oba-btn {
+  flex: 1 1 auto;
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.oba-landing-rich-toolbar .oba-btn[aria-pressed="true"] {
+  border: 2px solid var(--ob-color-accent-border);
+  background: var(--ob-color-glow);
+  font-weight: 700;
+}
+
+.oba-landing-rich-panel {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  padding: 0.75rem;
+  border: var(--ob-border-width) solid var(--ob-color-accent-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface-raised);
+}
+
+.oba-landing-rich-panel .oba-btn {
+  min-height: 44px;
+}
+
+.oba-rich-body.oba-landing-rich {
+  min-height: 10rem;
+  padding: 0.75rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius-sm);
+}
+
+.oba-landing-rich .oba-protected-actions {
+  flex-wrap: wrap;
+}
+
+.oba-landing-rich .oba-protected-actions button {
+  min-height: 44px;
+}
+
+.oba-landing-form [contenteditable="true"] {
+  scroll-margin-bottom: 8rem;
+}
+
+/* Plain-language suggestions (ADR 0262). Everything wraps; nothing depends on a font's width. */
+.oba-checks-wrap {
+  min-width: 0;
+  margin: 8px 0;
+}
+.oba-checks {
+  border: 1px solid var(--oba-panel-border);
+  border-radius: 8px;
+  padding: 4px 12px;
+  max-width: 100%;
+}
+.oba-checks-summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-weight: 600;
+}
+.oba-checks-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.oba-checks-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid var(--oba-panel-border);
+  min-width: 0;
+}
+.oba-checks-message {
+  flex: 1 1 14rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.oba-checks-item .oba-btn {
+  flex: 0 1 auto;
+  max-width: 100%;
+  white-space: normal;
+}
+.oba-checks-ask {
+  flex: 1 1 100%;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.oba-checks-input {
+  min-height: 44px;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.oba-checks-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Earlier versions of the landing page (ADR 0264). Everything wraps; nothing depends on a font's width. */
+.oba-history-wrap {
+  margin: 16px 0;
+  min-width: 0;
+}
+.oba-history {
+  margin-top: 8px;
+  min-width: 0;
+}
+.oba-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.oba-history-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid var(--oba-panel-border);
+  min-width: 0;
+}
+.oba-history-when {
+  flex: 1 1 12rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.oba-history-summary {
+  flex: 2 1 12rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.oba-history-actions,
+.oba-history-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: 1 1 100%;
+  min-width: 0;
+}
+.oba-history-item .oba-btn,
+.oba-history-preview .oba-btn {
+  min-height: 44px;
+  max-width: 100%;
+  white-space: normal;
+}
+.oba-history-confirm p {
+  flex: 1 1 100%;
+  margin: 0;
+}
+.oba-history-preview {
+  margin-top: 12px;
+  min-width: 0;
+}
+
+/* The landing builder's short tour and its Help words (ADR 0259). Nothing here moves, so reduced motion needs no special case. */
+.oba-landing-tour {
+  margin: 0 0 1rem;
+  border-inline-start: 4px solid var(--ob-color-accent-border);
+}
+
+.oba-landing-tour[hidden] {
+  display: none;
+}
+
+.oba-landing-tour h3 {
+  margin-top: 0;
+  overflow-wrap: anywhere;
+}
+
+.oba-landing-tour .oba-btn {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+}
+
+.oba-landing-help {
+  margin: 0.5rem 0;
+}
+
+.oba-landing-help summary {
+  min-height: 44px;
+  padding-block: 0.5rem;
+  cursor: pointer;
+}
+
+.oba-landing-help dt {
+  font-weight: 600;
+  margin-top: 0.5rem;
+}
+
+.oba-landing-help dd {
+  margin-inline-start: 0;
+  overflow-wrap: anywhere;
 }

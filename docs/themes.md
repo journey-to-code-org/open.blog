@@ -90,6 +90,37 @@ text colour, `codeNumber`, and `codeString`. Callouts use `calloutNote`, `callou
 | `codeHighlighting` | Colour code blocks with the built-in highlighter (`codeKeyword`, `codeString`, ... colour tokens); off when the theme brings its own |
 | `codeLineNumbers` | Number the lines of code blocks with two or more lines (default `true`). The numbers are never copied with the code |
 
+## Look controls
+
+Site owners can change the look from Admin by choosing presets (never CSS): an accent color, a curated
+palette, a font style, text size, corner roundness, spacing, page width and heading weight. The engine
+compiles those choices into a short block of `--ob-*` tokens appended to your theme's `tokens.css`, so
+they layer over whichever theme a page uses.
+
+A theme says which controls it honors with `customizable` in `theme.json`:
+
+```json
+{ "extends": "base", "customizable": ["accent", "roundness", "textSize"] }
+```
+
+The valid names are `accent`, `palette`, `fontStyle`, `textSize`, `roundness`, `spacing`, `pageWidth` and
+`headingWeight`. Omit it and the theme inherits its parent's list (`base` honors all of them); `[]` opts out
+of every control. Admin shows only the controls the active theme honors and explains the rest, and the build
+compiles only those, so list a control only when your theme's own stylesheet does not set the tokens it
+changes (for example `--ob-radius` for `roundness`, or `--ob-color-accent` for `accent`), because the
+owner's block loads before your extra stylesheets.
+
+### How the owner's look layers over your tokens
+
+The cascade is: the `base` tokens, then your theme's `tokens.css`, then the owner's compiled block (only the
+controls you list in `customizable`), then your theme's extra stylesheets. The block sets nothing but
+allowlisted tokens: `--ob-color-*` for the accent and palette (the accent is adjusted for WCAG AA contrast in
+light and dark, and more strictly for visitors who ask for higher contrast), `--ob-font-body`,
+`--ob-font-heading`, `--ob-text-scale`, `--ob-radius` and `--ob-radius-sm`, `--ob-space-*`, `--ob-max-width`,
+`--ob-reading-width` and `--ob-heading-weight`. Nothing an owner types can reach the stylesheet. A theme with
+no `customizable` list inherits its parent's, and a site with no `appearance` builds byte for byte as before.
+To style the landing page's own sections, see [the `ob-home-*` classes](theme-components.md#styling-the-landing-page).
+
 ## Light and dark
 
 Both schemes are compiled. The theme's `colorScheme` is the default, the other scheme

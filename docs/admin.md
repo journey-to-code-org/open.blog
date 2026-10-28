@@ -39,7 +39,7 @@ immediately.
 | **Delete** | Moves the file to `.openblog/trash/`; nothing is destroyed. |
 | **Schedule** | See below. |
 | **Analytics** | Views, unique visitors, a per-day chart, top pages and referrers from the built-in counter. See [features.md](features.md). |
-| **Appearance** | Choose whether the public light/dark button is shown, hidden (system preference only), or inherited from each page's theme. Settings are saved in `openblog.json` and rebuilt locally; Publish to update a separately hosted static site. The Admin's own theme is unchanged. |
+| **Appearance** | Choose whether the public light/dark button is shown, hidden (system preference only), or inherited from each page's theme. Settings are saved in `openblog.json` and rebuilt locally; Publish to update a separately hosted static site. The Admin's own theme is unchanged. The site look (palette, accent, font style, sizes) is read and saved at `GET`/`PUT /admin/api/look`; a save changes only the `appearance` key, is checked against the revision you loaded, and is bounded to 4 KiB. |
 | **Publish** | A button in the header commits changed content with git and pushes it, so a Pages workflow deploys. Drafts stay local. See [publishing.md](publishing.md). |
 
 ## Workspace layout
@@ -238,6 +238,23 @@ nested lists, tables, footnotes, and raw HTML appear as protected blocks. Move o
 protected block visually, or choose **Edit in Markdown** to change its exact source. This
 boundary prevents an ordinary visual edit from flattening syntax the visual editor cannot
 represent safely.
+
+Callouts, tables, flat task lists, embedded videos and pens, and pieces also have an **Edit**
+button that opens a form inside the block: a callout's kind and text, a table's rows and columns,
+a task list's items and checkboxes, an embed's provider and address, or a piece's details. Apply
+writes the same Markdown the block uses today; Cancel (or Escape) leaves it untouched, and a block
+you do not edit is saved byte for byte. A block the form could not write back exactly stays
+protected.
+
+### Add something
+
+Choose **Add something** in the Write toolbar (in Visual or Markdown mode) to add a button, image
+with caption, video, map, opening hours, contact details, social links, questions and answers, or
+a call-out at the caret. Pick what you want, fill in the labelled fields, and choose **Insert**:
+the details are checked by the same rules as the build, a problem is explained next to the form
+and nothing is inserted until it is fixed. In Visual mode the piece appears as an editable block;
+in Markdown mode its text is written at the caret. Ctrl+Z or **Undo piece** takes it back out.
+There is no option to write your own HTML. See [Pieces](content.md#pieces-buttons-videos-maps-and-more).
 
 ### Cite a source while writing
 
@@ -650,6 +667,65 @@ name and a one-line recurring premise; it is an ordinary series file, not shown 
 part is published, and other details stay in the Series editor. Once the reflection is published,
 its series is changed in the post like any other. The design is recorded in
 [ADR 0039](adr/0039-arranging-a-shared-reflections-series-in-admin.md).
+
+## Change your home page and your look
+
+Two screens in Admin change how the site looks without any code. Neither has a box that takes HTML or CSS, and
+nothing changes on the public site until you save and make it live.
+
+### The Landing page
+
+Open **Landing page** (`#/landing`) to arrange the home page. A first visit offers four ready-made layouts
+(Welcome, Small business, Portfolio, Newsletter) with clearly marked sample words, or **Start from scratch**;
+**Choose a ready-made layout** and **Reset to default** are always there, and nothing you already have is
+replaced without a yes. A site that has never built a landing page starts from what visitors see today, and
+nothing is written until you save.
+
+- **Sections** are cards: a welcome banner, text, latest posts, series, a featured post, buttons, a picture, a
+  video, a map, opening hours, contact details, social links, questions and answers, or a call-out. **Add a
+  section** lists them in plain words with a sample. Each card has **Edit**, **Move up**, **Move down**,
+  **Hide** or **Show**, and **Delete**; a deletion can be undone, and Alt with the up or down arrow moves the
+  focused card from the keyboard. Videos, maps and the other pieces are the same ones the post editor's
+  [Add something](#add-something) inserts.
+- **Text** sections are written like a word-processor document with a toolbar of words (Paragraph, Heading,
+  Bold, Italic, Link, Lists, Quote, Picture, Undo, Redo) and saved as Markdown. Pasting from Word, Google Docs
+  or a web page keeps headings, emphasis, links and lists and drops everything else; **Ctrl+Shift+V** pastes
+  plain text. Markup you type stays words.
+- **Suggestions** under a text section explain a problem in a sentence (a picture with no description, a link
+  that says "click here", a skipped heading) and **Fix it** changes only that place. They never stop you saving.
+- **Preview** shows the home page as the build would make it from your unsaved sections, at Phone, Tablet and
+  Desktop sizes, in a frame that runs no scripts. On a phone it opens full screen with a **Back to editing**
+  button.
+- **Save** writes `content/landing.json`. If someone saved a newer page meanwhile, you choose **Keep mine**,
+  **Use the newer version** or **Compare**; nothing is overwritten silently. **Publish** (the bar calls it
+  "make it live") saves first and then publishes, and stops with the reason if the site does not build.
+- **History** under the sections keeps your last twenty saves in private storage (never in the content folder,
+  the build, a feed or an export). Preview an earlier one and **Restore** it; restoring is an ordinary save, so
+  the page it replaces stays in the list.
+- Unsaved changes are kept on your device, offered back after a reload and warned about when you leave. A short
+  three-step tour appears once, can be skipped and never comes back, and **Help** explains the words.
+
+The file format is described in [Landing page sections](content.md#landing-page-sections).
+
+### Customize look
+
+Open **Customize look** (`#/look`, also a button on **Appearance**) to choose how the site feels by tapping
+choices: eight ready-made looks (Calm, Warm, Bold, Night, Garden, Paper, Ocean, Sunset), a main (accent) color
+from swatches or the color picker, a font style (Modern, Classic, Friendly, Techie), text size, corner
+roundness, spacing, page width and heading weight. The preview is the real home page built from your unsaved
+choices, in light or dark. A color that would be hard to read is adjusted just enough, and the screen says so
+in words. **Back to theme default** undoes one control, **Reset everything** clears the look, and **Undo**
+takes back the last change. Only the controls your theme honors are shown, with a kind note about the rest
+([Look controls](themes.md#look-controls)). The choices are saved under `appearance` in `openblog.json`
+([configuration](configuration.md#site)).
+
+### A short phone walkthrough
+
+On a 375px phone: open Admin and choose **Landing page**; tap **Edit** on the welcome banner, change the
+heading and tap **Add a button**; tap **Done**, then **Preview** to see the page full screen and **Back to
+editing**; tap **Save**. Open **Customize look**, tap a color and a font style, tap **Preview** to check,
+**Back to choosing**, then **Save**. Tap **Publish** to make it live. The bar stays at the bottom of the
+screen, every control is at least 44px tall, and nothing scrolls sideways down to 320px wide.
 
 ## Scheduling
 

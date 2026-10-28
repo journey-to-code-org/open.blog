@@ -1021,6 +1021,48 @@ over a size bound rather than cut. It is listed in the publication boundary like
 (ADRs 0168, 0169).
 _Avoid_: Graph API, public search index, a second atlas; querying the private atlas
 
+**Landing page**:
+The home page when the site has a `content/landing.json`: an ordered list of landing sections the owner
+arranges instead of the fixed intro, post list and series. Without the file the home page is built from
+`home.heading`, `home.intro` and `home.showSeries` exactly as before, and the file maps to and from them
+losslessly. It is versioned; a file from a newer release is never overwritten (ADR 0245).
+_Avoid_: Homepage template, page builder, layout file
+
+**Landing section**:
+One typed, validated piece of the landing page (welcome banner, rich text, latest posts, series, featured
+post, buttons, image, video, map, opening hours, contact, social links, FAQ, call-out) with a stable id and a
+`hidden` flag. It is data the engine renders and escapes. There is no HTML section, and its Markdown is read
+with raw HTML disabled, so markup typed into it shows as text (ADR 0245).
+_Avoid_: Widget, block, embed, custom HTML
+
+**Piece**:
+One of nine small structured things (button, image with caption, video, map, opening hours, contact details,
+social links, questions and answers, call-out) added with a form to a post or to the landing page. It is
+validated data with one form schema shared by both places; in a post it is Markdown (a `> [!NOTE]` call-out, or a
+```` ```piece <kind> ```` fence of `field: value` lines), and a video or map is a privacy-enhanced, lazy, titled
+frame with a link beside it that becomes only the link in a portable export (ADR 0253).
+_Avoid_: Widget, shortcode, embed code, custom HTML
+
+**Landing page builder**:
+The Admin view at `#/landing` where an owner changes the landing page without code: sections are cards with
+Edit, Move up, Move down, Hide or Show and Delete buttons, added from a picker that describes each type in
+plain words, and edited in a plain form. Nothing is written until Save, a deletion can be undone, and no field
+takes HTML or CSS (ADR 0249).
+_Avoid_: Page editor, theme editor, drag-and-drop designer
+
+**Landing preview**:
+The home page as the build would make it from the sections in the builder, saved or not, shown in a
+script-free sandboxed frame in Phone, Tablet and Desktop sizes. It is built in memory by the production
+renderer and never writes, saves or publishes (ADR 0250).
+_Avoid_: Draft site, staging page, live edit
+
+**Landing draft**:
+The unsaved landing page changes the builder keeps on the owner's device (or in memory for the visit when the
+device will not keep them), with the revision they were based on. It is offered back as "Restore your unsaved
+changes", never applied unasked, and cleared by a save. A save that finds a newer stored page is a choice
+between Keep mine, Use the newer version and Compare, never an overwrite (ADR 0252).
+_Avoid_: Autosave, backup, sync
+
 **Reading path**:
 An author's own ordered list of published posts and Knowledge Atlas entries, kept as
 `content/paths/<slug>.json`, with a rationale per step and an author-written transition from each step
@@ -2365,3 +2407,92 @@ _Avoid_: Belief profile, reading log
 A line on a reflection snapshot saying the reader sent a copy, when and by which channel. It is not the
 copy, not a receipt, and not a sign the snapshot is public (ADR 0244).
 _Avoid_: Receipt, publication status
+
+## Site look
+
+**Look**:
+The owner's choices for how the site feels: an accent color, a curated palette, a font style, a text
+size, roundness, spacing, page width and heading weight. Every choice is a closed option or a strict
+hex color, stored versioned under `appearance` in `openblog.json`, and compiled only into allowlisted
+`--ob-*` tokens. No look means the theme as it is (ADR 0248).
+_Avoid_: Custom CSS, theme editor, skin
+
+**Look control**:
+One of the eight choices a look holds. A theme lists the ones it honors in `customizable`; Admin shows
+only those and says kindly why the rest are missing (ADR 0248).
+_Avoid_: Setting, style option
+
+**Customizable token**:
+One of the allowlisted `--ob-*` design tokens (colors, font families, text scale, radii, spacing, page and
+reading width, heading weight) that a look may set, grouped under the eight look controls. A theme opts a
+control in with `customizable` in `theme.json`; the owner's compiled block layers over the theme's tokens and
+before its extra stylesheets, and nothing outside the allowlist can be set (ADR 0248).
+_Avoid_: CSS variable override, theme setting, style
+
+**Customize look**:
+The Admin screen (`#/look`, beside Appearance) where an owner changes the look by tapping looks, swatches
+and sample cards, with a live preview of the home page built from the unsaved look in light or dark. It has
+no field that takes text; Back to theme default undoes one control, Reset everything clears the look, and
+Undo takes back the last change (ADR 0256).
+_Avoid_: Theme editor, style editor
+
+**Curated look**:
+A named, ready-made combination of palette and font style (Calm, Warm, Bold, Night, Garden, Paper,
+Ocean, Sunset), pre-checked for readable contrast in light and dark. It is data, not a theme: applying
+one fills in the look, and resetting returns exactly to the theme default (ADR 0248).
+_Avoid_: Theme, template, preset theme
+
+## Landing text
+
+**Text section**:
+The landing page's rich text section (`rich-text`), written in the Visual editor's word-processor surface
+with a toolbar of words (Paragraph, Heading, Bold, Italic, Link, Bulleted list, Numbered list, Quote, Image,
+Undo, Redo) and stored as inert Markdown. It has no Markdown toggle, no HTML view, and no control that
+accepts markup; a picture needs a description (ADR 0257).
+_Avoid_: HTML block, WYSIWYG box, Markdown field
+
+**Clean paste**:
+Pasting from Word, Google Docs or a web page into a Visual surface. The clipboard HTML is converted by an
+allowlist into the editor's own Markdown (headings, bold, italic, links, lists, quotes, pictures that have a
+description) and everything else is dropped; Ctrl/Cmd+Shift+V pastes plain text instead (ADR 0260).
+_Avoid_: Paste with formatting, HTML paste
+
+**Suggestions**:
+The plain-language content checks under the landing Text section and the post editor's toolbar: a picture
+without a description, a link that says "click here", an empty link, a skipped heading level, a very long
+paragraph, shouting in capitals, an `http://` address. Each is one sentence, a "Fix it" button where a fix is
+safe and touches only its own place; they never block saving (ADR 0262).
+_Avoid_: Errors, validation, lint
+
+**Raw HTML in Markdown mode**:
+HTML tags an owner types in a post's Markdown. They are kept and rendered as written, existing posts are never
+rewritten, and the suggestions note them without blocking. Visual mode, pasting, pieces, looks and the landing
+page cannot create them (ADR 0263).
+_Avoid_: HTML mode, unsafe HTML
+
+**Landing history**:
+The last twenty pages the Admin saved, each kept as one small file under `.openblog/private/landing-history/`
+(never published, fed, exported or committed), listed by date with a one-sentence summary in the Landing page
+view. Restoring one is an ordinary save that keeps the page it replaces (ADR 0264).
+_Avoid_: Backups, revisions, undo
+
+## Landing starters
+
+**Starter layout**:
+A ready-made list of sample landing sections (Welcome, Small business, Portfolio, Newsletter) or an empty page
+(Start from scratch), chosen in the Landing page builder. It is plain section data with every stand-in sentence
+marked "Sample", it is applied like any other unsaved edit, it can be undone, and it never replaces existing
+sections without asking (ADR 0258).
+_Avoid_: Template, theme, preset
+
+**Landing tour**:
+The optional three-step introduction to the Landing page builder: a labelled region in the page with Next,
+Back, Skip the tour and Finish the tour, closed also by Escape. Once closed in any way it is never shown
+again for that account on that device (ADR 0259).
+_Avoid_: Onboarding wizard, walkthrough modal, coach marks
+
+**Landing Help words**:
+The short list under "Help: what the words on this page mean" in the Landing page builder, explaining
+section, layout, hide, preview, save, publish (make it live), web address and picture description. Technical
+terms appear only there, in brackets (ADR 0259).
+_Avoid_: Glossary page, documentation
