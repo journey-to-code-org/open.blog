@@ -5,12 +5,18 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.49.0] - 2026-10-28
+
 - The container can publish with a repository-scoped SSH deploy key (`OPENBLOG_GIT_SSH_KEY_PATH` and
   `OPENBLOG_GIT_SSH_KNOWN_HOSTS_PATH`) instead of a token. The image now ships `openssh-client`; host keys
   are pinned and verified strictly, Git metadata recovery on Render uses the same key, and the entrypoint
   refuses to start if both a key and `OPENBLOG_GIT_TOKEN` are configured. A new `tests/docker-entrypoint.sh`
   check runs in CI.
-  
+
+- The home page now uses the configured `home.heading` as its one `<h1>` on every listing page (it was an `<h2>`, so the page had no primary heading). The "Series" heading stays an `<h2>`.
+
+- The Web Sandbox source tabs (HTML, CSS, JavaScript) are now a proper underlined tab strip, with a hover state and a larger touch target, instead of loose outlined buttons.
+
 ## [0.48.0] - 2026-10-28
 
 - Export, delete and send a copy of your readings (with `readerAnnotations.enabled`): each reading can be deleted (after asking, and checked afterwards) or all readings of a post removed; the export preview says how many reflections are left out unless you include them; and a reading can be sent as a separate, previewed Third Perspective copy only after you agree to publication, through the site form where there is one or by copying it yourself. Nothing is sent or recorded as sent unless you do it, and the reading itself stays private and unchanged. See [reader annotations](docs/specs/reader-annotations.md).
@@ -141,12 +147,9 @@ All notable changes to open.blog are recorded here. Releases follow
 - A series can declare `aliases:` in its front matter and the site can write a `_redirects` file with real
   301s for moved posts, pages and series (`"redirectsFile": true`); alias pages still carry a meta refresh,
   canonical and `noindex` for hosts without redirect rules.
-- The Web Sandbox source tabs (HTML, CSS, JavaScript) are now a proper underlined tab strip, with a hover state and a larger touch target, instead of loose outlined buttons.
 
 - `<ob-search>` accepts a `no-history` attribute that stops it from writing `?q=` to the page address,
   for a search box that lives in a dialog or panel on another page.
-
-- The home page now uses the configured `home.heading` as its one `<h1>` on every listing page (it was an `<h2>`, so the page had no primary heading). The "Series" heading stays an `<h2>`.
 
 ## [0.47.0] - 2026-10-27
 
