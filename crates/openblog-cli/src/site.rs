@@ -277,6 +277,11 @@ pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
     ("landing.js", include_str!("../../../web/admin/landing.js")),
     ("look.js", include_str!("../../../web/admin/look.js")),
     ("paste.js", include_str!("../../../web/admin/paste.js")),
+    ("checks.js", include_str!("../../../web/admin/checks.js")),
+    (
+        "checks-panel.js",
+        include_str!("../../../web/admin/checks-panel.js"),
+    ),
 ];
 
 pub const EMBEDDED_BASE_THEME: &str = include_str!("../../../themes/base/theme.json");

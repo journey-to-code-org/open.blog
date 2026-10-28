@@ -184,3 +184,49 @@ test("the post Visual editor cleans pasted content the same way and writes safe 
   expect(body).not.toMatch(/javascript:|<\/?[a-z]|onclick/i);
   expect(await page.evaluate(() => window.__hit)).toBeUndefined();
 });
+
+test("suggestions explain a problem in a sentence and Fix it changes only that place", async ({ page }) => {
+  await openText(page, "Welcome ![](https://example.com/a.jpg) to the shop, see [click here](http://example.com/menu) today.\n\nSecond paragraph stays.");
+  const panel = page.locator("[data-checks]");
+  await expect(panel).toBeVisible();
+  await expect(panel.locator("summary")).toHaveText("3 suggestions");
+  await panel.locator("summary").click();
+  await expect(panel.locator("li")).toHaveCount(3);
+  await expect(page.locator(".oba-checks-status")).toHaveText("3 suggestions for this text.");
+  // Upgrade the address: no question to answer.
+  await panel.locator('[data-check="insecure-address"] button').click();
+  await expect(panel.locator("li")).toHaveCount(2);
+  await expect(page.locator(".oba-checks-status")).toContainText("Fixed.");
+  // Describe the picture: it asks in words, Escape cancels, Enter applies.
+  await panel.locator('[data-check="picture-description"] button').click();
+  const answer = panel.getByLabel("What does the picture show?");
+  await expect(answer).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(answer).toHaveCount(0);
+  await panel.locator('[data-check="picture-description"] button[data-fix]').click();
+  await panel.getByLabel("What does the picture show?").fill("A loaf of bread");
+  await page.keyboard.press("Enter");
+  await expect(editor(page).locator("img")).toHaveAttribute("alt", "A loaf of bread");
+  await panel.locator('[data-check="vague-link"] button').click();
+  await panel.getByLabel("What should the link say?").fill("our menu");
+  await panel.getByRole("button", { name: "Apply" }).click();
+  await expect(panel).toBeHidden();
+  await expect(page.locator(".oba-checks-status")).toContainText("No suggestions");
+  const markdown = await saveAndRead(page);
+  expect(markdown).toBe("Welcome ![A loaf of bread](https://example.com/a.jpg) to the shop, see [our menu](https://example.com/menu) today.\n\nSecond paragraph stays.");
+});
+
+test("suggestions never block saving and fit a phone without sideways scroll", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await openText(page, "See [click here](http://example.com/a-very-long-address/that/goes/on/and/on/and/on/forever) and [here](/about/).");
+  const panel = page.locator("[data-checks]");
+  await expect(panel).toBeVisible();
+  await panel.locator("summary").click();
+  const box = await panel.boundingBox();
+  const field = await page.locator(".oba-landing-rich-field").boundingBox();
+  expect(box.x + box.width).toBeLessThanOrEqual(field.x + field.width + 1);
+  expect(await panel.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+  for (const button of await panel.locator("button").all()) expect((await button.boundingBox()).height).toBeGreaterThanOrEqual(44);
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.locator("[data-landing-status]")).toContainText("Saved.");
+});

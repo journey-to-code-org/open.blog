@@ -11,7 +11,7 @@
 
 The Visual editor's serializer wrote typed words as Markdown without touching `<`. Typing `<b>x</b>` in Visual
 mode therefore saved raw HTML into a post, a path the audit of every Admin input (#336) found. The decision
-about Markdown mode itself is ADR 0352.
+about Markdown mode itself is ADR 0353.
 
 ## Decision
 

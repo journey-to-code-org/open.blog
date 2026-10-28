@@ -526,15 +526,16 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/landing.js" => "landing.js",
         "/admin/look.js" => "look.js",
         "/admin/paste.js" => "paste.js",
+        "/admin/checks.js" => "checks.js",
+        "/admin/checks-panel.js" => "checks-panel.js",
         _ => return Response::error(404, "Not found"),
     };
     let config = site::load_config(&state.root).unwrap_or_default();
     match site::admin_file(&state.root, &config, file) {
         Some(bytes) => {
             let ctype = match file {
-                "admin.js" | "block-forms.js" | "landing.js" | "look.js" | "paste.js" => {
-                    "text/javascript; charset=utf-8"
-                }
+                "admin.js" | "block-forms.js" | "landing.js" | "look.js" | "paste.js"
+                | "checks.js" | "checks-panel.js" => "text/javascript; charset=utf-8",
                 "admin.css" => "text/css; charset=utf-8",
                 _ => "text/html; charset=utf-8",
             };

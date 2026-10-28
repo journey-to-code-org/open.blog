@@ -2449,3 +2449,10 @@ Pasting from Word, Google Docs or a web page into a Visual surface. The clipboar
 allowlist into the editor's own Markdown (headings, bold, italic, links, lists, quotes, pictures that have a
 description) and everything else is dropped; Ctrl/Cmd+Shift+V pastes plain text instead (ADR 0350).
 _Avoid_: Paste with formatting, HTML paste
+
+**Suggestions**:
+The plain-language content checks under the landing Text section and the post editor's toolbar: a picture
+without a description, a link that says "click here", an empty link, a skipped heading level, a very long
+paragraph, shouting in capitals, an `http://` address. Each is one sentence, a "Fix it" button where a fix is
+safe and touches only its own place; they never block saving (ADR 0352).
+_Avoid_: Errors, validation, lint

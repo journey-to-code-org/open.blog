@@ -5261,3 +5261,62 @@ a.oba-btn-primary {
 .oba-landing-form [contenteditable="true"] {
   scroll-margin-bottom: 8rem;
 }
+
+/* Plain-language suggestions (ADR 0352). Everything wraps; nothing depends on a font's width. */
+.oba-checks-wrap {
+  min-width: 0;
+  margin: 8px 0;
+}
+.oba-checks {
+  border: 1px solid var(--oba-panel-border);
+  border-radius: 8px;
+  padding: 4px 12px;
+  max-width: 100%;
+}
+.oba-checks-summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-weight: 600;
+}
+.oba-checks-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.oba-checks-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid var(--oba-panel-border);
+  min-width: 0;
+}
+.oba-checks-message {
+  flex: 1 1 14rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.oba-checks-item .oba-btn {
+  flex: 0 1 auto;
+  max-width: 100%;
+  white-space: normal;
+}
+.oba-checks-ask {
+  flex: 1 1 100%;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.oba-checks-input {
+  min-height: 44px;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.oba-checks-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

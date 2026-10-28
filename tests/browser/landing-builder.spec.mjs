@@ -138,7 +138,7 @@ test("an edit form has typed inputs only: nothing takes HTML or CSS", async ({ p
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.locator("[data-landing-status]")).toContainText("Saved.");
   // The text is kept as words; the editor only escapes the characters Markdown would read.
-  expect(stored().sections[1].markdown).toBe("<script>window.\\_\\_x=1</script> plain");
+  expect(stored().sections[1].markdown).toBe("&lt;script>window.\\_\\_x=1&lt;/script> plain");
   expect(await page.evaluate(() => window.__x)).toBeUndefined();
 });
 

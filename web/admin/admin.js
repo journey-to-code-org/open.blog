@@ -5,6 +5,7 @@
 
 import { normalizeCodeRunnerLanguage } from "../components/ob-code-runner-language.js";
 import { blockEditor, editableBlockKind, openPieceDialog } from "./block-forms.js";
+import { buildChecksPanel } from "./checks-panel.js";
 import { pasteNotice, pasteToMarkdown } from "./paste.js";
 import {
   LIMITS as LANDING_LIMITS,
@@ -9795,12 +9796,22 @@ function landingRichText(spec, data, ctx, path, id) {
   const announce = h("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-rich-status": "true" });
   const panelSlot = h("div", { class: "oba-landing-rich-panel-slot" });
   let wired = false;
+  const checks = buildChecksPanel({
+    getMarkdown: () => landingRichMarkdown(editor),
+    setMarkdown: (markdown) => {
+      landingRichRender(editor, markdown, () => changed());
+      changed();
+    },
+    options: { headingBase: 1 },
+  });
   const changed = () => {
     data[spec.name] = landingRichMarkdown(editor);
     ctx.changed();
     refresh();
+    checks.schedule();
   };
   landingRichRender(editor, data[spec.name], () => changed());
+  checks.update();
   // Dropping text or a card into the surface would move a preserved block: it is not offered.
   for (const kind of ["dragover", "drop"]) editor.addEventListener(kind, (event) => event.preventDefault());
 
@@ -10161,7 +10172,7 @@ function landingRichText(spec, data, ctx, path, id) {
 
   const entry = { path, input: editor, error, hint, shown: false };
   ctx.fields.push(entry);
-  const field = h("div", { class: "oba-field oba-landing-field oba-landing-rich-field", "data-field": path }, label, toolbar, panelSlot, editor, announce, hint, error);
+  const field = h("div", { class: "oba-field oba-landing-field oba-landing-rich-field", "data-field": path }, label, toolbar, panelSlot, editor, announce, checks.element, hint, error);
   field.addEventListener("focusout", (event) => {
     if (field.contains(event.relatedTarget)) return;
     entry.shown = true;
@@ -21041,6 +21052,18 @@ export class Editor {
     ui.citationStatus = h("span", { class: "oba-small", role: "status", "aria-live": "polite" });
     ui.citationUndo = h("button", { class: "oba-btn", type: "button", hidden: true, "data-citation-undo": "true", onClick: () => this.undoCitation() }, "Undo citation");
     ui.citationBar = kind === "posts" ? h("div", { class: "oba-toolbar oba-citation-bar" }, ui.citationStatus, ui.citationUndo) : null;
+    // Plain-language suggestions under the toolbar (ADR 0352). Raw HTML in the Markdown is noted, never blocked.
+    ui.checks =
+      kind === "posts"
+        ? buildChecksPanel({
+            getMarkdown: () => {
+              this.syncRichToMarkdown();
+              return ui.body.value;
+            },
+            setMarkdown: (markdown) => this.replaceDraftMarkdown(markdown),
+            options: { html: true },
+          })
+        : null;
     // The draft-side research panel (ADR 0122) sits beside the writing surface once opened.
     ui.draftResearchSlot = kind === "posts" ? h("div", { class: "oba-draft-research-slot", id: "oba-draft-research-slot", hidden: true }) : null;
     ui.writeLayout = h("div", { class: "oba-write-layout", "data-research": "closed" }, h("div", { class: "oba-write-surface" }, ui.richBody, ui.body, ui.assistantAutocomplete), ui.draftResearchSlot);
@@ -21274,6 +21297,7 @@ export class Editor {
             paneHeader("Write", "Editor", h("div", { class: "oba-editor-mode" }, ui.editorModeSwitch)),
             ui.formatToolbar,
             ui.citationBar,
+            ui.checks?.element,
             ui.writeLayout,
           ),
           h(
@@ -22041,7 +22065,10 @@ export class Editor {
       if (!this.slugTouched) ui.slug.value = slugify(ui.title.value);
     });
     ui.slug.addEventListener("input", () => (this.slugTouched = true));
-    ui.body.addEventListener("input", () => this.updateDocumentStats());
+    ui.body.addEventListener("input", () => {
+      this.updateDocumentStats();
+      ui.checks?.schedule();
+    });
     const writingShortcut = (event) => {
       if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
       const command = event.key.toLowerCase() === "b" ? "bold" : event.key.toLowerCase() === "i" ? "italic" : null;
@@ -22148,6 +22175,7 @@ export class Editor {
     this.syncDateField();
     this.updateSeoAudit();
     this.updateDocumentStats();
+    ui.checks?.update();
     (this.isNew ? ui.title : this.writingSurface()).focus();
   }
 
@@ -22175,6 +22203,14 @@ export class Editor {
     if (this.ui.saveState.textContent === "Unsaved changes") return;
     this.ui.saveState.textContent = "Unsaved changes";
     this.ui.saveState.classList.add("is-dirty");
+  }
+
+  /** Put changed Markdown into the draft from outside the writing surface (a suggestion's fix), in either mode. */
+  replaceDraftMarkdown(markdown) {
+    const body = this.ui.body;
+    body.value = markdown;
+    if (this.editorMode === "visual") this.renderRichEditor();
+    body.dispatchEvent(new Event("input", { bubbles: true }));
   }
 
   updateDocumentStats() {
