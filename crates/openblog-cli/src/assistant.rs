@@ -252,6 +252,10 @@ pub const BUILTIN_SKILL_SOURCES: &[(&str, &str)] = &[
         include_str!("assistant_skills/voice-review.md"),
     ),
     (
+        "voice-guide",
+        include_str!("assistant_skills/voice-guide.md"),
+    ),
+    (
         "source-review",
         include_str!("assistant_skills/source-review.md"),
     ),

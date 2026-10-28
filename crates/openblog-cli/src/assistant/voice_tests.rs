@@ -349,3 +349,45 @@ fn a_voice_guide_result_is_rejected_for_other_task_types_and_a_review_result_for
     assert!(validate_voice_guide(&good_result(), &review(Vec::new())).is_err());
     assert!(validate_assistant_result(&json!({ "findings": [] }), &guide_request(None)).is_err());
 }
+
+#[test]
+fn the_built_in_voice_guide_skill_validates_with_the_loader_and_carries_the_folding_rules() {
+    let source = BUILTIN_SKILL_SOURCES
+        .iter()
+        .find(|(id, _)| *id == "voice-guide")
+        .map(|(_, source)| *source)
+        .expect("registered");
+    let skill = parse_skill(source).expect("valid voice-guide skill");
+    assert_eq!(skill.id, "voice-guide");
+    assert_eq!(skill.output, SkillOutputKind::VoiceGuide);
+    assert_eq!(skill.scopes, vec![SkillScope::Document]);
+    assert_eq!(skill.override_builtin, None);
+    for rule in [
+        "Read every sample in full",
+        "section by section",
+        "word for word",
+        "oneSample: true",
+        "second sample",
+        "Keep every existing claim unless a sample contradicts it",
+        "Never rewrite",
+        "never propose changes to a rough draft",
+        "Keep the \"unknown\" list honest",
+        "author's data",
+    ] {
+        assert!(skill.body.contains(rule), "missing: {rule}");
+    }
+}
+
+#[test]
+fn a_skill_may_declare_the_voice_guide_output_and_an_unknown_output_is_still_refused() {
+    let source = "---\nid: my-guide\nname: Mine\ndescription: d\nversion: 1.0.0\nscopes: [document]\noutput: voice-guide\n---\nBody.\n";
+    assert_eq!(
+        parse_skill(source).unwrap().output,
+        SkillOutputKind::VoiceGuide
+    );
+    let errors = parse_skill(&source.replace("voice-guide\n---", "poem\n---")).unwrap_err();
+    assert_eq!(
+        errors,
+        vec!["Unsupported output kind `poem`; use review, interactions or voice-guide."]
+    );
+}

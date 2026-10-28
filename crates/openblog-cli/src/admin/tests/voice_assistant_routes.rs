@@ -394,7 +394,7 @@ fn write_guide_skill(f: &Fixture) {
     fs::create_dir_all(f.dir.join("assistant/skills")).unwrap();
     fs::write(
         f.dir.join("assistant/skills/voice-guide.md"),
-        "---\nid: voice-guide\nname: Voice guide\ndescription: Folds samples into a guide.\nversion: 1.0.0\nscopes: [document]\noutput: voice-guide\n---\nFold the samples into the guide.\n",
+        "---\nid: voice-guide\nname: Voice guide\ndescription: Folds samples into a guide.\nversion: 1.0.0\nscopes: [document]\noutput: voice-guide\noverride: voice-guide\n---\nFold the samples into the guide, as this project wants.\n",
     )
     .unwrap();
 }
@@ -667,13 +667,11 @@ fn the_voice_guide_route_is_authenticated_csrf_protected_bounded_and_samples_onl
 }
 
 #[test]
-fn the_voice_guide_route_needs_a_voice_guide_skill() {
+fn the_built_in_voice_guide_skill_runs_the_task_and_is_not_a_review_skill() {
     let _env = quiz_env();
     let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
-    let f = fixture("voice-guide-skill");
+    let f = fixture("voice-guide-builtin-skill");
     let session = login_ok(&f);
-    set_quiz_endpoint(&f, "https://assistant.example/generate");
-    std::env::set_var("OPENBLOG_LESSONS_API_KEY", "voice-secret");
     let file = write_rough(
         &f.dir,
         Visibility::Private,
@@ -682,12 +680,53 @@ fn the_voice_guide_route_needs_a_voice_guide_skill() {
         "2026-10-28",
         MISTAKE,
     );
+    let (endpoint, captured, provider) = capturing_provider(provider_guide(&file));
+    set_quiz_endpoint(&f, &endpoint);
+    std::env::set_var("OPENBLOG_LESSONS_API_KEY", "voice-secret");
+    // No project skill file: the built-in is used.
+    assert!(!f.dir.join("assistant/skills").exists());
     let response = post(
         &f,
         &session,
         GUIDE_PATH,
         json!({ "sampleIds": [format!("voice:private:{file}")] }),
     );
-    // With no voice-guide skill (the built-in arrives with #457) the request is refused.
-    assert_eq!(response.status, 400);
+    assert_eq!(
+        response.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&response.body)
+    );
+    provider.join().unwrap();
+    let outbound = captured.recv().unwrap();
+    assert_eq!(outbound["skills"][0]["id"], "voice-guide");
+    assert!(outbound["skills"][0]["instructions"]
+        .as_str()
+        .unwrap()
+        .contains("word for word"));
+    assert_eq!(body_json(&response)["skill"]["version"], "1.0.0");
+
+    // It appears in the skill catalog, with its own output kind, and cannot be picked for a document review.
+    let skills = body_json(&handle(
+        &f.state,
+        &authed(req("GET", "/admin/api/assistant/skills"), &session, false),
+    ));
+    let listed = skills["skills"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|skill| skill["id"] == "voice-guide")
+        .expect("listed");
+    assert_eq!(listed["output"], "voice-guide");
+    let review = post(
+        &f,
+        &session,
+        "/admin/api/assistant/review",
+        json!({
+            "source": { "title": "T", "metadata": {}, "markdown": "Body" },
+            "skillIds": ["voice-guide"],
+            "contextIds": [],
+        }),
+    );
+    assert_eq!(review.status, 400);
 }
