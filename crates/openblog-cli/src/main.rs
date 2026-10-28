@@ -17,6 +17,7 @@ mod fsutil;
 mod git;
 mod hashnode;
 mod http;
+mod landing_store;
 mod notebook_store;
 mod paths_exchange;
 mod portable_export;

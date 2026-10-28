@@ -85,6 +85,7 @@ use crate::assistant::{
     BUILTIN_SKILL_SOURCES,
 };
 mod comparisons;
+mod landing;
 mod reading_paths;
 
 use crate::atlas_store;
@@ -691,6 +692,8 @@ fn authenticated_api(
         ("POST", "comparisons") => comparisons::save(state, req, true),
         ("PUT", "comparisons") => comparisons::save(state, req, false),
         ("DELETE", "comparisons") => comparisons::remove(state, req),
+        ("GET", "landing") => landing::get(state),
+        ("PUT", "landing") => landing::save(state, req),
         ("GET", "reading-paths") => reading_paths::list(state),
         ("GET", "reading-paths/targets") => reading_paths::targets(state),
         ("GET", "reading-paths/path") => reading_paths::get(state, req),
@@ -17823,6 +17826,7 @@ fn xml_attribute<'a>(tag: &'a str, key: &str) -> Option<&'a str> {
 #[cfg(test)]
 mod tests {
     mod comparison_routes;
+    mod landing_routes;
     mod reading_path_routes;
 
     use super::*;
