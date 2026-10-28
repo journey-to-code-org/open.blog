@@ -75,7 +75,7 @@ export function fakeServer(clock, { seconds = 180 } = {}) {
   const calls = [];
   const epoch = Date.now();
   const iso = (ms) => new Date(epoch + ms).toISOString();
-  const state = { session: null, samples: [], failures: [], drawn: 0, status: null };
+  const state = { session: null, samples: [], failures: [], drawn: 0, status: null, holds: [] };
   const api = {
     calls,
     state,
@@ -87,6 +87,8 @@ export function fakeServer(clock, { seconds = 180 } = {}) {
         const [{ error }] = state.failures.splice(failure, 1);
         throw error;
       }
+      const held = state.holds?.find((h) => h.method === method && path.startsWith(h.path));
+      if (held) await held.promise;
       return structuredClone(await route(method, path, body));
     },
   };

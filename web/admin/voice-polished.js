@@ -6,7 +6,7 @@
 // save was in flight.
 
 import { el } from "./block-forms.js";
-import { VOICE_LIMITS, byteLength, polishedDirty, voiceErrorText, wordCount, wordsText } from "./voice.js";
+import { VOICE_LIMITS, byteLength, createPolishedDraftStore, polishedDirty, voiceErrorText, wordCount, wordsText } from "./voice.js";
 
 let uid = 0;
 
@@ -15,18 +15,21 @@ let uid = 0;
  * server describes it, or null for a draft that has not been saved yet; it then starts as a copy of the rough
  * text. Returns `{ element, isDirty, isBusy, focus, current }`.
  */
-export function createPolishedEditor({ api, rough, polished = null, onChange = () => {}, onSaved = () => {} }) {
+export function createPolishedEditor({ api, user, rough, polished = null, storage, onChange = () => {}, onSaved = () => {}, setTimer = globalThis.setTimeout, clearTimer = globalThis.clearTimeout }) {
   const id = `oba-voice-polished-${++uid}`;
+  const drafts = createPolishedDraftStore(`ob-voice-polished:${user}:${rough.file}`, storage);
   let saved = polished;
   let revision = polished?.revision ?? null;
   let baseline = polished ? { title: polished.title, body: polished.body } : { title: rough.title, body: rough.body };
   let busy = false;
+  let timer = null;
 
   const title = el("input", { class: "oba-voice-title", id: `${id}-title`, type: "text", maxlength: "200", autocomplete: "off", "data-voice-polished-title": "true" });
   const body = el("textarea", { class: "oba-voice-body", id: `${id}-body`, rows: "12", autocomplete: "off", "aria-describedby": `${id}-help ${id}-count`, "data-voice-polished-body": "true" });
   const count = el("p", { class: "oba-small oba-voice-count", id: `${id}-count`, "data-voice-polished-count": "true" });
   const status = el("p", { class: "oba-voice-status oba-small", id: `${id}-status`, role: "status", "aria-live": "polite", "data-voice-polished-status": "true" });
   const dirtyNote = el("span", { class: "oba-small oba-voice-dirty", "data-voice-dirty": "true" });
+  const restoreBox = el("div", { class: "oba-notice oba-voice-restore", role: "group", "aria-labelledby": `${id}-restore-title`, hidden: true, "data-voice-restore": "true" });
   const conflictBox = el("div", { class: "oba-error oba-voice-conflict", role: "group", "aria-labelledby": `${id}-conflict-title`, hidden: true, "data-voice-conflict": "true" });
   const resetBox = el("div", { class: "oba-notice oba-voice-reset", role: "group", "aria-labelledby": `${id}-reset-title`, hidden: true, "data-voice-reset": "true" });
   const saveButton = el("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": "save-polished", onClick: () => save() }, "Save polished draft");
@@ -47,12 +50,21 @@ export function createPolishedEditor({ api, rough, polished = null, onChange = (
     const words = wordCount(body.value);
     count.textContent = `${wordsText(words)}${bytes > VOICE_LIMITS.maxDraftBytes ? ". This is longer than a sample can hold; shorten it before saving." : ""}`;
     dirtyNote.textContent = isDirty()
-      ? "You have unsaved changes."
+      ? `You have unsaved changes. ${drafts.inMemoryOnly ? "This device would not keep a copy, so they are held only until you close or reload this page." : "A copy is kept on this device."}`
       : saved ? "All changes saved." : "Not saved yet. This starts as a copy of your rough draft.";
     resetButton.disabled = body.value === rough.body && title.value === rough.title;
   };
+  const schedule = () => {
+    clearTimer(timer);
+    timer = setTimer(() => {
+      timer = null;
+      if (isDirty()) drafts.save({ base: revision, ...current() });
+      else drafts.clear();
+    }, VOICE_LIMITS.localSaveMs);
+  };
   const changed = () => {
     renderState();
+    schedule();
     onChange(isDirty());
   };
   title.addEventListener("input", changed);
@@ -84,6 +96,36 @@ export function createPolishedEditor({ api, rough, polished = null, onChange = (
     resetBox.querySelector("strong")?.focus();
   }
 
+  // ----- restoring a copy kept on this device
+  function offerRestore(copy) {
+    restoreBox.hidden = false;
+    restoreBox.replaceChildren(
+      el("strong", { id: `${id}-restore-title` }, "Restore your unsaved changes?"),
+      el("p", {}, copy.base === revision ? "A copy of edits you did not save is on this device." : "A copy of edits you did not save is on this device. The saved draft has changed since, so saving them will ask what to keep."),
+      el(
+        "div",
+        { class: "oba-landing-actions" },
+        el("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": "restore-draft", onClick: () => {
+          fill(copy);
+          // Edits made on top of an older draft are checked against that older draft, so a change made
+          // elsewhere since then is a choice for the author and not an overwrite.
+          revision = copy.base;
+          restoreBox.hidden = true;
+          renderState();
+          onChange(isDirty());
+          say("Your unsaved changes are back. They are not saved yet.");
+          body.focus();
+        } }, "Restore your unsaved changes"),
+        el("button", { class: "oba-btn", type: "button", "data-action": "discard-draft", onClick: () => {
+          drafts.clear();
+          restoreBox.hidden = true;
+          say("Threw away the unsaved changes.");
+          body.focus();
+        } }, "Discard them"),
+      ),
+    );
+  }
+
   // ----- saving
   function applySaved(result, sent) {
     saved = result;
@@ -94,6 +136,9 @@ export function createPolishedEditor({ api, rough, polished = null, onChange = (
     if (untouched) fill(baseline);
     conflictBox.hidden = true;
     conflictBox.replaceChildren();
+    restoreBox.hidden = true;
+    if (untouched) drafts.clear();
+    else drafts.save({ base: revision, ...current() });
     return untouched;
   }
   async function save() {
@@ -123,6 +168,8 @@ export function createPolishedEditor({ api, rough, polished = null, onChange = (
       onSaved(result);
       return untouched;
     } catch (error) {
+      // Whatever went wrong, a copy of the work is on this device now.
+      drafts.save({ base: revision, ...current() });
       if (error?.status === 409 && error.data?.conflict) showConflict(error.data.current);
       else say(voiceErrorText(error), "error");
       return false;
@@ -156,6 +203,7 @@ export function createPolishedEditor({ api, rough, polished = null, onChange = (
               revision = latest.revision;
               baseline = { title: latest.title, body: latest.body };
               fill(baseline);
+              drafts.clear();
               conflictBox.hidden = true;
               renderState();
               onChange(false);
@@ -174,12 +222,16 @@ export function createPolishedEditor({ api, rough, polished = null, onChange = (
 
   fill(baseline);
   renderState();
+  const copy = drafts.load();
+  if (copy && polishedDirty(copy, baseline)) offerRestore(copy);
+  else if (copy) drafts.clear();
 
   const element = el(
     "section",
     { class: "oba-voice-polished", "aria-labelledby": `${id}-heading`, "data-voice-polished": "true" },
     el("h2", { id: `${id}-heading` }, "Your polished draft"),
     el("p", { class: "oba-small", id: `${id}-help` }, "This is yours to edit. It starts as a copy of your rough draft; fix typos, cut, reshape and give it a title. Your rough draft stays as it is."),
+    restoreBox,
     el("div", { class: "oba-field" }, el("label", { for: `${id}-title` }, "Title"), title),
     el("div", { class: "oba-field" }, el("label", { for: `${id}-body` }, "Polished text"), body),
     count,

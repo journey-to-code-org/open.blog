@@ -201,6 +201,50 @@ export function polishedDirty(current, baseline) {
   return current.title !== baseline.title || current.body !== baseline.body;
 }
 
+const POLISHED_VERSION = 1;
+
+/** The copy of unsaved polished edits, one record per rough draft. */
+export function createPolishedDraftStore(key, storage = () => globalThis.localStorage) {
+  let blocked = false;
+  const valid = (record) =>
+    isObject(record) && record.v === POLISHED_VERSION && (record.base === null || typeof record.base === "string") && typeof record.title === "string" && typeof record.body === "string";
+  return {
+    get inMemoryOnly() {
+      return blocked;
+    },
+    load() {
+      try {
+        const text = storage()?.getItem(key);
+        const record = text ? JSON.parse(text) : null;
+        if (valid(record)) return record;
+      } catch {
+        blocked = true;
+      }
+      return memory.get(key) || null;
+    },
+    save({ base, title, body }, now = Date.now()) {
+      if (byteLength(body) > VOICE_LIMITS.maxDraftBytes) return false;
+      const record = { v: POLISHED_VERSION, base: base ?? null, title, body, savedAt: now };
+      memory.set(key, record);
+      try {
+        storage().setItem(key, JSON.stringify(record));
+        blocked = false;
+      } catch {
+        blocked = true;
+      }
+      return true;
+    },
+    clear() {
+      memory.delete(key);
+      try {
+        storage()?.removeItem(key);
+      } catch {
+        blocked = true;
+      }
+    },
+  };
+}
+
 // ---------------------------------------------------------------- the invitation
 
 /** The hash for the Voice view, with the pack a session should draw from if one is named. */

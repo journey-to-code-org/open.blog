@@ -33,6 +33,17 @@ whatever this browser kept.
   written is discarded. No draft is sent after the deadline.
 - **The copy is cleared when the rough draft is locked** (it is on the server for good), when the session is
   scrapped, and whenever the session turns out to be over.
+- **The polished editor answers Admin's unsaved guard** (#447). The Voice view's `viewDirty` is the polished
+  editor's: it is dirty only when the title or text differs from the saved state, which for a draft not yet saved
+  is the pre-filled copy of the rough text. So the guard never fires for the rough step (the draft is autosaved
+  and then locked on the server), and it stops firing the moment the text is back to what is saved. A save in
+  flight blocks leaving too (`viewBusy`), and edits typed while it runs stay unsaved instead of being overwritten
+  by the answer. "Start another session" will not discard unsaved polished work.
+- **Unsaved polished edits are kept on the device and offered back.** One record per rough draft,
+  `ob-voice-polished:<user>:<rough file>` with the revision the edits are based on. After a reload the editor
+  offers "Restore your unsaved changes" or "Discard them" and applies nothing unasked. Restored edits are saved
+  against the revision they were based on, so a draft changed elsewhere meanwhile is a conflict with a choice
+  (keep mine and save over it, use the saved version, or keep editing), never a silent overwrite.
 - **The announcement and reconciliation rules are plain functions** (`reconcileDraft`, `expiredPlan`,
   `createVoiceDraftStore`) tested at exact seconds, besides the harness tests that reload the page.
 

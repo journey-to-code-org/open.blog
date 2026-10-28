@@ -526,6 +526,10 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
     } }, sample.visibility === "portable" ? "Make private" : "Make portable");
     editor = createPolishedEditor({
       api,
+      user,
+      storage,
+      setTimer: clock.setTimeout,
+      clearTimer: clock.clearTimeout,
       rough: { file: sample.file, title: sample.title, body: sample.body },
       onChange: (dirty) => onDirty(dirty),
     });
