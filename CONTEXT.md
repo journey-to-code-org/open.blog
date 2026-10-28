@@ -2496,3 +2496,46 @@ The short list under "Help: what the words on this page mean" in the Landing pag
 section, layout, hide, preview, save, publish (make it live), web address and picture description. Technical
 terms appear only there, in brackets (ADR 0259).
 _Avoid_: Glossary page, documentation
+
+## Voice samples
+
+**Voice prompt**:
+One short writing invitation from a versioned catalog, with a genre, a suggested length and the standing rule
+"write it the way you would say it" (stored once for the whole catalog, not per prompt). Prompts have stable
+kebab-case ids (ADR 0350, ADR 0352).
+_Avoid_: Writing prompt, exercise, question
+
+**Prompt pack**:
+A named group of voice prompts for one genre (teaching, stories, opinions, reviews, people, craft, humor,
+expertise, everyday life, openings and endings). A site can add prompts and hide whole packs without forking
+the bundled catalog (ADR 0352).
+_Avoid_: Category, deck, topic
+
+**Voice session**:
+One timed sitting: a draw of three prompts, one choice, a bounded writing window and a locked rough draft.
+Its only state is the private record `.openblog/private/voice/session.json`, which lets any surface resume
+with the original deadline; there is one per site, and the record is removed when the session is locked or
+scrapped (ADR 0351).
+_Avoid_: Quiz, exercise, writing sprint
+
+**Voice sample**:
+One stored answer to one voice prompt at one stage, `rough` or `polished`. The rough stage is immutable once
+its session ends: nothing, including spell-check, autocorrect, AI and any save path, rewrites it, and the
+store refuses to. A voice sample is Assistant context, not a Post, so it is never published, built into the
+site, fed or exported (ADR 0350).
+_Avoid_: Draft post, writing sample, entry
+
+**Rough draft**:
+The `rough` stage of a voice sample: the author's unedited words, typos included, written against the clock
+and then locked. It can be read, moved between portable and private, or erased by the author, and never edited.
+_Avoid_: First draft, raw draft
+
+**Polished draft**:
+The `polished` stage of a voice sample: the author's own revision of one rough draft, named by `roughOf`. It is
+author-owned and editable; an AI tool may propose changes to it but never applies them (ADR 0350).
+_Avoid_: Final draft, edited version
+
+**Voice guide**:
+A Markdown description of how the author writes, built from quoted sample evidence, approved by the author and
+used as Assistant context. It is a later feature (epic #409); this epic only reserves the term.
+_Avoid_: Style guide, persona, system prompt
