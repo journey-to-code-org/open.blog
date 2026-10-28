@@ -88,6 +88,7 @@ mod comparisons;
 mod landing;
 mod look;
 mod reading_paths;
+mod voice;
 
 use crate::atlas_store;
 use crate::auth::{self, Sessions, Throttle, Users};
@@ -504,6 +505,9 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         if name == "pieces" {
             return Ok(MAX_PIECE_REQUEST_BYTES);
         }
+        if name.starts_with("voice/") {
+            return Ok(voice::request_limit(req, name));
+        }
         return Ok(MAX_JSON_BODY);
     }
     Ok(0)
@@ -655,6 +659,14 @@ fn authenticated_api(
             return preview_document(state, token);
         }
     }
+    if let Some(route) = voice::sample_route(name) {
+        return match (req.method.as_str(), route) {
+            ("GET", voice::SampleRoute::One(id)) => voice::get(state, req, id),
+            ("PUT", voice::SampleRoute::One(id)) => voice::save_polished(state, req, id),
+            ("POST", voice::SampleRoute::Visibility(id)) => voice::set_visibility(state, req, id),
+            _ => Response::error(404, "Unknown API route"),
+        };
+    }
     match (req.method.as_str(), name) {
         ("POST", "logout") => logout(state, req),
         ("GET", "session") => Response::json(
@@ -725,6 +737,16 @@ fn authenticated_api(
         ("GET", "landing/history") => landing::history_list(state),
         ("GET", "landing/history/item") => landing::history_item(state, req),
         ("POST", "landing/history/restore") => landing::history_restore(state, req),
+        ("GET", "voice/catalog") => voice::catalog(state),
+        ("GET", "voice/status") => voice::status(state),
+        ("POST", "voice/draw") => voice::draw(state, req),
+        ("GET", "voice/session") => voice::get_session(state),
+        ("DELETE", "voice/session") => voice::scrap(state),
+        ("POST", "voice/session/start") => voice::start(state, req),
+        ("PUT", "voice/session/draft") => voice::save_draft(state, req),
+        ("POST", "voice/session/lock") => voice::lock_session(state, req),
+        ("GET", "voice/samples") => voice::list(state),
+        ("POST", "voice/samples") => voice::create_polished(state, req),
         ("GET", "reading-paths") => reading_paths::list(state),
         ("GET", "reading-paths/targets") => reading_paths::targets(state),
         ("GET", "reading-paths/path") => reading_paths::get(state, req),
@@ -17945,6 +17967,7 @@ mod tests {
     mod look_routes;
     mod reading_path_routes;
     mod safety_audit;
+    mod voice_routes;
 
     use super::*;
     use crate::scaffold;
