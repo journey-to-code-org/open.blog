@@ -1,13 +1,13 @@
 // Visual forms for the Markdown blocks the Visual editor used to protect (callouts,
-// tables, task lists, embeds, pieces) (ADR 0371).
+// tables, task lists, embeds, pieces) and the "Add something" dialog (ADR 0371).
 //
 // Everything here writes the Markdown those blocks already use. A block that is
 // not edited is never touched, so a round trip stays byte-stable. The piece forms
 // are built from the engine's own schema (`meta.pieces`, ADR 0370); the engine
 // validates and writes a piece, so this file never invents piece Markdown.
 //
-// The piece form builder is reusable on purpose: the landing page workspace can show the
-// same forms with `buildPieceForm`.
+// The pieces dialog and the form builder are reusable on purpose: the landing page
+// workspace can show the same forms with `buildPieceForm` and `openPieceDialog`.
 
 /** A small DOM builder. Nothing user-controlled is ever assigned through innerHTML. */
 export function el(tag, props = {}, ...children) {
@@ -454,6 +454,111 @@ export function buildPieceForm(schema, initialValues = []) {
     },
     focus: () => (top.values().next().value || itemEntries[0]?.item.controls[0][1])?.focus(),
   };
+}
+
+// ----- the Add something dialog --------------------------------------------------------
+
+const PIECE_BLURB = { callout: "A highlighted note, tip or warning." };
+
+/**
+ * A modal dialog that lists the pieces in plain words, asks for one piece's details and
+ * hands the checked Markdown to `onInsert(markdown, schema)`, which returns "" when it was
+ * inserted or a sentence saying why not (the dialog then stays open and keeps the details).
+ *
+ *   pieces   the engine's schema list (`meta.pieces`)
+ *   build    async (kind, values) => ({ markdown } | { problems: [..] }); the engine checks and writes
+ *   onInsert called with the Markdown; may be async
+ *   onClose  called after the dialog has closed, to put focus back in the editor
+ *
+ * The landing page workspace can call this too: pass its own `onInsert` and `build`.
+ */
+export function openPieceDialog({ pieces, build, onInsert, onClose, heading = "Add something" }) {
+  const dialog = el("dialog", { class: "oba-dialog oba-piece-dialog", "aria-labelledby": "oba-piece-title" });
+  const body = el("div", { class: "oba-piece-dialog-body" });
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    dialog.close();
+    dialog.remove();
+    onClose?.();
+  };
+  dialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    close();
+  });
+  // Keys typed in the dialog are the dialog's, never the editor's behind it.
+  dialog.addEventListener("keydown", stop);
+  const title = el("h2", { id: "oba-piece-title" }, heading);
+  const step = el("h3", { class: "oba-piece-step" });
+  const showList = () => {
+    step.textContent = "What would you like to add?";
+    const buttons = pieces.map((piece) =>
+      el(
+        "li",
+        {},
+        el(
+          "button",
+          { type: "button", class: "oba-piece-choice", "data-piece": piece.kind, onClick: () => showForm(piece) },
+          el("strong", {}, piece.label),
+          el("span", { class: "oba-small" }, PIECE_BLURB[piece.kind] || piece.summary),
+        ),
+      ),
+    );
+    body.replaceChildren(
+      el("p", { class: "oba-help" }, "Choose what to add. It goes in at the caret, and you can change its details later."),
+      el("ul", { class: "oba-piece-choices" }, buttons),
+      el("div", { class: "oba-dialog-actions" }, el("span", { class: "oba-spacer" }), actionButton("Cancel", close)),
+    );
+    body.querySelector("button")?.focus();
+  };
+  const showForm = (piece) => {
+    step.textContent = piece.label;
+    const form = buildPieceForm(piece);
+    const status = el("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    let busy = false;
+    const insert = actionButton("Insert", async () => {
+      if (busy) return;
+      busy = true;
+      insert.disabled = true;
+      status.textContent = "Checking…";
+      form.clearProblems();
+      try {
+        const result = await build(piece.kind, form.values());
+        if (result.problems?.length) {
+          form.showProblems(result.problems);
+          status.textContent = "";
+          return;
+        }
+        const refusal = await onInsert(result.markdown, piece);
+        if (refusal) {
+          form.showProblems([refusal]);
+          status.textContent = "";
+          return;
+        }
+        close();
+      } catch (error) {
+        form.showProblems([`This could not be added: ${error.message}. Your draft is unchanged.`]);
+        status.textContent = "";
+      } finally {
+        busy = false;
+        insert.disabled = false;
+      }
+    }, { class: "oba-btn oba-btn-primary oba-bf-button" });
+    const back = actionButton("Back", showList);
+    body.replaceChildren(
+      el("p", { class: "oba-help" }, piece.summary),
+      form.element,
+      el("div", { class: "oba-dialog-actions" }, back, el("span", { class: "oba-spacer" }), actionButton("Cancel", close), insert),
+      status,
+    );
+    form.focus();
+  };
+  dialog.append(title, step, body);
+  document.body.append(dialog);
+  dialog.showModal();
+  showList();
+  return { dialog, close };
 }
 
 // ----- editing a protected block in place ----------------------------------------------

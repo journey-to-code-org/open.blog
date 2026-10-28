@@ -21,6 +21,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 - The Visual editor edits callouts, tables, task lists, embedded videos and pieces with forms instead of locking them. Each such block now has an **Edit** button that opens a labelled form inside the block (callout kind and text; table rows and columns; task items and their checkboxes; an embed's provider and address; a piece's details), writing the same Markdown as before. Escape or Cancel leaves the block untouched, an unedited post is saved byte for byte, and knowledge checks, footnotes and raw HTML stay protected. `POST /admin/api/pieces` checks a piece with the build's own rules and returns its Markdown. See ADR 0371.
 
+- An **Add something** button in the post editor's toolbar, in both Visual and Markdown mode, opens a dialog that lists the pieces in plain words (button, image with caption, video, map, opening hours, contact details, social links, questions and answers, call-out), asks for their details with labelled fields and large touch targets, and writes the piece's Markdown at the caret. Problems are explained beside the form and nothing is inserted until the engine accepts the piece; Escape or Cancel changes nothing and focus returns to the editor, and Undo takes the piece back out. There is no option to write HTML. See ADR 0372.
+
 ## [0.49.0] - 2026-10-28
 
 - The container can publish with a repository-scoped SSH deploy key (`OPENBLOG_GIT_SSH_KEY_PATH` and

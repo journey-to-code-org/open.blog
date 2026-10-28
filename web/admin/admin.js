@@ -4,7 +4,7 @@
 // previews are served from an authenticated URL into an opaque-origin sandbox.
 
 import { normalizeCodeRunnerLanguage } from "../components/ob-code-runner-language.js";
-import { blockEditor, editableBlockKind } from "./block-forms.js";
+import { blockEditor, editableBlockKind, openPieceDialog } from "./block-forms.js";
 
 const ADMIN_SCHEME_KEY = "ob-admin-scheme";
 const ADMIN_PREVIEW_WIDTH_KEY = "ob-admin-preview-width";
@@ -19096,6 +19096,7 @@ export class Editor {
         ? [
             h("button", { type: "button", class: "oba-format-button", title: "Insert Abstract section", onClick: () => this.addResearchSection("abstract") }, "Abstract"),
             h("button", { type: "button", class: "oba-format-button", title: "Insert References section", onClick: () => this.addResearchSection("references") }, "References"),
+            h("button", { type: "button", class: "oba-format-button", title: "Add a button, video, map, image or other piece", "aria-label": "Add something", "aria-haspopup": "dialog", "data-add-something": "true", onClick: () => this.openAddSomething() }, "Add something"),
             h("button", { type: "button", class: "oba-format-button", title: "Insert or edit a citation", "aria-label": "Cite a source", "data-citation-open": "true", onClick: () => this.openCitationDialog() }, "Cite"),
             h("button", { type: "button", class: "oba-format-button", title: "Make a claim from the selected words, in Evidence Studio", "aria-label": "Make a claim from the selected words", "data-claim-from-selection": "true", onClick: () => void this.claimFromSelection() }, "Claim"),
             (ui.draftResearchToggle = h("button", { type: "button", class: "oba-format-button", title: "Search your research and insert quotations, citations and links beside the draft", "aria-expanded": "false", "aria-controls": "oba-draft-research-slot", "data-draft-research-toggle": "true", onClick: () => this.toggleDraftResearch() }, "Research")),
@@ -19744,6 +19745,39 @@ export class Editor {
     card.dataset.editing = "true";
     card.replaceChildren(form);
     editor.focus();
+  }
+
+  /** The Add something dialog: a piece's details in plain words, written as Markdown at the caret in either mode. */
+  openAddSomething() {
+    this.captureVisualSelection();
+    const pieces = this.app.meta?.pieces || [];
+    if (!pieces.length) {
+      this.sayCitation("The pieces could not be loaded. Reload the page and try again. Your draft is unchanged.");
+      return;
+    }
+    const selection = this.editorMode === "markdown" ? [this.ui.body.selectionStart, this.ui.body.selectionEnd] : null;
+    let inserted = false;
+    openPieceDialog({
+      pieces,
+      build: (kind, values) => this.buildPiece(kind, values),
+      onInsert: (markdown) => {
+        const refusal = this.insertFromResearch({ kind: "block", markdown: String(markdown).replace(/\n+$/, ""), label: "piece" });
+        if (!refusal) inserted = true;
+        return refusal;
+      },
+      onClose: () => {
+        // Focus goes back to the editor. A successful insert has already placed the caret after the piece.
+        this.writingSurface().focus();
+        if (inserted) {
+          // The caret rests after the piece's last line, on the blank line beneath it, so the next insert is not inside its fence.
+          const body = this.ui.body;
+          if (this.editorMode === "markdown" && body.value[body.selectionEnd] === "\n") body.setSelectionRange(body.selectionEnd + 1, body.selectionEnd + 1);
+          return;
+        }
+        if (selection && this.editorMode === "markdown") this.ui.body.setSelectionRange(selection[0], selection[1]);
+        else if (this.editorMode === "visual") this.restoreVisualSelection();
+      },
+    });
   }
 
   moveProtectedBlock(card, direction) {
