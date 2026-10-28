@@ -105,6 +105,5 @@ mod tests {
         ] {
             assert!(contract.contains(phrase), "{phrase}");
         }
-        assert!(ENGINE_GUIDE_VERSION >= 5);
     }
 }

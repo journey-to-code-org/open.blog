@@ -712,3 +712,41 @@ fn promote_makes_a_post_draft_the_site_accepts_and_leaves_the_samples_alone() {
     assert!(text(&again).contains("deleted-folder"), "{}", text(&again));
     let _ = fs::remove_dir_all(dir);
 }
+
+#[test]
+fn list_names_rough_only_prompts_and_one_sample_traits_from_the_guide() {
+    let dir = site("list-gaps");
+    // No guide and no sample: the list is as it was, with no gap sections.
+    let plain = text(&run(&dir, &["voice", "--list"], ""));
+    assert!(!plain.contains("Rough only"), "{plain}");
+    assert!(!plain.contains("rest on one sample"), "{plain}");
+
+    write_rough_sample(&dir);
+    fs::create_dir_all(dir.join("assistant/context")).unwrap();
+    fs::write(
+        dir.join("assistant/context/voice.md"),
+        "# Voice guide\n\n## Word choice\n\n- Says delted: \"delted\" (a-rough.md) (one sample)\n- Short: \"panicked\" (a-rough.md)\n",
+    )
+    .unwrap();
+    let before = fs::read(dir.join("assistant/context/voice.md")).unwrap();
+    let output = run(&dir, &["voice", "--list"], "");
+    let printed = text(&output);
+    assert!(output.status.success(), "{printed}");
+    assert!(
+        printed.contains(&format!("Rough only, no polished draft yet: {PROMPT}.")),
+        "{printed}"
+    );
+    assert!(
+        printed
+            .contains("Voice guide traits that rest on one sample:\n  Says delted (Word choice)"),
+        "{printed}"
+    );
+    assert!(!printed.contains("Short ("), "{printed}");
+    assert!(printed.contains("Packs with no sample yet"), "{printed}");
+    assert_eq!(
+        fs::read(dir.join("assistant/context/voice.md")).unwrap(),
+        before,
+        "listing never writes"
+    );
+    let _ = fs::remove_dir_all(dir);
+}

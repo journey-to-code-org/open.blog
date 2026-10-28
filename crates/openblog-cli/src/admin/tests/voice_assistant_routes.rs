@@ -854,3 +854,76 @@ fn completion_includes_the_voice_guide_only_when_it_is_a_selected_context_item()
         }
     }
 }
+
+// ---- gaps reach the catalog and the voice-guide task (#462) -----------------------------------
+
+#[test]
+fn the_catalog_and_the_voice_guide_task_share_one_gap_summary() {
+    let _env = quiz_env();
+    let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+    let f = fixture("voice-gaps-shared");
+    let session = login_ok(&f);
+    let file = write_rough(
+        &f.dir,
+        Visibility::Private,
+        "a-mistake-i-made",
+        "stories",
+        "2026-10-28",
+        MISTAKE,
+    );
+    fs::create_dir_all(f.dir.join("assistant/context")).unwrap();
+    fs::write(
+        f.dir.join("assistant/context/voice.md"),
+        "# Voice guide\n\n## Word choice\n\n- Plain: \"so i deleted\" (a-rough.md) (one sample)\n",
+    )
+    .unwrap();
+
+    let found = catalog(&f, &session);
+    let gaps = &found["voiceGaps"];
+    assert_eq!(gaps["roughOnlyPrompts"], json!(["a-mistake-i-made"]));
+    assert!(!gaps["unansweredPrompts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|id| id == "a-mistake-i-made"));
+    assert!(!gaps["unansweredPacks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|id| id == "stories"));
+    assert!(!gaps["unansweredPacks"].as_array().unwrap().is_empty());
+    assert_eq!(gaps["oneSampleTraits"][0]["statement"], "Plain");
+    assert_eq!(gaps["oneSampleTraits"][0]["section"], "Word choice");
+    assert_eq!(gaps["oneSampleTraits"][0]["sample"], "a-rough.md");
+
+    // The provider receives the same summary.
+    let (endpoint, captured, provider) = capturing_provider(provider_guide(&file));
+    set_quiz_endpoint(&f, &endpoint);
+    std::env::set_var("OPENBLOG_LESSONS_API_KEY", "voice-secret");
+    let response = post(
+        &f,
+        &session,
+        GUIDE_PATH,
+        json!({ "sampleIds": [format!("voice:private:{file}")] }),
+    );
+    assert_eq!(
+        response.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&response.body)
+    );
+    provider.join().unwrap();
+    let outbound = captured.recv().unwrap();
+    assert_eq!(outbound["untrustedData"]["gaps"], *gaps);
+}
+
+#[test]
+fn a_project_without_samples_or_a_guide_has_every_prompt_unanswered_and_nothing_else() {
+    let f = fixture("voice-gaps-empty");
+    let session = login_ok(&f);
+    let gaps = catalog(&f, &session)["voiceGaps"].clone();
+    assert_eq!(gaps["roughOnlyPrompts"], json!([]));
+    assert_eq!(gaps["oneSampleTraits"], json!([]));
+    assert!(gaps["unansweredPrompts"].as_array().unwrap().len() > 10);
+    assert!(!f.dir.join("assistant/context/voice").exists());
+}

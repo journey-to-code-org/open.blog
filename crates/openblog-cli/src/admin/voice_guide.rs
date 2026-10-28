@@ -112,7 +112,10 @@ pub(super) fn generate_voice_guide(state: &AppState, req: &Request) -> Response 
         skill.clone(),
         current_text.clone(),
         samples.clone(),
-        json!({}),
+        crate::voice_assistant::gaps_json(&crate::voice_assistant::gaps_for(
+            &state.root,
+            current_text.as_deref(),
+        )),
     );
     let _provider_permit = match state.assistant_operations.try_acquire() {
         Some(permit) => permit,

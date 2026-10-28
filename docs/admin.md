@@ -285,6 +285,36 @@ openblog voice --scrap --yes       # give up the open session and save nothing
 
 `<sample>` is a file name from `voice --list` or a prompt id. Output is plain text.
 
+### Use voice samples and a voice guide with the Assistant
+
+Your samples and a **voice guide** can be chosen as Assistant context, so reviews and suggestions
+sound like you and not like a model (ADRs [0350](adr/0350-voice-samples-and-the-voice-guide-are-selected-as-assistant-context-by-id-and-reloaded-on-the-server.md)
+to [0353](adr/0353-the-engine-guide-teaches-voice-samples-and-gaps-are-computed-by-the-core.md)).
+Nothing is sent unless you select it and run a request, and nothing here changes a project that has no samples.
+
+- **Choose samples.** In the Assistant's Context view a **Voice samples** section lists each sample with its
+  stage, pack, prompt, visibility and size. Tick the ones to send. The disclosure lists them with a running
+  total against the limit of 8 samples and 120,000 characters per request; a selection over it is refused
+  before anything is sent. The server reads the chosen files again for every request, so the browser only ever
+  names a sample. Sample text is sent as data to compare against, never as instructions.
+- **Propose a guide.** Select samples and choose **Propose a voice guide from selected samples**. The provider
+  returns a guide in which every line quotes your own words word for word and names its sample (a result with
+  a quote that is not in the sample is rejected, and nothing is shown). A line that rests on one sample is
+  marked `(one sample)`, and the guide always ends with *What is not yet known*. You see the proposal as
+  changes against your saved guide, can edit it, and it is written only when you choose **Save as portable**
+  (`assistant/context/voice.md`) or **Save as private** (`.openblog/private/context/voice.md`). **Discard**
+  leaves your files as they were. A guide changed elsewhere since you opened it is a conflict, not an overwrite.
+- **Use the guide.** Select the guide like any context. The `voice-review` skill compares your draft with it and
+  with your samples, and names the sample or guide section behind each finding (a finding that names none is
+  marked unverified advice). The `voice-match` skill suggests small replacements for specific passages; one
+  that cannot be found exactly in your draft is shown as advice and never applied, and any applied suggestion
+  can be undone. With AI autocomplete on and the guide selected, suggestions lean toward your voice, and turning
+  autocomplete on names the selected context first.
+- **Never your rough text.** The Assistant never edits a rough draft and never applies a change to a polished
+  draft: it proposes, you decide.
+- **What is missing.** `openblog voice --list` also shows prompts with a rough draft and no polished draft, and
+  guide traits that still rest on one sample; the Context view and the guide request use the same list.
+
 ### Write visually or in Markdown
 
 The Write view defaults to **Visual**, which behaves like a word processor while keeping

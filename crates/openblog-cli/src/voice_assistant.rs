@@ -6,6 +6,7 @@
 
 use std::path::Path;
 
+use openblog_core::voice::gaps::{gaps, Gaps};
 use openblog_core::voice::VoiceStage;
 use serde_json::{json, Value as Json};
 
@@ -14,6 +15,8 @@ use crate::voice_store::{self, Listed, Visibility};
 
 /// The most samples one Assistant request may carry.
 pub const MAX_SAMPLES_PER_REQUEST: usize = 8;
+/// The largest voice guide read for gaps, in bytes (the context file limit).
+const MAX_GUIDE_BYTES: u64 = 64 * 1024;
 /// The most sample characters one Assistant request may carry, over all its samples.
 pub const MAX_CHARACTERS_PER_REQUEST: usize = 120_000;
 
@@ -63,6 +66,51 @@ pub fn catalog_entries(root: &Path) -> Vec<Json> {
         .iter()
         .map(|listed| descriptor(root, listed))
         .collect()
+}
+
+/// The text of the saved voice guide, if there is one: the portable file when both exist, since it
+/// is the one the project shares. Unreadable, oversized and non-UTF-8 files count as no guide.
+pub fn read_guide(root: &Path) -> Option<(Visibility, String)> {
+    for visibility in [Visibility::Portable, Visibility::Private] {
+        let relative = match visibility {
+            Visibility::Portable => "assistant/context/voice.md",
+            Visibility::Private => ".openblog/private/context/voice.md",
+        };
+        let Ok(path) = crate::assistant_storage::contained_target(root, Path::new(relative)) else {
+            continue;
+        };
+        let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if !metadata.is_file() || metadata.len() > MAX_GUIDE_BYTES {
+            continue;
+        }
+        if let Ok(text) = std::fs::read_to_string(&path) {
+            return Some((visibility, text));
+        }
+    }
+    None
+}
+
+/// The gaps in this project's voice material (ADR 0353). `guide` is the text to read the
+/// one-sample markers from; pass the guide the caller is working with.
+pub fn gaps_for(root: &Path, guide: Option<&str>) -> Gaps {
+    let catalog = voice_store::load_catalog(root);
+    gaps(&catalog, &voice_store::library(root), guide)
+}
+
+/// The gaps as JSON for the Admin and the voice-guide task.
+pub fn gaps_json(found: &Gaps) -> Json {
+    json!({
+        "unansweredPacks": found.unanswered_packs,
+        "unansweredPrompts": found.unanswered_prompts,
+        "roughOnlyPrompts": found.rough_only_prompts,
+        "oneSampleTraits": found.one_sample_traits.iter().map(|item| json!({
+            "section": item.section,
+            "statement": item.statement,
+            "sample": item.sample,
+        })).collect::<Vec<_>>(),
+    })
 }
 
 /// The request budget, as the browser needs it to refuse an over-budget selection before it sends

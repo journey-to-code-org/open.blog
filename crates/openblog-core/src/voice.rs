@@ -11,6 +11,7 @@
 
 pub mod catalog;
 pub mod draw;
+pub mod gaps;
 pub mod guide;
 
 use std::collections::BTreeMap;

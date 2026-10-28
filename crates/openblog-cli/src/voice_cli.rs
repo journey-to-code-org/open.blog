@@ -626,6 +626,22 @@ fn list(root: &Path) -> Result<(), String> {
             );
         }
     }
+    // The same arithmetic Admin and the voice-guide task use (ADR 0353).
+    let guide = crate::voice_assistant::read_guide(root);
+    let gaps =
+        crate::voice_assistant::gaps_for(root, guide.as_ref().map(|(_, text)| text.as_str()));
+    if !gaps.rough_only_prompts.is_empty() {
+        println!(
+            "\nRough only, no polished draft yet: {}.",
+            gaps.rough_only_prompts.join(", ")
+        );
+    }
+    if !gaps.one_sample_traits.is_empty() {
+        println!("\nVoice guide traits that rest on one sample:");
+        for item in &gaps.one_sample_traits {
+            println!("  {} ({})", item.statement, item.section);
+        }
+    }
     println!("\n{answered_total} of {total} prompts answered.");
     if !empty_packs.is_empty() && answered_total > 0 {
         println!("Packs with no sample yet: {}.", empty_packs.join(", "));

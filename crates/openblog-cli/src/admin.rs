@@ -10602,6 +10602,10 @@ fn assistant_context_catalog(state: &AppState, req: &Request) -> Response {
             "voiceGuides": voice_guides,
             "voiceSamples": crate::voice_assistant::catalog_entries(&state.root),
             "voiceBudget": crate::voice_assistant::budget(),
+            "voiceGaps": crate::voice_assistant::gaps_json(&crate::voice_assistant::gaps_for(
+                &state.root,
+                crate::voice_assistant::read_guide(&state.root).as_ref().map(|(_, text)| text.as_str()),
+            )),
             "privateSafety": private_safety
         }),
     )
