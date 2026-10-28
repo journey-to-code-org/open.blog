@@ -239,3 +239,35 @@ test("an empty page says what to do, and Help explains the words in plain langua
   await expect(help.getByText("Web address", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Publish", exact: true })).toHaveAttribute("title", /make your saved page live/);
 });
+
+// ---------------------------------------------------------------- a layout Undo never outlives the work it would overwrite
+
+test("a layout Undo is gone once the newer page or the restored draft replaces the sections, and layouts wait for the restore offer", async ({ page }) => {
+  seed(THREE());
+  await openLanding(page);
+  await page.getByRole("button", { name: "Choose a ready-made layout" }).click();
+  await startersPanel(page).getByRole("button", { name: "Portfolio" }).click();
+  await page.locator("[data-landing-confirm]").getByRole("button", { name: "Replace my sections" }).click();
+  const undo = page.getByRole("button", { name: "Undo", exact: true });
+  await expect(undo).toBeVisible();
+  const portfolio = await order(page);
+  // Someone saves a different page elsewhere, so the next Save finds a conflict.
+  seed([{ id: "elsewhere", type: "rich-text", markdown: "Written on another device." }]);
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  const box = page.locator("[data-landing-conflict]");
+  await expect(box).toBeVisible();
+  await box.getByRole("button", { name: "Use the newer version" }).click();
+  expect(await order(page)).toEqual(["elsewhere"]);
+  await expect(undo).toHaveCount(0);
+  await expect(page.locator("[data-landing-toast]")).toBeHidden();
+  // While the restore offer waits, the layout choices are off.
+  const offer = page.locator("[data-landing-restore]");
+  await expect(offer).toBeVisible();
+  await expect(page.getByRole("button", { name: "Choose a ready-made layout" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Reset to default" })).toBeDisabled();
+  await offer.getByRole("button", { name: "Restore your unsaved changes" }).click();
+  expect(await order(page)).toEqual(portfolio);
+  await expect(undo).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Choose a ready-made layout" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Reset to default" })).toBeEnabled();
+});

@@ -13093,6 +13093,11 @@ export class ObAdmin extends AdminElement {
     const confirmBox = h("div", { class: "oba-notice oba-landing-confirm", role: "group", "aria-labelledby": "oba-landing-confirm-title", hidden: true, "data-landing-confirm": "true" });
     const layoutButton = h("button", { class: "oba-btn oba-landing-button", type: "button", "data-action": "choose-layout", "aria-expanded": "false", "aria-controls": "oba-landing-starters", onClick: () => openStarters() }, "Choose a ready-made layout");
     const resetButton = h("button", { class: "oba-btn oba-landing-button", type: "button", "data-action": "reset-default", onClick: () => chooseLayout("default", "the default layout", defaultSections) }, "Reset to default");
+    // While a stored draft waits to be restored or thrown away, replacing the whole page would hide it.
+    const syncLayoutLock = () => {
+      layoutButton.disabled = !!pendingDraft;
+      resetButton.disabled = !!pendingDraft;
+    };
     const closeStarters = (focus = true) => {
       startersPanel.hidden = true;
       layoutButton.setAttribute("aria-expanded", "false");
@@ -13153,6 +13158,7 @@ export class ObAdmin extends AdminElement {
       else layoutButton.focus();
     };
     const chooseLayout = (id, label, build) => {
+      if (pendingDraft) return;
       const next = build();
       if (pageSame(next, draft.sections)) {
         closeStarters(false);
@@ -13264,6 +13270,7 @@ export class ObAdmin extends AdminElement {
         // Your changes are put away as a draft first, so choosing the newer page loses nothing.
         drafts.save(draft, current.revision);
         const record = drafts.load();
+        clearUndo();
         applySaved(current);
         editingId = null;
         renderCards();
@@ -13293,6 +13300,10 @@ export class ObAdmin extends AdminElement {
     const restoreBox = h("div", { class: "oba-notice oba-landing-restore", role: "group", "aria-labelledby": "oba-landing-restore-title", hidden: true, "data-landing-restore": "true" });
     const offerRestore = (record) => {
       pendingDraft = record;
+      closeConfirm();
+      startersPanel.hidden = true;
+      layoutButton.setAttribute("aria-expanded", "false");
+      syncLayoutLock();
       const when = draftTimeText(record.savedAt);
       const older = record.base !== revision;
       restoreBox.hidden = false;
@@ -13301,9 +13312,11 @@ export class ObAdmin extends AdminElement {
         h("p", {}, `This device kept changes${when ? ` from ${when}` : ""} that were never saved${older ? ", made on an older version of this page. If you save them you will be asked what to do about the newer one" : ""}.`),
         h("div", { class: "oba-toolbar" },
           h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": "restore-draft", onClick: () => {
+            clearUndo();
             draft = pageFrom(record.page);
             revision = record.base;
             pendingDraft = null;
+            syncLayoutLock();
             restoreBox.hidden = true;
             editingId = null;
             renderCards();
@@ -13314,6 +13327,7 @@ export class ObAdmin extends AdminElement {
           } }, "Restore your unsaved changes"),
           h("button", { class: "oba-btn", type: "button", "data-action": "discard-draft", onClick: () => {
             pendingDraft = null;
+            syncLayoutLock();
             drafts.clear();
             restoreBox.hidden = true;
             renderBar();
@@ -13335,6 +13349,7 @@ export class ObAdmin extends AdminElement {
     };
     /** What a save or a refused save does to the page the owner is looking at. */
     const applySaved = (result, sent = null) => {
+      clearUndo();
       revision = result.revision ?? null;
       exists = true;
       saved = pageFrom(result.page);
@@ -13347,6 +13362,7 @@ export class ObAdmin extends AdminElement {
       conflictBox.replaceChildren();
       restoreBox.hidden = true;
       pendingDraft = null;
+      syncLayoutLock();
       return untouched;
     };
     const save = async () => {
