@@ -2549,5 +2549,5 @@ _Avoid_: Style guide, persona, system prompt
 **Voice erase**:
 Removing every voice sample (both folders), the session record, the guide and leftover editor files in one
 all-or-nothing step, after a listed confirmation, and then checking again that nothing remains. The guide's
-location is named in one place, `voice_store::guide_paths` (ADR 0371).
+location is named in one place, `voice_store::guide_paths` (ADR 0279).
 _Avoid_: Reset, wipe, delete account

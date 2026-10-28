@@ -1,11 +1,11 @@
-# ADR 0371: Erasing voice data is listed, confirmed, staged in a trash folder and checked again
+# ADR 0279: Erasing voice data is listed, confirmed, staged in a trash folder and checked again
 
 - Status: Accepted
 - Date: 2026-10-28
 - Decision issue: [#465](https://github.com/journey-to-code-org/open.blog/issues/465)
 - Parent story: [#426](https://github.com/journey-to-code-org/open.blog/issues/426)
 - Parent epic: [#410](https://github.com/journey-to-code-org/open.blog/issues/410)
-- Builds on: ADR 0266, ADR 0267, ADR 0370
+- Builds on: ADR 0266, ADR 0267, ADR 0278
 
 ## Context
 
