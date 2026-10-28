@@ -1,4 +1,4 @@
-//! `openblog voice` through the real command line (ADR 0350): the post-init invitation never
+//! `openblog voice` through the real command line (ADR 0269): the post-init invitation never
 //! prompts a script, a session draws, captures against the clock and locks the rough draft
 //! exactly as written, an interrupted session resumes with its saved deadline (an expired one
 //! locks), a rough draft stays byte-identical through polish, diff and promote, and a polished

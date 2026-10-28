@@ -2538,7 +2538,7 @@ _Avoid_: Final draft, edited version
 **Promotion**:
 Making a post draft (`draft: true`) from a polished draft: a copy, never a move, so the sample stays where it
 is. It refuses a rough draft and a slug a post already uses, and it is one store function that the CLI and
-Admin both call (ADR 0351).
+Admin both call (ADR 0270).
 _Avoid_: Publish, convert
 
 **Voice guide**:

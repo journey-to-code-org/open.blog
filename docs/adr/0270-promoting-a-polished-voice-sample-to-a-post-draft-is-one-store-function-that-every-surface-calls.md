@@ -1,4 +1,4 @@
-# ADR 0351: Promoting a polished voice sample to a post draft is one store function that every surface calls
+# ADR 0270: Promoting a polished voice sample to a post draft is one store function that every surface calls
 
 - Status: Accepted
 - Date: 2026-10-28

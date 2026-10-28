@@ -1,4 +1,4 @@
-//! Timed capture for a voice session at the terminal (ADR 0350): an editor, or plain lines on
+//! Timed capture for a voice session at the terminal (ADR 0269): an editor, or plain lines on
 //! standard input.
 //!
 //! The clock is honest. In both modes the deadline comes from the session record, text that

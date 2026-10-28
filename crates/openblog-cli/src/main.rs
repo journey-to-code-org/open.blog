@@ -274,7 +274,7 @@ fn run(raw: &[String]) -> Result<(), String> {
                     "\nNext: cd into the folder, run `openblog serve`, and edit openblog.json."
                 );
             }
-            // A person at a terminal is asked once; pipes and scripts never are (ADR 0350).
+            // A person at a terminal is asked once; pipes and scripts never are (ADR 0269).
             voice_cli::invite_after_init(
                 &dir,
                 args.switches.contains("no-voice"),

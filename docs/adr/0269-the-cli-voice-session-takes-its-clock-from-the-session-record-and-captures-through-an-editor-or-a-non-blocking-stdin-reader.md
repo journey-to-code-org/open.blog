@@ -1,4 +1,4 @@
-# ADR 0350: The CLI voice session takes its clock from the session record and captures through an editor or a non-blocking stdin reader
+# ADR 0269: The CLI voice session takes its clock from the session record and captures through an editor or a non-blocking stdin reader
 
 - Status: Accepted
 - Date: 2026-10-28

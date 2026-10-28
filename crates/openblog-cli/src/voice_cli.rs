@@ -1,4 +1,4 @@
-//! `openblog voice`: timed voice sessions from the terminal (ADR 0350).
+//! `openblog voice`: timed voice sessions from the terminal (ADR 0269).
 //!
 //! This is a thin layer. The rules live in `voice_session` (the clock and the lock), `voice_store`
 //! (what may be written, including the rule that a rough draft is never changed) and
