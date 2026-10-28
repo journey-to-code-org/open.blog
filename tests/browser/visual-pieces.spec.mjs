@@ -184,5 +184,18 @@ for (const [name, viewport] of [["phone", { width: 320, height: 640 }], ["deskto
       await mode(page, "Markdown").click();
       await expect(markdown(page)).toHaveValue(DRAFT);
     });
+
+    test("HTML typed into a callout is refused with a message", async ({ page }) => {
+      await openNewPost(page);
+      await useMarkdown(page, "> [!NOTE]
+> Fine.
+", [0, 0]);
+      await mode(page, "Visual").click();
+      const callout = visual(page).locator('section[aria-label="Callout block"]');
+      await callout.getByRole("button", { name: "Edit callout" }).click();
+      await callout.getByLabel("Callout text").fill("<script>alert(1)</script>");
+      await callout.getByRole("button", { name: "Apply" }).click();
+      await expect(callout.getByRole("alert")).toContainText("HTML tags are not allowed");
+    });
   });
 }

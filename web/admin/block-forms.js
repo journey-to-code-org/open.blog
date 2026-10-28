@@ -194,6 +194,11 @@ function actionButton(label, onClick, extra = {}) {
   return el("button", { type: "button", class: "oba-btn oba-bf-button", onClick, ...extra }, label);
 }
 
+/** True when text has `<` then a letter, `/`, `!` or `?`: markup a post would render live. */
+export function hasHtmlTag(value) {
+  return /<[A-Za-z/!?]/.test(String(value));
+}
+
 /** The editors below all return `{ element, read(), focus() }`; `read` gives `{ markdown }` or `{ problem }`. */
 export function calloutEditor(source) {
   const initial = parseCallout(source);
@@ -202,7 +207,11 @@ export function calloutEditor(source) {
   text.value = initial.text;
   return {
     element: el("div", { class: "oba-bf-body" }, fieldRow("Kind of callout", kind), fieldRow("Callout text", text, "Markdown. A blank line starts a new paragraph.")),
-    read: () => (text.value.trim() ? { markdown: calloutMarkdown({ kind: kind.value, text: text.value }) } : { problem: "Add some text to the callout." }),
+    read: () => {
+      if (!text.value.trim()) return { problem: "Add some text to the callout." };
+      if (hasHtmlTag(text.value)) return { problem: "HTML tags are not allowed in a callout." };
+      return { markdown: calloutMarkdown({ kind: kind.value, text: text.value }) };
+    },
     focus: () => kind.focus(),
   };
 }

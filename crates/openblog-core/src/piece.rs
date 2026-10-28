@@ -372,7 +372,7 @@ static SCHEMAS: &[Schema] = &[
                 field(
                     "answer",
                     "Answer",
-                    "Plain text or Markdown. Raw HTML is shown as text.",
+                    "Plain text or Markdown. HTML tags are not allowed.",
                     Input::Textarea,
                     true,
                     landing::MAX_ANSWER_CHARS,
@@ -398,7 +398,7 @@ static SCHEMAS: &[Schema] = &[
             field(
                 "body",
                 "Text",
-                "Plain text or Markdown. Raw HTML is shown as text.",
+                "Plain text or Markdown. HTML tags are not allowed.",
                 Input::Textarea,
                 true,
                 landing::MAX_ANSWER_CHARS,
@@ -532,6 +532,13 @@ impl Piece {
                 .any(|f| f.name == name);
             if !known {
                 problems.push(format!("`{name}` is not a field of this piece"));
+            }
+        }
+        // A call-out is written into the post as plain Markdown, which the post renderer lets
+        // raw HTML through; every other piece is a fence the renderer shows as escaped text.
+        for (name, value) in values.iter().filter(|_| kind == "callout") {
+            if has_html_tag(value) {
+                problems.push(format!("`{name}`: HTML tags are not allowed"));
             }
         }
         for f in spec.fields {
@@ -880,6 +887,15 @@ impl Piece {
     }
 }
 
+/// True when the text has `<` followed by an ASCII letter, `/`, `!` or `?`,
+/// which a post renderer would pass through as live markup.
+pub fn has_html_tag(value: &str) -> bool {
+    value
+        .as_bytes()
+        .windows(2)
+        .any(|w| w[0] == b'<' && (w[1].is_ascii_alphabetic() || matches!(w[1], b'/' | b'!' | b'?')))
+}
+
 fn printable(value: &str) -> String {
     value.chars().filter(|c| !c.is_control()).take(40).collect()
 }
@@ -913,6 +929,24 @@ mod tests {
             .iter()
             .map(|(a, b)| (a.to_string(), b.to_string()))
             .collect()
+    }
+
+    #[test]
+    fn html_tags_are_refused_in_every_text_field() {
+        assert!(has_html_tag("a <b>x"));
+        assert!(has_html_tag("</p>"));
+        assert!(has_html_tag("<!-- x"));
+        assert!(has_html_tag("<?php"));
+        assert!(!has_html_tag("1 < 2 and a<3 <"));
+        let err = Piece::from_values(
+            "callout",
+            &v(&[("tone", "info"), ("title", "<img src=x>"), ("body", "hi")]),
+        )
+        .unwrap_err();
+        assert!(err.iter().any(|p| p.contains("HTML tags are not allowed")));
+        // Other pieces are fences the renderer escapes, so they stay writable.
+        assert!(Piece::from_values("faq", &v(&[("question", "<i>q"), ("answer", "a")])).is_ok());
+        assert!(Piece::from_values("callout", &v(&[("body", "2 < 3")])).is_ok());
     }
 
     #[test]

@@ -32138,6 +32138,25 @@ href: /about/
             .as_str()
             .unwrap()
             .contains("not allowed"));
+        for (field, value) in [("body", "<script>alert(1)</script>"), ("title", "</p><b>x")] {
+            let html = handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "POST",
+                        "/admin/api/pieces",
+                        json!({"kind": "callout", "values": [["tone", "info"], ["title", "T"], ["body", "ok"], [field, value]]}),
+                    ),
+                    &session,
+                    true,
+                ),
+            );
+            assert_eq!(html.status, 422, "{field}");
+            assert!(body_json(&html)["problems"][0]
+                .as_str()
+                .unwrap()
+                .contains("HTML tags are not allowed"));
+        }
         let unauthenticated = handle(
             &f.state,
             &json_req(
