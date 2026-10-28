@@ -90,6 +90,26 @@ text colour, `codeNumber`, and `codeString`. Callouts use `calloutNote`, `callou
 | `codeHighlighting` | Colour code blocks with the built-in highlighter (`codeKeyword`, `codeString`, ... colour tokens); off when the theme brings its own |
 | `codeLineNumbers` | Number the lines of code blocks with two or more lines (default `true`). The numbers are never copied with the code |
 
+## Look controls
+
+Site owners can change the look from Admin by choosing presets (never CSS): an accent color, a curated
+palette, a font style, text size, corner roundness, spacing, page width and heading weight. The engine
+compiles those choices into a short block of `--ob-*` tokens appended to your theme's `tokens.css`, so
+they layer over whichever theme a page uses.
+
+A theme says which controls it honors with `customizable` in `theme.json`:
+
+```json
+{ "extends": "base", "customizable": ["accent", "roundness", "textSize"] }
+```
+
+The valid names are `accent`, `palette`, `fontStyle`, `textSize`, `roundness`, `spacing`, `pageWidth` and
+`headingWeight`. Omit it and the theme inherits its parent's list (`base` honors all of them); `[]` opts out
+of every control. Admin shows only the controls the active theme honors and explains the rest, and the build
+compiles only those, so list a control only when your theme's own stylesheet does not set the tokens it
+changes (for example `--ob-radius` for `roundness`, or `--ob-color-accent` for `accent`), because the
+owner's block loads before your extra stylesheets.
+
 ## Light and dark
 
 Both schemes are compiled. The theme's `colorScheme` is the default, the other scheme

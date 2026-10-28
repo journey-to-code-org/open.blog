@@ -9,7 +9,7 @@
 use blake2::{Blake2s256, Digest};
 
 use crate::look::{
-    FontStyle, HeadingWeight, LookSettings, PageWidth, Roundness, Spacing, TextSize, CONTROLS,
+    FontStyle, HeadingWeight, LookSettings, PageWidth, Roundness, Spacing, TextSize,
 };
 use crate::theme::Theme;
 
@@ -152,9 +152,9 @@ impl ColorToken {
 }
 
 /// The colors a look sets for one scheme, as `(token, "#rrggbb")` pairs.
-fn scheme_colors(look: &LookSettings, _theme: &Theme, _scheme: &str) -> Vec<(ColorToken, String)> {
+fn scheme_colors(look: &LookSettings, theme: &Theme, _scheme: &str) -> Vec<(ColorToken, String)> {
     let mut out = Vec::new();
-    if let Some(accent) = &look.accent {
+    if let Some(accent) = look.accent.as_ref().filter(|_| theme.honors("accent")) {
         let contrast = if relative_luminance(accent) > 0.179 {
             "#000000"
         } else {
@@ -181,11 +181,6 @@ fn relative_luminance(hex: &str) -> f64 {
     0.2126 * channel(1..3) + 0.7152 * channel(3..5) + 0.0722 * channel(5..7)
 }
 
-/// Whether the theme honors a control. Replaced by the theme's `customizable` list in #346.
-fn honors(_theme: &Theme, control: &str) -> bool {
-    CONTROLS.contains(&control)
-}
-
 fn push_decls(css: &mut String, indent: &str, decls: &[(&'static str, String)]) {
     for (property, value) in decls {
         css.push_str(&format!("{indent}{property}: {value};\n"));
@@ -202,25 +197,25 @@ fn push_colors(css: &mut String, indent: &str, colors: &[(ColorToken, String)]) 
 /// theme, so the theme's stylesheet is untouched.
 pub fn compile(look: &LookSettings, theme: &Theme) -> Option<CompiledLook> {
     let mut plain: Vec<(&'static str, String)> = Vec::new();
-    if honors(theme, "fontStyle") {
+    if theme.honors("fontStyle") {
         if let Some(style) = look.font_style {
             plain.push(("--ob-font-body", font_stack(style).to_string()));
             plain.push(("--ob-font-heading", font_stack(style).to_string()));
         }
     }
-    if honors(theme, "textSize") {
+    if theme.honors("textSize") {
         if let Some(size) = look.text_size {
             plain.push(("--ob-text-scale", text_scale(size).to_string()));
         }
     }
-    if honors(theme, "roundness") {
+    if theme.honors("roundness") {
         if let Some(round) = look.roundness {
             let (radius, small) = radius(round);
             plain.push(("--ob-radius", radius.to_string()));
             plain.push(("--ob-radius-sm", small.to_string()));
         }
     }
-    if honors(theme, "spacing") {
+    if theme.honors("spacing") {
         if let Some(space) = look.spacing {
             let values = spacing(space);
             for (property, value) in [
@@ -236,14 +231,14 @@ pub fn compile(look: &LookSettings, theme: &Theme) -> Option<CompiledLook> {
             }
         }
     }
-    if honors(theme, "pageWidth") {
+    if theme.honors("pageWidth") {
         if let Some(width) = look.page_width {
             let (max, reading) = page_width(width);
             plain.push(("--ob-max-width", max.to_string()));
             plain.push(("--ob-reading-width", reading.to_string()));
         }
     }
-    if honors(theme, "headingWeight") {
+    if theme.honors("headingWeight") {
         if let Some(weight) = look.heading_weight {
             plain.push(("--ob-heading-weight", heading_weight(weight).to_string()));
         }

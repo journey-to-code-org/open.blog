@@ -333,6 +333,38 @@ impl<'de> Deserialize<'de> for LookSettings {
     }
 }
 
+/// The plain name Admin shows for a control.
+pub fn control_label(control: &str) -> &'static str {
+    match control {
+        "accent" => "Accent color",
+        "palette" => "Color palette",
+        "fontStyle" => "Font style",
+        "textSize" => "Text size",
+        "roundness" => "Corner roundness",
+        "spacing" => "Spacing",
+        "pageWidth" => "Page width",
+        "headingWeight" => "Heading weight",
+        _ => "",
+    }
+}
+
+/// A kind sentence about the controls a theme does not honor, or `None` when it honors them all.
+pub fn unhonored_note(theme_label: &str, honored: &[String]) -> Option<String> {
+    let missing: Vec<&str> = CONTROLS
+        .iter()
+        .filter(|c| !honored.iter().any(|h| h == *c))
+        .map(|c| control_label(c))
+        .collect();
+    if missing.is_empty() {
+        return None;
+    }
+    let theme_label: String = theme_label.chars().filter(|c| !c.is_control()).collect();
+    Some(format!(
+        "The {theme_label} theme has its own design for: {}. Those choices are hidden because they would not change anything here.",
+        missing.join(", ")
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -479,5 +511,17 @@ mod tests {
         let text = serde_json::to_string(&look).unwrap();
         let back: LookSettings = serde_json::from_str(&text).unwrap();
         assert_eq!(back, look);
+    }
+
+    #[test]
+    fn unhonored_controls_are_explained_kindly() {
+        let all: Vec<String> = CONTROLS.iter().map(|c| c.to_string()).collect();
+        assert_eq!(unhonored_note("Base", &all), None);
+        let note = unhonored_note("Demo", &["accent".to_string()]).unwrap();
+        assert!(note.contains("Font style") && note.contains("Page width"));
+        assert!(!note.contains("Accent color"));
+        for control in CONTROLS {
+            assert!(!control_label(control).is_empty());
+        }
     }
 }
