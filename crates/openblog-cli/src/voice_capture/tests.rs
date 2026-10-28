@@ -213,3 +213,56 @@ fn a_missing_editor_is_a_plain_error() {
     assert!(result.unwrap_err().contains("did not finish normally"));
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn each_session_gets_its_own_editor_file_and_stale_ones_are_removed() {
+    let first = session_file_name("editing");
+    let second = session_file_name("editing");
+    assert_ne!(first, second);
+    assert!(first.starts_with("editing-") && first.ends_with(".md"));
+    let dir = scratch("stale");
+    for name in ["editing.md", "editing-old.md", "polishing-1.md", "keep.md"] {
+        std::fs::write(dir.join(name), "x").unwrap();
+    }
+    remove_stale(&dir, "editing");
+    assert!(!dir.join("editing.md").exists());
+    assert!(!dir.join("editing-old.md").exists());
+    assert!(dir.join("polishing-1.md").exists());
+    assert!(dir.join("keep.md").exists());
+    remove_stale(&dir, "polishing");
+    assert!(!dir.join("polishing-1.md").exists());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn the_deadline_stops_the_whole_editor_so_a_later_save_never_lands() {
+    let dir = scratch("tree");
+    let editor = script(
+        &dir,
+        "tree",
+        "printf 'in time\n' >> \"$1\"\nsleep 2\nsleep 3\nprintf x > \"$1.after\"",
+        "echo in time>> \"%~1\"\r\nping -n 3 127.0.0.1 >nul\r\nping -n 4 127.0.0.1 >nul\r\necho x> \"%~1.after\"",
+    );
+    let header = "# header\n";
+    let file = dir.join("draft.md");
+    let started = Instant::now();
+    let captured = capture_in_editor(
+        &editor,
+        &file,
+        header,
+        &format!("{header}{MARKER}\n"),
+        now() + 1,
+        &now,
+        &mut |_| {},
+    )
+    .unwrap();
+    assert_eq!(captured.ended, Ended::Deadline);
+    assert_eq!(captured.text, "in time");
+    assert!(started.elapsed() < Duration::from_secs(3));
+    std::thread::sleep(Duration::from_millis(5500));
+    assert!(
+        !dir.join("draft.md.after").exists(),
+        "the editor process survived the deadline"
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}

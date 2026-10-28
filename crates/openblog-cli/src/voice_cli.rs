@@ -477,14 +477,18 @@ fn drive(root: &Path, catalog: &Catalog, session: &Session, opts: &Options) -> R
 
     let captured: Captured = if let Some(editor) = editor {
         let header = header_for(prompt, catalog, session);
-        let path = contained_target(root, Path::new(".openblog/private/voice/editing.md"))?;
+        let dir = contained_target(root, Path::new(".openblog/private/voice"))?;
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| format!("Cannot create the voice folder: {e}"))?;
+        voice_capture::remove_stale(&dir, "editing");
+        let path = dir.join(voice_capture::session_file_name("editing"));
         let mut content = format!("{header}{}\n", voice_capture::MARKER);
         if !session.draft.is_empty() {
             content.push_str(&session.draft);
             content.push('\n');
         }
         println!("Opening your editor (`{editor}`). Write below the marker line, then save and close it.");
-        voice_capture::capture_in_editor(
+        let captured = voice_capture::capture_in_editor(
             &editor,
             &path,
             &header,
@@ -492,7 +496,9 @@ fn drive(root: &Path, catalog: &Catalog, session: &Session, opts: &Options) -> R
             deadline,
             &now_unix,
             &mut |text| save(text),
-        )?
+        );
+        voice_capture::remove_stale(&dir, "editing");
+        captured?
     } else {
         println!(
             "Type your answer. Finish with a line holding only a dot (.), or press Ctrl-D (Ctrl-Z on Windows)."
@@ -724,11 +730,10 @@ fn polish(root: &Path, arg: &str, options: &HashMap<String, String>) -> Result<(
         })
         .to_string();
 
-    let path = contained_target(root, Path::new(".openblog/private/voice/polishing.md"))?;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Cannot create the voice folder: {e}"))?;
-    }
+    let dir = contained_target(root, Path::new(".openblog/private/voice"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Cannot create the voice folder: {e}"))?;
+    voice_capture::remove_stale(&dir, "polishing");
+    let path = dir.join(voice_capture::session_file_name("polishing"));
     // The working copy holds the author's text, so it lives under the private folder.
     crate::landing_history::keep_out_of_git(root);
     std::fs::write(&path, format!("{seed_text}\n"))
@@ -744,6 +749,7 @@ fn polish(root: &Path, arg: &str, options: &HashMap<String, String>) -> Result<(
     let edited = voice_capture::edit_file(&editor, &path);
     let bytes = std::fs::read(&path);
     let _ = std::fs::remove_file(&path);
+    voice_capture::remove_stale(&dir, "polishing");
     edited?;
     let text = String::from_utf8(bytes.map_err(|e| format!("Cannot read the edited copy: {e}"))?)
         .map_err(|_| {

@@ -76,12 +76,62 @@ fn spawn_editor(editor: &str, path: &Path) -> std::io::Result<Child> {
     }
     #[cfg(not(windows))]
     {
+        use std::os::unix::process::CommandExt;
+        // Its own process group, so the whole tree can be stopped at the deadline.
         Command::new("sh")
             .arg("-c")
             .arg(format!("{editor} \"$1\""))
             .arg("sh")
             .arg(path)
+            .process_group(0)
             .spawn()
+    }
+}
+
+/// Stop the wrapper and everything it started, so a late save from the editor window cannot
+/// arrive after the deadline. Only this child's own tree is touched.
+fn kill_tree(child: &mut Child) {
+    #[cfg(windows)]
+    {
+        let _ = Command::new("taskkill")
+            .args(["/T", "/F", "/PID", &child.id().to_string()])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = Command::new("kill")
+            .args(["-KILL", "--", &format!("-{}", child.id())])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+/// A file name for one session's editor file, so a window left over from an earlier session can
+/// never save into this one.
+pub fn session_file_name(stem: &str) -> String {
+    let nanos = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    format!("{stem}-{}-{nanos}.md", std::process::id())
+}
+
+/// Delete leftover editor files `<stem>.md` and `<stem>-*.md` in `dir`, best effort.
+pub fn remove_stale(dir: &Path, stem: &str) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let dashed = format!("{stem}-");
+    let exact = format!("{stem}.md");
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name == exact || (name.starts_with(&dashed) && name.ends_with(".md")) {
+            let _ = std::fs::remove_file(entry.path());
+        }
     }
 }
 
@@ -135,8 +185,7 @@ pub fn capture_in_editor(
     let result = loop {
         if now_unix() >= deadline_unix {
             let text = read_lossy(path).map(|c| text_below_marker(&c, header));
-            let _ = child.kill();
-            let _ = child.wait();
+            kill_tree(&mut child);
             break Ok(Captured {
                 text: text.unwrap_or_default(),
                 ended: Ended::Deadline,

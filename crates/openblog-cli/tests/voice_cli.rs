@@ -562,7 +562,12 @@ fn polish_edits_a_copy_and_the_rough_file_never_changes() {
         saved.contains("title: The day I deleted a folder"),
         "{saved}"
     );
-    assert!(!dir.join(".openblog/private/voice/polishing.md").exists());
+    let leftovers: Vec<_> = fs::read_dir(dir.join(".openblog/private/voice"))
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with("polishing"))
+        .collect();
+    assert!(leftovers.is_empty(), "{leftovers:?}");
 
     // A second polish edits the existing polished draft, and says what it opened.
     let second = fake_editor(
