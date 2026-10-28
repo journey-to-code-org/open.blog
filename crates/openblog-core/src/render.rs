@@ -3016,7 +3016,7 @@ impl<'a> Renderer<'a> {
         );
         body.push_str("<p class=\"ob-eyebrow\"><a href=\"/series/\">Series</a></p>\n");
         body.push_str(&self.heading(theme, 1, &series.name, "ob-section-heading"));
-        if let Some(cover) = &series.cover {
+        if let Some(cover) = series.cover.as_ref().filter(|_| theme.series_page_cover) {
             body.push_str(&format!("<figure class=\"ob-cover\"><img src=\"{}\" alt=\"\" decoding=\"async\"></figure>\n", attr(cover)));
         }
         if !series.description_html.trim().is_empty() {
