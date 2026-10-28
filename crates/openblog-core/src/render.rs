@@ -1214,11 +1214,10 @@ impl<'a> Renderer<'a> {
         if c.feeds.llms {
             h.push_str("<link rel=\"alternate\" type=\"text/plain\" title=\"Content index for automated readers\" href=\"/llms.txt\">\n");
         }
-        if !c.favicon.is_empty() {
-            h.push_str(&format!(
-                "<link rel=\"icon\" href=\"{}\">\n",
-                attr(&c.favicon)
-            ));
+        // A theme's own icon is written here rather than swapped in by a script.
+        let favicon = theme.favicon.as_deref().unwrap_or(&c.favicon);
+        if !favicon.is_empty() {
+            h.push_str(&format!("<link rel=\"icon\" href=\"{}\">\n", attr(favicon)));
         }
         // Restore a visitor's saved color scheme before first paint.
         if c.color_scheme_toggle.unwrap_or(theme.color_scheme_toggle) {
@@ -1706,7 +1705,7 @@ impl<'a> Renderer<'a> {
         } else {
             format!(
                 "<img class=\"ob-brand-logo\" src=\"{}\" alt=\"\" width=\"54\" height=\"40\"><span class=\"ob-brand-name\">{}</span>",
-                attr(&c.logo),
+                attr(theme.logo.as_deref().unwrap_or(&c.logo)),
                 text(&c.title)
             )
         };
