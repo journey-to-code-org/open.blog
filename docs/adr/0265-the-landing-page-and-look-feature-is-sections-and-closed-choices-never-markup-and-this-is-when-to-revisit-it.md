@@ -1,4 +1,4 @@
-# ADR 0370: The landing page and look feature is sections and closed choices, never markup, and this is when to revisit it
+# ADR 0265: The landing page and look feature is sections and closed choices, never markup, and this is when to revisit it
 
 - Status: Accepted
 - Date: 2026-10-28

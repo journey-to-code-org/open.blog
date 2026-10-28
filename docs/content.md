@@ -273,7 +273,7 @@ Landing content never accepts markup. There is no HTML section; a button is a la
 a provider and an id, a map is coordinates. Only Markdown is rich (the text section, answers, call-out bodies)
 and it is read with raw HTML turned off, so a tag typed into it shows as text; addresses must be `https`,
 `mailto`, `tel` or a page of the site. Saving a section touches only this file. See ADRs 0245 to 0247 and the
-overview in ADR 0370.
+overview in ADR 0265.
 
 #### Linking a word to the Knowledge Atlas
 
