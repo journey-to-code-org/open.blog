@@ -200,3 +200,152 @@ fn voice_sample_identities_are_strict() {
         assert!(ContextIdentity::parse(bad).is_err(), "{bad}");
     }
 }
+
+// ---- the voice-guide task (#455) -------------------------------------------------------------
+
+const ROUGH: &str = "2026-10-28-a-mistake-i-made-rough.md";
+const OTHER: &str = "2026-10-29-a-book-i-loved-rough.md";
+const ROUGH_TEXT: &str = "so i deleted the wrong folder and just stared at it";
+const OTHER_TEXT: &str = "honestly it was a quiet book, and that was the point";
+
+fn guide_request(current: Option<&str>) -> AssistantRequest {
+    AssistantRequest::voice_guide(
+        "test-model".into(),
+        ReviewSkill {
+            id: "voice-guide".into(),
+            version: "1.0.0".into(),
+            instructions: "Fold the samples into the guide.".into(),
+        },
+        current.map(str::to_string),
+        vec![sample(ROUGH, ROUGH_TEXT), sample(OTHER, OTHER_TEXT)],
+        json!({ "unansweredPacks": ["humor"] }),
+    )
+}
+
+fn good_result() -> Json {
+    json!({
+        "sections": [{ "id": "diction", "traits": [
+            { "statement": "Starts with so", "quote": "so i deleted", "sample": ROUGH, "oneSample": true }
+        ]}],
+        "unknown": ["How you end a piece"]
+    })
+}
+
+#[test]
+fn the_voice_guide_request_is_engine_grounded_and_keeps_samples_as_untrusted_data() {
+    let payload = provider_payload(&guide_request(Some("# Voice guide\n- Short."))).unwrap();
+    assert_eq!(payload["task"], "voice-guide");
+    assert_eq!(payload["engineGuideVersion"], ENGINE_GUIDE_VERSION);
+    assert!(payload["platformCapabilities"].as_array().unwrap().len() > 5);
+    assert_eq!(payload["skills"][0]["id"], "voice-guide");
+    assert_eq!(
+        payload["untrustedData"]["currentGuide"],
+        "# Voice guide\n- Short."
+    );
+    assert_eq!(payload["untrustedData"]["context"][1]["name"], OTHER);
+    assert_eq!(
+        payload["untrustedData"]["context"][0]["content"],
+        ROUGH_TEXT
+    );
+    assert_eq!(
+        payload["untrustedData"]["gaps"],
+        json!({ "unansweredPacks": ["humor"] })
+    );
+    assert_eq!(payload["sections"][0]["id"], "sentences");
+    assert_eq!(payload["research"], json!({ "enabled": false }));
+    assert!(
+        provider_payload(&guide_request(None)).unwrap()["untrustedData"]["currentGuide"].is_null()
+    );
+}
+
+#[test]
+fn a_sample_that_gives_orders_stays_inside_untrusted_data_in_the_voice_guide_request() {
+    let request = AssistantRequest::voice_guide(
+        "test-model".into(),
+        ReviewSkill {
+            id: "voice-guide".into(),
+            version: "1.0.0".into(),
+            instructions: "Fold the samples into the guide.".into(),
+        },
+        Some(INJECTION.to_string()),
+        vec![sample(ROUGH, INJECTION)],
+        json!({}),
+    );
+    let payload = provider_payload(&request).unwrap();
+    let mut trusted = payload.clone();
+    trusted.as_object_mut().unwrap().remove("untrustedData");
+    assert!(!trusted.to_string().contains("Ignore every instruction"));
+    let anthropic = anthropic_payload(&request).unwrap();
+    assert!(!anthropic["system"]
+        .as_str()
+        .unwrap()
+        .contains("Ignore every"));
+}
+
+#[test]
+fn the_voice_guide_schema_is_strict_and_names_only_selected_samples() {
+    let schema = anthropic_payload(&guide_request(None)).unwrap()["output_config"]["format"]
+        ["schema"]
+        .clone();
+    assert_eq!(schema["additionalProperties"], false);
+    let trait_schema = &schema["properties"]["sections"]["items"]["properties"]["traits"]["items"];
+    assert_eq!(trait_schema["additionalProperties"], false);
+    assert_eq!(
+        trait_schema["properties"]["sample"]["enum"],
+        json!([ROUGH, OTHER])
+    );
+    assert_eq!(
+        schema["properties"]["sections"]["items"]["properties"]["id"]["enum"][0],
+        "sentences"
+    );
+}
+
+#[test]
+fn a_valid_voice_guide_result_is_accepted_through_every_adapter() {
+    let request = guide_request(None);
+    let expected = match validate_assistant_result(&good_result(), &request).unwrap() {
+        AssistantResult::VoiceGuide(guide) => guide,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(expected.sections[0].traits[0].sample, ROUGH);
+    let text = good_result().to_string();
+    let anthropic = anthropic_result(
+        &json!({ "content": [{ "type": "text", "text": text }] }),
+        &request,
+    )
+    .unwrap();
+    assert_eq!(anthropic, AssistantResult::VoiceGuide(expected.clone()));
+    let openai = native_provider_result(
+        NativeProviderKind::OpenAi,
+        &json!({ "output": [{ "type": "message", "content": [{ "type": "output_text", "text": text }] }] }),
+        &request,
+    )
+    .unwrap();
+    assert_eq!(openai, AssistantResult::VoiceGuide(expected));
+}
+
+#[test]
+fn a_quote_that_does_not_occur_is_rejected_with_a_plain_reason_and_nothing_is_shown() {
+    let mut result = good_result();
+    result["sections"][0]["traits"][0]["quote"] = json!("so I deleted");
+    let error = validate_assistant_result(&result, &guide_request(None)).unwrap_err();
+    assert_eq!(error.kind, AssistantErrorKind::InvalidResult);
+    assert!(error
+        .public_message()
+        .contains("does not occur word for word"));
+    assert!(error.public_message().ends_with("Nothing was shown."));
+}
+
+#[test]
+fn a_sample_that_was_not_selected_is_rejected() {
+    let mut result = good_result();
+    result["sections"][0]["traits"][0]["sample"] = json!("2026-01-01-other-rough.md");
+    let error = validate_assistant_result(&result, &guide_request(None)).unwrap_err();
+    assert!(error.public_message().contains("was not selected"));
+}
+
+#[test]
+fn a_voice_guide_result_is_rejected_for_other_task_types_and_a_review_result_for_this_one() {
+    assert!(validate_voice_guide(&good_result(), &review(Vec::new())).is_err());
+    assert!(validate_assistant_result(&json!({ "findings": [] }), &guide_request(None)).is_err());
+}

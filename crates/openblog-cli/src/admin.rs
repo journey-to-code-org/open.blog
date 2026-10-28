@@ -11058,7 +11058,7 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
         Ok(AssistantResult::KnowledgeChecks(_) | AssistantResult::CodeInteraction(_)) => {
             return Response::error(502, "Assistant provider returned the wrong result type")
         }
-        Ok(AssistantResult::Completion(_)) => {
+        Ok(AssistantResult::Completion(_) | AssistantResult::VoiceGuide(_)) => {
             return Response::error(502, "Assistant provider returned the wrong result type")
         }
         Err(error) => return review_error(error),
@@ -11174,6 +11174,7 @@ fn generate_inline_completion(state: &AppState, req: &Request) -> Response {
         Ok(
             AssistantResult::KnowledgeChecks(_)
             | AssistantResult::CodeInteraction(_)
+            | AssistantResult::VoiceGuide(_)
             | AssistantResult::Review(_),
         ) => Response::error(502, "Assistant provider returned the wrong result type"),
         Err(error) => review_error(error),
@@ -11424,9 +11425,11 @@ fn generate_quiz(state: &AppState, req: &Request) -> Response {
     };
     match provider.generate(&request) {
         Ok(AssistantResult::KnowledgeChecks(result)) => Response::json(200, &json!(result)),
-        Ok(AssistantResult::Review(_) | AssistantResult::CodeInteraction(_)) => {
-            Response::error(502, "Assistant provider returned the wrong result type")
-        }
+        Ok(
+            AssistantResult::Review(_)
+            | AssistantResult::CodeInteraction(_)
+            | AssistantResult::VoiceGuide(_),
+        ) => Response::error(502, "Assistant provider returned the wrong result type"),
         Ok(AssistantResult::Completion(_)) => {
             Response::error(502, "Assistant provider returned the wrong result type")
         }
@@ -11511,6 +11514,7 @@ fn code_interaction_response(
         Ok(
             AssistantResult::KnowledgeChecks(_)
             | AssistantResult::Review(_)
+            | AssistantResult::VoiceGuide(_)
             | AssistantResult::Completion(_),
         ) => Response::error(502, "Assistant provider returned the wrong result type"),
         Err(error) => review_error(error),
