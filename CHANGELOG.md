@@ -9,7 +9,39 @@ All notable changes to open.blog are recorded here. Releases follow
 - Reader reading trails and saved sources (with `readerAnnotations.enabled`): a second region on each post, "Your reading trails and saved sources", where a reader can save the post or a reference it cites (kept with the post it was found in), start named trails by hand, add sources, highlights and notes once each, reorder them with buttons, list the posts they have marked, and remove one source, trail step, trail, or post's highlights, or clear everything, each after asking. Nothing is recorded as a reader reads; everything stays in the reader's browser, a change that cannot be saved is refused with the reason and leaves saved data as it was, and the region says what it needs without JavaScript. See [Reader annotations](docs/specs/reader-annotations.md#reading-trails-and-saved-sources-on-a-page).
 - Reader highlights and private notes (opt-in with `readerAnnotations.enabled`): readers can select words, highlight them and keep private notes on a word, a section or a whole post, by mouse or keyboard, with no account. They stay in the reader's own browser, are painted over the post without changing it, are looked up again on each visit and kept, with the reason, when the post has changed, and still work for reading when the browser denies or has filled its storage. Sites that do not opt in are unchanged. See [Reader annotations](docs/specs/reader-annotations.md#highlights-and-notes-on-a-page).
 - Reader annotations contract: the portable, versioned format that readers' local highlights, private notes, saved sources and reading trails will share, with exact/prefix/suffix text targets, stale detection when a post changes, strict validation that names the faulty record, and an export that leaves note text out unless the reader includes it and always states it is private. Nothing is stored or shown yet, so pages and builds are unchanged. See [Reader annotations](docs/specs/reader-annotations.md).
-
+- Interpretation comparison fixes. An AI-drafted reading's approval now covers its attribution, uncertainty
+  note and language as well as its statement, so changing any of them withdraws the approval. A published
+  page says the author approved an AI draft and never shows the approving Admin login name. An explanation
+  may cite only evidence its reading already cites, so no level choice changes the evidence on the page.
+- Interpretation comparisons now have regression coverage and a guide. The publication boundary lists the
+  comparisons a build publishes (Admin's **What will be public**, and the output check refuses a page for
+  one it does not), published comparisons are found by site search from their approved text only, and
+  `openblog check` warns, while `interpretations.publish` is off, when comparison files sit beside a page
+  or post that would collide with `/interpretations/`. Tests prove an unapproved, stale or revoked AI
+  draft and a private note reach no output. See the [interpretation comparisons guide](docs/interpretation-comparisons.md).
+- Interpretation comparisons can now be published. Turn on `interpretations.publish` and each published
+  comparison becomes a page at `/interpretations/<slug>/`, with an index at `/interpretations/`. Every page
+  says who advances each reading and how firmly, shows the evidence each cites, lists the relations between
+  readings without ranking them, and offers the beginner, student and scholarly explanations as sections of
+  the same page that you can reach by link without JavaScript. With JavaScript a level selector narrows the
+  explanations; it never changes the evidence and print shows every level. Evidence appears only for approved
+  claim links the site already publishes (with `claimEvidence.publish` on). A reading attributed to a source
+  the site does not publish is left out, and the build tells you by id. The comparison files are never copied
+  raw into the site. See [ADR 0232](docs/adr/0232-a-comparison-page-is-static-html-from-the-projection-with-levels-as-sections-a-selector-only-enhances.md).
+- Admin Studio can author interpretation comparisons: **Content → Comparisons** lists, creates, edits and
+  moves comparisons to the trash. Every reading needs an attribution (or an explicit unknown author), you can
+  link evidence and see in words whether it is public, private or not found, and missing evidence never
+  blocks saving honest uncertainty. Text an AI tool drafted stays a draft until you press **Approve this
+  exact text**; only that action records an approval, a save can never add one, and editing the text
+  withdraws it. Withdrawing an approval in a published comparison asks before returning it to draft. The
+  preview is the public projection with a list, for you alone, of what readers will not see. Saves are
+  refused when the file changed elsewhere, and source mode keeps fields the release does not know. Publishing is a separate switch (ADR 0232). See [ADR 0231](docs/adr/0231-comparisons-are-edited-in-admin-with-an-approve-action-that-only-the-server-can-give.md).
+- Interpretation comparisons now have a file format. `content/comparisons/<slug>.json` sets two or more
+  attributed readings of one subject side by side (a named person, a library source, or an explicitly
+  anonymous author), with neutral relations such as "differs from", an uncertainty note, evidence references,
+  translations and optional beginner, student and scholarly explanations. Nothing marks a reading correct,
+  and an explanation never replaces your prose. An AI-drafted reading or explanation is labelled and is
+  published only after you approve its exact text; editing it withdraws the approval. The site reads them only while `interpretations.publish` is on (ADR 0232). See [ADR 0226](docs/adr/0226-a-comparison-is-its-own-public-content-type-and-one-versioned-file.md).
 - Optional update subscriptions: a pluggable, double opt-in service for readers who ask to hear when later work takes up a question, with no provider as the link-only baseline. Requests are confirmed once within 48 hours, answered alike so they reveal nothing, and unsubscribe or deletion erases the address with no account. Hosted storage is additive SQL in `supabase/subscriptions.sql` (rollback in `subscriptions-rollback.sql`), behind `OPENBLOG_SUBSCRIPTIONS_ENABLED`. No page renders a form yet, and no function, mail transport or unsubscribe page exists yet, so readers cannot subscribe until a follow-up adds them.
 - Continuation links: a canonical page now shows "Where this question went" and, on the later work, "Earlier questions this continues" as plain links that work without JavaScript, built from `continuations.json`. Admin links an approved reflection, question or source suggestion to a later published work, previews it, removes it, and drops the links of a removed or withdrawn submission, telling the moderator plainly if they could not be dropped. A note cannot claim cause, endorsement or popularity. Update subscriptions are not part of this change.
 - Reading paths are now easier to find and to move. A post or atlas entry that is a step of a listed path

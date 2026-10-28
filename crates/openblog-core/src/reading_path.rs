@@ -384,7 +384,7 @@ pub fn valid_path_slug(value: &str) -> bool {
     is_ascii_slug(value) && !device
 }
 
-fn is_ascii_slug(value: &str) -> bool {
+pub(crate) fn is_ascii_slug(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= MAX_ID_BYTES
         && !value.starts_with('-')
@@ -430,7 +430,7 @@ fn text_problem(value: &str, max_chars: usize) -> Option<String> {
 // never what it held.
 // ---------------------------------------------------------------------------
 
-type Obj = serde_json::Map<String, Value>;
+pub(crate) type Obj = serde_json::Map<String, Value>;
 
 const DUPLICATE_MARK: char = '\u{1}';
 
@@ -512,7 +512,7 @@ fn quotable(name: &str) -> bool {
 
 /// Reads JSON text into a value. A repeated key or invalid JSON is a message
 /// that never quotes the text.
-fn read_json(text: &str) -> Result<Value, String> {
+pub(crate) fn read_json(text: &str) -> Result<Value, String> {
     match serde_json::from_str::<Strict>(text) {
         Ok(Strict(value)) => Ok(value),
         Err(e) => {
@@ -539,7 +539,7 @@ fn read_json(text: &str) -> Result<Value, String> {
     }
 }
 
-fn take_text(
+pub(crate) fn take_text(
     obj: &mut Obj,
     name: &str,
     scope: &str,
@@ -561,7 +561,7 @@ fn take_text(
     }
 }
 
-fn take_flag(
+pub(crate) fn take_flag(
     obj: &mut Obj,
     name: &str,
     scope: &str,
@@ -578,7 +578,7 @@ fn take_flag(
     }
 }
 
-fn take_choice<T>(
+pub(crate) fn take_choice<T>(
     obj: &mut Obj,
     name: &str,
     scope: &str,
@@ -595,7 +595,12 @@ fn take_choice<T>(
     parsed
 }
 
-fn take_object(obj: &mut Obj, name: &str, required: bool, errs: &mut Vec<String>) -> Option<Obj> {
+pub(crate) fn take_object(
+    obj: &mut Obj,
+    name: &str,
+    required: bool,
+    errs: &mut Vec<String>,
+) -> Option<Obj> {
     match obj.remove(name) {
         None => {
             if required {

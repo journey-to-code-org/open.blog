@@ -73,6 +73,9 @@ pub enum Projection {
     /// The author's reading paths: their pages, `paths.json`, search entries
     /// and the links to them from posts and atlas pages (ADR 0216).
     ReadingPaths,
+    /// The author's interpretation comparisons: their pages and the
+    /// interpretations and audience explanations on them (ADR 0232).
+    Interpretations,
 }
 
 impl Projection {
@@ -87,6 +90,7 @@ impl Projection {
             Self::ContextLinks => "knowledgeAtlas.publish, comparisons.publish",
             Self::Curated | Self::CuratedContext => "curatedContext.publish",
             Self::ReadingPaths => "readingPaths.publish",
+            Self::Interpretations => "interpretations.publish",
         }
     }
 }
@@ -115,6 +119,8 @@ pub enum ItemKind {
     CuratedContext,
     /// One published reading path.
     Path,
+    /// One published interpretation comparison.
+    Interpretation,
 }
 
 /// Why an item, or one field of a published item, is withheld. Each is a
@@ -342,6 +348,7 @@ pub struct Switches {
     pub claim_evidence: bool,
     pub curated: bool,
     pub reading_paths: bool,
+    pub interpretations: bool,
 }
 
 impl Switches {
@@ -352,6 +359,7 @@ impl Switches {
             claim_evidence: config.claim_evidence.publish,
             curated: config.curated_context.publish,
             reading_paths: config.reading_paths.publish,
+            interpretations: config.interpretations.publish,
         }
     }
 }
@@ -373,6 +381,10 @@ pub struct BoundaryInputs<'a> {
     pub comparisons_blocked: Option<&'a str>,
     /// The reading paths the build renders, while it publishes them.
     pub public_paths: Option<&'a crate::reading_path::PublicPaths>,
+    /// The interpretation comparisons the build renders, while it publishes
+    /// them.
+    pub public_interpretations:
+        Option<&'a crate::interpretation_publication::PublicInterpretations>,
     /// Why claim evidence could not be read for the build, when it could not.
     pub claims_blocked: Option<&'a str>,
     pub library: Option<&'a SourceLibrary>,
@@ -536,6 +548,10 @@ impl BoundaryManifest {
         if inputs.switches.reading_paths {
             projections.push(reading_paths(inputs));
         }
+        // Likewise absent while the interpretation switch is off.
+        if inputs.switches.interpretations {
+            projections.push(interpretations(inputs));
+        }
         Self {
             version: BOUNDARY_FORMAT_VERSION,
             scope: Scope::Site,
@@ -646,6 +662,7 @@ impl BoundaryManifest {
                     // The data file repeats what the selections already count.
                     Projection::CuratedContext => continue,
                     Projection::ReadingPaths => "reading paths",
+                    Projection::Interpretations => "interpretation comparisons",
                 };
                 parts.push(format!("{count} {name}"));
             }
@@ -1291,6 +1308,61 @@ fn reading_paths(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
             label: Some(path.title.clone()),
             posts,
             url: Some(path.url.clone()),
+            fields,
+            withheld_fields: Vec::new(),
+            notices: Vec::new(),
+        });
+    }
+    report
+}
+
+/// The interpretation comparisons the build publishes: each with the parts it
+/// copies. Only the public projection is read, so a draft comparison, an AI
+/// draft nobody approved and a private note are never here (ADR 0230). What a
+/// comparison leaves out is reported to the author at build time, by item id.
+fn interpretations(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
+    let mut report = report(Projection::Interpretations, inputs.switches.interpretations);
+    let Some(public) = inputs.public_interpretations.filter(|_| report.enabled) else {
+        return report;
+    };
+    for published in &public.comparisons {
+        let comparison = &published.comparison;
+        let mut fields: Vec<String> = [
+            "title",
+            "subject",
+            "interpretations (attribution, statement, provenance)",
+        ]
+        .iter()
+        .map(|field| field.to_string())
+        .collect();
+        present(
+            &mut fields,
+            "evidence (approved links and sources)",
+            comparison
+                .interpretations
+                .iter()
+                .any(|i| !i.evidence.is_empty()),
+        );
+        present(
+            &mut fields,
+            "uncertainty",
+            comparison
+                .interpretations
+                .iter()
+                .any(|i| i.uncertainty.is_some()),
+        );
+        present(&mut fields, "relations", !comparison.relations.is_empty());
+        present(
+            &mut fields,
+            "audience explanations (supplemental)",
+            !comparison.explanations.is_empty(),
+        );
+        report.published.push(PublishedItem {
+            kind: ItemKind::Interpretation,
+            id: comparison.slug.clone(),
+            label: Some(comparison.title.clone()),
+            posts: Vec::new(),
+            url: Some(published.url.clone()),
             fields,
             withheld_fields: Vec::new(),
             notices: Vec::new(),

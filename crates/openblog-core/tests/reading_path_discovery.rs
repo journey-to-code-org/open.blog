@@ -333,6 +333,7 @@ fn manifest(site: &Site, on: bool) -> BoundaryManifest {
         atlas_blocked: None,
         public_comparisons: None,
         public_paths: site.reading_paths.as_ref(),
+        public_interpretations: site.interpretations.as_ref(),
         comparisons_blocked: None,
         claims_blocked: None,
         library: None,

@@ -81,6 +81,7 @@ pub fn project_with(root: &Path, site: &mut Site, shared: &Shared) -> Blocked {
     }
     blocked.claims = site.claim_evidence_error.clone();
     attach_reading_paths(root, site);
+    attach_interpretations(root, site);
     // The public curated context, resolved against exactly what this build
     // publishes (the atlas and comparisons just attached, the posts, the
     // sources they cite), so the pages and curated-context.json read the one
@@ -140,6 +141,69 @@ fn attach_reading_paths(root: &Path, site: &mut Site) {
         site.warnings.push(diagnostic.to_string());
     }
     site.reading_paths = Some(resolution.paths);
+}
+
+/// Attach the public interpretation comparisons (ADR 0232, #90), only while
+/// the site publishes them. Each stored comparison is projected by
+/// `PublicComparison::project` against the sources and evidence links this
+/// build publishes (approved links of approved claims, and only while
+/// `claimEvidence.publish` is on), so a page never names a private source,
+/// link or unapproved text. A file that does not parse and an item that is
+/// left out are warned about to the author by comparison and item id, never
+/// by value, and leave every other output as it was. Off means the folder is
+/// never read.
+fn attach_interpretations(root: &Path, site: &mut Site) {
+    site.interpretations = None;
+    if !site.config.interpretations.publish {
+        return;
+    }
+    let stored = match crate::comparison_store::list(root, &site.config.paths.content) {
+        Ok(stored) => stored,
+        Err(error) => {
+            site.warnings.push(format!(
+                "interpretation comparisons: none is published: {error}"
+            ));
+            return;
+        }
+    };
+    let mut comparisons = Vec::new();
+    for file in stored {
+        match file.parsed {
+            Ok(comparison) => comparisons.push(comparison),
+            Err(problems) => {
+                for problem in problems {
+                    site.warnings.push(problem.to_string());
+                }
+            }
+        }
+    }
+    let (refs, sources, links) =
+        match crate::claims_store::load_for_build(root, &site.config.contributors) {
+            Ok(snapshot) if site.config.claim_evidence.publish && snapshot.stored => {
+                openblog_core::interpretation_publication::PublicInterpretations::publishable(
+                    &snapshot.claims,
+                    &snapshot.library,
+                    true,
+                )
+            }
+            Ok(_) => Default::default(),
+            Err(error) => {
+                if site.config.claim_evidence.publish {
+                    site.warnings.push(format!(
+                        "interpretation comparisons: no evidence is shown: {error}"
+                    ));
+                }
+                Default::default()
+            }
+        };
+    let resolution = openblog_core::interpretation_publication::PublicInterpretations::resolve(
+        &comparisons,
+        &refs,
+        sources,
+        links,
+    );
+    site.warnings.extend(resolution.diagnostics);
+    site.interpretations = Some(resolution.public);
 }
 
 /// The source library and notebook, and the atlas and alignments read
@@ -388,6 +452,7 @@ pub fn manifest(
         public_comparisons: site.comparisons.as_ref(),
         comparisons_blocked: blocked.comparisons.as_deref(),
         public_paths: site.reading_paths.as_ref(),
+        public_interpretations: site.interpretations.as_ref(),
         claims_blocked: blocked.claims.as_deref(),
         library: stores.library,
         notebook: stores.notebook,
@@ -871,6 +936,8 @@ fn unlisted(manifest: &BoundaryManifest, site: &Site, files: &[OutputFile]) -> V
     let curated_sources = manifest.published_ids(Projection::Curated, ItemKind::Source);
     let file_listed = manifest.published_ids(Projection::CuratedContext, ItemKind::CuratedContext);
     let paths = manifest.published_ids(Projection::ReadingPaths, ItemKind::Path);
+    let interpretations =
+        manifest.published_ids(Projection::Interpretations, ItemKind::Interpretation);
     let post_slugs: BTreeSet<&str> = site.posts.iter().map(|post| post.slug.as_str()).collect();
     // A post's address as the file carries it: the base path in front.
     let base_path = site.config.base_path();
@@ -902,6 +969,16 @@ fn unlisted(manifest: &BoundaryManifest, site: &Site, files: &[OutputFile]) -> V
                 && site.comparisons.is_some()
             {
                 check(&file.path, "comparison", id, &comparisons);
+            }
+            if *segment == openblog_core::interpretation_publication::INTERPRETATIONS_SEGMENT
+                && site.interpretations.is_some()
+            {
+                check(
+                    &file.path,
+                    "interpretation comparison",
+                    id,
+                    &interpretations,
+                );
             }
         }
         let json = || serde_json::from_str::<Value>(&file.contents).unwrap_or(Value::Null);
@@ -1325,6 +1402,62 @@ mod tests {
             path: path.into(),
             contents: contents.into(),
         }
+    }
+
+    #[test]
+    fn an_interpretation_page_may_only_be_one_the_manifest_publishes() {
+        let root = project_with_note(
+            "interpretation-pages",
+            r#"{"interpretations":{"publish":true}}"#,
+        );
+        fs::create_dir_all(root.join("content/comparisons")).unwrap();
+        let comparison = |status: &str| {
+            serde_json::json!({
+                "format": "openblog-interpretation-comparison", "version": 1,
+                "title": "The cave", "subject": "Readings.", "status": status,
+                "interpretations": [
+                    {"id": "a", "attribution": {"kind": "named", "name": "A school"}, "statement": "A city."},
+                    {"id": "b", "attribution": {"kind": "named", "name": "Another"}, "statement": "A mind."}]})
+            .to_string()
+        };
+        fs::write(
+            root.join("content/comparisons/cave.json"),
+            comparison("published"),
+        )
+        .unwrap();
+        fs::write(
+            root.join("content/comparisons/draft.json"),
+            comparison("draft"),
+        )
+        .unwrap();
+
+        let (mut site, _) = crate::site::load_site(&root, false, None).unwrap();
+        let shared = Shared::read(&root, &site.config);
+        let preview = site_preview(&root, &mut site, &shared);
+        let published =
+            preview.published_ids(Projection::Interpretations, ItemKind::Interpretation);
+        assert_eq!(published, BTreeSet::from(["cave"]));
+        assert_eq!(
+            Projection::Interpretations.switch(),
+            "interpretations.publish"
+        );
+
+        // A page for the published comparison passes; one for a draft is refused.
+        assert!(checked(
+            &root,
+            &[page("interpretations/cave/index.html", "<p>x</p>")]
+        )
+        .is_ok());
+        let error = checked(
+            &root,
+            &[page("interpretations/draft/index.html", "<p>x</p>")],
+        )
+        .unwrap_err();
+        assert!(
+            error.contains("interpretation comparison `draft`"),
+            "{error}"
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

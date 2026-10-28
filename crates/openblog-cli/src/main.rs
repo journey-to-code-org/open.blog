@@ -11,6 +11,7 @@ mod auth;
 mod boundary;
 mod claims_store;
 mod clock;
+mod comparison_store;
 mod contributor_migration;
 mod fsutil;
 mod git;
@@ -792,6 +793,20 @@ fn reading_paths_warning(root: &std::path::Path, site: &openblog_core::Site) -> 
     openblog_core::render::reading_paths_address_conflict(site)
 }
 
+/// Like [`reading_paths_warning`] for `/interpretations/` (ADR 0232): while
+/// `interpretations.publish` is off, warn when comparison files exist beside a
+/// page or post that would collide once it is switched on.
+fn interpretations_warning(root: &std::path::Path, site: &openblog_core::Site) -> Option<String> {
+    if site.config.interpretations.publish {
+        return None;
+    }
+    let stored = comparison_store::list(root, &site.config.paths.content).ok()?;
+    if stored.is_empty() {
+        return None;
+    }
+    openblog_core::render::interpretations_address_conflict(site)
+}
+
 fn check_site(
     root: &std::path::Path,
     site: &mut openblog_core::Site,
@@ -827,6 +842,9 @@ fn check_site(
         eprintln!("warning: portability: {warning}");
     }
     if let Some(warning) = reading_paths_warning(root, site) {
+        eprintln!("warning: {warning}");
+    }
+    if let Some(warning) = interpretations_warning(root, site) {
         eprintln!("warning: {warning}");
     }
     serve::print_accessibility_findings(&site.accessibility);
@@ -1310,6 +1328,48 @@ Mine.
         let mut themes_site = site::load_site(&root, false, None).unwrap();
         themes_site.0.config.reading_paths.publish = true;
         let refused = site::generate_site(&root, &mut themes_site.0, &themes_site.1);
+        assert!(refused.unwrap_err().contains("reserved"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn check_warns_before_interpretations_collide_with_a_page() {
+        let root = std::env::temp_dir().join(format!(
+            "openblog-check-interpretations-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        scaffold::init(&root, Some("T"), false).unwrap();
+        std::fs::write(
+            root.join("content/pages/interpretations.md"),
+            "---
+title: Mine
+---
+Mine.
+",
+        )
+        .unwrap();
+        let load = || site::load_site(&root, false, None).unwrap().0;
+        // No comparison files: nothing to warn about.
+        assert_eq!(interpretations_warning(&root, &load()), None);
+        std::fs::create_dir_all(root.join("content/comparisons")).unwrap();
+        std::fs::write(root.join("content/comparisons/cave.json"), "{}").unwrap();
+        let warning = interpretations_warning(&root, &load()).expect("a warning");
+        assert!(
+            warning.contains("pages/interpretations.md")
+                && warning.contains("interpretations.publish"),
+            "{warning}"
+        );
+        // Switched on, the build itself refuses, and the warning steps aside.
+        let mut site = load();
+        site.config.interpretations.publish = true;
+        assert_eq!(interpretations_warning(&root, &site), None);
+        let mut loaded = site::load_site(&root, false, None).unwrap();
+        loaded.0.config.interpretations.publish = true;
+        let refused = site::generate_site(&root, &mut loaded.0, &loaded.1);
         assert!(refused.unwrap_err().contains("reserved"));
         let _ = std::fs::remove_dir_all(&root);
     }

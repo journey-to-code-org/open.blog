@@ -3141,6 +3141,34 @@ ob-reading-modes { display: block; }
   .ob-path-step { border-color: CanvasText; }
 }
 
+/* Interpretation comparison pages (#90, ADR 0232): a plain ordered list of interpretations, each a
+   bordered group, then the relations, then every explanation level as its own section. Text wraps
+   anywhere so nothing overflows at 320 pixels or at 400% zoom. It reads in order without CSS or
+   JavaScript. <ob-explanation-levels> only adds the level buttons; print shows every level and
+   leaves the buttons out. */
+.ob-interp-list { list-style: none; margin: 1rem 0; padding: 0; }
+.ob-interp { border: 1px solid var(--ob-border, currentColor); border-radius: 0.5rem; padding: 0.75rem 1rem; margin-bottom: 1rem; overflow-wrap: anywhere; }
+.ob-interp-title { margin: 0 0 0.25rem; font-size: 1.15rem; }
+.ob-interp p, .ob-explanation p { margin: 0.35rem 0; }
+.ob-interp-who { font-weight: 600; }
+.ob-interp-evidence, .ob-interp-relations, .ob-interp-contents ul, .ob-level-links ul { padding-inline-start: 1.25rem; overflow-wrap: anywhere; }
+.ob-level { border-inline-start: 0.25rem solid var(--ob-border, currentColor); padding-inline-start: 0.75rem; margin: 1rem 0; overflow-wrap: anywhere; }
+.ob-explanation { margin-bottom: 1rem; }
+.ob-explanation-about { margin: 0.5rem 0 0.25rem; font-size: 1rem; }
+.ob-level-switch { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.5rem 0; }
+.ob-level-switch button { min-block-size: 2.75rem; padding: 0.4rem 0.9rem; font: inherit; }
+.ob-level-switch button[aria-pressed="true"] { font-weight: 700; text-decoration: underline; }
+@media print {
+  .ob-level-switch, .ob-level-status { display: none !important; }
+  .ob-level[hidden], ob-explanation-levels .ob-level-links[hidden] { display: block !important; }
+  .ob-interp, .ob-explanation { break-inside: avoid; }
+}
+@media (forced-colors: active) {
+  .ob-interp { border-color: CanvasText; }
+  .ob-level { border-color: CanvasText; }
+  .ob-level-switch button[aria-pressed="true"] { border: 2px solid Highlight; }
+}
+
 /* Curated research context on a post's page (#197, ADR 0197): a static ordered list of the items the
    author chose, each a bordered group whose facts stack and wrap anywhere, so nothing overflows at
    320 pixels or at 400% zoom. It reads in order without CSS or JavaScript. Print keeps every item

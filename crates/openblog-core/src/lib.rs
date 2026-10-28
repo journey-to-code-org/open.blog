@@ -29,6 +29,7 @@
 //! - [`atlas_publication`]: the one public projection of its approved items, for pages and `atlas.json`
 //! - [`concept_links`]: an author's explicit `atlas:` links, resolved at build time against the public atlas alone
 //! - [`atlas_query`]: the bounded query projection derived from the public atlas, for components and search
+//! - [`scholarly_comparison`]: attributed interpretation comparisons and author-approved audience explanations that never rule on which reading is right
 //! - [`reading_path`]: author-curated reading paths of published steps with author-written transitions, resolved against what a build publishes
 //! - [`comparison_publication`]: the one public projection of approved passage alignments, rights-gated, for pages and `comparisons.json`
 //! - [`curated_selection`]: the author's explicit, revision-aware selection of already-publishable research context for readers
@@ -92,6 +93,7 @@ pub mod field_journal;
 pub mod frontmatter;
 pub mod future_suggestion;
 pub mod interpretation;
+pub mod interpretation_publication;
 pub mod invitation;
 pub mod knowledge_atlas;
 pub mod markdown;
@@ -122,6 +124,7 @@ pub mod research_bundle;
 pub mod research_completeness;
 pub mod research_notes;
 pub mod research_search;
+pub mod scholarly_comparison;
 pub mod scholarly_feedback;
 pub mod search;
 pub mod shared_series;

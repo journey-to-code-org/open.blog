@@ -48,6 +48,7 @@ default, so you can edit values in place and delete the ones you do not need.
   "claimEvidence": { "publish": false },
   "comparisons": { "publish": false },
   "readingPaths": { "publish": false },
+  "interpretations": { "publish": false },
   "curatedContext": { "publish": false },
   "readingModes": { "default": "standard" },
   "readerAnnotations": { "enabled": false }
@@ -322,6 +323,18 @@ preview paths freely; nothing publishes them and `/paths/` is not reserved. Turn
 `check`; while it is off, `check` warns when you have path files beside such a page or post.
 While it is on, each published path is a page at `/paths/<slug>/` (see [Pages and progress](specs/reading-paths.md#pages-and-progress)); `/paths/` lists the paths you leave `listed`.
 Listed paths are also linked from the posts and atlas entries they name, found by site search and listed in `paths.json` ([Discovery](specs/reading-paths.md#discovery)). `openblog paths export` and `openblog paths import <file>` move paths between sites ([Export and import](specs/reading-paths.md#export-and-import)).
+
+## Interpretation comparisons
+
+`interpretations.publish` (off by default) is the switch for publishing the [interpretation comparisons](adr/0232-a-comparison-page-is-static-html-from-the-projection-with-levels-as-sections-a-selector-only-enhances.md)
+you write in `content/comparisons` or in Admin under **Content → Comparisons**. While it is off nothing
+publishes them and `/interpretations/` is not reserved. Turning it on reserves `/interpretations/`, so a page
+named `interpretations` or a `postPath` that puts a post there is refused by the build. Each published
+comparison with at least two shown readings is a page at `/interpretations/<slug>/`; `/interpretations/`
+lists them. Evidence appears only while `claimEvidence.publish` is on as well, and only for approved links of
+approved claims and the sources they cite. A reading attributed to a source that is not published is left out
+of the page, and the build warns you by comparison and item id. The files in `content/comparisons` are never
+copied as static files.
 
 ## Curated research context
 

@@ -28,6 +28,8 @@ use crate::participation::{self, ParticipationKind, ParticipationMode};
 use crate::reader_references::ReaderReferences;
 use crate::theme::{Theme, ThemeSet};
 
+mod interpretations;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OutputFile {
     /// Path relative to the output directory, always with forward slashes.
@@ -97,6 +99,9 @@ struct Meta<'a> {
     /// The page is a reading path (#78), so it loads `<ob-reading-path>`,
     /// which adds optional progress kept in the reader's own browser.
     reading_path: bool,
+    /// The page is an interpretation comparison with explanation levels, so it
+    /// loads `<ob-explanation-levels>` (ADR 0232, #90).
+    interpretation_levels: bool,
     theme: &'a Theme,
     published: Option<String>,
     modified: Option<String>,
@@ -647,6 +652,23 @@ pub fn generate_with_trail_budget(
             )?;
         }
     }
+    // Interpretation comparisons, only when the site publishes them (ADR
+    // 0232, #90): every page is rendered from the one public value and is
+    // complete HTML, with or without JavaScript.
+    if let Some(public) = &site.interpretations {
+        if !public.comparisons.is_empty() {
+            out.add(
+                url_to_file(crate::interpretation_publication::INTERPRETATIONS_URL),
+                r.interpretations_index(default_theme, public),
+            )?;
+        }
+        for published in &public.comparisons {
+            out.add(
+                url_to_file(&published.url),
+                r.interpretation_page(default_theme, public, published),
+            )?;
+        }
+    }
     // The curated research context (ADR 0197): the data file readers' tools
     // fetch, projected from the one public curated value the pages' sections
     // are rendered from. A projection that is refused (over a bound, or not
@@ -730,6 +752,12 @@ pub fn generate_with_trail_budget(
                     .filter(|path| path.listed)
                     .map(|path| path.url.clone()),
             );
+        }
+        if let Some(public) = &site.interpretations {
+            if !public.comparisons.is_empty() {
+                extra.push(crate::interpretation_publication::INTERPRETATIONS_URL.to_string());
+            }
+            extra.extend(public.comparisons.iter().map(|c| c.url.clone()));
         }
         if let Some(comparisons) = &site.comparisons {
             extra.push(comparison_publication::COMPARISONS_URL.to_string());
@@ -856,6 +884,29 @@ pub fn reading_paths_address_conflict(site: &Site) -> Option<String> {
         })
 }
 
+/// A page or post whose address is under `/interpretations/`, which the
+/// comparison pages reserve once `interpretations.publish` is on (ADR 0232).
+/// `None` when nothing collides. The build refuses the same collision while the
+/// switch is on; `check` uses this to warn before it is.
+pub fn interpretations_address_conflict(site: &Site) -> Option<String> {
+    let segment = crate::interpretation_publication::INTERPRETATIONS_SEGMENT;
+    if let Some(page) = site.pages.iter().find(|page| page.slug == segment) {
+        return Some(format!(
+            "{}: the page slug `{segment}` would collide with `/interpretations/`; rename the page before switching on `interpretations.publish`",
+            page.source
+        ));
+    }
+    site.posts
+        .iter()
+        .find(|post| post.url.trim_start_matches('/').split('/').next() == Some(segment))
+        .map(|post| {
+            format!(
+                "{}: the post URL `{}` would collide with `/interpretations/`; adjust `postPath` or the slug before switching on `interpretations.publish`",
+                post.source, post.url
+            )
+        })
+}
+
 fn validate_output_paths(site: &Site) -> Result<(), String> {
     // `atlas` is reserved only while the site publishes its atlas, so an
     // existing page or post at `/atlas/` keeps working until then. The switch,
@@ -866,11 +917,16 @@ fn validate_output_paths(site: &Site) -> Result<(), String> {
     // Like the atlas: reading paths reserve `/paths/` only behind their own
     // switch (ADR 0212), so a site that has not opted in is unaffected.
     let publishes_paths = site.config.reading_paths.publish;
+    // Interpretation comparisons reserve `/interpretations/` the same way
+    // (ADR 0232); `/comparisons/` stays with passage comparisons.
+    let publishes_interpretations = site.config.interpretations.publish;
     let reserved = |segment: &str| {
         RESERVED.contains(&segment)
             || (publishes_atlas && segment == ATLAS_SEGMENT)
             || (publishes_comparisons && segment == COMPARISONS_SEGMENT)
             || (publishes_paths && segment == crate::reading_path::PATHS_SEGMENT)
+            || (publishes_interpretations
+                && segment == crate::interpretation_publication::INTERPRETATIONS_SEGMENT)
     };
     for page in &site.pages {
         if reserved(page.slug.as_str()) {
@@ -1127,6 +1183,12 @@ impl<'a> Renderer<'a> {
             // Optional local progress, loaded only by a reading path's page.
             h.push_str(
                 "<script type=\"module\" src=\"/assets/components/ob-reading-path.js\"></script>\n",
+            );
+        }
+        if meta.interpretation_levels {
+            // The level selector, loaded only by a comparison that has explanations.
+            h.push_str(
+                "<script type=\"module\" src=\"/assets/components/ob-explanation-levels.js\"></script>\n",
             );
         }
         // Owner-supplied raw HTML (third-party analytics, verification tags).
@@ -1856,6 +1918,7 @@ impl<'a> Renderer<'a> {
             atlas_timeline: false,
             atlas_trail: false,
             reading_path: false,
+            interpretation_levels: false,
             theme,
             published: None,
             modified: None,
@@ -2357,6 +2420,7 @@ impl<'a> Renderer<'a> {
             atlas_timeline: false,
             atlas_trail: false,
             reading_path: false,
+            interpretation_levels: false,
             citation_previews: references.and(post.citations()).map(|summary| {
                 format!(
                     "<ob-citation-previews note-label=\"{}\"></ob-citation-previews>",
@@ -3763,6 +3827,7 @@ impl<'a> Renderer<'a> {
             atlas_timeline: false,
             atlas_trail: false,
             reading_path: false,
+            interpretation_levels: false,
             theme,
             published: None,
             modified: None,

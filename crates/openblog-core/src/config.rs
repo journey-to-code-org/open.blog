@@ -96,6 +96,10 @@ pub struct SiteConfig {
     /// while it is off.
     #[serde(skip_serializing_if = "ReadingPathsConfig::is_off")]
     pub reading_paths: ReadingPathsConfig,
+    /// Opt-in publication of interpretation comparisons. Omitted from the
+    /// written file while it is off.
+    #[serde(skip_serializing_if = "InterpretationsConfig::is_off")]
+    pub interpretations: InterpretationsConfig,
     /// Opt-in publication of the author's curated selection of research
     /// context for readers (ADR 0185). Omitted from the written file while
     /// it is off.
@@ -193,6 +197,23 @@ pub struct ReadingPathsConfig {
 }
 
 impl ReadingPathsConfig {
+    fn is_off(&self) -> bool {
+        !self.publish
+    }
+}
+
+/// Whether the site publishes interpretation comparisons (ADR 0232). Off by
+/// default: `/interpretations/` is then not reserved and `content/comparisons`
+/// is only edited, never published. Turning it on reserves `/interpretations/`,
+/// and a page or post URL that collides is refused. Evidence a comparison cites
+/// is shown only while `claimEvidence.publish` is on as well.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct InterpretationsConfig {
+    pub publish: bool,
+}
+
+impl InterpretationsConfig {
     fn is_off(&self) -> bool {
         !self.publish
     }
@@ -519,6 +540,7 @@ impl Default for SiteConfig {
             claim_evidence: ClaimEvidenceConfig::default(),
             comparisons: ComparisonsConfig::default(),
             reading_paths: ReadingPathsConfig::default(),
+            interpretations: InterpretationsConfig::default(),
             curated_context: CuratedContextConfig::default(),
             reading_modes: ReadingModesConfig::default(),
             reader_annotations: ReaderAnnotationsConfig::default(),
