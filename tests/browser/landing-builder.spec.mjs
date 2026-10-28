@@ -300,7 +300,6 @@ test.describe("preview beside the builder on a wide screen", () => {
     const before = readFileSync(landingFile(), "utf8");
     const seen = watchRequests(page);
     await openLanding(page);
-    await page.getByRole("button", { name: "Preview", exact: true }).click();
     await expect(page.locator("[data-landing-side]")).toBeVisible();
     await expect(preview(page).getByRole("heading", { name: "Hello there" })).toBeVisible();
     // An unsaved edit appears in the preview.
@@ -329,10 +328,29 @@ test.describe("preview beside the builder on a wide screen", () => {
     for (const [index, section] of shown.entries()) expect(built[index].text).toBe(section.text);
   });
 
+  test("the preview is open beside the builder from the start, and Hide preview and Preview toggle it", async ({ page }) => {
+    seed(THREE());
+    await openLanding(page);
+    const toggle = page.locator('[data-action="preview"]');
+    await expect(toggle).toHaveText("Hide preview");
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect(page.locator("[data-landing-side]")).toBeVisible();
+    const builder = await page.locator(".oba-landing").boundingBox();
+    const side = await page.locator("[data-landing-side]").boundingBox();
+    expect(side.x).toBeGreaterThan(builder.x + builder.width - 2);
+    await toggle.click();
+    await expect(page.locator("[data-landing-side]")).toBeHidden();
+    await expect(toggle).toHaveText("Preview");
+    await expect(toggle).toBeFocused();
+    await toggle.click();
+    await expect(page.locator("[data-landing-side]")).toBeVisible();
+    await expect(preview(page).getByRole("heading", { name: "Hello there" })).toBeVisible();
+  });
+
   test("the size switch is keyboard operable, announces the active size and scales the frame", async ({ page }) => {
     seed(THREE());
     await openLanding(page);
-    await page.getByRole("button", { name: "Preview", exact: true }).click();
+    await expect(page.locator("[data-landing-side]")).toBeVisible();
     const group = page.getByRole("group", { name: "Preview size" });
     await expect(group.getByRole("button", { name: "Phone" })).toHaveAttribute("aria-pressed", "true");
     const frame = page.locator("[data-landing-frame]");
@@ -357,7 +375,7 @@ test.describe("preview beside the builder on a wide screen", () => {
   test("a section that is not complete yet is left out of the preview, and the preview says so", async ({ page }) => {
     seed(THREE());
     await openLanding(page);
-    await page.getByRole("button", { name: "Preview", exact: true }).click();
+    await expect(page.locator("[data-landing-side]")).toBeVisible();
     await page.getByRole("button", { name: "Add a section" }).click();
     await page.locator('[data-add-type="image"]').click();
     await expect(page.locator("[data-preview-note]")).toHaveText("1 section needs attention and is left out of this preview.", { timeout: 2500 });
@@ -368,7 +386,7 @@ test.describe("preview beside the builder on a wide screen", () => {
     seed([{ id: "text", type: "rich-text", markdown: "<script>window.top.__pwned = 1</script> plain" }, ...THREE().slice(2)]);
     const seen = watchRequests(page);
     await openLanding(page);
-    await page.getByRole("button", { name: "Preview", exact: true }).click();
+    await expect(page.locator("[data-landing-side]")).toBeVisible();
     await expect(preview(page).locator("#ob-home-text")).toBeVisible();
     await expect(preview(page).locator("#ob-home-text")).toContainText("<script>window.top.__pwned = 1</script>");
     expect(await page.evaluate(() => window.__pwned)).toBeUndefined();
@@ -419,3 +437,272 @@ test.describe("preview as a full-screen sheet on a phone", () => {
     expect(readFileSync(landingFile(), "utf8")).toBe(before);
   });
 });
+
+// ----- phone-first layout, touch targets and the persistent action bar (ADR 0355, #328)
+
+const LONG = "an_extraordinarily_long_unbroken_word_that_must_wrap_instead_of_overflowing_a_small_screen_at_all_even_at_320";
+const EVERY_TYPE = () => [
+  { id: "hello", type: "welcome", heading: `Welcome ${LONG}`, subheading: "A friendly place to read.", image: { src: "/hero.svg", alt: "A hand-drawn door" }, button: { label: "Start reading", href: "/one/" } },
+  { id: "text", type: "rich-text", markdown: `## About\n\nSome *rich* text and ${LONG}.` },
+  { id: "latest", type: "latest-posts", heading: "Newest", count: 3 },
+  { id: "series", type: "series", heading: "Series" },
+  { id: "pick", type: "featured-post", post: "one", heading: "Start here" },
+  { id: "go", type: "buttons", items: [{ label: "Email me", href: "mailto:me@example.com" }, { label: "Docs", href: "https://example.com/docs", style: "secondary" }] },
+  { id: "pic", type: "image", src: "/hero.svg", alt: "A hand-drawn door", caption: "The door" },
+  { id: "vid", type: "video", provider: "youtube", video: "dQw4w9WgXcQ", title: "A short tour" },
+  { id: "where", type: "map", provider: "openstreetmap", label: "12 High Street", lat: 51.5, lon: -0.12 },
+  { id: "hours", type: "opening-hours", rows: [{ days: "Monday to Friday", hours: "9am to 5pm" }], note: "Closed on holidays" },
+  { id: "contact", type: "contact", email: "me@example.com", phone: "+1 555 010 0100", address: `12 High Street ${LONG}` },
+  { id: "social", type: "social-links", items: [{ label: "Mastodon", href: "https://example.social/@me" }] },
+  { id: "faq", type: "faq", items: [{ question: "Is it free?", answer: "Yes, **always**." }] },
+  { id: "note", type: "callout", tone: "warning", title: "Heads up", body: "Open late on Fridays." },
+];
+
+/** Open each card's editor in turn (one is open at a time) and run `check` with the form showing. */
+async function eachEditor(page, check) {
+  const count = await page.locator('[data-action="edit"]').count();
+  for (let i = 0; i < count; i += 1) {
+    await page.locator('[data-action="edit"]').nth(i).click();
+    await check(i);
+    await page.locator('[data-action="edit"]').nth(i).click();
+  }
+}
+
+/** The things a person taps or types in, in the builder and the bar, that are on screen. */
+const controls = (page) =>
+  page.evaluate(() => {
+    const regions = [...document.querySelectorAll(".oba-landing, .oba-landing-bar, [data-landing-side]")];
+    const found = [];
+    for (const region of regions) {
+      for (const node of region.querySelectorAll("button, input, select, textarea, a[href]")) {
+        const box = node.getBoundingClientRect();
+        if (!box.width || !box.height || node.closest("[hidden]")) continue;
+        const labelled = node.matches("button, a") ? Boolean((node.getAttribute("aria-label") || node.textContent || "").trim()) : (node.labels?.length || 0) > 0 || Boolean(node.getAttribute("aria-label"));
+        found.push({ tag: node.tagName.toLowerCase(), name: (node.getAttribute("aria-label") || node.textContent || node.id).trim().slice(0, 40), width: box.width, height: box.height, right: box.right, labelled });
+      }
+    }
+    return found;
+  });
+
+const sideways = (page) =>
+  page.evaluate(() => {
+    const regions = [...document.querySelectorAll(".oba-landing-layout, .oba-landing-bar")];
+    const width = document.documentElement.clientWidth;
+    let widest = 0;
+    let culprit = "";
+    for (const region of regions) for (const node of region.querySelectorAll("*")) {
+      if (node.closest("[data-landing-frame], iframe")) continue;
+      const box = node.getBoundingClientRect();
+      if (box.width && box.right > widest) {
+        widest = box.right;
+        culprit = `${node.tagName.toLowerCase()}.${node.className} ${(node.textContent || "").trim().slice(0, 30)}`;
+      }
+    }
+    const wide = [...document.querySelectorAll(".oba-landing-layout *, .oba-landing-bar *")].filter((node) => !node.closest("iframe") && node.scrollWidth - node.clientWidth > 1 && getComputedStyle(node).overflowX === "visible").map((node) => `${node.tagName.toLowerCase()}.${node.className} +${node.scrollWidth - node.clientWidth}`);
+    return { overflow: Math.max(...regions.map((region) => region.scrollWidth - region.clientWidth)), widest: widest - width, culprit: `${culprit} :: ${wide.slice(0, 4).join(" | ")}`, page: document.documentElement.scrollWidth - width };
+  });
+
+const SIZES = [
+  { name: "320x568", width: 320, height: 568 },
+  { name: "375x667", width: 375, height: 667 },
+  { name: "768x1024", width: 768, height: 1024 },
+  { name: "1280x800", width: 1280, height: 800 },
+  { name: "landscape 667x375", width: 667, height: 375 },
+];
+
+for (const size of SIZES) {
+  test(`at ${size.name} nothing scrolls sideways, every control is at least 44px and named, and the bar is reachable`, async ({ page }) => {
+    await page.setViewportSize({ width: size.width, height: size.height });
+    seed(EVERY_TYPE());
+    await openLanding(page);
+    let seen = 0;
+    await eachEditor(page, async (index) => {
+      const found = await controls(page);
+      seen += found.length;
+      for (const control of found) {
+        expect(control.height, `card ${index}: ${control.tag} "${control.name}" height`).toBeGreaterThanOrEqual(43.5);
+        expect(control.width, `card ${index}: ${control.tag} "${control.name}" width`).toBeGreaterThanOrEqual(43.5);
+        expect(control.labelled, `card ${index}: ${control.tag} "${control.name}" has a name`).toBe(true);
+      }
+      const { overflow, widest, culprit } = await sideways(page);
+      expect(overflow, `card ${index}: region scroll ${culprit}`).toBeLessThanOrEqual(0);
+      expect(widest, `card ${index}: widest element past the screen edge: ${culprit}`).toBeLessThanOrEqual(1);
+    });
+    expect(seen).toBeGreaterThan(200);
+    // The bar is always within reach: fixed to the bottom of a tall screen, in the flow of a short one.
+    const bar = page.locator("[data-landing-bar]");
+    await bar.scrollIntoViewIfNeeded();
+    const box = await bar.boundingBox();
+    expect(box.y + box.height).toBeLessThanOrEqual(size.height + 1);
+    for (const name of ["Preview", "Hide preview", "Save", "Publish"]) {
+      if (await bar.getByRole("button", { name, exact: true }).count()) await expect(bar.getByRole("button", { name, exact: true })).toBeVisible();
+    }
+    await expect(bar.getByRole("button", { name: "Save", exact: true })).toBeVisible();
+    await expect(bar.getByRole("button", { name: "Publish", exact: true })).toBeVisible();
+  });
+}
+
+test("on a tall phone screen the bar stays at the bottom while the page scrolls", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 667 });
+  seed(EVERY_TYPE());
+  await openLanding(page);
+  const bar = page.locator("[data-landing-bar]");
+  const bottom = async () => (await bar.boundingBox()).y + (await bar.boundingBox()).height;
+  expect(await bottom()).toBeGreaterThan(660);
+  await page.mouse.wheel(0, 1500);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(500);
+  expect(await bottom()).toBeGreaterThan(660);
+  expect(await bottom()).toBeLessThanOrEqual(668);
+  await expect(bar.getByRole("button", { name: "Save", exact: true })).toBeInViewport();
+});
+
+test("the bar never covers the field being edited, wherever it sits on the page", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 667 });
+  seed(EVERY_TYPE());
+  await openLanding(page);
+  let checked = 0;
+  await eachEditor(page, async () => {
+    const fields = page.locator(".oba-landing-form").locator("input, select, textarea");
+    const total = await fields.count();
+    for (let i = 0; i < total; i += 1) {
+      await fields.nth(i).focus();
+      await page.waitForTimeout(40);
+      const covered = await page.evaluate(() => {
+        const bar = document.querySelector("[data-landing-bar]").getBoundingClientRect();
+        const field = document.activeElement.getBoundingClientRect();
+        return field.bottom - bar.top;
+      });
+      expect(covered, `field ${i} sits above the bar`).toBeLessThanOrEqual(1);
+      checked += 1;
+    }
+  });
+  expect(checked).toBeGreaterThan(30);
+});
+
+test("the bar rides above the on-screen keyboard when the visual viewport shrinks", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 667 });
+  seed(THREE());
+  await openLanding(page);
+  const bar = page.locator("[data-landing-bar]");
+  // A keyboard covers the bottom of the layout viewport: simulate the visual viewport shrinking.
+  await page.evaluate(() => {
+    const viewport = window.visualViewport;
+    Object.defineProperty(viewport, "height", { configurable: true, value: 667 - 300 });
+    viewport.dispatchEvent(new Event("resize"));
+  });
+  await expect.poll(async () => (await bar.boundingBox()).y + (await bar.boundingBox()).height).toBeLessThanOrEqual(667 - 300 + 1);
+  await page.evaluate(() => {
+    const viewport = window.visualViewport;
+    Object.defineProperty(viewport, "height", { configurable: true, value: 667 });
+    viewport.dispatchEvent(new Event("resize"));
+  });
+  await expect.poll(async () => (await bar.boundingBox()).y + (await bar.boundingBox()).height).toBeGreaterThan(660);
+});
+
+// Text-only enlargement to 200% (WCAG 1.4.4). 400% is reflow: a 1280px page at 400% zoom is 320px wide, tested below (1.4.10).
+for (const scale of [200]) {
+  test(`with text at ${scale}% on a 320px screen every control is reachable and nothing scrolls sideways`, async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 568 });
+    seed(EVERY_TYPE());
+    await openLanding(page);
+    await page.evaluate((percent) => { document.documentElement.style.fontSize = `${percent}%`; }, scale);
+    await eachEditor(page, async (index) => {
+      const { overflow, widest, culprit } = await sideways(page);
+      expect(overflow, `card ${index}: region scroll ${culprit}`).toBeLessThanOrEqual(0);
+      expect(widest, `card ${index}: widest element past the screen edge: ${culprit}`).toBeLessThanOrEqual(1);
+      for (const control of await controls(page)) expect(control.height, `card ${index}: ${control.name} height`).toBeGreaterThanOrEqual(43.5);
+    });
+    // The bar never fills a screen that large text leaves little room on: it is in the flow then.
+    await page.locator("[data-landing-bar]").getByRole("button", { name: "Save", exact: true }).scrollIntoViewIfNeeded();
+    await expect(page.locator("[data-landing-bar]").getByRole("button", { name: "Save", exact: true })).toBeInViewport();
+  });
+}
+
+test("a 1280x1024 page at 400% zoom is a 320px page and still works", async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 320, height: 256 } });
+  const page = await context.newPage();
+  seed(EVERY_TYPE());
+  await openLanding(page);
+  await eachEditor(page, async (index) => {
+    const { overflow, widest, culprit } = await sideways(page);
+    expect(overflow, `card ${index}`).toBeLessThanOrEqual(0);
+    expect(widest, `card ${index}: ${culprit}`).toBeLessThanOrEqual(1);
+  });
+  await page.locator("[data-landing-bar]").getByRole("button", { name: "Save", exact: true }).scrollIntoViewIfNeeded();
+  await expect(page.locator("[data-landing-bar]").getByRole("button", { name: "Save", exact: true })).toBeInViewport();
+  await context.close();
+});
+
+test("the builder asks for the right keyboard and has no hover-only control", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 667 });
+  seed([EVERY_TYPE()[0], EVERY_TYPE()[10], EVERY_TYPE()[2]].map((section) => ({ ...section, id: section.type === "welcome" ? "hello" : section.type === "contact" ? "contact" : "latest" })));
+  await openLanding(page);
+  await card(page, "hello").getByRole("button", { name: /^Edit/ }).click();
+  await expect(card(page, "hello").getByLabel("Where it goes")).toHaveAttribute("type", "url");
+  await expect(card(page, "hello").getByLabel("Where it goes")).toHaveAttribute("inputmode", "url");
+  await expect(card(page, "hello").getByLabel("Picture address")).toHaveAttribute("type", "url");
+  await card(page, "contact").getByRole("button", { name: /^Edit/ }).click();
+  await expect(card(page, "contact").getByLabel("Email (optional)")).toHaveAttribute("type", "email");
+  await expect(card(page, "contact").getByLabel("Email (optional)")).toHaveAttribute("inputmode", "email");
+  await expect(card(page, "contact").getByLabel("Phone number (optional)")).toHaveAttribute("type", "tel");
+  await card(page, "latest").getByRole("button", { name: /^Edit/ }).click();
+  await expect(card(page, "latest").getByLabel("How many posts (optional)")).toHaveAttribute("type", "number");
+  await expect(card(page, "latest").getByLabel("How many posts (optional)")).toHaveAttribute("inputmode", "numeric");
+  // Nothing appears only on hover: every control is visible before the pointer goes near it.
+  const hiddenUntilHover = await page.evaluate(() => [...document.querySelectorAll(".oba-landing button, .oba-landing-bar button")].filter((node) => {
+    const style = getComputedStyle(node);
+    return style.visibility === "hidden" || Number(style.opacity) < 0.5 && !node.disabled;
+  }).length);
+  expect(hiddenUntilHover).toBe(0);
+});
+
+test("reduced motion turns the builder's transitions off", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  seed(THREE());
+  await openLanding(page);
+  const timing = await page.evaluate(() => {
+    const button = document.querySelector(".oba-landing-card .oba-btn");
+    const style = getComputedStyle(button);
+    return { transition: style.transitionDuration, transform: style.transform };
+  });
+  expect(timing.transition).toBe("0s");
+  await page.locator(".oba-landing-card .oba-btn").first().hover();
+  expect(await page.evaluate(() => getComputedStyle(document.querySelector(".oba-landing-card .oba-btn")).transform)).toBe("none");
+});
+
+test("Publish says why it is off when the site is not a git repository, and the bar still saves", async ({ page }) => {
+  seed(THREE());
+  await openLanding(page);
+  const publish = page.locator('[data-landing-bar] [data-action="publish"]');
+  await expect(publish).toBeDisabled();
+  await expect(publish).toHaveAccessibleDescription(/not a git repository/);
+  await expect(page.locator(".oba-landing-publish-note")).toBeVisible();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.locator("[data-landing-status]")).toContainText("Saved.");
+});
+
+test("Publish saves what is unsaved first, then publishes, and says what happened", async ({ page }) => {
+  seed(THREE());
+  const calls = [];
+  await page.route("**/admin/api/publish", async (route) => {
+    const request = route.request();
+    calls.push(request.method());
+    if (request.method() === "GET") await route.fulfill({ json: { repo: true, remote: "origin", changed: [], drafts: [], ahead: 0, behind: 0, auto: false } });
+    else await route.fulfill({ json: { ok: true, message: "Published 1 change.", commit: "abc1234", pushed: true, committed: true, drafts: [] } });
+  });
+  await openLanding(page);
+  const publish = page.locator('[data-landing-bar] [data-action="publish"]');
+  await expect(publish).toBeEnabled();
+  await card(page, "hello").getByRole("button", { name: /^Edit/ }).click();
+  await card(page, "hello").getByLabel("Welcome heading").fill("Published heading");
+  await publish.click();
+  await expect(page.locator("[data-landing-status]")).toHaveText("Published 1 change.");
+  expect(stored().sections[0].heading).toBe("Published heading");
+  expect(calls.filter((method) => method === "POST")).toEqual(["POST"]);
+  // An invalid page is not published.
+  await card(page, "hello").getByLabel("Welcome heading").fill("");
+  await publish.click();
+  await expect(page.locator("[data-landing-status]")).toContainText("Nothing was saved");
+  expect(calls.filter((method) => method === "POST")).toEqual(["POST"]);
+});
+

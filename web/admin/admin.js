@@ -9684,6 +9684,8 @@ function landingIsObject(value) {
 export function previewFrame({ title = "Preview of your landing page" } = {}) {
   let size = previewSize("phone");
   const status = h("p", { class: "oba-small oba-landing-preview-status", role: "status", "aria-live": "polite", "data-preview-status": "true" });
+  // Two regions, so a size announcement is never overwritten by the page finishing an update.
+  const updates = h("p", { class: "oba-small oba-landing-preview-status", role: "status", "aria-live": "polite", "data-preview-update": "true" });
   const note = h("p", { class: "oba-notice oba-landing-preview-note", hidden: true, "data-preview-note": "true" });
   const frame = h("iframe", { class: "oba-landing-frame", title: `${title}, ${size.label.toLowerCase()} view`, sandbox: "", tabindex: "-1", "data-landing-frame": "true" });
   const stage = h("div", { class: "oba-landing-stage" }, frame);
@@ -9691,7 +9693,7 @@ export function previewFrame({ title = "Preview of your landing page" } = {}) {
     h("button", { class: "oba-btn", type: "button", "data-size": item.id, "aria-pressed": String(item.id === size.id), onClick: () => choose(item.id) }, item.label),
   );
   const switcher = h("div", { class: "oba-landing-sizes", role: "group", "aria-label": "Preview size" }, buttons);
-  const root = h("div", { class: "oba-landing-preview", "data-landing-preview": "true" }, switcher, status, note, stage);
+  const root = h("div", { class: "oba-landing-preview", "data-landing-preview": "true" }, switcher, status, updates, note, stage);
   const layout = () => {
     const available = stage.clientWidth || size.width;
     const scale = previewScale(available, size.width);
@@ -9718,7 +9720,7 @@ export function previewFrame({ title = "Preview of your landing page" } = {}) {
       return size.id;
     },
     say: (text) => {
-      status.textContent = text;
+      updates.textContent = text;
     },
     leftOut: (text) => {
       note.hidden = !text;
@@ -12152,7 +12154,7 @@ export class ObAdmin extends AdminElement {
       conflictBox.querySelector("button")?.focus();
     };
     const save = async () => {
-      if (busy) return;
+      if (busy) return false;
       conflictBox.hidden = true;
       const bySource = mode === "source";
       if (!bySource) {
@@ -12283,6 +12285,12 @@ export class ObAdmin extends AdminElement {
       posts = (list.items || []).filter((item) => item.status === "published" && item.slug).map((item) => ({ slug: item.slug, title: item.title }));
     } catch {
       // A post is then typed by its address name; everything else works.
+    }
+    let publishInfo = null;
+    try {
+      publishInfo = await this.api.call("GET", "publish");
+    } catch {
+      // Publishing then stays off with its reason; saving and previewing do not need it.
     }
     // A site with no stored page starts from what its visitors see today.
     let revision = loaded.revision ?? null;
@@ -12609,30 +12617,55 @@ export class ObAdmin extends AdminElement {
         const total = [...local.values()].reduce((sum, list) => sum + list.length, 0);
         say(`Nothing was saved: ${total} ${total === 1 ? "thing needs" : "things need"} attention. The first is in ${shortName(first)}.`, "error");
         cards.querySelector(`[data-section="${CSS.escape(first.id)}"] [aria-invalid="true"]`)?.focus();
-        return;
+        return false;
       }
       busy = true;
       saveButton.disabled = true;
       say("Saving…");
       try {
         const result = await this.api.call("PUT", "landing", { json: { revision, page: pagePayload(draft) } });
-        if (this.viewVersion !== mountedView) return;
+        if (this.viewVersion !== mountedView) return false;
         applySaved(result);
         clearUndo();
         renderCards();
         renderBar();
         if (result.build && result.build.ok === false) say(`Saved, but your site could not be rebuilt yet: ${result.build.error}`, "error");
         else say("Saved. Your landing page is ready to publish.", "ok");
+        return true;
       } catch (error) {
-        if (this.viewVersion !== mountedView) return;
+        if (this.viewVersion !== mountedView) return false;
         if (error.data?.problems) {
           serverProblems = serverProblemsBySection(error.data.problems);
           renderCards();
         }
         say(landingErrorText(error), "error");
+        return false;
       } finally {
         busy = false;
         saveButton.disabled = false;
+      }
+    };
+    // ----- publishing: save what is unsaved, then commit and push as the header's Publish does
+    let publishing = false;
+    const canPublish = Boolean(publishInfo?.repo);
+    const publishNote = h("p", { class: "oba-small oba-landing-publish-note", id: "oba-landing-publish-note", hidden: canPublish }, "Publishing is off because this site is not a git repository. Run openblog publish setup to turn it on.");
+    const publishButton = h("button", { class: "oba-btn", type: "button", "data-action": "publish", disabled: !canPublish, "aria-describedby": canPublish ? null : "oba-landing-publish-note", onClick: () => publish() }, "Publish");
+    const publish = async () => {
+      if (busy || publishing) return;
+      if (isDirty() && !(await save())) return;
+      publishing = true;
+      publishButton.disabled = true;
+      say("Publishing\u2026");
+      try {
+        const result = await this.api.call("POST", "publish", { json: { summary: "" } });
+        if (this.viewVersion !== mountedView) return;
+        say(result.message || "Published.", "ok");
+      } catch (error) {
+        if (this.viewVersion !== mountedView) return;
+        say(`Publishing did not work. ${error.data?.error || landingErrorText(error)}`, "error");
+      } finally {
+        publishing = false;
+        publishButton.disabled = !canPublish;
       }
     };
 
@@ -12660,7 +12693,13 @@ export class ObAdmin extends AdminElement {
       closePreview();
     });
     const previewButton = h("button", { class: "oba-btn", type: "button", "data-action": "preview", "aria-expanded": "false", onClick: () => (previewOpen ? closePreview() : openPreview()) }, "Preview");
+    previewButton.setAttribute("aria-controls", "oba-landing-preview-region");
+    side.id = "oba-landing-preview-region";
+    const labelPreview = () => {
+      previewButton.textContent = previewOpen && wide() ? "Hide preview" : "Preview";
+    };
     const placePreview = () => {
+      labelPreview();
       if (!previewOpen) return;
       if (wide()) {
         if (sheet.open) sheet.close();
@@ -12688,6 +12727,7 @@ export class ObAdmin extends AdminElement {
       if (sheet.open) sheet.close();
       side.hidden = true;
       side.replaceChildren();
+      labelPreview();
       previewButton.focus();
     }
     const refreshPreview = async () => {
@@ -12714,7 +12754,7 @@ export class ObAdmin extends AdminElement {
     globalThis.matchMedia?.("(min-width: 64rem)").addEventListener?.("change", () => {
       if (this.viewVersion === mountedView) placePreview();
     });
-    actions.replaceChildren(previewButton, saveButton, dirtyNote);
+    actions.replaceChildren(previewButton, saveButton, publishButton, dirtyNote, publishNote);
 
     const intro = h(
       "section",
@@ -12751,8 +12791,45 @@ export class ObAdmin extends AdminElement {
       ),
     );
     mountedView = this.viewVersion;
+
+    // ----- phone comfort (ADR 0355): the bar rides above the on-screen keyboard and never covers
+    // the field being edited.
+    const bar = this.querySelector("[data-landing-bar]");
+    const viewport = globalThis.visualViewport;
+    const keepClear = () => {
+      const target = document.activeElement;
+      if (!bar || !target || !target.closest?.(".oba-landing-form, .oba-landing-picker")) return;
+      const barTop = bar.getBoundingClientRect().top;
+      const bottom = target.getBoundingClientRect().bottom;
+      if (bottom > barTop - 8) globalThis.scrollBy({ top: bottom - barTop + 16, behavior: "instant" });
+    };
+    const liftBar = () => {
+      if (this.viewVersion !== mountedView) {
+        viewport?.removeEventListener("resize", liftBar);
+        viewport?.removeEventListener("scroll", liftBar);
+        return;
+      }
+      if (!bar || !viewport) return;
+      const covered = Math.max(0, Math.round(globalThis.innerHeight - viewport.height - viewport.offsetTop));
+      bar.style.transform = covered ? `translateY(-${covered}px)` : "";
+      keepClear();
+    };
+    // A bar that large text makes taller than a third of the screen would leave no room to work:
+    // it then stays in the flow of the page instead of floating over it.
+    const settleBar = () => {
+      if (this.viewVersion !== mountedView) return;
+      bar?.classList.toggle("oba-landing-bar-static", Boolean(bar) && bar.getBoundingClientRect().height > globalThis.innerHeight * 0.3);
+    };
+    if (bar && typeof ResizeObserver !== "undefined") new ResizeObserver(settleBar).observe(bar);
+    addEventListener("resize", settleBar);
+    settleBar();
+    viewport?.addEventListener("resize", liftBar);
+    viewport?.addEventListener("scroll", liftBar);
+    this.querySelector(".oba-landing-layout")?.addEventListener("focusin", () => requestAnimationFrame(keepClear));
+    // Beside the builder on a wide screen, the preview is there from the start.
+    if (wide()) openPreview();
     this.viewDirty = () => isDirty();
-    this.viewBusy = () => busy;
+    this.viewBusy = () => busy || publishing;
   }
 
   // ---- interpretation comparisons (ADR 0231, #89)
