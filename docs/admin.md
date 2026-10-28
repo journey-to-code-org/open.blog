@@ -668,6 +668,65 @@ part is published, and other details stay in the Series editor. Once the reflect
 its series is changed in the post like any other. The design is recorded in
 [ADR 0039](adr/0039-arranging-a-shared-reflections-series-in-admin.md).
 
+## Change your home page and your look
+
+Two screens in Admin change how the site looks without any code. Neither has a box that takes HTML or CSS, and
+nothing changes on the public site until you save and make it live.
+
+### The Landing page
+
+Open **Landing page** (`#/landing`) to arrange the home page. A first visit offers four ready-made layouts
+(Welcome, Small business, Portfolio, Newsletter) with clearly marked sample words, or **Start from scratch**;
+**Choose a ready-made layout** and **Reset to default** are always there, and nothing you already have is
+replaced without a yes. A site that has never built a landing page starts from what visitors see today, and
+nothing is written until you save.
+
+- **Sections** are cards: a welcome banner, text, latest posts, series, a featured post, buttons, a picture, a
+  video, a map, opening hours, contact details, social links, questions and answers, or a call-out. **Add a
+  section** lists them in plain words with a sample. Each card has **Edit**, **Move up**, **Move down**,
+  **Hide** or **Show**, and **Delete**; a deletion can be undone, and Alt with the up or down arrow moves the
+  focused card from the keyboard. Videos, maps and the other pieces are the same ones the post editor's
+  [Add something](#add-something) inserts.
+- **Text** sections are written like a word-processor document with a toolbar of words (Paragraph, Heading,
+  Bold, Italic, Link, Lists, Quote, Picture, Undo, Redo) and saved as Markdown. Pasting from Word, Google Docs
+  or a web page keeps headings, emphasis, links and lists and drops everything else; **Ctrl+Shift+V** pastes
+  plain text. Markup you type stays words.
+- **Suggestions** under a text section explain a problem in a sentence (a picture with no description, a link
+  that says "click here", a skipped heading) and **Fix it** changes only that place. They never stop you saving.
+- **Preview** shows the home page as the build would make it from your unsaved sections, at Phone, Tablet and
+  Desktop sizes, in a frame that runs no scripts. On a phone it opens full screen with a **Back to editing**
+  button.
+- **Save** writes `content/landing.json`. If someone saved a newer page meanwhile, you choose **Keep mine**,
+  **Use the newer version** or **Compare**; nothing is overwritten silently. **Publish** (the bar calls it
+  "make it live") saves first and then publishes, and stops with the reason if the site does not build.
+- **History** under the sections keeps your last twenty saves in private storage (never in the content folder,
+  the build, a feed or an export). Preview an earlier one and **Restore** it; restoring is an ordinary save, so
+  the page it replaces stays in the list.
+- Unsaved changes are kept on your device, offered back after a reload and warned about when you leave. A short
+  three-step tour appears once, can be skipped and never comes back, and **Help** explains the words.
+
+The file format is described in [Landing page sections](content.md#landing-page-sections).
+
+### Customize look
+
+Open **Customize look** (`#/look`, also a button on **Appearance**) to choose how the site feels by tapping
+choices: eight ready-made looks (Calm, Warm, Bold, Night, Garden, Paper, Ocean, Sunset), a main (accent) color
+from swatches or the color picker, a font style (Modern, Classic, Friendly, Techie), text size, corner
+roundness, spacing, page width and heading weight. The preview is the real home page built from your unsaved
+choices, in light or dark. A color that would be hard to read is adjusted just enough, and the screen says so
+in words. **Back to theme default** undoes one control, **Reset everything** clears the look, and **Undo**
+takes back the last change. Only the controls your theme honors are shown, with a kind note about the rest
+([Look controls](themes.md#look-controls)). The choices are saved under `appearance` in `openblog.json`
+([configuration](configuration.md#site)).
+
+### A short phone walkthrough
+
+On a 375px phone: open Admin and choose **Landing page**; tap **Edit** on the welcome banner, change the
+heading and tap **Add a button**; tap **Done**, then **Preview** to see the page full screen and **Back to
+editing**; tap **Save**. Open **Customize look**, tap a color and a font style, tap **Preview** to check,
+**Back to choosing**, then **Save**. Tap **Publish** to make it live. The bar stays at the bottom of the
+screen, every control is at least 44px tall, and nothing scrolls sideways down to 320px wide.
+
 ## Scheduling
 
 A post's status is one of:

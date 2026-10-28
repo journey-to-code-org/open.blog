@@ -30,6 +30,26 @@ engine. The open-source engine ships no effects; `themes/demo/` is a worked exam
 Because the element wraps text that is already in the HTML, the page is complete before
 JavaScript runs, and search engines and feed readers see ordinary headings.
 
+## Styling the landing page
+
+When a site has a landing page, each section is written as
+`<section class="ob-section ob-home-section ob-home-<type>" id="ob-home-<id>">`. The page has one `<h1>` (the
+first heading) and `<h2>` for the rest. The engine styles these classes with the `--ob-*` tokens, so most
+themes need nothing; a theme may restyle them.
+
+- Structure: `ob-home-section`, `ob-home-title`, `ob-home-lede`, `ob-home-welcome` and `ob-home-welcome-hook`,
+  `ob-home-actions`, `ob-home-all`, `ob-home-link`, `ob-home-note`, `ob-home-place`.
+- Section types: `ob-home-rich-text`, `ob-home-latest-posts`, `ob-home-series`, `ob-home-featured-post`,
+  `ob-home-buttons`, `ob-home-image` and `ob-home-figure`, `ob-home-video`, `ob-home-map`,
+  `ob-home-opening-hours` and `ob-home-hours`, `ob-home-contact`, `ob-home-social-links` and `ob-home-social`,
+  `ob-home-faq` and `ob-home-faq-item`.
+- Buttons: `ob-home-button` with `ob-home-button-primary` or `ob-home-button-secondary`.
+- Call-outs: `ob-home-callout`, `ob-home-callout-box`, `ob-home-callout-title` and the kind classes
+  `ob-home-callout-info`, `ob-home-callout-success` and `ob-home-callout-warning`.
+
+The classes are a stable hook, not a promise about the markup inside them. Keep text contrast at WCAG AA and
+focus rings visible when you restyle buttons and links.
+
 ## Try the demo
 
 `openblog init` writes the `demo` theme (and `paper`) into your blog's `themes/` folder,

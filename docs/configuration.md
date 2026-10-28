@@ -107,6 +107,9 @@ default, so you can edit values in place and delete the ones you do not need.
   credit sidecars, so treat them as stable identifiers. They can also be managed under
   **Site → Contributors** in Admin Studio. See
   [Work-specific credits](content.md#work-specific-credits).
+- **Landing page**: when `content/landing.json` exists, the home page is built from its sections instead of
+  `home.heading`, `home.intro` and `home.showSeries`. It is written by **Admin → Landing page**; see
+  [Landing page sections](content.md#landing-page-sections).
 - **`home.intro`** is Markdown shown above the post list on the first page.
 
 ## Share, analytics, related posts, snippets, CDN

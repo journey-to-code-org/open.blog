@@ -110,6 +110,17 @@ compiles only those, so list a control only when your theme's own stylesheet doe
 changes (for example `--ob-radius` for `roundness`, or `--ob-color-accent` for `accent`), because the
 owner's block loads before your extra stylesheets.
 
+### How the owner's look layers over your tokens
+
+The cascade is: the `base` tokens, then your theme's `tokens.css`, then the owner's compiled block (only the
+controls you list in `customizable`), then your theme's extra stylesheets. The block sets nothing but
+allowlisted tokens: `--ob-color-*` for the accent and palette (the accent is adjusted for WCAG AA contrast in
+light and dark, and more strictly for visitors who ask for higher contrast), `--ob-font-body`,
+`--ob-font-heading`, `--ob-text-scale`, `--ob-radius` and `--ob-radius-sm`, `--ob-space-*`, `--ob-max-width`,
+`--ob-reading-width` and `--ob-heading-weight`. Nothing an owner types can reach the stylesheet. A theme with
+no `customizable` list inherits its parent's, and a site with no `appearance` builds byte for byte as before.
+To style the landing page's own sections, see [the `ob-home-*` classes](theme-components.md#styling-the-landing-page).
+
 ## Light and dark
 
 Both schemes are compiled. The theme's `colorScheme` is the default, the other scheme

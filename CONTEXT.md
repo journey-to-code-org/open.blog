@@ -2422,6 +2422,13 @@ One of the eight choices a look holds. A theme lists the ones it honors in `cust
 only those and says kindly why the rest are missing (ADR 0248).
 _Avoid_: Setting, style option
 
+**Customizable token**:
+One of the allowlisted `--ob-*` design tokens (colors, font families, text scale, radii, spacing, page and
+reading width, heading weight) that a look may set, grouped under the eight look controls. A theme opts a
+control in with `customizable` in `theme.json`; the owner's compiled block layers over the theme's tokens and
+before its extra stylesheets, and nothing outside the allowlist can be set (ADR 0248).
+_Avoid_: CSS variable override, theme setting, style
+
 **Customize look**:
 The Admin screen (`#/look`, beside Appearance) where an owner changes the look by tapping looks, swatches
 and sample cards, with a live preview of the home page built from the unsaved look in light or dark. It has

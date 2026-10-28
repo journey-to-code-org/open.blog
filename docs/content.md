@@ -248,6 +248,33 @@ anything else is refused with a message, and a piece that is not valid shows an 
 the build. Videos and maps are lazy-loaded, titled, privacy-enhanced frames (`youtube-nocookie.com`, Vimeo with
 `dnt`, OpenStreetMap) with a plain link beside them; in portable copies they are links only. See ADR 0253.
 
+#### Landing page sections
+
+When `content/landing.json` exists, the home page is built from it instead of the fixed intro, post list and
+series (without the file the home page is built from `home.heading`, `home.intro` and `home.showSeries` as
+before). The Admin [Landing page](admin.md#the-landing-page) writes it; you can also edit it by hand:
+
+```json
+{ "format": "openblog-landing", "version": 1, "sections": [
+  { "id": "hello", "type": "welcome", "heading": "Welcome", "button": { "label": "Read the blog", "href": "/archive/", "style": "primary" } },
+  { "id": "about", "type": "rich-text", "markdown": "About **this** blog." },
+  { "id": "latest", "type": "latest-posts", "heading": "Newest", "count": 5 }
+] }
+```
+
+Each section has a unique `id` (lowercase letters, digits and single hyphens), a `type`, and an optional
+`hidden: true`. The types are `welcome`, `rich-text`, `latest-posts`, `series`, `featured-post`, `buttons`,
+`image`, `video`, `map`, `opening-hours`, `contact`, `social-links`, `faq` and `callout`; the media, hours,
+contact, social, question and call-out types hold the same fields as the
+[pieces](#pieces-buttons-videos-maps-and-more) above. There are at most 40 sections and 256 KiB. The page is
+accepted whole or not at all, and a file from a newer release is never overwritten.
+
+Landing content never accepts markup. There is no HTML section; a button is a label and an address, a video is
+a provider and an id, a map is coordinates. Only Markdown is rich (the text section, answers, call-out bodies)
+and it is read with raw HTML turned off, so a tag typed into it shows as text; addresses must be `https`,
+`mailto`, `tel` or a page of the site. Saving a section touches only this file. See ADRs 0245 to 0247 and the
+overview in ADR 0370.
+
 #### Linking a word to the Knowledge Atlas
 
 When your site publishes its [Knowledge Atlas](configuration.md#knowledge-atlas), link a word to an
