@@ -9,6 +9,7 @@ use std::path::Path;
 use openblog_core::voice::VoiceStage;
 use serde_json::{json, Value as Json};
 
+use crate::assistant::{ContextVisibility, ReviewContext, VoiceSampleMeta};
 use crate::voice_store::{self, Listed, Visibility};
 
 /// The most samples one Assistant request may carry.
@@ -73,8 +74,57 @@ pub fn budget() -> Json {
     })
 }
 
+/// Read one sample again for a request. Fails closed: a missing, unreadable or invalid sample, or a
+/// file name the store would refuse, is an error with a plain sentence, and nothing is sent.
+pub fn review_context(
+    root: &Path,
+    visibility: Visibility,
+    file: &str,
+) -> Result<ReviewContext, String> {
+    let loaded = voice_store::read(root, visibility, file).map_err(|error| error.to_string())?;
+    let Some(sample) = loaded.sample.filter(|_| loaded.listed.valid) else {
+        return Err(loaded.listed.guidance.unwrap_or_else(|| {
+            "That voice sample cannot be used. Repair or erase it first.".to_string()
+        }));
+    };
+    let visibility = match visibility {
+        Visibility::Portable => ContextVisibility::Portable,
+        Visibility::Private => ContextVisibility::Private,
+    };
+    ReviewContext::voice_sample(
+        visibility,
+        file,
+        &sample.body,
+        VoiceSampleMeta {
+            stage: sample.voice.stage.as_str().to_string(),
+            pack: sample.voice.pack.clone(),
+            prompt: sample.voice.prompt.clone(),
+        },
+    )
+    .map_err(str::to_string)
+}
+
+/// Whether the samples among `context` fit one request. Counted from the text the server read.
+pub fn check_budget(context: &[ReviewContext]) -> Result<(), String> {
+    let samples: Vec<&ReviewContext> = context.iter().filter(|c| c.voice().is_some()).collect();
+    let characters: usize = samples.iter().map(|c| c.content().chars().count()).sum();
+    if samples.len() > MAX_SAMPLES_PER_REQUEST {
+        return Err(format!(
+            "{} voice samples are selected; one request carries at most {MAX_SAMPLES_PER_REQUEST}.",
+            samples.len()
+        ));
+    }
+    if characters > MAX_CHARACTERS_PER_REQUEST {
+        return Err(format!(
+            "The selected voice samples are {characters} characters; one request carries at most {MAX_CHARACTERS_PER_REQUEST}."
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
+
     use super::*;
     use crate::voice_store::tests_support::Project;
 

@@ -10856,10 +10856,29 @@ fn resolve_review_skill(
     })
 }
 
+/// Resolve every selected context id on the server, for review, completion and the voice-guide
+/// task. A voice sample is read again from the store each time and counted against the request
+/// budget (ADR 0350); the browser only ever names it.
+fn resolve_review_contexts(root: &Path, ids: &[String]) -> Result<Vec<ReviewContext>, Response> {
+    let context = ids
+        .iter()
+        .map(|id| resolve_review_context(root, id))
+        .collect::<Result<Vec<_>, _>>()?;
+    crate::voice_assistant::check_budget(&context)
+        .map_err(|message| Response::error(400, &message))?;
+    Ok(context)
+}
+
 fn resolve_review_context(root: &Path, id: &str) -> Result<ReviewContext, Response> {
     let parts = id.split(':').collect::<Vec<_>>();
+    if let ["voice", visibility, file] = parts.as_slice() {
+        let visibility = crate::voice_store::Visibility::parse(visibility)
+            .ok_or_else(|| Response::error(400, "Invalid selected context ID"))?;
+        return crate::voice_assistant::review_context(root, visibility, file)
+            .map_err(|message| Response::error(400, &message));
+    }
     let document = match parts.as_slice() {
-        [visibility @ ("portable" | "private"), context_type @ ("author" | "site")] => {
+        [visibility @ ("portable" | "private"), context_type @ ("author" | "site" | "voice")] => {
             assistant_context_document(root, context_type, visibility, None)?
         }
         [visibility @ ("portable" | "private"), "post", name] => {
@@ -10995,11 +11014,7 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
             Ok(skills) => skills,
             Err(response) => return response,
         };
-        let context = match context_ids
-            .iter()
-            .map(|id| resolve_review_context(&state.root, id))
-            .collect::<Result<Vec<_>, _>>()
-        {
+        let context = match resolve_review_contexts(&state.root, &context_ids) {
             Ok(context) => context,
             Err(response) => return response,
         };
@@ -11116,11 +11131,7 @@ fn generate_inline_completion(state: &AppState, req: &Request) -> Response {
     };
     let context = {
         let _assistant_lock = lock(&state.build);
-        match context_ids
-            .iter()
-            .map(|id| resolve_review_context(&state.root, id))
-            .collect::<Result<Vec<_>, _>>()
-        {
+        match resolve_review_contexts(&state.root, &context_ids) {
             Ok(context) => context,
             Err(response) => return response,
         }
