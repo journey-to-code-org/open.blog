@@ -1,0 +1,46 @@
+//! The bundled voice prompt catalog (ADR 0352).
+//!
+//! The text lives in `voice_prompts/catalog.md`, compiled into the binary. Parsing, merging with a
+//! site's own prompts and drawing are pure functions in `openblog_core::voice`.
+// The Admin, CLI and Assistant layers of the voice-samples family call this API.
+#![cfg_attr(not(test), allow(dead_code))]
+
+/// The bundled catalog source.
+pub const BUNDLED: &str = include_str!("voice_prompts/catalog.md");
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    #[test]
+    fn the_bundled_catalog_has_ten_packs_and_forty_prompts_with_unique_kebab_ids() {
+        let mut packs: BTreeMap<String, usize> = BTreeMap::new();
+        let mut order = Vec::new();
+        let mut ids = BTreeSet::new();
+        for line in BUNDLED.lines() {
+            if let Some(rest) = line.strip_prefix("### ") {
+                let id = rest.split(':').next().unwrap().trim();
+                assert!(openblog_core::voice::is_kebab(id), "{id}");
+                assert!(ids.insert(id.to_string()), "duplicate prompt id {id}");
+                *packs.get_mut(order.last().unwrap()).unwrap() += 1;
+            } else if let Some(rest) = line.strip_prefix("## ") {
+                let id = rest.split(':').next().unwrap().trim().to_string();
+                assert!(openblog_core::voice::is_kebab(&id), "{id}");
+                assert!(packs.insert(id.clone(), 0).is_none(), "duplicate pack {id}");
+                order.push(id);
+            }
+        }
+        assert!(packs.len() >= 10, "{} packs", packs.len());
+        assert!(ids.len() >= 40, "{} prompts", ids.len());
+        for (pack, count) in &packs {
+            assert!(*count >= 3, "{pack} has {count} prompts");
+        }
+    }
+
+    #[test]
+    fn the_standing_rule_is_stored_once_not_per_prompt() {
+        assert_eq!(BUNDLED.matches("the way you would say it").count(), 1);
+        assert!(BUNDLED.starts_with("---\nversion: 1\nrule: "));
+    }
+}
