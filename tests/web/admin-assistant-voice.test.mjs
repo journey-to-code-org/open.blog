@@ -96,3 +96,88 @@ test("autocomplete names selected voice samples by id and sends nothing else abo
   assert.deepEqual(calls[0].request.json.contextIds, ["voice:private:a-rough.md"]);
   assert.equal(JSON.stringify(calls[0].request).includes("characters"), false, "the browser names a sample; it never supplies its text or size");
 });
+
+// ---- proposing and approving a voice guide (#456) -------------------------------------------
+
+import { voiceGuideDiffLines, voiceGuideSaveRequest } from "../../web/admin/admin.js";
+
+test("a diff is classified line by line and never relies on colour alone", () => {
+  const lines = voiceGuideDiffLines("--- voice.md (saved)\n+++ voice.md (proposed)\n@@ -1,2 +1,2 @@\n # Voice guide\n-- Likes lists\n+- Starts with so\n");
+  assert.deepEqual(lines.map((line) => line.kind), ["header", "header", "header", "context", "remove", "add"]);
+  assert.equal(lines[4].text, "-- Likes lists");
+  assert.deepEqual(voiceGuideDiffLines(""), []);
+});
+
+test("a save request carries the revision the proposal was made against and an explicit destination", () => {
+  const proposal = { targets: { portable: { exists: true, valid: true, etag: "abc" }, private: { exists: false, valid: true, etag: null } } };
+  assert.deepEqual(voiceGuideSaveRequest(proposal, "portable", "# Voice guide\n"), { contextType: "voice", visibility: "portable", content: "# Voice guide\n", etag: "abc" });
+  assert.deepEqual(voiceGuideSaveRequest(proposal, "private", "# Voice guide\n"), { contextType: "voice", visibility: "private", content: "# Voice guide\n", etag: null });
+  assert.equal(voiceGuideSaveRequest(proposal, "everyone", "x"), null);
+  assert.equal(voiceGuideSaveRequest(proposal, "portable", "   "), null);
+  assert.equal(voiceGuideSaveRequest({ targets: { portable: { exists: true, valid: false, etag: "x" } } }, "portable", "x"), null);
+  assert.equal(voiceGuideSaveRequest({}, "portable", "x"), null);
+});
+
+function guideEditor(call, documents, selected) {
+  const editor = new Editor({ meta: {}, api: { call } }, { kind: "posts", path: "posts/draft.md", fields: {}, body: "" });
+  const node = () => ({ textContent: "", disabled: false, replaceChildren(...children) { this.children = children; }, focus() { this.focused = true; } });
+  editor.ui = { voiceGuideStatus: node(), voiceGuidePropose: node(), voiceGuideResult: node() };
+  editor.assistantContextDocuments = documents;
+  editor.assistantContextSelected = new Set(selected);
+  editor.assistantProviderStatus = { destination: "https://assistant.example" };
+  editor.assistantStatusLoaded = true;
+  return editor;
+}
+
+test("proposing a guide names the selected samples and writes nothing; a failure leaves no guide", async () => {
+  const documents = [sample("a-rough.md", 10)];
+  const calls = [];
+  const editor = guideEditor(async (method, path, request) => {
+    calls.push({ method, path, request });
+    return { markdown: "# Voice guide\n", diff: "+# Voice guide\n", targets: {}, current: { exists: false } };
+  }, documents, [documents[0].id, "portable:author"]);
+  editor.field = (_id, _label, control) => control;
+  editor.renderVoiceGuideProposal = () => {};
+  await editor.proposeVoiceGuide();
+  assert.deepEqual(calls.map((call) => [call.method, call.path]), [["POST", "assistant/voice-guide"]]);
+  assert.deepEqual(calls[0].request.json, { sampleIds: ["voice:private:a-rough.md"] });
+  assert.match(editor.ui.voiceGuideStatus.textContent, /Nothing is saved until you choose Save/);
+
+  const failing = guideEditor(async () => {
+    throw new Error("The provider's voice guide was rejected because a quote does not occur. Nothing was shown.");
+  }, documents, [documents[0].id]);
+  await failing.proposeVoiceGuide();
+  assert.equal(failing.voiceGuideProposal, null);
+  assert.match(failing.ui.voiceGuideStatus.textContent, /Your files are unchanged/);
+});
+
+test("proposing with no sample, or over budget, makes no request", async () => {
+  const calls = [];
+  const none = guideEditor(async (...args) => calls.push(args), [sample("a-rough.md", 10)], []);
+  await none.proposeVoiceGuide();
+  const many = Array.from({ length: 9 }, (_, index) => sample(`s${index}-rough.md`, 10));
+  const over = guideEditor(async (...args) => calls.push(args), many, many.map((document) => document.id));
+  await over.proposeVoiceGuide();
+  assert.deepEqual(calls, []);
+  assert.match(none.ui.voiceGuideStatus.textContent, /Select at least one voice sample/);
+  assert.match(over.ui.voiceGuideStatus.textContent, /at most 8/);
+});
+
+test("saving writes only through the context save with an explicit destination, and discarding writes nothing", async () => {
+  const calls = [];
+  const editor = guideEditor(async (method, path, request) => {
+    calls.push({ method, path, request });
+    return {};
+  }, [], []);
+  editor.voiceGuideProposal = { targets: { portable: { exists: false, valid: true, etag: null }, private: { exists: true, valid: true, etag: "r1" } } };
+  editor.renderVoiceGuideProposal = () => {};
+  editor.loadAssistantContext = async () => {};
+  editor.discardVoiceGuide();
+  assert.deepEqual(calls, []);
+  assert.equal(editor.voiceGuideProposal, null);
+
+  editor.voiceGuideProposal = { targets: { portable: { exists: false, valid: true, etag: null }, private: { exists: true, valid: true, etag: "r1" } } };
+  await editor.saveVoiceGuide("private", "# Voice guide\n- mine\n");
+  assert.deepEqual(calls, [{ method: "PUT", path: "assistant/context", request: { json: { contextType: "voice", visibility: "private", content: "# Voice guide\n- mine\n", etag: "r1" } } }]);
+  assert.match(editor.ui.voiceGuideStatus.textContent, /saved as private/);
+});

@@ -88,6 +88,7 @@ mod comparisons;
 mod landing;
 mod look;
 mod reading_paths;
+mod voice_guide;
 
 use crate::atlas_store;
 use crate::auth::{self, Sessions, Throttle, Users};
@@ -789,6 +790,7 @@ fn authenticated_api(
         ("POST", "engagement/feedback/revision-note") => record_revision_note(state, req),
         ("POST", "assistant/review") => generate_document_review(state, req),
         ("POST", "assistant/complete") => generate_inline_completion(state, req),
+        ("POST", "assistant/voice-guide") => voice_guide::generate_voice_guide(state, req),
         ("POST", "assistant/code-interaction") => generate_code_interaction(state, req),
         ("GET", "assistant/skills") => assistant_skills(state),
         ("POST", "assistant/skill") => create_assistant_skill(state, req),

@@ -385,3 +385,309 @@ fn too_many_samples_or_too_many_characters_are_refused_with_a_sentence() {
     assert_eq!(refused.status, 400);
     assert!(String::from_utf8_lossy(&refused.body).contains("at most 120000"));
 }
+
+// ---- the voice-guide route (#456) ------------------------------------------------------------
+
+const GUIDE_PATH: &str = "/admin/api/assistant/voice-guide";
+
+fn write_guide_skill(f: &Fixture) {
+    fs::create_dir_all(f.dir.join("assistant/skills")).unwrap();
+    fs::write(
+        f.dir.join("assistant/skills/voice-guide.md"),
+        "---\nid: voice-guide\nname: Voice guide\ndescription: Folds samples into a guide.\nversion: 1.0.0\nscopes: [document]\noutput: voice-guide\n---\nFold the samples into the guide.\n",
+    )
+    .unwrap();
+}
+
+fn provider_guide(file: &str) -> String {
+    json!({
+        "sections": [{ "id": "diction", "traits": [
+            { "statement": "Starts with so", "quote": "so i deleted", "sample": file, "oneSample": true }
+        ]}],
+        "unknown": ["How you end a piece"]
+    })
+    .to_string()
+}
+
+fn tree(root: &Path) -> Vec<(String, Vec<u8>)> {
+    fn walk(base: &Path, dir: &Path, out: &mut Vec<(String, Vec<u8>)>) {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(base, &path, out);
+            } else {
+                let name = path
+                    .strip_prefix(base)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                out.push((name, fs::read(&path).unwrap()));
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, &root.join("assistant"), &mut out);
+    walk(root, &root.join(".openblog/private/context"), &mut out);
+    out.sort();
+    out
+}
+
+#[test]
+fn the_voice_guide_route_proposes_a_guide_and_writes_nothing() {
+    let _env = quiz_env();
+    let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+    let f = fixture("voice-guide-propose");
+    let session = login_ok(&f);
+    write_guide_skill(&f);
+    let file = write_rough(
+        &f.dir,
+        Visibility::Private,
+        "a-mistake-i-made",
+        "stories",
+        "2026-10-28",
+        MISTAKE,
+    );
+    let (endpoint, captured, provider) = capturing_provider(provider_guide(&file));
+    set_quiz_endpoint(&f, &endpoint);
+    std::env::set_var("OPENBLOG_LESSONS_API_KEY", "voice-secret");
+    let before = tree(&f.dir);
+
+    let response = post(
+        &f,
+        &session,
+        GUIDE_PATH,
+        json!({ "sampleIds": [format!("voice:private:{file}")] }),
+    );
+    assert_eq!(
+        response.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&response.body)
+    );
+    provider.join().unwrap();
+    let outbound = captured.recv().unwrap();
+    assert_eq!(outbound["task"], "voice-guide");
+    assert_eq!(outbound["untrustedData"]["context"][0]["content"], MISTAKE);
+    assert!(outbound["untrustedData"]["currentGuide"].is_null());
+    assert_eq!(outbound["skills"][0]["id"], "voice-guide");
+
+    let result = body_json(&response);
+    let markdown = result["markdown"].as_str().unwrap();
+    assert!(markdown.starts_with("# Voice guide\n"));
+    assert!(markdown.contains(&format!(
+        "- Starts with so: \"so i deleted\" ({file}) (one sample)"
+    )));
+    assert!(markdown.ends_with("- How you end a piece\n"));
+    assert_eq!(result["guide"]["sections"][0]["heading"], "Word choice");
+    assert_eq!(result["current"]["exists"], false);
+    assert!(result["diff"].as_str().unwrap().contains("+# Voice guide"));
+    assert_eq!(result["targets"]["portable"]["exists"], false);
+    assert_eq!(result["targets"]["private"]["etag"], Json::Null);
+    assert_eq!(result["samples"][0]["name"], file);
+    assert!(!String::from_utf8_lossy(&response.body).contains("voice-secret"));
+    // Nothing was written: no guide, and every sample and context byte as it was.
+    assert!(!f.dir.join("assistant/context/voice.md").exists());
+    assert!(!f.dir.join(".openblog/private/context/voice.md").exists());
+    assert_eq!(tree(&f.dir), before);
+}
+
+#[test]
+fn the_proposal_is_shown_as_a_diff_against_the_saved_guide_and_saved_only_with_the_revision_seen() {
+    let _env = quiz_env();
+    let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+    let f = fixture("voice-guide-approve");
+    let session = login_ok(&f);
+    write_guide_skill(&f);
+    let file = write_rough(
+        &f.dir,
+        Visibility::Private,
+        "a-mistake-i-made",
+        "stories",
+        "2026-10-28",
+        MISTAKE,
+    );
+    fs::create_dir_all(f.dir.join("assistant/context")).unwrap();
+    let saved = "# Voice guide\n\n## Habits and quirks\n\n- Likes lists\n";
+    fs::write(f.dir.join("assistant/context/voice.md"), saved).unwrap();
+    let (endpoint, captured, provider) = capturing_provider(provider_guide(&file));
+    set_quiz_endpoint(&f, &endpoint);
+    std::env::set_var("OPENBLOG_LESSONS_API_KEY", "voice-secret");
+
+    let response = post(
+        &f,
+        &session,
+        GUIDE_PATH,
+        json!({ "sampleIds": [format!("voice:private:{file}")] }),
+    );
+    assert_eq!(
+        response.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&response.body)
+    );
+    provider.join().unwrap();
+    // The provider saw the saved guide as untrusted data.
+    assert_eq!(
+        captured.recv().unwrap()["untrustedData"]["currentGuide"],
+        saved
+    );
+    let result = body_json(&response);
+    assert_eq!(result["current"]["content"], saved);
+    assert_eq!(result["current"]["visibility"], "portable");
+    let diff = result["diff"].as_str().unwrap();
+    assert!(diff.contains("-- Likes lists"), "{diff}");
+    assert!(diff.contains("+## Word choice"), "{diff}");
+    assert_eq!(
+        fs::read_to_string(f.dir.join("assistant/context/voice.md")).unwrap(),
+        saved,
+        "proposing changes nothing"
+    );
+
+    // Save is the ordinary context save, with the revision the author saw.
+    let etag = result["targets"]["portable"]["etag"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let put = |content: &str, etag: Json| {
+        handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/context",
+                    json!({ "contextType": "voice", "visibility": "portable", "content": content, "etag": etag }),
+                ),
+                &session,
+                true,
+            ),
+        )
+    };
+    let edited = format!("{}\n- My own line\n", result["markdown"].as_str().unwrap());
+    assert_eq!(put(&edited, json!("stale")).status, 409);
+    assert_eq!(
+        fs::read_to_string(f.dir.join("assistant/context/voice.md")).unwrap(),
+        saved
+    );
+    assert_eq!(put(&edited, json!(etag)).status, 200);
+    assert_eq!(
+        fs::read_to_string(f.dir.join("assistant/context/voice.md")).unwrap(),
+        edited
+    );
+}
+
+#[test]
+fn a_result_that_quotes_text_the_sample_does_not_contain_is_rejected_and_no_guide_is_shown() {
+    let _env = quiz_env();
+    let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+    let f = fixture("voice-guide-invalid");
+    let session = login_ok(&f);
+    write_guide_skill(&f);
+    let file = write_rough(
+        &f.dir,
+        Visibility::Private,
+        "a-mistake-i-made",
+        "stories",
+        "2026-10-28",
+        MISTAKE,
+    );
+    let invented = provider_guide(&file).replace("so i deleted", "so I deleted");
+    let (endpoint, _captured, provider) = capturing_provider(invented);
+    set_quiz_endpoint(&f, &endpoint);
+    std::env::set_var("OPENBLOG_LESSONS_API_KEY", "voice-secret");
+    let response = post(
+        &f,
+        &session,
+        GUIDE_PATH,
+        json!({ "sampleIds": [format!("voice:private:{file}")] }),
+    );
+    provider.join().unwrap();
+    assert_eq!(response.status, 502);
+    let body = body_json(&response);
+    assert_eq!(body["code"], "invalid-result");
+    assert!(body["error"]
+        .as_str()
+        .unwrap()
+        .contains("does not occur word for word"));
+    assert!(body.get("markdown").is_none() && body.get("guide").is_none());
+}
+
+#[test]
+fn the_voice_guide_route_is_authenticated_csrf_protected_bounded_and_samples_only() {
+    let _env = quiz_env();
+    let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+    let f = fixture("voice-guide-guards");
+    let session = login_ok(&f);
+    write_guide_skill(&f);
+    set_quiz_endpoint(&f, "https://assistant.example/generate");
+    std::env::set_var("OPENBLOG_LESSONS_API_KEY", "voice-secret");
+    let file = write_rough(
+        &f.dir,
+        Visibility::Private,
+        "a-mistake-i-made",
+        "stories",
+        "2026-10-28",
+        MISTAKE,
+    );
+    let id = format!("voice:private:{file}");
+    let body = json!({ "sampleIds": [id] });
+    assert_eq!(
+        handle(&f.state, &json_req("POST", GUIDE_PATH, body.clone())).status,
+        401
+    );
+    assert_eq!(
+        handle(
+            &f.state,
+            &authed(json_req("POST", GUIDE_PATH, body.clone()), &session, false)
+        )
+        .status,
+        403
+    );
+    for bad in [
+        json!({ "sampleIds": [] }),
+        json!({ "sampleIds": ["portable:author"] }),
+        json!({ "sampleIds": [id.clone(), id.clone()] }),
+        json!({ "sampleIds": ["voice:private:2026-10-31-never-written-rough.md"] }),
+        json!({ "sampleIds": [id.clone()], "guide": "everyone" }),
+        json!({}),
+    ] {
+        let response = post(&f, &session, GUIDE_PATH, bad.clone());
+        assert_eq!(
+            response.status,
+            400,
+            "{bad}: {}",
+            String::from_utf8_lossy(&response.body)
+        );
+    }
+    let _first = f.state.assistant_operations.try_acquire().unwrap();
+    let _second = f.state.assistant_operations.try_acquire().unwrap();
+    assert_eq!(post(&f, &session, GUIDE_PATH, body).status, 429);
+}
+
+#[test]
+fn the_voice_guide_route_needs_a_voice_guide_skill() {
+    let _env = quiz_env();
+    let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+    let f = fixture("voice-guide-skill");
+    let session = login_ok(&f);
+    set_quiz_endpoint(&f, "https://assistant.example/generate");
+    std::env::set_var("OPENBLOG_LESSONS_API_KEY", "voice-secret");
+    let file = write_rough(
+        &f.dir,
+        Visibility::Private,
+        "a-mistake-i-made",
+        "stories",
+        "2026-10-28",
+        MISTAKE,
+    );
+    let response = post(
+        &f,
+        &session,
+        GUIDE_PATH,
+        json!({ "sampleIds": [format!("voice:private:{file}")] }),
+    );
+    // With no voice-guide skill (the built-in arrives with #457) the request is refused.
+    assert_eq!(response.status, 400);
+}

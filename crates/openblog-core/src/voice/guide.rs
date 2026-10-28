@@ -169,6 +169,26 @@ impl VoiceGuide {
         Ok(Self { sections, unknown })
     }
 
+    /// The proposal as JSON for the Admin: each section with its heading, in the fixed order.
+    pub fn to_json(&self) -> Json {
+        let sections: Vec<Json> = SECTIONS
+            .iter()
+            .filter_map(|(id, heading)| {
+                let section = self.sections.iter().find(|s| s.id == *id)?;
+                Some(serde_json::json!({
+                    "id": id,
+                    "heading": heading,
+                    "traits": section.traits.iter().map(|t| serde_json::json!({
+                        "statement": t.statement,
+                        "quote": t.quote,
+                        "sample": t.sample,
+                        "oneSample": t.one_sample,
+                    })).collect::<Vec<_>>(),
+                }))
+            })
+            .collect();
+        serde_json::json!({ "sections": sections, "unknown": self.unknown })
+    }
     /// The guide as Markdown. The same guide always renders to the same bytes: sections follow the
     /// fixed order, empty sections are left out, and the last section is always there.
     pub fn render(&self) -> String {

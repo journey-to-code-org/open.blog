@@ -450,7 +450,6 @@ impl AssistantRequest {
     /// Propose a voice guide from selected samples (ADR 0351). `samples` were read by the server
     /// for this request; `current_guide` is the saved guide's text, if any; `gaps` is the
     /// deterministic summary of what is missing.
-    #[allow(dead_code)] // wired to the voice-guide route in the next commit
     pub fn voice_guide(
         model: String,
         skill: ReviewSkill,
@@ -501,7 +500,6 @@ pub enum AssistantTask {
     InlineCompletion {
         context: Vec<ReviewContext>,
     },
-    #[allow(dead_code)]
     VoiceGuide {
         skill: ReviewSkill,
         current_guide: Option<String>,
@@ -548,7 +546,6 @@ pub enum AssistantSource {
     Document(AssistantDocument),
     Completion(AssistantCompletionSource),
     /// The voice-guide task reads only its selected samples; the request carries them.
-    #[allow(dead_code)]
     Samples,
 }
 

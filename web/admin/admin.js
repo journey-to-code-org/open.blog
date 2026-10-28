@@ -8826,6 +8826,36 @@ export function assistantVoiceBudget(documents = [], selectedIds = new Set(), bu
   return { samples: chosen.length, characters, budget, over: reasons.length > 0, message: reasons.join(" ") };
 }
 
+/**
+ * Classify the lines of a unified diff for display. The server writes the diff; this only decides how
+ * each line is drawn, so an added or removed line is never colour alone (it keeps its + or -).
+ */
+export function voiceGuideDiffLines(diff = "") {
+  if (!diff) return [];
+  return String(diff)
+    .split("\n")
+    .filter((line, index, lines) => line !== "" || index < lines.length - 1)
+    .map((text) => {
+      if (text.startsWith("+++") || text.startsWith("---") || text.startsWith("@@")) return { kind: "header", text };
+      if (text.startsWith("+")) return { kind: "add", text };
+      if (text.startsWith("-")) return { kind: "remove", text };
+      return { kind: "context", text };
+    });
+}
+
+/**
+ * The body of the context save for an approved voice guide. Nothing is written until the author
+ * chooses a destination; the revision is the one the proposal was made against, so a guide changed
+ * elsewhere in the meantime is a conflict and not an overwrite.
+ */
+export function voiceGuideSaveRequest(proposal = {}, visibility, content) {
+  const target = proposal.targets?.[visibility];
+  if (!target || !["portable", "private"].includes(visibility)) return null;
+  if (target.valid === false) return null;
+  if (typeof content !== "string" || !content.trim()) return null;
+  return { contextType: "voice", visibility, content, etag: target.exists ? target.etag : null };
+}
+
 export function assistantContextDisclosure(documents = [], selectedIds = new Set()) {
   const selected = documents
     .filter((document) => selectedIds.has(document.id) && document.exists && document.valid)
@@ -21364,6 +21394,9 @@ export class Editor {
     ui.assistantReferenceCards = h("div", { class: "oba-assistant-context-cards" });
     ui.assistantPostSnapshots = h("div", { class: "oba-assistant-context-cards" });
     ui.assistantVoiceSamples = h("div", { class: "oba-assistant-context-cards" });
+    ui.voiceGuideStatus = h("p", { class: "oba-notice", role: "status", "aria-live": "polite" }, "Select voice samples, then propose a guide. Nothing is saved until you approve it.");
+    ui.voiceGuidePropose = h("button", { class: "oba-btn", type: "button", onClick: () => this.proposeVoiceGuide() }, "Propose a voice guide from selected samples");
+    ui.voiceGuideResult = h("div", { class: "oba-voice-guide-result", tabindex: "-1", role: "region", "aria-label": "Proposed voice guide" });
     ui.assistantContextDisclosure = h("div", { class: "oba-assistant-disclosure", "aria-live": "polite" }, h("p", {}, "No context selected."));
     ui.assistantUrlInput = h("input", { type: "url", placeholder: "https://example.com/reference", "aria-label": "Reference URL" });
     ui.assistantUrlStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
@@ -21400,7 +21433,7 @@ export class Editor {
         h("section", { class: "oba-assistant-disclosure-panel", "aria-labelledby": "oba-url-context-title" }, h("h4", { id: "oba-url-context-title" }, "Add URL snapshot"), h("p", {}, "Retrieve a supported page once, inspect its untrusted text, then save a stable snapshot. Reviews never refetch it."), this.field("oba-url-context", "HTTP(S) reference URL", ui.assistantUrlInput), ui.assistantUrlStatus, h("div", { class: "oba-toolbar" }, ui.assistantUrlRetrieve), ui.assistantUrlPreview),
         ui.assistantContextCards,
         h("section", { class: "oba-assistant-context-tools", "aria-labelledby": "oba-reference-context-title" }, h("h4", { id: "oba-reference-context-title" }, "Text references"), h("p", {}, "Add a bounded Markdown or plain-text source. Reference content is treated as untrusted data."), this.field("oba-reference-name", "Filename (.md or .txt)", ui.assistantReferenceName), this.field("oba-reference-visibility", "Visibility", ui.assistantReferenceVisibility), this.field("oba-reference-content", "Reference content", ui.assistantReferenceContent), ui.assistantReferenceCreate, ui.assistantReferenceCards),
-        h("section", { class: "oba-assistant-context-tools", "aria-labelledby": "oba-voice-samples-title" }, h("h4", { id: "oba-voice-samples-title" }, "Voice samples"), h("p", {}, "Your own writing, chosen like any other context. Sample text is sent to the provider only when you run a request, and it is treated as data to compare against, never as instructions. A rough draft is never edited."), ui.assistantVoiceSamples),
+        h("section", { class: "oba-assistant-context-tools", "aria-labelledby": "oba-voice-samples-title" }, h("h4", { id: "oba-voice-samples-title" }, "Voice samples"), h("p", {}, "Your own writing, chosen like any other context. Sample text is sent to the provider only when you run a request, and it is treated as data to compare against, never as instructions. A rough draft is never edited."), ui.assistantVoiceSamples, h("h5", {}, "Voice guide"), h("p", {}, "The provider can propose a guide from the samples you selected. You see it as changes against your saved guide, can edit it, and it is saved only when you choose Save."), h("div", { class: "oba-toolbar" }, ui.voiceGuidePropose), ui.voiceGuideStatus, ui.voiceGuideResult),
         h("section", { class: "oba-assistant-context-tools", "aria-labelledby": "oba-post-snapshots-title" }, h("h4", { id: "oba-post-snapshots-title" }, "Existing post snapshots"), h("p", {}, "Select an immutable snapshot of an existing post without copying images or other repository files."), ui.assistantPostSnapshots),
         h("aside", { class: "oba-assistant-disclosure-panel", "aria-labelledby": "oba-assistant-disclosure-title" }, h("h4", { id: "oba-assistant-disclosure-title" }, "Context disclosure"), h("p", {}, "Selected context that would be sent with an explicit Assistant request:"), ui.assistantContextDisclosure),
         h("div", { class: "oba-skill-editor" }, h("h4", {}, "Skill catalog"), h("p", {}, "Skills are non-executable Markdown instructions. Article and reference content remains untrusted data."), ui.assistantCatalog, h("h4", {}, "Project skill Markdown"), ui.assistantSkillEditorStatus, ui.assistantSkillEditor, h("div", { class: "oba-toolbar" }, ui.assistantSkillNew, ui.assistantSkillSave)),
@@ -22808,6 +22841,87 @@ export class Editor {
     const budget = assistantVoiceBudget(this.assistantContextDocuments, this.assistantContextSelected, this.assistantVoiceBudget || VOICE_REQUEST_BUDGET);
     if (!budget.samples) return [];
     return [h("p", { class: budget.over ? "oba-notice is-warning" : "oba-small", role: budget.over ? "alert" : null }, budget.over ? `${budget.message} Deselect some voice samples before sending.` : `${budget.samples} of ${budget.budget.samples} voice samples and ${budget.characters} of ${budget.budget.characters} voice characters in this request.`)];
+  }
+
+  /** Ask the provider to propose a voice guide from the selected samples. Writes nothing. */
+  async proposeVoiceGuide() {
+    const sampleIds = [...this.assistantContextSelected].filter((id) => this.assistantContextDocuments.some((document) => document.id === id && document.kind === "voiceSample"));
+    if (!sampleIds.length) {
+      this.ui.voiceGuideStatus.textContent = "Select at least one voice sample above, then propose a guide.";
+      return;
+    }
+    const budget = assistantVoiceBudget(this.assistantContextDocuments, this.assistantContextSelected, this.assistantVoiceBudget || VOICE_REQUEST_BUDGET);
+    if (budget.over) {
+      this.ui.voiceGuideStatus.textContent = `No guide was requested. ${budget.message}`;
+      return;
+    }
+    this.ui.voiceGuidePropose.disabled = true;
+    this.ui.voiceGuideStatus.textContent = "Preparing provider disclosure…";
+    try {
+      await this.loadAssistantStatus();
+      if (!this.assistantProviderStatus?.destination) {
+        this.ui.voiceGuideStatus.textContent = "No guide was requested because the provider destination is unavailable. Your files are unchanged.";
+        return;
+      }
+      this.ui.voiceGuideStatus.textContent = `Sending ${budget.samples} voice sample${budget.samples === 1 ? "" : "s"} (${budget.characters} characters) to ${this.assistantProviderStatus.destination}…`;
+      const proposal = await this.app.api.call("POST", "assistant/voice-guide", { json: { sampleIds } });
+      this.voiceGuideProposal = proposal;
+      this.renderVoiceGuideProposal();
+      this.ui.voiceGuideStatus.textContent = "A voice guide is proposed. Nothing is saved until you choose Save.";
+      this.ui.voiceGuideResult.focus();
+    } catch (error) {
+      this.voiceGuideProposal = null;
+      this.ui.voiceGuideResult.replaceChildren();
+      this.ui.voiceGuideStatus.textContent = `No voice guide was produced. Your files are unchanged. ${error.message}`;
+    } finally {
+      this.ui.voiceGuidePropose.disabled = false;
+    }
+  }
+
+  renderVoiceGuideProposal() {
+    const proposal = this.voiceGuideProposal;
+    if (!proposal) {
+      this.ui.voiceGuideResult.replaceChildren();
+      return;
+    }
+    const lines = voiceGuideDiffLines(proposal.diff);
+    const editor = h("textarea", { rows: 18, "aria-label": "Proposed voice guide Markdown (editable)", spellcheck: false }, proposal.markdown || "");
+    const compared = proposal.current?.exists ? `the saved ${proposal.current.visibility} guide` : "no saved guide yet";
+    const save = (visibility) =>
+      h("button", { class: "oba-btn oba-btn-primary", type: "button", disabled: proposal.targets?.[visibility]?.valid === false, onClick: () => this.saveVoiceGuide(visibility, editor.value) }, visibility === "private" ? "Save as private" : "Save as portable");
+    this.ui.voiceGuideResult.replaceChildren(
+      h("p", { class: "oba-notice" }, `AI-proposed guide, compared with ${compared}. Every line quotes your own words and names its sample. It is a proposal: you decide what is kept.`),
+      h("h5", {}, "Changes"),
+      lines.length
+        ? h("pre", { class: "oba-voice-diff", "aria-label": "Changes to the voice guide" }, lines.map((line) => h("span", { class: `oba-voice-diff-${line.kind}`, "data-diff": line.kind }, `${line.text}\n`)))
+        : h("p", { class: "oba-small" }, "The proposal matches the saved guide."),
+      this.field("oba-voice-guide-markdown", "Edit before saving", editor),
+      h("div", { class: "oba-toolbar" }, save("portable"), save("private"), h("button", { class: "oba-btn", type: "button", onClick: () => this.discardVoiceGuide() }, "Discard")),
+    );
+  }
+
+  discardVoiceGuide() {
+    this.voiceGuideProposal = null;
+    this.renderVoiceGuideProposal();
+    this.ui.voiceGuideStatus.textContent = "Proposal discarded. Nothing was saved.";
+  }
+
+  async saveVoiceGuide(visibility, content) {
+    const body = voiceGuideSaveRequest(this.voiceGuideProposal || {}, visibility, content);
+    if (!body) {
+      this.ui.voiceGuideStatus.textContent = "The guide could not be saved: it is empty or that destination is unavailable. Nothing was written.";
+      return;
+    }
+    try {
+      await this.app.api.call("PUT", "assistant/context", { json: body });
+      this.voiceGuideProposal = null;
+      this.renderVoiceGuideProposal();
+      this.assistantContextLoaded = false;
+      await this.loadAssistantContext(true);
+      this.ui.voiceGuideStatus.textContent = `Voice guide saved as ${visibility}.`;
+    } catch (error) {
+      this.ui.voiceGuideStatus.textContent = `The guide was not saved. ${error.message}`;
+    }
   }
 
   async loadAssistantContext(force = false) {
