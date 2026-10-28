@@ -17,7 +17,7 @@ use super::*;
 use crate::landing_store::{self as store, StoreError as LandingError};
 
 /// Largest request body: a page plus room for the wrapper.
-const MAX_REQUEST_BYTES: usize = MAX_FILE_BYTES * 2;
+pub(super) const MAX_REQUEST_BYTES: usize = MAX_FILE_BYTES * 2;
 
 fn problems_json(problems: &[LandingProblem]) -> Json {
     Json::Array(

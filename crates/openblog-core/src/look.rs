@@ -270,6 +270,15 @@ impl LookSettings {
 /// Echo a rejected value without letting a long or odd one flood a message.
 fn describe(value: &Value) -> String {
     match value {
+        // Plain words and colors are shown back; anything with markup or CSS punctuation in it is
+        // never repeated (ADR 0353).
+        Value::String(text)
+            if !text
+                .chars()
+                .all(|c| c.is_alphanumeric() || matches!(c, ' ' | '#' | '-' | '_' | '.' | ',')) =>
+        {
+            "text with characters that are not allowed".to_string()
+        }
         Value::String(text) => {
             let shown: String = text.chars().filter(|c| !c.is_control()).take(24).collect();
             if text.chars().count() > 24 {

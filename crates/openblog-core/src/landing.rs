@@ -667,12 +667,10 @@ impl LandingPage {
         let mut seen = BTreeSet::new();
         for section in &self.sections {
             if !valid_id(&section.id) {
-                problems.push(LandingProblem::in_section(
-                    &printable(&section.id),
-                    format!(
-                        "an id is lowercase letters, digits and single hyphens, at most {MAX_ID_BYTES} characters"
-                    ),
-                ));
+                // The bad id is not repeated: it is the one text a request can make arbitrary.
+                problems.push(LandingProblem::page(format!(
+                    "has a section whose id is not valid (an id is lowercase letters, digits and single hyphens, at most {MAX_ID_BYTES} characters)"
+                )));
             } else if !seen.insert(section.id.as_str()) {
                 problems.push(LandingProblem::in_section(
                     &section.id,

@@ -2456,3 +2456,9 @@ without a description, a link that says "click here", an empty link, a skipped h
 paragraph, shouting in capitals, an `http://` address. Each is one sentence, a "Fix it" button where a fix is
 safe and touches only its own place; they never block saving (ADR 0352).
 _Avoid_: Errors, validation, lint
+
+**Raw HTML in Markdown mode**:
+HTML tags an owner types in a post's Markdown. They are kept and rendered as written, existing posts are never
+rewritten, and the suggestions note them without blocking. Visual mode, pasting, pieces, looks and the landing
+page cannot create them (ADR 0353).
+_Avoid_: HTML mode, unsafe HTML

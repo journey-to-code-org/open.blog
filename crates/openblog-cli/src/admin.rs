@@ -103,6 +103,10 @@ use crate::source_store::{self, StoreError};
 pub const SESSION_COOKIE: &str = "ob_session";
 pub(crate) const CODE_RUNNER_LANGUAGE_PATH: &str = "/components/ob-code-runner-language.js";
 const CODE_RUNNER_LANGUAGE_ASSET: &str = "components/ob-code-runner-language.js";
+/// The largest request to `pieces`: one piece's form values, never a page (ADR 0353).
+const MAX_PIECE_REQUEST_BYTES: usize = 64 * 1024;
+/// The most `[field, value]` pairs a piece request may carry; the largest piece has far fewer.
+const MAX_PIECE_VALUES: usize = 64;
 const MAX_JSON_BODY: usize = 2 * 1024 * 1024 + 64 * 1024;
 const MAX_LOGIN_BODY: usize = 4 * 1024;
 const MAX_DOCUMENT_BYTES: usize = 2 * 1024 * 1024;
@@ -490,6 +494,12 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         }
         if name == "look" || name == "look/preview" {
             return Ok(look::MAX_REQUEST_BYTES);
+        }
+        if name == "landing" || name == "landing/preview" {
+            return Ok(landing::MAX_REQUEST_BYTES);
+        }
+        if name == "pieces" {
+            return Ok(MAX_PIECE_REQUEST_BYTES);
         }
         return Ok(MAX_JSON_BODY);
     }
@@ -17213,11 +17223,20 @@ fn build_piece(req: &Request) -> Response {
     if let Err(r) = require_json(req) {
         return r;
     }
+    if req.body.len() > MAX_PIECE_REQUEST_BYTES {
+        return Response::error(413, "A piece is limited to 64 KiB");
+    }
     let body: Json = match serde_json::from_slice(&req.body) {
         Ok(b) => b,
         Err(_) => return Response::error(400, "Invalid JSON"),
     };
     let kind = body["kind"].as_str().unwrap_or("");
+    if body["values"]
+        .as_array()
+        .is_some_and(|pairs| pairs.len() > MAX_PIECE_VALUES)
+    {
+        return Response::error(413, "That piece has too many details");
+    }
     let Some(values) = body["values"].as_array().map(|pairs| {
         pairs
             .iter()
@@ -17892,6 +17911,7 @@ mod tests {
     mod landing_routes;
     mod look_routes;
     mod reading_path_routes;
+    mod safety_audit;
 
     use super::*;
     use crate::scaffold;

@@ -462,3 +462,46 @@ fn a_short_first_list_links_to_the_archive_when_it_carries_no_pager() {
     ]));
     assert!(!home(&load(config(""), Some(&full))).contains("All posts"));
 }
+
+// ----- nothing leaves the home page (ADR 0353) ----------------------------------
+
+#[test]
+fn landing_text_reaches_only_the_home_page_never_feeds_search_or_other_files() {
+    let marker = "LANDINGMARKERzq";
+    let hostile = format!("{marker} <script>alert(1)</script>");
+    // Fields this release does not know are kept in the file for a newer release and never drawn.
+    let unknown = "UNKNOWNFIELDzq";
+    let file = landing(serde_json::json!([
+        {"id": "a", "type": "welcome", "heading": hostile, "subheading": hostile, "class": unknown, "style": unknown},
+        {"id": "b", "type": "rich-text", "markdown": format!("{hostile}\n\n<img src=x onerror=alert(1)>")},
+        {"id": "c", "type": "faq", "items": [{"question": hostile, "answer": hostile}]},
+        {"id": "d", "type": "callout", "title": hostile, "body": hostile},
+        {"id": "e", "type": "contact", "email": "a@b.co", "address": hostile}
+    ]));
+    let site = load(config(""), Some(&file));
+    assert!(site.landing.is_some(), "{:?}", site.warnings);
+    let files = build(&site);
+    let holders: Vec<&str> = files
+        .iter()
+        .filter(|(_, contents)| contents.contains(marker))
+        .map(|(path, _)| path.as_str())
+        .collect();
+    assert_eq!(
+        holders,
+        ["index.html"],
+        "landing text is on the home page and nowhere else (feeds, search, sitemap, exports)"
+    );
+    for (path, contents) in &files {
+        assert!(
+            !contents.contains("<script>alert(1)") && !contents.contains("<img src=x"),
+            "{path} holds authored markup"
+        );
+    }
+    assert!(
+        files.values().all(|contents| !contents.contains(unknown)),
+        "an unknown field reached the output"
+    );
+    // The same site without the landing page has no trace of it either.
+    let plain = build(&load(config(""), None));
+    assert!(plain.values().all(|contents| !contents.contains(marker)));
+}
