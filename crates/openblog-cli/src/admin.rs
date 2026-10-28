@@ -10218,6 +10218,7 @@ fn assistant_context_target(
     let (context_type, relative) = match context_type {
         "author" => ("author", PathBuf::from("author.md")),
         "site" => ("site", PathBuf::from("site.md")),
+        "voice" => ("voice", PathBuf::from("voice.md")),
         "post" => {
             let document_path = document_path
                 .ok_or_else(|| Response::error(400, "Post context requires documentPath"))?;
@@ -10237,7 +10238,7 @@ fn assistant_context_target(
         _ => {
             return Err(Response::error(
                 400,
-                "Context type must be author, site, or post",
+                "Context type must be author, site, voice, or post",
             ))
         }
     };
@@ -10513,6 +10514,13 @@ fn assistant_context_catalog(state: &AppState, req: &Request) -> Response {
             Err(response) => return response,
         }
     }
+    let mut voice_guides = Vec::new();
+    for visibility in ["portable", "private"] {
+        match assistant_context_document(&state.root, "voice", visibility, None) {
+            Ok(document) => voice_guides.push(document),
+            Err(response) => return response,
+        }
+    }
     if let Some(document_path) = req.query.get("path") {
         for visibility in ["portable", "private"] {
             match assistant_context_document(&state.root, "post", visibility, Some(document_path)) {
@@ -10589,6 +10597,9 @@ fn assistant_context_catalog(state: &AppState, req: &Request) -> Response {
                 Ok(posts) => posts,
                 Err(response) => return response,
             },
+            "voiceGuides": voice_guides,
+            "voiceSamples": crate::voice_assistant::catalog_entries(&state.root),
+            "voiceBudget": crate::voice_assistant::budget(),
             "privateSafety": private_safety
         }),
     )
@@ -17945,6 +17956,7 @@ mod tests {
     mod look_routes;
     mod reading_path_routes;
     mod safety_audit;
+    mod voice_assistant_routes;
 
     use super::*;
     use crate::scaffold;
