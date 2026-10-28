@@ -330,3 +330,63 @@ fn a_save_that_would_break_the_site_leaves_the_file_untouched() {
     assert_eq!(refused.status, 422);
     assert_eq!(fs::read(f.dir.join(site::CONFIG_FILE)).unwrap(), bytes);
 }
+
+#[test]
+fn a_look_preview_is_built_from_the_unsaved_look_and_writes_nothing() {
+    let f = fixture("look-preview");
+    let session = login_ok(&f);
+    let before = fs::read_to_string(f.dir.join(site::CONFIG_FILE)).unwrap();
+    let preview = |body: Json| {
+        handle(
+            &f.state,
+            &authed(
+                json_req("POST", "/admin/api/look/preview", body),
+                &session,
+                true,
+            ),
+        )
+    };
+    // Denied without a session or without the CSRF token.
+    let path = "/admin/api/look/preview";
+    assert_eq!(
+        handle(&f.state, &json_req("POST", path, json!({}))).status,
+        401
+    );
+    let no_csrf = handle(
+        &f.state,
+        &authed(json_req("POST", path, json!({})), &session, false),
+    );
+    assert_eq!(no_csrf.status, 403);
+    // A bad look is refused in plain words and builds nothing.
+    assert_eq!(
+        preview(json!({"look": {"roundness": "pointy"}})).status,
+        422
+    );
+    assert_eq!(preview(json!({"look": {}, "mode": "purple"})).status, 422);
+    let ok = preview(json!({"look": {"roundness": "round", "accent": "#aa2222"}, "mode": "dark"}));
+    assert_eq!(ok.status, 200, "{}", String::from_utf8_lossy(&ok.body));
+    let answer = body_json(&ok);
+    assert!(answer["previewUrl"]
+        .as_str()
+        .unwrap()
+        .starts_with("/admin/api/preview/"));
+    assert_eq!(answer["refused"], false);
+    let document = handle(
+        &f.state,
+        &authed(
+            req("GET", answer["previewUrl"].as_str().unwrap()),
+            &session,
+            false,
+        ),
+    );
+    let html = String::from_utf8_lossy(&document.body).to_string();
+    assert!(html.contains("data-theme=\"dark\""), "{html}");
+    assert!(html.contains("<style>"));
+    assert!(!html.contains("/themes/base/tokens.css"));
+    // Nothing was saved and the stored look is untouched.
+    assert_eq!(
+        fs::read_to_string(f.dir.join(site::CONFIG_FILE)).unwrap(),
+        before
+    );
+    assert!(read_config(&f).get("appearance").is_none());
+}

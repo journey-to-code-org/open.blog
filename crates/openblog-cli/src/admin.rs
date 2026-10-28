@@ -488,7 +488,7 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         if name == "research/import" {
             return Ok(MAX_RESEARCH_IMPORT_BYTES);
         }
-        if name == "look" {
+        if name == "look" || name == "look/preview" {
             return Ok(look::MAX_REQUEST_BYTES);
         }
         return Ok(MAX_JSON_BODY);
@@ -523,13 +523,14 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/admin.js" => "admin.js",
         "/admin/admin.css" => "admin.css",
         "/admin/landing.js" => "landing.js",
+        "/admin/look.js" => "look.js",
         _ => return Response::error(404, "Not found"),
     };
     let config = site::load_config(&state.root).unwrap_or_default();
     match site::admin_file(&state.root, &config, file) {
         Some(bytes) => {
             let ctype = match file {
-                "admin.js" | "landing.js" => "text/javascript; charset=utf-8",
+                "admin.js" | "landing.js" | "look.js" => "text/javascript; charset=utf-8",
                 "admin.css" => "text/css; charset=utf-8",
                 _ => "text/html; charset=utf-8",
             };
@@ -647,6 +648,7 @@ fn authenticated_api(
         ("PUT", "appearance") => save_appearance_settings(state, req),
         ("GET", "look") => look::get_look(state),
         ("PUT", "look") => look::save_look(state, req),
+        ("POST", "look/preview") => look::preview(state, req),
         ("GET", "preferences") => admin_preferences(state, &session.user),
         ("PUT", "preferences") => save_admin_preferences(state, req, &session.user),
         ("GET", "sources") => list_sources(state),
@@ -34190,6 +34192,9 @@ series: letters
             .any(|(name, value)| name.eq_ignore_ascii_case("content-type")
                 && value.starts_with("text/javascript")));
         assert!(String::from_utf8_lossy(&landing.body).contains("SECTION_CATALOG"));
+        let look = handle(&f.state, &req("GET", "/admin/look.js"));
+        assert_eq!(look.status, 200);
+        assert!(String::from_utf8_lossy(&look.body).contains("CONTROL_ORDER"));
         assert_eq!(
             handle(&f.state, &req("GET", "/admin/secrets.txt")).status,
             404

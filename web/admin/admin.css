@@ -4886,3 +4886,146 @@ a.oba-btn-primary {
     max-width: 48rem;
   }
 }
+
+/* Customize look (ADR 0353, #350). One column from 320px; every choice is a real radio button in a
+   card that is at least 44px tall; the selection shows as a border and a mark, never color alone. */
+.oba-look-control {
+  min-width: 0;
+  margin: 0 0 1.25rem;
+  padding: 0.75rem 1rem 1rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+}
+
+.oba-look-control legend {
+  padding: 0 0.25rem;
+  font-weight: 700;
+}
+
+.oba-look-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 9.5rem), 1fr));
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+}
+
+.oba-look-options-palette {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr));
+}
+
+.oba-look-option {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0.6rem 0.75rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface);
+  cursor: pointer;
+}
+
+.oba-look-option input[type="radio"] {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0.15rem 0 0;
+}
+
+.oba-look-option[data-selected="true"] {
+  border: 3px solid var(--ob-color-accent-border);
+  padding: calc(0.6rem - 2px) calc(0.75rem - 2px);
+  background: var(--ob-color-glow);
+}
+
+.oba-look-option:has(input:focus-visible) {
+  outline: var(--ob-focus-ring);
+  outline-offset: 2px;
+}
+
+.oba-look-card-text {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.oba-look-pair {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.oba-look-swatches {
+  display: inline-flex;
+}
+
+.oba-look-chip {
+  display: inline-block;
+  width: 1.4rem;
+  height: 1.4rem;
+  border: 1px solid var(--oba-panel-border);
+}
+
+.oba-look-chip-big {
+  flex: none;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+}
+
+.oba-look-swatch {
+  align-items: center;
+}
+
+.oba-look-picker-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.oba-look-picker-row input[type="color"] {
+  width: 4rem;
+  height: 44px;
+  padding: 2px;
+}
+
+.oba-look-sample {
+  font-size: 1.1rem;
+}
+
+.oba-look-font-modern-sans .oba-look-sample {
+  font-family: system-ui, "Segoe UI", sans-serif;
+}
+
+.oba-look-font-classic-serif .oba-look-sample {
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+.oba-look-font-friendly-rounded .oba-look-sample {
+  font-family: ui-rounded, "Trebuchet MS", "Segoe UI", sans-serif;
+}
+
+.oba-look-font-techie-mono .oba-look-sample {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+.oba-look-summary {
+  margin: 0.25rem 0 0.5rem;
+}
+
+.oba-look-default,
+.oba-look-tools .oba-btn,
+.oba-look-modes .oba-btn {
+  min-height: 44px;
+}
+
+.oba-look-tools {
+  margin-bottom: 1rem;
+}
+
+.oba-look-adjustments[hidden] {
+  display: none;
+}

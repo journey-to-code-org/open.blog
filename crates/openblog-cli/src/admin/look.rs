@@ -177,3 +177,150 @@ pub(super) fn save_look(state: &AppState, req: &Request) -> Response {
     };
     Response::json(200, &described)
 }
+
+/// `POST look/preview`: the home page as it would be built with the look in the request, which is
+/// not saved (ADR 0353). The look is validated as a save would validate it, the page is built in
+/// memory by the production code, and the theme's whole stylesheet (with this look layered over it)
+/// replaces the stylesheet link, so a control reset to the theme default really shows the default.
+/// `mode` (`light` or `dark`) fixes the color scheme. The answer also carries the plain-words notes
+/// on any color the readable-color model adjusted. No file is written and nothing is published.
+pub(super) fn preview(state: &AppState, req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    if req.body.len() > MAX_REQUEST_BYTES {
+        return Response::error(413, "The look is too large");
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(Json::Object(body)) => Json::Object(body),
+        _ => return Response::error(400, "Invalid JSON"),
+    };
+    let submitted = match LookSettings::from_value(body.get("look").unwrap_or(&Json::Null)) {
+        Ok(look) => look,
+        Err(errors) => return Response::error(422, &errors.join("; ")),
+    };
+    let mode = match body.get("mode").and_then(Json::as_str) {
+        None | Some("system") => None,
+        Some(mode @ ("light" | "dark")) => Some(mode),
+        Some(_) => return Response::error(422, "mode must be light, dark or system"),
+    };
+    let mut config = match site::load_config(&state.root) {
+        Ok(config) => config,
+        Err(error) => return Response::error(500, &error),
+    };
+    config.appearance = submitted.clone();
+    // Owner-supplied scripts and analytics stay off in a preview, as in the landing preview.
+    config.snippets = Default::default();
+    config.analytics.builtin = false;
+    config.analytics.show_views = false;
+    config.analytics.endpoint.clear();
+    config.engagement.enabled = false;
+    let guard = lock(&state.build);
+    let sources = match site::read_sources(&state.root, &config) {
+        Ok(sources) => sources,
+        Err(error) => return Response::error(500, &error),
+    };
+    let (preview_site, themes) = match site::load_site_from_sources_listing(
+        &state.root,
+        config,
+        sources,
+        LoadOptions {
+            include_drafts: false,
+            now: Some(clock::now()),
+            preview_source: None,
+        },
+    ) {
+        Ok(loaded) => loaded,
+        Err(errors) => return Response::error(422, &site::content_problems(&errors)),
+    };
+    drop(guard);
+    let document = match openblog_core::generate_home(&preview_site, &themes) {
+        Ok(document) => document,
+        Err(error) => return Response::error(422, &error),
+    };
+    let c = &preview_site.config;
+    let theme = match themes.resolve(&c.theme) {
+        Ok(theme) => theme.with_look(&submitted),
+        Err(error) => return Response::error(422, &error),
+    };
+    let (notes, refused) = theme
+        .look
+        .as_ref()
+        .map(|compiled| (compiled.notes.clone(), compiled.refused))
+        .unwrap_or_default();
+    let tokens = c.apply_base_path(&c.cdn.apply(&theme.tokens_css()));
+    let mut html = inline_tokens(&document.contents, &c.theme, &tokens);
+    if let Some(mode) = mode {
+        html = html.replacen("<html", &format!("<html data-theme=\"{mode}\""), 1);
+    }
+    // Links in a preview lead nowhere: they would only load the live site inside the frame.
+    let html = html.replacen(
+        "<head>",
+        "<head>
+<base target=\"_blank\">",
+        1,
+    );
+    let token = match auth::random_token() {
+        Ok(token) => token,
+        Err(error) => return Response::error(500, &error),
+    };
+    let csp = preview_csp(c);
+    store_preview(state, &token, html, csp);
+    Response::json(
+        200,
+        &json!({
+            "previewUrl": format!("/admin/api/preview/{token}"),
+            "adjustments": notes,
+            "refused": refused,
+        }),
+    )
+}
+
+/// The page with the link to the theme's `tokens.css` replaced by the stylesheet itself, or with the
+/// stylesheet added to the head when the page has no such link.
+fn inline_tokens(html: &str, theme: &str, css: &str) -> String {
+    let style = format!("<style>{}</style>", css.replace("</", r"<\/"));
+    let needle = format!("themes/{theme}/tokens.css");
+    if let Some(at) = html.find(&needle) {
+        if let (Some(start), Some(end)) = (html[..at].rfind("<link"), html[at..].find('>')) {
+            let mut out = String::with_capacity(html.len() + style.len());
+            out.push_str(&html[..start]);
+            out.push_str(&style);
+            out.push_str(&html[at + end + 1..]);
+            return out;
+        }
+    }
+    html.replacen(
+        "</head>",
+        &format!(
+            "{style}
+</head>"
+        ),
+        1,
+    )
+}
+
+#[cfg(test)]
+mod preview_tests {
+    use super::inline_tokens;
+
+    #[test]
+    fn the_tokens_link_becomes_the_stylesheet() {
+        let html = "<head><link rel=\"stylesheet\" href=\"/themes/base/tokens.css?v=1\"><link href=\"/x.css\"></head>";
+        let out = inline_tokens(html, "base", ":root{--a:1}");
+        assert_eq!(
+            out,
+            "<head><style>:root{--a:1}</style><link href=\"/x.css\"></head>"
+        );
+    }
+
+    #[test]
+    fn a_page_without_the_link_gets_the_stylesheet_in_the_head() {
+        let out = inline_tokens("<head></head>", "base", "a{}");
+        assert_eq!(
+            out,
+            "<head><style>a{}</style>
+</head>"
+        );
+    }
+}

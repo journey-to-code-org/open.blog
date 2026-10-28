@@ -2414,6 +2414,13 @@ One of the eight choices a look holds. A theme lists the ones it honors in `cust
 only those and says kindly why the rest are missing (ADR 0248).
 _Avoid_: Setting, style option
 
+**Customize look**:
+The Admin screen (`#/look`, beside Appearance) where an owner changes the look by tapping looks, swatches
+and sample cards, with a live preview of the home page built from the unsaved look in light or dark. It has
+no field that takes text; Back to theme default undoes one control, Reset everything clears the look, and
+Undo takes back the last change (ADR 0353).
+_Avoid_: Theme editor, style editor
+
 **Curated look**:
 A named, ready-made combination of palette and font style (Calm, Warm, Bold, Night, Garden, Paper,
 Ocean, Sunset), pre-checked for readable contrast in light and dark. It is data, not a theme: applying

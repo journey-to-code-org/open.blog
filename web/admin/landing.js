@@ -549,7 +549,7 @@ const memoryDrafts = new Map();
  * checked against what is stored now like any other save. `storage` is a function so a browser
  * that throws on access is handled where it is read.
  */
-export function createDraftStore(key, storage = () => globalThis.localStorage) {
+export function createDraftStore(key, storage = () => globalThis.localStorage, isContent = (page) => Array.isArray(page.sections)) {
   let blocked = false;
   const read = () => {
     try {
@@ -560,7 +560,7 @@ export function createDraftStore(key, storage = () => globalThis.localStorage) {
       return null;
     }
   };
-  const valid = (record) => isObject(record) && record.v === DRAFT_VERSION && (record.base === null || typeof record.base === "string") && isObject(record.page) && Array.isArray(record.page.sections);
+  const valid = (record) => isObject(record) && record.v === DRAFT_VERSION && (record.base === null || typeof record.base === "string") && isObject(record.page) && isContent(record.page);
   return {
     /** Whether the draft only lives in memory because the device would not keep it. */
     get inMemoryOnly() {

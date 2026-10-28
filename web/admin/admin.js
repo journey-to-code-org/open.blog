@@ -31,6 +31,24 @@ import {
   serverProblemsBySection,
   setHidden,
 } from "./landing.js";
+import {
+  ACCENT_SWATCHES,
+  CHOICES,
+  CONTROL_ORDER,
+  CONTROL_TEXT,
+  DEFAULT_PICKER_COLOR,
+  applyCurated,
+  clearControl,
+  compareLooks,
+  controlSummary,
+  lookErrorText,
+  lookFrom,
+  lookPayload,
+  lookSame,
+  pushHistory,
+  setControl,
+  valueWords,
+} from "./look.js";
 
 const ADMIN_SCHEME_KEY = "ob-admin-scheme";
 const ADMIN_PREVIEW_WIDTH_KEY = "ob-admin-preview-width";
@@ -10656,11 +10674,14 @@ export class ObAdmin extends AdminElement {
       h("a", { class: "oba-tab", "aria-current": active === "paths" ? "page" : null, href: "#/paths" }, "Reading paths"),
       h("a", { class: "oba-tab", "aria-current": active === "comparisons" ? "page" : null, href: "#/comparisons" }, "Comparisons"),
       h("a", { class: "oba-tab", "aria-current": active === "appearance" ? "page" : null, href: "#/appearance" }, "Appearance"),
+      h("a", { class: "oba-tab", "aria-current": active === "look" ? "page" : null, href: "#/look" }, "Customize look"),
     ];
     const activeInfo = active === "analytics"
       ? { title: "Analytics", detail: "Understand readership without tracking individual readers." }
       : active === "appearance"
         ? { title: "Appearance", detail: "Control the public blog's color-scheme button." }
+      : active === "look"
+        ? { title: "Customize look", detail: "Choose colors, fonts and spacing for your whole site by tapping big options, and watch the preview change." }
       : active === "moderation"
         ? { title: "Moderation inbox", detail: "Decide on comments and reader feedback in one list, respond, and record what changed." }
       : panel
@@ -10928,6 +10949,7 @@ export class ObAdmin extends AdminElement {
     const commands = [
       { label: "Overview", category: "Workspace", keywords: "home dashboard status", run: () => go("#/overview") },
       { label: "Landing page", category: "Site", keywords: "home page sections welcome builder layout", run: () => go("#/landing") },
+      { label: "Customize look", category: "Site", keywords: "colors fonts theme text size corners spacing width customize style", run: () => go("#/look") },
       { label: "Appearance", category: "Site", keywords: "theme light dark mode button system preference", run: () => go("#/appearance") },
       { label: "New post", category: "Create", keywords: "write article", run: () => go("#/new/posts") },
       { label: "New page", category: "Create", keywords: "write", run: () => go("#/new/pages") },
@@ -11154,6 +11176,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "paths") await this.showReadingPaths(tail);
       else if (head === "comparisons") await this.showComparisons(tail);
       else if (head === "appearance") await this.showAppearance();
+      else if (head === "look") await this.showLook();
       else if (head === "research") await this.showResearchPanel(tail);
       else if (head === "shared" && tail === "new") await this.showSharedReflectionForm();
       else if (head === "shared" && tail.startsWith("accept/")) await this.showInvitationAccept(invitationTokenFromHash(location.hash));
@@ -11214,6 +11237,7 @@ export class ObAdmin extends AdminElement {
       h("p", { class: "oba-help" }, "Hiding the button also ignores saved manual choices, so the public blog follows the visitor's system preference. This does not change the Admin color scheme. Follow theme allows each page's theme to decide."),
       h("p", { class: "oba-help" }, "Saved in openblog.json. Publish afterward to update a separately hosted static site."),
       status, save,
+      h("p", {}, h("a", { class: "oba-btn", href: "#/look", "data-action": "customize-look" }, "Customize look")),
     );
     this.mount(this.shell("appearance", form));
   }
@@ -12975,6 +12999,463 @@ export class ObAdmin extends AdminElement {
     addEventListener("hashchange", keepCopy);
     document.addEventListener("visibilitychange", keepCopy);
     // Beside the builder on a wide screen, the preview is there from the start.
+    if (wide()) openPreview();
+    this.viewDirty = () => isDirty();
+    this.viewBusy = () => busy || publishing;
+  }
+
+  // ---- customize look (ADR 0353, #350)
+
+  /**
+   * `#/look`: the owner's colors and fonts as big, friendly choices with a live preview. The preview
+   * is the production home page built in memory with the unsaved look, in a sandboxed frame; nothing
+   * is written until Save (ADR 0248 holds every rule, this screen only offers its choices).
+   */
+  async showLook() {
+    let loaded;
+    try {
+      loaded = await this.api.call("GET", "look");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) throw error;
+      this.mount(this.shell("look", h("p", { class: "oba-error", role: "alert" }, lookErrorText(error))));
+      return;
+    }
+    let publishInfo = null;
+    try {
+      publishInfo = await this.api.call("GET", "publish");
+    } catch {
+      // Publishing then stays off with its reason; saving and previewing do not need it.
+    }
+    const looks = Array.isArray(loaded.looks) ? loaded.looks : [];
+    const honors = new Map((loaded.controls || []).map((control) => [control.id, control.honored === true]));
+    const shown = CONTROL_ORDER.filter((id) => honors.get(id));
+    let etag = loaded.etag;
+    let saved = lookFrom(loaded.look);
+    let draft = { ...saved };
+    let history = [];
+    let gesture = null;
+    let busy = false;
+    let mode = "system";
+    const isDirty = () => !lookSame(draft, saved);
+    const drafts = createDraftStore(`ob-look-draft:${this.user}`, undefined, (value) => typeof value === "object" && !Array.isArray(value));
+    let pendingDraft = null;
+    let draftTimer = null;
+    const persistDraft = () => {
+      clearTimeout(draftTimer);
+      if (pendingDraft) return;
+      if (isDirty()) drafts.save(draft, etag);
+      else drafts.clear();
+    };
+    const hex = (value) => (/^#[0-9a-f]{6}$/.test(String(value)) ? value : "#808080");
+
+    const status = h("p", { class: "oba-landing-status oba-small", role: "status", "aria-live": "polite", "data-look-status": "true" });
+    const say = (text, kind = "small") => {
+      status.className = `oba-landing-status ${kind === "error" ? "oba-error" : kind === "ok" ? "oba-ok" : kind === "notice" ? "oba-notice" : "oba-small"}`;
+      status.textContent = text;
+    };
+
+    // ----- the controls: every one is a group of real radio buttons, a swatch or a picker
+    const sync = [];
+    const control = (id, body) => {
+      const text = CONTROL_TEXT[id];
+      const summary = h("p", { class: "oba-small oba-look-summary", id: `oba-look-${id}-summary`, "data-look-summary": id });
+      const reset = h("button", { class: "oba-btn oba-look-default", type: "button", "data-action": "control-default", "data-control": id, "aria-label": `${text.label}: back to theme default`, onClick: () => {
+        change(() => clearControl(draft, id));
+        say(`${text.label} is back to the theme's own. Not saved yet.`, "notice");
+      } }, "Back to theme default");
+      sync.push(() => {
+        summary.textContent = controlSummary(id, draft, looks);
+        reset.disabled = !draft[id];
+      });
+      return h(
+        "fieldset",
+        { class: "oba-look-control", "data-control": id, "aria-describedby": `oba-look-${id}-help oba-look-${id}-summary` },
+        h("legend", {}, text.label),
+        h("p", { class: "oba-small", id: `oba-look-${id}-help` }, text.help),
+        body,
+        summary,
+        reset,
+      );
+    };
+    const radioCards = (id, options, render) => {
+      const name = `oba-look-${id}`;
+      const inputs = options.map((option) => {
+        const input = h("input", { type: "radio", name, value: option.id, "data-choice": option.id, onChange: () => {
+          change(() => (id === "palette" ? applyCurated(draft, option) : setControl(draft, id, option.id)));
+          say(`${valueWords(id, option.id, looks)} chosen for ${CONTROL_TEXT[id].label.toLowerCase()}. Not saved yet.`, "notice");
+        } });
+        return { input, option };
+      });
+      sync.push(() => {
+        for (const { input, option } of inputs) {
+          input.checked = draft[id] === option.id;
+          input.closest("label").dataset.selected = String(input.checked);
+        }
+      });
+      return h("div", { class: `oba-look-options oba-look-options-${id}` }, inputs.map(({ input, option }) => h("label", { class: "oba-look-option" }, input, render(option))));
+    };
+    const swatchPair = (colors) => h("span", { class: "oba-look-swatches", "aria-hidden": "true" }, ["page", "surface", "text", "accent"].map((key) => h("span", { class: "oba-look-chip", style: `background:${hex(colors?.[key])}` })));
+    const accentBody = () => {
+      const picker = h("input", { type: "color", id: "oba-look-picker", value: DEFAULT_PICKER_COLOR, "data-look-picker": "true" });
+      const names = h("div", { class: "oba-look-options oba-look-options-accent" });
+      const swatches = ACCENT_SWATCHES.map((swatch) => {
+        const input = h("input", { type: "radio", name: "oba-look-accent", value: swatch.hex, "data-choice": swatch.hex, onChange: () => {
+          change(() => setControl(draft, "accent", swatch.hex));
+          say(`${swatch.name} chosen for the main color. Not saved yet.`, "notice");
+        } });
+        names.append(h("label", { class: "oba-look-option oba-look-swatch" }, input, h("span", { class: "oba-look-chip oba-look-chip-big", "aria-hidden": "true", style: `background:${hex(swatch.hex)}` }), h("span", {}, swatch.name)));
+        return { input, swatch };
+      });
+      picker.addEventListener("input", () => {
+        if (!gesture) gesture = { ...draft };
+        draft = setControl(draft, "accent", picker.value);
+        afterChange();
+      });
+      picker.addEventListener("change", () => {
+        if (gesture) {
+          history = pushHistory(history, gesture);
+          gesture = null;
+        }
+        say(`Main color set to ${picker.value}. Not saved yet.`, "notice");
+        afterChange();
+      });
+      sync.push(() => {
+        for (const { input, swatch } of swatches) {
+          input.checked = draft.accent === swatch.hex;
+          input.closest("label").dataset.selected = String(input.checked);
+        }
+        if (draft.accent) picker.value = draft.accent;
+      });
+      return h("div", {}, names, h("div", { class: "oba-look-picker-row" }, h("label", { for: "oba-look-picker" }, "Pick your own color"), picker));
+    };
+    const sections = [];
+    for (const id of shown) {
+      if (id === "palette") {
+        sections.push(control(id, radioCards(id, looks, (item) => h("span", { class: "oba-look-card-text" }, h("strong", {}, item.name), h("span", { class: "oba-small" }, item.description), h("span", { class: "oba-look-pair" }, swatchPair(item.light), swatchPair(item.dark))))));
+      } else if (id === "accent") sections.push(control(id, accentBody()));
+      else if (id === "fontStyle") sections.push(control(id, radioCards(id, CHOICES.fontStyle, (option) => h("span", { class: `oba-look-card-text oba-look-font-${option.id}` }, h("strong", {}, option.label), h("span", { class: "oba-look-sample", "aria-hidden": "true" }, "The quick brown fox"), h("span", { class: "oba-small" }, option.hint)))));
+      else sections.push(control(id, radioCards(id, CHOICES[id], (option) => h("span", { class: "oba-look-card-text" }, h("strong", {}, option.label), h("span", { class: "oba-small" }, option.hint)))));
+    }
+    const unhonored = loaded.note ? h("p", { class: "oba-notice", "data-look-note": "true" }, loaded.note) : null;
+    const adjustments = h("div", { class: "oba-notice oba-look-adjustments", role: "status", "aria-live": "polite", hidden: true, "data-look-adjustments": "true" });
+    const showAdjustments = (notes, refused) => {
+      const list = Array.isArray(notes) ? notes : [];
+      adjustments.hidden = !list.length;
+      adjustments.className = `${refused ? "oba-error" : "oba-notice"} oba-look-adjustments`;
+      adjustments.replaceChildren(...(list.length ? [h("strong", {}, refused ? "This color cannot be used here" : "We adjusted a color so it stays easy to read"), h("ul", {}, list.map((note) => h("li", {}, note)))] : []));
+    };
+    showAdjustments(loaded.adjustments, loaded.refused);
+
+    // ----- undo and reset
+    const undoButton = h("button", { class: "oba-btn", type: "button", "data-action": "undo", onClick: () => {
+      const last = history[history.length - 1];
+      if (!last) return;
+      history = history.slice(0, -1);
+      draft = { ...last };
+      afterChange();
+      say("Undone. Your last change was taken back.", "notice");
+    } }, "Undo");
+    const resetButton = h("button", { class: "oba-btn", type: "button", "data-action": "reset-all", onClick: () => {
+      if (!Object.keys(draft).length) return;
+      change(() => ({}));
+      say("Everything is back to the theme's own look. Not saved yet. Choose Undo to take it back.", "notice");
+    } }, "Reset everything");
+
+    function change(next) {
+      history = pushHistory(history, draft);
+      draft = next();
+      afterChange();
+    }
+    function afterChange() {
+      for (const update of sync) update();
+      undoButton.disabled = history.length === 0;
+      resetButton.disabled = !Object.keys(draft).length;
+      renderBar();
+      schedulePreview();
+    }
+
+    // ----- a save that finds a newer look: your changes are never replaced, and neither is the newer look
+    const conflictBox = h("div", { class: "oba-error oba-landing-conflict", role: "group", "aria-labelledby": "oba-look-conflict-title", hidden: true, "data-look-conflict": "true" });
+    const restoreBox = h("div", { class: "oba-notice oba-landing-restore", role: "group", "aria-labelledby": "oba-look-restore-title", hidden: true, "data-look-restore": "true" });
+    const showConflict = (current) => {
+      const newer = lookFrom(current?.look);
+      const differences = h("div", { class: "oba-landing-differences", hidden: true, "data-look-differences": "true" });
+      const keep = h("button", { class: "oba-btn", type: "button", "data-action": "keep-mine", onClick: () => {
+        etag = current?.etag ?? etag;
+        conflictBox.hidden = true;
+        say("Kept your version. Nothing has been replaced yet. Choose Save to replace the newer look with yours.", "notice");
+        saveButton.focus();
+      } }, "Keep mine");
+      const useNewer = h("button", { class: "oba-btn", type: "button", "data-action": "use-newer", onClick: () => {
+        drafts.save(draft, current?.etag);
+        const record = drafts.load();
+        etag = current?.etag ?? etag;
+        saved = newer;
+        draft = { ...newer };
+        history = [];
+        conflictBox.hidden = true;
+        afterChange();
+        offerRestore(record);
+        say("Loaded the newer look. Your changes were put away and can be restored.", "notice");
+        restoreBox.querySelector("button")?.focus();
+      } }, "Use the newer look");
+      const compare = h("button", { class: "oba-btn", type: "button", "data-action": "compare", "aria-expanded": "false", onClick: (event) => {
+        if (differences.hidden) {
+          const rows = compareLooks(draft, newer, looks);
+          differences.replaceChildren(
+            h("h4", {}, "What is different"),
+            rows.length ? h("ul", {}, rows.map((row) => h("li", { "data-difference": row.control }, `${row.label}: yours is ${row.mine}; the newer look has ${row.theirs}.`))) : h("p", {}, "The two looks are the same."),
+          );
+        }
+        differences.hidden = !differences.hidden;
+        event.currentTarget.setAttribute("aria-expanded", String(!differences.hidden));
+      } }, "Compare");
+      conflictBox.hidden = false;
+      conflictBox.replaceChildren(
+        h("h3", { id: "oba-look-conflict-title", tabindex: "-1" }, "Your look was changed somewhere else"),
+        h("p", {}, "Someone, or you on another device, saved a different look while you were editing. Nothing has been replaced. Choose what to do with your changes."),
+        h("div", { class: "oba-toolbar" }, keep, useNewer, compare),
+        differences,
+      );
+      say("Your look was changed somewhere else. Nothing was saved. Choose what to do with your changes.", "error");
+      conflictBox.querySelector("h3").focus();
+    };
+    const offerRestore = (record) => {
+      pendingDraft = record;
+      const when = draftTimeText(record.savedAt);
+      const older = record.base !== etag;
+      restoreBox.hidden = false;
+      restoreBox.replaceChildren(
+        h("strong", { id: "oba-look-restore-title" }, "Restore your unsaved changes?"),
+        h("p", {}, `This device kept changes${when ? ` from ${when}` : ""} that were never saved${older ? ", made on an older look. If you save them you will be asked what to do about the newer one" : ""}.`),
+        h("div", { class: "oba-toolbar" },
+          h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": "restore-draft", onClick: () => {
+            draft = lookFrom(record.page);
+            etag = record.base ?? etag;
+            pendingDraft = null;
+            restoreBox.hidden = true;
+            history = [];
+            afterChange();
+            say("Your unsaved changes are back. They are not saved yet.", "notice");
+            undoButton.focus();
+          } }, "Restore your unsaved changes"),
+          h("button", { class: "oba-btn", type: "button", "data-action": "discard-draft", onClick: () => {
+            pendingDraft = null;
+            drafts.clear();
+            restoreBox.hidden = true;
+            renderBar();
+            say("Threw away the unsaved changes.");
+            undoButton.focus();
+          } }, "Discard them"),
+        ),
+      );
+    };
+
+    // ----- saving
+    const saveButton = h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": "save", onClick: () => save() }, "Save");
+    const dirtyNote = h("span", { class: "oba-small oba-landing-dirty", "data-look-dirty": "true" });
+    function renderBar() {
+      dirtyNote.textContent = isDirty()
+        ? `You have unsaved changes. ${drafts.inMemoryOnly ? "This device would not keep a copy, so they are held only until you close or reload this page." : "A copy is kept on this device."}`
+        : "All changes saved.";
+      clearTimeout(draftTimer);
+      draftTimer = setTimeout(persistDraft, 250);
+    }
+    /** What a save does to the look the owner is looking at; edits made while it ran stay. */
+    const applySaved = (result, sent) => {
+      etag = result.etag;
+      saved = lookFrom(result.look);
+      const untouched = !sent || lookSame(draft, sent);
+      if (untouched) draft = { ...saved };
+      conflictBox.hidden = true;
+      conflictBox.replaceChildren();
+      restoreBox.hidden = true;
+      pendingDraft = null;
+      return untouched;
+    };
+    const save = async () => {
+      if (busy) return false;
+      busy = true;
+      saveButton.disabled = true;
+      say("Saving…");
+      try {
+        const sent = { ...draft };
+        const result = await this.api.call("PUT", "look", { json: { etag, look: lookPayload(sent) } });
+        if (this.viewVersion !== mountedView) return false;
+        const untouched = applySaved(result, sent);
+        if (untouched) {
+          drafts.clear();
+          history = [];
+        } else persistDraft();
+        afterChange();
+        showAdjustments(result.adjustments, result.refused);
+        if (result.buildError) {
+          say(`Saved, but your site could not be rebuilt yet: ${result.buildError}`, "error");
+          return false;
+        }
+        say(untouched ? "Saved. Your look is ready to make live." : "Saved. Changes you made while saving are still unsaved.", untouched ? "ok" : "small");
+        return untouched;
+      } catch (error) {
+        persistDraft();
+        if (this.viewVersion !== mountedView) return false;
+        if (error.status === 409 && error.data?.etag) {
+          showConflict(error.data);
+          return false;
+        }
+        say(lookErrorText(error), "error");
+        return false;
+      } finally {
+        busy = false;
+        saveButton.disabled = false;
+      }
+    };
+    let publishing = false;
+    const canPublish = Boolean(publishInfo?.repo);
+    const publishNote = h("p", { class: "oba-small oba-landing-publish-note", id: "oba-look-publish-note", hidden: canPublish }, "Making it live is off because this site is not a git repository. Run openblog publish setup to turn it on.");
+    const publishButton = h("button", { class: "oba-btn", type: "button", "data-action": "publish", disabled: !canPublish, "aria-describedby": canPublish ? null : "oba-look-publish-note", onClick: () => publish() }, "Make it live");
+    const publish = async () => {
+      if (busy || publishing) return;
+      if (isDirty() && !(await save())) return;
+      publishing = true;
+      publishButton.disabled = true;
+      say("Making it live…");
+      try {
+        const result = await this.api.call("POST", "publish", { json: { summary: "" } });
+        if (this.viewVersion !== mountedView) return;
+        say(result.message || "Your look is live.", "ok");
+      } catch (error) {
+        if (this.viewVersion !== mountedView) return;
+        say(`Making it live did not work. ${error.data?.error || lookErrorText(error)}`, "error");
+      } finally {
+        publishing = false;
+        publishButton.disabled = !canPublish;
+      }
+    };
+
+    // ----- preview: the home page as the server builds it with this unsaved look
+    const frame = previewFrame({ title: "Preview of your site" });
+    const modes = [["system", "Automatic"], ["light", "Light"], ["dark", "Dark"]];
+    const modeButtons = modes.map(([id, label]) => h("button", { class: "oba-btn", type: "button", "data-mode": id, "aria-pressed": String(id === mode), onClick: () => {
+      mode = id;
+      for (const button of modeButtons) button.setAttribute("aria-pressed", String(button.dataset.mode === mode));
+      frame.say(`Showing ${label.toLowerCase()} colors. Updating the preview…`);
+      refreshPreview();
+    } }, label));
+    const modeSwitcher = h("div", { class: "oba-landing-sizes oba-look-modes", role: "group", "aria-label": "Preview colors" }, modeButtons);
+    const previewBody = h("div", {}, modeSwitcher, frame.root);
+    const wide = () => globalThis.matchMedia?.("(min-width: 64rem)").matches ?? false;
+    let previewOpen = false;
+    let previewTimer = null;
+    let previewSeq = 0;
+    const side = h("aside", { class: "oba-landing-side", "aria-labelledby": "oba-look-side-title", hidden: true, "data-look-side": "true" });
+    const sheetBody = h("div", { class: "oba-landing-sheet-body" });
+    const sheet = h(
+      "dialog",
+      { class: "oba-landing-sheet", "aria-labelledby": "oba-look-sheet-title", "data-look-sheet": "true" },
+      h("div", { class: "oba-landing-sheet-head" }, h("button", { class: "oba-btn", type: "button", "data-action": "preview-back", onClick: () => closePreview() }, "Back to choosing"), h("h2", { id: "oba-look-sheet-title" }, "Preview")),
+      sheetBody,
+    );
+    sheet.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      closePreview();
+    });
+    const previewButton = h("button", { class: "oba-btn", type: "button", "data-action": "preview", "aria-expanded": "false", "aria-controls": "oba-look-preview-region", onClick: () => (previewOpen ? closePreview() : openPreview()) }, "Preview");
+    side.id = "oba-look-preview-region";
+    const placePreview = () => {
+      previewButton.textContent = previewOpen && wide() ? "Hide preview" : "Preview";
+      if (!previewOpen) return;
+      if (wide()) {
+        if (sheet.open) sheet.close();
+        side.hidden = false;
+        side.replaceChildren(h("div", { class: "oba-landing-side-head" }, h("h2", { id: "oba-look-side-title" }, "Preview"), h("button", { class: "oba-btn", type: "button", "data-action": "preview-close", onClick: () => closePreview() }, "Close preview")), previewBody);
+      } else {
+        side.hidden = true;
+        sheetBody.replaceChildren(previewBody);
+        if (!sheet.open) sheet.showModal();
+      }
+      frame.layout();
+    };
+    const openPreview = () => {
+      previewOpen = true;
+      previewButton.setAttribute("aria-expanded", "true");
+      placePreview();
+      if (!wide()) sheet.querySelector('[data-action="preview-back"]')?.focus();
+      frame.say("Updating the preview…");
+      refreshPreview();
+    };
+    function closePreview() {
+      previewOpen = false;
+      clearTimeout(previewTimer);
+      previewButton.setAttribute("aria-expanded", "false");
+      if (sheet.open) sheet.close();
+      side.hidden = true;
+      side.replaceChildren();
+      placePreview();
+      previewButton.focus();
+    }
+    const refreshPreview = async () => {
+      const ticket = ++previewSeq;
+      try {
+        const result = await this.api.call("POST", "look/preview", { json: { look: lookPayload(draft), mode } });
+        if (ticket !== previewSeq || this.viewVersion !== mountedView) return;
+        showAdjustments(result.adjustments, result.refused);
+        if (!previewOpen) return;
+        frame.show(result.previewUrl);
+        frame.say(result.refused ? "That color cannot be used here, so the preview shows the theme's own color." : "The preview shows your unsaved choices.");
+      } catch (error) {
+        if (ticket !== previewSeq || this.viewVersion !== mountedView) return;
+        if (previewOpen) frame.say(`The preview could not be updated. ${lookErrorText(error)}`);
+      }
+    };
+    function schedulePreview() {
+      clearTimeout(previewTimer);
+      previewTimer = setTimeout(() => refreshPreview(), 500);
+    }
+    globalThis.matchMedia?.("(min-width: 64rem)").addEventListener?.("change", () => {
+      if (this.viewVersion === mountedView) placePreview();
+    });
+    const actions = h("div", { class: "oba-landing-actions", role: "group", "aria-label": "Look actions" }, previewButton, saveButton, publishButton, dirtyNote, publishNote);
+
+    const intro = h("section", { class: "oba-contributor-intro" }, h("p", {}, "Tap the choices you like and watch your site change in the preview. Nothing changes on your site until you save and make it live. There is nothing to type and nothing that can break your site."), unhonored);
+    let mountedView = -1;
+    for (const update of sync) update();
+    undoButton.disabled = true;
+    resetButton.disabled = !Object.keys(draft).length;
+    renderBar();
+    this.mount(
+      this.shell(
+        "look",
+        intro,
+        restoreBox,
+        status,
+        conflictBox,
+        h(
+          "div",
+          { class: "oba-landing-layout" },
+          h("div", { class: "oba-landing oba-look", "data-look-screen": "true" }, h("div", { class: "oba-toolbar oba-look-tools" }, undoButton, resetButton), ...sections, adjustments),
+          side,
+        ),
+        sheet,
+        h("div", { class: "oba-landing-bar", "data-landing-bar": "true" }, actions),
+      ),
+    );
+    mountedView = this.viewVersion;
+    const earlier = drafts.load();
+    if (earlier && !lookSame(lookFrom(earlier.page), saved)) offerRestore(earlier);
+    else if (earlier) drafts.clear();
+    const keepCopy = () => {
+      if (this.viewVersion !== mountedView) {
+        removeEventListener("pagehide", keepCopy);
+        removeEventListener("hashchange", keepCopy);
+        document.removeEventListener("visibilitychange", keepCopy);
+        return;
+      }
+      persistDraft();
+    };
+    addEventListener("pagehide", keepCopy);
+    addEventListener("hashchange", keepCopy);
+    document.addEventListener("visibilitychange", keepCopy);
+    refreshPreview();
     if (wide()) openPreview();
     this.viewDirty = () => isDirty();
     this.viewBusy = () => busy || publishing;
