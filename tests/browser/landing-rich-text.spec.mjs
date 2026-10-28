@@ -275,11 +275,12 @@ test("markup typed or pasted stays words, and nothing else rides along on a past
     data.setData("text/plain", " pasted words");
     node.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
   });
-  await expect(editor(page)).toContainText("pasted words");
+  await expect(editor(page)).toContainText("pasted");
   expect(await editor(page).locator("script, [onclick], [style], b").count()).toBe(0);
   const markdown = await saveAndRead(page);
-  expect(markdown).toContain("<b>bold</b> & <script>window.\\_\\_x = 1</script>");
-  expect(markdown).toContain("pasted words");
+  expect(markdown).toContain("&lt;b>bold&lt;/b> & &lt;script>window.\\_\\_x = 1&lt;/script>");
+  expect(markdown).toContain("**pasted**");
+  expect(markdown).not.toMatch(/<\/?[a-z]/i);
   expect(markdown).not.toContain("onclick");
   const page2 = await page.evaluate(() => [window.__x, window.__y, window.__z]);
   expect(page2).toEqual([undefined, undefined, undefined]);

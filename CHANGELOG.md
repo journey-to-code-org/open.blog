@@ -5,6 +5,7 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Pasting from Word, Google Docs or a web page into the landing Text section or a post's Visual mode now keeps headings, bold, italic, links and lists and drops fonts, colors, scripts and everything else; a pasted picture with no description is left out and flagged, and Ctrl/Cmd+Shift+V pastes plain text. Text typed in a Visual surface that looks like a tag is saved as plain words (`&lt;`), never as raw HTML (ADR 0350, ADR 0351).
 - Customize the look with simple presets, never CSS (engine and storage; the Admin screen comes next): a new
   optional `appearance` setting in `openblog.json` holds an accent color, one of eight curated looks (Calm,
   Warm, Bold, Night, Garden, Paper, Ocean, Sunset), a font style, a text size, corner roundness, spacing, page

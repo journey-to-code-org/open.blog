@@ -525,13 +525,14 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/admin.css" => "admin.css",
         "/admin/landing.js" => "landing.js",
         "/admin/look.js" => "look.js",
+        "/admin/paste.js" => "paste.js",
         _ => return Response::error(404, "Not found"),
     };
     let config = site::load_config(&state.root).unwrap_or_default();
     match site::admin_file(&state.root, &config, file) {
         Some(bytes) => {
             let ctype = match file {
-                "admin.js" | "block-forms.js" | "landing.js" | "look.js" => {
+                "admin.js" | "block-forms.js" | "landing.js" | "look.js" | "paste.js" => {
                     "text/javascript; charset=utf-8"
                 }
                 "admin.css" => "text/css; charset=utf-8",
@@ -34306,6 +34307,9 @@ series: letters
         let look = handle(&f.state, &req("GET", "/admin/look.js"));
         assert_eq!(look.status, 200);
         assert!(String::from_utf8_lossy(&look.body).contains("CONTROL_ORDER"));
+        let paste = handle(&f.state, &req("GET", "/admin/paste.js"));
+        assert_eq!(paste.status, 200);
+        assert!(String::from_utf8_lossy(&paste.body).contains("pasteToMarkdown"));
         assert_eq!(
             handle(&f.state, &req("GET", "/admin/secrets.txt")).status,
             404

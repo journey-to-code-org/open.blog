@@ -2443,3 +2443,9 @@ with a toolbar of words (Paragraph, Heading, Bold, Italic, Link, Bulleted list, 
 Undo, Redo) and stored as inert Markdown. It has no Markdown toggle, no HTML view, and no control that
 accepts markup; a picture needs a description (ADR 0257).
 _Avoid_: HTML block, WYSIWYG box, Markdown field
+
+**Clean paste**:
+Pasting from Word, Google Docs or a web page into a Visual surface. The clipboard HTML is converted by an
+allowlist into the editor's own Markdown (headings, bold, italic, links, lists, quotes, pictures that have a
+description) and everything else is dropped; Ctrl/Cmd+Shift+V pastes plain text instead (ADR 0350).
+_Avoid_: Paste with formatting, HTML paste

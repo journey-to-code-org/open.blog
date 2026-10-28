@@ -5,6 +5,7 @@
 
 import { normalizeCodeRunnerLanguage } from "../components/ob-code-runner-language.js";
 import { blockEditor, editableBlockKind, openPieceDialog } from "./block-forms.js";
+import { pasteNotice, pasteToMarkdown } from "./paste.js";
 import {
   LIMITS as LANDING_LIMITS,
   PREVIEW_SIZES,
@@ -9379,7 +9380,7 @@ function appendVisualInline(parent, markdown) {
     ...formatting.map(([start, end]) => ({ start, end, chip: false })),
     ...chips.filter(([start, end]) => !formatting.some(([from, to]) => start >= from && end <= to)).map(([start, end]) => ({ start, end, chip: true })),
   ].sort((a, b) => a.start - b.start);
-  const plain = (text) => document.createTextNode(text.replace(/\\([\\*_`\[\]])/g, "$1"));
+  const plain = (text) => document.createTextNode(text.replace(/\\([\\*_`\[\]])/g, "$1").replace(/&lt;(?=[a-z/!?])/gi, "<"));
   let offset = 0;
   let afterChip = false;
   for (const { start, end, chip } of tokens) {
@@ -9434,8 +9435,14 @@ function appendVisualLines(parent, markdown) {
   });
 }
 
+/**
+ * Words written as Markdown text. A `<` that could open a tag is written as `&lt;`, so text typed
+ * into a Visual surface never becomes raw HTML (ADR 0351); the surface shows it as `<` again.
+ */
 function markdownText(value) {
-  return String(value || "").replace(/([\\*_`\[\]])/g, "\\$1");
+  return String(value || "")
+    .replace(/<(?=[a-z/!?])/gi, "&lt;")
+    .replace(/([\\*_`\[\]])/g, "\\$1");
 }
 
 /**
@@ -9646,9 +9653,9 @@ function landingField(spec, data, ctx, prefix) {
 // block renderer draws it, and `visualBlockMarkdown` writes it back. Only the toolbar and the
 // plain-words panels for a link and a picture are new, and nothing here accepts markup.
 
-/** Draw stored Markdown into a rich-text surface; blocks the surface cannot edit are kept verbatim as cards. */
-function landingRichRender(editor, markdown, onChange) {
-  const host = {
+/** The host a rich-text surface gives its preserved cards for moving and removing. */
+function landingRichHost(editor, onChange) {
+  return {
     editProtectedBlock() {},
     moveProtectedBlock(card, direction) {
       const sibling = direction < 0 ? card.previousElementSibling : card.nextElementSibling;
@@ -9664,18 +9671,71 @@ function landingRichRender(editor, markdown, onChange) {
       editor.focus();
     },
   };
+}
+
+/** The editable element for one parsed block of a rich-text surface. */
+function landingRichNode(host, block) {
+  const node = Editor.prototype.visualBlockElement.call(host, block);
+  // There is no Markdown mode on this surface, so a preserved block cannot be opened as source.
+  // Nor can it be edited with a form: the form dialogs belong to the post editor.
+  for (const button of node.querySelectorAll?.(".oba-protected-actions button") || []) {
+    if (button.hasAttribute("data-block-edit") || button.textContent === "Edit in Markdown") button.remove();
+  }
+  return node;
+}
+
+/** Draw stored Markdown into a rich-text surface; blocks the surface cannot edit are kept verbatim as cards. */
+function landingRichRender(editor, markdown, onChange) {
+  const host = landingRichHost(editor, onChange);
   editor.replaceChildren();
   for (const block of parseVisualMarkdown(String(markdown ?? ""))) {
     if (block.type === "space") continue;
-    const node = Editor.prototype.visualBlockElement.call(host, block);
-    // There is no Markdown mode on this surface, so a preserved block cannot be opened as source.
-    // Nor can it be edited with a form: the form dialogs belong to the post editor.
-    for (const button of node.querySelectorAll?.(".oba-protected-actions button") || []) {
-      if (button.hasAttribute("data-block-edit") || button.textContent === "Edit in Markdown") button.remove();
-    }
-    editor.append(node);
+    editor.append(landingRichNode(host, block));
   }
   if (!editor.children.length) editor.append(h("p", { "data-visual-block": "paragraph" }, h("br")));
+}
+
+// ----- pasting into a rich surface (ADR 0350, #334)
+
+/**
+ * Remember a Ctrl/Cmd+Shift+V so the paste that follows is plain text. Browsers report that paste like
+ * any other, so the keys are the only sign. Returns a function that says, once, whether the next paste is plain.
+ */
+function watchPlainPaste(surface) {
+  let until = 0;
+  surface.addEventListener("keydown", (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey && String(event.key).toLowerCase() === "v") until = Date.now() + 1500;
+  });
+  return () => {
+    const plain = Date.now() < until;
+    until = 0;
+    return plain;
+  };
+}
+
+/**
+ * What a paste event holds, ready for a rich surface: `{ plain }` for plain words, or `{ markdown, result }`
+ * for cleaned content. Anything the converter cannot hold safely falls back to the clipboard's plain text.
+ */
+function readRichPaste(event, wantsPlain, options = {}) {
+  const data = event.clipboardData;
+  const plain = data?.getData("text/plain") || "";
+  const html = wantsPlain ? "" : data?.getData("text/html") || "";
+  if (!html) return { plain, notice: wantsPlain && plain ? pasteNotice({}, { plain: true }) : "" };
+  const result = pasteToMarkdown(html, options);
+  const blocks = result.markdown ? parseVisualMarkdown(`${result.markdown}
+`).filter((block) => block.type !== "space") : [];
+  // The converter escapes what could be read as structure; if the surface would still keep any block as
+  // a preserved card, the safe choice is the plain words.
+  if (!blocks.length || blocks.some((block) => block.type === "protected")) {
+    return { plain, notice: result.droppedImages ? pasteNotice(result) : "" };
+  }
+  return { markdown: result.markdown, blocks, result, notice: pasteNotice(result) };
+}
+
+/** Insert one block of cleaned words into the text the caret is in, keeping the browser's undo. */
+function insertInlineRendered(node) {
+  document.execCommand("insertHTML", false, node.innerHTML);
 }
 
 /** The Markdown a rich-text surface writes: its blocks, joined by blank lines. */
@@ -10048,10 +10108,41 @@ function landingRichText(spec, data, ctx, path, id) {
   });
   editor.addEventListener("focus", refresh);
   // Only plain words are pasted or dropped in, so nothing else can ride along with them.
+  const wantsPlainPaste = watchPlainPaste(editor);
   editor.addEventListener("paste", (event) => {
     event.preventDefault();
-    const plain = event.clipboardData?.getData("text/plain") || "";
-    if (plain) document.execCommand("insertText", false, plain);
+    const pasted = readRichPaste(event, wantsPlainPaste(), { headingLevel: 2 });
+    if (pasted.markdown === undefined) {
+      if (pasted.plain) document.execCommand("insertText", false, pasted.plain);
+    } else {
+      const host = landingRichHost(editor, () => changed());
+      const nodes = pasted.blocks.map((block) => landingRichNode(host, block));
+      const selection = getSelection();
+      const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+      const text = range && inEditor(range) ? range.startContainer : null;
+      if (nodes.length === 1 && nodes[0].tagName === "P" && text) {
+        insertInlineRendered(nodes[0]);
+      } else {
+        // After the block the caret is in (replacing an empty paragraph), or at the end.
+        let anchor = range && inEditor(range) ? (range.endContainer === editor ? editor.childNodes[Math.max(0, range.endOffset - 1)] || null : range.endContainer) : null;
+        while (anchor && anchor.parentNode !== editor) anchor = anchor.parentNode;
+        const empty = (node) => node?.tagName === "P" && !String(node.textContent || "").trim() && !node.querySelector?.("img");
+        if (anchor && empty(anchor)) anchor.replaceWith(...nodes);
+        else if (anchor) anchor.after(...nodes);
+        else if (editor.children.length === 1 && empty(editor.children[0])) editor.children[0].replaceWith(...nodes);
+        else editor.append(...nodes);
+        const last = nodes[nodes.length - 1];
+        const caret = document.createRange();
+        caret.selectNodeContents(last);
+        caret.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(caret);
+      }
+      tidy();
+      changed();
+      remember();
+    }
+    if (pasted.notice) announce.textContent = pasted.notice;
   });
   editor.addEventListener("beforeinput", (event) => {
     if (event.inputType === "insertFromDrop" || event.inputType === "insertFromYank") event.preventDefault();
@@ -22033,9 +22124,20 @@ export class Editor {
         await this.insertImage(file);
       } else if (e.currentTarget === ui.richBody) {
         e.preventDefault();
-        this.pasteVisualText(e.clipboardData?.getData("text/plain") || "");
+        const pasted = readRichPaste(e, this.plainPasteWanted?.(), { minHeading: 2 });
+        if (pasted.markdown === undefined) this.pasteVisualText(pasted.plain || "");
+        else if (pasted.blocks.length === 1 && pasted.blocks[0].type === "paragraph" && ui.richBody.contains(getSelection()?.anchorNode || null)) {
+          insertInlineRendered(this.visualBlockElement(pasted.blocks[0]));
+          this.visualChanged();
+        } else {
+          const selection = getSelection();
+          this.insertVisualBlocks(selection?.rangeCount && ui.richBody.contains(selection.anchorNode) ? selection.getRangeAt(0) : null, pasted.markdown);
+          this.visualChanged();
+        }
+        if (pasted.notice) this.sayCitation(pasted.notice);
       }
     };
+    this.plainPasteWanted = watchPlainPaste(ui.richBody);
     for (const surface of [ui.body, ui.richBody]) {
       surface.addEventListener("dragover", imageDragOver);
       surface.addEventListener("dragleave", imageDragLeave);
