@@ -88,7 +88,7 @@ test("an export holds only the document's own fields: no site data", () => {
   const data = seeded();
   for (const notes of [false, true]) {
     const parsed = JSON.parse(buildExport(data.document, { notes }).text);
-    assert.deepEqual(Object.keys(parsed), ["format", "version", "privacy", "annotations", "sources", "trails"]);
+    assert.deepEqual(Object.keys(parsed), ["format", "version", "privacy", "annotations", "sources", "trails", "reflections"]);
     assert.deepEqual(Object.keys(parsed.privacy), ["scope", "notes"]);
     assert.equal(parsed.privacy.scope, "reader-private");
   }
@@ -109,7 +109,7 @@ test("export then import into an empty browser restores the document", () => {
   const plan = planImport(createDocument(), file.text);
   assert.equal(plan.ok, true);
   assert.equal(plan.text, serializeDocument(data.document), "a lossless round trip");
-  assert.deepEqual(plan.added, { annotations: 3, sources: 1, trails: 1 });
+  assert.deepEqual(plan.added, { annotations: 3, sources: 1, trails: 1, reflections: 0 });
   assert.equal(plan.conflicts.length, 0);
 });
 
@@ -120,7 +120,7 @@ test("importing the same file twice changes nothing the second time", () => {
   const second = planImport(first.document, file.text);
   assert.equal(second.ok, true);
   assert.equal(second.changes, false);
-  assert.deepEqual(second.added, { annotations: 0, sources: 0, trails: 0 });
+  assert.deepEqual(second.added, { annotations: 0, sources: 0, trails: 0, reflections: 0 });
   assert.equal(second.same.annotations + second.same.sources + second.same.trails, 5);
 });
 
@@ -197,7 +197,7 @@ test("annotations on the post being read are checked against its text", () => {
 test("a file that cannot be read is refused with scoped problems and no document", () => {
   const data = seeded();
   const bad = JSON.parse(buildExport(data.document, { notes: true }).text);
-  bad.version = 2;
+  bad.version = 3;
   const newer = planImport(data.document, JSON.stringify(bad));
   assert.equal(newer.ok, false);
   assert.ok(newer.problems.some((problem) => problem.code === "unsupportedVersion"));

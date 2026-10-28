@@ -16,19 +16,23 @@
 import { readTarget, resolveTarget } from "./passage-target.js";
 
 export const FORMAT = "openblog.reader-annotations";
-export const READER_ANNOTATIONS_VERSION = 1;
+export const READER_ANNOTATIONS_VERSION = 2;
 export const MAX_DOCUMENT_BYTES = 4 * 1024 * 1024;
 export const MAX_ANNOTATIONS = 2000;
 export const MAX_SOURCES = 500;
 export const MAX_TRAILS = 50;
 export const MAX_TRAIL_STEPS = 200;
+export const MAX_REFLECTIONS = 500;
+export const MAX_SUBMISSIONS = 20;
 export const MAX_NOTE_CHARS = 10_000;
 export const MAX_TITLE_CHARS = 200;
 export const MAX_URL_CHARS = 2048;
 export const MAX_PATH_CHARS = 512;
 export const MAX_ID_CHARS = 64;
 
-const DOCUMENT_FIELDS = new Set(["format", "version", "privacy", "annotations", "sources", "trails"]);
+const DOCUMENT_FIELDS = new Set(["format", "version", "privacy", "annotations", "sources", "trails", "reflections"]);
+const REFLECTION_FIELDS = new Set(["id", "kind", "work", "revision", "target", "label", "text", "provenance", "revises", "submissions", "createdAt", "updatedAt"]);
+const SUBMISSION_FIELDS = new Set(["at", "channel"]);
 const PRIVACY_FIELDS = new Set(["scope", "notes"]);
 const ANNOTATION_FIELDS = new Set(["id", "kind", "work", "revision", "target", "text", "createdAt", "updatedAt"]);
 const WORK_FIELDS = new Set(["site", "path"]);
@@ -37,6 +41,10 @@ const TRAIL_FIELDS = new Set(["id", "kind", "title", "text", "steps", "createdAt
 const STEP_FIELDS = new Set(["ref"]);
 
 export const ANNOTATION_KINDS = Object.freeze(["highlight", "note"]);
+/** How a reflection snapshot came to be on this device (ADR 0500). */
+export const REFLECTION_PROVENANCE = Object.freeze(["written", "imported"]);
+/** How a reader sent a copy: to the site's service, or by copying the text to send themselves (ADR 0113). */
+export const SUBMISSION_CHANNELS = Object.freeze(["hosted", "copy-and-send"]);
 
 const failure = (code, object, message) => ({ ok: false, error: { code, object, message } });
 const problem = (code, object, message) => ({ code, object, message });
@@ -215,6 +223,73 @@ function checkAnnotation(value, index) {
   return checkTimes(named, value);
 }
 
+function checkReflection(value, index) {
+  const object = `reflections[${index}]`;
+  if (!isPlainObject(value)) return problem("malformed", object, "a reflection must be an object");
+  const unknown = unknownField(value, REFLECTION_FIELDS, object);
+  if (unknown) return unknown;
+  const idProblem = checkId(object, value.id);
+  if (idProblem) return idProblem;
+  const named = `reflections[${index}] (${value.id})`;
+  if (value.kind !== "reflection") return problem("unknownKind", named, "`kind` must be reflection");
+  const workProblem = checkWork(named, value.work);
+  if (workProblem) return workProblem;
+  if (typeof value.revision !== "string" || !REVISION.test(value.revision)) {
+    return problem("invalidRevision", named, "`revision` must be the passage revision the reader saw, like p1:<32 hex digits>");
+  }
+  const read = readTarget(value.target);
+  if (!read.ok) return problem(read.error.code, named, `\`target\` is not a passage target: ${read.error.message}`);
+  if (value.label !== undefined) {
+    const labelProblem = checkTitle(named, value.label, { required: true });
+    if (labelProblem) return { ...labelProblem, message: labelProblem.message.replace("`title`", "`label`") };
+  }
+  const textProblem = checkFreeText(named, "text", value.text, MAX_NOTE_CHARS, { required: true });
+  if (textProblem) return textProblem;
+  if (!REFLECTION_PROVENANCE.includes(value.provenance)) return problem("invalidProvenance", named, "`provenance` must be written or imported");
+  if (value.revises !== undefined) {
+    const revisesProblem = checkId(named, value.revises);
+    if (revisesProblem) return revisesProblem;
+    if (value.revises === value.id) return problem("invalidRevises", named, "a reflection cannot revise itself");
+  }
+  if (value.submissions !== undefined) {
+    if (!Array.isArray(value.submissions)) return problem("malformed", named, "`submissions` must be a list");
+    if (value.submissions.length === 0) return problem("malformed", named, "`submissions` is left out when nothing was submitted");
+    if (value.submissions.length > MAX_SUBMISSIONS) return problem("tooMany", named, `a reflection records at most ${MAX_SUBMISSIONS} submissions`);
+    for (const [position, each] of value.submissions.entries()) {
+      const at = `${named}.submissions[${position}]`;
+      if (!isPlainObject(each)) return problem("malformed", at, "a submission record must be an object");
+      const eachUnknown = unknownField(each, SUBMISSION_FIELDS, at);
+      if (eachUnknown) return eachUnknown;
+      if (!SUBMISSION_CHANNELS.includes(each.channel)) return problem("invalidChannel", at, "`channel` must be hosted or copy-and-send");
+      const stamp = checkTimestamp(at, "at", each.at);
+      if (stamp) return stamp;
+      if (each.at < value.createdAt) return problem("timeOrder", at, "a submission is recorded before the reflection was made");
+    }
+  }
+  return checkTimes(named, value);
+}
+
+// Every `revises` names an earlier reflection on the same work, and each reflection is revised at most once: a history is a line.
+function checkHistories(reflections) {
+  const problems = [];
+  const byId = new Map(reflections.map((record) => [record.id, record]));
+  const revised = new Set();
+  for (const [index, record] of reflections.entries()) {
+    if (record.revises === undefined) continue;
+    const named = `reflections[${index}] (${record.id})`;
+    const earlier = byId.get(record.revises);
+    if (!earlier) {
+      problems.push(problem("danglingRef", named, "`revises` names a reflection that is not in this document"));
+      continue;
+    }
+    if (workKey(earlier.work) !== workKey(record.work)) problems.push(problem("invalidRevises", named, "a reflection can only revise one about the same work"));
+    else if (earlier.createdAt > record.createdAt) problems.push(problem("timeOrder", named, "a reflection cannot revise one made after it"));
+    if (revised.has(record.revises)) problems.push(problem("branchedHistory", named, "an earlier reflection is already revised by another; a history is one line"));
+    else revised.add(record.revises);
+  }
+  return problems;
+}
+
 function checkSource(value, index) {
   const object = `sources[${index}]`;
   if (!isPlainObject(value)) return problem("malformed", object, "a saved source must be an object");
@@ -315,15 +390,22 @@ export function readDocument(value) {
   if (value.version > READER_ANNOTATIONS_VERSION) {
     return { ok: false, problems: [problem("unsupportedVersion", "document", "this document is newer than this site understands")] };
   }
+  // Version 1 had no reflections; it is read as version 2 with none (migration, ADR 0500).
+  const legacy = value.version < READER_ANNOTATIONS_VERSION;
   const unknown = unknownField(value, DOCUMENT_FIELDS, "document");
   if (unknown) return { ok: false, problems: [unknown] };
-  for (const field of ["annotations", "sources", "trails"]) {
+  if (legacy && Object.hasOwn(value, "reflections")) {
+    return { ok: false, problems: [problem("unknownField", "document", "an unknown field is present")] };
+  }
+  if (legacy) value = { ...value, version: READER_ANNOTATIONS_VERSION, reflections: [] };
+  for (const field of ["annotations", "sources", "trails", "reflections"]) {
     if (!Array.isArray(value[field])) return { ok: false, problems: [problem("malformed", "document", `\`${field}\` must be a list`)] };
   }
   const limits = [
     ["annotations", MAX_ANNOTATIONS],
     ["sources", MAX_SOURCES],
     ["trails", MAX_TRAILS],
+    ["reflections", MAX_REFLECTIONS],
   ];
   for (const [field, max] of limits) {
     if (value[field].length > max) return { ok: false, problems: [problem("tooMany", "document", `\`${field}\` holds more than ${max} records`)] };
@@ -342,6 +424,7 @@ export function readDocument(value) {
   value.annotations.forEach((record, index) => claim(record, `annotations[${index}]`));
   value.sources.forEach((record, index) => claim(record, `sources[${index}]`));
   value.trails.forEach((record, index) => claim(record, `trails[${index}]`));
+  value.reflections.forEach((record, index) => claim(record, `reflections[${index}]`));
 
   value.annotations.forEach((record, index) => {
     const found = checkAnnotation(record, index);
@@ -351,6 +434,12 @@ export function readDocument(value) {
     const found = checkSource(record, index);
     if (found) problems.push(found);
   });
+  value.reflections.forEach((record, index) => {
+    const found = checkReflection(record, index);
+    if (found) problems.push(found);
+  });
+  // Histories are only checked once every reflection is well formed.
+  if (problems.length === 0) problems.push(...checkHistories(value.reflections));
   // A trail may name annotations and sources, never another trail.
   const stepTargets = new Set([...value.annotations, ...value.sources].map((record) => isPlainObject(record) && record.id).filter(Boolean));
   value.trails.forEach((record, index) => {
@@ -358,7 +447,9 @@ export function readDocument(value) {
     if (found) problems.push(found);
   });
   if (value.privacy && value.privacy.notes === "omitted") {
-    const holdsText = [...value.annotations, ...value.sources, ...value.trails].some((record) => isPlainObject(record) && record.text !== undefined);
+    const holdsText =
+      value.reflections.length > 0 ||
+      [...value.annotations, ...value.sources, ...value.trails].some((record) => isPlainObject(record) && record.text !== undefined);
     if (holdsText) problems.push(problem("privacyMismatch", "privacy", "`privacy.notes` says notes are omitted but note text is present"));
   }
   if (problems.length > 0) return { ok: false, problems };
@@ -401,6 +492,7 @@ export function createDocument() {
     annotations: [],
     sources: [],
     trails: [],
+    reflections: [],
   });
 }
 
@@ -422,6 +514,11 @@ export function serializeDocument(document) {
       ...(s.from === undefined ? {} : { from: work(s.from) }),
     })),
     trails: document.trails.map((t) => ordered(t, ["id", "kind", "title", "text", "steps", "createdAt", "updatedAt"])),
+    reflections: document.reflections.map((r) => ({
+      ...ordered(r, ["id", "kind", "work", "revision", "target", "label", "text", "provenance", "revises", "submissions", "createdAt", "updatedAt"]),
+      work: work(r.work),
+      ...(r.submissions === undefined ? {} : { submissions: r.submissions.map((each) => ordered(each, ["at", "channel"])) }),
+    })),
   };
   return `${JSON.stringify(body, null, 2)}\n`;
 }
@@ -437,7 +534,7 @@ export function serializeDocument(document) {
  */
 export function exportDocument(document, { notes = false } = {}) {
   if (notes) {
-    return deepFreeze({ document: { ...clone(document), privacy: { scope: "reader-private", notes: "included" } }, omittedNotes: [] });
+    return deepFreeze({ document: { ...clone(document), privacy: { scope: "reader-private", notes: "included" } }, omittedNotes: [], omittedReflections: [] });
   }
   const dropped = [];
   const annotations = [];
@@ -466,8 +563,11 @@ export function exportDocument(document, { notes = false } = {}) {
       annotations,
       sources,
       trails,
+      // A reflection is nothing but the reader's own words, so the default export holds none (ADR 0500).
+      reflections: [],
     },
     omittedNotes: dropped,
+    omittedReflections: document.reflections.map((record) => record.id),
   });
 }
 

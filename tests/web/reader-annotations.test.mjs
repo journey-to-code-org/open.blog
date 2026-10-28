@@ -108,7 +108,7 @@ const invalid = [
   ["public scope", { path: ["privacy", "scope"], value: "public" }, "invalidPrivacy", "privacy"],
   ["unstated notes scope", { path: ["privacy", "notes"], value: "maybe" }, "invalidPrivacy", "privacy"],
   ["notes omitted but present", { path: ["privacy", "notes"], value: "omitted" }, "privacyMismatch", "privacy"],
-  ["newer version", { path: ["version"], value: 2 }, "unsupportedVersion", "document"],
+  ["newer version", { path: ["version"], value: 3 }, "unsupportedVersion", "document"],
   ["fractional version", { path: ["version"], value: 1.5 }, "malformed", "document"],
   ["missing version", { path: ["version"], remove: true }, "malformed", "document"],
 ];

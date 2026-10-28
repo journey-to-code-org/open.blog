@@ -46,6 +46,7 @@ export function summarize(document) {
     notes,
     sources: document.sources.length,
     trails: document.trails.length,
+    reflections: document.reflections.length,
     steps: document.trails.reduce((total, trail) => total + trail.steps.length, 0),
     works: new Set(document.annotations.map((record) => workKey(record.work))).size,
   };
@@ -65,6 +66,7 @@ export function buildExport(document, { notes = false, date = new Date() } = {})
     fileName: exportFileName(date),
     notes,
     omittedNotes: made.omittedNotes.length,
+    omittedReflections: made.omittedReflections.length,
     counts: summarize(made.document),
   };
 }
@@ -85,13 +87,17 @@ const equivalent = (a, b) => {
     return (a.url !== undefined && a.url === b.url) || (a.work !== undefined && b.work !== undefined && workKey(a.work) === workKey(b.work));
   }
   if (a.kind === "trail") return false;
+  if (a.kind === "reflection") {
+    return workKey(a.work) === workKey(b.work) && a.createdAt === b.createdAt && a.text === b.text && a.revision === b.revision && stable(a.target) === stable(b.target);
+  }
   return workKey(a.work) === workKey(b.work) && stable(a.target) === stable(b.target) && (a.text ?? null) === (b.text ?? null);
 };
 
 // What makes a record "the same record" apart from its dates.
 const sameRecord = (a, b) => {
-  const { createdAt: _c1, updatedAt: _u1, ...x } = a;
-  const { createdAt: _c2, updatedAt: _u2, ...y } = b;
+  // Where a reflection came from is about this device, not about the record, so it never makes two copies differ.
+  const { createdAt: _c1, updatedAt: _u1, provenance: _p1, ...x } = a;
+  const { createdAt: _c2, updatedAt: _u2, provenance: _p2, ...y } = b;
   return stable(x) === stable(y);
 };
 
@@ -121,7 +127,8 @@ function keepSavedWords(existing, record, ids) {
   return out;
 }
 
-const bucketOf = (record) => (record.kind === "source" ? "sources" : record.kind === "trail" ? "trails" : "annotations");
+const bucketOf = (record) =>
+  record.kind === "source" ? "sources" : record.kind === "trail" ? "trails" : record.kind === "reflection" ? "reflections" : "annotations";
 
 /**
  * Plan an import without changing anything. `text` is the file's text, `current` the saved document,
@@ -140,13 +147,13 @@ export function planImport(current, text, { choice = "keep", works = {} } = {}) 
   if (!read.ok) return { ok: false, ...problemsOf(read.problems) };
   const incoming = read.document;
   const omitted = incoming.privacy.notes === "omitted";
-  const ids = new Set([...incoming.annotations, ...incoming.sources, ...incoming.trails].map((record) => record.id));
+  const ids = new Set([...incoming.annotations, ...incoming.sources, ...incoming.trails, ...incoming.reflections].map((record) => record.id));
 
   const merged = clone(current);
   const byId = new Map();
-  for (const record of [...merged.annotations, ...merged.sources, ...merged.trails]) byId.set(record.id, record);
-  const added = { annotations: 0, sources: 0, trails: 0 };
-  const same = { annotations: 0, sources: 0, trails: 0 };
+  for (const record of [...merged.annotations, ...merged.sources, ...merged.trails, ...merged.reflections]) byId.set(record.id, record);
+  const added = { annotations: 0, sources: 0, trails: 0, reflections: 0 };
+  const same = { annotations: 0, sources: 0, trails: 0, reflections: 0 };
   const duplicates = [];
   const conflicts = [];
   const added_ = [];
@@ -167,6 +174,7 @@ export function planImport(current, text, { choice = "keep", works = {} } = {}) 
         conflicts.push({ id: record.id, kind: record.kind });
         if (choice === "file") {
           const next = omitted ? keepSavedWords(existing, record, ids) : clone(record);
+          if (next.kind === "reflection") next.provenance = "imported";
           merged[bucket][merged[bucket].indexOf(existing)] = next;
           byId.set(record.id, next);
           added_.push(next);
@@ -181,15 +189,24 @@ export function planImport(current, text, { choice = "keep", works = {} } = {}) 
       remap.set(record.id, twin.id);
       return;
     }
-    merged[bucket].push(clone(record));
-    byId.set(record.id, record);
+    // A reflection that arrives in a file says so, whatever the file said about where it came from.
+    const fresh = record.kind === "reflection" ? { ...clone(record), provenance: "imported" } : clone(record);
+    merged[bucket].push(fresh);
+    byId.set(record.id, fresh);
     added[bucket] += 1;
-    added_.push(record);
+    added_.push(fresh);
     remap.set(record.id, record.id);
   };
 
   for (const record of incoming.annotations) settle(record);
   for (const record of incoming.sources) settle(record);
+  // A reflection follows an earlier one in the terms of the records it can now reach; earliest first so the earlier is settled.
+  const inOrder = incoming.reflections.map((record, order) => ({ record, order })).sort((a, b) => (a.record.createdAt < b.record.createdAt ? -1 : a.record.createdAt > b.record.createdAt ? 1 : a.order - b.order));
+  for (const { record } of inOrder) {
+    const { revises, ...rest } = record;
+    const follows = revises === undefined ? undefined : remap.get(revises);
+    settle(follows ? { ...rest, revises: follows } : rest);
+  }
   // A trail's steps are written in terms of the records it can now reach.
   for (const trail of incoming.trails) {
     const steps = [];
@@ -204,7 +221,7 @@ export function planImport(current, text, { choice = "keep", works = {} } = {}) 
   const checked = readDocument(merged);
   if (!checked.ok) return { ok: false, ...problemsOf(checked.problems) };
 
-  const touching = added_.filter((record) => record.kind === "highlight" || record.kind === "note");
+  const touching = added_.filter((record) => record.kind === "highlight" || record.kind === "note" || record.kind === "reflection");
   const known = touching.filter((record) => works[workKey(record.work)]);
   const states = assessAnnotations({ annotations: known }, works);
   const stale = states.filter((each) => each.state === "stale").map(({ id, reason }) => ({ id, reason }));

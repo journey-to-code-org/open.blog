@@ -170,3 +170,34 @@ the logic, `ob-reading-trail.js` the controls). Nothing here is uploaded or sent
   export, the switch and erase. "Turn ... back on" restores it.
 - **Erase.** "Clear all my local data" (above) removes the saved document, readable or not, after asking; the
   panel then shows "Kept in this browser: nothing." and the keys it still holds.
+
+## Interpretation history
+
+[ADR 0500](../adr/0500-a-reflection-is-a-private-immutable-snapshot-in-the-reader-annotation-document-and-a-submitted-copy-is-a-separate-explicit-bounded-act.md)
+extends the document to version 2 with `reflections`: snapshots of how the reader read a work, kept
+beside highlights and notes in the same key. `web/components/reader-reflections.js` holds the pure
+functions; tests are `tests/web/reader-reflections.test.mjs`. This is the data layer; the comparison view and
+the export, delete and submit controls are separate tasks.
+
+```json
+{ "id": "refl-2", "kind": "reflection", "work": { "site": "https://example.com", "path": "/posts/tea/" },
+  "revision": "p1:fedcba9876543210fedcba9876543210", "target": { "version": 1, "kind": "work" },
+  "label": "After the rewrite", "text": "Tea is about attention, not patience.", "provenance": "written",
+  "revises": "refl-1", "submissions": [{ "at": "2026-10-27T11:00:00Z", "channel": "hosted" }],
+  "createdAt": "2026-10-27T10:00:00Z", "updatedAt": "2026-10-27T11:00:00Z" }
+```
+
+- **Versions.** Version 1 documents are read as version 2 with no reflections and written back as version 2.
+  A version 1 file with `reflections`, or a version above 2, is refused whole.
+- **Snapshots.** Text, target and revision never change; `label` and `submissions` may. `addReflection`,
+  `reviseReflection` (a later reading that follows an earlier one, once), `relabelReflection`,
+  `deleteReflection` (the line reconnects), `deleteWorkReflections`, `reflectionsOf`, `reflectionHistories`.
+- **Validation** adds `invalidProvenance`, `invalidRevises`, `branchedHistory`, `invalidChannel`, `danglingRef` and
+  `timeOrder` for histories, and limits of 500 reflections and 20 submission records each.
+- **Stale and changed.** `assessReflections(document, works)` is `assessAnnotations` plus `articleChanged`. Derived, never stored.
+- **Privacy.** The default export leaves reflections out and counts them (`omittedReflections`); "include notes"
+  includes them. A reflection never reaches a page, feed, search, build or hosted service by being kept.
+- **Submitting.** `prepareSubmissionCopy(document, id, { site, consent: { publish: true }, category?, name?, publishName? })`
+  returns a bounded Third Perspective submission (ADR 0113) or the submission reader's refusal; it changes and saves
+  nothing, and the copy carries no id, label, history, dates or other snapshot. `markSubmitted` records a send the
+  reader made. The local snapshot stays private and is never converted.

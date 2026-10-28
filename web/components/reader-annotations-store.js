@@ -67,7 +67,7 @@ const ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
 
 /** A fresh id, a lowercase slug no record of the document uses. */
 export function newId(document, prefix, random = Math.random) {
-  const taken = new Set([...document.annotations, ...document.sources, ...document.trails].map((record) => record.id));
+  const taken = new Set([...document.annotations, ...document.sources, ...document.trails, ...document.reflections].map((record) => record.id));
   for (;;) {
     let body = "";
     for (let i = 0; i < 10; i += 1) body += ALPHABET[Math.floor(random() * ALPHABET.length) % ALPHABET.length];
@@ -260,7 +260,7 @@ export function moveTrailStep(document, trailId, ref, by, now = timestamp()) {
 
 /** Any record of the document by id, or null. */
 export const recordById = (document, id) =>
-  [...document.annotations, ...document.sources, ...document.trails].find((record) => record.id === id) ?? null;
+  [...document.annotations, ...document.sources, ...document.trails, ...document.reflections].find((record) => record.id === id) ?? null;
 
 const newestFirst = (a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : b.order - a.order);
 

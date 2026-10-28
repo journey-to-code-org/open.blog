@@ -102,11 +102,12 @@ const link = (id, title, url) => ({ id, kind: "source", title, url, createdAt: N
 const trail = (id, title, refs) => ({ id, kind: "trail", title, steps: refs.map((ref) => ({ ref })), createdAt: NOW, updatedAt: NOW });
 const documentOf = (parts) => ({
   format: "openblog.reader-annotations",
-  version: 1,
+  version: 2,
   privacy: { scope: "reader-private", notes: "included" },
   annotations: [],
   sources: [],
   trails: [],
+  reflections: [],
   ...parts,
 });
 const RICH = () => documentOf({
@@ -155,7 +156,7 @@ test("export leaves notes out until asked, says what it holds, and downloads onl
   const plain = await download(page, trails);
   expect(plain.name).toMatch(/^openblog-reading-trail-\d{4}-\d{2}-\d{2}\.json$/);
   const parsed = JSON.parse(plain.text);
-  expect(Object.keys(parsed)).toEqual(["format", "version", "privacy", "annotations", "sources", "trails"]);
+  expect(Object.keys(parsed)).toEqual(["format", "version", "privacy", "annotations", "sources", "trails", "reflections"]);
   expect(parsed.privacy).toEqual({ scope: "reader-private", notes: "omitted" });
   expect(plain.text).not.toContain("Private cave words");
   expect(parsed.annotations).toEqual([]);
@@ -273,7 +274,7 @@ test("a hostile, newer, oversized or unreadable file is refused and changes noth
   traversal.annotations[0].work.path = "/cave/../../secret/";
   await refused(asFile(traversal), "not a safe, canonical path");
   const newer = RICH();
-  newer.version = 2;
+  newer.version = 3;
   await refused(asFile(newer), "newer version");
   await refused(asFile({ format: "openblog.research-notebook", version: 1 }), "not a reading-trail file");
   await refused(asFile("{not json"), "not a readable reading-trail document");
