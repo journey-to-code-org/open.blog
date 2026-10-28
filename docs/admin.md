@@ -39,7 +39,7 @@ immediately.
 | **Delete** | Moves the file to `.openblog/trash/`; nothing is destroyed. |
 | **Schedule** | See below. |
 | **Analytics** | Views, unique visitors, a per-day chart, top pages and referrers from the built-in counter. See [features.md](features.md). |
-| **Appearance** | Choose whether the public light/dark button is shown, hidden (system preference only), or inherited from each page's theme. Settings are saved in `openblog.json` and rebuilt locally; Publish to update a separately hosted static site. The Admin's own theme is unchanged. |
+| **Appearance** | Choose whether the public light/dark button is shown, hidden (system preference only), or inherited from each page's theme. Settings are saved in `openblog.json` and rebuilt locally; Publish to update a separately hosted static site. The Admin's own theme is unchanged. The site look (palette, accent, font style, sizes) is read and saved at `GET`/`PUT /admin/api/look`; a save changes only the `appearance` key, is checked against the revision you loaded, and is bounded to 4 KiB. |
 | **Publish** | A button in the header commits changed content with git and pushes it, so a Pages workflow deploys. Drafts stay local. See [publishing.md](publishing.md). |
 
 ## Workspace layout

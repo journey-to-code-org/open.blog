@@ -85,6 +85,7 @@ use crate::assistant::{
     BUILTIN_SKILL_SOURCES,
 };
 mod comparisons;
+mod look;
 mod reading_paths;
 
 use crate::atlas_store;
@@ -486,6 +487,9 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         if name == "research/import" {
             return Ok(MAX_RESEARCH_IMPORT_BYTES);
         }
+        if name == "look" {
+            return Ok(look::MAX_REQUEST_BYTES);
+        }
         return Ok(MAX_JSON_BODY);
     }
     Ok(0)
@@ -639,6 +643,8 @@ fn authenticated_api(
         ("GET", "meta") => meta(state),
         ("GET", "appearance") => appearance_settings(state),
         ("PUT", "appearance") => save_appearance_settings(state, req),
+        ("GET", "look") => look::get_look(state),
+        ("PUT", "look") => look::save_look(state, req),
         ("GET", "preferences") => admin_preferences(state, &session.user),
         ("PUT", "preferences") => save_admin_preferences(state, req, &session.user),
         ("GET", "sources") => list_sources(state),
@@ -17823,6 +17829,7 @@ fn xml_attribute<'a>(tag: &'a str, key: &str) -> Option<&'a str> {
 #[cfg(test)]
 mod tests {
     mod comparison_routes;
+    mod look_routes;
     mod reading_path_routes;
 
     use super::*;

@@ -5,6 +5,17 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Customize the look with simple presets, never CSS (engine and storage; the Admin screen comes next): a new
+  optional `appearance` setting in `openblog.json` holds an accent color, one of eight curated looks (Calm,
+  Warm, Bold, Night, Garden, Paper, Ocean, Sunset), a font style, a text size, corner roundness, spacing, page
+  width and heading weight. Every value is a closed choice or a strict hex color, and the engine compiles only
+  allowlisted `--ob-*` tokens from them, so no text can reach the stylesheet. An accent that would be hard to
+  read is nudged just enough to pass WCAG AA in both light and dark (and more strictly for visitors who ask for
+  higher contrast), with a plain sentence saying so. Themes may list the controls they honor in
+  `customizable` (omitted keeps every current theme valid). `GET`/`PUT /admin/api/look` read and save the look
+  with a revision check, touching nothing else in `openblog.json`. A site without `appearance` builds
+  byte-for-byte as before. See [Look controls](docs/themes.md#look-controls) and ADR 0360.
+
 ## [0.49.0] - 2026-10-28
 
 - The container can publish with a repository-scoped SSH deploy key (`OPENBLOG_GIT_SSH_KEY_PATH` and

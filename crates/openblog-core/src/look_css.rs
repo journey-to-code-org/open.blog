@@ -23,6 +23,8 @@ pub struct CompiledLook {
     pub hash: String,
     /// One plain sentence per adjustment made so the look stays readable.
     pub notes: Vec<String>,
+    /// True when an accent could not be made readable in some scheme and was left out there.
+    pub refused: bool,
 }
 
 /// Every custom property the look is allowed to write. Anything else is a bug.
@@ -440,7 +442,12 @@ pub fn compile(look: &LookSettings, theme: &Theme) -> Option<CompiledLook> {
     }
     let digest = Blake2s256::digest(css.as_bytes());
     let hash: String = digest.iter().take(8).map(|b| format!("{b:02x}")).collect();
-    Some(CompiledLook { css, hash, notes })
+    Some(CompiledLook {
+        css,
+        hash,
+        notes,
+        refused: default_std.refused || other_std.refused,
+    })
 }
 
 #[cfg(test)]

@@ -50,10 +50,14 @@ once sites hold it, every later engine has to read it.
   Sunset) each carry a complete light and dark palette and a font style. Applying one stores its `palette`
   id and font style (the palette brings its own accent; a chosen accent is then a tweak on top); resetting removes them, which returns exactly to the theme default. Every look
   is tested against the contrast model.
-- **Saving.** `GET/PUT /admin/api/look` reads and saves only the `appearance` key of `openblog.json`, with
-  the file's ETag for conflict detection, a small body bound, CSRF and authentication through the existing
-  Admin seams, and the existing atomic write. Unrelated keys, including those a parallel feature adds, are
-  never rewritten. Publishing follows the Appearance behavior.
+- **Saving.** `GET/PUT /admin/api/look` reads and saves only the `appearance` key of `openblog.json`.
+  The revision is a digest of the stored look alone (not the whole file), so a save elsewhere in the file,
+  such as a landing page section, neither conflicts with nor is lost to a look save; a stale revision gets a
+  `409` carrying the current look and revision. The body is bounded to 4 KiB, a bad value is a `422` with
+  plain messages, an accent that cannot be made readable on the site's theme is refused with a suggestion,
+  and the write is atomic (temporary file, then replace) under the content transaction lock, after the
+  candidate file has been loaded successfully. Authentication, CSRF and deny-by-default come from the
+  existing Admin seams. Saving `{}` or `null` removes the key. Publishing follows the Appearance behavior.
 
 ## Considered options
 
