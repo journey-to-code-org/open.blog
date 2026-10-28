@@ -1,4 +1,4 @@
-# ADR 0354: The Text section is written in the Visual editor's surface with a toolbar of words and is stored as Markdown
+# ADR 0257: The Text section is written in the Visual editor's surface with a toolbar of words and is stored as Markdown
 
 - Status: Accepted
 - Date: 2026-10-28

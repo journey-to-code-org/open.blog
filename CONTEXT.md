@@ -2426,7 +2426,7 @@ _Avoid_: Setting, style option
 The Admin screen (`#/look`, beside Appearance) where an owner changes the look by tapping looks, swatches
 and sample cards, with a live preview of the home page built from the unsaved look in light or dark. It has
 no field that takes text; Back to theme default undoes one control, Reset everything clears the look, and
-Undo takes back the last change (ADR 0353).
+Undo takes back the last change (ADR 0256).
 _Avoid_: Theme editor, style editor
 
 **Curated look**:
@@ -2441,5 +2441,5 @@ _Avoid_: Theme, template, preset theme
 The landing page's rich text section (`rich-text`), written in the Visual editor's word-processor surface
 with a toolbar of words (Paragraph, Heading, Bold, Italic, Link, Bulleted list, Numbered list, Quote, Image,
 Undo, Redo) and stored as inert Markdown. It has no Markdown toggle, no HTML view, and no control that
-accepts markup; a picture needs a description (ADR 0354).
+accepts markup; a picture needs a description (ADR 0257).
 _Avoid_: HTML block, WYSIWYG box, Markdown field

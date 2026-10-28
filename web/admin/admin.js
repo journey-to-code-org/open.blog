@@ -9641,7 +9641,7 @@ function landingField(spec, data, ctx, prefix) {
   return h("div", { class: "oba-field oba-landing-field", "data-field": path }, label, input, hint, error);
 }
 
-// Rich text landing section (ADR 0354, #330). The Visual (word-processor) editor's own Markdown
+// Rich text landing section (ADR 0257, #330). The Visual (word-processor) editor's own Markdown
 // round-trip is reused as it is: `parseVisualMarkdown` reads the stored Markdown, the post editor's
 // block renderer draws it, and `visualBlockMarkdown` writes it back. Only the toolbar and the
 // plain-words panels for a link and a picture are new, and nothing here accepts markup.
@@ -9669,7 +9669,10 @@ function landingRichRender(editor, markdown, onChange) {
     if (block.type === "space") continue;
     const node = Editor.prototype.visualBlockElement.call(host, block);
     // There is no Markdown mode on this surface, so a preserved block cannot be opened as source.
-    node.querySelector?.(".oba-protected-actions button")?.remove();
+    // Nor can it be edited with a form: the form dialogs belong to the post editor.
+    for (const button of node.querySelectorAll?.(".oba-protected-actions button") || []) {
+      if (button.hasAttribute("data-block-edit") || button.textContent === "Edit in Markdown") button.remove();
+    }
     editor.append(node);
   }
   if (!editor.children.length) editor.append(h("p", { "data-visual-block": "paragraph" }, h("br")));
@@ -9702,6 +9705,18 @@ const LANDING_RICH_TOOLS = [
   ["redo", "Redo"],
 ];
 
+// The Preview/Save/Publish bar floats at the bottom of the screen until its own height would take
+// more than 40% of it (wide fallback fonts, large text, a short screen); it then joins the flow.
+function settleLandingBar(bar, isCurrent) {
+  const settle = () => {
+    if (!isCurrent()) return;
+    bar?.classList.toggle("oba-landing-bar-static", Boolean(bar) && bar.getBoundingClientRect().height > globalThis.innerHeight * 0.4);
+  };
+  if (bar && typeof ResizeObserver !== "undefined") new ResizeObserver(settle).observe(bar);
+  addEventListener("resize", settle);
+  return settle;
+}
+
 function landingRichText(spec, data, ctx, path, id) {
   const editor = h("div", {
     id,
@@ -9726,6 +9741,8 @@ function landingRichText(spec, data, ctx, path, id) {
     refresh();
   };
   landingRichRender(editor, data[spec.name], () => changed());
+  // Dropping text or a card into the surface would move a preserved block: it is not offered.
+  for (const kind of ["dragover", "drop"]) editor.addEventListener(kind, (event) => event.preventDefault());
 
   // Keep the caret in the text while a button or a panel has the focus.
   let saved = null;
@@ -9836,6 +9853,18 @@ function landingRichText(spec, data, ctx, path, id) {
     const origin = toolbar.contains(document.activeElement) ? document.activeElement : null;
     restore();
     const selection = getSelection();
+    // Block commands rebuild the lines they cover, which would merge the text around a preserved card
+    // and carry the card to the end: they are refused when the selection takes in a card.
+    if (["formatBlock", "insertUnorderedList", "insertOrderedList"].includes(command) && selection?.rangeCount) {
+      const range = selection.getRangeAt(0);
+      const cards = [...editor.querySelectorAll(".oba-protected-block")];
+      const start = range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement;
+      if (start?.closest?.(".oba-protected-block") || cards.some((cardNode) => range.intersectsNode(cardNode))) {
+        announce.textContent = "Select text between the preserved blocks only.";
+        origin?.focus();
+        return;
+      }
+    }
     const before = selection?.rangeCount && selection.isCollapsed && editor.contains(selection.anchorNode) ? caretPosition() : -1;
     document.execCommand(command, false, value);
     tidy();
@@ -13382,14 +13411,9 @@ export class ObAdmin extends AdminElement {
       bar.style.transform = covered ? `translateY(-${covered}px)` : "";
       keepClear();
     };
-    // A bar that large text makes taller than a third of the screen would leave no room to work:
-    // it then stays in the flow of the page instead of floating over it.
-    const settleBar = () => {
-      if (this.viewVersion !== mountedView) return;
-      bar?.classList.toggle("oba-landing-bar-static", Boolean(bar) && bar.getBoundingClientRect().height > globalThis.innerHeight * 0.3);
-    };
-    if (bar && typeof ResizeObserver !== "undefined") new ResizeObserver(settleBar).observe(bar);
-    addEventListener("resize", settleBar);
+    // A bar that wide fonts or large text make taller than a third of the screen would leave no
+    // room to work: it then stays in the flow of the page instead of floating over it.
+    const settleBar = settleLandingBar(bar, () => this.viewVersion === mountedView);
     settleBar();
     viewport?.addEventListener("resize", liftBar);
     viewport?.addEventListener("scroll", liftBar);
@@ -13417,7 +13441,7 @@ export class ObAdmin extends AdminElement {
     this.viewBusy = () => busy || publishing;
   }
 
-  // ---- customize look (ADR 0353, #350)
+  // ---- customize look (ADR 0256, #350)
 
   /**
    * `#/look`: the owner's colors and fonts as big, friendly choices with a live preview. The preview
@@ -13853,6 +13877,7 @@ export class ObAdmin extends AdminElement {
       ),
     );
     mountedView = this.viewVersion;
+    settleLandingBar(this.querySelector("[data-landing-bar]"), () => this.viewVersion === mountedView)();
     const earlier = drafts.load();
     if (earlier && !lookSame(lookFrom(earlier.page), saved)) offerRestore(earlier);
     else if (earlier) drafts.clear();

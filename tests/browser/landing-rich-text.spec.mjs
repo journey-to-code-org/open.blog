@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 
-// The Rich text landing section (ADR 0354, #330), from the real binary and the real Admin Studio:
+// The Rich text landing section (ADR 0257, #330), from the real binary and the real Admin Studio:
 // the Visual (word-processor) editor with a toolbar of words, saved as Markdown, with no Markdown
 // toggle, no HTML and no control that accepts markup.
 
@@ -328,4 +328,27 @@ test("on a phone the toolbar is touch sized, wraps without sideways scroll and s
   // Scrolled into the middle of a long text, the toolbar is still on screen.
   await editor(page).locator("p").nth(30).scrollIntoViewIfNeeded();
   await expect(tool(page, "bold")).toBeInViewport();
+});
+
+test("block tools and dragging leave a preserved card where it is", async ({ page }) => {
+  const markdown = "Before the card.\n\n| a | b |\n| --- | --- |\n| keep | this |\n\nAfter the card.";
+  await openText(page, markdown);
+  await expect(editor(page).locator(".oba-protected-block")).toHaveCount(1);
+  const shape = () => editor(page).evaluate((node) => [...node.children].map((child) => `${child.tagName}:${child.classList.contains("oba-protected-block")}:${child.textContent.slice(0, 20)}`));
+  const before = await shape();
+  for (const name of ["heading", "quote", "bulleted", "numbered"]) {
+    await editor(page).locator("p").first().click();
+    await page.keyboard.press("ControlOrMeta+A");
+    await tool(page, name).click();
+    await expect(page.locator("[data-rich-status]")).toHaveText("Select text between the preserved blocks only.");
+    expect(await shape(), name).toEqual(before);
+  }
+  // A drop is not accepted either.
+  const prevented = await editor(page).evaluate((node) => {
+    const event = new Event("drop", { bubbles: true, cancelable: true });
+    node.dispatchEvent(event);
+    return event.defaultPrevented;
+  });
+  expect(prevented).toBe(true);
+  expect(await saveAndRead(page)).toBe(markdown);
 });

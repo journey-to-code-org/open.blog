@@ -1,4 +1,4 @@
-# ADR 0353: The Customize look screen offers only choices, previews the unsaved look from the real home page, and saves like the landing builder
+# ADR 0256: The Customize look screen offers only choices, previews the unsaved look from the real home page, and saves like the landing builder
 
 - Status: Accepted
 - Date: 2026-10-28

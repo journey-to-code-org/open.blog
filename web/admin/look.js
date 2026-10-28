@@ -1,4 +1,4 @@
-// The Customize look screen's logic (ADR 0353, #350): the plain words and the choices for each
+// The Customize look screen's logic (ADR 0256, #350): the plain words and the choices for each
 // control, and pure helpers for the unsaved look. A look is an object of choices; a control that is
 // absent means "the theme as it is". The server owns every rule (ADR 0248); nothing here accepts
 // text, so every value is one of a fixed list of ids or a color from a picker.

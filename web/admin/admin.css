@@ -4749,8 +4749,28 @@ a.oba-btn-primary {
 .oba-landing-group legend,
 .oba-landing-list legend,
 .oba-landing-item legend {
+  max-width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
   padding: 0 0.35rem;
   font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* A fieldset never grows to its widest word, and labels and legends wrap in a wider fallback font. */
+.oba-landing-form fieldset,
+.oba-look-control {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.oba-landing-form label,
+.oba-landing-form legend,
+.oba-look-control legend {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .oba-landing-add-row {
@@ -5018,7 +5038,7 @@ a.oba-btn-primary {
   }
 }
 
-/* Customize look (ADR 0353, #350). One column from 320px; every choice is a real radio button in a
+/* Customize look (ADR 0256, #350). One column from 320px; every choice is a real radio button in a
    card that is at least 44px tall; the selection shows as a border and a mark, never color alone. */
 .oba-look-control {
   min-width: 0;
@@ -5161,7 +5181,7 @@ a.oba-btn-primary {
   display: none;
 }
 
-/* Rich text landing section (ADR 0354, #330). The same word-processor surface as the Visual editor,
+/* Rich text landing section (ADR 0257, #330). The same word-processor surface as the Visual editor,
    with a toolbar of words. The toolbar stays in view while the text scrolls and every button is at
    least 44px tall. */
 .oba-landing-rich-label {

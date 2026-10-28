@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 
-// The Customize look screen in Admin (ADR 0353, #350), from the real binary and the real Admin
+// The Customize look screen in Admin (ADR 0256, #350), from the real binary and the real Admin
 // Studio: choices only (no field takes text), a preview built from the unsaved look, per-control
 // defaults, reset and undo, contrast notes, themes that honor fewer controls, conflict recovery,
 // and a phone-sized layout.

@@ -179,7 +179,7 @@ pub(super) fn save_look(state: &AppState, req: &Request) -> Response {
 }
 
 /// `POST look/preview`: the home page as it would be built with the look in the request, which is
-/// not saved (ADR 0353). The look is validated as a save would validate it, the page is built in
+/// not saved (ADR 0256). The look is validated as a save would validate it, the page is built in
 /// memory by the production code, and the theme's whole stylesheet (with this look layered over it)
 /// replaces the stylesheet link, so a control reset to the theme default really shows the default.
 /// `mode` (`light` or `dark`) fixes the color scheme. The answer also carries the plain-words notes
