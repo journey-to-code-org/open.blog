@@ -1045,15 +1045,24 @@ fn validate_output_paths(site: &Site) -> Result<(), String> {
     Ok(())
 }
 
+/// Layer the owner's look (if any) over a resolved theme.
+fn with_look(theme: Theme, site: &Site) -> Theme {
+    if site.config.appearance.is_neutral() {
+        theme
+    } else {
+        theme.with_look(&site.config.appearance)
+    }
+}
+
 fn resolve_themes(site: &Site, themes: &ThemeSet) -> Result<HashMap<String, Theme>, String> {
     let mut resolved = HashMap::new();
     for name in site.used_themes() {
-        resolved.insert(name.clone(), themes.resolve(&name)?);
+        resolved.insert(name.clone(), with_look(themes.resolve(&name)?, site));
     }
     for name in themes.names() {
         if let std::collections::hash_map::Entry::Vacant(slot) = resolved.entry(name.clone()) {
             if let Ok(theme) = themes.resolve(&name) {
-                slot.insert(theme);
+                slot.insert(with_look(theme, site));
             }
         }
     }

@@ -7,6 +7,9 @@ use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
 
+use crate::look::LookSettings;
+use crate::look_css::{self, CompiledLook};
+
 /// The on-disk shape of `themes/<name>/theme.json`.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
@@ -28,6 +31,10 @@ pub struct ThemeFile {
     /// ES module scripts relative to the theme directory, loaded after `openblog.js`.
     /// This is how a theme ships its own web components.
     pub scripts: Vec<String>,
+    /// The look controls this theme honors (`accent`, `palette`, `fontStyle`, `textSize`, `roundness`,
+    /// `spacing`, `pageWidth`, `headingWeight`). Omitted inherits the parent's list; `base` honors all.
+    /// A theme with bespoke CSS or scripts lists only the controls its own rules leave alone (ADR 0248).
+    pub customizable: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -104,6 +111,10 @@ pub struct Theme {
     pub stylesheets: Vec<String>,
     /// Absolute site URLs of theme scripts, in load order.
     pub scripts: Vec<String>,
+    /// The look controls honored, in the order of [`crate::look::CONTROLS`].
+    pub customizable: Vec<String>,
+    /// The owner's look compiled for this theme (ADR 0248); `None` leaves the theme untouched.
+    pub look: Option<CompiledLook>,
 }
 
 /// A valid custom element name: lowercase ASCII, starts with a letter, and
@@ -180,6 +191,10 @@ impl ThemeSet {
             chain: chain.clone(),
             color_scheme: "dark".into(),
             color_scheme_toggle: true,
+            customizable: crate::look::CONTROLS
+                .iter()
+                .map(|c| c.to_string())
+                .collect(),
             list_style: "rows".into(),
             post_covers: true,
             code_highlighting: true,
@@ -251,6 +266,21 @@ impl ThemeSet {
             if let Some(v) = file.options.code_line_numbers {
                 theme.code_line_numbers = v;
             }
+            if let Some(list) = &file.customizable {
+                for control in list {
+                    if !crate::look::CONTROLS.contains(&control.as_str()) {
+                        return Err(format!(
+                            "theme `{n}`: customizable `{control}` is not a look control (use: {})",
+                            crate::look::CONTROLS.join(", ")
+                        ));
+                    }
+                }
+                theme.customizable = crate::look::CONTROLS
+                    .iter()
+                    .filter(|c| list.iter().any(|l| l == *c))
+                    .map(|c| c.to_string())
+                    .collect();
+            }
             for sheet in &file.stylesheets {
                 theme.stylesheets.push(absolutize(&base_url, sheet));
             }
@@ -309,8 +339,23 @@ pub fn kebab(key: &str) -> String {
 }
 
 impl Theme {
+    /// Whether this theme honors a look control.
+    pub fn honors(&self, control: &str) -> bool {
+        self.customizable.iter().any(|c| c == control)
+    }
+
     pub fn tokens_url(&self) -> String {
-        format!("/themes/{}/tokens.css", self.name)
+        match &self.look {
+            Some(look) => format!("/themes/{}/tokens.css?v={}", self.name, look.hash),
+            None => format!("/themes/{}/tokens.css", self.name),
+        }
+    }
+
+    /// This theme with the owner's look compiled over it. A look that changes nothing here returns the
+    /// theme unchanged, so its output stays byte-identical.
+    pub fn with_look(mut self, look: &LookSettings) -> Theme {
+        self.look = look_css::compile(look, &self);
+        self
     }
 
     /// The generated `tokens.css` for this theme.
@@ -397,6 +442,10 @@ impl Theme {
             );
             push_colors(&mut css, colors, "    ");
             css.push_str("  }\n}\n");
+        }
+        // The owner's look comes last so it layers over the theme and its print rule (ADR 0248).
+        if let Some(look) = &self.look {
+            css.push_str(&look.css);
         }
         css
     }
@@ -563,5 +612,149 @@ mod tests {
         );
         assert!(set.resolve("c").unwrap_err().contains("unknown theme"));
         assert_eq!(kebab("surfaceRaised"), "surface-raised");
+    }
+
+    #[test]
+    fn customizable_defaults_to_all_inherits_and_rejects_unknown_controls() {
+        let mut set = ThemeSet::new();
+        let all: Vec<String> = crate::look::CONTROLS
+            .iter()
+            .map(|c| c.to_string())
+            .collect();
+        assert_eq!(set.resolve("base").unwrap().customizable, all);
+        set.insert(
+            "plain",
+            ThemeFile::from_json(r#"{"extends":"base","customizable":["roundness","accent"]}"#)
+                .unwrap(),
+        );
+        set.insert(
+            "child",
+            ThemeFile::from_json(r#"{"extends":"plain"}"#).unwrap(),
+        );
+        set.insert(
+            "reset",
+            ThemeFile::from_json(r#"{"extends":"plain","customizable":[]}"#).unwrap(),
+        );
+        set.insert(
+            "lax",
+            ThemeFile::from_json(r#"{"extends":"base"}"#).unwrap(),
+        );
+        let plain = set.resolve("plain").unwrap();
+        // Canonical order, whatever order the theme wrote.
+        assert_eq!(plain.customizable, ["accent", "roundness"]);
+        assert!(plain.honors("accent") && !plain.honors("fontStyle"));
+        assert_eq!(
+            set.resolve("child").unwrap().customizable,
+            plain.customizable
+        );
+        assert!(set.resolve("reset").unwrap().customizable.is_empty());
+        assert_eq!(set.resolve("lax").unwrap().customizable, all);
+        set.insert(
+            "bad",
+            ThemeFile::from_json(r#"{"extends":"base","customizable":["css"]}"#).unwrap(),
+        );
+        let error = set.resolve("bad").unwrap_err();
+        assert!(error.contains("`css` is not a look control"), "{error}");
+        // The resolved manifest is unchanged for existing sites.
+        assert!(!set
+            .resolve("plain")
+            .unwrap()
+            .manifest_json()
+            .contains("customizable"));
+    }
+
+    #[test]
+    fn a_look_only_changes_what_the_theme_honors() {
+        let mut set = ThemeSet::new();
+        set.insert(
+            "plain",
+            ThemeFile::from_json(r#"{"extends":"base","customizable":["roundness"]}"#).unwrap(),
+        );
+        let look = crate::look::LookSettings::from_value(&serde_json::json!({
+            "roundness": "square", "textSize": "large", "accent": "#aa3300", "pageWidth": "wide"
+        }))
+        .unwrap();
+        let theme = set.resolve("plain").unwrap().with_look(&look);
+        let css = theme.look.as_ref().unwrap().css.clone();
+        assert!(css.contains("--ob-radius: 0;"));
+        assert!(!css.contains("--ob-text-scale") && !css.contains("--ob-color-accent"));
+        assert!(!css.contains("--ob-max-width"));
+        // Nothing honored, nothing compiled.
+        set.insert(
+            "locked",
+            ThemeFile::from_json(r#"{"extends":"base","customizable":[]}"#).unwrap(),
+        );
+        let locked = set.resolve("locked").unwrap().with_look(&look);
+        assert!(locked.look.is_none());
+        assert_eq!(locked.tokens_url(), "/themes/locked/tokens.css");
+    }
+
+    /// Every bundled theme declares or inherits an accurate list: each control it honors really is
+    /// compiled for it, each it does not honor is not, and no honored control's tokens are overridden by
+    /// the theme's own stylesheet (which would load after, and silently defeat, the owner's choice).
+    #[test]
+    fn bundled_themes_honor_exactly_what_they_declare() {
+        let themes_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../themes");
+        let mut set = ThemeSet::new();
+        let mut names = Vec::new();
+        for entry in std::fs::read_dir(&themes_dir).unwrap() {
+            let dir = entry.unwrap().path();
+            let json = dir.join("theme.json");
+            if json.exists() {
+                let name = dir.file_name().unwrap().to_string_lossy().to_string();
+                let file = ThemeFile::from_json(&std::fs::read_to_string(&json).unwrap()).unwrap();
+                set.insert(&name, file);
+                names.push((name, dir));
+            }
+        }
+        assert!(names.len() >= 3);
+        let everything = crate::look::LookSettings::from_value(&serde_json::json!({
+            "accent": "#aa3300", "palette": "calm", "fontStyle": "classic-serif",
+            "textSize": "large", "roundness": "round", "spacing": "airy",
+            "pageWidth": "wide", "headingWeight": "normal"
+        }))
+        .unwrap();
+        let properties = |control: &str| -> &'static [&'static str] {
+            match control {
+                "accent" => &["--ob-color-accent", "--ob-color-link"],
+                "palette" => &["--ob-color-page", "--ob-color-surface", "--ob-color-text"],
+                "fontStyle" => &["--ob-font-body", "--ob-font-heading"],
+                "textSize" => &["--ob-text-scale", "--ob-body-size"],
+                "roundness" => &["--ob-radius", "--ob-radius-sm"],
+                "spacing" => &[
+                    "--ob-space-4",
+                    "--ob-space-5",
+                    "--ob-space-6",
+                    "--ob-space-8",
+                ],
+                "pageWidth" => &["--ob-max-width", "--ob-reading-width"],
+                _ => &["--ob-heading-weight"],
+            }
+        };
+        for (name, dir) in names {
+            let theme = set.resolve(&name).unwrap();
+            let compiled = theme.clone().with_look(&everything);
+            let css = compiled.look.as_ref().map(|l| l.css.as_str()).unwrap_or("");
+            for control in crate::look::CONTROLS {
+                let first = properties(control)[0];
+                assert_eq!(
+                    css.contains(&format!("{first}:")),
+                    theme.honors(control),
+                    "{name}: {control}"
+                );
+                if theme.honors(control) {
+                    for sheet in &theme.stylesheets {
+                        let path = dir.join(sheet.rsplit('/').next().unwrap());
+                        let text = std::fs::read_to_string(path).unwrap_or_default();
+                        for property in properties(control) {
+                            assert!(
+                                !text.contains(&format!("{property}:")),
+                                "{name}: {sheet} overrides {property} but declares {control}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 }
