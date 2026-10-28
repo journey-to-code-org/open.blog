@@ -14,6 +14,7 @@ use openblog_core::landing::{
 };
 
 use super::*;
+use crate::landing_history as history;
 use crate::landing_store::{self as store, StoreError as LandingError};
 
 /// Largest request body: a page plus room for the wrapper.
@@ -124,6 +125,29 @@ pub(super) fn get(state: &AppState) -> Response {
     }
 }
 
+/// Keep the stored page that is about to be replaced and return it if it is a readable page.
+fn keep_previous(
+    state: &AppState,
+    previous: Option<&store::Stored>,
+) -> Option<openblog_core::landing::LandingPage> {
+    let stored = previous?;
+    let page = stored.parsed.as_ref().ok()?;
+    let _ = history::keep_current(&state.root, &stored.revision, page);
+    Some(page.clone())
+}
+
+/// Keep the page just saved as the newest version. A failure is reported, never raised: the page file is
+/// the source of truth and the save has already happened.
+fn keep_saved(
+    state: &AppState,
+    previous: Option<&openblog_core::landing::LandingPage>,
+    saved: &store::Saved,
+    note: Option<&str>,
+) -> bool {
+    let summary = note.map_or_else(|| history::summarize(previous, &saved.page), str::to_string);
+    history::record(&state.root, &saved.revision, &saved.page, &summary).is_ok()
+}
+
 /// `PUT landing`: replace the page. The body is `{ revision, page }`, with
 /// `revision` omitted (or null) only to create the file. What is written is
 /// always the canonical form, and the response carries it.
@@ -161,26 +185,164 @@ pub(super) fn save(state: &AppState, req: &Request) -> Response {
         Ok(lock) => lock,
         Err(response) => return response,
     };
+    let previous = store::read(&state.root, &config.paths.content)
+        .ok()
+        .flatten();
+    // The page about to be replaced is kept first, so a save never loses it (ADR 0354).
+    let previous_page = keep_previous(state, previous.as_ref());
     match store::save(
         &state.root,
         &config.paths.content,
         revision.as_deref(),
         &page,
     ) {
+        Ok(saved) => written(
+            state,
+            &mut build,
+            &config,
+            saved,
+            previous_page.as_ref(),
+            None,
+            if revision.is_some() { 200 } else { 201 },
+        ),
+        Err(error) => store_error(state, error, &config),
+    }
+}
+
+/// The answer to a page that was just written: its view, whether it was kept in the history, and the
+/// rebuild of the served site (a failed build does not undo the save).
+fn written(
+    state: &AppState,
+    build: &mut BuildStatus,
+    config: &SiteConfig,
+    saved: store::Saved,
+    previous: Option<&openblog_core::landing::LandingPage>,
+    note: Option<&str>,
+    status: u16,
+) -> Response {
+    let kept = keep_saved(state, previous, &saved, note);
+    let stored = store::Stored {
+        revision: saved.revision,
+        text: saved.text,
+        parsed: Ok(saved.page),
+    };
+    let mut saved_view = view(Some(&stored), &config.home);
+    saved_view["history"] = json!({ "kept": kept });
+    saved_view["build"] = match state.rebuild_locked(build) {
+        Ok(report) => json!({ "ok": true, "files": report.files }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    };
+    Response::json(status, &saved_view)
+}
+
+/// The largest restore request: a version number and a revision.
+pub(super) const MAX_RESTORE_BYTES: usize = 4 * 1024;
+
+fn version_json(meta: &history::Meta, current: Option<&str>) -> Json {
+    json!({
+        "id": meta.id,
+        "savedAt": meta.saved_at,
+        "summary": meta.summary,
+        "sections": meta.sections,
+        "current": current == Some(meta.revision.as_str()),
+    })
+}
+
+/// `GET landing/history`: the kept versions, newest first, without their pages.
+pub(super) fn history_list(state: &AppState) -> Response {
+    let _content = lock(&state.build);
+    let config = match site::load_config(&state.root) {
+        Ok(config) => config,
+        Err(error) => return Response::error(500, &error),
+    };
+    let current = store::read(&state.root, &config.paths.content)
+        .ok()
+        .flatten()
+        .map(|stored| stored.revision);
+    let listing = history::list(&state.root);
+    Response::json(
+        200,
+        &json!({
+            "versions": listing.versions.iter().map(|meta| version_json(meta, current.as_deref())).collect::<Vec<_>>(),
+            "skipped": listing.skipped,
+            "max": history::MAX_VERSIONS,
+        }),
+    )
+}
+
+/// `GET landing/history/item?id=N`: one kept version with its page, to preview it.
+pub(super) fn history_item(state: &AppState, req: &Request) -> Response {
+    let Some(id) = req.query.get("id").and_then(|id| id.parse::<u64>().ok()) else {
+        return Response::error(400, "Name a version");
+    };
+    let _content = lock(&state.build);
+    match history::read(&state.root, id) {
+        Some(entry) => {
+            let mut answer = version_json(&entry.meta, None);
+            answer["page"] = page_json(&entry.page);
+            Response::json(200, &answer)
+        }
+        None => Response::error(404, "That version is not kept"),
+    }
+}
+
+/// `POST landing/history/restore`: put a kept version back. The body is `{ id, revision }`, where
+/// `revision` is the page the owner is looking at, as for any save. The kept page is checked as a
+/// save checks it, replaces the file atomically while holding the same locks, and is kept as a new
+/// version; the page it replaced was kept first, so nothing is lost. A stale revision is a conflict
+/// that carries the current page; a refused or failed restore writes nothing.
+pub(super) fn history_restore(state: &AppState, req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    if req.body.len() > MAX_RESTORE_BYTES {
+        return Response::error(413, "That request is too large");
+    }
+    let request = match serde_json::from_slice::<Json>(&req.body) {
+        Ok(body) if body.is_object() => body,
+        _ => return Response::error(400, "Invalid JSON"),
+    };
+    let Some(id) = request["id"].as_u64() else {
+        return Response::error(400, "Name the version to restore");
+    };
+    let revision = match &request["revision"] {
+        Json::Null => None,
+        Json::String(revision) => Some(revision.clone()),
+        _ => return Response::error(400, "The revision must be text"),
+    };
+    let config = match site::load_config(&state.root) {
+        Ok(config) => config,
+        Err(error) => return Response::error(500, &error),
+    };
+    let mut build = lock(&state.build);
+    let _transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let Some(entry) = history::read(&state.root, id) else {
+        return Response::error(404, "That version is not kept");
+    };
+    let previous = store::read(&state.root, &config.paths.content)
+        .ok()
+        .flatten();
+    let previous_page = keep_previous(state, previous.as_ref());
+    match store::save(
+        &state.root,
+        &config.paths.content,
+        revision.as_deref(),
+        &entry.page,
+    ) {
         Ok(saved) => {
-            let stored = store::Stored {
-                revision: saved.revision,
-                text: saved.text,
-                parsed: Ok(saved.page),
-            };
-            let mut saved_view = view(Some(&stored), &config.home);
-            // The served site follows the saved page, as it does after a post is saved. A build
-            // that fails does not undo the save; the answer says so.
-            saved_view["build"] = match state.rebuild_locked(&mut build) {
-                Ok(report) => json!({ "ok": true, "files": report.files }),
-                Err(error) => json!({ "ok": false, "error": error }),
-            };
-            Response::json(if revision.is_some() { 200 } else { 201 }, &saved_view)
+            let note = format!("Restored the version from {}", entry.meta.saved_at);
+            written(
+                state,
+                &mut build,
+                &config,
+                saved,
+                previous_page.as_ref(),
+                Some(&note),
+                200,
+            )
         }
         Err(error) => store_error(state, error, &config),
     }

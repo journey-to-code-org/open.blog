@@ -498,6 +498,9 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         if name == "landing" || name == "landing/preview" {
             return Ok(landing::MAX_REQUEST_BYTES);
         }
+        if name == "landing/history/restore" {
+            return Ok(landing::MAX_RESTORE_BYTES);
+        }
         if name == "pieces" {
             return Ok(MAX_PIECE_REQUEST_BYTES);
         }
@@ -536,6 +539,7 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/landing.js" => "landing.js",
         "/admin/look.js" => "look.js",
         "/admin/paste.js" => "paste.js",
+        "/admin/landing-history.js" => "landing-history.js",
         "/admin/checks.js" => "checks.js",
         "/admin/checks-panel.js" => "checks-panel.js",
         _ => return Response::error(404, "Not found"),
@@ -544,8 +548,7 @@ fn route(state: &AppState, req: &Request) -> Response {
     match site::admin_file(&state.root, &config, file) {
         Some(bytes) => {
             let ctype = match file {
-                "admin.js" | "block-forms.js" | "landing.js" | "look.js" | "paste.js"
-                | "checks.js" | "checks-panel.js" => "text/javascript; charset=utf-8",
+                name if name.ends_with(".js") => "text/javascript; charset=utf-8",
                 "admin.css" => "text/css; charset=utf-8",
                 _ => "text/html; charset=utf-8",
             };
@@ -719,6 +722,9 @@ fn authenticated_api(
         ("GET", "landing") => landing::get(state),
         ("PUT", "landing") => landing::save(state, req),
         ("POST", "landing/preview") => landing::preview(state, req),
+        ("GET", "landing/history") => landing::history_list(state),
+        ("GET", "landing/history/item") => landing::history_item(state, req),
+        ("POST", "landing/history/restore") => landing::history_restore(state, req),
         ("GET", "reading-paths") => reading_paths::list(state),
         ("GET", "reading-paths/targets") => reading_paths::targets(state),
         ("GET", "reading-paths/path") => reading_paths::get(state, req),
@@ -17908,6 +17914,7 @@ fn xml_attribute<'a>(tag: &'a str, key: &str) -> Option<&'a str> {
 #[cfg(test)]
 mod tests {
     mod comparison_routes;
+    mod landing_history_routes;
     mod landing_routes;
     mod look_routes;
     mod reading_path_routes;

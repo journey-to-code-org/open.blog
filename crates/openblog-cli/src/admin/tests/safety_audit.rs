@@ -12,6 +12,9 @@ const ROUTES: &[(&str, &str, bool)] = &[
     ("GET", "/admin/api/landing", false),
     ("PUT", "/admin/api/landing", true),
     ("POST", "/admin/api/landing/preview", true),
+    ("GET", "/admin/api/landing/history", false),
+    ("GET", "/admin/api/landing/history/item", false),
+    ("POST", "/admin/api/landing/history/restore", true),
     ("GET", "/admin/api/look", false),
     ("PUT", "/admin/api/look", true),
     ("POST", "/admin/api/look/preview", true),
@@ -87,6 +90,8 @@ fn every_route_denies_by_default_and_a_write_needs_a_session_the_csrf_token_and_
     for path in [
         "landing",
         "landing/preview",
+        "landing/history",
+        "landing/history/restore",
         "look",
         "look/preview",
         "pieces",
@@ -120,6 +125,10 @@ fn every_body_is_bounded_before_it_is_read() {
     for (path, limit) in [
         ("/admin/api/landing", landing::MAX_REQUEST_BYTES),
         ("/admin/api/landing/preview", landing::MAX_REQUEST_BYTES),
+        (
+            "/admin/api/landing/history/restore",
+            landing::MAX_RESTORE_BYTES,
+        ),
         ("/admin/api/look", look::MAX_REQUEST_BYTES),
         ("/admin/api/look/preview", look::MAX_REQUEST_BYTES),
         ("/admin/api/pieces", MAX_PIECE_REQUEST_BYTES),

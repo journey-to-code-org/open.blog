@@ -2462,3 +2462,9 @@ HTML tags an owner types in a post's Markdown. They are kept and rendered as wri
 rewritten, and the suggestions note them without blocking. Visual mode, pasting, pieces, looks and the landing
 page cannot create them (ADR 0353).
 _Avoid_: HTML mode, unsafe HTML
+
+**Landing history**:
+The last twenty pages the Admin saved, each kept as one small file under `.openblog/private/landing-history/`
+(never published, fed, exported or committed), listed by date with a one-sentence summary in the Landing page
+view. Restoring one is an ordinary save that keeps the page it replaces (ADR 0354).
+_Avoid_: Backups, revisions, undo

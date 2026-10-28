@@ -6,6 +6,7 @@
 import { normalizeCodeRunnerLanguage } from "../components/ob-code-runner-language.js";
 import { blockEditor, editableBlockKind, openPieceDialog } from "./block-forms.js";
 import { buildChecksPanel } from "./checks-panel.js";
+import { buildHistory } from "./landing-history.js";
 import { pasteNotice, pasteToMarkdown } from "./paste.js";
 import {
   LIMITS as LANDING_LIMITS,
@@ -13317,6 +13318,7 @@ export class ObAdmin extends AdminElement {
         } else persistDraft();
         renderCards();
         renderBar();
+        history.refresh();
         if (result.build && result.build.ok === false) {
           say(`Saved, but your site could not be rebuilt yet: ${result.build.error}`, "error");
           return false;
@@ -13453,6 +13455,25 @@ export class ObAdmin extends AdminElement {
     });
     actions.replaceChildren(previewButton, saveButton, publishButton, dirtyNote, publishNote);
 
+    // ----- earlier versions (ADR 0354): the server keeps each save; a restore is a save it makes
+    const history = buildHistory({
+      call: (method, path, options) => this.api.call(method, path, options),
+      getRevision: () => revision,
+      hasUnsaved: () => isDirty(),
+      makeFrame: (options) => previewFrame(options),
+      onConflict: (current) => showConflict(current),
+      onRestored: (result) => {
+        applySaved(result);
+        drafts.clear();
+        clearUndo();
+        editingId = null;
+        renderCards();
+        renderBar();
+        schedulePreview();
+        say("Restored. The version you replaced is kept in History.", "ok");
+      },
+    });
+
     const intro = h(
       "section",
       { class: "oba-contributor-intro" },
@@ -13486,6 +13507,7 @@ export class ObAdmin extends AdminElement {
           side,
         ),
         sheet,
+        history.element,
         h("div", { class: "oba-landing-bar", "data-landing-bar": "true" }, toast, actions),
       ),
     );

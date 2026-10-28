@@ -58,6 +58,7 @@ test.afterAll(async () => {
 
 test.beforeEach(({ page }) => {
   rmSync(landingFile(), { force: true });
+  rmSync(join(root, ".openblog", "private", "landing-history"), { recursive: true, force: true });
   page.on("dialog", (dialog) => {
     throw new Error(`unexpected ${dialog.type()}: ${dialog.message()}`);
   });
@@ -229,4 +230,74 @@ test("suggestions never block saving and fit a phone without sideways scroll", a
   for (const button of await panel.locator("button").all()) expect((await button.boundingBox()).height).toBeGreaterThanOrEqual(44);
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.locator("[data-landing-status]")).toContainText("Saved.");
+});
+
+// ----- earlier versions (ADR 0354, #337)
+
+const history = (page) => page.locator("[data-history]");
+const openHistory = async (page) => {
+  await page.getByRole("button", { name: "History", exact: true }).click();
+  await expect(history(page)).toBeVisible();
+};
+
+test("every save is kept: preview an earlier version and restore it, and the replaced page stays in the list", async ({ page }) => {
+  await openText(page, "First words.");
+  await typeOver(page, "Second words.");
+  await saveAndRead(page);
+  expect(savedMarkdown()).toBe("Second words.");
+  await openHistory(page);
+  const rows = history(page).locator("li[data-version]");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toContainText("(current)");
+  await expect(rows.first()).toContainText("Changed 1 section");
+  await expect(rows.first().getByRole("button", { name: /^Restore/ })).toHaveCount(0);
+  // A preview builds the page as it was, in a frame with no scripts; nothing is changed.
+  await rows.nth(1).getByRole("button", { name: /^Preview the version/ }).click();
+  await expect(history(page).locator("[data-landing-frame]")).toHaveAttribute("sandbox", "");
+  await expect(history(page).locator("[data-preview-update]")).toContainText("This is how that version looked");
+  expect(savedMarkdown()).toBe("Second words.");
+  // Restore it.
+  await rows.nth(1).getByRole("button", { name: /^Restore the version/ }).click();
+  await expect(history(page).locator("[data-history-status]")).toContainText("Restored the version from");
+  await expect(page.locator("[data-landing-status]")).toContainText("Restored.");
+  expect(savedMarkdown()).toBe("First words.");
+  await expect(rows).toHaveCount(3);
+  await expect(rows.first()).toContainText("(current)");
+  await expect(rows.first()).toContainText("Restored the version from");
+  // "Second words." is still kept, one tap from coming back.
+  await rows.nth(1).getByRole("button", { name: /^Restore the version/ }).click();
+  await expect.poll(savedMarkdown).toBe("Second words.");
+  await expect(rows).toHaveCount(4);
+});
+
+test("restoring over unsaved changes asks first, and keeping editing changes nothing", async ({ page }) => {
+  await openText(page, "First words.");
+  await typeOver(page, "Second words.");
+  await saveAndRead(page);
+  await typeOver(page, "Unsaved words.");
+  await openHistory(page);
+  const older = history(page).locator("li[data-version]").nth(1);
+  await older.getByRole("button", { name: /^Restore the version/ }).click();
+  await expect(older.getByRole("group", { name: "Confirm restoring" })).toContainText("changes that are not saved");
+  await older.getByRole("button", { name: "Keep editing" }).click();
+  await expect(older.getByRole("group", { name: "Confirm restoring" })).toHaveCount(0);
+  expect(savedMarkdown()).toBe("Second words.");
+  await older.getByRole("button", { name: /^Restore the version/ }).click();
+  await older.getByRole("button", { name: "Restore anyway" }).click();
+  await expect(page.locator("[data-landing-status]")).toContainText("Restored.");
+  expect(savedMarkdown()).toBe("First words.");
+});
+
+test("the history list fits a phone without sideways scroll and its buttons are touch sized", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await openText(page, "First words.");
+  await typeOver(page, "Second words.");
+  await saveAndRead(page);
+  await openHistory(page);
+  const region = history(page);
+  await expect(region.locator("li[data-version]")).toHaveCount(2);
+  expect(await region.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+  const box = await region.boundingBox();
+  expect(box.x + box.width).toBeLessThanOrEqual(320 + 1);
+  for (const button of await region.locator("button").all()) expect((await button.boundingBox()).height).toBeGreaterThanOrEqual(44);
 });

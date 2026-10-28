@@ -5320,3 +5320,59 @@ a.oba-btn-primary {
   flex-wrap: wrap;
   gap: 8px;
 }
+
+/* Earlier versions of the landing page (ADR 0354). Everything wraps; nothing depends on a font's width. */
+.oba-history-wrap {
+  margin: 16px 0;
+  min-width: 0;
+}
+.oba-history {
+  margin-top: 8px;
+  min-width: 0;
+}
+.oba-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.oba-history-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid var(--oba-panel-border);
+  min-width: 0;
+}
+.oba-history-when {
+  flex: 1 1 12rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.oba-history-summary {
+  flex: 2 1 12rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.oba-history-actions,
+.oba-history-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: 1 1 100%;
+  min-width: 0;
+}
+.oba-history-item .oba-btn,
+.oba-history-preview .oba-btn {
+  min-height: 44px;
+  max-width: 100%;
+  white-space: normal;
+}
+.oba-history-confirm p {
+  flex: 1 1 100%;
+  margin: 0;
+}
+.oba-history-preview {
+  margin-top: 12px;
+  min-width: 0;
+}
