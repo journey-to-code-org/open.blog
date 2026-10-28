@@ -89,6 +89,7 @@ mod landing;
 mod look;
 mod reading_paths;
 mod voice;
+mod voice_guide;
 
 use crate::atlas_store;
 use crate::auth::{self, Sessions, Throttle, Users};
@@ -818,6 +819,7 @@ fn authenticated_api(
         ("POST", "engagement/feedback/revision-note") => record_revision_note(state, req),
         ("POST", "assistant/review") => generate_document_review(state, req),
         ("POST", "assistant/complete") => generate_inline_completion(state, req),
+        ("POST", "assistant/voice-guide") => voice_guide::generate_voice_guide(state, req),
         ("POST", "assistant/code-interaction") => generate_code_interaction(state, req),
         ("GET", "assistant/skills") => assistant_skills(state),
         ("POST", "assistant/skill") => create_assistant_skill(state, req),
@@ -10247,6 +10249,7 @@ fn assistant_context_target(
     let (context_type, relative) = match context_type {
         "author" => ("author", PathBuf::from("author.md")),
         "site" => ("site", PathBuf::from("site.md")),
+        "voice" => ("voice", PathBuf::from("voice.md")),
         "post" => {
             let document_path = document_path
                 .ok_or_else(|| Response::error(400, "Post context requires documentPath"))?;
@@ -10266,7 +10269,7 @@ fn assistant_context_target(
         _ => {
             return Err(Response::error(
                 400,
-                "Context type must be author, site, or post",
+                "Context type must be author, site, voice, or post",
             ))
         }
     };
@@ -10542,6 +10545,13 @@ fn assistant_context_catalog(state: &AppState, req: &Request) -> Response {
             Err(response) => return response,
         }
     }
+    let mut voice_guides = Vec::new();
+    for visibility in ["portable", "private"] {
+        match assistant_context_document(&state.root, "voice", visibility, None) {
+            Ok(document) => voice_guides.push(document),
+            Err(response) => return response,
+        }
+    }
     if let Some(document_path) = req.query.get("path") {
         for visibility in ["portable", "private"] {
             match assistant_context_document(&state.root, "post", visibility, Some(document_path)) {
@@ -10618,6 +10628,13 @@ fn assistant_context_catalog(state: &AppState, req: &Request) -> Response {
                 Ok(posts) => posts,
                 Err(response) => return response,
             },
+            "voiceGuides": voice_guides,
+            "voiceSamples": crate::voice_assistant::catalog_entries(&state.root),
+            "voiceBudget": crate::voice_assistant::budget(),
+            "voiceGaps": crate::voice_assistant::gaps_json(&crate::voice_assistant::gaps_for(
+                &state.root,
+                crate::voice_assistant::read_guide(&state.root).as_ref().map(|(_, text)| text.as_str()),
+            )),
             "privateSafety": private_safety
         }),
     )
@@ -10694,6 +10711,15 @@ fn save_assistant_context(state: &AppState, req: &Request) -> Response {
     };
     if content.len() > MAX_ASSISTANT_CONTEXT_BYTES {
         return Response::error(413, "Context files are limited to 64 KiB of UTF-8 text");
+    }
+    if context_type == "voice"
+        && visibility == "portable"
+        && voice_guide::guide_quotes_private_samples(&content)
+    {
+        return Response::error(
+            422,
+            "This guide quotes private samples; save it as private. Portable context is git-tracked",
+        );
     }
     let _content_lock = lock(&state.build);
     let _filesystem_lock = match content_transaction(state) {
@@ -10874,10 +10900,29 @@ fn resolve_review_skill(
     })
 }
 
+/// Resolve every selected context id on the server, for review, completion and the voice-guide
+/// task. A voice sample is read again from the store each time and counted against the request
+/// budget (ADR 0278); the browser only ever names it.
+fn resolve_review_contexts(root: &Path, ids: &[String]) -> Result<Vec<ReviewContext>, Response> {
+    let context = ids
+        .iter()
+        .map(|id| resolve_review_context(root, id))
+        .collect::<Result<Vec<_>, _>>()?;
+    crate::voice_assistant::check_budget(&context)
+        .map_err(|message| Response::error(400, &message))?;
+    Ok(context)
+}
+
 fn resolve_review_context(root: &Path, id: &str) -> Result<ReviewContext, Response> {
     let parts = id.split(':').collect::<Vec<_>>();
+    if let ["voice", visibility, file] = parts.as_slice() {
+        let visibility = crate::voice_store::Visibility::parse(visibility)
+            .ok_or_else(|| Response::error(400, "Invalid selected context ID"))?;
+        return crate::voice_assistant::review_context(root, visibility, file)
+            .map_err(|message| Response::error(400, &message));
+    }
     let document = match parts.as_slice() {
-        [visibility @ ("portable" | "private"), context_type @ ("author" | "site")] => {
+        [visibility @ ("portable" | "private"), context_type @ ("author" | "site" | "voice")] => {
             assistant_context_document(root, context_type, visibility, None)?
         }
         [visibility @ ("portable" | "private"), "post", name] => {
@@ -11013,11 +11058,7 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
             Ok(skills) => skills,
             Err(response) => return response,
         };
-        let context = match context_ids
-            .iter()
-            .map(|id| resolve_review_context(&state.root, id))
-            .collect::<Result<Vec<_>, _>>()
-        {
+        let context = match resolve_review_contexts(&state.root, &context_ids) {
             Ok(context) => context,
             Err(response) => return response,
         };
@@ -11061,7 +11102,7 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
         Ok(AssistantResult::KnowledgeChecks(_) | AssistantResult::CodeInteraction(_)) => {
             return Response::error(502, "Assistant provider returned the wrong result type")
         }
-        Ok(AssistantResult::Completion(_)) => {
+        Ok(AssistantResult::Completion(_) | AssistantResult::VoiceGuide(_)) => {
             return Response::error(502, "Assistant provider returned the wrong result type")
         }
         Err(error) => return review_error(error),
@@ -11134,11 +11175,7 @@ fn generate_inline_completion(state: &AppState, req: &Request) -> Response {
     };
     let context = {
         let _assistant_lock = lock(&state.build);
-        match context_ids
-            .iter()
-            .map(|id| resolve_review_context(&state.root, id))
-            .collect::<Result<Vec<_>, _>>()
-        {
+        match resolve_review_contexts(&state.root, &context_ids) {
             Ok(context) => context,
             Err(response) => return response,
         }
@@ -11181,6 +11218,7 @@ fn generate_inline_completion(state: &AppState, req: &Request) -> Response {
         Ok(
             AssistantResult::KnowledgeChecks(_)
             | AssistantResult::CodeInteraction(_)
+            | AssistantResult::VoiceGuide(_)
             | AssistantResult::Review(_),
         ) => Response::error(502, "Assistant provider returned the wrong result type"),
         Err(error) => review_error(error),
@@ -11431,9 +11469,11 @@ fn generate_quiz(state: &AppState, req: &Request) -> Response {
     };
     match provider.generate(&request) {
         Ok(AssistantResult::KnowledgeChecks(result)) => Response::json(200, &json!(result)),
-        Ok(AssistantResult::Review(_) | AssistantResult::CodeInteraction(_)) => {
-            Response::error(502, "Assistant provider returned the wrong result type")
-        }
+        Ok(
+            AssistantResult::Review(_)
+            | AssistantResult::CodeInteraction(_)
+            | AssistantResult::VoiceGuide(_),
+        ) => Response::error(502, "Assistant provider returned the wrong result type"),
         Ok(AssistantResult::Completion(_)) => {
             Response::error(502, "Assistant provider returned the wrong result type")
         }
@@ -11518,6 +11558,7 @@ fn code_interaction_response(
         Ok(
             AssistantResult::KnowledgeChecks(_)
             | AssistantResult::Review(_)
+            | AssistantResult::VoiceGuide(_)
             | AssistantResult::Completion(_),
         ) => Response::error(502, "Assistant provider returned the wrong result type"),
         Err(error) => review_error(error),
@@ -17974,6 +18015,7 @@ mod tests {
     mod look_routes;
     mod reading_path_routes;
     mod safety_audit;
+    mod voice_assistant_routes;
     mod voice_routes;
 
     use super::*;
@@ -30335,7 +30377,7 @@ What I read:
                 .iter()
                 .filter(|skill| skill["source"] == "built-in")
                 .count(),
-            7
+            9
         );
         let broken = skills.iter().find(|skill| skill["id"] == "broken").unwrap();
         assert_eq!(broken["valid"], false);

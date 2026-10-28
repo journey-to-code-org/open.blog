@@ -5800,3 +5800,27 @@ ob-voice-library {
   margin-inline-start: 0;
   overflow-wrap: anywhere;
 }
+
+.oba-voice-diff {
+  max-height: 20rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.82rem;
+}
+
+.oba-voice-diff span {
+  display: block;
+}
+
+.oba-voice-diff-add {
+  background: color-mix(in srgb, var(--oba-success) 16%, transparent);
+}
+
+.oba-voice-diff-remove {
+  background: color-mix(in srgb, var(--oba-danger) 16%, transparent);
+}
+
+.oba-voice-diff-header {
+  font-weight: 600;
+}

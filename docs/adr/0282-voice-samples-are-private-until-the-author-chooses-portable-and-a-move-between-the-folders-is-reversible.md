@@ -1,4 +1,4 @@
-# ADR 0278: Voice samples are private until the author chooses portable, and a move between the folders is reversible
+# ADR 0282: Voice samples are private until the author chooses portable, and a move between the folders is reversible
 
 - Status: Accepted
 - Date: 2026-10-28
@@ -29,7 +29,7 @@ default to the private folder. This record states the policy in one place and na
   is portable and not after it is moved back: `git ls-files` no longer lists it once a publish has followed.
   Git history still keeps any earlier commit that carried the sample while it was portable; moving it back
   stops it being tracked from then on and does not rewrite the past.
-- **The guide follows the same rule.** The voice guide is private by default (ADR 0279 lists where it lives).
+- **The guide follows the same rule.** The voice guide is private by default (ADR 0283 lists where it lives).
 
 ## Consequences
 

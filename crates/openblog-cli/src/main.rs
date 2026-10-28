@@ -38,6 +38,7 @@ mod source_store;
 mod syndication;
 mod transaction;
 mod url_context;
+mod voice_assistant;
 mod voice_capture;
 mod voice_cli;
 mod voice_diff;

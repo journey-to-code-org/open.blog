@@ -8750,7 +8750,7 @@ export function assistantReviewSummary({ title = "", markdown = "", skills = [],
     scope: "Complete document",
     sourceCharacters: `${title}\n${markdown}`.length,
     skills: chosenSkills.map((skill) => `${skill.name || skill.id} · ${skill.version}`),
-    context: chosenContext.map((document) => `${document.path || document.name} · ${document.kind === "postSnapshot" ? "Post snapshot" : document.visibility === "private" ? "Private" : "Portable"} · ${document.characters} characters`),
+    context: chosenContext.map((document) => assistantContextLabel(document)),
     provider: `${providerName} · ${provider.model || "Provider default"} · ${provider.destination || "Destination not configured"}`,
     research: "Off",
   };
@@ -8802,10 +8802,87 @@ export function showPrivateContextWarning(element, privateSafety) {
   return warning;
 }
 
+/**
+ * How one selected context item is named in a disclosure. Voice samples say their stage and pack,
+ * because the author is about to send their own writing and should see which of it.
+ */
+export function assistantContextLabel(document = {}) {
+  const visibility = document.visibility === "private" ? "Private" : "Portable";
+  if (document.contextType === "voice") {
+    return `${document.path || document.name} · Voice guide · ${visibility} · ${document.characters} characters`;
+  }
+  if (document.kind === "voiceSample") {
+    return `${document.path || document.name} · Voice sample · ${document.stage || "unknown stage"} · ${document.pack || "no pack"} · ${visibility} · ${document.characters} characters`;
+  }
+  return `${document.path || document.name} · ${document.kind === "postSnapshot" ? "Post snapshot" : visibility} · ${document.characters} characters`;
+}
+
+/** The most voice samples and sample characters one request may carry; the server enforces the same numbers. */
+export const VOICE_REQUEST_BUDGET = Object.freeze({ samples: 8, characters: 120000 });
+
+/**
+ * The running total of selected voice samples against the request budget. `over` is true when the
+ * selection must be refused before any request is made; `message` says why in plain words.
+ */
+export function assistantVoiceBudget(documents = [], selectedIds = new Set(), budget = VOICE_REQUEST_BUDGET) {
+  const chosen = documents.filter((document) => document.kind === "voiceSample" && selectedIds.has(document.id) && document.exists && document.valid);
+  const characters = chosen.reduce((total, document) => total + document.characters, 0);
+  const reasons = [];
+  if (chosen.length > budget.samples) reasons.push(`${chosen.length} voice samples are selected; one request carries at most ${budget.samples}.`);
+  if (characters > budget.characters) reasons.push(`The selected voice samples are ${characters} characters; one request carries at most ${budget.characters}.`);
+  return { samples: chosen.length, characters, budget, over: reasons.length > 0, message: reasons.join(" ") };
+}
+
+/**
+ * Classify the lines of a unified diff for display. The server writes the diff; this only decides how
+ * each line is drawn, so an added or removed line is never colour alone (it keeps its + or -).
+ */
+export function voiceGuideDiffLines(diff = "") {
+  if (!diff) return [];
+  return String(diff)
+    .split("\n")
+    .filter((line, index, lines) => line !== "" || index < lines.length - 1)
+    .map((text) => {
+      if (text.startsWith("+++") || text.startsWith("---") || text.startsWith("@@")) return { kind: "header", text };
+      if (text.startsWith("+")) return { kind: "add", text };
+      if (text.startsWith("-")) return { kind: "remove", text };
+      return { kind: "context", text };
+    });
+}
+
+/**
+ * The body of the context save for an approved voice guide. Nothing is written until the author
+ * chooses a destination; the revision is the one the proposal was made against, so a guide changed
+ * elsewhere in the meantime is a conflict and not an overwrite.
+ */
+export function voiceGuidePortableNote(proposal = {}) {
+  return proposal.portableAllowed === false ? "Quotes private samples; save as private" : "";
+}
+
+export function voiceGuideSaveRequest(proposal = {}, visibility, content) {
+  const target = proposal.targets?.[visibility];
+  if (!target || !["portable", "private"].includes(visibility)) return null;
+  if (target.valid === false) return null;
+  if (visibility === "portable" && proposal.portableAllowed === false) return null;
+  if (typeof content !== "string" || !content.trim()) return null;
+  return { contextType: "voice", visibility, content, etag: target.exists ? target.etag : null };
+}
+
+/**
+ * What turning on AI autocomplete tells the author about the context it will send. Autocomplete uses
+ * the context selected in the Context view, so when the voice guide (or anything else) is selected
+ * it is named here, before the first suggestion is requested.
+ */
+export function assistantAutocompleteDisclosure(documents = [], selectedIds = new Set()) {
+  const chosen = documents.filter((document) => selectedIds.has(document.id) && document.exists && document.valid);
+  if (!chosen.length) return "";
+  return `Each suggestion also sends the selected context: ${chosen.map((document) => assistantContextLabel(document)).join("; ")}. Change it in the Context view.`;
+}
+
 export function assistantContextDisclosure(documents = [], selectedIds = new Set()) {
   const selected = documents
     .filter((document) => selectedIds.has(document.id) && document.exists && document.valid)
-    .map(({ name, visibility, characters, kind, path }) => ({ name, visibility, characters, ...(kind ? { kind, path } : {}) }));
+    .map(({ name, visibility, characters, kind, path, stage, pack, contextType }) => ({ name, visibility, characters, ...(kind ? { kind, path } : {}), ...(kind === "voiceSample" ? { stage, pack } : {}), ...(contextType === "voice" ? { contextType } : {}) }));
   return {
     documents: selected,
     totalCharacters: selected.reduce((total, document) => total + document.characters, 0),
@@ -21409,6 +21486,10 @@ export class Editor {
     ui.assistantReferenceCreate = h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: () => this.createAssistantReference() }, "Add reference");
     ui.assistantReferenceCards = h("div", { class: "oba-assistant-context-cards" });
     ui.assistantPostSnapshots = h("div", { class: "oba-assistant-context-cards" });
+    ui.assistantVoiceSamples = h("div", { class: "oba-assistant-context-cards" });
+    ui.voiceGuideStatus = h("p", { class: "oba-notice", role: "status", "aria-live": "polite" }, "Select voice samples, then propose a guide. Nothing is saved until you approve it.");
+    ui.voiceGuidePropose = h("button", { class: "oba-btn", type: "button", onClick: () => this.proposeVoiceGuide() }, "Propose a voice guide from selected samples");
+    ui.voiceGuideResult = h("div", { class: "oba-voice-guide-result", tabindex: "-1", role: "region", "aria-label": "Proposed voice guide" });
     ui.assistantContextDisclosure = h("div", { class: "oba-assistant-disclosure", "aria-live": "polite" }, h("p", {}, "No context selected."));
     ui.assistantUrlInput = h("input", { type: "url", placeholder: "https://example.com/reference", "aria-label": "Reference URL" });
     ui.assistantUrlStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
@@ -21445,6 +21526,7 @@ export class Editor {
         h("section", { class: "oba-assistant-disclosure-panel", "aria-labelledby": "oba-url-context-title" }, h("h4", { id: "oba-url-context-title" }, "Add URL snapshot"), h("p", {}, "Retrieve a supported page once, inspect its untrusted text, then save a stable snapshot. Reviews never refetch it."), this.field("oba-url-context", "HTTP(S) reference URL", ui.assistantUrlInput), ui.assistantUrlStatus, h("div", { class: "oba-toolbar" }, ui.assistantUrlRetrieve), ui.assistantUrlPreview),
         ui.assistantContextCards,
         h("section", { class: "oba-assistant-context-tools", "aria-labelledby": "oba-reference-context-title" }, h("h4", { id: "oba-reference-context-title" }, "Text references"), h("p", {}, "Add a bounded Markdown or plain-text source. Reference content is treated as untrusted data."), this.field("oba-reference-name", "Filename (.md or .txt)", ui.assistantReferenceName), this.field("oba-reference-visibility", "Visibility", ui.assistantReferenceVisibility), this.field("oba-reference-content", "Reference content", ui.assistantReferenceContent), ui.assistantReferenceCreate, ui.assistantReferenceCards),
+        h("section", { class: "oba-assistant-context-tools", "aria-labelledby": "oba-voice-samples-title" }, h("h4", { id: "oba-voice-samples-title" }, "Voice samples"), h("p", {}, "Your own writing, chosen like any other context. Sample text is sent to the provider only when you run a request, and it is treated as data to compare against, never as instructions. A rough draft is never edited."), ui.assistantVoiceSamples, h("h5", {}, "Voice guide"), h("p", {}, "The provider can propose a guide from the samples you selected. You see it as changes against your saved guide, can edit it, and it is saved only when you choose Save."), h("div", { class: "oba-toolbar" }, ui.voiceGuidePropose), ui.voiceGuideStatus, ui.voiceGuideResult),
         h("section", { class: "oba-assistant-context-tools", "aria-labelledby": "oba-post-snapshots-title" }, h("h4", { id: "oba-post-snapshots-title" }, "Existing post snapshots"), h("p", {}, "Select an immutable snapshot of an existing post without copying images or other repository files."), ui.assistantPostSnapshots),
         h("aside", { class: "oba-assistant-disclosure-panel", "aria-labelledby": "oba-assistant-disclosure-title" }, h("h4", { id: "oba-assistant-disclosure-title" }, "Context disclosure"), h("p", {}, "Selected context that would be sent with an explicit Assistant request:"), ui.assistantContextDisclosure),
         h("div", { class: "oba-skill-editor" }, h("h4", {}, "Skill catalog"), h("p", {}, "Skills are non-executable Markdown instructions. Article and reference content remains untrusted data."), ui.assistantCatalog, h("h4", {}, "Project skill Markdown"), ui.assistantSkillEditorStatus, ui.assistantSkillEditor, h("div", { class: "oba-toolbar" }, ui.assistantSkillNew, ui.assistantSkillSave)),
@@ -22173,7 +22255,8 @@ export class Editor {
       this.ui.assistantAutocompleteStatus.textContent = "AI autocomplete is unavailable. Configure a provider in Assistant; non-AI writing remains available.";
       return;
     }
-    this.ui.assistantAutocompleteStatus.textContent = "AI autocomplete is on. Suggestions appear after you pause typing; nothing is inserted automatically.";
+    const contextNote = assistantAutocompleteDisclosure(this.assistantContextDocuments || [], this.assistantContextSelected || new Set());
+    this.ui.assistantAutocompleteStatus.textContent = `AI autocomplete is on. Suggestions appear after you pause typing; nothing is inserted automatically.${contextNote ? ` ${contextNote}` : ""}`;
   }
 
   scheduleAssistantAutocomplete() {
@@ -22243,6 +22326,11 @@ export class Editor {
     const capture = this.captureAssistantAutocomplete();
     if (!capture || capture.prefix.trim().length < 12) {
       this.ui.assistantAutocompleteStatus.textContent = "Keep typing a little more to request a suggestion.";
+      return;
+    }
+    const voiceBudget = assistantVoiceBudget(this.assistantContextDocuments, this.assistantContextSelected, this.assistantVoiceBudget || VOICE_REQUEST_BUDGET);
+    if (voiceBudget.over) {
+      this.ui.assistantAutocompleteStatus.textContent = `No suggestion was requested. ${voiceBudget.message}`;
       return;
     }
     this.assistantAutocompleteActive = true;
@@ -22691,10 +22779,12 @@ export class Editor {
   }
 
   renderAssistantContext(catalog) {
-    const managedDocuments = catalog.documents || [];
+    const managedDocuments = [...(catalog.documents || []), ...(catalog.voiceGuides || [])];
     const references = catalog.references || [];
     const postSnapshots = catalog.postSnapshots || [];
-    this.assistantContextDocuments = [...managedDocuments, ...references.map((reference) => ({ ...reference, kind: "reference" })), ...postSnapshots];
+    const voiceSamples = (catalog.voiceSamples || []).map((sample) => ({ ...sample, kind: "voiceSample" }));
+    this.assistantVoiceBudget = catalog.voiceBudget || VOICE_REQUEST_BUDGET;
+    this.assistantContextDocuments = [...managedDocuments, ...references.map((reference) => ({ ...reference, kind: "reference" })), ...postSnapshots, ...voiceSamples];
     for (const id of [...this.assistantContextSelected]) {
       const document = this.assistantContextDocuments.find((candidate) => candidate.id === id);
       if (!document?.exists || !document.valid) this.assistantContextSelected.delete(id);
@@ -22702,7 +22792,7 @@ export class Editor {
     const cards = managedDocuments.map((document) => {
       const visibilityLabel = document.visibility === "private" ? "Private" : "Portable";
       const reference = document.contextType === "reference";
-      const typeLabel = document.contextType === "author" ? "Author" : document.contextType === "post" ? "Post brief" : reference ? "URL reference" : "Site";
+      const typeLabel = document.contextType === "author" ? "Author" : document.contextType === "post" ? "Post brief" : document.contextType === "voice" ? "Voice guide" : reference ? "URL reference" : "Site";
       const textarea = h("textarea", { rows: "8", "aria-label": `${visibilityLabel} ${typeLabel} context`, readonly: reference }, document.content || "");
       const postFields = document.contextType === "post" ? postContextFields(document.content) : null;
       const postInputs = postFields
@@ -22796,6 +22886,32 @@ export class Editor {
         );
       }),
     );
+    this.ui.assistantVoiceSamples.replaceChildren(
+      ...(voiceSamples.length
+        ? voiceSamples.map((sample) => {
+            const selected = h("input", {
+              type: "checkbox",
+              checked: this.assistantContextSelected.has(sample.id),
+              disabled: !sample.valid,
+              onChange: () => {
+                if (selected.checked) this.assistantContextSelected.add(sample.id);
+                else this.assistantContextSelected.delete(sample.id);
+                this.renderAssistantContextDisclosure();
+                this.renderAssistantReviewSummary();
+              },
+            });
+            const details = [sample.stage ? `${sample.stage[0].toUpperCase()}${sample.stage.slice(1)} draft` : "Unreadable", sample.pack ? `pack ${sample.pack}` : null, sample.prompt ? `prompt ${sample.prompt}` : null, sample.visibility === "private" ? "Private" : "Portable", `${sample.characters} characters`].filter(Boolean).join(" · ");
+            return h(
+              "article",
+              { class: "oba-assistant-context-card", "data-visibility": sample.visibility, "data-voice-sample": sample.name },
+              h("div", { class: "oba-assistant-context-heading" }, h("h5", {}, sample.name), h("span", { class: "oba-badge" }, sample.visibility === "private" ? "Private" : "Portable")),
+              h("p", { class: "oba-small" }, sample.path),
+              sample.guidance ? h("p", { class: "oba-notice is-warning" }, sample.guidance) : h("p", { class: "oba-small" }, details),
+              h("label", { class: "oba-check" }, selected, h("span", {}, `Selected voice sample · ${sample.characters} characters`)),
+            );
+          })
+        : [h("p", { class: "oba-small" }, "No voice samples yet. Write one with openblog voice or the Voice screen; they appear here to choose as context.")]),
+    );
     showPrivateContextWarning(this.ui.assistantContextSafety, catalog.privateSafety);
     this.renderAssistantContextDisclosure();
     this.renderAssistantReviewSummary();
@@ -22808,9 +22924,100 @@ export class Editor {
       return;
     }
     this.ui.assistantContextDisclosure.replaceChildren(
-      h("ul", {}, disclosure.documents.map((document) => h("li", {}, `${document.path || document.name} · ${document.kind === "postSnapshot" ? "Post snapshot" : document.visibility === "private" ? "Private" : "Portable"} · ${document.characters} characters`))),
+      h("ul", {}, disclosure.documents.map((document) => h("li", {}, assistantContextLabel(document)))),
       h("p", { class: "oba-small" }, `${disclosure.totalCharacters} context characters selected in total.`),
+      ...this.voiceBudgetLines(),
     );
+  }
+
+  /** The voice-sample running total against the request budget, for the disclosure; nothing when no sample is selected. */
+  voiceBudgetLines() {
+    const budget = assistantVoiceBudget(this.assistantContextDocuments, this.assistantContextSelected, this.assistantVoiceBudget || VOICE_REQUEST_BUDGET);
+    if (!budget.samples) return [];
+    return [h("p", { class: budget.over ? "oba-notice is-warning" : "oba-small", role: budget.over ? "alert" : null }, budget.over ? `${budget.message} Deselect some voice samples before sending.` : `${budget.samples} of ${budget.budget.samples} voice samples and ${budget.characters} of ${budget.budget.characters} voice characters in this request.`)];
+  }
+
+  /** Ask the provider to propose a voice guide from the selected samples. Writes nothing. */
+  async proposeVoiceGuide() {
+    const sampleIds = [...this.assistantContextSelected].filter((id) => this.assistantContextDocuments.some((document) => document.id === id && document.kind === "voiceSample"));
+    if (!sampleIds.length) {
+      this.ui.voiceGuideStatus.textContent = "Select at least one voice sample above, then propose a guide.";
+      return;
+    }
+    const budget = assistantVoiceBudget(this.assistantContextDocuments, this.assistantContextSelected, this.assistantVoiceBudget || VOICE_REQUEST_BUDGET);
+    if (budget.over) {
+      this.ui.voiceGuideStatus.textContent = `No guide was requested. ${budget.message}`;
+      return;
+    }
+    this.ui.voiceGuidePropose.disabled = true;
+    this.ui.voiceGuideStatus.textContent = "Preparing provider disclosure…";
+    try {
+      await this.loadAssistantStatus();
+      if (!this.assistantProviderStatus?.destination) {
+        this.ui.voiceGuideStatus.textContent = "No guide was requested because the provider destination is unavailable. Your files are unchanged.";
+        return;
+      }
+      this.ui.voiceGuideStatus.textContent = `Sending ${budget.samples} voice sample${budget.samples === 1 ? "" : "s"} (${budget.characters} characters) to ${this.assistantProviderStatus.destination}…`;
+      const proposal = await this.app.api.call("POST", "assistant/voice-guide", { json: { sampleIds } });
+      this.voiceGuideProposal = proposal;
+      this.renderVoiceGuideProposal();
+      this.ui.voiceGuideStatus.textContent = "A voice guide is proposed. Nothing is saved until you choose Save.";
+      this.ui.voiceGuideResult.focus();
+    } catch (error) {
+      this.voiceGuideProposal = null;
+      this.ui.voiceGuideResult.replaceChildren();
+      this.ui.voiceGuideStatus.textContent = `No voice guide was produced. Your files are unchanged. ${error.message}`;
+    } finally {
+      this.ui.voiceGuidePropose.disabled = false;
+    }
+  }
+
+  renderVoiceGuideProposal() {
+    const proposal = this.voiceGuideProposal;
+    if (!proposal) {
+      this.ui.voiceGuideResult.replaceChildren();
+      return;
+    }
+    const lines = voiceGuideDiffLines(proposal.diff);
+    const editor = h("textarea", { rows: 18, "aria-label": "Proposed voice guide Markdown (editable)", spellcheck: false }, proposal.markdown || "");
+    const compared = proposal.current?.exists ? `the saved ${proposal.current.visibility} guide` : "no saved guide yet";
+    const portableBlocked = proposal.portableAllowed === false;
+    const save = (visibility) =>
+      h("button", { class: "oba-btn oba-btn-primary", type: "button", disabled: proposal.targets?.[visibility]?.valid === false || (visibility === "portable" && portableBlocked), onClick: () => this.saveVoiceGuide(visibility, editor.value) }, visibility === "private" ? "Save as private" : "Save as portable");
+    this.ui.voiceGuideResult.replaceChildren(
+      h("p", { class: "oba-notice" }, `AI-proposed guide, compared with ${compared}. Every line quotes your own words and names its sample. It is a proposal: you decide what is kept.`),
+      h("h5", {}, "Changes"),
+      lines.length
+        ? h("pre", { class: "oba-voice-diff", "aria-label": "Changes to the voice guide" }, lines.map((line) => h("span", { class: `oba-voice-diff-${line.kind}`, "data-diff": line.kind }, `${line.text}\n`)))
+        : h("p", { class: "oba-small" }, "The proposal matches the saved guide."),
+      this.field("oba-voice-guide-markdown", "Edit before saving", editor),
+      h("div", { class: "oba-toolbar" }, save("portable"), save("private"), h("button", { class: "oba-btn", type: "button", onClick: () => this.discardVoiceGuide() }, "Discard")),
+      ...(portableBlocked ? [h("p", { class: "oba-small", "data-voice-guide-note": "portable-blocked" }, voiceGuidePortableNote(proposal))] : []),
+    );
+  }
+
+  discardVoiceGuide() {
+    this.voiceGuideProposal = null;
+    this.renderVoiceGuideProposal();
+    this.ui.voiceGuideStatus.textContent = "Proposal discarded. Nothing was saved.";
+  }
+
+  async saveVoiceGuide(visibility, content) {
+    const body = voiceGuideSaveRequest(this.voiceGuideProposal || {}, visibility, content);
+    if (!body) {
+      this.ui.voiceGuideStatus.textContent = "The guide could not be saved: it is empty or that destination is unavailable. Nothing was written.";
+      return;
+    }
+    try {
+      await this.app.api.call("PUT", "assistant/context", { json: body });
+      this.voiceGuideProposal = null;
+      this.renderVoiceGuideProposal();
+      this.assistantContextLoaded = false;
+      await this.loadAssistantContext(true);
+      this.ui.voiceGuideStatus.textContent = `Voice guide saved as ${visibility}.`;
+    } catch (error) {
+      this.ui.voiceGuideStatus.textContent = `The guide was not saved. ${error.message}`;
+    }
   }
 
   async loadAssistantContext(force = false) {
@@ -23080,6 +23287,11 @@ export class Editor {
     const skillIds = [...(this.selectedAssistantSkills || [])];
     if (!skillIds.length) {
       this.ui.assistantReviewStatus.textContent = "Select at least one document review skill.";
+      return;
+    }
+    const voiceBudget = assistantVoiceBudget(this.assistantContextDocuments, this.assistantContextSelected, this.assistantVoiceBudget || VOICE_REQUEST_BUDGET);
+    if (voiceBudget.over) {
+      this.ui.assistantReviewStatus.textContent = `Document review did not run. ${voiceBudget.message} Your draft is unchanged.`;
       return;
     }
     this.ui.assistantReviewRun.disabled = true;

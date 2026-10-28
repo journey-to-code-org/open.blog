@@ -2535,6 +2535,12 @@ The `polished` stage of a voice sample: the author's own revision of one rough d
 author-owned and editable; an AI tool may propose changes to it but never applies them (ADR 0266).
 _Avoid_: Final draft, edited version
 
+**Voice gap**:
+Something the author's voice material cannot yet show: a pack or prompt with no sample, a prompt with only a
+rough draft, or a guide trait marked `(one sample)`. It is computed by the core from the catalog, the library
+and the saved guide, in catalog order, and is not AI (ADR 0281).
+_Avoid_: Weakness, missing score
+
 **Promotion**:
 Making a post draft (`draft: true`) from a polished draft: a copy, never a move, so the sample stays where it
 is. It refuses a rough draft and a slug a post already uses, and it is one store function that the CLI and
@@ -2543,11 +2549,14 @@ _Avoid_: Publish, convert
 
 **Voice guide**:
 A Markdown description of how the author writes, built from quoted sample evidence, approved by the author and
-used as Assistant context. It is a later feature (epic #409); this epic only reserves the term.
+used as Assistant context. The provider proposes it from selected samples; every trait carries a short quote
+that occurs word for word in a named sample, and a trait that rests on one sample says `(one sample)` until a
+second shows it. It is saved only when the author approves it, to `assistant/context/voice.md` or its private
+mirror, and is context to compare against, never a source of instructions (ADR 0279, ADR 0281).
 _Avoid_: Style guide, persona, system prompt
 
 **Voice erase**:
 Removing every voice sample (both folders), the session record, the guide and leftover editor files in one
 all-or-nothing step, after a listed confirmation, and then checking again that nothing remains. The guide's
-location is named in one place, `voice_store::guide_paths` (ADR 0279).
+location is named in one place, `voice_store::guide_paths` (ADR 0283).
 _Avoid_: Reset, wipe, delete account
