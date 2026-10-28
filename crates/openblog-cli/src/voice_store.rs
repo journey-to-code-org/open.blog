@@ -849,16 +849,28 @@ pub fn erase_all(root: &Path) -> Result<EraseReport> {
     let token = crate::auth::random_token().map_err(StoreError::Failed)?;
     let trash_relative = format!("{PRIVATE_VOICE_DIR}/{TRASH_PREFIX}{token}");
     let trash = contained(root, &trash_relative)?;
+    // Work out and check every (from, to) pair before the first rename, so a bad entry changes
+    // nothing. Containment is checked on the parent folder only and the file name is joined on, so
+    // a link entry is renamed as a link and never followed.
+    let mut pairs: Vec<(PathBuf, PathBuf, String)> = Vec::new();
+    for (index, item) in plan.iter().enumerate() {
+        let relative = Path::new(&item.path);
+        let (Some(parent), Some(name)) = (relative.parent(), relative.file_name()) else {
+            return refused("A voice file has no folder to erase it from.");
+        };
+        let from = contained_target(root, parent)
+            .map_err(|error| StoreError::Refused(format!("{error}.")))?
+            .join(name);
+        // The index keeps two files with the same name in different folders apart.
+        pairs.push((from, trash.join(index.to_string()), item.path.clone()));
+    }
     let mut staged: Vec<(PathBuf, PathBuf)> = Vec::new();
     let mut failure = None;
-    for (index, item) in plan.iter().enumerate() {
-        let from = contained(root, &item.path)?;
-        // The index keeps two files with the same name in different folders apart.
-        let to = trash.join(index.to_string());
+    for (from, to, shown) in pairs {
         match stage_for_erase(&from, &to) {
             Ok(()) => staged.push((from, to)),
             Err(error) => {
-                failure = Some(format!("Cannot erase {}: {error}", item.path));
+                failure = Some(format!("Cannot erase {shown}: {error}"));
                 break;
             }
         }

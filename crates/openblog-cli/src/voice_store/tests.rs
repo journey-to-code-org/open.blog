@@ -566,6 +566,48 @@ fn a_failure_on_the_first_file_also_changes_nothing() {
     assert_eq!(snapshot(&project.0), before);
 }
 
+/// Make a link, or `None` when this OS or user may not (Windows without the privilege).
+fn try_link(target: &Path, link: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(target, link).is_ok()
+    }
+    #[cfg(windows)]
+    {
+        if target.is_dir() {
+            std::os::windows::fs::symlink_dir(target, link).is_ok()
+        } else {
+            std::os::windows::fs::symlink_file(target, link).is_ok()
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (target, link);
+        false
+    }
+}
+
+#[test]
+fn a_link_entry_is_erased_as_a_link_and_the_target_outside_the_project_survives() {
+    let project = full_project();
+    let outside = std::env::temp_dir().join(format!("ob-voice-link-{}.md", std::process::id()));
+    fs::write(&outside, "outside words").unwrap();
+    // Sorts last, so earlier entries have been set aside before it is reached.
+    let link = project.0.join(PORTABLE_DIR).join("zz-link.md");
+    if !try_link(&outside, &link) {
+        eprintln!("skipped: this OS refused to create a link");
+        let _ = fs::remove_file(&outside);
+        return;
+    }
+    let report = erase_all(&project.0).unwrap();
+    assert!(report.remaining.is_empty(), "{:?}", report.remaining);
+    assert!(fs::symlink_metadata(&link).is_err());
+    assert_eq!(fs::read_to_string(&outside).unwrap(), "outside words");
+    let left: Vec<String> = snapshot(&project.0).into_keys().collect();
+    assert_eq!(left, ["assistant/context/author.md"], "{left:?}");
+    let _ = fs::remove_file(&outside);
+}
+
 #[test]
 fn the_post_check_reports_what_it_could_not_remove() {
     let project = full_project();
