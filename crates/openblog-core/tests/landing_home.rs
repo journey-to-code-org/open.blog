@@ -265,7 +265,6 @@ fn authored_markup_in_any_field_is_inert_text() {
     // escaped text of what was typed.
     for forbidden in [
         "<script>alert",
-        "<iframe",
         "<img src=x",
         "onerror=alert(1)>",
         "<div onclick",
@@ -283,6 +282,16 @@ fn authored_markup_in_any_field_is_inert_text() {
         count(&html, "<script"),
         count(&build(&load(config(""), None))["index.html"], "<script")
     );
+    // The only frames are the two the engine rebuilt from validated parts.
+    assert_eq!(count(&html, "<iframe"), 2, "{html}");
+    for frame in html.split("<iframe src=\"").skip(1) {
+        let src = frame.split('"').next().unwrap();
+        assert!(
+            src.starts_with("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ")
+                || src.starts_with("https://www.openstreetmap.org/export/embed.html?bbox="),
+            "{src}"
+        );
+    }
 }
 
 #[test]
@@ -367,6 +376,7 @@ fn structured_pieces_render_as_semantic_markup() {
         "href=\"mailto:me@example.com\"",
         "ob-home-button",
         "href=\"https://vimeo.com/12345\"",
+        "<iframe src=\"https://player.vimeo.com/video/12345?dnt=1\" title=\"A tour\" loading=\"lazy\"",
         "https://www.openstreetmap.org/?mlat=51.500000&amp;mlon=-0.120000",
         "<table",
         "Mon to Fri",
@@ -379,7 +389,7 @@ fn structured_pieces_render_as_semantic_markup() {
     ] {
         assert!(html.contains(needle), "{needle}\n{html}");
     }
-    assert!(!html.contains("<iframe"));
+    assert_eq!(count(&html, "loading=\"lazy\""), 2, "both frames are lazy");
     assert_eq!(count(&html, "<h1"), 1, "the site title owns the h1");
 }
 

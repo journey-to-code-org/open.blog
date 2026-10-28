@@ -1646,9 +1646,26 @@ ob-recipe.ob-cooking .ob-recipe-part {
   background: var(--ob-color-surface-raised);
 }
 
-.ob-embed-youtube iframe {
+.ob-embed-youtube iframe,
+.ob-embed-vimeo iframe {
   height: auto;
   aspect-ratio: 16 / 9;
+}
+
+.ob-embed-openstreetmap iframe {
+  height: auto;
+  aspect-ratio: 4 / 3;
+  max-height: 24rem;
+}
+
+.ob-piece {
+  margin-block: 1.5em;
+}
+
+.ob-piece-error {
+  padding: 0.75rem 1rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius);
 }
 
 .ob-embed figcaption {

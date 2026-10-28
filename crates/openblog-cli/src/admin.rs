@@ -3843,6 +3843,7 @@ fn meta(state: &AppState) -> Response {
             "profiles": profiles,
             "contributors": config.contributors,
             "creditRoles": credit_roles,
+            "pieces": openblog_core::piece::schema_json(),
             "series": series,
             "tags": tags,
             "maxUploadMb": config.admin.max_upload_mb,
@@ -32057,6 +32058,11 @@ What I read:
             &authed(req("GET", "/admin/api/meta"), &session, false),
         ));
         assert_eq!(meta["contributors"]["ada"]["name"], "Ada");
+        let pieces = meta["pieces"].as_array().unwrap();
+        assert_eq!(pieces.len(), 9);
+        assert!(pieces
+            .iter()
+            .any(|p| p["kind"] == "video" && p["fields"][1]["name"] == "video"));
         assert!(meta["creditRoles"].as_array().unwrap().iter().any(|role| {
             role["vocabulary"] == "crossref"
                 && role["role"] == "author"
