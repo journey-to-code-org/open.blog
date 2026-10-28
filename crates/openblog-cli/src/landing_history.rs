@@ -218,7 +218,16 @@ fn keep_out_of_git(root: &Path) {
         return;
     }
     let path = root.join(".gitignore");
-    let existing = fs::read_to_string(&path).unwrap_or_default();
+    // Only a missing file counts as empty. A file that cannot be read (for example one that is not
+    // UTF-8) is left exactly as it is: the history still works, it just is not added to it.
+    let existing = match fs::read(&path) {
+        Ok(bytes) => match String::from_utf8(bytes) {
+            Ok(text) => text,
+            Err(_) => return,
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(_) => return,
+    };
     if existing.lines().any(|line| {
         matches!(
             line.trim(),
@@ -321,6 +330,26 @@ pub fn keep_current(root: &Path, revision: &str, page: &LandingPage) -> Result<(
         }
     }
     record(root, revision, page, "Kept before the next change").map(|_| ())
+}
+
+/// Keep the bytes of a stored file that is not a readable page, as `raw-<revision>.bak` in the
+/// history folder (never listed as a version), before it is replaced.
+pub fn keep_raw(root: &Path, revision: &str, text: &str) -> Result<(), String> {
+    let directory = directory(root)?;
+    let safe: String = revision
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .take(64)
+        .collect();
+    fs::create_dir_all(&directory)
+        .map_err(|error| format!("cannot create the history folder: {error}"))?;
+    keep_out_of_git(root);
+    let target = directory.join(format!("raw-{safe}.bak"));
+    if target.exists() {
+        return Ok(());
+    }
+    fs::write(&target, text.as_bytes())
+        .map_err(|error| format!("cannot write the history: {error}"))
 }
 
 #[cfg(test)]
@@ -496,5 +525,31 @@ mod tests {
             fs::read_to_string(other.join(".gitignore")).unwrap(),
             "/.openblog\n"
         );
+    }
+
+    #[test]
+    fn an_unreadable_gitignore_is_left_byte_identical() {
+        let root = root("badignore");
+        fs::create_dir_all(root.join(".git")).unwrap();
+        let bytes: Vec<u8> = vec![0xff, 0xfe, b'/', 0, b'd', 0, 0x80, 0xc3];
+        fs::write(root.join(".gitignore"), &bytes).unwrap();
+        assert!(save(&root, &page(&["A"])).is_some());
+        assert_eq!(fs::read(root.join(".gitignore")).unwrap(), bytes);
+    }
+
+    #[test]
+    fn a_missing_gitignore_is_created_and_raw_bytes_are_kept_once() {
+        let root = root("rawkeep");
+        fs::create_dir_all(root.join(".git")).unwrap();
+        keep_raw(&root, "abc123", "not json").unwrap();
+        keep_raw(&root, "abc123", "not json").unwrap();
+        let kept = root.join(".openblog/private/landing-history/raw-abc123.bak");
+        assert_eq!(fs::read_to_string(kept).unwrap(), "not json");
+        assert_eq!(
+            fs::read_to_string(root.join(".gitignore")).unwrap(),
+            "/.openblog/private/
+"
+        );
+        assert!(list(&root).versions.is_empty());
     }
 }
