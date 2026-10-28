@@ -11860,28 +11860,6 @@ export class ObAdmin extends AdminElement {
         .map((item) => ({ ...item, kind })),
     );
     const problemCount = documentProblems.length + (status.lastError ? 1 : 0);
-    // The one-time invitation to the Voice view (ADR 0376): only with no samples, no open session and no earlier
-    // dismissal. If the question cannot be answered the card is simply not shown.
-    let invitation = null;
-    try {
-      const voiceStatus = await this.api.call("GET", "voice/status");
-      if (invitationVisible({ dismissed: this.preferences?.voiceInvitationDismissed === true, status: voiceStatus })) {
-        invitation = buildVoiceInvitation({
-          onDismiss: async () => {
-            // Stored settings that could not be read are replaced only from Personalize.
-            if (this.preferencesUnreadable) return false;
-            await this.saveWorkspacePreferences((saved) => ({ ...saved, voiceInvitationDismissed: true }));
-            return true;
-          },
-          onGone: () => {
-            // Focus stays in the page: it moves to the first thing that follows the card.
-            this.querySelector?.(".oba-overview-metrics a")?.focus();
-          },
-        });
-      }
-    } catch {
-      // Without an answer the invitation stays away; nothing else on this page needs it.
-    }
     const overviewMetric = (label, value, note, href) =>
       h(
         "a",
@@ -11953,7 +11931,6 @@ export class ObAdmin extends AdminElement {
     this.mount(
       this.shell(
         "overview",
-        invitation?.element,
         h(
           "section",
           { class: "oba-overview-metrics", "aria-label": "Publishing pipeline" },
@@ -11975,6 +11952,36 @@ export class ObAdmin extends AdminElement {
     if (focus === "issues") {
       healthPanel.focus();
       healthPanel.scrollIntoView({ block: "start" });
+    }
+    // The page is already on screen: the invitation arrives after it, so asking can never delay the home.
+    this.offerVoiceInvitation(this.viewVersion);
+  }
+
+  /**
+   * The one-time invitation to the Voice view (ADR 0376): only with no samples, no open session and no earlier
+   * dismissal. If the question cannot be answered the card is simply not shown, and if Admin has moved to
+   * another view by the time the answer comes, nothing is added to it.
+   */
+  async offerVoiceInvitation(version) {
+    try {
+      const voiceStatus = await this.api.call("GET", "voice/status");
+      if (this.viewVersion !== version || !this.workspaceMain) return;
+      if (!invitationVisible({ dismissed: this.preferences?.voiceInvitationDismissed === true, status: voiceStatus })) return;
+      const invitation = buildVoiceInvitation({
+        onDismiss: async () => {
+          // Stored settings that could not be read are replaced only from Personalize.
+          if (this.preferencesUnreadable) return false;
+          await this.saveWorkspacePreferences((saved) => ({ ...saved, voiceInvitationDismissed: true }));
+          return true;
+        },
+        onGone: () => {
+          // Focus stays in the page: it moves to the first thing that follows the card.
+          this.querySelector?.(".oba-overview-metrics a")?.focus();
+        },
+      });
+      this.workspaceMain.insertBefore(invitation.element, this.workspaceMain.firstChild);
+    } catch {
+      // Without an answer the invitation stays away; nothing else on this page needs it.
     }
   }
 
@@ -13805,7 +13812,7 @@ export class ObAdmin extends AdminElement {
   async showVoice(tail, params) {
     const inLibrary = tail === "library" || tail.startsWith("library/");
     const view = inLibrary
-      ? createVoiceLibrary({ api: this.api })
+      ? createVoiceLibrary({ api: this.api, user: this.user })
       : createVoiceSession({
           api: this.api,
           user: this.user,
@@ -13823,7 +13830,7 @@ export class ObAdmin extends AdminElement {
     this.mount(this.shell("voice", nav, view.element));
     this.viewDirty = () => view.isDirty();
     this.viewBusy = () => view.isBusy();
-    await view.load();
+    await view.load(tail.startsWith("library/") ? safeDecodeURIComponent(tail.slice("library/".length)) : "");
   }
 
   // ---- customize look (ADR 0256, #350)

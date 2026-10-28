@@ -34,6 +34,20 @@ the way its stage says: a rough draft to read, a polished draft to edit.
   polished copy; a polished draft opens in the same editor as after a session, revision-checked (see below).
   Promoting a polished draft to a post is a separate step.
 
+### Opening a sample (#449)
+
+- `#/voice/library/<id>` opens one sample with both of its drafts. A rough sample shows its text in the read-only
+  region with the sentence that says why it never changes (the view has no input, no text area and nothing
+  editable; its only button moves the pair between the folders), and below it either the polished draft or a
+  "Polish a copy" editor pre-filled with the rough text. A polished sample opens in its editor with the revision it
+  was read at, beside the rough draft. Nothing is written by opening.
+- No call made from these views can write a rough draft: the only writes are `POST samples` (a new polished
+  draft), `PUT samples/<polished id>` with a revision, and `visibility`. A save that finds a newer draft is the
+  conflict choice of ADR 0372. The unsaved guard covers the open view.
+- A file that cannot be read, or a polished draft whose rough draft is missing, opens as guidance and no editor.
+- **Not here:** promoting a polished draft to a post (`POST samples/{id}/promote` and the Promote button) waits for
+  the shared store function that makes the post draft; this change has no promotion logic of its own.
+
 ## Considered options
 
 - **Group on the server.** Rejected: ordering and wording are page concerns, and the page needs the raw files for

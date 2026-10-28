@@ -3,7 +3,22 @@
 // draft is refused, a lock takes the final text only within ten seconds of the deadline, a rough draft is
 // created once, a polished save names its revision).
 
-import { ApiError } from "./dom-shim.mjs";
+import { ApiError, DomNode } from "./dom-shim.mjs";
+
+// The shared shim is forgiving: it skips null and flattens arrays. A real browser does neither (`append(null)` adds
+// the text "null" and an array becomes "[object HTMLElement],..."), and a library page once shipped with exactly
+// that. Every Voice test therefore runs on a DOM that refuses what a browser would stringify.
+for (const method of ["append", "replaceChildren"]) {
+  const original = DomNode.prototype[method];
+  DomNode.prototype[method] = function strict(...nodes) {
+    for (const node of nodes) {
+      if (node === null || node === undefined || node === false || Array.isArray(node)) {
+        throw new TypeError(`${method}() was given ${Array.isArray(node) ? "an array" : String(node)}, which a real DOM would turn into text`);
+      }
+    }
+    return original.apply(this, nodes);
+  };
+}
 
 export const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 export const flush = async () => {

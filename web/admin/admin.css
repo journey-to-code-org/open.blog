@@ -3523,6 +3523,363 @@ a.oba-btn-primary {
   }
 }
 
+/* Voice sessions (ADR 0371). One column from 320px; the cards stack on a phone and sit side by side from
+   48rem. The rough box is at least 40% of the screen tall, every control is at least 44px, and nothing
+   depends on hover or on a color alone: the timer says its state in words and a shape. */
+ob-voice-session,
+ob-voice-library {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.oba-voice {
+  min-width: 0;
+}
+
+.oba-voice-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+}
+
+.oba-voice-fieldset {
+  min-width: 0;
+  margin: 0 0 1rem;
+  padding: 0;
+  border: 0;
+}
+
+.oba-voice-fieldset legend {
+  padding: 0;
+  margin-bottom: 0.5rem;
+  font-weight: 700;
+}
+
+.oba-voice-card,
+.oba-voice-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0.75rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+  cursor: pointer;
+}
+
+.oba-voice-card:has(input:checked),
+.oba-voice-choice:has(input:checked) {
+  border: 2px solid var(--ob-color-accent-border);
+  background: var(--ob-color-glow);
+}
+
+.oba-voice-card:has(input:focus-visible),
+.oba-voice-choice:has(input:focus-visible) {
+  outline: 3px solid var(--ob-color-accent);
+  outline-offset: 2px;
+}
+
+.oba-voice-card input,
+.oba-voice-choice input {
+  flex: 0 0 auto;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0.15rem 0 0;
+}
+
+.oba-voice-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.oba-voice-eyebrow {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ob-color-muted, inherit);
+}
+
+.oba-voice-card-title {
+  font-size: 1.05rem;
+}
+
+.oba-voice-rule {
+  font-style: italic;
+  overflow-wrap: anywhere;
+}
+
+.oba-voice-invitation {
+  max-width: 48rem;
+  overflow-wrap: anywhere;
+}
+
+.oba-voice-timer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+  margin: 0.5rem 0 1rem;
+  padding: 0.5rem 0.75rem;
+  border: 2px solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+}
+
+.oba-voice-clock {
+  font-size: 2rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.oba-voice-symbol {
+  font-size: 1.25rem;
+}
+
+.oba-voice-timer[data-state="warning"] {
+  border: 3px double var(--oba-danger);
+}
+
+.oba-voice-timer[data-state="locked"] {
+  border: 3px solid var(--ob-color-text);
+}
+
+.oba-voice-timer[data-state="warning"] .oba-voice-timer-state {
+  font-weight: 700;
+}
+
+.oba-voice-rough-input,
+.oba-voice-body {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  font: inherit;
+  line-height: 1.5;
+}
+
+.oba-voice-rough-input {
+  min-height: 40vh;
+}
+
+.oba-voice-body {
+  min-height: 40vh;
+}
+
+.oba-voice-rough-text {
+  box-sizing: border-box;
+  max-width: 100%;
+  max-height: 24rem;
+  overflow: auto;
+  margin: 0.5rem 0;
+  padding: 0.75rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface-raised);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.oba-voice-polished,
+.oba-voice-rough {
+  min-width: 0;
+  margin-top: 1.5rem;
+}
+
+.oba-voice-title {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+}
+
+.oba-voice-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  margin: 1rem calc(-1 * clamp(1rem, 2vw, 2rem)) 0;
+  padding: 0.5rem clamp(1rem, 2vw, 2rem) calc(0.5rem + env(safe-area-inset-bottom, 0px));
+  border-top: var(--ob-border-width) solid var(--oba-panel-border);
+  background: var(--ob-color-surface);
+  box-shadow: 0 -6px 16px rgb(0 0 0 / 0.08);
+}
+
+.oba-voice-actions .oba-btn {
+  flex: 1 1 7rem;
+  min-height: 44px;
+}
+
+.oba-voice-dirty,
+.oba-voice-savenote {
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 48rem) {
+  .oba-voice-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .oba-voice-actions .oba-btn {
+    flex: 0 0 auto;
+  }
+}
+
+/* The voice sample library (ADR 0373). Packs are groups; a row is a prompt with badges that say the stage in a
+   word and a shape. Everything wraps, and long titles never push the page sideways. */
+.oba-voice-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+}
+
+.oba-voice-group {
+  min-width: 0;
+  margin: 1.5rem 0;
+}
+
+.oba-voice-group h3 {
+  margin: 0 0 0.25rem;
+}
+
+.oba-voice-coverage {
+  margin: 0.25rem 0 0.5rem;
+  font-weight: 600;
+}
+
+.oba-voice-rows {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-voice-row {
+  min-width: 0;
+  padding: 0.75rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+  overflow-wrap: anywhere;
+}
+
+.oba-voice-row-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 0.75rem;
+}
+
+.oba-voice-row-meta {
+  margin: 0.25rem 0 0;
+}
+
+.oba-voice-badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.oba-voice-badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: 999px;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.oba-voice-badge-polished {
+  border-width: 2px;
+  font-weight: 700;
+}
+
+.oba-voice-group > .oba-btn {
+  min-height: 44px;
+}
+
+/* Voice accessibility (ADR 0374). The timer says its state in words and a shape; its warning state also
+   pulses a little, which is switched off for people who asked their system for less motion. */
+.oba-voice-timer,
+.oba-voice-card,
+.oba-voice-choice {
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+@keyframes oba-voice-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--oba-danger) 35%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .oba-voice-timer[data-state="warning"] {
+    animation: oba-voice-pulse 2s ease-in-out infinite;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .oba-voice *,
+  .oba-voice-bar .oba-btn {
+    transition: none;
+    animation: none;
+    scroll-behavior: auto;
+    transform: none;
+  }
+}
+
+/* The voice view on a phone (ADR 0375). The prompt cards stack, the rough box is at least 40% of the screen
+   tall, the action bar stays within reach and above the keyboard, the gutters are the page's own (16px or
+   more), and a long unbroken word wraps instead of pushing the page sideways. */
+.oba-voice,
+.oba-voice-stage,
+.oba-voice-bar {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.oba-voice p,
+.oba-voice li,
+.oba-voice label,
+.oba-voice h2,
+.oba-voice h3,
+.oba-voice strong {
+  overflow-wrap: anywhere;
+}
+
+.oba-voice-bar.oba-voice-bar-static {
+  position: static;
+  box-shadow: none;
+}
+
+@media (max-height: 30rem) {
+  .oba-voice-bar {
+    position: static;
+    box-shadow: none;
+  }
+}
+
+/* Fields keep clear of the bar when the browser scrolls them into view. */
+.oba-voice :is(input, select, textarea, button) {
+  scroll-margin-bottom: 8rem;
+}
+
+.oba-voice :is(input[type="text"], textarea) {
+  font-size: max(1rem, 16px);
+}
+
 /* Citations in the visual editor: atomic chips that keep their Markdown. */
 .oba-citation {
   display: inline;
@@ -5442,361 +5799,4 @@ a.oba-btn-primary {
 .oba-landing-help dd {
   margin-inline-start: 0;
   overflow-wrap: anywhere;
-}
-
-/* Voice sessions (ADR 0371). One column from 320px; the cards stack on a phone and sit side by side from
-   48rem. The rough box is at least 40% of the screen tall, every control is at least 44px, and nothing
-   depends on hover or on a color alone: the timer says its state in words and a shape. */
-ob-voice-session,
-ob-voice-library {
-  display: block;
-  min-width: 0;
-  max-width: 100%;
-}
-
-.oba-voice {
-  min-width: 0;
-}
-
-.oba-voice-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.75rem;
-}
-
-.oba-voice-fieldset {
-  min-width: 0;
-  margin: 0 0 1rem;
-  padding: 0;
-  border: 0;
-}
-
-.oba-voice-fieldset legend {
-  padding: 0;
-  margin-bottom: 0.5rem;
-  font-weight: 700;
-}
-
-.oba-voice-card,
-.oba-voice-choice {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
-  min-width: 0;
-  min-height: 44px;
-  padding: 0.75rem;
-  border: var(--ob-border-width) solid var(--oba-panel-border);
-  border-radius: var(--ob-radius);
-  background: var(--ob-color-surface);
-  cursor: pointer;
-}
-
-.oba-voice-card:has(input:checked),
-.oba-voice-choice:has(input:checked) {
-  border: 2px solid var(--ob-color-accent-border);
-  background: var(--ob-color-glow);
-}
-
-.oba-voice-card:has(input:focus-visible),
-.oba-voice-choice:has(input:focus-visible) {
-  outline: 3px solid var(--ob-color-accent);
-  outline-offset: 2px;
-}
-
-.oba-voice-card input,
-.oba-voice-choice input {
-  flex: 0 0 auto;
-  width: 1.25rem;
-  height: 1.25rem;
-  margin: 0.15rem 0 0;
-}
-
-.oba-voice-card-text {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.oba-voice-eyebrow {
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--ob-color-muted, inherit);
-}
-
-.oba-voice-card-title {
-  font-size: 1.05rem;
-}
-
-.oba-voice-rule {
-  font-style: italic;
-  overflow-wrap: anywhere;
-}
-
-.oba-voice-invitation {
-  max-width: 48rem;
-  overflow-wrap: anywhere;
-}
-
-.oba-voice-timer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.25rem 0.75rem;
-  margin: 0.5rem 0 1rem;
-  padding: 0.5rem 0.75rem;
-  border: 2px solid var(--oba-panel-border);
-  border-radius: var(--ob-radius);
-  background: var(--ob-color-surface);
-}
-
-.oba-voice-clock {
-  font-size: 2rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.1;
-}
-
-.oba-voice-symbol {
-  font-size: 1.25rem;
-}
-
-.oba-voice-timer[data-state="warning"] {
-  border: 3px double var(--oba-danger);
-}
-
-.oba-voice-timer[data-state="locked"] {
-  border: 3px solid var(--ob-color-text);
-}
-
-.oba-voice-timer[data-state="warning"] .oba-voice-timer-state {
-  font-weight: 700;
-}
-
-.oba-voice-rough-input,
-.oba-voice-body {
-  display: block;
-  box-sizing: border-box;
-  width: 100%;
-  max-width: 100%;
-  font: inherit;
-  line-height: 1.5;
-}
-
-.oba-voice-rough-input {
-  min-height: 40vh;
-}
-
-.oba-voice-body {
-  min-height: 40vh;
-}
-
-.oba-voice-rough-text {
-  box-sizing: border-box;
-  max-width: 100%;
-  max-height: 24rem;
-  overflow: auto;
-  margin: 0.5rem 0;
-  padding: 0.75rem;
-  border: var(--ob-border-width) solid var(--oba-panel-border);
-  border-radius: var(--ob-radius);
-  background: var(--ob-color-surface-raised);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.oba-voice-polished,
-.oba-voice-rough {
-  min-width: 0;
-  margin-top: 1.5rem;
-}
-
-.oba-voice-title {
-  box-sizing: border-box;
-  width: 100%;
-  max-width: 100%;
-}
-
-.oba-voice-bar {
-  position: sticky;
-  bottom: 0;
-  z-index: 5;
-  margin: 1rem calc(-1 * clamp(1rem, 2vw, 2rem)) 0;
-  padding: 0.5rem clamp(1rem, 2vw, 2rem) calc(0.5rem + env(safe-area-inset-bottom, 0px));
-  border-top: var(--ob-border-width) solid var(--oba-panel-border);
-  background: var(--ob-color-surface);
-  box-shadow: 0 -6px 16px rgb(0 0 0 / 0.08);
-}
-
-.oba-voice-actions .oba-btn {
-  flex: 1 1 7rem;
-  min-height: 44px;
-}
-
-.oba-voice-dirty,
-.oba-voice-savenote {
-  overflow-wrap: anywhere;
-}
-
-@media (min-width: 48rem) {
-  .oba-voice-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .oba-voice-actions .oba-btn {
-    flex: 0 0 auto;
-  }
-}
-
-/* The voice sample library (ADR 0373). Packs are groups; a row is a prompt with badges that say the stage in a
-   word and a shape. Everything wraps, and long titles never push the page sideways. */
-.oba-voice-nav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin: 0 0 1rem;
-}
-
-.oba-voice-group {
-  min-width: 0;
-  margin: 1.5rem 0;
-}
-
-.oba-voice-group h3 {
-  margin: 0 0 0.25rem;
-}
-
-.oba-voice-coverage {
-  margin: 0.25rem 0 0.5rem;
-  font-weight: 600;
-}
-
-.oba-voice-rows {
-  display: grid;
-  gap: 0.5rem;
-  margin: 0 0 0.75rem;
-  padding: 0;
-  list-style: none;
-}
-
-.oba-voice-row {
-  min-width: 0;
-  padding: 0.75rem;
-  border: var(--ob-border-width) solid var(--oba-panel-border);
-  border-radius: var(--ob-radius);
-  background: var(--ob-color-surface);
-  overflow-wrap: anywhere;
-}
-
-.oba-voice-row-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.25rem 0.75rem;
-}
-
-.oba-voice-row-meta {
-  margin: 0.25rem 0 0;
-}
-
-.oba-voice-badges {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-}
-
-.oba-voice-badge {
-  display: inline-block;
-  padding: 0.1rem 0.5rem;
-  border: 1px solid var(--ob-color-border);
-  border-radius: 999px;
-  font-size: 0.85rem;
-  white-space: nowrap;
-}
-
-.oba-voice-badge-polished {
-  border-width: 2px;
-  font-weight: 700;
-}
-
-.oba-voice-group > .oba-btn {
-  min-height: 44px;
-}
-
-/* Voice accessibility (ADR 0374). The timer says its state in words and a shape; its warning state also
-   pulses a little, which is switched off for people who asked their system for less motion. */
-.oba-voice-timer,
-.oba-voice-card,
-.oba-voice-choice {
-  transition: border-color 0.2s ease, background-color 0.2s ease;
-}
-
-@keyframes oba-voice-pulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 transparent;
-  }
-
-  50% {
-    box-shadow: 0 0 0 4px color-mix(in srgb, var(--oba-danger) 35%, transparent);
-  }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .oba-voice-timer[data-state="warning"] {
-    animation: oba-voice-pulse 2s ease-in-out infinite;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .oba-voice *,
-  .oba-voice-bar .oba-btn {
-    transition: none;
-    animation: none;
-    scroll-behavior: auto;
-    transform: none;
-  }
-}
-
-/* The voice view on a phone (ADR 0375). The prompt cards stack, the rough box is at least 40% of the screen
-   tall, the action bar stays within reach and above the keyboard, the gutters are the page's own (16px or
-   more), and a long unbroken word wraps instead of pushing the page sideways. */
-.oba-voice,
-.oba-voice-stage,
-.oba-voice-bar {
-  min-width: 0;
-  max-width: 100%;
-}
-
-.oba-voice p,
-.oba-voice li,
-.oba-voice label,
-.oba-voice h2,
-.oba-voice h3,
-.oba-voice strong {
-  overflow-wrap: anywhere;
-}
-
-.oba-voice-bar.oba-voice-bar-static {
-  position: static;
-  box-shadow: none;
-}
-
-@media (max-height: 30rem) {
-  .oba-voice-bar {
-    position: static;
-    box-shadow: none;
-  }
-}
-
-/* Fields keep clear of the bar when the browser scrolls them into view. */
-.oba-voice :is(input, select, textarea, button) {
-  scroll-margin-bottom: 8rem;
-}
-
-.oba-voice :is(input[type="text"], textarea) {
-  font-size: max(1rem, 16px);
 }

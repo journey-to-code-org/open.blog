@@ -6,7 +6,7 @@
 // save was in flight.
 
 import { el } from "./block-forms.js";
-import { VOICE_LIMITS, byteLength, createPolishedDraftStore, polishedDirty, voiceErrorText, wordCount, wordsText } from "./voice.js";
+import { PORTABLE_NOTE, PRIVATE_NOTE, ROUGH_NOTE, VOICE_LIMITS, byteLength, createPolishedDraftStore, polishedDirty, voiceErrorText, wordCount, wordsText } from "./voice.js";
 
 let uid = 0;
 
@@ -40,6 +40,58 @@ export function keepBarReachable(bar, isCurrent) {
   viewport?.addEventListener("scroll", lift);
   settle();
   return settle;
+}
+
+/**
+ * A locked rough draft, shown and never edited (ADR 0266, ADR 0371): the words in a labelled region that is a plain
+ * `div` (nothing to type into, nothing for an extension to attach to), the sentence that says why, where it is kept
+ * and a button that moves the pair to the other folder. `sample` is the rough sample as the server describes it
+ * (`id`, `body`, `words`, `visibility`). Returns `{ element, status }`.
+ */
+export function buildRoughView({ api, sample }) {
+  const id = `oba-voice-rough-${++uid}`;
+  const where = el("p", { class: "oba-small", "data-voice-where": "true" });
+  const paintWhere = () => {
+    where.textContent = `${wordsText(sample.words)}. ${sample.visibility === "portable" ? PORTABLE_NOTE : PRIVATE_NOTE}`;
+  };
+  paintWhere();
+  const status = el("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-voice-move-status": "true" });
+  const label = () => (sample.visibility === "portable" ? "Make private" : "Make portable");
+  const move = el(
+    "button",
+    {
+      class: "oba-btn",
+      type: "button",
+      "data-action": "voice-move",
+      onClick: async () => {
+        const to = sample.visibility === "portable" ? "private" : "portable";
+        move.disabled = true;
+        try {
+          const reply = await api.call("POST", `voice/samples/${sample.id}/visibility`, { json: { visibility: to } });
+          sample.visibility = reply.visibility;
+          paintWhere();
+          move.textContent = label();
+          status.textContent = `Moved to ${sample.visibility}. The rough draft was copied byte for byte.`;
+        } catch (error) {
+          status.textContent = voiceErrorText(error);
+        } finally {
+          move.disabled = false;
+        }
+      },
+    },
+    label(),
+  );
+  const element = el(
+    "section",
+    { class: "oba-voice-rough", "aria-labelledby": `${id}-title`, "data-voice-rough-view": "true" },
+    el("h3", { id: `${id}-title` }, "Rough draft"),
+    el("p", { class: "oba-small", "data-voice-rough-note": "true" }, ROUGH_NOTE),
+    el("div", { class: "oba-voice-rough-text", tabindex: "0", role: "region", "aria-label": "Your rough draft, locked and read only", "data-voice-rough-text": "true" }, sample.body),
+    where,
+    el("div", { class: "oba-landing-actions" }, move),
+    status,
+  );
+  return { element, status };
 }
 
 /**

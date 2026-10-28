@@ -5,7 +5,8 @@
 // first inside a pack, so the same files always give the same page.
 
 import { el } from "./block-forms.js";
-import { EMPTY_LIBRARY_TEXT, STAGE_BADGES, dateText, groupLibrary, visibilityText, voiceErrorText, voiceHash, wordsText } from "./voice.js";
+import { buildRoughView, createPolishedEditor, keepBarReachable } from "./voice-polished.js";
+import { EMPTY_LIBRARY_TEXT, STAGE_BADGES, dateText, groupLibrary, libraryHash, visibilityText, voiceErrorText, voiceHash, wordsText } from "./voice.js";
 
 let uid = 0;
 
@@ -24,6 +25,19 @@ function rowNode(row) {
       el("span", { class: "oba-voice-badges" }, row.badges.map((stage) => badge(stage))),
     ),
     el("p", { class: "oba-small oba-voice-row-meta", "data-voice-meta": "true" }, meta),
+    // A rough draft is read; a polished one is edited; a rough draft with no polished copy offers to make one.
+    el(
+      "div",
+      { class: "oba-landing-actions oba-voice-row-actions" },
+      row.rough
+        ? el("a", { class: "oba-btn", href: libraryHash(row.rough.id), "data-action": "voice-open-rough", "aria-label": `Read the rough draft: ${row.title}` }, "Read rough draft")
+        : null,
+      row.polished
+        ? el("a", { class: "oba-btn", href: libraryHash(row.polished.id), "data-action": "voice-open-polished", "aria-label": `Edit the polished draft: ${row.title}` }, "Edit polished draft")
+        : row.rough
+          ? el("a", { class: "oba-btn", href: libraryHash(row.rough.id), "data-action": "voice-polish", "aria-label": `Polish a copy of: ${row.title}` }, "Polish this")
+          : null,
+    ),
   );
 }
 
@@ -95,12 +109,17 @@ export function buildVoiceInvitation({ onDismiss, onGone = () => {} }) {
 }
 
 /** Returns `{ element, load, isDirty, isBusy, destroy }`. */
-export function createVoiceLibrary({ api }) {
+export function createVoiceLibrary({ api, user = "", storage, clock, onDirty = () => {} }) {
   const root = el("ob-voice-library", { class: "oba-voice oba-voice-library", "data-voice-library": "true" });
   const ids = `oba-voice-lib-${++uid}`;
   let generation = 0;
+  let editor = null;
+  const timers = clock ? { setTimer: clock.setTimeout, clearTimer: clock.clearTimeout } : {};
 
-  async function load() {
+  /** Open the list, or one sample when `openId` is given. */
+  async function load(openId = "") {
+    if (openId) return open(openId);
+    editor = null;
     const mine = ++generation;
     root.replaceChildren(el("p", { class: "oba-small", role: "status", "data-voice-loading": "true" }, "Loading your samples…"));
     let data;
@@ -136,7 +155,7 @@ export function createVoiceLibrary({ api }) {
     }
     const sampled = library.groups.reduce((n, g) => n + g.rows.length, 0) + (library.other?.rows.length || 0);
     const polished = [...library.groups, library.other].filter(Boolean).reduce((n, g) => n + g.rows.filter((r) => r.polished).length, 0);
-    root.replaceChildren(
+    const parts = [
       el("h2", { id: `${ids}-title`, tabindex: "-1", "data-voice-heading": "true" }, "Your voice samples"),
       el("p", { class: "oba-voice-summary", "data-voice-summary": "true" }, `${sampled} ${sampled === 1 ? "prompt" : "prompts"} written, ${polished} polished. Rough drafts stay as you wrote them; polished drafts are yours to edit.`),
       el("div", { class: "oba-landing-actions" }, el("a", { class: "oba-btn oba-btn-primary", href: voiceHash(), "data-action": "voice-start-session" }, "Start a session")),
@@ -162,14 +181,79 @@ export function createVoiceLibrary({ api }) {
             ),
           )
         : null,
+    ];
+    // A real DOM turns null and arrays into text, so only nodes are passed on.
+    root.replaceChildren(...parts.flat().filter(Boolean));
+  }
+
+  // ----- one sample
+  const back = () => el("p", {}, el("a", { href: libraryHash(), "data-action": "voice-back" }, "Back to your samples"));
+
+  async function open(id) {
+    const mine = ++generation;
+    editor = null;
+    root.replaceChildren(el("p", { class: "oba-small", role: "status", "data-voice-loading": "true" }, "Opening…"));
+    try {
+      const sample = await api.call("GET", `voice/samples/${id}`);
+      if (mine !== generation) return;
+      if (!sample.valid) return showInvalid(sample);
+      // Either stage opens with both drafts: the rough one to read and the polished one to edit.
+      const partner = sample.partner ? await api.call("GET", `voice/samples/${sample.partner.id}`) : null;
+      if (mine !== generation) return;
+      const rough = sample.stage === "rough" ? sample : partner;
+      const polished = sample.stage === "polished" ? sample : partner;
+      if (!rough || !rough.valid || rough.stage !== "rough") return showInvalid({ ...sample, guidance: "Its rough draft is missing, so it cannot be opened. Put the rough draft back, or erase this polished draft." });
+      showSample(sample, rough, polished?.valid ? polished : null, mine);
+    } catch (error) {
+      if (mine !== generation) return;
+      root.replaceChildren(
+        back(),
+        el("h2", { tabindex: "-1", "data-voice-heading": "true" }, "Sample"),
+        el("p", { class: "oba-error", role: "alert", "data-voice-error": "true" }, error?.status === 404 ? "There is no such voice sample. It may have been moved or erased." : voiceErrorText(error)),
+      );
+    }
+  }
+
+  function showInvalid(sample) {
+    root.replaceChildren(
+      back(),
+      el("h2", { tabindex: "-1", "data-voice-heading": "true" }, "This file cannot be opened"),
+      el("p", { class: "oba-error", role: "alert", "data-voice-invalid-file": "true" }, sample.guidance || "This file cannot be used as a voice sample."),
+      el("p", { class: "oba-small" }, `${sample.file}. Nothing was changed.`),
     );
+  }
+
+  function showSample(sample, rough, polished, mine) {
+    const heading = el("h2", { id: `${ids}-open`, tabindex: "-1", "data-voice-heading": "true" }, rough.promptTitle || rough.title);
+    const roughView = buildRoughView({ api, sample: rough });
+    editor = createPolishedEditor({
+      api,
+      user,
+      storage,
+      ...timers,
+      rough: { file: rough.file, title: rough.title, body: rough.body },
+      polished,
+      onChange: (dirty) => onDirty(dirty),
+    });
+    root.replaceChildren(
+      back(),
+      heading,
+      el("p", { class: "oba-small", "data-voice-open-meta": "true" }, `${polished ? "Rough and polished drafts" : "Rough draft only"}. ${dateText(rough.date)}`.trim()),
+      roughView.element,
+      el("h3", { class: "oba-voice-polish-heading", "data-voice-polish-heading": "true" }, polished ? "Edit your polished draft" : "Polish a copy"),
+      editor.element,
+    );
+    keepBarReachable(editor.bar(), () => mine === generation);
+    // The stage names where the author goes next: a polished draft to its editor, a rough one to its heading.
+    if (sample.stage === "polished") editor.focus();
+    else heading.focus();
   }
 
   return {
     element: root,
     load,
-    isDirty: () => false,
-    isBusy: () => false,
+    isDirty: () => Boolean(editor?.isDirty()),
+    isBusy: () => Boolean(editor?.isBusy()),
     destroy() {
       generation += 1;
     },

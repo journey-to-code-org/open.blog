@@ -136,6 +136,12 @@ const preferenceFiles = () => {
   return existsSync(folder) ? readdirSync(folder).map((name) => join(folder, name)) : [];
 };
 const invitation = (page) => page.locator("[data-voice-invitation]");
+/** Reload the Admin home and wait until it has asked whether to invite, so "no card" is a real answer. */
+async function reloadHome(page) {
+  await Promise.all([page.waitForResponse((reply) => reply.url().includes("/admin/api/voice/status")), page.reload()]);
+  await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
+  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+}
 
 test("the invitation shows once on the Admin home, Start opens Voice, and Dismiss is remembered", async ({ page }) => {
   await clean(page);
@@ -147,11 +153,10 @@ test("the invitation shows once on the Admin home, Start opens Voice, and Dismis
   const drawn = await api(page, "POST", "voice/draw", {});
   const open = await api(page, "POST", "voice/session/start", { promptId: drawn.body.prompts[0].id });
   expect(open.status).toBe(201);
-  await page.reload();
-  await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
+  await reloadHome(page);
   await expect(invitation(page)).toHaveCount(0);
   await api(page, "DELETE", "voice/session", {});
-  await page.reload();
+  await reloadHome(page);
   await expect(invitation(page)).toBeVisible();
   // Start opens the Voice view.
   await invitation(page).getByRole("link", { name: /voice session/i }).click();
@@ -163,8 +168,7 @@ test("the invitation shows once on the Admin home, Start opens Voice, and Dismis
   await invitation(page).getByRole("button", { name: "Dismiss this invitation" }).click();
   await expect(invitation(page)).toHaveCount(0);
   await expect.poll(() => preferenceFiles().some((file) => readFileSync(file, "utf8").includes('"voiceInvitationDismissed": true') || readFileSync(file, "utf8").includes('"voiceInvitationDismissed":true'))).toBe(true);
-  await page.reload();
-  await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
+  await reloadHome(page);
   await expect(invitation(page)).toHaveCount(0);
   await page.screenshot({ path: join(shots, "overview-dismissed.png") });
 });
@@ -339,11 +343,65 @@ test("the clock runs out in real time: the last thirty seconds warn in words and
   expect(late.status).toBe(409);
 });
 
+test("the library lists what was written, opens a rough draft read-only and a polished one for editing, and fits a phone", async ({ page }) => {
+  await clean(page);
+  await page.setViewportSize({ width: 400, height: 800 });
+  await page.goto(`${origin}/admin/#/voice/library`);
+  await expect(page.getByRole("heading", { level: 2, name: "Your voice samples" })).toBeVisible();
+  const rows = page.locator("li.oba-voice-row[data-prompt]");
+  await expect(rows.first()).toBeVisible();
+  expect(await rows.count()).toBeGreaterThan(0);
+  await expect(page.locator("[data-voice-summary]")).toContainText("prompts written");
+  const LONG = "an_extraordinarily_long_unbroken_word_that_must_wrap_instead_of_overflowing_a_small_screen_at_all_even_at_320";
+  let overflow = await sideways(page, "ob-voice-library");
+  expect(overflow.region, overflow.culprit).toBeLessThanOrEqual(TOLERANCE);
+  expect(overflow.widest, overflow.culprit).toBeLessThanOrEqual(TOLERANCE);
+  expect(overflow.page).toBeLessThanOrEqual(TOLERANCE);
+  await page.screenshot({ path: join(shots, "library-400.png"), fullPage: true });
+
+  // A row with both drafts: read the rough one, then edit the polished one.
+  const both = page.locator("li.oba-voice-row:has([data-stage=\"polished\"])").first();
+  await expect(both).toBeVisible();
+  await both.getByRole("link", { name: /^Read the rough draft/ }).click();
+  await expect(page.locator("[data-voice-rough-view]")).toBeVisible();
+  expect(await page.locator("[data-voice-rough-view]").locator("input, textarea, [contenteditable]").count()).toBe(0);
+  await expect(page.locator("[data-voice-rough-note]")).toContainText("exactly as you wrote it");
+  await expect(page.locator("[data-voice-polish-heading]")).toHaveText("Edit your polished draft");
+  const roughBefore = voiceFiles().filter((file) => file.endsWith("-rough.md")).map((file) => [file, readFileSync(file, "utf8")]);
+  overflow = await sideways(page, "ob-voice-library");
+  expect(overflow.region, overflow.culprit).toBeLessThanOrEqual(TOLERANCE);
+  expect(overflow.page).toBeLessThanOrEqual(TOLERANCE);
+  await page.screenshot({ path: join(shots, "open-rough-400.png"), fullPage: true });
+  const body = page.locator("[data-voice-polished-body]");
+  await body.fill(`The polished draft, edited again from the library. ${LONG}`);
+  await page.getByRole("button", { name: "Save polished draft" }).click();
+  await expect(page.locator("[data-voice-polished-status]")).toContainText("Saved.");
+  overflow = await sideways(page, "ob-voice-library");
+  expect(overflow.region, overflow.culprit).toBeLessThanOrEqual(TOLERANCE);
+  expect(overflow.page).toBeLessThanOrEqual(TOLERANCE);
+  const openedId = decodeURIComponent(page.url().split("/voice/library/")[1]);
+  const polishedFile = voiceFiles().find((file) => file.endsWith(`${openedId.replace(/-rough$/, "-polished")}.md`));
+  expect(polishedFile).toBeTruthy();
+  expect(readFileSync(polishedFile, "utf8")).toContain("edited again from the library");
+  for (const [file, before] of roughBefore) expect(readFileSync(file, "utf8")).toBe(before);
+  // Leaving after the save asks nothing; leaving with a new edit asks first.
+  await body.fill("one more edit that is not saved");
+  const asked = [];
+  page.removeAllListeners("dialog");
+  page.on("dialog", async (dialog) => {
+    asked.push(dialog.message());
+    await dialog.dismiss();
+  });
+  await page.evaluate(() => { location.hash = "#/voice/library"; });
+  await expect.poll(() => asked.length).toBe(1);
+  await expect(body).toHaveValue("one more edit that is not saved");
+});
+
 test("the invitation never shows when samples exist, even for an admin who has not dismissed it", async ({ page }) => {
   expect(voiceFiles().length).toBeGreaterThan(0);
   for (const file of preferenceFiles()) rmSync(file, { force: true });
   await signIn(page, "#/overview");
-  await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
   await expect(page.locator("[data-action=\"logout\"]")).toBeVisible();
+  await reloadHome(page);
   await expect(invitation(page)).toHaveCount(0);
 });

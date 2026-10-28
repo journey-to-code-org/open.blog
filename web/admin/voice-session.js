@@ -5,11 +5,8 @@
 // edited. Every rule about time and files lives on the server; this file displays it and asks.
 
 import { el } from "./block-forms.js";
-import { createPolishedEditor, keepBarReachable } from "./voice-polished.js";
+import { buildRoughView, createPolishedEditor, keepBarReachable } from "./voice-polished.js";
 import {
-  PORTABLE_NOTE,
-  PRIVATE_NOTE,
-  ROUGH_NOTE,
   VOICE_LIMITS,
   createAnnouncer,
   createCountdown,
@@ -79,7 +76,8 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
   const render = (...nodes) => {
     stopTicking();
     stopTicking = () => {};
-    stage.replaceChildren(...nodes);
+    // A real DOM turns null and arrays into text, so only nodes are passed on.
+    stage.replaceChildren(...nodes.flat().filter((node) => node !== null && node !== undefined && node !== false));
   };
   const heading = (text, id) => el("h2", { id, tabindex: "-1", "data-voice-heading": "true" }, text);
   const errorBox = (text) => el("p", { class: "oba-error", role: "alert", "data-voice-error": "true" }, text);
@@ -522,28 +520,7 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
   function showRefine(sample, { expired = false, resumed = false } = {}) {
     const mine = ++generation;
     finishing = false;
-    const roughId = `${base}-locked`;
-    const where = el("p", { class: "oba-small", "data-voice-where": "true" });
-    const paintWhere = () => {
-      where.textContent = `${wordsText(sample.words)}. ${sample.visibility === "portable" ? PORTABLE_NOTE : PRIVATE_NOTE}`;
-    };
-    paintWhere();
-    const moveStatus = el("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-voice-move-status": "true" });
-    const moveButton = el("button", { class: "oba-btn", type: "button", "data-action": "voice-move", onClick: async () => {
-      const to = sample.visibility === "portable" ? "private" : "portable";
-      moveButton.disabled = true;
-      try {
-        const reply = await api.call("POST", `voice/samples/${sample.id}/visibility`, { json: { visibility: to } });
-        sample.visibility = reply.visibility;
-        paintWhere();
-        moveButton.textContent = sample.visibility === "portable" ? "Make private" : "Make portable";
-        moveStatus.textContent = `Moved to ${sample.visibility}. The rough draft was copied byte for byte.`;
-      } catch (error) {
-        moveStatus.textContent = voiceErrorText(error);
-      } finally {
-        moveButton.disabled = false;
-      }
-    } }, sample.visibility === "portable" ? "Make private" : "Make portable");
+    const roughView = buildRoughView({ api, sample });
     editor = createPolishedEditor({
       api,
       user,
@@ -561,23 +538,14 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
         expired || resumed ? "The time ran out, so your rough draft was locked from what was saved. " : "",
         "It is saved exactly as you wrote it.",
       ),
-      el(
-        "section",
-        { class: "oba-voice-rough", "aria-labelledby": `${roughId}-title`, "data-voice-rough-view": "true" },
-        el("h3", { id: `${roughId}-title` }, "Rough draft"),
-        el("p", { class: "oba-small" }, ROUGH_NOTE),
-        el("div", { class: "oba-voice-rough-text", tabindex: "0", role: "region", "aria-label": "Your rough draft, locked and read only", "data-voice-rough-text": "true" }, sample.body),
-        where,
-        el("div", { class: "oba-landing-actions" }, moveButton),
-        moveStatus,
-      ),
+      roughView.element,
       editor.element,
       el(
         "div",
         { class: "oba-landing-actions oba-voice-after" },
         el("button", { class: "oba-btn", type: "button", "data-action": "voice-another", onClick: () => {
           if (editor?.isDirty()) {
-            moveStatus.textContent = "Your polished draft has unsaved changes. Save it first, then start another session.";
+            roughView.status.textContent = "Your polished draft has unsaved changes. Save it first, then start another session.";
             return;
           }
           editor = null;
