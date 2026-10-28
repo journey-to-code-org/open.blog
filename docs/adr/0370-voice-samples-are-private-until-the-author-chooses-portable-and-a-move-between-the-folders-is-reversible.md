@@ -26,7 +26,9 @@ default to the private folder. This record states the policy in one place and na
   (`init_creates_no_voice_files_and_a_build_is_identical_with_and_without_samples`,
   `a_portable_export_never_carries_a_voice_sample`); and
   `a_move_is_reversible_and_a_sample_is_only_staged_while_it_is_portable` shows a sample is staged only while it
-  is portable and not after it is moved back.
+  is portable and not after it is moved back: `git ls-files` no longer lists it once a publish has followed.
+  Git history still keeps any earlier commit that carried the sample while it was portable; moving it back
+  stops it being tracked from then on and does not rewrite the past.
 - **The guide follows the same rule.** The voice guide is private by default (ADR 0371 lists where it lives).
 
 ## Consequences

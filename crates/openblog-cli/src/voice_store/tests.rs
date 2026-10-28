@@ -950,9 +950,17 @@ fn a_move_is_reversible_and_a_sample_is_only_staged_while_it_is_portable() {
     let first = crate::publish::publish(dir, &config, Some("Private")).unwrap();
     assert!(first.committed.iter().all(|path| !path.contains("voice")));
     let built = build_into(dir, &dir.join("target-out/a"));
+    // Positive control: the build produced real pages, so "no marker" below says something.
+    assert!(
+        built.keys().any(|path| path.ends_with("index.html")),
+        "{:?}",
+        built.keys().collect::<Vec<_>>()
+    );
     assert!(built
         .values()
         .all(|bytes| !String::from_utf8_lossy(bytes).contains("round trip words")));
+    let tracked = |pathspec: &str| git.run(&["ls-files", "--", pathspec]).unwrap();
+    assert!(!tracked("assistant").contains("voice"));
 
     // Made portable on purpose: now both files are staged.
     move_visibility(dir, Visibility::Private, ROUGH, Visibility::Portable).unwrap();
@@ -967,17 +975,35 @@ fn a_move_is_reversible_and_a_sample_is_only_staged_while_it_is_portable() {
         );
     }
 
-    // Moved back: the same bytes are in the same place, and nothing private is staged.
+    // Positive control: while portable, git does track both files.
+    let tracked_now = tracked("assistant");
+    for name in [ROUGH, POLISHED] {
+        assert!(tracked_now.contains(name), "{tracked_now}");
+    }
+
+    // Moved back: the same bytes are in the same place, and nothing private is staged. Git
+    // history keeps the commit that carried the sample while it was portable; moving it back
+    // stops it being tracked from now on, it does not rewrite the past.
     move_visibility(dir, Visibility::Portable, ROUGH, Visibility::Private).unwrap();
     assert_eq!(voice_files(&snapshot(dir)), before);
     assert!(!dir.join("assistant/context/voice").join(ROUGH).exists());
-    if let Ok(out) = crate::publish::publish(dir, &config, Some("Private again")) {
-        assert!(out
+    let third = crate::publish::publish(dir, &config, Some("Private again")).unwrap();
+    assert!(
+        third
             .committed
             .iter()
-            .all(|path| !path.starts_with(".openblog/")));
-    }
+            .all(|path| !path.starts_with(".openblog/")),
+        "{:?}",
+        third.committed
+    );
+    let tracked_after = git.run(&["ls-files"]).unwrap();
+    assert!(!tracked_after.contains(ROUGH), "{tracked_after}");
+    assert!(!tracked_after.contains(POLISHED), "{tracked_after}");
+    // Positive control, and the honest limit: earlier commits still carry the file.
+    let history = git.run(&["log", "--all", "--name-only"]).unwrap();
+    assert!(history.contains(ROUGH), "{history}");
     let rebuilt = build_into(dir, &dir.join("target-out/b"));
+    assert!(rebuilt.keys().any(|path| path.ends_with("index.html")));
     assert!(rebuilt
         .values()
         .all(|bytes| !String::from_utf8_lossy(bytes).contains("round trip words")));
