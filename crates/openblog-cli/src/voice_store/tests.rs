@@ -672,6 +672,69 @@ fn publishing_never_stages_a_private_voice_sample() {
     assert!(error.contains("private assistant"), "{error}");
 }
 
+#[test]
+fn a_move_is_reversible_and_a_sample_is_only_staged_while_it_is_portable() {
+    use crate::git::Git;
+    let project = Project::new();
+    let dir = &project.0;
+    crate::scaffold::init(dir, Some("P"), false).unwrap();
+    let git = Git::new(dir);
+    git.init().unwrap();
+    git.run(&["config", "user.email", "t@example.com"]).unwrap();
+    git.run(&["config", "user.name", "T"]).unwrap();
+    git.run(&["config", "commit.gpgsign", "false"]).unwrap();
+    fs::write(dir.join(".gitignore"), "/dist\n").unwrap();
+    project.open_session("a-mistake-i-made");
+    write_rough(dir, Visibility::Private, &rough("round trip words")).unwrap();
+    write_polished(dir, Visibility::Private, &polished("Clean."), None).unwrap();
+    let mut config = site::load_config(dir).unwrap();
+    config.publish.paths = vec!["assistant".into(), ".openblog".into()];
+    let voice_files = |tree: &BTreeMap<String, Vec<u8>>| -> BTreeMap<String, Vec<u8>> {
+        tree.iter()
+            .filter(|(path, _)| path.contains("context/voice/"))
+            .map(|(path, bytes)| (path.clone(), bytes.clone()))
+            .collect()
+    };
+    let before = voice_files(&snapshot(dir));
+    assert_eq!(before.len(), 2);
+
+    // Private: a publish commits no voice file, and the built site carries none.
+    let first = crate::publish::publish(dir, &config, Some("Private")).unwrap();
+    assert!(first.committed.iter().all(|path| !path.contains("voice")));
+    let built = build_into(dir, &dir.join("target-out/a"));
+    assert!(built
+        .values()
+        .all(|bytes| !String::from_utf8_lossy(bytes).contains("round trip words")));
+
+    // Made portable on purpose: now both files are staged.
+    move_visibility(dir, Visibility::Private, ROUGH, Visibility::Portable).unwrap();
+    let second = crate::publish::publish(dir, &config, Some("Portable")).unwrap();
+    for name in [ROUGH, POLISHED] {
+        assert!(
+            second
+                .committed
+                .contains(&format!("assistant/context/voice/{name}")),
+            "{:?}",
+            second.committed
+        );
+    }
+
+    // Moved back: the same bytes are in the same place, and nothing private is staged.
+    move_visibility(dir, Visibility::Portable, ROUGH, Visibility::Private).unwrap();
+    assert_eq!(voice_files(&snapshot(dir)), before);
+    assert!(!dir.join("assistant/context/voice").join(ROUGH).exists());
+    if let Ok(out) = crate::publish::publish(dir, &config, Some("Private again")) {
+        assert!(out
+            .committed
+            .iter()
+            .all(|path| !path.starts_with(".openblog/")));
+    }
+    let rebuilt = build_into(dir, &dir.join("target-out/b"));
+    assert!(rebuilt
+        .values()
+        .all(|bytes| !String::from_utf8_lossy(bytes).contains("round trip words")));
+}
+
 const PRIVATE_DIR: &str = ".openblog/private/context/voice";
 
 #[test]
