@@ -16,12 +16,13 @@
 
 use crate::escape::{attr, text};
 use crate::landing::{
-    render_inert_markdown, safe_address, Button, ButtonStyle, Callout, Contact, Faq, FeaturedPost,
-    ImageSection, LandingPage, LatestPosts, MapSection, OpeningHours, Picture, RichText, Section,
-    SectionKind, SeriesSection, SocialLinks, Video, Welcome,
+    render_inert_markdown, Callout, Contact, Faq, FeaturedPost, ImageSection, LandingPage,
+    LatestPosts, MapSection, OpeningHours, RichText, Section, SectionKind, SeriesSection,
+    SocialLinks, Video, Welcome,
 };
 use crate::theme::Theme;
 
+use super::piece::{self, Mode};
 use super::Renderer;
 
 /// What a section needs from the page while it renders.
@@ -136,7 +137,7 @@ impl Renderer<'_> {
             SectionKind::Series(v) => self.landing_series(cx, section, v),
             SectionKind::FeaturedPost(v) => self.landing_featured(cx, section, v),
             SectionKind::Buttons(v) => {
-                let actions = actions(&v.items);
+                let actions = piece::buttons(&v.items);
                 if actions.is_empty() {
                     String::new()
                 } else {
@@ -163,10 +164,10 @@ impl Renderer<'_> {
             ));
         }
         if let Some(image) = &v.image {
-            inner.push_str(&picture_tag(image, false));
+            inner.push_str(&piece::picture_tag(&image.src, &image.alt, false));
         }
         if let Some(button) = &v.button {
-            inner.push_str(&actions(std::slice::from_ref(button)));
+            inner.push_str(&piece::buttons(std::slice::from_ref(button)));
         }
         self.landing_wrap(section, true, &inner, "")
     }
@@ -237,197 +238,44 @@ impl Renderer<'_> {
     }
 
     fn landing_image(&self, section: &Section, v: &ImageSection) -> String {
-        let picture = Picture {
-            src: v.src.clone(),
-            alt: v.alt.clone(),
-        };
-        let img = picture_tag(&picture, true);
-        if img.is_empty() {
-            return String::new();
-        }
-        let caption = if v.caption.trim().is_empty() {
-            String::new()
-        } else {
-            format!("<figcaption>{}</figcaption>\n", text(&v.caption))
-        };
-        let inner = format!("<figure class=\"ob-home-figure\">\n{img}{caption}</figure>\n");
-        self.landing_wrap(section, false, &inner, "")
+        self.landing_piece(section, piece::image(v), "")
     }
 
     fn landing_video(&self, section: &Section, v: &Video) -> String {
-        let url = v.provider.watch_url(&v.video);
-        let inner = format!(
-            "<p class=\"ob-home-video\"><a class=\"ob-home-link\" href=\"{}\" rel=\"noopener noreferrer\">Watch {} on {}</a></p>\n",
-            attr(&url),
-            text(&v.title),
-            v.provider.label()
-        );
-        self.landing_wrap(section, false, &inner, "")
+        self.landing_piece(section, piece::video(v, Mode::Page), "")
     }
 
     fn landing_map(&self, section: &Section, v: &MapSection) -> String {
-        let inner = format!(
-            "<p class=\"ob-home-map\"><span class=\"ob-home-place\">{}</span> <a class=\"ob-home-link\" href=\"{}\" rel=\"noopener noreferrer\">View on the map</a></p>\n",
-            text(&v.label),
-            attr(&v.map_url())
-        );
-        self.landing_wrap(section, false, &inner, "")
+        self.landing_piece(section, piece::map(v, Mode::Page), "")
+    }
+
+    /// A piece's markup in its section, or nothing when it has none to show.
+    fn landing_piece(&self, section: &Section, inner: String, extra: &str) -> String {
+        if inner.is_empty() {
+            String::new()
+        } else {
+            self.landing_wrap(section, false, &inner, extra)
+        }
     }
 
     fn landing_hours(&self, section: &Section, v: &OpeningHours) -> String {
-        if v.rows.is_empty() {
-            return String::new();
-        }
-        let mut inner = String::from(
-            "<table class=\"ob-home-hours\">\n<caption>Opening hours</caption>\n<tbody>\n",
-        );
-        for row in &v.rows {
-            inner.push_str(&format!(
-                "<tr><th scope=\"row\">{}</th><td>{}</td></tr>\n",
-                text(&row.days),
-                text(&row.hours)
-            ));
-        }
-        inner.push_str("</tbody>\n</table>\n");
-        if !v.note.trim().is_empty() {
-            inner.push_str(&format!(
-                "<p class=\"ob-home-note\">{}</p>\n",
-                text(&v.note)
-            ));
-        }
-        self.landing_wrap(section, false, &inner, "")
+        self.landing_piece(section, piece::hours(v), "")
     }
 
     fn landing_contact(&self, section: &Section, v: &Contact) -> String {
-        let mut lines = Vec::new();
-        if !v.email.is_empty() && safe_address(&format!("mailto:{}", v.email), false) {
-            lines.push(format!(
-                "<a class=\"ob-home-link\" href=\"mailto:{}\">{}</a>",
-                attr(&v.email),
-                text(&v.email)
-            ));
-        }
-        let number: String = v
-            .phone
-            .chars()
-            .filter(|c| c.is_ascii_digit() || *c == '+')
-            .collect();
-        if !number.is_empty() && safe_address(&format!("tel:{number}"), false) {
-            lines.push(format!(
-                "<a class=\"ob-home-link\" href=\"tel:{}\">{}</a>",
-                attr(&number),
-                text(&v.phone)
-            ));
-        }
-        if !v.address.trim().is_empty() {
-            lines.push(text(&v.address));
-        }
-        if lines.is_empty() {
-            return String::new();
-        }
-        let items: String = lines
-            .iter()
-            .map(|line| format!("<p>{line}</p>\n"))
-            .collect();
-        let inner = format!("<address class=\"ob-home-contact\">\n{items}</address>\n");
-        self.landing_wrap(section, false, &inner, "")
+        self.landing_piece(section, piece::contact(v), "")
     }
 
     fn landing_social(&self, section: &Section, v: &SocialLinks) -> String {
-        let items: String = v
-            .items
-            .iter()
-            .filter(|link| link.href.starts_with("https://") && safe_address(&link.href, false))
-            .map(|link| {
-                format!(
-                    "<li><a class=\"ob-home-link\" rel=\"me noopener noreferrer\" href=\"{}\">{}</a></li>\n",
-                    attr(&link.href),
-                    text(&link.label)
-                )
-            })
-            .collect();
-        if items.is_empty() {
-            return String::new();
-        }
-        let inner = format!("<ul class=\"ob-home-social\">\n{items}</ul>\n");
-        self.landing_wrap(section, false, &inner, "")
+        self.landing_piece(section, piece::social(v), "")
     }
 
     fn landing_faq(&self, section: &Section, v: &Faq) -> String {
-        if v.items.is_empty() {
-            return String::new();
-        }
-        let mut inner = String::new();
-        for item in &v.items {
-            inner.push_str(&format!(
-                "<details class=\"ob-home-faq-item\">\n<summary>{}</summary>\n<div class=\"ob-prose\">{}</div>\n</details>\n",
-                text(&item.question),
-                render_inert_markdown(&item.answer, 0)
-            ));
-        }
-        self.landing_wrap(section, false, &inner, "")
+        self.landing_piece(section, piece::faq(v), "")
     }
 
     fn landing_callout(&self, section: &Section, v: &Callout) -> String {
-        if v.body.trim().is_empty() {
-            return String::new();
-        }
-        let title = if v.title.trim().is_empty() {
-            String::new()
-        } else {
-            format!(
-                "<p class=\"ob-home-callout-title\"><strong>{}</strong></p>\n",
-                text(&v.title)
-            )
-        };
-        let inner = format!(
-            "<aside class=\"ob-home-callout-box\">\n{title}<div class=\"ob-prose\">{}</div>\n</aside>\n",
-            render_inert_markdown(&v.body, 0)
-        );
         let extra = format!(" ob-home-callout-{}", v.tone.value());
-        self.landing_wrap(section, false, &inner, &extra)
-    }
-}
-
-/// An image with its description, or nothing if the address is not one the
-/// page may link to.
-fn picture_tag(image: &Picture, lazy: bool) -> String {
-    if !safe_address(&image.src, true) {
-        return String::new();
-    }
-    format!(
-        "<img class=\"ob-home-image\" src=\"{}\" alt=\"{}\"{}>\n",
-        attr(&image.src),
-        attr(&image.alt),
-        if lazy { " loading=\"lazy\"" } else { "" }
-    )
-}
-
-/// A row of buttons. A button whose address is not allowed is left out.
-fn actions(buttons: &[Button]) -> String {
-    let links: String = buttons
-        .iter()
-        .filter(|b| safe_address(&b.href, false))
-        .map(|b| {
-            let style = match b.style {
-                ButtonStyle::Primary => "primary",
-                ButtonStyle::Secondary => "secondary",
-            };
-            let rel = if b.href.to_ascii_lowercase().starts_with("https:") {
-                " rel=\"noopener noreferrer\""
-            } else {
-                ""
-            };
-            format!(
-                "<a class=\"ob-home-button ob-home-button-{style}\" href=\"{}\"{rel}>{}</a>\n",
-                attr(&b.href),
-                text(&b.label)
-            )
-        })
-        .collect();
-    if links.is_empty() {
-        String::new()
-    } else {
-        format!("<p class=\"ob-home-actions\">\n{links}</p>\n")
+        self.landing_piece(section, piece::callout(v), &extra)
     }
 }

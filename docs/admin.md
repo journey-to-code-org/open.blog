@@ -239,6 +239,23 @@ protected block visually, or choose **Edit in Markdown** to change its exact sou
 boundary prevents an ordinary visual edit from flattening syntax the visual editor cannot
 represent safely.
 
+Callouts, tables, flat task lists, embedded videos and pens, and pieces also have an **Edit**
+button that opens a form inside the block: a callout's kind and text, a table's rows and columns,
+a task list's items and checkboxes, an embed's provider and address, or a piece's details. Apply
+writes the same Markdown the block uses today; Cancel (or Escape) leaves it untouched, and a block
+you do not edit is saved byte for byte. A block the form could not write back exactly stays
+protected.
+
+### Add something
+
+Choose **Add something** in the Write toolbar (in Visual or Markdown mode) to add a button, image
+with caption, video, map, opening hours, contact details, social links, questions and answers, or
+a call-out at the caret. Pick what you want, fill in the labelled fields, and choose **Insert**:
+the details are checked by the same rules as the build, a problem is explained next to the form
+and nothing is inserted until it is fixed. In Visual mode the piece appears as an editable block;
+in Markdown mode its text is written at the caret. Ctrl+Z or **Undo piece** takes it back out.
+There is no option to write your own HTML. See [Pieces](content.md#pieces-buttons-videos-maps-and-more).
+
 ### Cite a source while writing
 
 In a post, choose **Cite** in the Write toolbar to insert a citation at the caret in either mode.

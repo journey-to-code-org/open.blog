@@ -1747,6 +1747,137 @@ html[data-admin-density="compact"] .oba-pane {
   color: var(--ob-color-accent-contrast);
 }
 
+/* Forms inside a protected block's card, and the Add something dialog (ADR 0254). */
+.oba-protected-block[data-editing] {
+  display: block;
+}
+
+.oba-block-form {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.oba-bf-body {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.oba-bf-field {
+  margin-bottom: 0.25rem;
+}
+
+.oba-bf-hint {
+  margin: 0;
+  color: var(--ob-color-muted);
+}
+
+.oba-bf-button,
+.oba-block-form .oba-btn,
+.oba-piece-dialog .oba-btn {
+  min-height: 44px;
+}
+
+.oba-bf-rows,
+.oba-bf-items,
+.oba-piece-choices {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-bf-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.oba-bf-row input[type="checkbox"] {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.oba-bf-row input[type="text"],
+.oba-bf-table input[type="text"] {
+  width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 0.45rem 0.6rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-page);
+  color: var(--ob-color-text);
+  font: inherit;
+}
+
+.oba-bf-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.oba-bf-table {
+  border-collapse: separate;
+  border-spacing: 0.25rem;
+}
+
+.oba-bf-table input[type="text"] {
+  min-width: 8rem;
+}
+
+.oba-bf-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.oba-bf-item {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius);
+}
+
+.oba-piece-dialog {
+  width: min(36rem, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+}
+
+.oba-piece-dialog .oba-field input[type="text"],
+.oba-piece-dialog .oba-field select,
+.oba-piece-dialog .oba-field textarea {
+  min-height: 44px;
+  box-sizing: border-box;
+}
+
+.oba-piece-choice {
+  display: grid;
+  gap: 0.15rem;
+  width: 100%;
+  min-height: 56px;
+  padding: 0.75rem 1rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-page);
+  color: var(--ob-color-text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.oba-piece-choice:hover {
+  border-color: var(--ob-color-accent);
+}
+
+.oba-piece-choice:focus-visible {
+  outline: 2px solid var(--ob-color-accent);
+  outline-offset: 2px;
+}
+
 .oba-editor-mode {
   display: flex;
   align-items: center;

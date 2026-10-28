@@ -12,7 +12,7 @@ use crate::escape::{attr, text};
 
 /// Origins used by frames produced by this module. Preview security policies
 /// consume the same allowlist so adding a provider cannot silently break them.
-pub const FRAME_SOURCES: &str = "https://codepen.io https://www.youtube-nocookie.com";
+pub const FRAME_SOURCES: &str = "https://codepen.io https://www.youtube-nocookie.com https://player.vimeo.com https://www.openstreetmap.org";
 
 /// A recognised embed: the frame address and what to call it.
 #[derive(Debug, Clone, PartialEq, Eq)]

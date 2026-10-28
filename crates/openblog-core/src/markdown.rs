@@ -1023,6 +1023,8 @@ fn transform_blocks<'a>(
     let mut quiz_occurrences = std::collections::HashMap::new();
     // An open `demo` fence and its authored fallback text.
     let mut demo: Option<(FenceInfo, String)> = None;
+    // An open `piece` fence: the kind it names and its `field: value` lines.
+    let mut piece: Option<(String, String)> = None;
     // The section a deeper heading switched away from ("### Ingredients for the
     // glaze" inside "## Method"); it resumes when that sub-section ends.
     let mut outer: Option<(Section, u8)> = None;
@@ -1086,6 +1088,44 @@ fn transform_blocks<'a>(
                     if !next_is_quiz {
                         out.push(Event::Html(CowStr::from("</section>\n")));
                         quiz_group_open = false;
+                    }
+                }
+                _ => {}
+            }
+            continue;
+        }
+        if let Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) = event {
+            let mut words = info.split_whitespace();
+            if words.next() == Some("piece") {
+                piece = Some((words.next().unwrap_or("").to_string(), String::new()));
+                continue;
+            }
+        }
+        if let Some((kind, source)) = piece.as_mut() {
+            match event {
+                Event::Text(text) => source.push_str(text),
+                Event::End(TagEnd::CodeBlock) => {
+                    let (kind, source) = (std::mem::take(kind), std::mem::take(source));
+                    piece = None;
+                    let mode = if portable.is_some() {
+                        crate::render::piece::Mode::Portable
+                    } else {
+                        crate::render::piece::Mode::Page
+                    };
+                    match crate::piece::Piece::from_directive(&kind, &source) {
+                        Ok(parsed) => out.push(Event::Html(CowStr::from(
+                            crate::render::piece::post_piece(&parsed, mode),
+                        ))),
+                        Err(problems) => {
+                            let error =
+                                format!("`piece {kind}` is not valid: {}", problems.join("; "));
+                            data.errors.push(error.clone());
+                            out.push(Event::Html(CowStr::from(format!(
+                                "<aside class=\"ob-piece-error\" role=\"alert\">Invalid piece: {}</aside>
+",
+                                escape::text(&error)
+                            ))));
+                        }
                     }
                 }
                 _ => {}
@@ -2453,6 +2493,17 @@ pub(crate) fn portable_semantic_facts(
                 if source.trim().is_empty() {
                     continue;
                 }
+                if info.split_whitespace().next() == Some("piece") {
+                    // A piece is plain content: its names and labels must
+                    // survive export; its frames degrade to links.
+                    let kind = info.split_whitespace().nth(1).unwrap_or("");
+                    if let Ok(piece) = crate::piece::Piece::from_directive(kind, &source) {
+                        for text in piece.visible_text() {
+                            facts.push(SemanticFact::new("content", "text", text));
+                        }
+                    }
+                    continue;
+                }
                 let fence = parse_fence_info(&info);
                 if info.trim() == "quiz" {
                     let quiz = parse_quiz(&source)?;
@@ -3605,6 +3656,67 @@ fn main() {}
         assert!(rendered
             .html
             .contains("<code class=\"language-ruby\">puts 'static'"));
+    }
+
+    #[test]
+    fn piece_fences_render_pieces_and_report_what_is_wrong() {
+        let r = render(
+            "Before
+
+```piece video
+provider: youtube
+video: dQw4w9WgXcQ
+title: A <b>tour</b>
+```
+
+```piece button
+label: Read
+href: javascript:alert(1)
+```
+
+After
+",
+            RenderOptions::default(),
+        );
+        assert!(
+            r.html.contains("<div class=\"ob-piece ob-piece-video\">"),
+            "{}",
+            r.html
+        );
+        assert!(r
+            .html
+            .contains("src=\"https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ\""));
+        assert!(r.html.contains("title=\"A &lt;b&gt;tour&lt;/b&gt;\""));
+        assert!(r
+            .html
+            .contains("<aside class=\"ob-piece-error\" role=\"alert\">Invalid piece:"));
+        assert!(!r.html.contains("javascript:alert(1)\""));
+        assert!(
+            r.errors.iter().any(|e| e.contains("piece button")),
+            "{:?}",
+            r.errors
+        );
+        assert!(
+            !r.html.contains("<pre"),
+            "a piece fence is not shown as code"
+        );
+    }
+
+    #[test]
+    fn code_fences_that_only_mention_piece_are_unchanged() {
+        let r = render(
+            "```rust
+let piece = 1;
+```
+
+```pieces
+x
+```
+",
+            RenderOptions::default(),
+        );
+        assert!(!r.html.contains("ob-piece"), "{}", r.html);
+        assert_eq!(r.html.matches("<pre").count(), 2);
     }
 
     #[test]

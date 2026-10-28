@@ -269,6 +269,10 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
 pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
     ("index.html", include_str!("../../../web/admin/index.html")),
     ("admin.js", include_str!("../../../web/admin/admin.js")),
+    (
+        "block-forms.js",
+        include_str!("../../../web/admin/block-forms.js"),
+    ),
     ("admin.css", include_str!("../../../web/admin/admin.css")),
     ("landing.js", include_str!("../../../web/admin/landing.js")),
     ("look.js", include_str!("../../../web/admin/look.js")),

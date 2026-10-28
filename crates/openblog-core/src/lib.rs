@@ -111,6 +111,7 @@ pub mod moderation_inbox;
 pub mod participation;
 pub mod passage_target;
 pub mod perspective_publication;
+pub mod piece;
 pub mod portability;
 pub mod preview;
 pub mod profile;

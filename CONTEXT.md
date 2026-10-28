@@ -1035,6 +1035,14 @@ post, buttons, image, video, map, opening hours, contact, social links, FAQ, cal
 with raw HTML disabled, so markup typed into it shows as text (ADR 0245).
 _Avoid_: Widget, block, embed, custom HTML
 
+**Piece**:
+One of nine small structured things (button, image with caption, video, map, opening hours, contact details,
+social links, questions and answers, call-out) added with a form to a post or to the landing page. It is
+validated data with one form schema shared by both places; in a post it is Markdown (a `> [!NOTE]` call-out, or a
+```` ```piece <kind> ```` fence of `field: value` lines), and a video or map is a privacy-enhanced, lazy, titled
+frame with a link beside it that becomes only the link in a portable export (ADR 0253).
+_Avoid_: Widget, shortcode, embed code, custom HTML
+
 **Landing page builder**:
 The Admin view at `#/landing` where an owner changes the landing page without code: sections are cards with
 Edit, Move up, Move down, Hide or Show and Delete buttons, added from a picker that describes each type in

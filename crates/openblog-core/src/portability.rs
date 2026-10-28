@@ -4382,6 +4382,49 @@ Branch, commit on both sides, then merge.
     }
 
     #[test]
+    fn portable_pieces_keep_their_content_and_embeds_become_links() {
+        let output = portable(
+            "---
+title: Work
+date: 2026-10-01
+---
+```piece video
+provider: vimeo
+video: 12345
+title: Tour
+```
+
+```piece map
+provider: openstreetmap
+label: The shop
+lat: 51.5
+lon: -0.12
+```
+
+```piece hours
+days: Mon
+hours: 9 to 5
+```
+",
+        );
+        assert!(!output.html.contains("<iframe"), "{}", output.html);
+        assert!(
+            output.html.contains("href=\"https://vimeo.com/12345\""),
+            "{}",
+            output.html
+        );
+        assert!(output.html.contains("Watch Tour on Vimeo"));
+        assert!(output
+            .html
+            .contains("https://www.openstreetmap.org/?mlat=51.500000"));
+        assert!(
+            output.html.contains("<th scope=\"row\">Mon</th>"),
+            "{}",
+            output.html
+        );
+    }
+
+    #[test]
     fn portable_media_embeds_become_titled_provider_links() {
         let output = portable(
             "---\ntitle: Work\ndate: 2026-10-01\n---\n[Gate of Embers — trailer](https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42s)\n\n<https://codepen.io/u/pen/abc>\n\n%[https://codepen.io/team/acme/pen/xyz]\n\nSee [this pen](https://codepen.io/u/pen/def) inline.\n",

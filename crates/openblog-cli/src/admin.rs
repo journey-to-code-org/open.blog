@@ -521,6 +521,7 @@ fn route(state: &AppState, req: &Request) -> Response {
     let file = match path {
         "/admin" | "/admin/" => "index.html",
         "/admin/admin.js" => "admin.js",
+        "/admin/block-forms.js" => "block-forms.js",
         "/admin/admin.css" => "admin.css",
         "/admin/landing.js" => "landing.js",
         "/admin/look.js" => "look.js",
@@ -530,7 +531,9 @@ fn route(state: &AppState, req: &Request) -> Response {
     match site::admin_file(&state.root, &config, file) {
         Some(bytes) => {
             let ctype = match file {
-                "admin.js" | "landing.js" | "look.js" => "text/javascript; charset=utf-8",
+                "admin.js" | "block-forms.js" | "landing.js" | "look.js" => {
+                    "text/javascript; charset=utf-8"
+                }
                 "admin.css" => "text/css; charset=utf-8",
                 _ => "text/html; charset=utf-8",
             };
@@ -847,6 +850,7 @@ fn authenticated_api(
         ("POST", "track-upload") => upload_track(state, req),
         ("DELETE", "track-upload") => discard_track(state, req),
         ("POST", "preview") => preview(state, req),
+        ("POST", "pieces") => build_piece(req),
         ("POST", "research/review") => review_before_publication(state, req),
         ("GET", "research/boundary") => boundary_site(state),
         ("GET", "research/readiness") => readiness_site(state),
@@ -3847,6 +3851,7 @@ fn meta(state: &AppState) -> Response {
             "profiles": profiles,
             "contributors": config.contributors,
             "creditRoles": credit_roles,
+            "pieces": openblog_core::piece::schema_json(),
             "series": series,
             "tags": tags,
             "maxUploadMb": config.admin.max_upload_mb,
@@ -17195,6 +17200,41 @@ fn change_acknowledgement(state: &AppState, req: &Request, add: bool) -> Respons
             }),
         ),
         Err(research_review::StoreError::Storage(message)) => Response::error(500, &message),
+    }
+}
+
+/// Check one piece's form values and return the Markdown that holds it in a
+/// post (ADR 0253). The engine is the only place a piece is validated or
+/// written, so the Admin cannot save one the build would refuse. Nothing is
+/// stored.
+fn build_piece(req: &Request) -> Response {
+    if let Err(r) = require_json(req) {
+        return r;
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(b) => b,
+        Err(_) => return Response::error(400, "Invalid JSON"),
+    };
+    let kind = body["kind"].as_str().unwrap_or("");
+    let Some(values) = body["values"].as_array().map(|pairs| {
+        pairs
+            .iter()
+            .map(|pair| {
+                (
+                    pair[0].as_str().unwrap_or("").to_string(),
+                    pair[1].as_str().unwrap_or("").to_string(),
+                )
+            })
+            .collect::<Vec<_>>()
+    }) else {
+        return Response::error(400, "values must be a list of [field, value] pairs");
+    };
+    match openblog_core::piece::Piece::from_values(kind, &values) {
+        Ok(piece) => Response::json(200, &json!({ "markdown": piece.to_markdown() })),
+        Err(problems) => Response::json(
+            422,
+            &json!({ "error": "Check the highlighted details", "problems": problems }),
+        ),
     }
 }
 
@@ -32072,6 +32112,77 @@ What I read:
             &authed(req("GET", "/admin/api/meta"), &session, false),
         ));
         assert_eq!(meta["contributors"]["ada"]["name"], "Ada");
+        let pieces = meta["pieces"].as_array().unwrap();
+        assert_eq!(pieces.len(), 9);
+        assert!(pieces
+            .iter()
+            .any(|p| p["kind"] == "video" && p["fields"][1]["name"] == "video"));
+        let built = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/pieces",
+                    json!({"kind": "button", "values": [["label", "Read"], ["href", "/about/"]]}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(built.status, 200);
+        assert_eq!(
+            body_json(&built)["markdown"],
+            "```piece button
+label: Read
+href: /about/
+```
+"
+        );
+        let refused = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/pieces",
+                    json!({"kind": "button", "values": [["label", "Read"], ["href", "javascript:x"]]}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(refused.status, 422);
+        assert!(body_json(&refused)["problems"][0]
+            .as_str()
+            .unwrap()
+            .contains("not allowed"));
+        for (field, value) in [("body", "<script>alert(1)</script>"), ("title", "</p><b>x")] {
+            let html = handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "POST",
+                        "/admin/api/pieces",
+                        json!({"kind": "callout", "values": [["tone", "info"], ["title", "T"], ["body", "ok"], [field, value]]}),
+                    ),
+                    &session,
+                    true,
+                ),
+            );
+            assert_eq!(html.status, 422, "{field}");
+            assert!(body_json(&html)["problems"][0]
+                .as_str()
+                .unwrap()
+                .contains("HTML tags are not allowed"));
+        }
+        let unauthenticated = handle(
+            &f.state,
+            &json_req(
+                "POST",
+                "/admin/api/pieces",
+                json!({"kind": "button", "values": []}),
+            ),
+        );
+        assert_eq!(unauthenticated.status, 401);
         assert!(meta["creditRoles"].as_array().unwrap().iter().any(|role| {
             role["vocabulary"] == "crossref"
                 && role["role"] == "author"

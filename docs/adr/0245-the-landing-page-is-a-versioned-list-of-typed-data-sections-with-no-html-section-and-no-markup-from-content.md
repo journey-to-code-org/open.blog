@@ -1,6 +1,7 @@
 # ADR 0245: The landing page is a versioned list of typed data sections, with no HTML section and no markup from content
 
 - Status: Accepted
+- Superseded in part by: ADR 0253 (embedded video and map frames are no longer deferred)
 - Date: 2026-10-28
 - Decision issue: [#322](https://github.com/journey-to-code-org/open.blog/issues/322)
 - Parent story: [#315](https://github.com/journey-to-code-org/open.blog/issues/315)

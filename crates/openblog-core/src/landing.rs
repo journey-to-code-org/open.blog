@@ -960,7 +960,7 @@ fn check_count(
     }
 }
 
-fn validate_section(section: &Section, problems: &mut Vec<LandingProblem>) {
+pub(crate) fn validate_section(section: &Section, problems: &mut Vec<LandingProblem>) {
     let id = section.id.as_str();
     match &section.kind {
         SectionKind::Welcome(v) => {

@@ -265,7 +265,6 @@ fn authored_markup_in_any_field_is_inert_text() {
     // escaped text of what was typed.
     for forbidden in [
         "<script>alert",
-        "<iframe",
         "<img src=x",
         "onerror=alert(1)>",
         "<div onclick",
@@ -283,6 +282,16 @@ fn authored_markup_in_any_field_is_inert_text() {
         count(&html, "<script"),
         count(&build(&load(config(""), None))["index.html"], "<script")
     );
+    // The only frames are the two the engine rebuilt from validated parts.
+    assert_eq!(count(&html, "<iframe"), 2, "{html}");
+    for frame in html.split("<iframe src=\"").skip(1) {
+        let src = frame.split('"').next().unwrap();
+        assert!(
+            src.starts_with("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ")
+                || src.starts_with("https://www.openstreetmap.org/export/embed.html?bbox="),
+            "{src}"
+        );
+    }
 }
 
 #[test]
@@ -367,6 +376,7 @@ fn structured_pieces_render_as_semantic_markup() {
         "href=\"mailto:me@example.com\"",
         "ob-home-button",
         "href=\"https://vimeo.com/12345\"",
+        "<iframe src=\"https://player.vimeo.com/video/12345?dnt=1\" title=\"A tour\" loading=\"lazy\"",
         "https://www.openstreetmap.org/?mlat=51.500000&amp;mlon=-0.120000",
         "<table",
         "Mon to Fri",
@@ -379,8 +389,41 @@ fn structured_pieces_render_as_semantic_markup() {
     ] {
         assert!(html.contains(needle), "{needle}\n{html}");
     }
-    assert!(!html.contains("<iframe"));
+    assert_eq!(count(&html, "loading=\"lazy\""), 2, "both frames are lazy");
     assert_eq!(count(&html, "<h1"), 1, "the site title owns the h1");
+}
+
+#[test]
+fn frames_appear_only_for_video_and_map_sections_and_are_privacy_enhanced() {
+    // A page with neither a video nor a map section has no frame at all.
+    let plain = landing(serde_json::json!([
+        {"id": "w", "type": "welcome", "heading": "Hello"},
+        {"id": "r", "type": "rich-text", "markdown": "Some *text*"},
+        {"id": "b", "type": "buttons", "items": [{"label": "Mail me", "href": "mailto:me@example.com"}]},
+        {"id": "f", "type": "faq", "items": [{"question": "Why?", "answer": "Because."}]}
+    ]));
+    let html = home(&load(config(""), Some(&plain)));
+    assert!(!html.contains("<iframe"), "{html}");
+    // A video section's frame uses the no-cookie host, loads lazily and is titled.
+    let video = landing(serde_json::json!([
+        {"id": "v", "type": "video", "provider": "youtube", "video": "dQw4w9WgXcQ", "title": "A tour"}
+    ]));
+    let html = home(&load(config(""), Some(&video)));
+    assert_eq!(count(&html, "<iframe"), 1, "{html}");
+    let frame = html
+        .split("<iframe ")
+        .nth(1)
+        .unwrap()
+        .split('>')
+        .next()
+        .unwrap();
+    assert!(
+        frame.contains("src=\"https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"),
+        "{frame}"
+    );
+    assert!(frame.contains("loading=\"lazy\""), "{frame}");
+    assert!(frame.contains("title=\"A tour\""), "{frame}");
+    assert!(!html.contains("https://www.youtube.com/embed"), "{html}");
 }
 
 #[test]

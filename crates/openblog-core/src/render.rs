@@ -30,6 +30,7 @@ use crate::theme::{Theme, ThemeSet};
 
 pub(crate) mod interpretations;
 mod landing;
+pub(crate) mod piece;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OutputFile {
