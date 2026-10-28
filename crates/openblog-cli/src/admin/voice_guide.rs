@@ -42,6 +42,36 @@ fn guide_target(doc: &Json) -> Json {
     })
 }
 
+const PROVENANCE_MARKER: &str = "<!-- openblog:voice-provenance";
+
+/// Record which visibilities the guide was folded from, on the line after the title, so a later
+/// save can tell that a guide quotes private samples.
+fn with_provenance(markdown: &str, samples: &[ReviewContext]) -> String {
+    let mut sources: Vec<&str> = samples.iter().map(|s| s.visibility().as_str()).collect();
+    sources.sort_unstable();
+    sources.dedup();
+    let line = format!("{PROVENANCE_MARKER} sources={} -->", sources.join(","));
+    match markdown.split_once('\n') {
+        Some((title, rest)) if title.starts_with('#') => format!("{title}\n{line}\n{rest}"),
+        _ => format!("{line}\n{markdown}"),
+    }
+}
+
+/// Whether a voice guide's provenance line says it quotes a private sample.
+pub(super) fn guide_quotes_private_samples(content: &str) -> bool {
+    content.lines().any(|line| {
+        line.trim_start().starts_with(PROVENANCE_MARKER)
+            && line.split("sources=").nth(1).is_some_and(|sources| {
+                sources
+                    .split("-->")
+                    .next()
+                    .unwrap_or("")
+                    .split(',')
+                    .any(|v| v.trim() == "private")
+            })
+    })
+}
+
 pub(super) fn generate_voice_guide(state: &AppState, req: &Request) -> Response {
     if let Err(response) = require_json(req) {
         return response;
@@ -131,7 +161,10 @@ pub(super) fn generate_voice_guide(state: &AppState, req: &Request) -> Response 
         Ok(_) => return Response::error(502, "Assistant provider returned the wrong result type"),
         Err(error) => return review_error(error),
     };
-    let markdown = guide.render();
+    let markdown = with_provenance(&guide.render(), &samples);
+    let portable_allowed = !samples
+        .iter()
+        .any(|sample| sample.visibility().as_str() == "private");
     let diff = crate::voice_diff::unified(
         "voice.md (saved)",
         "voice.md (proposed)",
@@ -144,6 +177,7 @@ pub(super) fn generate_voice_guide(state: &AppState, req: &Request) -> Response 
             "schemaVersion": ASSISTANT_SCHEMA_VERSION,
             "guide": guide.to_json(),
             "markdown": markdown,
+            "portableAllowed": portable_allowed,
             "current": {
                 "visibility": current.map(|doc| doc["visibility"].clone()),
                 "exists": current.is_some(),

@@ -10683,6 +10683,15 @@ fn save_assistant_context(state: &AppState, req: &Request) -> Response {
     if content.len() > MAX_ASSISTANT_CONTEXT_BYTES {
         return Response::error(413, "Context files are limited to 64 KiB of UTF-8 text");
     }
+    if context_type == "voice"
+        && visibility == "portable"
+        && voice_guide::guide_quotes_private_samples(&content)
+    {
+        return Response::error(
+            422,
+            "This guide quotes private samples; save it as private. Portable context is git-tracked",
+        );
+    }
     let _content_lock = lock(&state.build);
     let _filesystem_lock = match content_transaction(state) {
         Ok(value) => value,

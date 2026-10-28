@@ -99,7 +99,7 @@ test("autocomplete names selected voice samples by id and sends nothing else abo
 
 // ---- proposing and approving a voice guide (#456) -------------------------------------------
 
-import { voiceGuideDiffLines, voiceGuideSaveRequest } from "../../web/admin/admin.js";
+import { voiceGuideDiffLines, voiceGuideSaveRequest, voiceGuidePortableNote } from "../../web/admin/admin.js";
 
 test("a diff is classified line by line and never relies on colour alone", () => {
   const lines = voiceGuideDiffLines("--- voice.md (saved)\n+++ voice.md (proposed)\n@@ -1,2 +1,2 @@\n # Voice guide\n-- Likes lists\n+- Starts with so\n");
@@ -237,4 +237,15 @@ test("turning autocomplete on names the selected voice guide; the request names 
   plain.loadAssistantStatus = async () => ({ configured: true, capabilities: { autocomplete: true } });
   await plain.setAssistantAutocomplete(true);
   assert.equal(plain.ui.assistantAutocompleteStatus.textContent, "AI autocomplete is on. Suggestions appear after you pause typing; nothing is inserted automatically.");
+});
+
+test("a guide quoting private samples cannot be saved as portable", async () => {
+  const targets = { portable: { exists: false, valid: true, etag: null }, private: { exists: false, valid: true, etag: null } };
+  const proposal = { portableAllowed: false, targets };
+  assert.equal(voiceGuideSaveRequest(proposal, "portable", "# Voice guide\n"), null);
+  assert.equal(voiceGuideSaveRequest(proposal, "private", "# Voice guide\n").visibility, "private");
+  assert.equal(voiceGuideSaveRequest({ portableAllowed: true, targets }, "portable", "x").visibility, "portable");
+
+  assert.equal(voiceGuidePortableNote(proposal), "Quotes private samples; save as private");
+  assert.equal(voiceGuidePortableNote({ portableAllowed: true }), "");
 });

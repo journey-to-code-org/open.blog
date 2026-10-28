@@ -8851,10 +8851,15 @@ export function voiceGuideDiffLines(diff = "") {
  * chooses a destination; the revision is the one the proposal was made against, so a guide changed
  * elsewhere in the meantime is a conflict and not an overwrite.
  */
+export function voiceGuidePortableNote(proposal = {}) {
+  return proposal.portableAllowed === false ? "Quotes private samples; save as private" : "";
+}
+
 export function voiceGuideSaveRequest(proposal = {}, visibility, content) {
   const target = proposal.targets?.[visibility];
   if (!target || !["portable", "private"].includes(visibility)) return null;
   if (target.valid === false) return null;
+  if (visibility === "portable" && proposal.portableAllowed === false) return null;
   if (typeof content !== "string" || !content.trim()) return null;
   return { contextType: "voice", visibility, content, etag: target.exists ? target.etag : null };
 }
@@ -22902,8 +22907,9 @@ export class Editor {
     const lines = voiceGuideDiffLines(proposal.diff);
     const editor = h("textarea", { rows: 18, "aria-label": "Proposed voice guide Markdown (editable)", spellcheck: false }, proposal.markdown || "");
     const compared = proposal.current?.exists ? `the saved ${proposal.current.visibility} guide` : "no saved guide yet";
+    const portableBlocked = proposal.portableAllowed === false;
     const save = (visibility) =>
-      h("button", { class: "oba-btn oba-btn-primary", type: "button", disabled: proposal.targets?.[visibility]?.valid === false, onClick: () => this.saveVoiceGuide(visibility, editor.value) }, visibility === "private" ? "Save as private" : "Save as portable");
+      h("button", { class: "oba-btn oba-btn-primary", type: "button", disabled: proposal.targets?.[visibility]?.valid === false || (visibility === "portable" && portableBlocked), onClick: () => this.saveVoiceGuide(visibility, editor.value) }, visibility === "private" ? "Save as private" : "Save as portable");
     this.ui.voiceGuideResult.replaceChildren(
       h("p", { class: "oba-notice" }, `AI-proposed guide, compared with ${compared}. Every line quotes your own words and names its sample. It is a proposal: you decide what is kept.`),
       h("h5", {}, "Changes"),
@@ -22912,6 +22918,7 @@ export class Editor {
         : h("p", { class: "oba-small" }, "The proposal matches the saved guide."),
       this.field("oba-voice-guide-markdown", "Edit before saving", editor),
       h("div", { class: "oba-toolbar" }, save("portable"), save("private"), h("button", { class: "oba-btn", type: "button", onClick: () => this.discardVoiceGuide() }, "Discard")),
+      ...(portableBlocked ? [h("p", { class: "oba-small", "data-voice-guide-note": "portable-blocked" }, voiceGuidePortableNote(proposal))] : []),
     );
   }
 
