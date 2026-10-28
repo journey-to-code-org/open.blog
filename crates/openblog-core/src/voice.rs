@@ -10,6 +10,7 @@
 //! release does not know are preserved and written back in a fixed order.
 
 pub mod catalog;
+pub mod draw;
 
 use std::collections::BTreeMap;
 use std::fmt;
