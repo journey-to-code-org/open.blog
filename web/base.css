@@ -3649,65 +3649,65 @@ ob-reading-trail {
   display: block;
 }
 
-ob-reading-trail [hidden] {
-  display: none;
+.ob-reading-trail [hidden] {
+  display: none !important;
 }
 
-.ob-trail-body,
-.ob-trail-section,
-.ob-trail-form,
-.ob-trail-field,
-.ob-trail-item {
+.ob-reading-trail .ob-trail-body,
+.ob-reading-trail .ob-trail-section,
+.ob-reading-trail .ob-trail-form,
+.ob-reading-trail .ob-trail-field,
+.ob-reading-trail .ob-trail-item {
   display: grid;
   gap: .75rem;
 }
 
-.ob-trail-section {
+.ob-reading-trail .ob-trail-section {
   margin-block-start: 1.5rem;
 }
 
-.ob-trail-heading {
+.ob-reading-trail .ob-trail-heading {
   margin: 0;
   font-size: 1.1rem;
 }
 
-.ob-trail-lead,
-.ob-trail-hint,
-.ob-trail-meta,
-.ob-trail-empty,
-.ob-trail-status,
-.ob-trail-notice,
-.ob-trail-error,
-.ob-trail-title {
+.ob-reading-trail .ob-trail-lead,
+.ob-reading-trail .ob-trail-hint,
+.ob-reading-trail .ob-trail-meta,
+.ob-reading-trail .ob-trail-empty,
+.ob-reading-trail .ob-trail-status,
+.ob-reading-trail .ob-trail-notice,
+.ob-reading-trail .ob-trail-error,
+.ob-reading-trail .ob-trail-title {
   margin: 0;
   overflow-wrap: anywhere;
 }
 
-.ob-trail-hint,
-.ob-trail-meta,
-.ob-trail-empty {
+.ob-reading-trail .ob-trail-hint,
+.ob-reading-trail .ob-trail-meta,
+.ob-reading-trail .ob-trail-empty {
   color: var(--ob-color-muted);
 }
 
-.ob-trail-notice,
-.ob-trail-error {
+.ob-reading-trail .ob-trail-notice,
+.ob-reading-trail .ob-trail-error {
   font-weight: 600;
 }
 
-.ob-trail-error::before {
+.ob-reading-trail .ob-trail-error::before {
   content: "Error: ";
 }
 
-.ob-trail-status:empty {
+.ob-reading-trail .ob-trail-status:empty {
   display: none;
 }
 
-.ob-trail-title {
+.ob-reading-trail .ob-trail-title {
   font-weight: 600;
 }
 
-.ob-trail-list,
-.ob-trail-steps {
+.ob-reading-trail .ob-trail-list,
+.ob-reading-trail .ob-trail-steps {
   display: grid;
   gap: 1rem;
   margin: 0;
@@ -3715,25 +3715,25 @@ ob-reading-trail [hidden] {
   list-style: none;
 }
 
-.ob-trail-item {
+.ob-reading-trail .ob-trail-item {
   padding: .75rem 1rem;
   border: 1px solid var(--ob-color-border);
   border-radius: .35rem;
 }
 
-.ob-trail-steps {
+.ob-reading-trail .ob-trail-steps {
   gap: .75rem;
   counter-reset: ob-trail-step;
 }
 
-.ob-trail-step {
+.ob-reading-trail .ob-trail-step {
   display: grid;
   gap: .35rem;
   padding-inline-start: .75rem;
   border-inline-start: 3px solid var(--ob-color-border);
 }
 
-.ob-trail-actions {
+.ob-reading-trail .ob-trail-actions {
   display: flex;
   flex-wrap: wrap;
   gap: .5rem 1rem;
@@ -3761,20 +3761,20 @@ ob-reading-trail [hidden] {
 
 /* Reader export, import and privacy controls (ADR 0240). */
 
-.ob-trail-subheading {
+.ob-reading-trail .ob-trail-subheading {
   margin: 0;
   font-size: 1rem;
 }
 
-.ob-trail-kept {
+.ob-reading-trail .ob-trail-kept {
   margin: 0;
   font-weight: 600;
   overflow-wrap: anywhere;
 }
 
-.ob-trail-preview,
-.ob-trail-choice,
-.ob-trail-details {
+.ob-reading-trail .ob-trail-preview,
+.ob-reading-trail .ob-trail-choice,
+.ob-reading-trail .ob-trail-details {
   display: grid;
   gap: .75rem;
   min-inline-size: 0;
@@ -3784,11 +3784,11 @@ ob-reading-trail [hidden] {
   border-radius: .35rem;
 }
 
-.ob-trail-details {
+.ob-reading-trail .ob-trail-details {
   padding: .5rem 1rem;
 }
 
-.ob-trail-file {
+.ob-reading-trail .ob-trail-file {
   box-sizing: border-box;
   max-block-size: 20rem;
   max-inline-size: 100%;
@@ -3804,22 +3804,22 @@ ob-reading-trail [hidden] {
   font: inherit;
 }
 
-.ob-trail-field:has(> input[type="checkbox"], > input[type="radio"]) {
+.ob-reading-trail .ob-trail-field:has(> input[type="checkbox"], > input[type="radio"]) {
   display: flex;
   align-items: center;
   gap: .5rem;
 }
 
-.ob-trail-body,
-.ob-trail-section,
-.ob-trail-form,
-.ob-trail-preview,
-.ob-trail-choice,
-.ob-trail-details {
+.ob-reading-trail .ob-trail-body,
+.ob-reading-trail .ob-trail-section,
+.ob-reading-trail .ob-trail-form,
+.ob-reading-trail .ob-trail-preview,
+.ob-reading-trail .ob-trail-choice,
+.ob-reading-trail .ob-trail-details {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.ob-trail-field:has(> input[type="file"]) {
+.ob-reading-trail .ob-trail-field:has(> input[type="file"]) {
   grid-template-columns: minmax(0, 1fr);
 }
 
