@@ -177,7 +177,7 @@ test("a failed request is worded for a person, not a developer", () => {
   assert.match(landingErrorText({ status: 409, data: { newerVersion: true } }), /newer version/);
   assert.match(landingErrorText({ status: 401 }), /Sign in again/);
   assert.match(landingErrorText({ status: 413 }), /too big/);
-  assert.match(landingErrorText(new Error("Failed to fetch")), /Failed to fetch/);
+  assert.match(landingErrorText(new TypeError("Failed to fetch")), /Could not reach the server\. Your changes are kept on this device/);
 });
 
 test("the preview has phone, tablet and desktop sizes and shrinks a frame to fit, never enlarging it", async () => {
@@ -192,4 +192,88 @@ test("the preview has phone, tablet and desktop sizes and shrinks a frame to fit
   assert.equal(previewLeftOutText(0), "");
   assert.match(previewLeftOutText(1), /1 section needs attention and is left out/);
   assert.match(previewLeftOutText(3), /3 sections need attention and are left out/);
+});
+
+const fakeStorage = () => {
+  const data = new Map();
+  return {
+    data,
+    getItem: (key) => (data.has(key) ? data.get(key) : null),
+    setItem: (key, value) => data.set(key, String(value)),
+    removeItem: (key) => data.delete(key),
+  };
+};
+
+test("a draft is kept with the revision it was based on, and cleared when nothing is unsaved", async () => {
+  const { createDraftStore } = await import("../../web/admin/landing.js");
+  const storage = fakeStorage();
+  const store = createDraftStore("k1", () => storage);
+  assert.equal(store.load(), null);
+  const page = { sections: [{ id: "a", type: "series", heading: "Series" }], "x-future": 1 };
+  const record = store.save(page, "rev-1", new Date("2026-10-28T12:30:00Z"));
+  assert.equal(record.base, "rev-1");
+  page.sections[0].heading = "changed after";
+  const loaded = store.load();
+  assert.equal(loaded.page.sections[0].heading, "Series", "the draft is a copy");
+  assert.equal(loaded.page["x-future"], 1);
+  assert.equal(loaded.savedAt, "2026-10-28T12:30:00.000Z");
+  assert.equal(store.inMemoryOnly, false);
+  store.clear();
+  assert.equal(store.load(), null);
+  assert.equal(storage.data.size, 0);
+});
+
+test("a draft survives when the device refuses storage, for the life of the page", async () => {
+  const { createDraftStore } = await import("../../web/admin/landing.js");
+  const blocked = () => {
+    throw new DOMException("denied", "SecurityError");
+  };
+  const store = createDraftStore("k2", blocked);
+  assert.doesNotThrow(() => store.save({ sections: [] }, null));
+  assert.equal(store.inMemoryOnly, true);
+  assert.deepEqual(store.load().page, { sections: [] });
+  assert.doesNotThrow(() => store.clear());
+  assert.equal(store.load(), null);
+  // A full or read-only store behaves the same.
+  const full = { getItem: () => null, setItem: () => { throw new DOMException("full", "QuotaExceededError"); }, removeItem: () => {} };
+  const second = createDraftStore("k3", () => full);
+  second.save({ sections: [{ id: "x", type: "series", heading: "H" }] }, "r");
+  assert.equal(second.inMemoryOnly, true);
+  assert.equal(second.load().base, "r");
+});
+
+test("a damaged stored draft is ignored, not trusted", async () => {
+  const { createDraftStore } = await import("../../web/admin/landing.js");
+  const storage = fakeStorage();
+  const store = createDraftStore("k4", () => storage);
+  for (const bad of ["not json", "{}", JSON.stringify({ v: 9, base: null, page: { sections: [] } }), JSON.stringify({ v: 1, base: 5, page: { sections: [] } }), JSON.stringify({ v: 1, base: null, page: { sections: "no" } })]) {
+    storage.setItem("k4", bad);
+    assert.equal(store.load(), null, bad);
+  }
+});
+
+test("Compare says in plain words what differs between your page and the newer one", async () => {
+  const { compareSections } = await import("../../web/admin/landing.js");
+  const mine = [
+    { id: "hello", type: "welcome", heading: "Mine" },
+    { id: "text", type: "rich-text", markdown: "Same" },
+    { id: "extra", type: "series", heading: "Only mine" },
+  ];
+  const theirs = [
+    { id: "text", type: "rich-text", markdown: "Same" },
+    { id: "hello", type: "welcome", heading: "Theirs", subheading: "New line" },
+    { id: "added", type: "callout", tone: "info", body: "Only theirs" },
+  ];
+  const { rows, order } = compareSections(mine, theirs);
+  assert.equal(order, true);
+  const byId = Object.fromEntries(rows.map((row) => [row.id, row]));
+  assert.equal(byId.hello.status, "different");
+  assert.deepEqual(byId.hello.changed.sort(), ["a line underneath", "welcome heading"]);
+  assert.equal(byId.hello.mine, "Mine");
+  assert.equal(byId.hello.theirs, "Theirs");
+  assert.equal(byId.extra.status, "only-mine");
+  assert.equal(byId.added.status, "only-theirs");
+  assert.ok(!byId.text, "identical sections are not listed");
+  const same = compareSections(mine, structuredClone(mine));
+  assert.deepEqual(same, { rows: [], order: false });
 });

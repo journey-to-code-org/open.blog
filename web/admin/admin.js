@@ -9,6 +9,9 @@ import {
   PREVIEW_SIZES,
   SECTION_CATALOG,
   addSection,
+  compareSections,
+  createDraftStore,
+  draftTimeText,
   landingErrorText,
   moveSection,
   pagePayload,
@@ -12306,6 +12309,21 @@ export class ObAdmin extends AdminElement {
     let serverProblems = new Map();
     const isDirty = () => !pageSame(draft, saved);
     const sections = () => draft.sections;
+    // A copy of unsaved work, kept on this device (or in memory when the device will not keep it).
+    const drafts = createDraftStore(`ob-landing-draft:${this.user}`);
+    // A stored draft waiting for the owner to restore or throw away; nothing is written over it first.
+    let pendingDraft = null;
+    let draftTimer = null;
+    const persistDraft = () => {
+      clearTimeout(draftTimer);
+      if (pendingDraft) return;
+      if (isDirty()) drafts.save(draft, revision);
+      else drafts.clear();
+    };
+    const scheduleDraft = () => {
+      clearTimeout(draftTimer);
+      draftTimer = setTimeout(persistDraft, 250);
+    };
 
     const status = h("p", { class: "oba-landing-status oba-small", role: "status", "aria-live": "polite", "data-landing-status": "true" });
     const say = (text, kind = "small") => {
@@ -12591,11 +12609,102 @@ export class ObAdmin extends AdminElement {
       onEdited();
     };
 
+    // ----- a save that finds a newer page: your changes are never replaced, and neither is the newer page
+    const conflictBox = h("div", { class: "oba-error oba-landing-conflict", role: "group", "aria-labelledby": "oba-landing-conflict-title", hidden: true, "data-landing-conflict": "true" });
+    const showConflict = (current) => {
+      const newerPage = current && current.valid !== false && current.page ? pageFrom(current.page) : null;
+      const differences = h("div", { class: "oba-landing-differences", hidden: true, "data-landing-differences": "true" });
+      const fill = () => {
+        const { rows, order } = compareSections(draft.sections, newerPage.sections);
+        const words = (row) =>
+          row.status === "only-mine" ? `${row.title} is only in your version (${row.mine}).`
+            : row.status === "only-theirs" ? `${row.title} is only in the newer version (${row.theirs}).`
+              : `${row.title} differs. Yours: ${row.mine || "nothing"}. Newer: ${row.theirs || "nothing"}. Different: ${row.changed.join(", ")}.`;
+        differences.replaceChildren(
+          h("h4", {}, "What is different"),
+          rows.length || order ? null : h("p", {}, "The two versions have the same sections."),
+          rows.length ? h("ul", {}, rows.map((row) => h("li", { "data-difference": row.status }, words(row)))) : null,
+          order ? h("p", {}, "The sections both versions have are in a different order.") : null,
+        );
+      };
+      const keep = h("button", { class: "oba-btn", type: "button", "data-action": "keep-mine", onClick: () => {
+        revision = current?.revision ?? null;
+        conflictBox.hidden = true;
+        say("Kept your version. Nothing has been replaced yet. Choose Save to replace the newer page with yours.", "notice");
+        saveButton.focus();
+      } }, "Keep mine");
+      const useNewer = newerPage ? h("button", { class: "oba-btn", type: "button", "data-action": "use-newer", onClick: () => {
+        // Your changes are put away as a draft first, so choosing the newer page loses nothing.
+        drafts.save(draft, current.revision);
+        const record = drafts.load();
+        applySaved(current);
+        editingId = null;
+        renderCards();
+        renderBar();
+        schedulePreview();
+        offerRestore(record);
+        say("Loaded the newer version. Your changes were put away and can be restored.", "notice");
+        restoreBox.querySelector("button")?.focus();
+      } }, "Use the newer version") : null;
+      const compare = newerPage ? h("button", { class: "oba-btn", type: "button", "data-action": "compare", "aria-expanded": "false", onClick: (event) => {
+        if (differences.hidden) fill();
+        differences.hidden = !differences.hidden;
+        event.currentTarget.setAttribute("aria-expanded", String(!differences.hidden));
+      } }, "Compare") : null;
+      conflictBox.hidden = false;
+      conflictBox.replaceChildren(
+        h("h3", { id: "oba-landing-conflict-title", tabindex: "-1" }, "This page was changed somewhere else"),
+        h("p", {}, newerPage ? "Someone, or you on another device, saved a different version while you were editing. Nothing has been replaced. Choose what to do with your changes." : "The saved page was removed or can no longer be read since you opened it. Nothing has been replaced. You can keep your version and save it."),
+        h("div", { class: "oba-toolbar" }, keep, useNewer, compare),
+        differences,
+      );
+      say("This page was changed somewhere else. Nothing was saved. Choose what to do with your changes.", "error");
+      conflictBox.querySelector("h3").focus();
+    };
+
+    // ----- restoring unsaved work from this device
+    const restoreBox = h("div", { class: "oba-notice oba-landing-restore", role: "group", "aria-labelledby": "oba-landing-restore-title", hidden: true, "data-landing-restore": "true" });
+    const offerRestore = (record) => {
+      pendingDraft = record;
+      const when = draftTimeText(record.savedAt);
+      const older = record.base !== revision;
+      restoreBox.hidden = false;
+      restoreBox.replaceChildren(
+        h("strong", { id: "oba-landing-restore-title" }, "Restore your unsaved changes?"),
+        h("p", {}, `This device kept changes${when ? ` from ${when}` : ""} that were never saved${older ? ", made on an older version of this page. If you save them you will be asked what to do about the newer one" : ""}.`),
+        h("div", { class: "oba-toolbar" },
+          h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": "restore-draft", onClick: () => {
+            draft = pageFrom(record.page);
+            revision = record.base;
+            pendingDraft = null;
+            restoreBox.hidden = true;
+            editingId = null;
+            renderCards();
+            renderBar();
+            schedulePreview();
+            say("Your unsaved changes are back. They are not saved yet.", "notice");
+            cards.querySelector("button:not(:disabled)")?.focus();
+          } }, "Restore your unsaved changes"),
+          h("button", { class: "oba-btn", type: "button", "data-action": "discard-draft", onClick: () => {
+            pendingDraft = null;
+            drafts.clear();
+            restoreBox.hidden = true;
+            renderBar();
+            say("Threw away the unsaved changes.");
+            addButton.focus();
+          } }, "Discard them"),
+        ),
+      );
+    };
+
     // ----- saving
     const saveButton = h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": "save", onClick: () => save() }, "Save");
     const dirtyNote = h("span", { class: "oba-small oba-landing-dirty", "data-landing-dirty": "true" });
     const renderBar = () => {
-      dirtyNote.textContent = isDirty() ? "You have unsaved changes." : exists ? "All changes saved." : "Not saved yet. Your site still shows your home settings.";
+      dirtyNote.textContent = isDirty()
+        ? `You have unsaved changes. ${drafts.inMemoryOnly ? "This device would not keep a copy, so they are held only until you close or reload this page." : "A copy is kept on this device."}`
+        : exists ? "All changes saved." : "Not saved yet. Your site still shows your home settings.";
+      scheduleDraft();
     };
     /** What a save or a refused save does to the page the owner is looking at. */
     const applySaved = (result) => {
@@ -12605,6 +12714,8 @@ export class ObAdmin extends AdminElement {
       draft = structuredClone(saved);
       serverProblems = new Map();
       attempted = false;
+      conflictBox.hidden = true;
+      conflictBox.replaceChildren();
     };
     const save = async () => {
       if (busy) return;
@@ -12626,6 +12737,7 @@ export class ObAdmin extends AdminElement {
         const result = await this.api.call("PUT", "landing", { json: { revision, page: pagePayload(draft) } });
         if (this.viewVersion !== mountedView) return false;
         applySaved(result);
+        drafts.clear();
         clearUndo();
         renderCards();
         renderBar();
@@ -12633,7 +12745,13 @@ export class ObAdmin extends AdminElement {
         else say("Saved. Your landing page is ready to publish.", "ok");
         return true;
       } catch (error) {
+        // Whatever went wrong, a copy of the work is on this device now.
+        persistDraft();
         if (this.viewVersion !== mountedView) return false;
+        if (error.status === 409 && error.data?.conflict) {
+          showConflict(error.data.current);
+          return false;
+        }
         if (error.data?.problems) {
           serverProblems = serverProblemsBySection(error.data.problems);
           renderCards();
@@ -12771,7 +12889,9 @@ export class ObAdmin extends AdminElement {
       this.shell(
         "landing",
         intro,
+        restoreBox,
         status,
+        conflictBox,
         h(
           "div",
           { class: "oba-landing-layout" },
@@ -12826,6 +12946,23 @@ export class ObAdmin extends AdminElement {
     viewport?.addEventListener("resize", liftBar);
     viewport?.addEventListener("scroll", liftBar);
     this.querySelector(".oba-landing-layout")?.addEventListener("focusin", () => requestAnimationFrame(keepClear));
+    // Unsaved work from an earlier visit, a reload or a crash is offered back, never applied unasked.
+    const earlier = drafts.load();
+    if (earlier && !pageSame(pageFrom(earlier.page), saved)) offerRestore(earlier);
+    else if (earlier) drafts.clear();
+    const keepCopy = () => {
+      if (this.viewVersion !== mountedView) {
+        removeEventListener("pagehide", keepCopy);
+        removeEventListener("hashchange", keepCopy);
+        document.removeEventListener("visibilitychange", keepCopy);
+        return;
+      }
+      persistDraft();
+    };
+    // A copy is written at once when the page is hidden or closed, and when Admin moves elsewhere.
+    addEventListener("pagehide", keepCopy);
+    addEventListener("hashchange", keepCopy);
+    document.addEventListener("visibilitychange", keepCopy);
     // Beside the builder on a wide screen, the preview is there from the start.
     if (wide()) openPreview();
     this.viewDirty = () => isDirty();

@@ -507,6 +507,7 @@ export function landingErrorText(error) {
   if (error?.status === 413) return "The page is too big to save. Remove some text or sections.";
   if (error?.status === 422) return error.message || "Some sections need attention before this can be saved.";
   if (error?.status === 403) return "That change was refused. Reload the page and try again.";
+  if (typeof error?.status !== "number") return "Could not reach the server. Your changes are kept on this device. Try again when your connection is back.";
   return error?.message || "That did not work. Check your connection and try again.";
 }
 
@@ -534,4 +535,104 @@ export function previewScale(available, width) {
 export function previewLeftOutText(count) {
   if (!count) return "";
   return count === 1 ? "1 section needs attention and is left out of this preview." : `${count} sections need attention and are left out of this preview.`;
+}
+
+// ---------------------------------------------------------------- never losing work (ADR 0356, #329)
+
+const DRAFT_VERSION = 1;
+const memoryDrafts = new Map();
+
+/**
+ * A local draft of the unsaved page: kept on this device when storage works and in memory for the
+ * life of the page when it does not (storage can be blocked, full or unavailable, and every access
+ * is guarded). A draft records the revision it was based on, so restoring it and saving it is
+ * checked against what is stored now like any other save. `storage` is a function so a browser
+ * that throws on access is handled where it is read.
+ */
+export function createDraftStore(key, storage = () => globalThis.localStorage) {
+  let blocked = false;
+  const read = () => {
+    try {
+      const text = storage()?.getItem(key);
+      return text ? JSON.parse(text) : null;
+    } catch {
+      blocked = true;
+      return null;
+    }
+  };
+  const valid = (record) => isObject(record) && record.v === DRAFT_VERSION && (record.base === null || typeof record.base === "string") && isObject(record.page) && Array.isArray(record.page.sections);
+  return {
+    /** Whether the draft only lives in memory because the device would not keep it. */
+    get inMemoryOnly() {
+      return blocked;
+    },
+    load() {
+      const stored = read();
+      if (valid(stored)) return stored;
+      return memoryDrafts.get(key) || null;
+    },
+    save(page, base, now = new Date()) {
+      const record = { v: DRAFT_VERSION, base: base ?? null, page: structuredClone(page), savedAt: now.toISOString() };
+      memoryDrafts.set(key, record);
+      try {
+        storage().setItem(key, JSON.stringify(record));
+        blocked = false;
+      } catch {
+        blocked = true;
+      }
+      return record;
+    },
+    clear() {
+      memoryDrafts.delete(key);
+      try {
+        storage()?.removeItem(key);
+      } catch {
+        blocked = true;
+      }
+    },
+  };
+}
+
+/** The text of a stored time for a person ("12:30"), or "" if it is not a time. */
+export function draftTimeText(savedAt) {
+  const date = new Date(savedAt);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
+/** Names the fields of a section that differ between two copies of it, in the words the form uses. */
+function changedFields(mine, theirs) {
+  const info = sectionInfo(mine?.type || theirs?.type);
+  const labels = new Map(info.fields.map((field) => [field.name, field.label]));
+  const keys = new Set([...Object.keys(mine || {}), ...Object.keys(theirs || {})]);
+  const out = [];
+  for (const key of keys) {
+    if (key === "id") continue;
+    if (JSON.stringify(mine?.[key] ?? null) !== JSON.stringify(theirs?.[key] ?? null)) out.push(key === "hidden" ? "shown or hidden" : (labels.get(key) || key).toLowerCase());
+  }
+  return out;
+}
+
+/**
+ * What differs between your page and the newer stored one, section by section, in plain words, for
+ * the Compare choice. Sections are matched by id. Each row has the section's name, what each side
+ * holds, and which parts differ; `order` says whether the sections that both have are in a different
+ * order.
+ */
+export function compareSections(mine, theirs) {
+  const mineList = Array.isArray(mine) ? mine : [];
+  const theirList = Array.isArray(theirs) ? theirs : [];
+  const theirById = new Map(theirList.map((section) => [section.id, section]));
+  const mineById = new Map(mineList.map((section) => [section.id, section]));
+  const rows = [];
+  for (const section of mineList) {
+    const other = theirById.get(section.id);
+    if (!other) rows.push({ id: section.id, title: sectionTitle(section), status: "only-mine", mine: sectionSummary(section), theirs: "", changed: [] });
+    else if (JSON.stringify(section) !== JSON.stringify(other)) rows.push({ id: section.id, title: sectionTitle(section), status: "different", mine: sectionSummary(section), theirs: sectionSummary(other), changed: changedFields(section, other) });
+  }
+  for (const section of theirList) {
+    if (!mineById.has(section.id)) rows.push({ id: section.id, title: sectionTitle(section), status: "only-theirs", mine: "", theirs: sectionSummary(section), changed: [] });
+  }
+  const shared = (list, other) => list.filter((section) => other.has(section.id)).map((section) => section.id).join(",");
+  return { rows, order: shared(mineList, theirById) !== shared(theirList, mineById) };
 }

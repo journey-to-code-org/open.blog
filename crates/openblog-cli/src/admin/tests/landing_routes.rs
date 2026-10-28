@@ -277,7 +277,7 @@ fn a_preview_builds_the_home_page_from_unsaved_sections_and_writes_nothing() {
         ),
     );
     assert_eq!(no_csrf.status, 403);
-    let before = fs::read_dir(&f.dir.join("content")).unwrap().count();
+    let before = fs::read_dir(f.dir.join("content")).unwrap().count();
     let (status, shown) = preview(
         &f,
         &session,
@@ -297,10 +297,7 @@ fn a_preview_builds_the_home_page_from_unsaved_sections_and_writes_nothing() {
     assert!(html.contains("<base target=\"_blank\">"));
     // Nothing was saved: no landing file and no new file in the content folder.
     assert!(!landing_file(&f).exists());
-    assert_eq!(
-        fs::read_dir(&f.dir.join("content")).unwrap().count(),
-        before
-    );
+    assert_eq!(fs::read_dir(f.dir.join("content")).unwrap().count(), before);
     assert_eq!(get(&f, &session).1["exists"], false);
 }
 

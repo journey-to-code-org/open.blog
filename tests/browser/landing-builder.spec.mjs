@@ -706,3 +706,198 @@ test("Publish saves what is unsaved first, then publishes, and says what happene
   expect(calls.filter((method) => method === "POST")).toEqual(["POST"]);
 });
 
+
+// ----- never lose work: local drafts, the leave guard and conflict recovery (ADR 0356, #329)
+
+const DRAFT_KEY = "ob-landing-draft:writer";
+const draftOf = (page) => page.evaluate((key) => JSON.parse(localStorage.getItem(key) || "null"), DRAFT_KEY);
+const status = (page) => page.locator("[data-landing-status]");
+const save = (page) => page.getByRole("button", { name: "Save", exact: true });
+
+async function editHeading(page, text) {
+  await card(page, "hello").getByRole("button", { name: /^Edit/ }).click();
+  await card(page, "hello").getByLabel("Welcome heading").fill(text);
+}
+
+test("a reload offers the unsaved changes back, and restoring them keeps them unsaved until Save", async ({ page }) => {
+  seed(THREE());
+  await openLanding(page);
+  await editHeading(page, "Typed but never saved");
+  await expect.poll(() => draftOf(page)).toMatchObject({ v: 1 });
+  await expect(page.locator(".oba-landing-dirty")).toContainText("A copy is kept on this device");
+  // Leaving a page with unsaved work is warned about; here the owner accepts, as a reload does.
+  page.removeAllListeners("dialog");
+  page.on("dialog", (dialog) => dialog.accept());
+  await page.reload();
+  await expect(page.getByRole("heading", { level: 2, name: "Sections" })).toBeVisible();
+  const offer = page.locator("[data-landing-restore]");
+  await expect(offer).toBeVisible();
+  await expect(offer).toContainText("Restore your unsaved changes?");
+  // Nothing is applied unasked.
+  await expect(card(page, "hello").locator(".oba-landing-card-summary")).toHaveText("Hello there");
+  await offer.getByRole("button", { name: "Restore your unsaved changes" }).click();
+  await expect(offer).toBeHidden();
+  await expect(card(page, "hello").locator(".oba-landing-card-summary")).toHaveText("Typed but never saved");
+  await expect(page.locator(".oba-landing-dirty")).toContainText("You have unsaved changes");
+  expect(stored().sections[0].heading).toBe("Hello there");
+  await save(page).click();
+  await expect(status(page)).toContainText("Saved.");
+  expect(stored().sections[0].heading).toBe("Typed but never saved");
+  expect(await draftOf(page)).toBeNull();
+  await page.reload();
+  await expect(page.getByRole("heading", { level: 2, name: "Sections" })).toBeVisible();
+  await expect(page.locator("[data-landing-restore]")).toBeHidden();
+});
+
+test("a closed or crashed tab leaves the draft for the next one, and it can be thrown away", async ({ page, context }) => {
+  seed(THREE());
+  await openLanding(page);
+  await card(page, "text").locator('[data-action="delete"]').click();
+  await expect.poll(() => draftOf(page)).toMatchObject({ v: 1 });
+  await page.close({ runBeforeUnload: false });
+  const next = await context.newPage();
+  await next.goto(`${origin}/admin/#/landing`);
+  await expect(next.locator("[data-landing-restore]")).toBeVisible();
+  await next.locator("[data-landing-restore]").getByRole("button", { name: "Discard them" }).click();
+  await expect(next.locator("[data-landing-restore]")).toBeHidden();
+  expect(await draftOf(next)).toBeNull();
+  await expect(next.locator("[data-landing-status]")).toHaveText("Threw away the unsaved changes.");
+  expect(await order(next)).toEqual(["hello", "text", "latest"]);
+});
+
+test("leaving with unsaved changes is warned about, and the work is still there if you stay or come back", async ({ page }) => {
+  page.removeAllListeners("dialog");
+  const dialogs = [];
+  page.on("dialog", async (dialog) => {
+    dialogs.push(dialog.message());
+    if (dialogs.length === 1) await dialog.dismiss();
+    else await dialog.accept();
+  });
+  seed(THREE());
+  await openLanding(page);
+  // Nothing unsaved: no warning, closing the page is not blocked.
+  expect(await page.evaluate(() => { const event = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented; })).toBe(false);
+  await editHeading(page, "Half written");
+  expect(await page.evaluate(() => { const event = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented; })).toBe(true);
+  // Moving to another part of Admin asks first; staying keeps everything.
+  await page.getByRole("link", { name: "Pages", exact: true }).click();
+  await expect.poll(() => dialogs.length).toBe(1);
+  expect(dialogs[0]).toMatch(/unsaved/i);
+  await expect(page.getByRole("heading", { level: 2, name: "Sections" })).toBeVisible();
+  await expect(card(page, "hello").getByLabel("Welcome heading")).toHaveValue("Half written");
+  // Leaving anyway still keeps a copy on this device.
+  await page.getByRole("link", { name: "Pages", exact: true }).click();
+  await expect.poll(() => dialogs.length).toBe(2);
+  await expect(page.getByRole("heading", { level: 2, name: "Sections" })).toBeHidden();
+  await page.goto(`${origin}/admin/#/landing`);
+  await expect(page.locator("[data-landing-restore]")).toBeVisible();
+  // Once saved, leaving asks nothing.
+  await page.locator("[data-landing-restore]").getByRole("button", { name: "Restore your unsaved changes" }).click();
+  await save(page).click();
+  await expect(status(page)).toContainText("Saved.");
+  expect(await page.evaluate(() => { const event = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented; })).toBe(false);
+});
+
+test.describe("a save that finds a newer page", () => {
+  const newer = () => seed([{ id: "hello", type: "welcome", heading: "Written on another device" }, { id: "text", type: "rich-text", markdown: "About this blog." }, { id: "added", type: "callout", tone: "info", body: "Added elsewhere" }]);
+
+  test("never overwrites silently: Compare lists the differences, and Keep mine replaces the newer page only when asked", async ({ page }) => {
+    seed(THREE());
+    await openLanding(page);
+    await editHeading(page, "Written on this device");
+    newer();
+    const onDisk = readFileSync(landingFile(), "utf8");
+    await save(page).click();
+    const box = page.locator("[data-landing-conflict]");
+    await expect(box).toBeVisible();
+    await expect(box.getByRole("heading", { name: "This page was changed somewhere else" })).toBeFocused();
+    await expect(box.getByRole("button", { name: "Keep mine" })).toBeVisible();
+    await expect(box.getByRole("button", { name: "Use the newer version" })).toBeVisible();
+    await expect(box.getByRole("button", { name: "Compare" })).toBeVisible();
+    await expect(status(page)).toContainText("Nothing was saved");
+    expect(readFileSync(landingFile(), "utf8")).toBe(onDisk);
+    // Compare says what differs, in words.
+    await box.getByRole("button", { name: "Compare" }).click();
+    const differences = box.locator("[data-landing-differences]");
+    await expect(differences).toContainText("Welcome banner differs. Yours: Written on this device. Newer: Written on another device.");
+    await expect(differences).toContainText("Notice is only in the newer version");
+    await expect(differences).toContainText("Latest posts is only in your version");
+    await expect(box.getByRole("button", { name: "Compare" })).toHaveAttribute("aria-expanded", "true");
+    expect(readFileSync(landingFile(), "utf8")).toBe(onDisk);
+    // Keep mine changes nothing by itself ...
+    await box.getByRole("button", { name: "Keep mine" }).click();
+    await expect(box).toBeHidden();
+    expect(readFileSync(landingFile(), "utf8")).toBe(onDisk);
+    // ... and the next Save is the owner's deliberate choice.
+    await save(page).click();
+    await expect(status(page)).toContainText("Saved.");
+    expect(stored().sections.map((section) => section.id)).toEqual(["hello", "text", "latest"]);
+    expect(stored().sections[0].heading).toBe("Written on this device");
+  });
+
+  test("Use the newer version loads it and puts your changes away so they can be restored", async ({ page }) => {
+    seed(THREE());
+    await openLanding(page);
+    await editHeading(page, "Written on this device");
+    newer();
+    await save(page).click();
+    const box = page.locator("[data-landing-conflict]");
+    await box.getByRole("button", { name: "Use the newer version" }).click();
+    await expect(box).toBeHidden();
+    expect(await order(page)).toEqual(["hello", "text", "added"]);
+    await expect(card(page, "hello").locator(".oba-landing-card-summary")).toHaveText("Written on another device");
+    await expect(page.locator(".oba-landing-dirty")).toContainText("All changes saved");
+    const offer = page.locator("[data-landing-restore]");
+    await expect(offer).toBeVisible();
+    await expect(offer.getByRole("button", { name: "Restore your unsaved changes" })).toBeFocused();
+    // Your version comes back whole and, because it is based on the newer page, saves without another conflict.
+    await offer.getByRole("button", { name: "Restore your unsaved changes" }).click();
+    await expect(card(page, "hello").locator(".oba-landing-card-summary")).toHaveText("Written on this device");
+    await save(page).click();
+    await expect(status(page)).toContainText("Saved.");
+    expect(stored().sections[0].heading).toBe("Written on this device");
+  });
+});
+
+test.describe("when the device will not keep a draft", () => {
+  test("editing, saving and coming back within the visit all still work", async ({ browser }) => {
+    const context = await browser.newContext();
+    await context.addInitScript(() => {
+      Object.defineProperty(window, "localStorage", { configurable: true, get() { throw new DOMException("denied", "SecurityError"); } });
+    });
+    const page = await context.newPage();
+    seed(THREE());
+    await openLanding(page);
+    await editHeading(page, "Kept in memory only");
+    await expect(page.locator(".oba-landing-dirty")).toContainText("This device would not keep a copy", { timeout: 3000 });
+    // Leaving to another part of Admin and coming back in the same visit restores from memory.
+    page.on("dialog", (dialog) => dialog.accept());
+    await page.getByRole("link", { name: "Pages", exact: true }).click();
+    await expect(page.getByRole("heading", { level: 2, name: "Sections" })).toBeHidden();
+    await page.getByRole("link", { name: "Landing page", exact: true }).click();
+    await expect(page.locator("[data-landing-restore]")).toBeVisible();
+    await page.locator("[data-landing-restore]").getByRole("button", { name: "Restore your unsaved changes" }).click();
+    await expect(card(page, "hello").locator(".oba-landing-card-summary")).toHaveText("Kept in memory only");
+    await save(page).click();
+    await expect(status(page)).toContainText("Saved.");
+    expect(stored().sections[0].heading).toBe("Kept in memory only");
+    await context.close();
+  });
+});
+
+test("a lost connection keeps the work and says so, and Save works again when it is back", async ({ page, context }) => {
+  seed(THREE());
+  await openLanding(page);
+  await editHeading(page, "Typed offline");
+  await context.setOffline(true);
+  await save(page).click();
+  await expect(status(page)).toContainText("Could not reach the server. Your changes are kept on this device.");
+  await expect(save(page)).toBeEnabled();
+  await expect(page.locator(".oba-landing-dirty")).toContainText("You have unsaved changes");
+  await expect.poll(() => draftOf(page)).toMatchObject({ v: 1 });
+  expect(stored().sections[0].heading).toBe("Hello there");
+  await context.setOffline(false);
+  await save(page).click();
+  await expect(status(page)).toContainText("Saved.");
+  expect(stored().sections[0].heading).toBe("Typed offline");
+});
