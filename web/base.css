@@ -3766,6 +3766,31 @@ ob-reflection-history [hidden] {
   align-items: center;
 }
 
+.ob-reflection-history-confirm,
+.ob-reflection-history-send,
+.ob-reflection-history-sent,
+.ob-reflection-history-sent-now,
+.ob-reflection-history-remove,
+.ob-reflection-history-preview {
+  display: grid;
+  gap: .5rem;
+  min-inline-size: 0;
+  margin-block-start: .5rem;
+}
+
+.ob-reflection-history-send,
+.ob-reflection-history-confirm,
+.ob-reflection-history-sent-now {
+  padding: .75rem;
+  border: 1px solid currentColor;
+  border-radius: .25rem;
+}
+
+.ob-reflection-history-send textarea {
+  font-family: ui-monospace, monospace;
+  overflow-wrap: anywhere;
+}
+
 .ob-reflection-history :focus-visible,
 .ob-reflection-history [aria-invalid="true"] {
   outline: 2px solid currentColor;

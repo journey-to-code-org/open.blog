@@ -731,7 +731,9 @@ export class ObReadingTrail extends HTMLElement {
   }
 
   #counts(counts) {
-    return [plural(counts.highlights, "highlight"), plural(counts.notes, "note"), plural(counts.sources, "saved source"), plural(counts.trails, "trail")].join(", ");
+    const parts = [plural(counts.highlights, "highlight"), plural(counts.notes, "note"), plural(counts.sources, "saved source"), plural(counts.trails, "trail")];
+    if (counts.reflections > 0) parts.push(plural(counts.reflections, "reflection"));
+    return parts.join(", ");
   }
 
   /** Export, import and the off switch, with a plain statement of what is kept in this browser. */
@@ -748,7 +750,7 @@ export class ObReadingTrail extends HTMLElement {
     else if (this.#stored === "unreadable") kept.textContent = "Something is saved in this browser that this page cannot read. It is untouched; you can erase it below.";
     else {
       const counts = summarize(document_);
-      const any = counts.highlights + counts.notes + counts.sources + counts.trails > 0;
+      const any = counts.highlights + counts.notes + counts.sources + counts.trails + counts.reflections > 0;
       kept.textContent = any ? `Kept in this browser: ${this.#counts(counts)}.` : "Kept in this browser: nothing.";
     }
     section.append(kept);
@@ -767,19 +769,22 @@ export class ObReadingTrail extends HTMLElement {
     include.id = `${id}-export-notes`;
     include.checked = this.#exportNotes;
     include.dataset.focus = "export-notes";
-    const includeLabel = el("label", undefined, "Include the text of my notes and source notes");
+    const includeLabel = el("label", undefined, "Include the text of my notes and source notes, and my private readings");
     includeLabel.htmlFor = include.id;
     choice.append(include, includeLabel);
     exportBox.append(choice);
     const readable = this.#stored === "ok" || this.#stored === "empty";
     const made = readable ? buildExport(document_, { notes: this.#exportNotes }) : null;
-    const empty = made ? made.counts.highlights + made.counts.notes + made.counts.sources + made.counts.trails === 0 : true;
+    const empty = made ? made.counts.highlights + made.counts.notes + made.counts.sources + made.counts.trails + made.counts.reflections === 0 : true;
     const describe = el("p", "ob-trail-meta");
     describe.id = `${id}-export-describe`;
     if (!made) describe.textContent = "Nothing can be exported because the saved data cannot be read.";
-    else if (empty) describe.textContent = "Nothing to export yet.";
+    else if (empty && made.omittedReflections > 0) {
+      describe.textContent = `Nothing would be in the file: ${plural(made.omittedReflections, "reflection")} left out. Your private readings are only exported when you include the text of your notes and readings.`;
+    } else if (empty) describe.textContent = "Nothing to export yet.";
     else {
-      const dropped = made.omittedNotes > 0 ? `; ${plural(made.omittedNotes, "note")} on a section or the whole post would be dropped` : "";
+      const left = made.omittedReflections > 0 ? `; ${plural(made.omittedReflections, "reflection")} left out` : "";
+      const dropped = (made.omittedNotes > 0 ? `; ${plural(made.omittedNotes, "note")} on a section or the whole post would be dropped` : "") + left;
       describe.textContent = `The file will hold: ${this.#counts(made.counts)}, with ${plural(made.counts.steps, "trail step")} (${made.bytes.toLocaleString("en-US")} bytes). The words you highlighted are always in it. Your own notes are ${this.#exportNotes ? "included" : "left out"}${dropped}. It holds nothing else from this site, and nothing is uploaded.`;
     }
     include.setAttribute("aria-describedby", describe.id);

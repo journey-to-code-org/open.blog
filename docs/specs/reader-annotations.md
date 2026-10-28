@@ -222,3 +222,24 @@ highlights and notes and before the reading trails) is the comparison view. It i
   never rewritten.
 - **Storage.** Denied, full or unreadable storage is announced and readings are kept for the visit only, as for highlights.
   Turning the feature off hides the region's form and list and leaves the saved data alone.
+
+### Export, deleting and sending a copy
+
+All three live in the same region and the trail panel; none needs a hosted service.
+
+- **Export.** The trail panel's file declares every field of the document. Readings are in it only when "Include the text of
+  my notes and source notes, and my private readings" is ticked; otherwise the description says "N reflections left out"
+  (`omittedReflections`), and the "Kept in this browser" line counts them.
+- **Deleting.** "Delete this reading" asks first (Escape keeps it), reconnects the line, saves, then reads the store again and
+  tells the reader whether the reading is gone ("Checked: it is no longer saved in this browser."). Where the browser is not
+  saving, it says the removal is for this visit only. "Remove all my readings of this post" does the same for the post's
+  readings and leaves other posts alone. Copies already sent are not in this document and are not touched.
+- **Sending a copy.** "Send a copy for review" opens a form: an optional prompt, an optional name and whether to show it,
+  an unticked agreement to publication (required), and an optional clarification consent. "Preview the copy" calls
+  `prepareSubmissionCopy` and shows exactly the JSON that would be sent; changing any field removes the preview, so only a
+  copy the reader has seen can be sent. Where the page has a hosted Third Perspective form (`receipts` and an `https`
+  `endpoint`), "Send for review" posts that text to the existing `/feedback` route; only a `202` calls `markSubmitted`
+  (`hosted`) and the one-time receipt is shown. A failure, offline state or refusal says so, records nothing and keeps the
+  reading. Without a hosted form the reader copies the text and sends it themselves, then chooses "I sent it myself"
+  (`copy-and-send`). Sent copies are listed on the reading by date and channel; later label edits or deletion never change a
+  sent copy.

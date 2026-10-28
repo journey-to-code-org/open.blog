@@ -246,3 +246,168 @@ test("without JavaScript the post reads as usual and the region says what it nee
   await expect(page.locator(".ob-reflection-history-make")).toHaveCount(0);
   await context.close();
 });
+
+// Export, delete and an explicit copy (#234, ADR 0500).
+
+const trailsPanel = (page) => page.getByRole("region", { name: "Your reading trails and saved sources" });
+const HOSTED = "https://hosted.example.org";
+
+async function hostThirdPerspective(page) {
+  await page.evaluate((endpoint) => {
+    const region = document.createElement("ob-third-perspective");
+    region.setAttribute("endpoint", endpoint);
+    region.setAttribute("receipts", "");
+    document.body.append(region);
+  }, HOSTED);
+}
+
+async function prepare(page, item, { consent = true } = {}) {
+  await item.getByRole("button", { name: /^Send a copy for review/ }).click();
+  const send = item.getByRole("region", { name: /^Send a copy of/ });
+  await expect(send.getByLabel("Prompt (optional)")).toBeFocused();
+  if (consent) await send.getByLabel("I agree this reading may be published once a moderator approves it").check();
+  await send.getByRole("button", { name: "Preview the copy" }).click();
+  return send;
+}
+
+test("deleting one reading is confirmed, checked, reconnects the line and leaves the rest", async ({ page }) => {
+  await open(page);
+  await save(page, "First.");
+  await save(page, "Second.");
+  await save(page, "Third.");
+  await expect(items(page)).toHaveCount(3);
+  const before = await saved(page);
+
+  await items(page).nth(1).getByRole("button", { name: "Delete this reading: Reading 2" }).click();
+  const confirm = items(page).nth(1).getByRole("group", { name: "Delete Reading 2?" });
+  await expect(confirm.getByRole("button", { name: "Keep it" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(items(page)).toHaveCount(3);
+  expect(await saved(page)).toEqual(before);
+
+  await items(page).nth(1).getByRole("button", { name: "Delete this reading: Reading 2" }).click();
+  await items(page).nth(1).getByRole("button", { name: "Yes, delete it" }).click();
+  await expect(items(page)).toHaveCount(2);
+  await expect(panel(page).getByRole("status")).toHaveText(/Deleted the reading\. 2 readings left for this post\. Checked: it is no longer saved in this browser\./);
+  const after = await saved(page);
+  expect(after.reflections.map((each) => each.text)).toEqual(["First.", "Third."]);
+  expect(after.reflections[1].revises).toBe(after.reflections[0].id);
+  expect(JSON.stringify(after)).not.toContain("Second.");
+});
+
+test("removing every reading of the post asks first and then empties the view and the store", async ({ page }) => {
+  await open(page);
+  await save(page, "One.");
+  await save(page, "Two.");
+  await panel(page).getByRole("button", { name: "Remove all my readings of this post" }).click();
+  await expect(panel(page).getByRole("button", { name: "Keep them" })).toBeFocused();
+  await panel(page).getByRole("button", { name: "Keep them" }).click();
+  await expect(items(page)).toHaveCount(2);
+  await panel(page).getByRole("button", { name: "Remove all my readings of this post" }).click();
+  await panel(page).getByRole("button", { name: "Yes, remove them all" }).click();
+  await expect(items(page)).toHaveCount(0);
+  await expect(panel(page).getByRole("status")).toHaveText(/Deleted 2 readings\. 0 readings left for this post\. Checked/);
+  expect((await saved(page)).reflections).toEqual([]);
+  await expect(panel(page).getByLabel("Your reading (private)")).toBeFocused();
+});
+
+test("export leaves readings out and counts them, then includes them when asked", async ({ page }) => {
+  await open(page);
+  await save(page, "Private words about tides.");
+  await save(page, "More private words.");
+  const trails = trailsPanel(page);
+  await expect(trails.getByText("Kept in this browser: 0 highlights, 0 notes, 0 saved sources, 0 trails, 2 reflections.")).toBeVisible();
+  await expect(trails.locator("[id$='-export-describe']")).toContainText("2 reflections left out");
+  await trails.getByLabel("Include the text of my notes and source notes").check();
+  await expect(trails.locator("[id$='-export-describe']")).not.toContainText("left out");
+  await trails.getByText("Show exactly what the file contains").click();
+  await expect(trails.getByLabel("The file contents")).toContainText("Private words about tides.");
+});
+
+test("a copy is prepared, previewed and only recorded when the reader says they sent it themselves", async ({ page }) => {
+  const outside = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).origin !== origin) outside.push(request.url());
+  });
+  await open(page);
+  await save(page, "A private view.", "Secret label");
+  const item = items(page).first();
+
+  // Without agreeing to publication nothing is prepared.
+  await prepare(page, item, { consent: false });
+  await expect(item.getByText("Tick the agreement to offer a copy for publication.")).toBeVisible();
+  await expect(item.getByLabel("Exactly what would be sent")).toHaveCount(0);
+
+  const send = item.getByRole("region", { name: /^Send a copy of/ });
+  await send.getByLabel("I agree this reading may be published once a moderator approves it").check();
+  await send.getByRole("button", { name: "Preview the copy" }).click();
+  const preview = send.getByLabel("Exactly what would be sent");
+  await expect(preview).toBeVisible();
+  const text = await preview.inputValue();
+  const copy = JSON.parse(text);
+  expect(copy).toMatchObject({ kind: "third-perspective", work: "/tides/", body: "A private view.", consent: { publish: true } });
+  expect(text).not.toContain("Secret label");
+  expect(text).not.toContain("refl-");
+  // No hosted form on this site: the only send is the reader's own.
+  await expect(send.getByRole("button", { name: "Send for review" })).toHaveCount(0);
+  expect((await saved(page)).reflections[0].submissions).toBeUndefined();
+
+  // Changing anything takes the preview away.
+  await send.getByLabel("Name (optional)").fill("Reader");
+  await expect(send.getByLabel("Exactly what would be sent")).toHaveCount(0);
+  await send.getByRole("button", { name: "Preview the copy" }).click();
+  await send.getByRole("button", { name: "I sent it myself" }).click();
+  await expect(item.getByText("Noted. Your reading here is unchanged and still private.")).toBeVisible();
+  const doc = await saved(page);
+  expect(doc.reflections[0].submissions).toHaveLength(1);
+  expect(doc.reflections[0].submissions[0].channel).toBe("copy-and-send");
+  expect(doc.reflections[0].text).toBe("A private view.");
+  await expect(item).toContainText("1 copy of this reading was sent.");
+  expect(outside).toEqual([]);
+});
+
+test("sending through the site: a failure records nothing, then success keeps the receipt and records the send", async ({ page }) => {
+  let attempts = 0;
+  let body;
+  await page.route(`${HOSTED}/feedback`, async (route) => {
+    attempts += 1;
+    body = route.request().postData();
+    if (attempts === 1) return route.fulfill({ status: 503, contentType: "application/json", body: "{}" });
+    return route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ receipt: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }) });
+  });
+  await open(page);
+  await hostThirdPerspective(page);
+  await save(page, "Send this one.");
+  const item = items(page).first();
+  const send = await prepare(page, item);
+  await send.getByRole("button", { name: "Send for review" }).click();
+  await expect(panel(page).getByRole("status")).toHaveText(/The copy was not sent: the service had a problem\. Your reading is unchanged and nothing is recorded as sent/);
+  expect((await saved(page)).reflections[0].submissions).toBeUndefined();
+
+  await send.getByRole("button", { name: "Send for review" }).click();
+  await expect(item.getByText(/A copy was sent for review\./)).toBeVisible();
+  expect(JSON.parse(body)).toMatchObject({ kind: "third-perspective", body: "Send this one." });
+  const doc = await saved(page);
+  expect(doc.reflections[0].submissions).toHaveLength(1);
+  expect(doc.reflections[0].submissions[0].channel).toBe("hosted");
+  expect(attempts).toBe(2);
+});
+
+test("a label change after sending does not touch the words that were sent", async ({ page }) => {
+  await open(page);
+  await save(page, "Original words.");
+  const item = items(page).first();
+  const send = await prepare(page, item);
+  const sentText = await send.getByLabel("Exactly what would be sent").inputValue();
+  await send.getByRole("button", { name: "I sent it myself" }).click();
+  await item.getByRole("button", { name: "Close" }).click();
+  await item.getByRole("button", { name: /^Add a label to/ }).click();
+  await page.keyboard.type("Renamed");
+  await page.keyboard.press("Enter");
+  await expect(item).toContainText("Renamed");
+  const doc = await saved(page);
+  expect(doc.reflections[0].text).toBe("Original words.");
+  expect(doc.reflections[0].submissions).toHaveLength(1);
+  expect(JSON.parse(sentText).body).toBe("Original words.");
+  await expect(item).toContainText("changing or deleting this reading does not change it");
+});

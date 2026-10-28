@@ -12,7 +12,37 @@
 import { workKey, MAX_NOTE_CHARS, MAX_TITLE_CHARS } from "./reader-annotations.js";
 import { DATA_ELEMENT_ID, readPassages } from "./passage-selection.js";
 import { CHANGED_EVENT, DISABLED_KEY, STORAGE_KEY, isDisabled, readStore, writeStore } from "./reader-annotations-store.js";
-import { addReflection, assessReflections, relabelReflection, reflectionHistories, reflectionsOf, reviseReflection } from "./reader-reflections.js";
+import {
+  addReflection,
+  assessReflections,
+  deleteReflection,
+  deleteWorkReflections,
+  markSubmitted,
+  prepareSubmissionCopy,
+  relabelReflection,
+  reflectionHistories,
+  reflectionsOf,
+  reviseReflection,
+} from "./reader-reflections.js";
+import { MAX_READER_NAME_CHARS, RESPONSE_CATEGORIES, thirdPerspectiveCopyText } from "./third-perspective.js";
+import { isReceipt, receiptPanel } from "./feedback-receipt.js";
+
+const SEND_TIMEOUT = 15000;
+
+/** The site's own hosted function, named by its Third Perspective region: an https address without credentials. */
+function hostedEndpoint() {
+  const region = document.querySelector("ob-third-perspective[receipts][endpoint]");
+  if (!region) return null;
+  try {
+    const url = new URL(region.getAttribute("endpoint"));
+    if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) return null;
+    return url.href.replace(/\/+$/, "");
+  } catch {
+    return null;
+  }
+}
+
+const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
 const STATE_WORDS = Object.freeze({
   current: "The part of the post it was about is where it was.",
@@ -66,6 +96,12 @@ export class ObReflectionHistory extends HTMLElement {
   #labelling = null;
   #focusAfter = null;
   #compare = { earlier: "", later: "" };
+  // Which reading is being deleted ("all" for every reading of this post), and which one a copy is being prepared for.
+  #deleting = null;
+  #sendFor = null;
+  #draft = null;
+  #sent = null;
+  #sending = null;
 
   connectedCallback() {
     if (this.#listeners) return;
@@ -92,6 +128,7 @@ export class ObReflectionHistory extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this.#sending?.abort();
     this.#listeners?.abort();
     this.#listeners = null;
   }
@@ -348,6 +385,7 @@ export class ObReflectionHistory extends HTMLElement {
       ui.body.append(group);
     });
     ui.body.append(this.#comparison(mine, numbers, assessed));
+    ui.body.append(this.#removeAll(mine.length));
     this.#restoreFocus();
   }
 
@@ -400,8 +438,399 @@ export class ObReflectionHistory extends HTMLElement {
       });
       actions.append(edit);
     }
+    this.#controls(record, number, actions);
     item.append(actions);
+    const sent = this.#sentList(record);
+    if (sent) item.append(sent);
+    if (this.#deleting === record.id) item.append(this.#deletePanel(record, number));
+    if (this.#sendFor === record.id) item.append(this.#sendPanel(record, number));
+    else if (this.#sent?.id === record.id) item.append(this.#sentPanel());
     return item;
+  }
+
+  /** The delete and send controls of one reading. */
+  #controls(record, number, actions) {
+    const name = this.#title(record, number);
+    const send = el("button", undefined, "Send a copy for review");
+    send.type = "button";
+    send.dataset.control = "send";
+    send.setAttribute("aria-label", `Send a copy for review: ${name}`);
+    send.setAttribute("aria-expanded", String(this.#sendFor === record.id));
+    send.addEventListener("click", () => {
+      this.#sendFor = this.#sendFor === record.id ? null : record.id;
+      this.#deleting = null;
+      this.#sent = null;
+      this.#draft = { category: "", name: "", publishName: false, publish: false, clarification: false, prepared: null };
+      this.#focusAfter = { id: record.id, control: this.#sendFor ? "send-first" : "send" };
+      this.#render();
+    });
+    const remove = el("button", undefined, "Delete this reading");
+    remove.type = "button";
+    remove.dataset.control = "delete";
+    remove.setAttribute("aria-label", `Delete this reading: ${name}`);
+    remove.addEventListener("click", () => {
+      this.#deleting = record.id;
+      this.#sendFor = null;
+      this.#focusAfter = { id: record.id, control: "delete-no" };
+      this.#render();
+    });
+    actions.append(send, remove);
+  }
+
+  /** What has been sent from this reading. The copy has its own life: nothing here changes it. */
+  #sentList(record) {
+    if (!record.submissions || record.submissions.length === 0) return null;
+    const box = el("div", "ob-reflection-history-sent");
+    box.append(el("p", "ob-reflection-history-meta", `${plural(record.submissions.length, "copy")} of this reading ${record.submissions.length === 1 ? "was" : "were"} sent. Each copy is separate: changing or deleting this reading does not change it. To take a hosted copy back, use the receipt you were given.`));
+    const list = el("ul");
+    for (const each of record.submissions) {
+      list.append(el("li", undefined, `${when(each.at)}, ${each.channel === "hosted" ? "sent for review through this site" : "copied and sent by you"}`));
+    }
+    box.append(list);
+    return box;
+  }
+
+  #deletePanel(record, number) {
+    const box = el("div", "ob-reflection-history-confirm");
+    box.setAttribute("role", "group");
+    box.setAttribute("aria-label", `Delete ${this.#title(record, number)}?`);
+    box.append(el("p", undefined, "Delete this reading from this browser? Its words are removed here and cannot be brought back, unless you exported them. Copies already sent are not affected."));
+    const yes = el("button", undefined, "Yes, delete it");
+    yes.type = "button";
+    const no = el("button", undefined, "Keep it");
+    no.type = "button";
+    no.dataset.control = "delete-no";
+    yes.addEventListener("click", () => this.#delete(record.id));
+    no.addEventListener("click", () => {
+      this.#deleting = null;
+      this.#focusAfter = { id: record.id, control: "delete" };
+      this.#render();
+      this.#say("Nothing was deleted.");
+    });
+    box.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") no.click();
+    });
+    box.append(yes, no);
+    return box;
+  }
+
+  /** Deletion is checked: the saved document is read again and must no longer hold what was deleted. */
+  #verified(ids) {
+    if (this.#persistence !== "saved") return "It is removed for this visit only, because this browser is not saving.";
+    const fresh = readStore(storage);
+    if (fresh.status !== "ok" && fresh.status !== "empty") return "";
+    const gone = fresh.document.reflections.every((each) => !ids.includes(each.id));
+    return gone ? "Checked: it is no longer saved in this browser." : "It could not be confirmed as removed from this browser.";
+  }
+
+  #delete(id) {
+    const ids = id === "all" ? reflectionsOf(this.#document, this.#work).map((each) => each.id) : [id];
+    const result = this.#commit((document) => (id === "all" ? deleteWorkReflections(document, this.#work) : deleteReflection(document, id)));
+    this.#deleting = null;
+    if (!result.ok) {
+      this.#render();
+      this.#say(PROBLEM_WORDS[result.problem.code] ?? "That could not be deleted.");
+      return;
+    }
+    const left = reflectionsOf(this.#document, this.#work).length;
+    this.#compare = { earlier: "", later: "" };
+    if (this.#sendFor && ids.includes(this.#sendFor)) this.#sendFor = null;
+    this.#render();
+    this.#say(`${id === "all" ? `Deleted ${plural(ids.length, "reading")}.` : "Deleted the reading."} ${plural(left, "reading")} left for this post. ${this.#verified(ids)}`);
+    this.#ui.text.focus();
+  }
+
+  #sendPanel(record, number) {
+    const draft = this.#draft;
+    const prefix = `${this.#ui.id}-send-${record.id}`;
+    const box = el("section", "ob-reflection-history-send");
+    box.setAttribute("aria-labelledby", `${prefix}-title`);
+    const title = el("h5", undefined, `Send a copy of ${this.#title(record, number)} for review`);
+    title.id = `${prefix}-title`;
+    box.append(
+      title,
+      el("p", "ob-reflection-history-hint", "This sends a separate copy of this reading's words and where it was written, offered as a Third Perspective. It is not published unless you agree below and a moderator approves that exact text. Your reading here stays private and unchanged, and editing or deleting it later does not change the copy. Your label, history and other readings are never included."),
+    );
+    const field = (labelText, control, key) => {
+      const wrapper = el("div", "ob-reflection-history-field");
+      control.id = `${prefix}-${key}`;
+      const label = el("label", undefined, labelText);
+      label.htmlFor = control.id;
+      wrapper.append(label, control);
+      return wrapper;
+    };
+    const checkbox = (labelText, key, checked) => {
+      const wrapper = el("div", "ob-reflection-history-choice");
+      const input = el("input");
+      input.type = "checkbox";
+      input.id = `${prefix}-${key}`;
+      input.checked = checked;
+      const label = el("label", undefined, labelText);
+      label.htmlFor = input.id;
+      wrapper.append(input, label);
+      return { wrapper, input };
+    };
+    const category = el("select");
+    category.dataset.control = "send-first";
+    const none = el("option", undefined, "No prompt");
+    none.value = "";
+    category.append(none);
+    for (const each of RESPONSE_CATEGORIES) {
+      const option = el("option", undefined, each.label);
+      option.value = each.id;
+      category.append(option);
+    }
+    category.value = draft.category;
+    const name = el("input");
+    name.type = "text";
+    name.maxLength = MAX_READER_NAME_CHARS;
+    name.value = draft.name;
+    const showName = checkbox("Show my name if it is published", "show-name", draft.publishName);
+    const publish = checkbox("I agree this reading may be published once a moderator approves it", "publish", draft.publish);
+    const clarify = checkbox("A moderator may ask me to make it clearer, through my private receipt", "clarify", draft.clarification);
+    const error = el("p", "ob-reflection-history-error");
+    error.id = `${prefix}-error`;
+    error.hidden = true;
+    const preview = el("div", "ob-reflection-history-preview");
+    const actions = el("div", "ob-reflection-history-actions");
+
+    const showError = (message, control) => {
+      error.textContent = message;
+      error.hidden = false;
+      control?.setAttribute("aria-invalid", "true");
+      control?.setAttribute("aria-describedby", error.id);
+      control?.focus();
+    };
+    const clearError = () => {
+      error.hidden = true;
+      for (const input of [name, publish.input]) {
+        input.removeAttribute("aria-invalid");
+        input.removeAttribute("aria-describedby");
+      }
+    };
+    const read = () => {
+      draft.category = category.value;
+      draft.name = name.value;
+      draft.publishName = showName.input.checked;
+      draft.publish = publish.input.checked;
+      draft.clarification = clarify.input.checked;
+    };
+
+    const previewButton = el("button", undefined, "Preview the copy");
+    previewButton.type = "button";
+    previewButton.dataset.control = "preview";
+    const close = el("button", undefined, "Cancel");
+    close.type = "button";
+
+    const drawPreview = () => {
+      preview.replaceChildren();
+      actions.replaceChildren();
+      const prepared = draft.prepared;
+      if (!prepared) {
+        actions.append(previewButton, close);
+        return;
+      }
+      const area = el("textarea");
+      area.readOnly = true;
+      area.rows = 8;
+      area.value = prepared.text;
+      area.id = `${prefix}-preview`;
+      area.spellcheck = false;
+      const label = el("label", undefined, "Exactly what would be sent");
+      label.htmlFor = area.id;
+      preview.append(label, area);
+      const endpoint = hostedEndpoint();
+      if (endpoint) {
+        const sendButton = el("button", undefined, "Send for review");
+        sendButton.type = "button";
+        sendButton.dataset.control = "send-now";
+        sendButton.addEventListener("click", () => this.#post(record, endpoint, sendButton));
+        actions.append(sendButton);
+      } else {
+        preview.append(el("p", "ob-reflection-history-hint", "This site does not take reflections through a form. Copy the text and send it to the author yourself, then say you did."));
+      }
+      const copy = el("button", undefined, "Copy to send myself");
+      copy.type = "button";
+      copy.addEventListener("click", async () => {
+        const text = thirdPerspectiveCopyText(prepared.submission, location.href);
+        try {
+          await globalThis.navigator.clipboard.writeText(text);
+          this.#say("The copy was copied. When you have sent it, choose I sent it myself.");
+        } catch {
+          const fallback = el("textarea");
+          fallback.readOnly = true;
+          fallback.rows = 8;
+          fallback.value = text;
+          fallback.setAttribute("aria-label", "The copy to send");
+          preview.append(fallback);
+          fallback.focus();
+          fallback.select();
+          this.#say("The copy is selected: press Control+C (or Command+C) to copy it.");
+        }
+      });
+      const sentMyself = el("button", undefined, "I sent it myself");
+      sentMyself.type = "button";
+      sentMyself.dataset.control = "sent-myself";
+      sentMyself.addEventListener("click", () => this.#recorded(record.id, "copy-and-send", null));
+      actions.append(copy, sentMyself, close);
+    };
+
+    // Changing anything takes the preview away: only a copy the reader has seen can be sent.
+    const stale = () => {
+      read();
+      draft.prepared = null;
+      clearError();
+      drawPreview();
+    };
+
+    previewButton.addEventListener("click", () => {
+      read();
+      clearError();
+      const trimmed = draft.name.trim();
+      const result = prepareSubmissionCopy(this.#document, record.id, {
+        site: this.#work.site,
+        category: draft.category === "" ? undefined : draft.category,
+        name: trimmed === "" ? undefined : trimmed,
+        publishName: trimmed === "" ? undefined : draft.publishName,
+        consent: draft.publish ? { publish: true, clarification: draft.clarification } : undefined,
+      });
+      if (!result.ok) {
+        if (result.error.code === "publicationConsentRequired") showError("Tick the agreement to offer a copy for publication.", publish.input);
+        else if (result.error.code === "invalidName" || result.error.code === "consentWithoutName") showError("Use plain text of up to 80 characters for your name, or leave it empty.", name);
+        else showError(result.error.message, null);
+        return;
+      }
+      draft.prepared = result;
+      drawPreview();
+      this.#say("The copy is ready to read below. Nothing has been sent.");
+    });
+
+    for (const input of [category, showName.input, publish.input, clarify.input]) {
+      input.addEventListener("change", stale);
+    }
+    name.addEventListener("input", stale);
+    close.addEventListener("click", () => {
+      this.#sendFor = null;
+      this.#draft = null;
+      this.#focusAfter = { id: record.id, control: "send" };
+      this.#render();
+      this.#say("Nothing was sent.");
+    });
+    box.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !this.#sending) close.click();
+    });
+    box.append(
+      field("Prompt (optional)", category, "category"),
+      field("Name (optional)", name, "name"),
+      showName.wrapper,
+      publish.wrapper,
+      clarify.wrapper,
+      error,
+      preview,
+      actions,
+    );
+    drawPreview();
+    return box;
+  }
+
+  async #post(record, endpoint, button) {
+    const prepared = this.#draft?.prepared;
+    if (!prepared || this.#sending) return;
+    if (globalThis.navigator?.onLine === false) {
+      this.#say("You seem to be offline, so nothing was sent. Your reading is unchanged. Try again later, or copy the text and send it yourself.");
+      return;
+    }
+    const controller = new AbortController();
+    this.#sending = controller;
+    const timer = setTimeout(() => controller.abort(), SEND_TIMEOUT);
+    button.setAttribute("aria-disabled", "true");
+    button.textContent = "Sending…";
+    this.#say("Sending the copy…");
+    let outcome;
+    try {
+      const response = await fetch(`${endpoint}/feedback`, {
+        method: "POST",
+        credentials: "omit",
+        headers: { "Content-Type": "application/json" },
+        body: prepared.text,
+        signal: controller.signal,
+      });
+      const result = await response.json().catch(() => ({}));
+      outcome = {
+        status: response.status,
+        code: result && typeof result === "object" ? result.code : undefined,
+        receipt: result && typeof result === "object" && isReceipt(result.receipt) ? result.receipt : undefined,
+      };
+    } catch {
+      outcome = { status: 0 };
+    } finally {
+      clearTimeout(timer);
+      if (this.#sending === controller) this.#sending = null;
+    }
+    if (!this.isConnected) return;
+    if (outcome.status === 202) {
+      const panel = outcome.receipt
+        ? receiptPanel({ endpoint, receipt: outcome.receipt, consent: prepared.submission.consent.clarification, noun: "reflection", feature: { revision: 1, agreed: false } })
+        : null;
+      this.#recorded(record.id, "hosted", panel);
+      return;
+    }
+    button.removeAttribute("aria-disabled");
+    button.textContent = "Send for review";
+    if (outcome.status === 409 && outcome.code === "duplicate") {
+      this.#say("This copy was already sent from here and is waiting for review.");
+      return;
+    }
+    const reason =
+      outcome.status === 0
+        ? "the service did not answer"
+        : outcome.status === 429
+          ? "too many have come from here recently"
+          : outcome.status === 403 && outcome.code === "closed"
+            ? "this work is not taking Third Perspectives now"
+            : outcome.status === 404 || outcome.code === "unavailable"
+              ? "this site is not taking reflections through the form right now"
+              : outcome.status === 413 || outcome.status === 422
+                ? "the service could not accept this text"
+                : "the service had a problem";
+    this.#say(`The copy was not sent: ${reason}. Your reading is unchanged and nothing is recorded as sent. You can try again or copy the text and send it yourself.`);
+  }
+
+  /** Only after a copy really left (or the reader says they sent it) is the send written down on the reading. */
+  #recorded(id, channel, receipt) {
+    const result = this.#commit((document) => markSubmitted(document, id, { channel }));
+    this.#sendFor = null;
+    this.#draft = null;
+    this.#sent = { id, channel, receipt };
+    this.#focusAfter = { id, control: "sent" };
+    this.#render();
+    if (!result.ok) this.#say("The copy was sent, but writing that down here failed.");
+    else this.#say(channel === "hosted" ? "Sent for review. It is published only if a moderator approves it." : `Noted that you sent a copy. ${this.#savedWords()}`);
+  }
+
+  #sentPanel() {
+    const sent = this.#sent;
+    const box = el("div", "ob-reflection-history-sent-now");
+    box.tabIndex = -1;
+    box.dataset.control = "sent";
+    box.append(
+      el(
+        "p",
+        undefined,
+        sent.channel === "hosted"
+          ? `Thank you. A copy was sent for review. It is published only if a moderator approves it, as you chose.${sent.receipt ? " Keep the receipt below: it is shown only once." : ""}`
+          : "Noted. Your reading here is unchanged and still private.",
+      ),
+    );
+    if (sent.receipt) box.append(sent.receipt);
+    const done = el("button", undefined, "Close");
+    done.type = "button";
+    done.addEventListener("click", () => {
+      this.#sent = null;
+      this.#render();
+    });
+    box.append(done);
+    return box;
   }
 
   /** What one reading says, and where it stands against the post now. Shared by the list and the comparison. */
@@ -483,10 +912,51 @@ export class ObReflectionHistory extends HTMLElement {
     return section;
   }
 
+  #removeAll(count) {
+    const box = el("div", "ob-reflection-history-remove");
+    if (this.#deleting === "all") {
+      box.setAttribute("role", "group");
+      box.setAttribute("aria-label", "Remove all readings of this post?");
+      box.append(el("p", undefined, `Remove all ${plural(count, "reading")} of this post from this browser? They cannot be brought back, unless you exported them. Copies already sent are not affected, and readings of other posts stay.`));
+      const yes = el("button", undefined, "Yes, remove them all");
+      yes.type = "button";
+      yes.addEventListener("click", () => this.#delete("all"));
+      const no = el("button", undefined, "Keep them");
+      no.type = "button";
+      no.dataset.control = "remove-no";
+      no.addEventListener("click", () => {
+        this.#deleting = null;
+        this.#focusAfter = { id: "all", control: "remove" };
+        this.#render();
+        this.#say("Nothing was removed.");
+      });
+      box.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") no.click();
+      });
+      box.append(yes, no);
+    } else {
+      const remove = el("button", undefined, "Remove all my readings of this post");
+      remove.type = "button";
+      remove.dataset.control = "remove";
+      remove.addEventListener("click", () => {
+        this.#deleting = "all";
+        this.#sendFor = null;
+        this.#focusAfter = { id: "all", control: "remove-no" };
+        this.#render();
+      });
+      box.append(remove);
+    }
+    return box;
+  }
+
   #restoreFocus() {
     const want = this.#focusAfter;
     this.#focusAfter = null;
     if (!want) return;
+    if (want.id === "all") {
+      this.#ui.body.querySelector(`.ob-reflection-history-remove [data-control="${want.control}"]`)?.focus();
+      return;
+    }
     const item = Array.from(this.#ui.body.querySelectorAll("[data-reflection]")).find((each) => each.dataset.reflection === want.id);
     if (!item) return;
     const control = want.control === "item" ? item : item.querySelector(`[data-control="${want.control}"]`) ?? item.querySelector("button");
