@@ -35,6 +35,12 @@ pub struct ThemeFile {
     /// `spacing`, `pageWidth`, `headingWeight`). Omitted inherits the parent's list; `base` honors all.
     /// A theme with bespoke CSS or scripts lists only the controls its own rules leave alone (ADR 0248).
     pub customizable: Option<Vec<String>>,
+    /// The favicon on pages in this theme, instead of the site's `favicon`, relative to the
+    /// theme directory. Rendered with the page, so no script swaps it after load.
+    pub favicon: Option<String>,
+    /// The header logo on pages in this theme, instead of the site's `logo` (shown only when
+    /// the site has a logo).
+    pub logo: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -115,6 +121,10 @@ pub struct Theme {
     pub customizable: Vec<String>,
     /// The owner's look compiled for this theme (ADR 0248); `None` leaves the theme untouched.
     pub look: Option<CompiledLook>,
+    /// Absolute site URL of the theme's own favicon, if it has one.
+    pub favicon: Option<String>,
+    /// Absolute site URL of the theme's own header logo, if it has one.
+    pub logo: Option<String>,
 }
 
 /// A valid custom element name: lowercase ASCII, starts with a letter, and
@@ -286,6 +296,12 @@ impl ThemeSet {
             }
             for script in &file.scripts {
                 theme.scripts.push(absolutize(&base_url, script));
+            }
+            if let Some(favicon) = &file.favicon {
+                theme.favicon = Some(absolutize(&base_url, favicon));
+            }
+            if let Some(logo) = &file.logo {
+                theme.logo = Some(absolutize(&base_url, logo));
             }
         }
         if theme.label.is_empty() {
@@ -473,6 +489,8 @@ impl Theme {
             },
             "stylesheets": self.stylesheets,
             "scripts": self.scripts,
+            "favicon": self.favicon,
+            "logo": self.logo,
         })
         .to_string()
     }
