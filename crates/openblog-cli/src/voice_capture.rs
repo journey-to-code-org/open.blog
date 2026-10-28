@@ -181,21 +181,36 @@ pub fn capture_in_editor(
             return Err(format!("Cannot start the editor `{editor}`: {error}"));
         }
     };
+    let deadline_at = SystemTime::UNIX_EPOCH + Duration::from_secs(deadline_unix.max(0) as u64);
+    let saved_late = |stamp: Option<SystemTime>| stamp.is_some_and(|at| at >= deadline_at);
     let mut seen = modified(path);
+    // The last text accepted before the deadline.
+    let mut accepted = text_below_marker(file_content, header);
     let result = loop {
         if now_unix() >= deadline_unix {
-            let text = read_lossy(path).map(|c| text_below_marker(&c, header));
+            let text = if saved_late(modified(path)) {
+                accepted.clone()
+            } else {
+                read_lossy(path)
+                    .map(|c| text_below_marker(&c, header))
+                    .unwrap_or_default()
+            };
             kill_tree(&mut child);
             break Ok(Captured {
-                text: text.unwrap_or_default(),
+                text,
                 ended: Ended::Deadline,
             });
         }
         match child.try_wait() {
             Ok(Some(status)) => {
-                let text = read_lossy(path)
-                    .map(|c| text_below_marker(&c, header))
-                    .unwrap_or_default();
+                let late = saved_late(modified(path));
+                let text = if late {
+                    accepted.clone()
+                } else {
+                    read_lossy(path)
+                        .map(|c| text_below_marker(&c, header))
+                        .unwrap_or_default()
+                };
                 if !status.success() && now_unix() < deadline_unix {
                     progress(&text);
                     break Err(format!(
@@ -203,7 +218,7 @@ pub fn capture_in_editor(
                     ));
                 }
                 // A window that closed after the deadline does not extend it.
-                let ended = if now_unix() >= deadline_unix {
+                let ended = if late || now_unix() >= deadline_unix {
                     Ended::Deadline
                 } else {
                     Ended::Finished
@@ -211,13 +226,19 @@ pub fn capture_in_editor(
                 break Ok(Captured { text, ended });
             }
             Ok(None) => {}
-            Err(error) => break Err(format!("Lost track of the editor: {error}")),
+            Err(error) => {
+                kill_tree(&mut child);
+                break Err(format!("Lost track of the editor: {error}"));
+            }
         }
         let stamp = modified(path);
         if stamp != seen {
             seen = stamp;
-            if let Some(content) = read_lossy(path) {
-                progress(&text_below_marker(&content, header));
+            if !saved_late(stamp) {
+                if let Some(content) = read_lossy(path) {
+                    accepted = text_below_marker(&content, header);
+                    progress(&accepted);
+                }
             }
         }
         std::thread::sleep(Duration::from_millis(100));

@@ -266,3 +266,56 @@ fn the_deadline_stops_the_whole_editor_so_a_later_save_never_lands() {
     );
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// An editor that saves once in time and once after the deadline. The clock runs two seconds
+/// behind, so the program has not yet noticed the deadline when the late save arrives.
+fn late_save(tail_seconds: u32) -> (Captured, PathBuf) {
+    let dir = scratch(&format!("late{tail_seconds}"));
+    let editor = script(
+        &dir,
+        "late",
+        &format!(
+            "printf 'in time\n' >> \"$1\"\nsleep 3\nprintf 'too late\n' >> \"$1\"\nsleep {tail_seconds}"
+        ),
+        &format!(
+            "echo in time>> \"%~1\"\r\nping -n 4 127.0.0.1 >nul\r\necho too late>> \"%~1\"\r\nping -n {} 127.0.0.1 >nul",
+            tail_seconds + 1
+        ),
+    );
+    let header = "# header\n";
+    let file = dir.join("draft.md");
+    let deadline = now() + 2;
+    let behind = || now() - 2;
+    let mut accepted = Vec::new();
+    let captured = capture_in_editor(
+        &editor,
+        &file,
+        header,
+        &format!("{header}{MARKER}\n"),
+        deadline,
+        &behind,
+        &mut |t| accepted.push(t.to_string()),
+    )
+    .unwrap();
+    assert!(
+        accepted.iter().all(|t| !t.contains("too late")),
+        "{accepted:?}"
+    );
+    (captured, dir)
+}
+
+#[test]
+fn text_saved_after_the_deadline_is_not_captured_when_the_editor_closes() {
+    let (captured, dir) = late_save(0);
+    assert_eq!(captured.ended, Ended::Deadline);
+    assert_eq!(captured.text, "in time");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn text_saved_after_the_deadline_is_not_captured_when_the_editor_stays_open() {
+    let (captured, dir) = late_save(8);
+    assert_eq!(captured.ended, Ended::Deadline);
+    assert_eq!(captured.text, "in time");
+    let _ = std::fs::remove_dir_all(dir);
+}
