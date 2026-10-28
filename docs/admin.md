@@ -231,8 +231,8 @@ selecting one uses the saved Markdown snapshot and never silently contacts the U
 Voice samples are the author's own writing, captured so Assistant tools can learn how you sound
 (see [ADR 0266](adr/0266-voice-samples-are-assistant-context-and-a-rough-draft-is-immutable.md)).
 They are Assistant context, not posts: they are never published, built into the site, added to a
-feed, or exported. The foundation (files, storage and prompt catalog) ships first; the commands
-and Admin screens that write them follow.
+feed, or exported. From the terminal, [`openblog voice`](#write-a-voice-sample-from-the-terminal)
+writes them; the Admin screen follows.
 
 | What | Portable | Private |
 | --- | --- | --- |
@@ -252,6 +252,38 @@ and Admin screens that write them follow.
   already uses is rejected.
 - A project that has never written a sample has none of these folders, and its builds are
   identical to before.
+
+### Write a voice sample from the terminal
+
+`openblog voice` is a three-minute writing session. It draws three prompts, you pick one, you write,
+and the clock locks your **rough draft** exactly as typed (typos included). `openblog init` offers one
+session when you run it at a terminal; answer anything but `y` to skip, or pass `--no-voice`. Scripts
+and pipes are never asked.
+
+```text
+openblog voice                     # draw three prompts: pick 1-3, r to draw again, q to quit
+openblog voice a-mistake-i-made    # skip the draw
+openblog voice --list              # packs, how many you have answered, and each prompt's stage
+openblog voice --resume            # carry on with an interrupted session (deadline unchanged)
+openblog voice --scrap --yes       # give up the open session and save nothing
+```
+
+- **Where you write.** If `$VISUAL` or `$EDITOR` is set, your editor opens a file with the prompt and a
+  marker line; only the text below the marker is saved. Otherwise (or with `--stdin`) you type in the
+  terminal and finish with a line holding only `.`, or Ctrl-D. The deadline time is shown first.
+- **The clock.** The deadline is stored when the session starts. Text written after it is not saved, and
+  if you come back after it the saved text is locked. An empty draft saves nothing.
+- **Options.** `--portable` keeps the sample beside shared Assistant context (the default is private),
+  and `--seconds <n>` sets the window (30 to 3600, default 180).
+- **Refine a copy.** `openblog voice polish <sample>` opens a copy of the rough draft in your editor and
+  saves it as the **polished draft** (`--title`, `--slug`, `--description` and `--tags a,b` set its
+  details). Run it again to edit the polished draft. The rough file never changes; `openblog voice diff
+  <sample>` shows what you changed.
+- **Make a post.** `openblog voice promote <sample>` creates a post draft (`draft: true`) in
+  `content/posts/` from the polished draft, refuses a slug a post already uses, and leaves your samples
+  alone. `--dir posts/2026` picks a folder inside `posts`.
+
+`<sample>` is a file name from `voice --list` or a prompt id. Output is plain text.
 
 ### Write visually or in Markdown
 

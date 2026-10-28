@@ -844,3 +844,112 @@ fn a_portable_export_never_carries_a_voice_sample() {
     let text = fs::read_to_string(&out).unwrap();
     assert!(!text.contains(marker), "the export leaks a sample");
 }
+
+// ---- promotion to a post draft -----------------------------------------------------------
+
+fn site_project() -> Project {
+    let project = Project::with_session("a-mistake-i-made");
+    crate::scaffold::init(&project.0, Some("T"), false).unwrap();
+    project
+}
+
+fn with_polished(project: &Project, vis: Visibility) {
+    write_rough(&project.0, vis, &rough("so i delted the foldr")).unwrap();
+    write_polished(&project.0, vis, &polished("So I deleted the folder."), None).unwrap();
+}
+
+fn tree_bytes(project: &Project, dir: &str) -> Vec<(String, Vec<u8>)> {
+    let mut out: Vec<(String, Vec<u8>)> = fsutil::walk(&project.0.join(dir))
+        .into_iter()
+        .map(|p| (p.display().to_string(), fs::read(&p).unwrap()))
+        .collect();
+    out.sort();
+    out
+}
+
+#[test]
+fn promoting_a_polished_draft_creates_a_valid_post_draft_and_leaves_the_samples_alone() {
+    for vis in [Visibility::Private, Visibility::Portable] {
+        let project = site_project();
+        with_polished(&project, vis);
+        let before = tree_bytes(&project, vis.directory());
+        let created = promote_to_post_draft(&project.0, vis, POLISHED, None).unwrap();
+        assert_eq!(
+            created.to_str().unwrap(),
+            "content/posts/2026-10-28-a-mistake-i-made.md"
+        );
+        let text = fs::read_to_string(project.0.join(&created)).unwrap();
+        assert!(
+            text.contains("draft: \"true\"") && text.contains("So I deleted the folder."),
+            "{text}"
+        );
+        assert!(!text.contains("voice"), "{text}");
+        assert_eq!(tree_bytes(&project, vis.directory()), before);
+        // The ordinary loader accepts it; as a draft it is held back from a normal build.
+        let (site, _) = crate::site::load_site(&project.0, true, None).unwrap();
+        assert!(site
+            .posts
+            .iter()
+            .any(|p| p.slug == "a-mistake-i-made" && p.draft));
+    }
+}
+
+#[test]
+fn promotion_refuses_a_rough_draft_and_writes_nothing() {
+    let project = site_project();
+    with_polished(&project, Visibility::Private);
+    let error = promote_to_post_draft(&project.0, Visibility::Private, ROUGH, None).unwrap_err();
+    assert!(
+        error.to_string().contains("Polish this rough draft first"),
+        "{error}"
+    );
+    assert!(!project
+        .0
+        .join("content/posts/2026-10-28-a-mistake-i-made.md")
+        .exists());
+}
+
+#[test]
+fn promotion_refuses_a_taken_slug_even_a_draft_with_a_different_file_name() {
+    let project = site_project();
+    with_polished(&project, Visibility::Private);
+    fs::write(
+        project.0.join("content/posts/2020-01-01-old.md"),
+        "---\ntitle: Old\nslug: a-mistake-i-made\ndate: 2020-01-01\ndraft: true\n---\n\nBody.\n",
+    )
+    .unwrap();
+    let error = promote_to_post_draft(&project.0, Visibility::Private, POLISHED, None).unwrap_err();
+    assert!(error.to_string().contains("a-mistake-i-made"), "{error}");
+    assert!(!project
+        .0
+        .join("content/posts/2026-10-28-a-mistake-i-made.md")
+        .exists());
+}
+
+#[test]
+fn promotion_never_replaces_a_file_and_keeps_to_the_posts_folder() {
+    let project = site_project();
+    with_polished(&project, Visibility::Private);
+    promote_to_post_draft(
+        &project.0,
+        Visibility::Private,
+        POLISHED,
+        Some("posts/2026"),
+    )
+    .unwrap();
+    let again = promote_to_post_draft(&project.0, Visibility::Private, POLISHED, None).unwrap_err();
+    assert!(again.to_string().contains("already exists"), "{again}");
+    for bad in [
+        "../outside",
+        "pages",
+        "posts/../pages",
+        "/abs",
+        "posts\\x",
+        "posts/_hidden",
+        "",
+    ] {
+        let error = promote_to_post_draft(&project.0, Visibility::Private, POLISHED, Some(bad))
+            .unwrap_err();
+        assert!(error.to_string().contains("posts"), "{bad}: {error}");
+    }
+}

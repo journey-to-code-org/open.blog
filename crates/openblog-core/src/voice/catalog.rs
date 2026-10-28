@@ -181,6 +181,9 @@ impl Catalog {
     }
 }
 
+/// Ids a site prompt cannot use: `openblog voice <id>` would run the subcommand instead.
+pub const RESERVED_PROMPT_IDS: [&str; 3] = ["polish", "diff", "promote"];
+
 fn split(source: &str) -> Result<(frontmatter::FrontMatter, String, usize), String> {
     if source.len() > MAX_CATALOG_BYTES {
         return Err(format!(
@@ -307,6 +310,11 @@ fn parse_sections(body: &str, first_line: usize, site: bool) -> Result<Vec<Pack>
                 finish_prompt(done, current, site)?;
             }
             let (id, title) = heading(rest, line, "prompt")?;
+            if site && RESERVED_PROMPT_IDS.contains(&id.as_str()) {
+                return Err(format!(
+                    "Line {line}: the prompt id `{id}` is reserved because `openblog voice {id}` is a subcommand. Choose a different id."
+                ));
+            }
             if !prompt_ids.insert(id.clone()) {
                 return Err(format!("Line {line}: the prompt id `{id}` is used twice."));
             }

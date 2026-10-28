@@ -12,8 +12,6 @@
 //! function in this module rewrites a rough file. Moving it copies the bytes unchanged and checks
 //! them; erasing it is the author's act. Nothing here creates a folder until a sample is written,
 //! so a project without samples is untouched.
-// The Admin, CLI and Assistant layers of the voice-samples family call this API.
-#![allow(dead_code)]
 
 use std::fmt;
 use std::fs;
@@ -555,6 +553,8 @@ fn replace(path: &Path, bytes: &[u8]) -> Result<()> {
 }
 
 /// The names of the sample and, if it has one, its polished or rough partner that exist.
+// Used by the Admin voice screen, not by the CLI.
+#[allow(dead_code)]
 fn pair(root: &Path, visibility: Visibility, file: &str) -> Result<(String, Option<String>)> {
     check_file_name(file)?;
     let path = path_of(root, visibility, file)?;
@@ -584,6 +584,8 @@ fn pair(root: &Path, visibility: Visibility, file: &str) -> Result<(String, Opti
 }
 
 /// Remove one original after its copy was verified. A test can make a named file fail here.
+// Used by the Admin voice screen, not by the CLI.
+#[allow(dead_code)]
 fn remove_source(path: &Path) -> std::io::Result<()> {
     #[cfg(test)]
     {
@@ -608,6 +610,8 @@ thread_local! {
 /// a byte-identical copy there counts as already moved, so an interrupted move can be repeated.
 /// The polished original is removed first and the rough original last; once any original is gone
 /// no copy is ever deleted, and a failure reports that the move is partly done.
+// Used by the Admin voice screen, not by the CLI.
+#[allow(dead_code)]
 pub fn move_visibility(
     root: &Path,
     from: Visibility,
@@ -681,6 +685,8 @@ pub fn move_visibility(
 
 /// Erase a sample. Erasing a rough draft that has a polished draft is refused unless
 /// `with_polished` says to erase both; erasing a polished draft leaves the rough draft.
+// Used by the Admin voice screen, not by the CLI.
+#[allow(dead_code)]
 pub fn erase(
     root: &Path,
     visibility: Visibility,
@@ -708,6 +714,96 @@ pub fn erase(
             .map_err(|error| failed("Cannot erase the sample", error))?;
     }
     Ok(names)
+}
+
+/// The slugs the posts under the content folder already use, drafts included, worked out the
+/// way a site load does: the `slug` front matter field, else the file name without its date.
+fn post_slugs(root: &Path, config: &openblog_core::SiteConfig) -> Result<Vec<String>> {
+    let sources = crate::site::read_sources(root, config).map_err(StoreError::Failed)?;
+    Ok(sources
+        .posts
+        .iter()
+        .map(|file| {
+            let from_field = openblog_core::frontmatter::parse(&file.contents)
+                .ok()
+                .and_then(|doc| {
+                    doc.front_matter
+                        .get("slug")
+                        .map(openblog_core::slug::slugify)
+                });
+            from_field.unwrap_or_else(|| {
+                let name = file.path.rsplit('/').next().unwrap_or(&file.path);
+                let stem = name.rsplit_once('.').map_or(name, |(stem, _)| stem);
+                openblog_core::slug::from_file_stem(stem)
+            })
+        })
+        .collect())
+}
+
+/// Make a post draft from a polished sample: the one promotion path for the CLI and Admin.
+///
+/// `file` names a sample in `visibility`'s folder. It must be a valid polished draft (a rough
+/// draft is refused, since the author's rough words are never what gets published). `dir` is an
+/// optional folder inside the content folder's `posts/` folder; the default is `posts`. The post is
+/// created once, as `draft: true`, without replacing anything, and it is checked with the
+/// ordinary post parser before it is written. A slug already used by a post, or a file that
+/// already exists, is refused and nothing is written. The sample is never touched. Returns the
+/// new file's path relative to the project root, with `/` separators.
+///
+/// The caller holds the content transaction lock (`transaction::ContentTransactionLock`), as
+/// every other content write does.
+pub fn promote_to_post_draft(
+    root: &Path,
+    visibility: Visibility,
+    file: &str,
+    dir: Option<&str>,
+) -> Result<PathBuf> {
+    let folder = dir.map_or("posts", str::trim).trim_matches('/');
+    let folder_ok = !folder.is_empty()
+        && !folder.contains('\\')
+        && folder
+            .split('/')
+            .all(|part| !part.is_empty() && part != "." && part != ".." && !part.starts_with('_'))
+        && (folder == "posts" || folder.starts_with("posts/"));
+    if !folder_ok {
+        return refused("The folder must be `posts` or a folder inside it, such as `posts/2026`.");
+    }
+    let loaded = read(root, visibility, file)?;
+    let Some(sample) = loaded.sample else {
+        return refused(format!(
+            "That sample cannot be used: {}",
+            loaded.listed.guidance.unwrap_or_default()
+        ));
+    };
+    let config = crate::site::load_config(root).map_err(StoreError::Refused)?;
+    let slugs = post_slugs(root, &config)?;
+    let slug_refs: Vec<&str> = slugs.iter().map(String::as_str).collect();
+    let draft = sample
+        .to_post_draft(&slug_refs)
+        .map_err(StoreError::Refused)?;
+
+    let relative = format!("{}/{}/{}", config.paths.content, folder, draft.file_name);
+    // The post loads with the ordinary parser before anything is written.
+    let in_content = format!("{folder}/{}", draft.file_name);
+    openblog_core::model::load_post(
+        &openblog_core::SourceFile {
+            path: in_content,
+            contents: draft.markdown.clone(),
+        },
+        &config,
+        openblog_core::markdown::RenderOptions::default(),
+    )
+    .map_err(|error| StoreError::Refused(format!("The post draft is not valid: {error}")))?;
+
+    let target = contained_target(root, Path::new(&relative))
+        .map_err(|error| StoreError::Refused(format!("{error}.")))?;
+    if target.exists() {
+        return refused(format!(
+            "{relative} already exists. Nothing was written; choose a different slug first."
+        ));
+    }
+    fsutil::write_new_atomic(&target, draft.markdown.as_bytes()).map_err(StoreError::Failed)?;
+    Ok(PathBuf::from(relative))
 }
 
 /// The prompt catalog for this site: the bundled one plus `assistant/voice/catalog.md` if the
