@@ -709,6 +709,19 @@ fn an_erase_with_nothing_to_remove_still_cleans_stale_trash() {
 const PRIVATE_VOICE_DIR_FOR_TESTS: &str = ".openblog/private/voice";
 
 #[test]
+fn a_post_check_that_cannot_run_says_the_files_were_erased() {
+    let project = full_project();
+    FAIL_CHECK.with(|f| f.set(true));
+    let error = erase_all(&project.0).unwrap_err();
+    FAIL_CHECK.with(|f| f.set(false));
+    let text = error.to_string();
+    assert!(text.contains("erased, but the check"), "{text}");
+    assert!(!text.contains("Nothing was erased"), "{text}");
+    let left: Vec<String> = snapshot(&project.0).into_keys().collect();
+    assert_eq!(left, ["assistant/context/author.md"], "{left:?}");
+}
+
+#[test]
 fn the_post_check_reports_what_it_could_not_remove() {
     let project = full_project();
     // A folder inside a sample folder is never touched, so the folder and it remain.

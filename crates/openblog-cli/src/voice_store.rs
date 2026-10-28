@@ -888,6 +888,7 @@ fn stage_for_erase(from: &Path, to: &Path) -> std::io::Result<()> {
 
 #[cfg(test)]
 thread_local! {
+    static FAIL_CHECK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static FAIL_ERASE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
 }
 
@@ -983,15 +984,36 @@ pub fn erase_all(root: &Path) -> Result<EraseReport> {
         }
     }
     drop(lock);
-    // The post-check: look again, from scratch.
+    // The post-check: look again, from scratch. The files are already gone, so if the check itself
+    // cannot run that is said plainly and is not reported as a failed erase.
+    let remaining = match post_check(root, &trash_relative) {
+        Ok(remaining) => remaining,
+        Err(error) => {
+            return Err(StoreError::Failed(format!(
+                "The voice files were erased, but the check afterwards could not run: {error}. Run erase again to check."
+            )));
+        }
+    };
+    Ok(EraseReport {
+        erased: plan,
+        remaining,
+    })
+}
+
+/// What still exists after an erase. Errors only when the check could not look.
+fn post_check(root: &Path, trash_relative: &str) -> Result<Vec<String>> {
+    #[cfg(test)]
+    if FAIL_CHECK.with(|f| f.get()) {
+        return Err(StoreError::Failed("injected check failure".into()));
+    }
     let mut remaining: Vec<String> = collect(root)?.into_iter().map(|item| item.path).collect();
     for name in file_names(&contained(root, PRIVATE_VOICE_DIR)?) {
         if name.starts_with(TRASH_PREFIX) {
             remaining.push(format!("{PRIVATE_VOICE_DIR}/{name}"));
         }
     }
-    if contained(root, &trash_relative).is_ok_and(|path| path.exists()) {
-        remaining.push(trash_relative);
+    if contained(root, trash_relative).is_ok_and(|path| path.exists()) {
+        remaining.push(trash_relative.to_string());
     }
     for visibility in [Visibility::Portable, Visibility::Private] {
         let directory = directory_of(root, visibility)?;
@@ -1001,10 +1023,7 @@ pub fn erase_all(root: &Path) -> Result<EraseReport> {
     }
     remaining.sort();
     remaining.dedup();
-    Ok(EraseReport {
-        erased: plan,
-        remaining,
-    })
+    Ok(remaining)
 }
 
 /// The slugs the posts under the content folder already use, drafts included, worked out the
