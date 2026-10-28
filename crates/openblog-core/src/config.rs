@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::contributor::{self, Contributor};
+use crate::look::LookSettings;
 use crate::participation::ParticipationConfig;
 use crate::reading_depth::ReadingMode;
 
@@ -32,6 +33,10 @@ pub struct SiteConfig {
     pub theme: String,
     /// Override the theme's light/dark button. None follows each page's theme.
     pub color_scheme_toggle: Option<bool>,
+    /// The owner's look: typed presets compiled into allowlisted tokens (ADR 0360). Absent means the
+    /// theme as it is.
+    #[serde(skip_serializing_if = "LookSettings::is_default")]
+    pub appearance: LookSettings,
     /// URL pattern for posts. `{slug}` is replaced. `/{slug}/` keeps Hashnode-style URLs.
     pub post_path: String,
     /// Posts per listing page. `0` disables pagination.
@@ -501,6 +506,7 @@ impl Default for SiteConfig {
             og_image: String::new(),
             theme: "base".to_string(),
             color_scheme_toggle: None,
+            appearance: LookSettings::default(),
             post_path: "/posts/{slug}/".to_string(),
             posts_per_page: 10,
             nav: vec![
@@ -1226,6 +1232,22 @@ fn is_feedback_contact(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn appearance_is_validated_with_the_config_and_absent_by_default() {
+        let plain = SiteConfig::from_json("{}").unwrap();
+        assert!(plain.appearance.is_default());
+        assert!(!plain.to_json().contains("appearance"));
+        let set =
+            SiteConfig::from_json(r##"{"appearance":{"version":1,"accent":"#ABCDEF"}}"##).unwrap();
+        assert_eq!(set.appearance.accent.as_deref(), Some("#abcdef"));
+        assert!(set.to_json().contains("\"accent\": \"#abcdef\""));
+        let bad = SiteConfig::from_json(r##"{"appearance":{"accent":"red;}"}}"##).unwrap_err();
+        assert!(
+            bad.contains("invalid openblog.json") && bad.contains("accent"),
+            "{bad}"
+        );
+    }
 
     #[test]
     fn base_path_comes_from_the_url_and_prefixes_root_links() {

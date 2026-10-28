@@ -71,7 +71,8 @@ body {
   background: var(--ob-color-page);
   color: var(--ob-color-text);
   font-family: var(--ob-font-body);
-  font-size: var(--ob-body-size);
+  /* --ob-text-scale is 1 unless the owner picked a text size (ADR 0360). */
+  font-size: calc(var(--ob-body-size) * var(--ob-text-scale, 1));
   line-height: var(--ob-body-leading);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -259,12 +260,12 @@ samp {
 
 h1.ob-title {
   margin: 0.5rem 0 1rem;
-  font-size: var(--ob-title-size);
+  font-size: calc(var(--ob-title-size) * var(--ob-text-scale, 1));
 }
 
 h2.ob-title {
   margin: 0.5rem 0 1rem;
-  font-size: var(--ob-section-title-size);
+  font-size: calc(var(--ob-section-title-size) * var(--ob-text-scale, 1));
 }
 
 .ob-heading {
@@ -347,7 +348,7 @@ h2.ob-title {
 .ob-row-title {
   margin: 0;
   font-family: var(--ob-font-heading);
-  font-size: var(--ob-row-title-size);
+  font-size: calc(var(--ob-row-title-size) * var(--ob-text-scale, 1));
   font-weight: var(--ob-heading-weight);
   line-height: 1.4;
   overflow-wrap: anywhere;

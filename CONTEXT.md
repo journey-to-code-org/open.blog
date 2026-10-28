@@ -2365,3 +2365,23 @@ _Avoid_: Belief profile, reading log
 A line on a reflection snapshot saying the reader sent a copy, when and by which channel. It is not the
 copy, not a receipt, and not a sign the snapshot is public (ADR 0244).
 _Avoid_: Receipt, publication status
+
+## Site look
+
+**Look**:
+The owner's choices for how the site feels: an accent color, a curated palette, a font style, a text
+size, roundness, spacing, page width and heading weight. Every choice is a closed option or a strict
+hex color, stored versioned under `appearance` in `openblog.json`, and compiled only into allowlisted
+`--ob-*` tokens. No look means the theme as it is (ADR 0360).
+_Avoid_: Custom CSS, theme editor, skin
+
+**Look control**:
+One of the eight choices a look holds. A theme lists the ones it honors in `customizable`; Admin shows
+only those and says kindly why the rest are missing (ADR 0360).
+_Avoid_: Setting, style option
+
+**Curated look**:
+A named, ready-made combination of palette and font style (Calm, Warm, Bold, Night, Garden, Paper,
+Ocean, Sunset), pre-checked for readable contrast in light and dark. It is data, not a theme: applying
+one fills in the look, and resetting returns exactly to the theme default (ADR 0360).
+_Avoid_: Theme, template, preset theme
