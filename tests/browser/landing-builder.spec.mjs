@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 
-// The Landing page builder in Admin (ADR 0353, #316), from the real binary and the real Admin
+// The Landing page builder in Admin (ADR 0249, #316), from the real binary and the real Admin
 // Studio: add, edit, reorder (buttons and keyboard), hide, delete and undo, inline validation in
 // plain words, and no field anywhere that takes HTML or CSS.
 
@@ -283,7 +283,7 @@ test("a featured post is chosen from the published posts by name", async ({ page
   expect(stored().sections.at(-1)).toMatchObject({ type: "featured-post", post: "one" });
 });
 
-// ----- the live preview (ADR 0354, #327)
+// ----- the live preview (ADR 0250, #327)
 
 const preview = (page) => page.frameLocator("[data-landing-frame]");
 const watchRequests = (page) => {
@@ -438,7 +438,7 @@ test.describe("preview as a full-screen sheet on a phone", () => {
   });
 });
 
-// ----- phone-first layout, touch targets and the persistent action bar (ADR 0355, #328)
+// ----- phone-first layout, touch targets and the persistent action bar (ADR 0251, #328)
 
 const LONG = "an_extraordinarily_long_unbroken_word_that_must_wrap_instead_of_overflowing_a_small_screen_at_all_even_at_320";
 const EVERY_TYPE = () => [
@@ -756,7 +756,7 @@ test("Publish stops and keeps the build error when the saved page does not build
 });
 
 
-// ----- never lose work: local drafts, the leave guard and conflict recovery (ADR 0356, #329)
+// ----- never lose work: local drafts, the leave guard and conflict recovery (ADR 0252, #329)
 
 const DRAFT_KEY = "ob-landing-draft:writer";
 const draftOf = (page) => page.evaluate((key) => JSON.parse(localStorage.getItem(key) || "null"), DRAFT_KEY);

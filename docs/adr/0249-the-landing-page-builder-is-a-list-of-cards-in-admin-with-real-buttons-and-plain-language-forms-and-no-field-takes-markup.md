@@ -1,4 +1,4 @@
-# ADR 0353: The landing page builder is a list of cards in Admin with real buttons and plain-language forms, and no field takes markup
+# ADR 0249: The landing page builder is a list of cards in Admin with real buttons and plain-language forms, and no field takes markup
 
 - Status: Accepted
 - Date: 2026-10-28

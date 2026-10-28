@@ -9556,7 +9556,7 @@ class Api {
   }
 }
 
-// Landing page builder (ADR 0353, #326). The form for one section is built from the section type's
+// Landing page builder (ADR 0249, #326). The form for one section is built from the section type's
 // field specs (web/admin/landing.js): every field is a labelled, typed input, and there is no field
 // for markup or styling. `ctx` carries `idBase`, `posts`, `changed()`, `showProblems()` and a
 // `fields` registry the section uses to show problems.
@@ -9680,7 +9680,7 @@ function landingIsObject(value) {
 }
 
 /**
- * The preview frame (ADR 0354, #327): Phone, Tablet and Desktop views of a page the server built, in
+ * The preview frame (ADR 0250, #327): Phone, Tablet and Desktop views of a page the server built, in
  * a sandboxed frame with no scripts, scaled to fit the space it has. It only shows what it is
  * given; it never saves or publishes. The Customize look screen reuses it.
  */
@@ -12266,7 +12266,7 @@ export class ObAdmin extends AdminElement {
     this.viewBusy = () => busy;
   }
 
-  // ---- landing page (ADR 0353, #326)
+  // ---- landing page (ADR 0249, #326)
 
   /**
    * `#/landing`: the owner's home page as a list of cards. Sections are added from a picker,
@@ -12798,7 +12798,7 @@ export class ObAdmin extends AdminElement {
       }
     };
 
-    // ----- preview (ADR 0354): the home page as the server would build it from these unsaved sections
+    // ----- preview (ADR 0250): the home page as the server would build it from these unsaved sections
     const frame = previewFrame();
     const wide = () => globalThis.matchMedia?.("(min-width: 64rem)").matches ?? false;
     let previewOpen = false;
@@ -12923,7 +12923,7 @@ export class ObAdmin extends AdminElement {
     );
     mountedView = this.viewVersion;
 
-    // ----- phone comfort (ADR 0355): the bar rides above the on-screen keyboard and never covers
+    // ----- phone comfort (ADR 0251): the bar rides above the on-screen keyboard and never covers
     // the field being edited.
     const bar = this.querySelector("[data-landing-bar]");
     const viewport = globalThis.visualViewport;

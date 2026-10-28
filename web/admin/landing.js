@@ -1,4 +1,4 @@
-// The Landing page builder's model (ADR 0353, #326). Plain data and pure functions with no DOM, so
+// The Landing page builder's model (ADR 0249, #326). Plain data and pure functions with no DOM, so
 // the rules can be tested without a browser. The server owns every rule and the canonical form
 // (ADR 0245, ADR 0246); nothing here decides what is saved, it only keeps the owner from sending
 // what the server is sure to refuse, and says why in plain words. There is deliberately no field
@@ -511,7 +511,7 @@ export function landingErrorText(error) {
   return error?.message || "That did not work. Check your connection and try again.";
 }
 
-// ---------------------------------------------------------------- preview sizes (ADR 0354, #327)
+// ---------------------------------------------------------------- preview sizes (ADR 0250, #327)
 
 /** The three sizes of the preview. Widths are what a visitor's screen is; the frame is scaled down to fit. */
 export const PREVIEW_SIZES = Object.freeze([
@@ -537,7 +537,7 @@ export function previewLeftOutText(count) {
   return count === 1 ? "1 section needs attention and is left out of this preview." : `${count} sections need attention and are left out of this preview.`;
 }
 
-// ---------------------------------------------------------------- never losing work (ADR 0356, #329)
+// ---------------------------------------------------------------- never losing work (ADR 0252, #329)
 
 const DRAFT_VERSION = 1;
 const memoryDrafts = new Map();

@@ -187,7 +187,7 @@ pub(super) fn save(state: &AppState, req: &Request) -> Response {
 }
 
 /// `POST landing/preview`: the home page as it would be built from the sections in the request,
-/// which are not saved (ADR 0354). The page is checked as a save would check it, built in memory
+/// which are not saved (ADR 0250). The page is checked as a save would check it, built in memory
 /// with the same code as the production build, and kept as a short-lived preview document; no file
 /// is written and nothing is published.
 pub(super) fn preview(state: &AppState, req: &Request) -> Response {

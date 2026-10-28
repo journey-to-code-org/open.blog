@@ -1,11 +1,11 @@
-# ADR 0354: The landing preview is the production home page built in memory from unsaved sections, in a script-free sandboxed frame
+# ADR 0250: The landing preview is the production home page built in memory from unsaved sections, in a script-free sandboxed frame
 
 - Status: Accepted
 - Date: 2026-10-28
 - Decision issue: [#327](https://github.com/journey-to-code-org/open.blog/issues/327)
 - Parent story: [#316](https://github.com/journey-to-code-org/open.blog/issues/316)
 - Parent epic: [#314](https://github.com/journey-to-code-org/open.blog/issues/314)
-- Builds on: ADR 0247, ADR 0353
+- Builds on: ADR 0247, ADR 0249
 - Serves: the Customize look screen (LB8.7), which reuses the frame
 
 ## Context

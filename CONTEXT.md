@@ -1039,20 +1039,20 @@ _Avoid_: Widget, block, embed, custom HTML
 The Admin view at `#/landing` where an owner changes the landing page without code: sections are cards with
 Edit, Move up, Move down, Hide or Show and Delete buttons, added from a picker that describes each type in
 plain words, and edited in a plain form. Nothing is written until Save, a deletion can be undone, and no field
-takes HTML or CSS (ADR 0353).
+takes HTML or CSS (ADR 0249).
 _Avoid_: Page editor, theme editor, drag-and-drop designer
 
 **Landing preview**:
 The home page as the build would make it from the sections in the builder, saved or not, shown in a
 script-free sandboxed frame in Phone, Tablet and Desktop sizes. It is built in memory by the production
-renderer and never writes, saves or publishes (ADR 0354).
+renderer and never writes, saves or publishes (ADR 0250).
 _Avoid_: Draft site, staging page, live edit
 
 **Landing draft**:
 The unsaved landing page changes the builder keeps on the owner's device (or in memory for the visit when the
 device will not keep them), with the revision they were based on. It is offered back as "Restore your unsaved
 changes", never applied unasked, and cleared by a save. A save that finds a newer stored page is a choice
-between Keep mine, Use the newer version and Compare, never an overwrite (ADR 0356).
+between Keep mine, Use the newer version and Compare, never an overwrite (ADR 0252).
 _Avoid_: Autosave, backup, sync
 
 **Reading path**:

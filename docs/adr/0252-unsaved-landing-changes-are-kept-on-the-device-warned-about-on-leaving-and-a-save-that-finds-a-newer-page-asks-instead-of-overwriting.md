@@ -1,11 +1,11 @@
-# ADR 0356: Unsaved landing changes are kept on the device and warned about on leaving, and a save that finds a newer page asks instead of overwriting
+# ADR 0252: Unsaved landing changes are kept on the device and warned about on leaving, and a save that finds a newer page asks instead of overwriting
 
 - Status: Accepted
 - Date: 2026-10-28
 - Decision issue: [#329](https://github.com/journey-to-code-org/open.blog/issues/329)
 - Parent story: [#316](https://github.com/journey-to-code-org/open.blog/issues/316)
 - Parent epic: [#314](https://github.com/journey-to-code-org/open.blog/issues/314)
-- Builds on: ADR 0246, ADR 0353
+- Builds on: ADR 0246, ADR 0249
 
 ## Context
 

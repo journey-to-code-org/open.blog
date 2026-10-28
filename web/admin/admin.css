@@ -227,7 +227,7 @@ kbd {
   transform: translateY(-1px);
 }
 
-/* The landing page builder (ADR 0355) turns the button lift and every transition off under reduced
+/* The landing page builder (ADR 0251) turns the button lift and every transition off under reduced
    motion. It sits here, beside the rule it overrides, rather than with the builder's other styles. */
 @media (prefers-reduced-motion: reduce) {
   .oba-landing .oba-btn,
@@ -4452,7 +4452,7 @@ a.oba-btn-primary {
   box-sizing: border-box;
 }
 
-/* Landing page builder (ADR 0353, #326). One column from 320px; every control is a real button or
+/* Landing page builder (ADR 0249, #326). One column from 320px; every control is a real button or
    input at least 44px tall; state is always said in words, never by colour alone. */
 .oba-landing {
   min-width: 0;
@@ -4704,7 +4704,7 @@ a.oba-btn-primary {
   gap: 0.5rem 0.75rem;
 }
 
-/* Landing page preview (ADR 0354, #327). On a phone it opens as a full-screen sheet with Back; on a
+/* Landing page preview (ADR 0250, #327). On a phone it opens as a full-screen sheet with Back; on a
    wide screen it sits beside the builder. The frame is shown at the visitor's width and scaled to
    fit, so it never makes the page scroll sideways. */
 .oba-landing-layout {
@@ -4814,7 +4814,7 @@ a.oba-btn-primary {
   }
 }
 
-/* Landing page builder on a phone (ADR 0355, #328). One column from 320px, the Preview, Save and
+/* Landing page builder on a phone (ADR 0251, #328). One column from 320px, the Preview, Save and
    Publish bar stays at the bottom of the screen (and above the on-screen keyboard), controls are
    at least 44px, nothing depends on hover, and text can grow to 400% without sideways scrolling. */
 .oba-landing,

@@ -927,7 +927,7 @@ pub fn generate_document(
 }
 
 /// Render the first page of the home page through the same shell as [`generate`], without any
-/// other page. Admin uses it to preview the landing page from unsaved sections (ADR 0354).
+/// other page. Admin uses it to preview the landing page from unsaved sections (ADR 0250).
 pub fn generate_home(site: &Site, themes: &ThemeSet) -> Result<OutputFile, String> {
     validate_output_paths(site)?;
     let resolved = resolve_themes(site, themes)?;

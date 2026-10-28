@@ -1,11 +1,11 @@
-# ADR 0355: The landing builder is one column from 320px, with a Preview, Save and Publish bar that stays reachable above the keyboard and never covers the field
+# ADR 0251: The landing builder is one column from 320px, with a Preview, Save and Publish bar that stays reachable above the keyboard and never covers the field
 
 - Status: Accepted
 - Date: 2026-10-28
 - Decision issue: [#328](https://github.com/journey-to-code-org/open.blog/issues/328)
 - Parent story: [#316](https://github.com/journey-to-code-org/open.blog/issues/316)
 - Parent epic: [#314](https://github.com/journey-to-code-org/open.blog/issues/314)
-- Builds on: ADR 0353, ADR 0354
+- Builds on: ADR 0249, ADR 0250
 - Serves: [#329](https://github.com/journey-to-code-org/open.blog/issues/329)
 
 ## Context
@@ -38,7 +38,7 @@ Save button that scrolls away, or a bar that hides the field being typed in woul
   not valid), then commits and pushes as the header's Publish does. It is off, with the reason in words, when
   the site is not a git repository. Nothing is published by Save or by Preview.
 - **Side by side on a wide screen.** From 64rem the preview is open beside the builder from the start, and
-  "Hide preview" and "Preview" toggle it; below that it is the full-screen sheet of ADR 0354.
+  "Hide preview" and "Preview" toggle it; below that it is the full-screen sheet of ADR 0250.
 - **Reduced motion.** Under `prefers-reduced-motion: reduce` the builder's buttons, picker tiles and fields
   have no transition, transform or animation (the Admin buttons otherwise lift on hover).
 - **One editor open at a time.** On a phone one open form at a time keeps the page short; the others stay as
