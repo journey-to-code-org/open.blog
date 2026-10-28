@@ -132,3 +132,17 @@ fn the_catalog_version_is_the_bundled_one_for_stamping() {
     assert_eq!(site("").unwrap().version, 1);
     assert_eq!(site("---\nversion: 99\n---\n").unwrap().version, 1);
 }
+
+#[test]
+fn subcommand_names_are_reserved_prompt_ids_for_site_catalogs() {
+    for id in RESERVED_PROMPT_IDS {
+        let source = format!(
+            "---\nversion: 1\nrule: x\n---\n## mine: Mine\n### {id}: Reserved\nwords: 1-2\nx\n"
+        );
+        let error = site(&source).unwrap_err();
+        assert!(error.contains("reserved") && error.contains(id), "{error}");
+    }
+    // A longer id that merely starts with a subcommand name is fine.
+    let ok = "---\nversion: 1\nrule: x\n---\n## mine: Mine\n### polish-it: Fine\nwords: 1-2\nx\n";
+    assert!(site(ok).is_ok());
+}
