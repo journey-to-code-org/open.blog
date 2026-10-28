@@ -119,7 +119,7 @@ fn starting_checks_the_prompt_the_window_and_the_surface() {
 fn resuming_before_the_deadline_returns_the_remaining_time_and_the_draft() {
     let project = Project::new();
     begin(&project, "a-mistake-i-made", Visibility::Private);
-    save_draft(&project.0, "so i delted", at(50)).unwrap();
+    save_draft(&project.0, None, "so i delted", at(50)).unwrap();
     match resume(&project.0, &catalog(), at(100)).unwrap() {
         Resume::Active {
             session,
@@ -148,6 +148,7 @@ fn resuming_after_the_deadline_locks_the_rough_draft_from_the_saved_text() {
     begin(&project, "a-mistake-i-made", Visibility::Private);
     save_draft(
         &project.0,
+        None,
         "so i delted the wrong foldr\r\nand  panicked",
         at(170),
     )
@@ -178,7 +179,7 @@ fn resuming_after_the_deadline_locks_the_rough_draft_from_the_saved_text() {
 fn an_expired_session_with_nothing_written_is_discarded() {
     let project = Project::new();
     begin(&project, "a-mistake-i-made", Visibility::Private);
-    save_draft(&project.0, "   \n ", at(10)).unwrap();
+    save_draft(&project.0, None, "   \n ", at(10)).unwrap();
     assert_eq!(
         resume(&project.0, &catalog(), at(999)).unwrap(),
         Resume::Discarded {
@@ -197,13 +198,13 @@ fn an_expired_session_with_nothing_written_is_discarded() {
 fn saving_stops_at_the_deadline_and_only_the_final_lock_has_a_grace() {
     let project = Project::new();
     begin(&project, "a-mistake-i-made", Visibility::Private);
-    save_draft(&project.0, "one", at(100)).unwrap();
-    assert!(save_draft(&project.0, "two", at(179)).is_ok());
-    let error = save_draft(&project.0, "three", at(180)).unwrap_err();
+    save_draft(&project.0, None, "one", at(100)).unwrap();
+    assert!(save_draft(&project.0, None, "two", at(179)).is_ok());
+    let error = save_draft(&project.0, None, "three", at(180)).unwrap_err();
     assert!(error.to_string().contains("Time is up"), "{error}");
-    assert!(save_draft(&project.0, "four", at(180 + LOCK_GRACE_SECONDS)).is_err());
-    assert!(save_draft(&project.0, &"x".repeat(MAX_DRAFT_BYTES + 1), at(1)).is_err());
-    assert!(save_draft(&project.0, "a\0b", at(1)).is_err());
+    assert!(save_draft(&project.0, None, "four", at(180 + LOCK_GRACE_SECONDS)).is_err());
+    assert!(save_draft(&project.0, None, &"x".repeat(MAX_DRAFT_BYTES + 1), at(1)).is_err());
+    assert!(save_draft(&project.0, None, "a\0b", at(1)).is_err());
     match status(&project.0, at(1)).unwrap() {
         Status::Active { session, .. } => assert_eq!(session.draft, "two"),
         other => panic!("{other:?}"),
@@ -211,6 +212,7 @@ fn saving_stops_at_the_deadline_and_only_the_final_lock_has_a_grace() {
     // The lock still takes the final text within the grace.
     let locked = lock(
         &project.0,
+        None,
         &catalog(),
         Some("final"),
         None,
@@ -228,7 +230,7 @@ fn a_record_whose_deadline_exceeds_its_window_is_not_trusted() {
     let stretched = text.replace(&at(180).rfc3339(), &at(100_000).rfc3339());
     assert_ne!(text, stretched);
     fs::write(record(&project), &stretched).unwrap();
-    let error = save_draft(&project.0, "more", at(5)).unwrap_err();
+    let error = save_draft(&project.0, None, "more", at(5)).unwrap_err();
     assert!(error.to_string().contains("damaged"), "{error}");
     assert_eq!(fs::read_to_string(record(&project)).unwrap(), stretched);
 }
@@ -249,8 +251,8 @@ fn the_session_record_is_kept_out_of_git_even_for_a_portable_session() {
 fn a_lone_carriage_return_becomes_a_line_feed_so_the_lock_can_succeed() {
     let project = Project::new();
     begin(&project, "a-mistake-i-made", Visibility::Private);
-    save_draft(&project.0, "one\rtwo\r\nthree", at(5)).unwrap();
-    let locked = lock(&project.0, &catalog(), Some("a\rb"), None, at(10)).unwrap();
+    save_draft(&project.0, None, "one\rtwo\r\nthree", at(5)).unwrap();
+    let locked = lock(&project.0, None, &catalog(), Some("a\rb"), None, at(10)).unwrap();
     let loaded = voice_store::read(&project.0, Visibility::Private, &locked.written.file).unwrap();
     assert_eq!(loaded.sample.unwrap().body, "a\nb");
 }
@@ -259,9 +261,10 @@ fn a_lone_carriage_return_becomes_a_line_feed_so_the_lock_can_succeed() {
 fn locking_uses_the_final_text_in_time_and_the_saved_text_when_late() {
     let project = Project::new();
     begin(&project, "a-mistake-i-made", Visibility::Portable);
-    save_draft(&project.0, "saved text", at(100)).unwrap();
+    save_draft(&project.0, None, "saved text", at(100)).unwrap();
     let locked = lock(
         &project.0,
+        None,
         &catalog(),
         Some("final text on screen"),
         None,
@@ -278,9 +281,10 @@ fn locking_uses_the_final_text_in_time_and_the_saved_text_when_late() {
 
     let project = Project::new();
     begin(&project, "a-turning-point", Visibility::Private);
-    save_draft(&project.0, "saved text", at(100)).unwrap();
+    save_draft(&project.0, None, "saved text", at(100)).unwrap();
     let locked = lock(
         &project.0,
+        None,
         &catalog(),
         Some("late text"),
         Some(Visibility::Portable),
@@ -298,7 +302,7 @@ fn locking_uses_the_final_text_in_time_and_the_saved_text_when_late() {
 fn the_record_is_removed_on_lock_and_on_scrap_and_nothing_is_written_by_a_scrap() {
     let project = Project::new();
     begin(&project, "a-mistake-i-made", Visibility::Private);
-    save_draft(&project.0, "words", at(5)).unwrap();
+    save_draft(&project.0, None, "words", at(5)).unwrap();
     scrap(&project.0).unwrap();
     assert!(!record(&project).exists());
     assert!(voice_store::list(&project.0).is_empty());
@@ -306,11 +310,11 @@ fn the_record_is_removed_on_lock_and_on_scrap_and_nothing_is_written_by_a_scrap(
     scrap(&project.0).unwrap();
 
     begin(&project, "a-mistake-i-made", Visibility::Private);
-    lock(&project.0, &catalog(), Some("words"), None, at(20)).unwrap();
+    lock(&project.0, None, &catalog(), Some("words"), None, at(20)).unwrap();
     assert!(!record(&project).exists());
     // Locking nothing is refused and keeps the session so the author can write or scrap it.
     begin(&project, "a-turning-point", Visibility::Private);
-    let error = lock(&project.0, &catalog(), Some("  "), None, at(30)).unwrap_err();
+    let error = lock(&project.0, None, &catalog(), Some("  "), None, at(30)).unwrap_err();
     assert!(error.to_string().contains("Nothing was written"), "{error}");
     assert!(record(&project).exists());
 }
@@ -319,7 +323,7 @@ fn the_record_is_removed_on_lock_and_on_scrap_and_nothing_is_written_by_a_scrap(
 fn a_prompt_cannot_be_started_twice_on_the_same_day() {
     let project = Project::new();
     begin(&project, "a-mistake-i-made", Visibility::Private);
-    lock(&project.0, &catalog(), Some("words"), None, at(20)).unwrap();
+    lock(&project.0, None, &catalog(), Some("words"), None, at(20)).unwrap();
     let error = start(
         &project.0,
         &catalog(),
@@ -353,12 +357,12 @@ fn a_prompt_cannot_be_started_twice_on_the_same_day() {
 fn a_repeated_lock_after_a_crash_is_harmless() {
     let project = Project::new();
     begin(&project, "a-mistake-i-made", Visibility::Private);
-    save_draft(&project.0, "my words", at(10)).unwrap();
+    save_draft(&project.0, None, "my words", at(10)).unwrap();
     let saved = fs::read(record(&project)).unwrap();
-    lock(&project.0, &catalog(), None, None, at(20)).unwrap();
+    lock(&project.0, None, &catalog(), None, None, at(20)).unwrap();
     // The process died after writing the rough draft but before removing the record.
     fs::write(record(&project), &saved).unwrap();
-    let again = lock(&project.0, &catalog(), None, None, at(25)).unwrap();
+    let again = lock(&project.0, None, &catalog(), None, None, at(25)).unwrap();
     assert!(!again.written.created);
     assert!(!record(&project).exists());
     assert_eq!(voice_store::list(&project.0).len(), 1);
@@ -368,7 +372,7 @@ fn a_repeated_lock_after_a_crash_is_harmless() {
 fn writes_go_through_a_temporary_file_and_a_crash_leaves_the_old_record_readable() {
     let project = Project::new();
     begin(&project, "a-mistake-i-made", Visibility::Private);
-    save_draft(&project.0, "first", at(5)).unwrap();
+    save_draft(&project.0, None, "first", at(5)).unwrap();
     let directory = project.0.join(".openblog/private/voice");
     // A crash during a write leaves, at worst, a temporary file; the record is untouched.
     fs::write(
@@ -380,7 +384,7 @@ fn writes_go_through_a_temporary_file_and_a_crash_leaves_the_old_record_readable
         Status::Active { session, .. } => assert_eq!(session.draft, "first"),
         other => panic!("{other:?}"),
     }
-    save_draft(&project.0, "second", at(7)).unwrap();
+    save_draft(&project.0, None, "second", at(7)).unwrap();
     // A normal write leaves no temporary file of its own behind.
     let leftovers: Vec<String> = fs::read_dir(&directory)
         .unwrap()
@@ -399,7 +403,7 @@ fn a_damaged_record_is_reported_and_can_be_scrapped_but_a_newer_one_is_never_rem
     fs::write(record(&project), "{ not json").unwrap();
     let error = status(&project.0, at(1)).unwrap_err();
     assert!(error.to_string().contains("damaged"), "{error}");
-    assert!(save_draft(&project.0, "x", at(1)).is_err());
+    assert!(save_draft(&project.0, None, "x", at(1)).is_err());
     scrap(&project.0).unwrap();
     assert!(!record(&project).exists());
 
@@ -423,4 +427,31 @@ fn a_session_never_starts_or_touches_anything_before_it_is_asked_to() {
         Resume::NoSession
     );
     assert!(fs::read_dir(&project.0).unwrap().next().is_none());
+}
+
+#[test]
+fn a_save_or_lock_naming_another_session_is_refused_under_the_store_lock() {
+    let project = Project::new();
+    begin(&project, "a-mistake-i-made", Visibility::Private);
+    let open = match status(&project.0, at(1)).unwrap() {
+        Status::Active { session, .. } => session,
+        other => panic!("{other:?}"),
+    };
+    let error = save_draft(&project.0, Some("old@2020"), "x", at(2)).unwrap_err();
+    assert!(error.to_string().contains("earlier session"), "{error}");
+    let error = lock(
+        &project.0,
+        Some("old@2020"),
+        &catalog(),
+        Some("x"),
+        None,
+        at(3),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("earlier session"), "{error}");
+    assert!(record(&project).exists());
+    let id = open.id();
+    save_draft(&project.0, Some(&id), "mine", at(4)).unwrap();
+    lock(&project.0, Some(&id), &catalog(), None, None, at(5)).unwrap();
+    assert!(!record(&project).exists());
 }

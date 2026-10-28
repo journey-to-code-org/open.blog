@@ -11,6 +11,7 @@ import {
   createAnnouncer,
   createCountdown,
   createVoiceDraftStore,
+  copyIsPastGrace,
   expiredPlan,
   formatClock,
   libraryHash,
@@ -95,7 +96,8 @@ export function createVoiceSession({ api, user = "", params = new URLSearchParam
       if (local) {
         const standing = await api.call("GET", "voice/status");
         if (mine !== generation) return;
-        if (expiredPlan(standing.session, local).useDevice) {
+        if (!standing.session?.open && copyIsPastGrace(local)) drafts.clear();
+        else if (expiredPlan(standing.session, local).useDevice) {
           try {
             const reply = await api.call("POST", "voice/session/lock", { json: { sessionId: standing.session.sessionId, text: local.text } });
             if (mine !== generation) return;

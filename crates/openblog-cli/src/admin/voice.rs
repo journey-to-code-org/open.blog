@@ -233,7 +233,7 @@ fn session_json(catalog: &Catalog, session: &voice_session::Session, remaining: 
 /// A session is named by when it began and what it is for, so a draft from an earlier session
 /// can never be saved into a later one.
 fn session_id(session: &voice_session::Session) -> String {
-    format!("{}@{}", session.prompt_id, session.started_at)
+    session.id()
 }
 
 // ---------------------------------------------------------------------------
@@ -393,6 +393,10 @@ pub(super) fn get_session(state: &AppState) -> Response {
         Ok(Resume::Discarded { prompt_id }) => {
             Response::json(200, &json!({ "state": "discarded", "promptId": prompt_id }))
         }
+        // Another tab locked it between the check and the lock: nothing is open now.
+        Err(StoreError::Refused(message)) if message == voice_session::NO_SESSION_TO_LOCK => {
+            Response::json(200, &json!({ "state": "none" }))
+        }
         Err(error) => store_error(state, error),
     }
 }
@@ -452,7 +456,7 @@ pub(super) fn start(state: &AppState, req: &Request) -> Response {
 }
 
 /// Check that the page is talking about the session that is open.
-fn same_session(state: &AppState, body: &Json) -> Result<(), Response> {
+fn same_session<'a>(state: &AppState, body: &'a Json) -> Result<&'a str, Response> {
     let wanted = match &body["sessionId"] {
         Json::String(id) => id.as_str(),
         _ => return Err(Response::error(400, "Name the session as `sessionId`")),
@@ -467,7 +471,7 @@ fn same_session(state: &AppState, body: &Json) -> Result<(), Response> {
         )),
         Ok(Status::Active { session, .. } | Status::Expired { session }) => {
             if session_id(&session) == wanted {
-                Ok(())
+                Ok(wanted)
             } else {
                 Err(Response::json(
                     409,
@@ -496,9 +500,10 @@ pub(super) fn save_draft(state: &AppState, req: &Request) -> Response {
     if text.len() > voice_session::MAX_DRAFT_BYTES {
         return Response::error(413, "That draft is longer than a sample can hold");
     }
-    if let Err(response) = same_session(state, &body) {
-        return response;
-    }
+    let wanted = match same_session(state, &body) {
+        Ok(wanted) => wanted,
+        Err(response) => return response,
+    };
     let now = clock::now();
     if let Ok(Status::Expired { .. }) = voice_session::status(&state.root, now) {
         return Response::json(
@@ -509,7 +514,7 @@ pub(super) fn save_draft(state: &AppState, req: &Request) -> Response {
             }),
         );
     }
-    match voice_session::save_draft(&state.root, text, now) {
+    match voice_session::save_draft(&state.root, Some(wanted), text, now) {
         Ok(Status::Active {
             remaining_seconds, ..
         }) => Response::json(
@@ -519,6 +524,9 @@ pub(super) fn save_draft(state: &AppState, req: &Request) -> Response {
         Ok(_) => Response::error(500, "The session changed while saving"),
         Err(StoreError::Refused(message)) if message.starts_with("Time is up") => {
             Response::json(409, &json!({ "error": message, "timeUp": true }))
+        }
+        Err(StoreError::Refused(message)) if message == voice_session::OTHER_SESSION => {
+            Response::json(409, &json!({ "error": message, "otherSession": true }))
         }
         Err(error) => store_error(state, error),
     }
@@ -547,12 +555,14 @@ pub(super) fn lock_session(state: &AppState, req: &Request) -> Response {
         Ok(visibility) => visibility,
         Err(response) => return response,
     };
-    if let Err(response) = same_session(state, &body) {
-        return response;
-    }
+    let wanted = match same_session(state, &body) {
+        Ok(wanted) => wanted,
+        Err(response) => return response,
+    };
     let catalog = catalog_of(state);
     match voice_session::lock(
         &state.root,
+        Some(wanted),
         &catalog,
         text.as_deref(),
         visibility,
@@ -561,6 +571,9 @@ pub(super) fn lock_session(state: &AppState, req: &Request) -> Response {
         Ok(locked) => Response::json(200, &locked_json(state, &catalog, &locked)),
         Err(StoreError::Refused(message)) if message.starts_with("Nothing was written") => {
             Response::json(409, &json!({ "error": message, "empty": true }))
+        }
+        Err(StoreError::Refused(message)) if message == voice_session::OTHER_SESSION => {
+            Response::json(409, &json!({ "error": message, "otherSession": true }))
         }
         Err(error) => store_error(state, error),
     }

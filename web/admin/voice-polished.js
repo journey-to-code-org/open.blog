@@ -19,26 +19,34 @@ let uid = 0;
 export function keepBarReachable(bar, isCurrent) {
   if (!bar) return () => {};
   const viewport = globalThis.visualViewport;
-  const settle = () => {
-    if (!isCurrent()) return;
+  let observer = null;
+  const stop = () => {
+    observer?.disconnect?.();
+    observer = null;
+    globalThis.removeEventListener?.("resize", settle);
+    viewport?.removeEventListener("resize", lift);
+    viewport?.removeEventListener("scroll", lift);
+  };
+  function settle() {
+    if (!isCurrent()) return stop();
     const height = bar.getBoundingClientRect?.().height ?? 0;
     bar.classList?.toggle?.("oba-voice-bar-static", height > globalThis.innerHeight * 0.4);
-  };
-  const lift = () => {
-    if (!isCurrent()) {
-      viewport?.removeEventListener("resize", lift);
-      viewport?.removeEventListener("scroll", lift);
-      return;
-    }
+  }
+  function lift() {
+    if (!isCurrent()) return stop();
     if (!viewport) return;
     const covered = Math.max(0, Math.round(globalThis.innerHeight - viewport.height - viewport.offsetTop));
     bar.style.transform = covered ? `translateY(-${covered}px)` : "";
-  };
-  if (typeof ResizeObserver !== "undefined") new ResizeObserver(settle).observe(bar);
+  }
+  if (typeof ResizeObserver !== "undefined") {
+    observer = new ResizeObserver(settle);
+    observer.observe(bar);
+  }
   globalThis.addEventListener?.("resize", settle);
   viewport?.addEventListener("resize", lift);
   viewport?.addEventListener("scroll", lift);
   settle();
+  settle.stop = stop;
   return settle;
 }
 

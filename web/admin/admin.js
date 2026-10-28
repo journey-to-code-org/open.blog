@@ -10,7 +10,7 @@ import { buildHistory } from "./landing-history.js";
 import { pasteNotice, pasteToMarkdown } from "./paste.js";
 import { buildVoiceInvitation, createVoiceLibrary } from "./voice-library.js";
 import { createVoiceSession } from "./voice-session.js";
-import { invitationVisible } from "./voice.js";
+import { clearVoiceCopies, invitationVisible } from "./voice.js";
 import {
   LIMITS as LANDING_LIMITS,
   PREVIEW_SIZES,
@@ -11111,6 +11111,7 @@ export class ObAdmin extends AdminElement {
    * signed in. Signing in again as that user returns to them; anyone else discards them.
    */
   showSessionEnded(message = "Your session ended. Sign in again.") {
+    clearVoiceCopies();
     const key = workspacePanelKey(this.currentHash);
     if (key && key !== "overview" && this.hasUnsavedView() && !this.isSavingView()) this.keepCurrentView(key);
     this.keptOwner = this.kept.size ? this.user : "";
@@ -11213,6 +11214,7 @@ export class ObAdmin extends AdminElement {
             // Already signed out is fine.
           }
           this.api.csrf = "";
+          clearVoiceCopies();
           this.showLogin();
         },
       },

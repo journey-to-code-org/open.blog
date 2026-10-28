@@ -174,15 +174,21 @@ export function createVoiceDraftStore(key, storage = () => globalThis.localStora
     get inMemoryOnly() {
       return blocked;
     },
-    load() {
+    load(now = Date.now()) {
+      let found = null;
       try {
         const text = storage()?.getItem(key);
         const record = text ? JSON.parse(text) : null;
-        if (valid(record)) return record;
+        if (valid(record)) found = record;
       } catch {
         blocked = true;
       }
-      return memory.get(key) || null;
+      found = found || memory.get(key) || null;
+      if (found && stale(found, ROUGH_COPY_TTL_MS, now)) {
+        this.clear();
+        return null;
+      }
+      return found;
     },
     /** Keep `text` for the session. A draft over the limit is not kept (the server would refuse it too). */
     save({ sessionId, deadline, text }, now = Date.now()) {
@@ -236,6 +242,12 @@ export function expiredPlan(session, local) {
   return { useDevice: keptInTime && longer && local.text.trim() !== "" };
 }
 
+/** Whether a kept rough copy's session is over for good (its deadline plus the server's grace is past). */
+export function copyIsPastGrace(local, now = Date.now()) {
+  const deadline = Date.parse(local?.deadline);
+  return Number.isFinite(deadline) && now > deadline + VOICE_LIMITS.graceSeconds * 1000;
+}
+
 // ---------------------------------------------------------------- polished drafts
 
 /** Whether the polished editor differs from the state that was saved (or pre-filled), so the guard asks. */
@@ -244,6 +256,29 @@ export function polishedDirty(current, baseline) {
 }
 
 const POLISHED_VERSION = 1;
+
+/** How long a copy of private text may stay on this device (a rough draft one day, a polished one 30 days). */
+export const ROUGH_COPY_TTL_MS = 24 * 60 * 60 * 1000;
+export const POLISHED_COPY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const stale = (record, ttl, now) => !Number.isFinite(record.savedAt) || now - record.savedAt > ttl;
+
+/** Remove every voice copy on this device (sign-out, ended session). Never throws. */
+export function clearVoiceCopies(storage = () => globalThis.localStorage) {
+  try {
+    const store = storage();
+    if (!store) return;
+    const keys = [];
+    for (let i = 0; i < store.length; i += 1) keys.push(store.key(i));
+    for (const key of keys) {
+      if (typeof key === "string" && (key.startsWith("ob-voice-draft:") || key.startsWith("ob-voice-polished:"))) store.removeItem(key);
+    }
+  } catch {
+    // Blocked storage holds nothing to clear.
+  }
+  for (const key of [...memory.keys()]) {
+    if (key.startsWith("ob-voice-draft:") || key.startsWith("ob-voice-polished:")) memory.delete(key);
+  }
+}
 
 /** The copy of unsaved polished edits, one record per rough draft. */
 export function createPolishedDraftStore(key, storage = () => globalThis.localStorage) {
@@ -254,15 +289,21 @@ export function createPolishedDraftStore(key, storage = () => globalThis.localSt
     get inMemoryOnly() {
       return blocked;
     },
-    load() {
+    load(now = Date.now()) {
+      let found = null;
       try {
         const text = storage()?.getItem(key);
         const record = text ? JSON.parse(text) : null;
-        if (valid(record)) return record;
+        if (valid(record)) found = record;
       } catch {
         blocked = true;
       }
-      return memory.get(key) || null;
+      found = found || memory.get(key) || null;
+      if (found && stale(found, POLISHED_COPY_TTL_MS, now)) {
+        this.clear();
+        return null;
+      }
+      return found;
     },
     save({ base, title, body }, now = Date.now()) {
       if (byteLength(body) > VOICE_LIMITS.maxDraftBytes) return false;

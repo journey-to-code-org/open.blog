@@ -61,6 +61,11 @@ pub struct Session {
 }
 
 impl Session {
+    /// The id the pages name a session by.
+    pub fn id(&self) -> String {
+        format!("{}@{}", self.prompt_id, self.started_at)
+    }
+
     fn deadline_unix(&self) -> i64 {
         DateTime::parse(&self.deadline).map_or(0, DateTime::unix)
     }
@@ -158,6 +163,20 @@ impl From<StoreError> for StartError {
 }
 
 type Result<T> = std::result::Result<T, StoreError>;
+
+/// Refuse when the caller named a session and it is not the one that is open.
+fn check_id(session: &Session, expected: Option<&str>) -> Result<()> {
+    match expected {
+        Some(id) if id != session.id() => refused(OTHER_SESSION),
+        _ => Ok(()),
+    }
+}
+
+/// The message for a draft that belongs to an earlier session.
+/// The message for a lock with no session open (another tab already locked it).
+pub const NO_SESSION_TO_LOCK: &str = "There is no open writing session to lock.";
+
+pub const OTHER_SESSION: &str = "That draft belongs to an earlier session, so it was not saved.";
 
 fn refused<T>(message: impl Into<String>) -> Result<T> {
     Err(StoreError::Refused(message.into()))
@@ -372,7 +391,12 @@ pub fn start(
 }
 
 /// Save the text so far. Refused from the deadline on: the saved text is what will be locked.
-pub fn save_draft(root: &Path, text: &str, now: DateTime) -> Result<Status> {
+pub fn save_draft(
+    root: &Path,
+    expected_id: Option<&str>,
+    text: &str,
+    now: DateTime,
+) -> Result<Status> {
     let text = normalized(text);
     if text.len() > MAX_DRAFT_BYTES {
         return refused(format!(
@@ -387,6 +411,7 @@ pub fn save_draft(root: &Path, text: &str, now: DateTime) -> Result<Status> {
     let Some(mut session) = read(root)? else {
         return refused("There is no open writing session.");
     };
+    check_id(&session, expected_id)?;
     // No grace here: new text is never taken after the deadline. The grace is for `lock` only.
     if now.unix() >= session.deadline_unix() {
         return refused("Time is up. The draft will be locked from what was saved last.");
@@ -407,14 +432,21 @@ pub fn save_draft(root: &Path, text: &str, now: DateTime) -> Result<Status> {
 /// session said to keep it.
 pub fn lock(
     root: &Path,
+    expected_id: Option<&str>,
     catalog: &Catalog,
     final_text: Option<&str>,
     visibility: Option<Visibility>,
     now: DateTime,
 ) -> Result<Locked> {
-    let session = match read(root)? {
-        Some(session) => session,
-        None => return refused("There is no open writing session to lock."),
+    let session = {
+        let _lock = voice_store::lock(root)?;
+        match read(root)? {
+            Some(session) => {
+                check_id(&session, expected_id)?;
+                session
+            }
+            None => return refused(NO_SESSION_TO_LOCK),
+        }
     };
     let late = now.unix() > session.deadline_unix() + LOCK_GRACE_SECONDS;
     let text = match final_text {
@@ -455,7 +487,10 @@ pub fn lock(
     let written =
         voice_store::write_rough(root, visibility.unwrap_or(session.visibility), &sample)?;
     let _lock = voice_store::lock(root)?;
-    remove(root)?;
+    // Only the session that was locked is removed: a scrap and a new start in between leave the new one alone.
+    if read(root)?.is_some_and(|open| open.id() == session.id()) {
+        remove(root)?;
+    }
     Ok(Locked {
         written,
         expired: session.expired(now),
@@ -495,7 +530,7 @@ pub fn resume(root: &Path, catalog: &Catalog, now: DateTime) -> Result<Resume> {
                     prompt_id: session.prompt_id,
                 })
             } else {
-                lock(root, catalog, None, None, now).map(Resume::Locked)
+                lock(root, None, catalog, None, None, now).map(Resume::Locked)
             }
         }
     }
