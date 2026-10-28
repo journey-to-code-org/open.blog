@@ -101,6 +101,8 @@ test("a link keeps only a safe scheme and an address that cannot end its own Mar
   assert.equal(safePastedUrl("vbscript:x"), "");
   assert.equal(safePastedUrl("//evil.example"), "");
   assert.equal(safePastedUrl("/about/"), "/about/");
+  assert.equal(safePastedUrl("/\\evil.example"), "");
+  assert.equal(safePastedUrl("https://a.example\\b"), "");
   assert.equal(safePastedUrl("mailto:a@example.com"), "mailto:a@example.com");
   assert.equal(safePastedUrl("https://exa\nmple.com"), "");
 });

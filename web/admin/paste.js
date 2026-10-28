@@ -150,7 +150,7 @@ function hidden(node) {
 /** Whether an address is one the editor keeps: https, http, mailto, or a path on the site. */
 export function safePastedUrl(value) {
   const url = String(value || "").trim();
-  if (!url || /[\u0000-\u001f\u007f]/.test(url)) return "";
+  if (!url || /[\u0000-\u001f\u007f\\]/.test(url)) return "";
   if (!(/^(?:https?:\/\/[^\s/]+|mailto:[^\s]+)/i.test(url) || /^(?:\/(?!\/)|#|\.\.?\/)/.test(url))) return "";
   return url.replace(/ /g, "%20").replace(/\(/g, "%28").replace(/\)/g, "%29");
 }
