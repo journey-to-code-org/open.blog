@@ -11,6 +11,7 @@ use blake2::{Blake2s256, Digest};
 use crate::look::{
     FontStyle, HeadingWeight, LookSettings, PageWidth, Roundness, Spacing, TextSize,
 };
+use crate::look_contrast::{derive_accent, Ground, Rgb, Shift, HIGH, TEXT};
 use crate::theme::Theme;
 
 /// The generated override block and its content hash.
@@ -43,6 +44,8 @@ pub const ALLOWED_PROPERTIES: &[&str] = &[
     "--ob-color-accent-contrast",
     "--ob-color-link",
     "--ob-color-glow",
+    "--ob-hover-text",
+    "--ob-hover-ink",
     "--ob-color-page",
     "--ob-color-outer",
     "--ob-color-surface",
@@ -128,6 +131,8 @@ pub enum ColorToken {
     AccentContrast,
     Link,
     Glow,
+    HoverText,
+    HoverInk,
 }
 
 impl ColorToken {
@@ -147,38 +152,85 @@ impl ColorToken {
             ColorToken::AccentContrast => "--ob-color-accent-contrast",
             ColorToken::Link => "--ob-color-link",
             ColorToken::Glow => "--ob-color-glow",
+            ColorToken::HoverText => "--ob-hover-text",
+            ColorToken::HoverInk => "--ob-hover-ink",
         }
     }
 }
 
-/// The colors a look sets for one scheme, as `(token, "#rrggbb")` pairs.
-fn scheme_colors(look: &LookSettings, theme: &Theme, _scheme: &str) -> Vec<(ColorToken, String)> {
-    let mut out = Vec::new();
-    if let Some(accent) = look.accent.as_ref().filter(|_| theme.honors("accent")) {
-        let contrast = if relative_luminance(accent) > 0.179 {
-            "#000000"
-        } else {
-            "#ffffff"
-        };
-        out.push((ColorToken::Accent, accent.clone()));
-        out.push((ColorToken::AccentSoft, accent.clone()));
-        out.push((ColorToken::AccentBorder, accent.clone()));
-        out.push((ColorToken::AccentContrast, contrast.to_string()));
-        out.push((ColorToken::Link, accent.clone()));
+/// What one scheme's colors came to: the declarations, how the accent moved, and whether it was refused.
+struct SchemeColors {
+    colors: Vec<(ColorToken, String)>,
+    shift: Shift,
+    refused: bool,
+}
+
+impl SchemeColors {
+    fn none() -> SchemeColors {
+        SchemeColors {
+            colors: Vec::new(),
+            shift: Shift::Unchanged,
+            refused: false,
+        }
+    }
+}
+
+/// The page and surface colors an accent has to be readable against, read from the theme with the
+/// base theme's colors as the fallback for anything that is not a plain hex value.
+fn ground(theme: &Theme, scheme: &str) -> Ground {
+    let (page, surface, raised, text, ink) = if scheme == "light" {
+        ("#ffffff", "#ffffff", "#f1f3f6", "#14171c", "#0b0d11")
+    } else {
+        ("#0f1217", "#161a21", "#1d222b", "#eceff4", "#0b0d11")
+    };
+    let read = |key: &str, fallback: &str| {
+        theme
+            .colors
+            .get(scheme)
+            .and_then(|colors| colors.get(key))
+            .and_then(|value| Rgb::parse(value))
+            .or_else(|| Rgb::parse(fallback))
+            .unwrap_or(Rgb(0, 0, 0))
+    };
+    Ground {
+        page: read("page", page),
+        surface: read("surface", surface),
+        surface_raised: Some(read("surfaceRaised", raised)),
+        text: read("text", text),
+        ink: read("ink", ink),
+    }
+}
+
+/// The colors a look sets for one scheme at a contrast target.
+fn scheme_colors(look: &LookSettings, theme: &Theme, scheme: &str, target: f64) -> SchemeColors {
+    let mut out = SchemeColors::none();
+    let Some(accent) = look
+        .accent
+        .as_deref()
+        .filter(|_| theme.honors("accent"))
+        .and_then(Rgb::parse)
+    else {
+        return out;
+    };
+    match derive_accent(accent, &ground(theme, scheme), target) {
+        Some(set) => {
+            out.shift = set.shift;
+            let accent = set.accent.hex();
+            let on_accent = set.accent_contrast.hex();
+            out.colors = vec![
+                (ColorToken::Accent, accent.clone()),
+                (ColorToken::AccentSoft, accent.clone()),
+                (ColorToken::AccentBorder, set.accent_border.hex()),
+                (ColorToken::AccentContrast, on_accent.clone()),
+                (ColorToken::Link, accent),
+                (ColorToken::Glow, set.glow.hex()),
+                (ColorToken::HoverText, on_accent.clone()),
+                (ColorToken::HoverInk, on_accent),
+            ];
+        }
+        None => out.refused = true,
     }
     out
-}
-
-fn relative_luminance(hex: &str) -> f64 {
-    let channel = |range: std::ops::Range<usize>| {
-        let v = f64::from(u8::from_str_radix(&hex[range], 16).unwrap_or(0)) / 255.0;
-        if v <= 0.03928 {
-            v / 12.92
-        } else {
-            ((v + 0.055) / 1.055).powf(2.4)
-        }
-    };
-    0.2126 * channel(1..3) + 0.7152 * channel(3..5) + 0.0722 * channel(5..7)
 }
 
 fn push_decls(css: &mut String, indent: &str, decls: &[(&'static str, String)]) {
@@ -254,61 +306,114 @@ pub fn compile(look: &LookSettings, theme: &Theme) -> Option<CompiledLook> {
     } else {
         "light"
     };
-    let scheme = |name: &str| -> Vec<(ColorToken, String)> {
-        if theme.colors.contains_key(name) {
-            scheme_colors(look, theme, name)
+    let present = |name: &str| theme.colors.contains_key(name);
+    let standard = |name: &str| {
+        if present(name) {
+            scheme_colors(look, theme, name, TEXT)
         } else {
-            Vec::new()
+            SchemeColors::none()
         }
     };
-    let default_colors = scheme(default_scheme);
-    let other_colors = scheme(other_scheme);
-    let light_colors = scheme("light");
+    // Higher contrast is only worth a second block where it differs from the standard one.
+    let more = |name: &str, standard: &SchemeColors| {
+        if !present(name) || standard.refused || standard.colors.is_empty() {
+            return Vec::new();
+        }
+        let high = scheme_colors(look, theme, name, HIGH);
+        if high.refused || high.colors == standard.colors {
+            Vec::new()
+        } else {
+            high.colors
+        }
+    };
+    let default_std = standard(default_scheme);
+    let other_std = standard(other_scheme);
+    let default_more = more(default_scheme, &default_std);
+    let other_more = more(other_scheme, &other_std);
+    let light_colors = if default_scheme == "light" {
+        &default_std.colors
+    } else {
+        &other_std.colors
+    };
 
-    if plain.is_empty()
-        && default_colors.is_empty()
-        && other_colors.is_empty()
-        && light_colors.is_empty()
-    {
+    let mut notes = Vec::new();
+    for (name, result) in [(default_scheme, &default_std), (other_scheme, &other_std)] {
+        let mode = if name == "light" { "light" } else { "dark" };
+        match result.shift {
+            Shift::Unchanged => {}
+            Shift::Darker => notes.push(format!(
+                "Your accent color was made a little darker in {mode} mode so text stays easy to read."
+            )),
+            Shift::Lighter => notes.push(format!(
+                "Your accent color was made a little lighter in {mode} mode so text stays easy to read."
+            )),
+        }
+        if result.refused {
+            notes.push(format!(
+                "Your accent color cannot be made easy to read in {mode} mode on this theme, so it was not used there. Try a deeper or a lighter color."
+            ));
+        }
+    }
+
+    if plain.is_empty() && default_std.colors.is_empty() && other_std.colors.is_empty() {
         return None;
     }
 
     let mut css = String::from(
         "/* Look: generated by open.blog from the owner's appearance settings. Do not edit. */\n",
     );
-    if !plain.is_empty() || !default_colors.is_empty() {
+    if !plain.is_empty() || !default_std.colors.is_empty() {
         css.push_str(":root {\n");
         push_decls(&mut css, "  ", &plain);
-        push_colors(&mut css, "  ", &default_colors);
+        push_colors(&mut css, "  ", &default_std.colors);
         css.push_str("}\n");
     }
-    if !other_colors.is_empty() {
+    if !other_std.colors.is_empty() {
         css.push_str(&format!(
             "@media (prefers-color-scheme: {other_scheme}) {{\n  :root:not([data-theme=\"{default_scheme}\"]) {{\n"
         ));
-        push_colors(&mut css, "    ", &other_colors);
+        push_colors(&mut css, "    ", &other_std.colors);
         css.push_str("  }\n}\n");
         css.push_str(&format!(":root[data-theme=\"{other_scheme}\"] {{\n"));
-        push_colors(&mut css, "  ", &other_colors);
+        push_colors(&mut css, "  ", &other_std.colors);
         css.push_str("}\n");
     }
+    // People who ask for more contrast get a stricter accent. The selectors repeat the ones above, in
+    // the same order, so each scheme's rule still wins over the other's.
+    if !default_more.is_empty() || !other_more.is_empty() {
+        css.push_str("@media (prefers-contrast: more) {\n");
+        if !default_more.is_empty() {
+            css.push_str("  :root {\n");
+            push_colors(&mut css, "    ", &default_more);
+            css.push_str("  }\n");
+        }
+        if !other_more.is_empty() {
+            css.push_str(&format!(
+                "  @media (prefers-color-scheme: {other_scheme}) {{\n    :root:not([data-theme=\"{default_scheme}\"]) {{\n"
+            ));
+            push_colors(&mut css, "      ", &other_more);
+            css.push_str("    }\n  }\n");
+            css.push_str(&format!("  :root[data-theme=\"{other_scheme}\"] {{\n"));
+            push_colors(&mut css, "    ", &other_more);
+            css.push_str("  }\n");
+        }
+        css.push_str("}\n");
+    }
+    // Paper is white, so print last, with the light accent, as the theme's own print rule does.
     if !light_colors.is_empty() {
         css.push_str("@media print {\n  :root,\n  :root[data-theme] {\n");
-        push_colors(&mut css, "    ", &light_colors);
+        push_colors(&mut css, "    ", light_colors);
         css.push_str("  }\n}\n");
     }
     let digest = Blake2s256::digest(css.as_bytes());
     let hash: String = digest.iter().take(8).map(|b| format!("{b:02x}")).collect();
-    Some(CompiledLook {
-        css,
-        hash,
-        notes: Vec::new(),
-    })
+    Some(CompiledLook { css, hash, notes })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::look_contrast::contrast;
     use crate::theme::ThemeSet;
     use serde_json::{json, Value};
 
@@ -344,6 +449,7 @@ mod tests {
                 let fixed = [
                     ":root {",
                     "@media print {",
+                    "@media (prefers-contrast: more) {",
                     ":root,",
                     ":root[data-theme] {",
                     "@media (prefers-color-scheme: light) {",
@@ -537,5 +643,167 @@ mod tests {
             }
         }
         assert!(compiled_any > 20, "the generator should reach the compiler");
+    }
+
+    /// The colors a block sets inside one selector group, read back from the generated CSS.
+    fn block<'a>(css: &'a str, opener: &str) -> &'a str {
+        let start = css.find(opener).unwrap_or_else(|| panic!("no {opener}")) + opener.len();
+        let end = css[start..].find('}').unwrap() + start;
+        &css[start..end]
+    }
+
+    fn color_in(block: &str, property: &str) -> Rgb {
+        let value = block
+            .lines()
+            .find_map(|l| l.trim().strip_prefix(&format!("{property}: ")))
+            .unwrap_or_else(|| panic!("no {property} in {block}"))
+            .trim_end_matches(';');
+        Rgb::parse(value).unwrap()
+    }
+
+    fn bundled_themes() -> Vec<Theme> {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../themes");
+        let mut set = ThemeSet::new();
+        let mut names = Vec::new();
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path().join("theme.json");
+            if path.exists() {
+                let name = path
+                    .parent()
+                    .unwrap()
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string();
+                let text = std::fs::read_to_string(&path).unwrap();
+                set.insert(&name, crate::theme::ThemeFile::from_json(&text).unwrap());
+                names.push(name);
+            }
+        }
+        names.iter().map(|n| set.resolve(n).unwrap()).collect()
+    }
+
+    #[test]
+    fn any_accent_is_readable_on_every_bundled_theme_in_light_and_dark() {
+        let themes = bundled_themes();
+        assert!(themes.len() >= 3);
+        let mut checked = 0;
+        for theme in &themes {
+            for r in (0..=255).step_by(85) {
+                for g in (0..=255).step_by(85) {
+                    for b in (0..=255).step_by(85) {
+                        let accent = Rgb(r as u8, g as u8, b as u8).hex();
+                        let chosen = look(json!({ "accent": accent }));
+                        let compiled = compile(&chosen, theme).unwrap();
+                        assert_confined(&compiled.css);
+                        for scheme in ["light", "dark"] {
+                            let ground = ground(theme, scheme);
+                            let opener = if theme.color_scheme == scheme {
+                                ":root {\n".to_string()
+                            } else {
+                                format!(":root[data-theme=\"{scheme}\"] {{\n")
+                            };
+                            let colors = block(&compiled.css, &opener);
+                            let accent = color_in(colors, "--ob-color-accent");
+                            let soft = color_in(colors, "--ob-color-accent-soft");
+                            let link = color_in(colors, "--ob-color-link");
+                            let on = color_in(colors, "--ob-color-accent-contrast");
+                            let border = color_in(colors, "--ob-color-accent-border");
+                            let glow = color_in(colors, "--ob-color-glow");
+                            let mut grounds = vec![ground.page, ground.surface];
+                            grounds.extend(ground.surface_raised);
+                            for bg in grounds {
+                                for text in [accent, soft, link] {
+                                    assert!(contrast(text, bg) >= TEXT, "{} {scheme}", theme.name);
+                                }
+                                assert!(contrast(border, bg) >= 3.0);
+                            }
+                            assert!(contrast(on, accent) >= TEXT);
+                            assert!(contrast(ground.text, glow) >= TEXT);
+                            checked += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(checked, themes.len() * 4 * 4 * 4 * 2);
+    }
+
+    #[test]
+    fn the_owner_is_told_when_a_color_had_to_change() {
+        let theme = base();
+        let kept = compile(&look(json!({"accent": "#1d4bc2"})), &theme).unwrap();
+        assert!(
+            kept.notes.iter().all(|n| !n.contains("in light mode")),
+            "{:?}",
+            kept.notes
+        );
+        let pale = compile(&look(json!({"accent": "#ffe066"})), &theme).unwrap();
+        assert_eq!(
+            pale.notes,
+            ["Your accent color was made a little darker in light mode so text stays easy to read."]
+        );
+        let dark_blue = compile(&look(json!({"accent": "#0a1f5c"})), &theme).unwrap();
+        assert_eq!(
+            dark_blue.notes,
+            ["Your accent color was made a little lighter in dark mode so text stays easy to read."]
+        );
+    }
+
+    #[test]
+    fn an_impossible_accent_is_refused_with_a_suggestion_and_does_not_break_the_page() {
+        // Black, white and mid gray backgrounds at once: no color is 4.5:1 against all three.
+        let mut theme = base();
+        let colors: std::collections::BTreeMap<String, String> = [
+            ("page", "#000000"),
+            ("surface", "#ffffff"),
+            ("surfaceRaised", "#808080"),
+            ("text", "#000000"),
+        ]
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        theme.colors.insert("light".into(), colors);
+        let compiled = compile(
+            &look(json!({"accent": "#336699", "roundness": "soft"})),
+            &theme,
+        )
+        .unwrap();
+        assert!(compiled
+            .notes
+            .iter()
+            .any(|n| n.contains("light mode") && n.contains("Try a deeper or a lighter color")));
+        // The other choices still apply, and no half-derived accent leaks into the refused scheme.
+        assert!(compiled.css.contains("--ob-radius: 8px;"));
+        assert!(!compiled.css.contains("@media print"));
+    }
+
+    #[test]
+    fn higher_contrast_and_print_are_handled_and_focus_stays_visible() {
+        let compiled = compile(&look(json!({"accent": "#7aa2ff"})), &base()).unwrap();
+        assert!(compiled.css.contains("@media (prefers-contrast: more) {"));
+        let more = block(
+            &compiled.css,
+            "@media (prefers-contrast: more) {\n  :root {\n",
+        );
+        let page = Rgb::parse("#ffffff").unwrap();
+        assert!(contrast(color_in(more, "--ob-color-accent"), page) >= HIGH);
+        // Print is last and carries the light accent, so dark-mode screens do not print pale text.
+        let printed = compiled.css.rfind("@media print").unwrap();
+        assert!(printed > compiled.css.find("prefers-contrast").unwrap());
+        let print = block(
+            &compiled.css,
+            "@media print {\n  :root,\n  :root[data-theme] {\n",
+        );
+        assert!(contrast(color_in(print, "--ob-color-accent"), page) >= TEXT);
+        // The focus ring is drawn in the accent, so it is as visible as the accent text: 3:1 or better
+        // on the page and surfaces in each scheme, for every accent swept above.
+        assert!(base()
+            .tokens
+            .get("focusRing")
+            .unwrap()
+            .contains("--ob-color-accent"));
+        // Only custom properties are written, so forced-colors mode (which ignores them) is untouched.
+        assert!(!compiled.css.contains("!important") && !compiled.css.contains("forced-colors"));
     }
 }

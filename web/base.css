@@ -342,7 +342,7 @@ h2.ob-title {
 .ob-row:focus-visible .ob-meta,
 .ob-row:hover .ob-row-title,
 .ob-row:focus-visible .ob-row-title {
-  color: var(--ob-color-ink);
+  color: var(--ob-hover-ink, var(--ob-color-ink));
 }
 
 .ob-row-title {
