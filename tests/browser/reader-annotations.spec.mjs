@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Local highlights and private notes on a published post (#85, ADR 0454): selection in both
+// Local highlights and private notes on a published post (#85, ADR 0238): selection in both
 // directions and in Unicode, keyboard-only use, accessible names and announcements, bounded storage
 // that is denied, full or unreadable without breaking reading, stale annotations kept and explained,
 // hostile note text shown as text, reduced motion, 320px, no requests, and the page without JavaScript.

@@ -1,11 +1,11 @@
-# ADR 0451: An annotation names its work by site and path and its text by a passage target, and staleness is derived, never stored
+# ADR 0235: An annotation names its work by site and path and its text by a passage target, and staleness is derived, never stored
 
 - Status: Accepted
 - Date: 2026-10-27
 - Decision issue: [#84](https://github.com/journey-to-code-org/open.blog/issues/84)
 - Parent story: [#30](https://github.com/journey-to-code-org/open.blog/issues/30)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: ADR 0450, ADR 0076, ADR 0077
+- Builds on: ADR 0234, ADR 0076, ADR 0077
 
 ## Context
 

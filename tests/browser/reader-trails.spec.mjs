@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// A reader's local saved sources and reading trails on a published post (#86, ADR 0455): opt-in and
+// A reader's local saved sources and reading trails on a published post (#86, ADR 0239): opt-in and
 // disclosed, nothing recorded as a reader reads, ordering and duplicates, keyboard use and
 // announcements, clearing one item or everything, storage that is denied, full, unreadable or at its
 // limits, hostile text shown as text, 320px, no requests, and the page without JavaScript.

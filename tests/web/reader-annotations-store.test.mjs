@@ -1,4 +1,4 @@
-// The reader's local annotation store (ADR 0454): changes are validated by the contract, storage
+// The reader's local annotation store (ADR 0238): changes are validated by the contract, storage
 // failures are values, and nothing unreadable is ever overwritten.
 import test from "node:test";
 import assert from "node:assert/strict";

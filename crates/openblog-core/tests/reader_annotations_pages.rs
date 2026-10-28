@@ -1,4 +1,4 @@
-//! Reader highlights and private notes on published pages (#85, ADR 0454): only a site that opts in
+//! Reader highlights and private notes on published pages (#85, ADR 0238): only a site that opts in
 //! gives its posts the annotation region with its no-JavaScript text, the build's passage text as
 //! page data, and the script. No annotation, note or reader identity is ever in a built file, and a
 //! site that does not opt in is byte-for-byte what it was.

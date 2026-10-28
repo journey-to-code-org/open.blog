@@ -1,11 +1,11 @@
-# ADR 0452: An export states its privacy scope and leaves note text out unless the reader includes it
+# ADR 0236: An export states its privacy scope and leaves note text out unless the reader includes it
 
 - Status: Accepted
 - Date: 2026-10-27
 - Decision issue: [#84](https://github.com/journey-to-code-org/open.blog/issues/84)
 - Parent story: [#30](https://github.com/journey-to-code-org/open.blog/issues/30)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: ADR 0450, ADR 0451
+- Builds on: ADR 0234, ADR 0235
 - Serves: [#87](https://github.com/journey-to-code-org/open.blog/issues/87)
 
 ## Context
@@ -28,7 +28,7 @@ file itself, not from the reader's memory of a checkbox.
   and reported in `omittedNotes`; trail steps naming a dropped record are removed.
 - **An export is itself a valid document** and round trips through `serializeDocument` unchanged:
   canonical field order, two-space indent, LF, trailing newline. Import validates as any read does
-  (ADR 0453) and nothing is written on failure.
+  (ADR 0237) and nothing is written on failure.
 - **No third party.** Export and import are file or clipboard actions in the browser; nothing is
   uploaded.
 

@@ -4,13 +4,13 @@ A reader can keep highlights, private notes, saved sources and reading trails in
 with no account. This page is the contract those features share. It is implemented by
 `web/components/reader-annotations.js` (dependency-free, no DOM, no storage, no network) and tested by
 `tests/web/reader-annotations.test.mjs` against `tests/fixtures/reader-annotations.json`. Decisions are in
-[ADR 0450](../adr/0450-reader-annotations-are-one-reader-private-local-document-that-is-never-research-notes-and-never-public.md) (separate, local, private),
-[ADR 0451](../adr/0451-an-annotation-names-its-work-by-site-and-path-and-its-text-by-a-passage-target-and-staleness-is-derived-never-stored.md) (identity and stale state),
-[ADR 0452](../adr/0452-an-export-states-its-privacy-scope-and-leaves-note-text-out-unless-the-reader-includes-it.md) (export privacy) and
-[ADR 0453](../adr/0453-reader-annotation-validation-is-strict-scoped-to-the-record-and-never-repairs-or-repeats-reader-text.md) (validation) and
-[ADR 0454](../adr/0454-highlights-and-notes-are-opt-in-per-site-keep-the-article-unchanged-and-save-only-to-bounded-local-storage.md) (highlights and notes on a page) and
-[ADR 0455](../adr/0455-reading-trails-are-built-by-hand-nothing-is-recorded-as-a-reader-reads-and-a-linked-source-remembers-the-work-it-was-found-in.md) (reading trails and saved sources on a page) and
-[ADR 0456](../adr/0456-export-and-import-are-explicit-previewed-and-all-or-nothing-and-the-reader-can-turn-the-feature-off-or-erase-it-and-check-that-it-is-gone.md) (export, import and privacy controls).
+[ADR 0234](../adr/0234-reader-annotations-are-one-reader-private-local-document-that-is-never-research-notes-and-never-public.md) (separate, local, private),
+[ADR 0235](../adr/0235-an-annotation-names-its-work-by-site-and-path-and-its-text-by-a-passage-target-and-staleness-is-derived-never-stored.md) (identity and stale state),
+[ADR 0236](../adr/0236-an-export-states-its-privacy-scope-and-leaves-note-text-out-unless-the-reader-includes-it.md) (export privacy) and
+[ADR 0237](../adr/0237-reader-annotation-validation-is-strict-scoped-to-the-record-and-never-repairs-or-repeats-reader-text.md) (validation) and
+[ADR 0238](../adr/0238-highlights-and-notes-are-opt-in-per-site-keep-the-article-unchanged-and-save-only-to-bounded-local-storage.md) (highlights and notes on a page) and
+[ADR 0239](../adr/0239-reading-trails-are-built-by-hand-nothing-is-recorded-as-a-reader-reads-and-a-linked-source-remembers-the-work-it-was-found-in.md) (reading trails and saved sources on a page) and
+[ADR 0240](../adr/0240-export-and-import-are-explicit-previewed-and-all-or-nothing-and-the-reader-can-turn-the-feature-off-or-erase-it-and-check-that-it-is-gone.md) (export, import and privacy controls).
 
 The contract comes first. Local highlights and notes (#85, below), the trail and saved-source organizer
 (#86, below) and import, export and privacy controls (#87, below) build on it. A site and its posts are unchanged

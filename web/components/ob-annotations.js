@@ -1,5 +1,5 @@
 // <ob-annotations> lets a reader keep highlights and private notes on a post, in their own browser
-// (ADRs 0450-0454 and 0456, docs/specs/reader-annotations.md). The page is complete without it: the region's
+// (ADRs 0234-0238 and 0240, docs/specs/reader-annotations.md). The page is complete without it: the region's
 // static text says what it needs. Nothing is sent anywhere, and nothing is stored until the reader
 // saves something.
 //

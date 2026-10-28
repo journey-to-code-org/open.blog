@@ -1,11 +1,11 @@
-# ADR 0453: Reader annotation validation is strict, scoped to the record, and never repairs or repeats reader text
+# ADR 0237: Reader annotation validation is strict, scoped to the record, and never repairs or repeats reader text
 
 - Status: Accepted
 - Date: 2026-10-27
 - Decision issue: [#84](https://github.com/journey-to-code-org/open.blog/issues/84)
 - Parent story: [#30](https://github.com/journey-to-code-org/open.blog/issues/30)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: ADR 0450, ADR 0451, ADR 0452
+- Builds on: ADR 0234, ADR 0235, ADR 0236
 
 ## Context
 

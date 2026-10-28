@@ -1,4 +1,4 @@
-// The reader's own annotation document in the reader's own browser (ADRs 0450-0456).
+// The reader's own annotation document in the reader's own browser (ADRs 0234-0240).
 //
 // Pure functions over the validated document of reader-annotations.js, and a
 // storage seam that never throws. Reading a post never needs storage: when the
@@ -140,7 +140,7 @@ export const annotationsOf = (document, work) =>
   document.annotations.filter((record) => record.work.site === work.site && record.work.path === work.path);
 
 // ---------------------------------------------------------------------------
-// Saved sources and reading trails (ADR 0455). The same rules as above: a change is
+// Saved sources and reading trails (ADR 0239). The same rules as above: a change is
 // built from a copy, checked by the contract, and only then kept.
 // ---------------------------------------------------------------------------
 
@@ -273,7 +273,7 @@ export const recentTrails = (document) =>
 
 /**
  * The works the reader has annotated, most recently annotated first:
- * [{ work, highlights, notes, updatedAt }]. A work is its site and path (ADR 0451).
+ * [{ work, highlights, notes, updatedAt }]. A work is its site and path (ADR 0235).
  */
 export function annotatedWorks(document) {
   const byWork = new Map();
@@ -325,7 +325,7 @@ export function clearStore(storage) {
 }
 
 // ---------------------------------------------------------------------------
-// Turning the feature off, and showing what is saved (ADR 0456).
+// Turning the feature off, and showing what is saved (ADR 0240).
 // ---------------------------------------------------------------------------
 
 /** The one other key this feature writes: present when the reader turned highlights, notes and trails off here. */

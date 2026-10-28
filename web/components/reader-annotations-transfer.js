@@ -1,4 +1,4 @@
-// Export and import of the reader's local annotation document (ADRs 0450-0456).
+// Export and import of the reader's local annotation document (ADRs 0234-0240).
 //
 // Pure functions: no DOM, no storage, no network. An export is the document of
 // reader-annotations.js, notes left out unless asked for, and nothing else: no

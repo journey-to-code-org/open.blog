@@ -3504,7 +3504,7 @@ ob-native-lab .ob-native-field { display: grid; gap: 0.25rem; margin-top: 0.75re
 ob-native-lab .ob-native-field label { font-size: 0.85em; }
 ob-native-lab input[type="range"] { width: 100%; min-height: 2.75rem; accent-color: var(--ob-color-accent, currentColor); }
 
-/* Reader highlights and private notes (ADR 0454): one column, native controls, visible focus. */
+/* Reader highlights and private notes (ADR 0238): one column, native controls, visible focus. */
 
 ob-annotations {
   display: block;
@@ -3639,7 +3639,7 @@ ob-annotations [hidden] {
   outline-offset: 2px;
 }
 
-/* Reader saved sources and reading trails (ADR 0455): the same quiet, one-column controls. */
+/* Reader saved sources and reading trails (ADR 0239): the same quiet, one-column controls. */
 
 .ob-reading-trail {
   max-inline-size: 42rem;
@@ -3759,7 +3759,7 @@ ob-reading-trail [hidden] {
   outline-offset: 2px;
 }
 
-/* Reader export, import and privacy controls (ADR 0456). */
+/* Reader export, import and privacy controls (ADR 0240). */
 
 .ob-trail-subheading {
   margin: 0;

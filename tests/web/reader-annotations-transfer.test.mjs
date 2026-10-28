@@ -1,4 +1,4 @@
-// Export, import and privacy controls for the reader's local document (#87, ADR 0456): an export holds
+// Export, import and privacy controls for the reader's local document (#87, ADR 0240): an export holds
 // only what it declares, an import is planned before it is kept, and nothing is repaired or overwritten.
 import test from "node:test";
 import assert from "node:assert/strict";
