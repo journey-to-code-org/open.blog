@@ -1,53 +1,10 @@
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use openblog_core::voice::{VoiceMeta, VoiceSample, VoiceStage};
 
 use super::*;
 
-static NEXT: AtomicUsize = AtomicUsize::new(0);
-
-pub(super) struct Project(pub PathBuf);
-
-impl Project {
-    pub fn new() -> Self {
-        let dir = std::env::temp_dir().join(format!(
-            "ob-voice-store-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::SeqCst)
-        ));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        Self(dir)
-    }
-
-    /// A project with an open session for `prompt`.
-    pub fn with_session(prompt: &str) -> Self {
-        let project = Self::new();
-        project.open_session(prompt);
-        project
-    }
-
-    pub fn open_session(&self, prompt: &str) {
-        let path = self.0.join(SESSION_PATH);
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(
-            path,
-            format!(r#"{{"format":"{SESSION_FORMAT}","version":1,"promptId":"{prompt}"}}"#),
-        )
-        .unwrap();
-    }
-
-    pub fn close_session(&self) {
-        fs::remove_file(self.0.join(SESSION_PATH)).unwrap();
-    }
-}
-
-impl Drop for Project {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
+use super::tests_support::Project;
 
 pub(super) const ROUGH: &str = "2026-10-28-a-mistake-i-made-rough.md";
 pub(super) const POLISHED: &str = "2026-10-28-a-mistake-i-made-polished.md";

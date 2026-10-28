@@ -87,6 +87,30 @@ result loads through the ordinary post loader (tested).
   refuses if one is force-added). A portable sample is committed only if the author's `publish.paths`
   includes `assistant`, like other portable Assistant context.
 
+### The session record
+
+`.openblog/private/voice/session.json` (always private, whatever the sample's folder will be) is the only
+state of a voice session: `{ format: "openblog-voice-session", version: 1, promptId, pack, catalogVersion,
+startedAt, deadline, timeLimitSeconds, draft, surface, visibility }`.
+
+- **One per site.** Starting a second session is refused with `AlreadyOpen` (and says whether the first has run
+  out of time), so the surface can ask the author to lock or scrap it. A prompt already written today cannot be
+  started again, which keeps the rough file name unique.
+- **Resumable on any surface.** Resuming reads the record: with time left it returns the remaining seconds and
+  the draft, with the original deadline; the clock is never restarted.
+- **Expiry locks from the saved text.** Resuming an expired session locks the rough draft from the last saved
+  draft (an expired session with nothing saved is discarded). A final text handed over at zero is accepted
+  within 10 seconds of the deadline, to allow for a request in flight; later than that the saved text wins.
+  Saving a draft is refused after the same grace.
+- **The only way a rough draft is born.** Locking calls `voice_store::write_rough`, which requires this record
+  to be open for that prompt, and then removes the record. The record is also removed by a scrap (which writes
+  nothing). Both are repeatable after a crash: a lock whose rough file already holds identical bytes succeeds.
+- **Crash-safe.** The record is written to a temporary file, flushed, and renamed over the old one, so a crash
+  leaves the old record or the new one, never half of one.
+- **Versioned.** A record with a newer `version` is reported and never rewritten, removed or scrapped by this
+  release; a damaged one can be scrapped.
+- Line endings in the draft are normalized to LF when saved. No other change is ever made to the text.
+
 ## Considered options
 
 - **Nested `voice:` map as in the epic text.** Rejected: it needs a second front matter parser, and a
@@ -103,4 +127,4 @@ result loads through the ordinary post loader (tested).
 ## Consequences
 
 - Equal bytes in, equal bytes out lets the store prove a moved rough draft was not changed.
-- Later sections of this ADR record the store and session record.
+- The store and the session record are the two places that decide what may be written; every surface calls them.

@@ -199,7 +199,7 @@ fn read_bounded(path: &Path) -> Result<Option<Vec<u8>>> {
     Ok(Some(bytes))
 }
 
-fn lock(root: &Path) -> Result<FileLock> {
+pub(crate) fn lock(root: &Path) -> Result<FileLock> {
     let path = contained_target(root, Path::new(LOCK_PATH))
         .map_err(|error| StoreError::Refused(format!("{error}.")))?;
     FileLock::acquire(path, "voice sample write", Duration::from_secs(3))
@@ -696,6 +696,58 @@ pub fn load_catalog(root: &Path) -> Catalog {
             let mut fallback = bundled;
             fallback.warnings.push(warning);
             fallback
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests_support {
+    //! A throwaway project folder shared by the store and session tests.
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::*;
+
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+
+    pub struct Project(pub PathBuf);
+
+    impl Project {
+        pub fn new() -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "ob-voice-store-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::SeqCst)
+            ));
+            let _ = fs::remove_dir_all(&dir);
+            fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+
+        /// A project with an open session for `prompt`.
+        pub fn with_session(prompt: &str) -> Self {
+            let project = Self::new();
+            project.open_session(prompt);
+            project
+        }
+
+        pub fn open_session(&self, prompt: &str) {
+            let path = self.0.join(SESSION_PATH);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(
+                path,
+                format!(r#"{{"format":"{SESSION_FORMAT}","version":1,"promptId":"{prompt}"}}"#),
+            )
+            .unwrap();
+        }
+
+        pub fn close_session(&self) {
+            fs::remove_file(self.0.join(SESSION_PATH)).unwrap();
+        }
+    }
+
+    impl Drop for Project {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
         }
     }
 }
