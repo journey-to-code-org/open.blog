@@ -38,6 +38,9 @@ mod source_store;
 mod syndication;
 mod transaction;
 mod url_context;
+mod voice_capture;
+mod voice_cli;
+mod voice_diff;
 mod voice_prompts;
 mod voice_session;
 mod voice_store;
@@ -55,6 +58,8 @@ USAGE
 COMMANDS
     init [dir]                 Create a new blog in dir (default: current directory)
     init [dir] --github-pages  Also write a GitHub Pages deployment workflow
+    init [dir] --no-voice      Never offer a writing session afterwards (a terminal is
+                               asked once; scripts and pipes are never asked)
     new \"Title\"                Create content/posts/<date>-<slug>.md
     build                      Build the site into dist/
     serve                      Build, serve at http://localhost:8080, rebuild on change,
@@ -74,6 +79,13 @@ COMMANDS
     analytics pull <url>       Merge counts from a hosted counter (--secret <s>)
     analytics worker [dir]     Write a Cloudflare Worker counter to deploy (default: counter/)
     analytics service [dir]    Write a Node + MongoDB counter for Render (default: counter-service/)
+    voice [prompt-id]          A timed writing session: draw three prompts (or name one),
+                               write in your editor or the terminal, and keep the rough draft
+                               exactly as written (see voice OPTIONS)
+    voice --list               Prompts by pack, with what you have answered
+    voice --resume             Carry on with an interrupted session (an expired one is locked)
+    voice polish|diff|promote <sample>
+                               Refine a copy, compare it, or make a post draft from it
     themes                     List themes and the inheritance chain of each
     import hashnode <host>     Import a Hashnode blog (e.g. yourname.hashnode.dev)
     contributors migrate --id <stable-id> [--write]
@@ -113,6 +125,28 @@ paths OPTIONS
                                it all or not at all. A stored path that differs is a conflict
                                unless --overwrite
 
+voice OPTIONS
+    voice [prompt-id]          Draw three prompts and pick 1-3, r (draw again) or q; or name a
+                               prompt id to skip the draw
+    --portable                 Keep the sample beside shared Assistant context instead of in
+                               the private folder (default: private)
+    --seconds <n>              Writing time, 30 to 3600 (default: 180)
+    --stdin                    Type in the terminal even if $VISUAL/$EDITOR is set; finish with
+                               a line holding only a dot (.) or end of input
+    --resume                   Resume the open session with its original deadline
+    --scrap --yes              Give up the open session and save nothing
+    --list                     Show the prompt packs, answered counts and stages
+    polish <sample>            Edit a COPY of a rough draft in $VISUAL/$EDITOR and save it as the
+                               polished draft (the rough draft is locked and never changes);
+                               --title, --slug, --description, --tags a,b set its details
+    diff <sample>              Show what the polished draft changed (unified diff)
+    promote <sample>           Create a post draft (draft: true) in content/posts from the polished
+                               draft; refuses a taken slug; --dir posts/2026 picks a folder under
+                               posts. The sample is left in place.
+    <sample> is a file name from `voice --list` output or a prompt id. The clock is fixed when the
+    session starts: text after the deadline is not saved, and an interrupted session locks what
+    was saved when you resume after the deadline. Nothing edits a rough draft.
+
 new OPTIONS
     --series <slug>            Put the post in a series
     --tags a,b,c               Comma-separated tags
@@ -148,6 +182,13 @@ const SWITCHES: &[&str] = &[
     "write",
     "publish",
     "json",
+    "no-voice",
+    "portable",
+    "resume",
+    "list",
+    "scrap",
+    "stdin",
+    "yes",
 ];
 
 fn parse_args(raw: &[String]) -> Result<Args, String> {
@@ -205,7 +246,7 @@ fn run(raw: &[String]) -> Result<(), String> {
     if workspace::configured()
         && matches!(
             command.as_str(),
-            "init" | "new" | "import" | "publish" | "contributors"
+            "init" | "new" | "import" | "publish" | "contributors" | "voice"
         )
     {
         return Err("durable workspace mode requires content mutations and publishing through the admin API; CLI mutations are disabled to avoid unacknowledged writes".into());
@@ -233,8 +274,15 @@ fn run(raw: &[String]) -> Result<(), String> {
                     "\nNext: cd into the folder, run `openblog serve`, and edit openblog.json."
                 );
             }
+            // A person at a terminal is asked once; pipes and scripts never are (ADR 0350).
+            voice_cli::invite_after_init(
+                &dir,
+                args.switches.contains("no-voice"),
+                !created.is_empty(),
+            );
             Ok(())
         }
+        "voice" => voice_cli::run(&root, &args.positional, &args.options, &args.switches),
         "new" => {
             let title = args
                 .positional

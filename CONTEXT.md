@@ -2535,6 +2535,12 @@ The `polished` stage of a voice sample: the author's own revision of one rough d
 author-owned and editable; an AI tool may propose changes to it but never applies them (ADR 0266).
 _Avoid_: Final draft, edited version
 
+**Promotion**:
+Making a post draft (`draft: true`) from a polished draft: a copy, never a move, so the sample stays where it
+is. It refuses a rough draft and a slug a post already uses, and it is one store function that the CLI and
+Admin both call (ADR 0351).
+_Avoid_: Publish, convert
+
 **Voice guide**:
 A Markdown description of how the author writes, built from quoted sample evidence, approved by the author and
 used as Assistant context. It is a later feature (epic #409); this epic only reserves the term.

@@ -10,8 +10,6 @@
 //! Ending a session is [`lock`] or [`scrap`], and either removes the record. Locking writes the
 //! rough draft through [`voice_store::write_rough`], the only way a rough draft is ever created.
 //! Time is passed in, so every rule here is testable at an exact second.
-// The Admin, CLI and Assistant layers of the voice-samples family call this API.
-#![allow(dead_code)]
 
 use std::fmt;
 use std::fs;
