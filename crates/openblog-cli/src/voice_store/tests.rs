@@ -671,3 +671,61 @@ fn publishing_never_stages_a_private_voice_sample() {
     let error = crate::publish::publish(dir, &config, Some("No")).unwrap_err();
     assert!(error.contains("private assistant"), "{error}");
 }
+
+const PRIVATE_DIR: &str = ".openblog/private/context/voice";
+
+#[test]
+fn a_failed_original_removal_never_costs_the_rough_draft_and_the_move_can_be_finished() {
+    let project = Project::with_session("a-mistake-i-made");
+    lock_rough(&project, Visibility::Private);
+    write_polished(&project.0, Visibility::Private, &polished("Clean."), None).unwrap();
+    let private = project.0.join(PRIVATE_DIR);
+    let portable = project.0.join("assistant/context/voice");
+    let rough_bytes = fs::read(private.join(ROUGH)).unwrap();
+
+    FAIL_REMOVE.with(|f| *f.borrow_mut() = Some(POLISHED.to_string()));
+    let error = move_visibility(
+        &project.0,
+        Visibility::Private,
+        ROUGH,
+        Visibility::Portable,
+    )
+    .unwrap_err();
+    FAIL_REMOVE.with(|f| *f.borrow_mut() = None);
+    // The polished original is removed first, so nothing was lost yet: the copies are undone
+    // and every original, the rough draft included, is untouched.
+    assert!(error.to_string().contains("Cannot remove"), "{error}");
+    assert_eq!(fs::read(private.join(ROUGH)).unwrap(), rough_bytes);
+    assert!(private.join(POLISHED).is_file());
+    assert!(!portable.join(ROUGH).exists());
+
+    // A failure after the polished original is gone keeps the copies too.
+    FAIL_REMOVE.with(|f| *f.borrow_mut() = Some(ROUGH.to_string()));
+    let error = move_visibility(
+        &project.0,
+        Visibility::Private,
+        ROUGH,
+        Visibility::Portable,
+    )
+    .unwrap_err();
+    FAIL_REMOVE.with(|f| *f.borrow_mut() = None);
+    assert!(error.to_string().contains("partly done"), "{error}");
+    assert!(!private.join(POLISHED).exists());
+    assert!(portable.join(POLISHED).is_file());
+    assert_eq!(fs::read(private.join(ROUGH)).unwrap(), rough_bytes);
+    assert_eq!(fs::read(portable.join(ROUGH)).unwrap(), rough_bytes);
+
+    // Repeating the move finishes it: identical copies already there count as moved.
+    let moved = move_visibility(
+        &project.0,
+        Visibility::Private,
+        ROUGH,
+        Visibility::Portable,
+    )
+    .unwrap();
+    assert_eq!(moved, [ROUGH]);
+    assert!(!private.join(ROUGH).exists());
+    assert_eq!(fs::read(portable.join(ROUGH)).unwrap(), rough_bytes);
+    assert!(portable.join(POLISHED).is_file());
+}
+

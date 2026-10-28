@@ -563,9 +563,31 @@ fn pair(root: &Path, visibility: Visibility, file: &str) -> Result<(String, Opti
     }
 }
 
+/// Remove one original after its copy was verified. A test can make a named file fail here.
+fn remove_source(path: &Path) -> std::io::Result<()> {
+    #[cfg(test)]
+    {
+        let blocked = FAIL_REMOVE.with(|f| f.borrow().clone());
+        if let (Some(name), Some(file)) = (blocked, path.file_name()) {
+            if file.to_string_lossy() == name {
+                return Err(std::io::Error::other("injected removal failure"));
+            }
+        }
+    }
+    fsutil::retry_transient(|| fs::remove_file(path))
+}
+
+#[cfg(test)]
+thread_local! {
+    static FAIL_REMOVE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
 /// Move a sample, with its polished or rough partner, to the other folder. The bytes are copied
 /// unchanged and checked before the originals are removed, so a rough draft arrives exactly as it
-/// was. Nothing is overwritten: a file already at the destination refuses the move.
+/// was. Nothing is overwritten: a different file already at the destination refuses the move, but
+/// a byte-identical copy there counts as already moved, so an interrupted move can be repeated.
+/// The polished original is removed first and the rough original last; once any original is gone
+/// no copy is ever deleted, and a failure reports that the move is partly done.
 pub fn move_visibility(
     root: &Path,
     from: Visibility,
@@ -579,7 +601,9 @@ pub fn move_visibility(
     let (rough, polished) = pair(root, from, file)?;
     let mut names = vec![rough];
     names.extend(polished);
+    // Copies this call created, which are undone only while every original is still in place.
     let mut copies: Vec<PathBuf> = Vec::new();
+    let mut removed = 0usize;
     let result = (|| -> Result<()> {
         let mut staged = Vec::new();
         for name in &names {
@@ -591,30 +615,41 @@ pub fn move_visibility(
             if bytes.len() > MAX_BYTES {
                 return refused("A file of this sample is larger than the limit.");
             }
-            if read_bounded(&target)?.is_some() {
-                return refused(format!("{name} already exists in the other folder."));
+            let present = match read_bounded(&target)? {
+                None => false,
+                Some(existing) if existing == bytes => true,
+                Some(_) => return refused(format!("{name} already exists in the other folder.")),
+            };
+            staged.push((source, target, bytes, present));
+        }
+        for (_, target, bytes, present) in &staged {
+            if !present {
+                fsutil::write_new_atomic(target, bytes).map_err(StoreError::Failed)?;
+                copies.push(target.clone());
             }
-            staged.push((source, target, bytes));
         }
-        for (_, target, bytes) in &staged {
-            fsutil::write_new_atomic(target, bytes).map_err(StoreError::Failed)?;
-            copies.push(target.clone());
-        }
-        for (_, target, bytes) in &staged {
+        for (_, target, bytes, _) in &staged {
             if read_bounded(target)?.as_deref() != Some(bytes.as_slice()) {
                 return Err(StoreError::Failed(
                     "The copy did not match the original, so nothing was moved.".into(),
                 ));
             }
         }
-        for (source, _, _) in &staged {
-            fsutil::retry_transient(|| fs::remove_file(source))
-                .map_err(|error| failed("Cannot remove the original", error))?;
+        // Polished first, rough last: the rough draft's original is the last thing to go.
+        for (source, _, _, _) in staged.iter().rev() {
+            remove_source(source).map_err(|error| failed("Cannot remove the original", error))?;
+            removed += 1;
         }
         Ok(())
     })();
     if let Err(error) = result {
-        // Undo only the copies; the originals are still whole.
+        if removed > 0 {
+            // An original is gone, so its copy is now the only one. Keep every copy.
+            return Err(StoreError::Failed(format!(
+                "The move is partly done: {error} Nothing was deleted. Run the move again to finish it."
+            )));
+        }
+        // No original was touched; undo only the copies.
         for copy in copies {
             let _ = fsutil::retry_transient(|| fs::remove_file(&copy));
         }
