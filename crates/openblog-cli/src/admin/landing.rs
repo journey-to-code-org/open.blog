@@ -201,7 +201,7 @@ pub(super) fn save(state: &AppState, req: &Request) -> Response {
     let previous = store::read(&state.root, &config.paths.content)
         .ok()
         .flatten();
-    // The page about to be replaced is kept first, so a save never loses it (ADR 0354).
+    // The page about to be replaced is kept first, so a save never loses it (ADR 0264).
     let previous_page = match keep_previous(state, previous.as_ref()) {
         Ok(page) => page,
         Err(response) => return response,

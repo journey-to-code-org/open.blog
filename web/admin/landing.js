@@ -130,7 +130,7 @@ export const SECTION_CATALOG = Object.freeze([
     blank: () => ({ provider: "youtube", video: "", title: "" }),
     fields: [
       { kind: "select", name: "provider", label: "Where the video is", options: [["youtube", "YouTube"], ["vimeo", "Vimeo"]], default: "youtube" },
-      text("video", "Video id", { required: true, hint: "The last part of the video's address: for youtube.com/watch?v=dQw4w9WgXcQ it is dQw4w9WgXcQ." }),
+      text("video", "Video code", { required: true, hint: "The last part of the video's address: for youtube.com/watch?v=dQw4w9WgXcQ it is dQw4w9WgXcQ." }),
       text("title", "What the video is", { required: true, max: LIMITS.line }),
     ],
   },
@@ -342,6 +342,139 @@ export function restoreSection(sections, removed) {
   return [...sections.slice(0, at), section, ...sections.slice(at)];
 }
 
+// ---------------------------------------------------------------- starter layouts (ADR 0258, #338)
+
+const SAMPLE_NOTE = "This is a sample layout. Every sentence marked as a sample is a stand-in: replace it with your own words, then choose Save. Delete this note when you are done.";
+
+/**
+ * Ready-made starting points. Each is only a list of sections (the same typed data the builder
+ * saves), never markup. `build({ posts })` returns fresh sections every time; `posts` are the
+ * owner's published posts, so a featured post is only offered when there is one to feature.
+ */
+export const STARTERS = Object.freeze([
+  {
+    id: "welcome",
+    label: "Welcome",
+    description: "A friendly welcome, a few words about you and your newest posts.",
+    build: () => [
+      { id: "sample-note", type: "callout", tone: "info", title: "Sample layout", body: SAMPLE_NOTE },
+      { id: "welcome", type: "welcome", heading: "Welcome to my blog", subheading: "Sample: a short line about what you write and who it is for.", button: { label: "Read the blog", href: "/archive/", style: "primary" } },
+      { id: "about", type: "rich-text", markdown: "Sample: Hello, I am glad you are here. Write two or three sentences about yourself and why you write." },
+      { id: "latest", type: "latest-posts", heading: "Latest posts" },
+    ],
+  },
+  {
+    id: "small-business",
+    label: "Small business",
+    description: "When you are open, how to reach you and where to find you.",
+    build: () => [
+      { id: "sample-note", type: "callout", tone: "info", title: "Sample layout", body: SAMPLE_NOTE },
+      { id: "welcome", type: "welcome", heading: "Welcome to Sample Shop", subheading: "Sample: one line about what you sell or do." },
+      { id: "hours", type: "opening-hours", rows: [{ days: "Monday to Friday", hours: "9am to 5pm" }, { days: "Saturday", hours: "10am to 2pm" }, { days: "Sunday", hours: "Closed" }], note: "Sample times: change them to your own." },
+      { id: "contact", type: "contact", email: "you@example.com", phone: "+1 555 010 0100", address: "Sample: 12 High Street" },
+      { id: "map", type: "map", provider: "openstreetmap", label: "Sample: 12 High Street", lat: 51.5072, lon: -0.1276 },
+    ],
+  },
+  {
+    id: "portfolio",
+    label: "Portfolio",
+    description: "Show one thing you are proud of, and where people can find you.",
+    build: ({ posts = [] } = {}) => [
+      { id: "sample-note", type: "callout", tone: "info", title: "Sample layout", body: SAMPLE_NOTE },
+      { id: "welcome", type: "welcome", heading: "Hello, I am Sample Name", subheading: "Sample: what you make, in one line." },
+      posts.length
+        ? { id: "featured", type: "featured-post", post: posts[0].slug, heading: "Start here" }
+        : { id: "latest", type: "latest-posts", heading: "My latest work", count: 3 },
+      { id: "links", type: "buttons", items: [{ label: "See all my work", href: "/archive/", style: "primary" }, { label: "Email me", href: "mailto:you@example.com", style: "secondary" }] },
+      { id: "social", type: "social-links", items: [{ label: "Sample profile", href: "https://example.com/you" }] },
+    ],
+  },
+  {
+    id: "newsletter",
+    label: "Newsletter",
+    description: "Invite people to follow along, with your newest posts underneath.",
+    build: () => [
+      { id: "sample-note", type: "callout", tone: "info", title: "Sample layout", body: SAMPLE_NOTE },
+      { id: "welcome", type: "welcome", heading: "Get every new post", subheading: "Sample: say what readers will get and how often.", button: { label: "Follow along", href: "/rss.xml", style: "primary" } },
+      { id: "about", type: "rich-text", markdown: "Sample: Tell people what each issue holds. Keep it short and kind." },
+      { id: "latest", type: "latest-posts", heading: "Recent issues" },
+    ],
+  },
+]);
+
+/** The starter with this id, or null. */
+export function starterById(id) {
+  return STARTERS.find((starter) => starter.id === id) || null;
+}
+
+/** The sections of a starter, new each time. `scratch` is an empty page. */
+export function starterSections(id, context = {}) {
+  if (id === "scratch") return [];
+  const starter = starterById(id);
+  return starter ? starter.build(context) : [];
+}
+
+/** Whether choosing a layout would replace sections the owner already has, and so needs a yes first. */
+export function replacingNeedsConfirm(sections, { exists = false, dirty = false } = {}) {
+  return sections.length > 0 && (exists || dirty);
+}
+
+/** A page with its sections swapped for a layout, keeping everything else the page holds. The old sections are returned so Undo can bring them back. */
+export function applyLayout(page, sections) {
+  return { page: { ...page, sections }, previous: page.sections };
+}
+
+// ---------------------------------------------------------------- plain words, empty states and the tour (ADR 0259, #339)
+
+/** The short list of words the page uses, for the Help part. Technical terms appear only here, in brackets. */
+export const GLOSSARY = Object.freeze([
+  { term: "Section", meaning: "One part of your landing page, such as a welcome, some text or a row of buttons. Sections are shown one after another from top to bottom." },
+  { term: "Layout", meaning: "A ready-made set of sections to start from. It comes with sample words for you to replace." },
+  { term: "Hide", meaning: "Keep a section but do not show it to visitors. You can show it again later." },
+  { term: "Preview", meaning: "Shows your page the way visitors will see it, before you save. Nothing is changed." },
+  { term: "Save", meaning: "Keeps your changes. Your site does not change for visitors until you publish." },
+  { term: "Publish (make it live)", meaning: "Puts your saved page on your site so visitors can see it." },
+  { term: "Web address", meaning: "Where something is on the internet, such as https://example.com (also called a URL). A page on your own site starts with a single /, such as /archive/." },
+  { term: "Picture description", meaning: "A sentence that says what is in a picture, for people who cannot see it (also called alt text)." },
+]);
+
+/** What the page says when there is nothing in it yet. */
+export const EMPTY_STATE_TEXT = "Your page has no sections yet. Choose a ready-made layout to start from, or choose Add a section to build it one piece at a time.";
+
+/** The three steps of the optional tour. Plain text only. */
+export const TOUR_STEPS = Object.freeze([
+  Object.freeze({ title: "Your page is a list of sections", body: "Each card is one section of your landing page. Visitors see them one after another, from the top. Choose Add a section, or a ready-made layout, to fill the page." }),
+  Object.freeze({ title: "Change a section", body: "Choose Edit on a card to change its words. Use Move up and Move down to put sections in a new order. Hide keeps a section but does not show it. Delete can always be undone." }),
+  Object.freeze({ title: "See it, keep it, make it live", body: "Preview shows your page the way visitors will see it. Save keeps your changes. Publish (make it live) puts your saved page on your site. Nothing changes for visitors until you publish." }),
+]);
+
+const memoryTour = new Set();
+
+/**
+ * Remembers that the tour was dismissed: on this device when storage works, and for the life of the
+ * page when it does not (every access is guarded, as for drafts). Once dismissed it never shows again.
+ */
+export function createTourStore(key, storage = () => globalThis.localStorage) {
+  return {
+    dismissed() {
+      if (memoryTour.has(key)) return true;
+      try {
+        return storage()?.getItem(key) === "done";
+      } catch {
+        return false;
+      }
+    },
+    dismiss() {
+      memoryTour.add(key);
+      try {
+        storage()?.setItem(key, "done");
+      } catch {
+        // The page remembers it until it is closed.
+      }
+    },
+  };
+}
+
 // ---------------------------------------------------------------- checking, in plain words
 
 const SCHEMES = {
@@ -354,17 +487,17 @@ const SCHEMES = {
 export function addressProblem(value, schemes = "links") {
   const v = String(value ?? "");
   if (!v.trim()) return "";
-  if (v !== v.trim() || /[\s\u0000-\u001f]/u.test(v)) return "An address cannot contain spaces.";
-  if (v.includes("\\")) return "An address cannot contain a backslash.";
+  if (v !== v.trim() || /[\s\u0000-\u001f]/u.test(v)) return "An address cannot contain spaces. Remove them, or copy the address again.";
+  if (v.includes("\\")) return "An address cannot contain a backslash. Use a forward slash (/) instead.";
   if (v.startsWith("//")) return "Start the address with https://, or with a single / for a page on your site.";
   const relative = v.startsWith("/") || v.startsWith("#");
   if (relative) return schemes === "https" ? "Start the address with https://." : "";
   const scheme = /^([A-Za-z][A-Za-z0-9+.-]*):/.exec(v)?.[1]?.toLowerCase();
   if (!scheme) return schemes === "https" ? "Start the address with https://." : "";
   if (scheme === "http") return "Use https:// rather than http://.";
-  if (!(SCHEMES[schemes] || SCHEMES.links).includes(scheme)) return `Addresses starting with ${scheme}: are not allowed here.`;
+  if (!(SCHEMES[schemes] || SCHEMES.links).includes(scheme)) return `Addresses starting with ${scheme}: are not allowed here. Use one that starts with https://.`;
   if (scheme === "https" && !/^https:\/\/[^/?#]+/i.test(v)) return "Add the site's name after https://.";
-  if (scheme === "tel" && !/^tel:[0-9+().-]+$/i.test(v)) return "A tel: link holds only a phone number.";
+  if (scheme === "tel" && !/^tel:[0-9+().-]+$/i.test(v)) return "A tel: link holds only a phone number. Use digits, spaces and + - . ( ).";
   if (scheme === "mailto" && !/^mailto:[^?]+/i.test(v)) return "Add an email address after mailto:.";
   return "";
 }
@@ -376,41 +509,41 @@ export function fieldProblem(spec, value) {
   if (spec.kind === "number") {
     if (empty) return spec.required ? `Enter a number for ${name}.` : "";
     const n = typeof value === "number" ? value : Number(value);
-    if (!Number.isFinite(n)) return `${spec.label} must be a number.`;
-    if (spec.integer && !Number.isInteger(n)) return `${spec.label} must be a whole number.`;
-    if (spec.min !== undefined && n < spec.min) return `${spec.label} must be at least ${spec.min}.`;
-    if (spec.max !== undefined && n > spec.max) return `${spec.label} can be at most ${spec.max}.`;
+    if (!Number.isFinite(n)) return `${spec.label} must be a number. Type digits only, such as 12.`;
+    if (spec.integer && !Number.isInteger(n)) return `${spec.label} must be a whole number. Remove the decimal point.`;
+    if (spec.min !== undefined && n < spec.min) return `${spec.label} must be at least ${spec.min}. Enter ${spec.min} or more.`;
+    if (spec.max !== undefined && n > spec.max) return `${spec.label} can be at most ${spec.max}. Enter ${spec.max} or less.`;
     return "";
   }
   if (spec.kind === "select") return "";
   if (spec.kind === "post") return empty ? "Choose a post." : "";
-  if (empty) return spec.required ? `${spec.label} is needed.` : "";
+  if (empty) return spec.required ? `${spec.label} is needed. Fill it in before you save.` : "";
   const str = String(value);
-  if (/[\u0000-\u001f]/u.test(str) && spec.kind !== "textarea" && spec.kind !== "richtext") return `${spec.label} must be on one line.`;
-  if (spec.max && [...str].length > spec.max) return `${spec.label} is ${[...str].length} characters; the most is ${spec.max}.`;
+  if (/[\u0000-\u001f]/u.test(str) && spec.kind !== "textarea" && spec.kind !== "richtext") return `${spec.label} must be on one line. Remove the line breaks.`;
+  if (spec.max && [...str].length > spec.max) return `${spec.label} is ${[...str].length} characters; the most is ${spec.max}. Shorten it by ${[...str].length - spec.max}.`;
   if (spec.kind === "url") return addressProblem(str, spec.schemes);
   if (spec.kind === "email") {
     const at = str.indexOf("@");
     const domain = str.slice(at + 1);
-    if (at < 1 || !domain.includes(".") || domain.startsWith(".") || domain.endsWith(".") || /[\s<>"'&,;]/.test(str)) return "That does not look like an email address.";
+    if (at < 1 || !domain.includes(".") || domain.startsWith(".") || domain.endsWith(".") || /[\s<>"'&,;]/.test(str)) return "That does not look like an email address. Write it like name@example.com.";
   }
   if (spec.kind === "tel") {
     const digits = (str.match(/\d/g) || []).length;
-    if (!/^[0-9+().\- ]+$/.test(str) || digits < 3 || digits > 20) return "A phone number holds digits, spaces and + - . ( ).";
+    if (!/^[0-9+().\- ]+$/.test(str) || digits < 3 || digits > 20) return "A phone number holds digits, spaces and + - . ( ). Remove any other characters.";
   }
   return "";
 }
 
-/** The kind-specific rule the field specs cannot say: a video id has the provider's shape. */
+/** The kind-specific rule the field specs cannot say: a video code has the provider's shape. */
 function sectionRules(section) {
   const problems = [];
   if (section.type === "video") {
     const id = String(section.video ?? "");
     const ok = section.provider === "vimeo" ? /^[0-9]{1,12}$/.test(id) : /^[A-Za-z0-9_-]{11}$/.test(id);
-    if (id.trim() && !ok) problems.push({ path: "video", message: section.provider === "vimeo" ? "A Vimeo video id is digits only, such as 76979871." : "A YouTube video id is 11 letters, digits, - or _." });
+    if (id.trim() && !ok) problems.push({ path: "video", message: section.provider === "vimeo" ? "A Vimeo video code is digits only, such as 76979871. Copy the number at the end of the video's address." : "A YouTube video code is 11 letters, digits, - or _. Copy it from the end of the video's address." });
   }
   if (section.type === "rich-text" && /!\[\s*\]\(/.test(String(section.markdown ?? ""))) {
-    problems.push({ path: "markdown", message: "Every picture needs a description. Remove the picture and add it again with the Image button." });
+    problems.push({ path: "markdown", message: "Every picture needs a description. Remove the picture and add it again with the Image button, then describe it." });
   }
   if (section.type === "contact" && !clean(section.email) && !clean(section.phone) && !clean(section.address)) {
     problems.push({ path: "email", message: "Add an email, a phone number or an address." });
@@ -441,9 +574,9 @@ function checkFields(specs, data, prefix, out) {
 /** Every problem with one section: `{ path, message }`, where `path` names the field (`button.href`, `items.0.label`). */
 export function sectionProblems(section) {
   const out = [];
-  if (!isObject(section)) return [{ path: "", message: "This section cannot be read." }];
+  if (!isObject(section)) return [{ path: "", message: "This section cannot be read. Delete it and add it again." }];
   const info = BY_TYPE.get(section.type);
-  if (!info) return [{ path: "", message: "This version of open.blog does not know this kind of section. It is kept, but it cannot be edited here." }];
+  if (!info) return [{ path: "", message: "This version of open.blog does not know this kind of section. It is kept, but it cannot be edited here. You can leave it, hide it or delete it." }];
   checkFields(info.fields, section, "", out);
   for (const extra of sectionRules(section)) if (!out.some((p) => p.path === extra.path)) out.push(extra);
   return out;
@@ -505,10 +638,10 @@ export function parseNumberInput(value) {
 /** A plain-language account of a failed request. */
 export function landingErrorText(error) {
   if (error?.status === 401) return "Your session has ended. Sign in again; your changes are kept on this device.";
-  if (error?.status === 409 && error?.data?.newerVersion) return "This page was written by a newer version of open.blog, so it cannot be changed from here.";
-  if (error?.status === 409) return "The page was changed somewhere else since you opened it.";
-  if (error?.status === 413) return "The page is too big to save. Remove some text or sections.";
-  if (error?.status === 422) return error.message || "Some sections need attention before this can be saved.";
+  if (error?.status === 409 && error?.data?.newerVersion) return "This page was written by a newer version of open.blog, so it cannot be changed from here. Update open.blog, then try again.";
+  if (error?.status === 409) return "The page was changed somewhere else since you opened it. Choose what to do with your changes.";
+  if (error?.status === 413) return "The page is too big to save. Remove some text or some sections, then save again.";
+  if (error?.status === 422) return error.message || "Some sections need attention before this can be saved. Look for the sections marked as needing attention.";
   if (error?.status === 403) return "That change was refused. Reload the page and try again.";
   if (typeof error?.status !== "number") return "Could not reach the server. Your changes are kept on this device. Try again when your connection is back.";
   return error?.message || "That did not work. Check your connection and try again.";
@@ -537,7 +670,7 @@ export function previewScale(available, width) {
 /** What the preview says when some sections are left out because they are not complete yet. */
 export function previewLeftOutText(count) {
   if (!count) return "";
-  return count === 1 ? "1 section needs attention and is left out of this preview." : `${count} sections need attention and are left out of this preview.`;
+  return count === 1 ? "1 section needs attention and is left out of this preview. Open it and fix what is marked to see it here." : `${count} sections need attention and are left out of this preview. Open them and fix what is marked to see them here.`;
 }
 
 // ---------------------------------------------------------------- never losing work (ADR 0252, #329)

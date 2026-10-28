@@ -1,4 +1,4 @@
-# ADR 0354: Landing history keeps the last twenty saves in private storage, and a restore is an ordinary save that keeps what it replaces
+# ADR 0264: Landing history keeps the last twenty saves in private storage, and a restore is an ordinary save that keeps what it replaces
 
 - Status: Accepted
 - Date: 2026-10-28

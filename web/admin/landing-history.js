@@ -1,4 +1,4 @@
-// Earlier versions of the landing page (ADR 0354): a disclosure under the sections with the versions the
+// Earlier versions of the landing page (ADR 0264): a disclosure under the sections with the versions the
 // server kept, newest first, each with its date and a short summary of what changed, a preview and a
 // Restore button. Restoring is an ordinary save made by the server, so it makes a new version and the
 // page it replaced stays in the list. Nothing here edits a page; it only asks the server to put one back.

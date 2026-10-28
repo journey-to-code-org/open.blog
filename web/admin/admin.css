@@ -4791,7 +4791,24 @@ a.oba-btn-primary {
 }
 
 .oba-landing-add-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
   margin: 0.5rem 0 1rem;
+}
+
+.oba-landing-add-row .oba-btn {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+}
+
+.oba-landing-confirm {
+  margin: 0 0 1rem;
+}
+
+.oba-landing-confirm[hidden] {
+  display: none;
 }
 
 .oba-landing-picker {
@@ -5262,7 +5279,7 @@ a.oba-btn-primary {
   scroll-margin-bottom: 8rem;
 }
 
-/* Plain-language suggestions (ADR 0352). Everything wraps; nothing depends on a font's width. */
+/* Plain-language suggestions (ADR 0262). Everything wraps; nothing depends on a font's width. */
 .oba-checks-wrap {
   min-width: 0;
   margin: 8px 0;
@@ -5321,7 +5338,7 @@ a.oba-btn-primary {
   gap: 8px;
 }
 
-/* Earlier versions of the landing page (ADR 0354). Everything wraps; nothing depends on a font's width. */
+/* Earlier versions of the landing page (ADR 0264). Everything wraps; nothing depends on a font's width. */
 .oba-history-wrap {
   margin: 16px 0;
   min-width: 0;
@@ -5375,4 +5392,45 @@ a.oba-btn-primary {
 .oba-history-preview {
   margin-top: 12px;
   min-width: 0;
+}
+
+/* The landing builder's short tour and its Help words (ADR 0259). Nothing here moves, so reduced motion needs no special case. */
+.oba-landing-tour {
+  margin: 0 0 1rem;
+  border-inline-start: 4px solid var(--ob-color-accent-border);
+}
+
+.oba-landing-tour[hidden] {
+  display: none;
+}
+
+.oba-landing-tour h3 {
+  margin-top: 0;
+  overflow-wrap: anywhere;
+}
+
+.oba-landing-tour .oba-btn {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+}
+
+.oba-landing-help {
+  margin: 0.5rem 0;
+}
+
+.oba-landing-help summary {
+  min-height: 44px;
+  padding-block: 0.5rem;
+  cursor: pointer;
+}
+
+.oba-landing-help dt {
+  font-weight: 600;
+  margin-top: 0.5rem;
+}
+
+.oba-landing-help dd {
+  margin-inline-start: 0;
+  overflow-wrap: anywhere;
 }

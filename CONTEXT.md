@@ -2447,24 +2447,45 @@ _Avoid_: HTML block, WYSIWYG box, Markdown field
 **Clean paste**:
 Pasting from Word, Google Docs or a web page into a Visual surface. The clipboard HTML is converted by an
 allowlist into the editor's own Markdown (headings, bold, italic, links, lists, quotes, pictures that have a
-description) and everything else is dropped; Ctrl/Cmd+Shift+V pastes plain text instead (ADR 0350).
+description) and everything else is dropped; Ctrl/Cmd+Shift+V pastes plain text instead (ADR 0260).
 _Avoid_: Paste with formatting, HTML paste
 
 **Suggestions**:
 The plain-language content checks under the landing Text section and the post editor's toolbar: a picture
 without a description, a link that says "click here", an empty link, a skipped heading level, a very long
 paragraph, shouting in capitals, an `http://` address. Each is one sentence, a "Fix it" button where a fix is
-safe and touches only its own place; they never block saving (ADR 0352).
+safe and touches only its own place; they never block saving (ADR 0262).
 _Avoid_: Errors, validation, lint
 
 **Raw HTML in Markdown mode**:
 HTML tags an owner types in a post's Markdown. They are kept and rendered as written, existing posts are never
 rewritten, and the suggestions note them without blocking. Visual mode, pasting, pieces, looks and the landing
-page cannot create them (ADR 0353).
+page cannot create them (ADR 0263).
 _Avoid_: HTML mode, unsafe HTML
 
 **Landing history**:
 The last twenty pages the Admin saved, each kept as one small file under `.openblog/private/landing-history/`
 (never published, fed, exported or committed), listed by date with a one-sentence summary in the Landing page
-view. Restoring one is an ordinary save that keeps the page it replaces (ADR 0354).
+view. Restoring one is an ordinary save that keeps the page it replaces (ADR 0264).
 _Avoid_: Backups, revisions, undo
+
+## Landing starters
+
+**Starter layout**:
+A ready-made list of sample landing sections (Welcome, Small business, Portfolio, Newsletter) or an empty page
+(Start from scratch), chosen in the Landing page builder. It is plain section data with every stand-in sentence
+marked "Sample", it is applied like any other unsaved edit, it can be undone, and it never replaces existing
+sections without asking (ADR 0258).
+_Avoid_: Template, theme, preset
+
+**Landing tour**:
+The optional three-step introduction to the Landing page builder: a labelled region in the page with Next,
+Back, Skip the tour and Finish the tour, closed also by Escape. Once closed in any way it is never shown
+again for that account on that device (ADR 0259).
+_Avoid_: Onboarding wizard, walkthrough modal, coach marks
+
+**Landing Help words**:
+The short list under "Help: what the words on this page mean" in the Landing page builder, explaining
+section, layout, hide, preview, save, publish (make it live), web address and picture description. Technical
+terms appear only there, in brackets (ADR 0259).
+_Avoid_: Glossary page, documentation

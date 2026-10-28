@@ -1,4 +1,4 @@
-//! Previous saved versions of the landing page (ADR 0354, #337).
+//! Previous saved versions of the landing page (ADR 0264, #337).
 //!
 //! Every page Admin saves is also kept as one small file under `.openblog/private/landing-history/`,
 //! outside the content folder, so no build, feed, search index, export or Git commit ever sees it.

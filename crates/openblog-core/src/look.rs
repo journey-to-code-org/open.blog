@@ -271,7 +271,7 @@ impl LookSettings {
 fn describe(value: &Value) -> String {
     match value {
         // Plain words and colors are shown back; anything with markup or CSS punctuation in it is
-        // never repeated (ADR 0353).
+        // never repeated (ADR 0263).
         Value::String(text)
             if !text
                 .chars()

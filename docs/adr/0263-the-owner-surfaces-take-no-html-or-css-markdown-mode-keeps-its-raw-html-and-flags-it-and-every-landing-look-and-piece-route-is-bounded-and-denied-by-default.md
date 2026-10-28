@@ -1,11 +1,11 @@
-# ADR 0353: The owner surfaces take no HTML or CSS, Markdown mode keeps its raw HTML and flags it, and every landing, look and piece route is bounded and denied by default
+# ADR 0263: The owner surfaces take no HTML or CSS, Markdown mode keeps its raw HTML and flags it, and every landing, look and piece route is bounded and denied by default
 
 - Status: Accepted
 - Date: 2026-10-28
 - Decision issue: [#336](https://github.com/journey-to-code-org/open.blog/issues/336)
 - Parent story: [#319](https://github.com/journey-to-code-org/open.blog/issues/319)
 - Parent epic: [#314](https://github.com/journey-to-code-org/open.blog/issues/314)
-- Builds on: ADR 0245, ADR 0248, ADR 0253, ADR 0257, ADR 0350, ADR 0351, ADR 0352
+- Builds on: ADR 0245, ADR 0248, ADR 0253, ADR 0257, ADR 0260, ADR 0261, ADR 0262
 
 ## Context
 
@@ -26,8 +26,8 @@ open: should Markdown mode also stop accepting new raw HTML?
   reviewed exception is the code-runner source of a post's interactive block), or if any module adds a new way
   to write HTML into the document. The only two reviewed sinks are the sandboxed preview frame, which takes the
   server's own page, and `insertHTML` of elements the editor's block renderer built from validated Markdown.
-- **Visual surfaces cannot create markup.** Pasting is converted through an allowlist (ADR 0350) and typed
-  text that looks like a tag is saved as plain words (ADR 0351). This closed the one path the audit found:
+- **Visual surfaces cannot create markup.** Pasting is converted through an allowlist (ADR 0260) and typed
+  text that looks like a tag is saved as plain words (ADR 0261). This closed the one path the audit found:
   typing `<b>` in a post's Visual mode used to be written as raw HTML.
 
 ## Decision: Markdown mode keeps its raw HTML, and flags it
@@ -37,7 +37,7 @@ frame, a `<details>` block). Stopping it now would break existing posts and the 
 epic says existing behavior is unchanged), and would be a one-way door for anyone who relies on it. So:
 
 - Existing posts with raw HTML keep rendering and keep their bytes. Nothing rewrites them.
-- Markdown mode still accepts raw HTML. The suggestions panel (ADR 0352) notes a tag in plain words ("kept and
+- Markdown mode still accepts raw HTML. The suggestions panel (ADR 0262) notes a tag in plain words ("kept and
   shown as written, but the Visual editor cannot change it"). It never blocks saving.
 - The Visual editor shows raw HTML as a preserved block and never edits it. Visual mode, the landing page,
   pieces, looks and paste cannot create it.

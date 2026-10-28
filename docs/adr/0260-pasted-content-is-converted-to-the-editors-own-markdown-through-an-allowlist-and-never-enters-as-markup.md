@@ -1,4 +1,4 @@
-# ADR 0350: Pasted content is converted to the editor's own Markdown through an allowlist and never enters as markup
+# ADR 0260: Pasted content is converted to the editor's own Markdown through an allowlist and never enters as markup
 
 - Status: Accepted
 - Date: 2026-10-28

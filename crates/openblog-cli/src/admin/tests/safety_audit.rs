@@ -1,4 +1,4 @@
-//! The landing, look and piece routes under one audit (ADR 0353, #336): every route denies by
+//! The landing, look and piece routes under one audit (ADR 0263, #336): every route denies by
 //! default, writes need the CSRF token and a same-origin request, every body is bounded before it
 //! is read, hostile and malformed payloads fail without a partial write, and errors repeat nothing
 //! the caller sent. The single Admin role is the existing policy: a signed-in owner may change the

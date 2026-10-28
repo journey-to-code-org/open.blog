@@ -1,4 +1,4 @@
-//! Landing page history routes (ADR 0354, #337): every save keeps a version in private storage,
+//! Landing page history routes (ADR 0264, #337): every save keeps a version in private storage,
 //! the list is bounded, a restore is an atomic, conflict-safe save that never loses the current
 //! page, and nothing here reaches the content folder, the built site or Git.
 

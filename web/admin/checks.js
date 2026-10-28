@@ -1,4 +1,4 @@
-// Plain-language content checks (ADR 0352): a pure checker shared by the landing Text section and the post
+// Plain-language content checks (ADR 0262): a pure checker shared by the landing Text section and the post
 // editor. It reads Markdown and returns short sentences, each with the exact place it is about and, where a fix
 // is safe, a fix that changes only that place. Warnings never block saving; this file knows nothing about
 // saving. Malformed, empty and oversized input never throws.

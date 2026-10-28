@@ -1,11 +1,11 @@
-# ADR 0352: Content checks are one pure checker that explains in a sentence, offers a fix that touches only its own place, and never blocks saving
+# ADR 0262: Content checks are one pure checker that explains in a sentence, offers a fix that touches only its own place, and never blocks saving
 
 - Status: Accepted
 - Date: 2026-10-28
 - Decision issue: [#335](https://github.com/journey-to-code-org/open.blog/issues/335)
 - Parent story: [#319](https://github.com/journey-to-code-org/open.blog/issues/319)
 - Parent epic: [#314](https://github.com/journey-to-code-org/open.blog/issues/314)
-- Builds on: ADR 0257, ADR 0350
+- Builds on: ADR 0257, ADR 0260
 
 ## Context
 
@@ -19,7 +19,7 @@ levels and similar slips are easy to make and easy to fix, but only if someone s
   rules: a picture with no description, a link that says "click here", "here" or "read more", an empty link or
   a link with no address, a heading that skips a level, a very long paragraph (over 150 words), a heading or
   paragraph in all capitals, and an `http://` address (local addresses are left alone). In a post the checker
-  also notes an HTML tag (ADR 0353). Code, fenced or inline, is never checked. Malformed, empty or oversized input
+  also notes an HTML tag (ADR 0263). Code, fenced or inline, is never checked. Malformed, empty or oversized input
   returns an empty list or a bounded one (40 issues, 400,000 characters) and never throws.
 - **A fix changes only its own place.** A fix is the exact range to replace, the text expected there, and the
   words just around it. `applyFix` changes nothing if the text has moved, so a fix can never land on unrelated

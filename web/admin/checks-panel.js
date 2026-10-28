@@ -1,4 +1,4 @@
-// The plain-language suggestions panel (ADR 0352): the sentences from `checkMarkdown` as a list, each with a
+// The plain-language suggestions panel (ADR 0262): the sentences from `checkMarkdown` as a list, each with a
 // real "Fix it" button where a fix is safe. It is a list in a disclosure, announced politely, and it never
 // blocks saving. A fix that needs words asks for them in a small form right under the sentence.
 

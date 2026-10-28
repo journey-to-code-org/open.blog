@@ -1,4 +1,4 @@
-// Clean pasted content into safe Markdown (ADR 0350).
+// Clean pasted content into safe Markdown (ADR 0260).
 //
 // A pure converter: clipboard HTML in, the Markdown the Visual surfaces can hold out. It never
 // touches the DOM and never builds markup. The HTML is read by a small tolerant tokenizer, only

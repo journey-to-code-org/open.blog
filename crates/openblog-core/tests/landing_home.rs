@@ -463,7 +463,7 @@ fn a_short_first_list_links_to_the_archive_when_it_carries_no_pager() {
     assert!(!home(&load(config(""), Some(&full))).contains("All posts"));
 }
 
-// ----- nothing leaves the home page (ADR 0353) ----------------------------------
+// ----- nothing leaves the home page (ADR 0263) ----------------------------------
 
 #[test]
 fn landing_text_reaches_only_the_home_page_never_feeds_search_or_other_files() {

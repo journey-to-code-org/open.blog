@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 
-// Safe writing in the landing Text section (ADR 0350, ADR 0351; #334, #335): pasted content is cleaned
+// Safe writing in the landing Text section (ADR 0260, ADR 0261; #334, #335): pasted content is cleaned
 // into the words the editor holds, and plain-language checks offer fixes. Real binary, real Admin.
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -232,7 +232,7 @@ test("suggestions never block saving and fit a phone without sideways scroll", a
   await expect(page.locator("[data-landing-status]")).toContainText("Saved.");
 });
 
-// ----- earlier versions (ADR 0354, #337)
+// ----- earlier versions (ADR 0264, #337)
 
 const history = (page) => page.locator("[data-history]");
 const openHistory = async (page) => {

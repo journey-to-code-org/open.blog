@@ -29,6 +29,14 @@ import {
   previewSize,
   removeSection,
   restoreSection,
+  EMPTY_STATE_TEXT,
+  GLOSSARY,
+  STARTERS,
+  TOUR_STEPS,
+  applyLayout,
+  createTourStore,
+  replacingNeedsConfirm,
+  starterSections,
   sectionInfo,
   sectionProblems,
   sectionSummary,
@@ -9439,7 +9447,7 @@ function appendVisualLines(parent, markdown) {
 
 /**
  * Words written as Markdown text. A `<` that could open a tag is written as `&lt;`, so text typed
- * into a Visual surface never becomes raw HTML (ADR 0351); the surface shows it as `<` again.
+ * into a Visual surface never becomes raw HTML (ADR 0261); the surface shows it as `<` again.
  */
 function markdownText(value) {
   return String(value || "")
@@ -9697,7 +9705,7 @@ function landingRichRender(editor, markdown, onChange) {
   if (!editor.children.length) editor.append(h("p", { "data-visual-block": "paragraph" }, h("br")));
 }
 
-// ----- pasting into a rich surface (ADR 0350, #334)
+// ----- pasting into a rich surface (ADR 0260, #334)
 
 /**
  * Remember a Ctrl/Cmd+Shift+V so the paste that follows is plain text. Browsers report that paste like
@@ -9932,7 +9940,7 @@ function landingRichText(spec, data, ctx, path, id) {
       const cards = [...editor.querySelectorAll(".oba-protected-block")];
       const start = range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement;
       if (start?.closest?.(".oba-protected-block") || cards.some((cardNode) => range.intersectsNode(cardNode))) {
-        announce.textContent = "Select text between the preserved blocks only.";
+        announce.textContent = "Select text outside the kept cards only.";
         origin?.focus();
         return;
       }
@@ -12873,6 +12881,7 @@ export class ObAdmin extends AdminElement {
     let editingId = null;
     let picking = false;
     let undo = null;
+    let layoutUndo = null;
     let busy = false;
     let attempted = false;
     let serverProblems = new Map();
@@ -12900,7 +12909,7 @@ export class ObAdmin extends AdminElement {
       status.textContent = text;
     };
     const cards = h("ol", { class: "oba-landing-cards", "aria-label": "Sections on your landing page" });
-    const empty = h("p", { class: "oba-notice", "data-landing-empty": "true", hidden: true }, "Your page has no sections yet. Choose Add a section to start.");
+    const empty = h("p", { class: "oba-notice", "data-landing-empty": "true", hidden: true }, EMPTY_STATE_TEXT);
     const count = h("span", { class: "oba-small", "data-landing-count": "true" });
     const picker = h("section", { class: "oba-landing-picker", "aria-labelledby": "oba-landing-picker-title", hidden: true });
     const toast = h("div", { class: "oba-landing-toast", role: "status", "aria-live": "polite", "data-landing-toast": "true", hidden: true });
@@ -13033,7 +13042,7 @@ export class ObAdmin extends AdminElement {
     };
 
     const onEdited = () => {
-      if (undo) clearUndo();
+      if (undo || layoutUndo) clearUndo();
       renderBar();
       schedulePreview();
     };
@@ -13076,6 +13085,7 @@ export class ObAdmin extends AdminElement {
 
     const clearUndo = () => {
       undo = null;
+      layoutUndo = null;
       toast.hidden = true;
       toast.replaceChildren();
     };
@@ -13084,6 +13094,7 @@ export class ObAdmin extends AdminElement {
       const index = sections().findIndex((item) => item.id === id);
       const name = shortName(section);
       const result = removeSection(sections(), id);
+      layoutUndo = null;
       draft.sections = result.sections;
       if (editingId === id) editingId = null;
       serverProblems.delete(id);
@@ -13178,6 +13189,162 @@ export class ObAdmin extends AdminElement {
       onEdited();
     };
 
+    // ----- starting points (ADR 0258, #338): a layout is a list of sections, applied like any other edit
+    const layoutContext = { posts: posts || [] };
+    const defaultSections = () => (loaded.legacy ? pageFrom(loaded.legacy).sections : starterSections("welcome", layoutContext));
+    const startersPanel = h("section", { class: "oba-landing-picker oba-landing-starters", id: "oba-landing-starters", "aria-labelledby": "oba-landing-starters-title", hidden: true, "data-landing-starters": "true" });
+    const confirmBox = h("div", { class: "oba-notice oba-landing-confirm", role: "group", "aria-labelledby": "oba-landing-confirm-title", hidden: true, "data-landing-confirm": "true" });
+    const layoutButton = h("button", { class: "oba-btn oba-landing-button", type: "button", "data-action": "choose-layout", "aria-expanded": "false", "aria-controls": "oba-landing-starters", onClick: () => openStarters() }, "Choose a ready-made layout");
+    const resetButton = h("button", { class: "oba-btn oba-landing-button", type: "button", "data-action": "reset-default", onClick: () => chooseLayout("default", "the default layout", defaultSections) }, "Reset to default");
+    // While a stored draft waits to be restored or thrown away, replacing the whole page would hide it.
+    const syncLayoutLock = () => {
+      layoutButton.disabled = !!pendingDraft;
+      resetButton.disabled = !!pendingDraft;
+    };
+    const closeStarters = (focus = true) => {
+      startersPanel.hidden = true;
+      layoutButton.setAttribute("aria-expanded", "false");
+      if (focus) layoutButton.focus();
+      maybeTour();
+    };
+    const closeConfirm = () => {
+      confirmBox.hidden = true;
+      confirmBox.replaceChildren();
+    };
+    function openStarters(move = true) {
+      closeConfirm();
+      startersPanel.hidden = false;
+      layoutButton.setAttribute("aria-expanded", "true");
+      if (move) {
+        startersPanel.querySelector("button")?.focus();
+        startersPanel.scrollIntoView?.({ block: "nearest" });
+      }
+    }
+    const applyChoice = (label, next) => {
+      const { page: nextPage, previous } = applyLayout(draft, next);
+      draft = nextPage;
+      clearUndo();
+      layoutUndo = { sections: previous };
+      editingId = null;
+      serverProblems = new Map();
+      closeStarters(false);
+      closeConfirm();
+      renderCards();
+      toast.hidden = false;
+      toast.replaceChildren(
+        h("span", { class: "oba-landing-toast-text" }, `Your page now uses ${label}.`),
+        h("button", { class: "oba-btn", type: "button", "data-action": "undo-layout", onClick: restoreLayout }, "Undo"),
+        h("button", { class: "oba-btn", type: "button", "data-action": "dismiss-undo", onClick: () => { clearUndo(); actionsFocus(); } }, "Dismiss"),
+      );
+      renderBar();
+      schedulePreview();
+      if (next.length) {
+        say(`Your page now uses ${label}. Nothing is saved yet. Choose Undo to go back, or Edit on a section to change its words.`, "notice");
+        focusAction(next.find((section) => section.type !== "callout")?.id || next[0].id, "edit");
+      } else {
+        say("Your page is empty. Add the first section when you are ready. Nothing is saved yet, and Undo brings your sections back.", "notice");
+        openPicker();
+      }
+    };
+    const restoreLayout = () => {
+      if (!layoutUndo) return;
+      const record = layoutUndo;
+      draft.sections = record.sections;
+      clearUndo();
+      editingId = null;
+      renderCards();
+      renderBar();
+      schedulePreview();
+      say("Put your earlier sections back.");
+      const first = sections()[0];
+      if (first) focusAction(first.id, "edit");
+      else layoutButton.focus();
+    };
+    const chooseLayout = (id, label, build) => {
+      if (pendingDraft) return;
+      const next = build();
+      if (pageSame(next, draft.sections)) {
+        closeStarters(false);
+        say("Your page already looks like that.");
+        return;
+      }
+      if (!replacingNeedsConfirm(sections(), { exists, dirty: isDirty() })) {
+        applyChoice(label, next);
+        return;
+      }
+      closeStarters(false);
+      confirmBox.hidden = false;
+      confirmBox.replaceChildren(
+        h("strong", { id: "oba-landing-confirm-title", tabindex: "-1" }, `Replace your ${sections().length === 1 ? "section" : `${sections().length} sections`} with ${label}?`),
+        h("p", {}, "Your current sections are put away, not lost: choose Undo afterwards to bring them back. Nothing changes on your site until you save and publish."),
+        h("div", { class: "oba-toolbar" },
+          h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": "confirm-layout", onClick: () => applyChoice(label, next) }, "Replace my sections"),
+          h("button", { class: "oba-btn", type: "button", "data-action": "cancel-layout", onClick: () => { closeConfirm(); layoutButton.focus(); say("Kept your sections as they are."); } }, "Keep what I have"),
+        ),
+      );
+      confirmBox.querySelector("strong").focus();
+    };
+    startersPanel.append(
+      h("h3", { id: "oba-landing-starters-title", tabindex: "-1" }, "Start from a ready-made layout"),
+      h("p", { class: "oba-small" }, "Pick a starting point. It comes with sample words for you to replace. You can change everything, and you can undo your choice."),
+      h(
+        "ul",
+        { class: "oba-landing-types" },
+        [
+          ...STARTERS.map((starter) => ({ id: starter.id, label: starter.label, description: starter.description, name: `the ${starter.label} layout` })),
+          { id: "scratch", label: "Start from scratch", description: "An empty page. You add the sections you want, one at a time.", name: "an empty page" },
+        ].map((entry) =>
+          h("li", {}, h("button", { class: "oba-landing-type", type: "button", "data-starter": entry.id, onClick: () => chooseLayout(entry.id, entry.name, () => starterSections(entry.id, layoutContext)) }, h("span", { class: "oba-landing-type-text" }, h("strong", {}, entry.label), h("span", {}, entry.description)))),
+        ),
+      ),
+      h("div", { class: "oba-toolbar" }, h("button", { class: "oba-btn", type: "button", "data-action": "cancel-layouts", onClick: () => closeStarters() }, exists ? "Cancel" : "Keep what my home page shows now")),
+    );
+    startersPanel.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeStarters();
+      }
+    });
+
+    // ----- the short tour (ADR 0259, #339): three steps, skippable, never shown again once dismissed
+    const tourStore = createTourStore(`ob-landing-tour:${this.user}`);
+    const tour = h("section", { class: "oba-notice oba-landing-tour", "aria-labelledby": "oba-landing-tour-title", hidden: true, "data-landing-tour": "true" });
+    let tourShown = false;
+    const endTour = (focus = true) => {
+      tourStore.dismiss();
+      tour.hidden = true;
+      tour.replaceChildren();
+      say("The tour is closed. It will not appear again.");
+      if (focus) addButton.focus();
+    };
+    const showTourStep = (n, move) => {
+      const step = TOUR_STEPS[n];
+      const last = n === TOUR_STEPS.length - 1;
+      tour.hidden = false;
+      tour.replaceChildren(
+        h("h3", { id: "oba-landing-tour-title", tabindex: "-1", "aria-describedby": "oba-landing-tour-body" }, `Step ${n + 1} of ${TOUR_STEPS.length}: ${step.title}`),
+        h("p", { id: "oba-landing-tour-body" }, step.body),
+        h("div", { class: "oba-toolbar" },
+          n > 0 ? h("button", { class: "oba-btn", type: "button", "data-action": "tour-back", onClick: () => showTourStep(n - 1, true) }, "Back") : null,
+          h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": last ? "tour-done" : "tour-next", onClick: () => (last ? endTour() : showTourStep(n + 1, true)) }, last ? "Finish the tour" : "Next"),
+          h("button", { class: "oba-btn", type: "button", "data-action": "tour-skip", onClick: () => endTour() }, "Skip the tour"),
+        ),
+      );
+      if (move) tour.querySelector("h3").focus();
+    };
+    tour.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        endTour();
+      }
+    });
+    // It waits while the starting points or a restore offer are on screen, and shows once per visit at most.
+    function maybeTour() {
+      if (tourShown || tourStore.dismissed() || !startersPanel.hidden || !restoreBox.hidden) return;
+      tourShown = true;
+      showTourStep(0, false);
+    }
+
     // ----- a save that finds a newer page: your changes are never replaced, and neither is the newer page
     const conflictBox = h("div", { class: "oba-error oba-landing-conflict", role: "group", "aria-labelledby": "oba-landing-conflict-title", hidden: true, "data-landing-conflict": "true" });
     const showConflict = (current) => {
@@ -13206,6 +13373,7 @@ export class ObAdmin extends AdminElement {
         // Your changes are put away as a draft first, so choosing the newer page loses nothing.
         drafts.save(draft, current.revision);
         const record = drafts.load();
+        clearUndo();
         applySaved(current);
         editingId = null;
         renderCards();
@@ -13235,6 +13403,10 @@ export class ObAdmin extends AdminElement {
     const restoreBox = h("div", { class: "oba-notice oba-landing-restore", role: "group", "aria-labelledby": "oba-landing-restore-title", hidden: true, "data-landing-restore": "true" });
     const offerRestore = (record) => {
       pendingDraft = record;
+      closeConfirm();
+      startersPanel.hidden = true;
+      layoutButton.setAttribute("aria-expanded", "false");
+      syncLayoutLock();
       const when = draftTimeText(record.savedAt);
       const older = record.base !== revision;
       restoreBox.hidden = false;
@@ -13243,9 +13415,11 @@ export class ObAdmin extends AdminElement {
         h("p", {}, `This device kept changes${when ? ` from ${when}` : ""} that were never saved${older ? ", made on an older version of this page. If you save them you will be asked what to do about the newer one" : ""}.`),
         h("div", { class: "oba-toolbar" },
           h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-action": "restore-draft", onClick: () => {
+            clearUndo();
             draft = pageFrom(record.page);
             revision = record.base;
             pendingDraft = null;
+            syncLayoutLock();
             restoreBox.hidden = true;
             editingId = null;
             renderCards();
@@ -13256,6 +13430,7 @@ export class ObAdmin extends AdminElement {
           } }, "Restore your unsaved changes"),
           h("button", { class: "oba-btn", type: "button", "data-action": "discard-draft", onClick: () => {
             pendingDraft = null;
+            syncLayoutLock();
             drafts.clear();
             restoreBox.hidden = true;
             renderBar();
@@ -13277,6 +13452,7 @@ export class ObAdmin extends AdminElement {
     };
     /** What a save or a refused save does to the page the owner is looking at. */
     const applySaved = (result, sent = null) => {
+      clearUndo();
       revision = result.revision ?? null;
       exists = true;
       saved = pageFrom(result.page);
@@ -13289,6 +13465,7 @@ export class ObAdmin extends AdminElement {
       conflictBox.replaceChildren();
       restoreBox.hidden = true;
       pendingDraft = null;
+      syncLayoutLock();
       return untouched;
     };
     const save = async () => {
@@ -13348,7 +13525,7 @@ export class ObAdmin extends AdminElement {
     let publishing = false;
     const canPublish = Boolean(publishInfo?.repo);
     const publishNote = h("p", { class: "oba-small oba-landing-publish-note", id: "oba-landing-publish-note", hidden: canPublish }, "Publishing is off because this site is not a git repository. Run openblog publish setup to turn it on.");
-    const publishButton = h("button", { class: "oba-btn", type: "button", "data-action": "publish", disabled: !canPublish, "aria-describedby": canPublish ? null : "oba-landing-publish-note", onClick: () => publish() }, "Publish");
+    const publishButton = h("button", { class: "oba-btn", type: "button", "data-action": "publish", title: "Publish: make your saved page live", disabled: !canPublish, "aria-describedby": canPublish ? null : "oba-landing-publish-note", onClick: () => publish() }, "Publish");
     const publish = async () => {
       if (busy || publishing) return;
       if (isDirty() && !(await save())) return;
@@ -13455,7 +13632,7 @@ export class ObAdmin extends AdminElement {
     });
     actions.replaceChildren(previewButton, saveButton, publishButton, dirtyNote, publishNote);
 
-    // ----- earlier versions (ADR 0354): the server keeps each save; a restore is a save it makes
+    // ----- earlier versions (ADR 0264): the server keeps each save; a restore is a save it makes
     const history = buildHistory({
       call: (method, path, options) => this.api.call(method, path, options),
       getRevision: () => revision,
@@ -13477,7 +13654,8 @@ export class ObAdmin extends AdminElement {
     const intro = h(
       "section",
       { class: "oba-contributor-intro" },
-      h("p", {}, "This is the first page your visitors see. Add the sections you want, put them in the order you like, and choose Save. Nothing changes on your site until you save and publish."),
+      h("p", {}, "This is the first page your visitors see. Add the sections you want, put them in the order you like, and choose Save. Nothing changes for visitors until you save and then choose Publish (make it live)."),
+      h("details", { class: "oba-landing-help", "data-landing-help": "true" }, h("summary", {}, "Help: what the words on this page mean"), h("dl", {}, GLOSSARY.flatMap((entry) => [h("dt", {}, entry.term), h("dd", {}, entry.meaning)]))),
       exists ? null : h("p", { class: "oba-notice", "data-landing-legacy": "true" }, "You have not built a landing page yet. This starts from what your home page shows now. Your site stays as it is until you save."),
       readable ? null : h("div", { class: "oba-error", role: "alert", "data-landing-unreadable": "true" }, h("p", {}, "The saved landing page could not be read, so your site is using your home settings instead. You can start again below; saving replaces the unreadable file."), h("ul", {}, (loaded.problems || []).map((problem) => h("li", {}, problem.text || problem.message)))),
     );
@@ -13489,6 +13667,7 @@ export class ObAdmin extends AdminElement {
       this.shell(
         "landing",
         intro,
+        tour,
         restoreBox,
         status,
         conflictBox,
@@ -13501,7 +13680,9 @@ export class ObAdmin extends AdminElement {
             h("div", { class: "oba-landing-head" }, h("h2", { id: "oba-landing-sections-title" }, "Sections"), count),
             empty,
             cards,
-            h("div", { class: "oba-landing-add-row" }, addButton),
+            h("div", { class: "oba-landing-add-row" }, addButton, layoutButton, resetButton),
+            confirmBox,
+            startersPanel,
             picker,
           ),
           side,
@@ -13559,6 +13740,9 @@ export class ObAdmin extends AdminElement {
     addEventListener("pagehide", keepCopy);
     addEventListener("hashchange", keepCopy);
     document.addEventListener("visibilitychange", keepCopy);
+    // A first visit offers the starting points; it is never forced and the home page stays as it is until the owner chooses.
+    if (!exists && readable && !pendingDraft && !isDirty()) openStarters(false);
+    else maybeTour();
     // Beside the builder on a wide screen, the preview is there from the start.
     if (wide()) openPreview();
     this.viewDirty = () => isDirty();
@@ -21074,7 +21258,7 @@ export class Editor {
     ui.citationStatus = h("span", { class: "oba-small", role: "status", "aria-live": "polite" });
     ui.citationUndo = h("button", { class: "oba-btn", type: "button", hidden: true, "data-citation-undo": "true", onClick: () => this.undoCitation() }, "Undo citation");
     ui.citationBar = kind === "posts" ? h("div", { class: "oba-toolbar oba-citation-bar" }, ui.citationStatus, ui.citationUndo) : null;
-    // Plain-language suggestions under the toolbar (ADR 0352). Raw HTML in the Markdown is noted, never blocked.
+    // Plain-language suggestions under the toolbar (ADR 0262). Raw HTML in the Markdown is noted, never blocked.
     ui.checks =
       kind === "posts"
         ? buildChecksPanel({

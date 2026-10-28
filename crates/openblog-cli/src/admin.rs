@@ -103,7 +103,7 @@ use crate::source_store::{self, StoreError};
 pub const SESSION_COOKIE: &str = "ob_session";
 pub(crate) const CODE_RUNNER_LANGUAGE_PATH: &str = "/components/ob-code-runner-language.js";
 const CODE_RUNNER_LANGUAGE_ASSET: &str = "components/ob-code-runner-language.js";
-/// The largest request to `pieces`: one piece's form values, never a page (ADR 0353).
+/// The largest request to `pieces`: one piece's form values, never a page (ADR 0263).
 const MAX_PIECE_REQUEST_BYTES: usize = 64 * 1024;
 /// The most `[field, value]` pairs a piece request may carry; the largest piece has far fewer.
 const MAX_PIECE_VALUES: usize = 64;

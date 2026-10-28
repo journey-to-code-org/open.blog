@@ -4,7 +4,7 @@ import test from "node:test";
 
 import { SECTION_CATALOG } from "../../web/admin/landing.js";
 
-// The Admin input scan (ADR 0353, #336): no Admin form takes HTML or CSS as free text, nothing writes
+// The Admin input scan (ADR 0263, #336): no Admin form takes HTML or CSS as free text, nothing writes
 // markup into the page through the DOM, and a new field that would is a failing test.
 
 const dir = new URL("../../web/admin/", import.meta.url);
