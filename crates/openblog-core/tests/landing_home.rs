@@ -410,7 +410,13 @@ fn frames_appear_only_for_video_and_map_sections_and_are_privacy_enhanced() {
     ]));
     let html = home(&load(config(""), Some(&video)));
     assert_eq!(count(&html, "<iframe"), 1, "{html}");
-    let frame = html.split("<iframe ").nth(1).unwrap().split('>').next().unwrap();
+    let frame = html
+        .split("<iframe ")
+        .nth(1)
+        .unwrap()
+        .split('>')
+        .next()
+        .unwrap();
     assert!(
         frame.contains("src=\"https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"),
         "{frame}"
