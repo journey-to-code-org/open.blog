@@ -756,6 +756,58 @@ fn contained(root: &Path, relative: &str) -> Result<PathBuf> {
         .map_err(|error| StoreError::Refused(format!("{error}.")))
 }
 
+/// Whether a path is a symlink, a junction or any other reparse point.
+fn is_link_or_reparse(metadata: &fs::Metadata) -> bool {
+    if metadata.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return true;
+        }
+    }
+    false
+}
+
+/// A voice folder (relative to the project) with every ancestor up to the root checked: if any is
+/// a link or reparse point the erase is refused, because enumerating or deleting through it could
+/// reach another folder of the project (the posts, say). A folder that does not exist is fine.
+fn unlinked_dir(root: &Path, relative: &Path) -> Result<PathBuf> {
+    let mut current = root.to_path_buf();
+    for component in relative.components() {
+        current.push(component);
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if is_link_or_reparse(&metadata) => {
+                return refused(format!(
+                    "{} is a link, so nothing was erased. Replace it with a real folder or remove the link, then run erase again.",
+                    relative.display()
+                ));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+            Err(error) => return Err(failed("Cannot inspect a voice folder", error)),
+        }
+    }
+    contained(root, &relative.to_string_lossy())
+}
+
+/// Every folder an erase reads or deletes from, checked for links. Touches nothing.
+fn guard_voice_folders(root: &Path) -> Result<()> {
+    for visibility in [Visibility::Portable, Visibility::Private] {
+        unlinked_dir(root, Path::new(visibility.directory()))?;
+    }
+    unlinked_dir(root, Path::new(PRIVATE_VOICE_DIR))?;
+    for (_, relative) in guide_paths(root) {
+        if let Some(parent) = Path::new(&relative).parent() {
+            unlinked_dir(root, parent)?;
+        }
+    }
+    Ok(())
+}
+
 fn file_names(directory: &Path) -> Vec<String> {
     let Ok(entries) = fs::read_dir(directory) else {
         return Vec::new();
@@ -772,6 +824,7 @@ fn file_names(directory: &Path) -> Vec<String> {
 /// Every voice file that exists, in both folders. Read only. A regular file or link inside a sample
 /// folder counts, valid sample or not; a folder inside one does not (it is never touched).
 fn collect(root: &Path) -> Result<Vec<EraseItem>> {
+    guard_voice_folders(root)?;
     let mut items = Vec::new();
     for visibility in [Visibility::Portable, Visibility::Private] {
         for name in file_names(&directory_of(root, visibility)?) {
@@ -838,6 +891,30 @@ thread_local! {
     static FAIL_ERASE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
 }
 
+/// Delete the `erasing-*` folders an earlier failed erase left behind. Only real folders are
+/// deleted; a link with that name is left alone and the post-check reports it.
+fn remove_stale_trash(root: &Path) -> Result<()> {
+    let private = unlinked_dir(root, Path::new(PRIVATE_VOICE_DIR))?;
+    let Ok(entries) = fs::read_dir(&private) else {
+        return Ok(());
+    };
+    for entry in entries.flatten() {
+        if !entry
+            .file_name()
+            .to_string_lossy()
+            .starts_with(TRASH_PREFIX)
+        {
+            continue;
+        }
+        let is_real_dir =
+            fs::symlink_metadata(entry.path()).is_ok_and(|m| m.is_dir() && !is_link_or_reparse(&m));
+        if is_real_dir {
+            let _ = fs::remove_dir_all(entry.path());
+        }
+    }
+    Ok(())
+}
+
 /// Erase everything the voice feature stored: samples in both folders, the session record, the
 /// guide and leftover editor files. All or nothing: every file is first moved into a trash folder
 /// under `.openblog/private/voice/`, a failed move puts every moved file back and changes nothing,
@@ -897,23 +974,11 @@ pub fn erase_all(root: &Path) -> Result<EraseReport> {
             )));
         }
     }
-    // A trash folder an earlier failed erase left behind goes too.
-    if let Ok(private) = contained(root, PRIVATE_VOICE_DIR) {
-        if let Ok(entries) = fs::read_dir(&private) {
-            for entry in entries.flatten() {
-                if entry
-                    .file_name()
-                    .to_string_lossy()
-                    .starts_with(TRASH_PREFIX)
-                {
-                    let _ = fs::remove_dir_all(entry.path());
-                }
-            }
-        }
-    }
+    // A trash folder an earlier failed erase left behind goes too, unless the folders are links.
+    remove_stale_trash(root)?;
     // Empty sample folders go too; a folder that is not empty stays and the post-check says so.
     for visibility in [Visibility::Portable, Visibility::Private] {
-        if let Ok(directory) = directory_of(root, visibility) {
+        if let Ok(directory) = unlinked_dir(root, Path::new(visibility.directory())) {
             let _ = fs::remove_dir(&directory);
         }
     }

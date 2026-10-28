@@ -608,6 +608,106 @@ fn a_link_entry_is_erased_as_a_link_and_the_target_outside_the_project_survives(
     let _ = fs::remove_file(&outside);
 }
 
+/// A folder link: a symlink, else a junction on Windows. `false` when neither can be made.
+fn try_dir_link(target: &Path, link: &Path) -> bool {
+    if try_link(target, link) {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        return std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .output()
+            .is_ok_and(|out| out.status.success());
+    }
+    #[cfg(not(windows))]
+    false
+}
+
+fn project_with_posts() -> Project {
+    let project = Project::new();
+    let posts = project.0.join("content/posts");
+    fs::create_dir_all(&posts).unwrap();
+    fs::write(posts.join("2026-01-01-keep.md"), "post words").unwrap();
+    fs::write(posts.join(".hidden.tmp"), "tmp").unwrap();
+    fs::create_dir_all(posts.join("erasing-old")).unwrap();
+    fs::write(posts.join("erasing-old/inner.md"), "inner").unwrap();
+    project
+}
+
+fn assert_posts_survive(project: &Project) {
+    let posts = project.0.join("content/posts");
+    assert_eq!(
+        fs::read_to_string(posts.join("2026-01-01-keep.md")).unwrap(),
+        "post words"
+    );
+    assert!(posts.join(".hidden.tmp").exists());
+    assert!(posts.join("erasing-old/inner.md").exists());
+}
+
+#[test]
+fn a_voice_folder_that_is_a_link_refuses_the_erase_and_touches_nothing() {
+    for (voice_dir, ancestor) in [
+        ("assistant/context/voice", false),
+        (".openblog/private/context/voice", false),
+        (".openblog/private/voice", false),
+        ("assistant/context", true),
+        (".openblog/private", true),
+    ] {
+        let project = project_with_posts();
+        let link = project.0.join(voice_dir);
+        fs::create_dir_all(link.parent().unwrap()).unwrap();
+        if !try_dir_link(&project.0.join("content/posts"), &link) {
+            eprintln!("skipped: this OS refused to create a folder link");
+            return;
+        }
+        let before = snapshot(&project.0);
+        let error = erase_all(&project.0).unwrap_err();
+        assert!(
+            matches!(error, StoreError::Refused(_)),
+            "{voice_dir}: {error}"
+        );
+        assert!(
+            erase_plan(&project.0).is_err(),
+            "{voice_dir} (ancestor {ancestor}) must not be enumerated"
+        );
+        assert_posts_survive(&project);
+        assert_eq!(snapshot(&project.0), before, "{voice_dir}");
+    }
+}
+
+#[test]
+fn a_linked_private_voice_folder_never_has_its_stale_trash_deleted() {
+    let project = project_with_posts();
+    let link = project.0.join(".openblog/private/voice");
+    fs::create_dir_all(link.parent().unwrap()).unwrap();
+    if !try_dir_link(&project.0.join("content/posts"), &link) {
+        eprintln!("skipped: this OS refused to create a folder link");
+        return;
+    }
+    assert!(erase_all(&project.0).is_err());
+    assert_posts_survive(&project);
+}
+
+#[test]
+fn an_erase_with_nothing_to_remove_still_cleans_stale_trash() {
+    let project = Project::new();
+    let stale = project
+        .0
+        .join(PRIVATE_VOICE_DIR_FOR_TESTS)
+        .join("erasing-abc");
+    fs::create_dir_all(&stale).unwrap();
+    fs::write(stale.join("0"), "old").unwrap();
+    let report = erase_all(&project.0).unwrap();
+    assert!(report.erased.is_empty());
+    assert!(report.remaining.is_empty(), "{:?}", report.remaining);
+    assert!(!stale.exists());
+}
+
+const PRIVATE_VOICE_DIR_FOR_TESTS: &str = ".openblog/private/voice";
+
 #[test]
 fn the_post_check_reports_what_it_could_not_remove() {
     let project = full_project();
