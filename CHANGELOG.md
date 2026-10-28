@@ -5,6 +5,11 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- `openblog.js` imports a component only when its element is on the page, or the moment a script
+  inserts one, instead of importing all 22 on every page. A home page with no labs now downloads
+  one component instead of about 40 modules. Components are listed by element name; the embed test
+  checks each has its file (ADR 0266).
+
 ## [0.50.0] - 2026-10-28
 
 - The landing page and Customize look (epic #314, ADRs 0245 to 0264, overview in ADR 0265): owners arrange their home page and choose their site's colors and fonts from Admin, from a phone, without HTML or CSS. Docs: [the Landing page and Customize look in Admin](docs/admin.md#change-your-home-page-and-your-look), [Landing page sections](docs/content.md#landing-page-sections), [Look controls](docs/themes.md#look-controls) and [the `ob-home-*` classes](docs/theme-components.md#styling-the-landing-page).
