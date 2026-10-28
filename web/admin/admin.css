@@ -5140,10 +5140,14 @@ a.oba-btn-primary {
 .oba-look-pair {
   display: grid;
   gap: 0.25rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .oba-look-swatches {
   display: inline-flex;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .oba-look-chip {
@@ -5162,6 +5166,11 @@ a.oba-btn-primary {
 
 .oba-look-swatch {
   align-items: center;
+}
+
+.oba-look-swatch > span:not(.oba-look-chip) {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .oba-look-picker-row {
