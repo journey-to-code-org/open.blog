@@ -171,6 +171,20 @@ test("a file that leaves out notes never erases saved notes by default", () => {
   assert.equal(plan.document.annotations.find((record) => record.id === data.section).text, "Private thought.");
 });
 
+test("a file that leaves out notes never erases saved notes, even when the file's version is chosen", () => {
+  const data = seeded();
+  const without = buildExport(data.document).text;
+  const plan = ok(planImport(data.document, without, { choice: "file" }));
+  const find = (bucket, id) => plan.document[bucket].find((record) => record.id === id);
+  assert.equal(find("sources", data.source).text, "My source note.");
+  assert.equal(find("annotations", data.quoteNote).kind, "note");
+  assert.equal(find("annotations", data.quoteNote).text, "Check this.");
+  assert.equal(find("annotations", data.section).text, "Private thought.");
+  assert.deepEqual(find("trails", data.trail).steps.map((step) => step.ref), [data.highlight, data.section]);
+  assert.equal(plan.conflicts.length, 0, "a missing note is not a disagreement");
+  assert.equal(plan.changes, false);
+});
+
 test("annotations on the post being read are checked against its text", () => {
   const data = seeded();
   const sections = [{ index: 0, anchor: "brewing", title: "Brewing", text: "Steep the tea for four minutes. Then taste", digest: "d1" }];

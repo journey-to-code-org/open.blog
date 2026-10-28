@@ -169,7 +169,9 @@ export class ObReadingTrail extends HTMLElement {
 
   connectedCallback() {
     if (this.#listeners) return;
-    this.#here = { site: location.origin, path: location.pathname };
+    const passages = readPassages(document.getElementById(DATA_ELEMENT_ID)?.textContent);
+    // The path the build published for this post, so /tides/ and /tides/index.html are one work.
+    this.#here = { site: location.origin, path: passages?.work ?? location.pathname };
     this.#references = savableReferences(document.getElementById(REFERENCES_ELEMENT_ID)?.textContent, this.#here);
     if (!this.#ui) {
       instances += 1;

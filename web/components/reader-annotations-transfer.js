@@ -95,6 +95,32 @@ const sameRecord = (a, b) => {
   return stable(x) === stable(y);
 };
 
+// A file that leaves notes out says nothing about the words the reader saved. For such a file a saved note
+// and its highlight form are one record, and a missing `text` or a step to a record the file cannot hold is
+// not a difference. `ids` are the ids the file holds.
+const plain = (record, ids) => {
+  const { createdAt: _c, updatedAt: _u, text: _t, ...rest } = record;
+  if (rest.kind === "note") rest.kind = "highlight";
+  if (rest.kind === "trail") rest.steps = rest.steps.filter((step) => ids.has(step.ref));
+  return rest;
+};
+const sameWithoutNotes = (a, b, ids) => stable(plain(a, ids)) === stable(plain(b, ids));
+const family = (kind) => (kind === "note" ? "highlight" : kind);
+
+// The file's version of a record, with the reader's saved words carried over.
+function keepSavedWords(existing, record, ids) {
+  const out = clone(record);
+  if (existing.text !== undefined) out.text = existing.text;
+  if (existing.kind === "note" && record.kind === "highlight") out.kind = "note";
+  if (record.kind === "trail") {
+    const have = new Set(record.steps.map((step) => step.ref));
+    const kept = existing.steps.filter((step) => have.has(step.ref) || !ids.has(step.ref));
+    const keptRefs = new Set(kept.map((step) => step.ref));
+    out.steps = [...kept, ...record.steps.filter((step) => !keptRefs.has(step.ref))].map((step) => clone(step));
+  }
+  return out;
+}
+
 const bucketOf = (record) => (record.kind === "source" ? "sources" : record.kind === "trail" ? "trails" : "annotations");
 
 /**
@@ -113,6 +139,8 @@ export function planImport(current, text, { choice = "keep", works = {} } = {}) 
   const read = readDocumentJson(text);
   if (!read.ok) return { ok: false, ...problemsOf(read.problems) };
   const incoming = read.document;
+  const omitted = incoming.privacy.notes === "omitted";
+  const ids = new Set([...incoming.annotations, ...incoming.sources, ...incoming.trails].map((record) => record.id));
 
   const merged = clone(current);
   const byId = new Map();
@@ -128,19 +156,20 @@ export function planImport(current, text, { choice = "keep", works = {} } = {}) 
     const bucket = bucketOf(record);
     const existing = byId.get(record.id);
     if (existing) {
-      if (existing.kind !== record.kind) {
+      if (omitted ? family(existing.kind) !== family(record.kind) : existing.kind !== record.kind) {
         // The same id names a different kind of record: nothing sensible merges them.
         conflicts.push({ id: record.id, kind: record.kind, differentKind: true });
         remap.set(record.id, null);
-      } else if (sameRecord(existing, record)) {
+      } else if (omitted ? sameWithoutNotes(existing, record, ids) : sameRecord(existing, record)) {
         same[bucket] += 1;
         remap.set(record.id, record.id);
       } else {
         conflicts.push({ id: record.id, kind: record.kind });
         if (choice === "file") {
-          merged[bucket][merged[bucket].indexOf(existing)] = clone(record);
-          byId.set(record.id, record);
-          added_.push(record);
+          const next = omitted ? keepSavedWords(existing, record, ids) : clone(record);
+          merged[bucket][merged[bucket].indexOf(existing)] = next;
+          byId.set(record.id, next);
+          added_.push(next);
         }
         remap.set(record.id, record.id);
       }

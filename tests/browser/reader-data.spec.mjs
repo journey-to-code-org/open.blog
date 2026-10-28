@@ -228,6 +228,27 @@ test("a conflicting record is listed, and the reader chooses which version stays
   expect(now.annotations.map((each) => [each.id, each.text])).toEqual([["n1", "Their words"], ["n2", "Plain one"], ["n3", "Extra"]]);
 });
 
+test("a notes-free export imported with the file's version never removes a saved note", async ({ page }) => {
+  const mine = RICH();
+  mine.sources[0].text = "My source note";
+  await seed(page, mine);
+  await open(page);
+  const trails = panel(page);
+  const file = JSON.parse((await download(page, trails)).text);
+  expect(file.privacy.notes).toBe("omitted");
+  file.sources[0].title = "Kettle guide, second edition";
+  await trails.getByLabel("Reading-trail file").setInputFiles(asFile(file));
+  const preview = trails.getByRole("group", { name: /^Import preview: / });
+  await expect(preview).toContainText("1 record in the file has the same id as one you have but different content");
+  await preview.getByLabel("Use the file's version").check();
+  await preview.getByRole("button", { name: "Import" }).click();
+  const now = await saved(page);
+  expect(now.sources[0].title).toBe("Kettle guide, second edition");
+  expect(now.sources[0].text).toBe("My source note");
+  expect(now.annotations.map((each) => each.text)).toEqual(["Private cave words", "Plain one"]);
+  expect(now.trails[0].steps.map((step) => step.ref)).toEqual(["s1", "n1"]);
+});
+
 test("a hostile, newer, oversized or unreadable file is refused and changes nothing", async ({ page }) => {
   await seed(page, RICH());
   await open(page);

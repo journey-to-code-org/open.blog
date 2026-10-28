@@ -275,6 +275,39 @@ test("storage full: the change stays in memory and what was saved is unchanged",
   expect(await page.evaluate((key) => localStorage.getItem(key), KEY)).toBe(before);
 });
 
+test("storage full: deleting something to make room keeps the change that could not be saved", async ({ page }) => {
+  await open(page);
+  await selectWords(page, "twice a day");
+  await panel(page).getByRole("button", { name: "Highlight the selected words" }).click();
+  await expect(items(page)).toHaveCount(1);
+  await page.evaluate(() => {
+    const set = Storage.prototype.setItem;
+    window.__setItem = set;
+    Storage.prototype.setItem = function () { throw new DOMException("full", "QuotaExceededError"); };
+  });
+  await selectWords(page, "tides rose again");
+  await panel(page).getByRole("button", { name: "Highlight the selected words" }).click();
+  await expect(items(page)).toHaveCount(2);
+  // The reader makes room, as the notice asks.
+  await page.evaluate(() => { Storage.prototype.setItem = window.__setItem; });
+  await items(page).first().getByRole("button", { name: /^Delete: / }).click();
+  await items(page).first().getByRole("button", { name: /^Confirm delete: / }).click();
+  await expect(panel(page).getByRole("status")).toHaveText(/Deleted\. Saved in this browser\./);
+  await expect(items(page)).toHaveCount(1);
+  expect((await saved(page)).annotations).toHaveLength(1);
+  expect(await painted(page)).toEqual(["tides rose again"]);
+});
+
+test("the same post under /index.html finds annotations saved under its published path", async ({ page }) => {
+  await open(page);
+  await selectWords(page, "twice a day");
+  await panel(page).getByRole("button", { name: "Highlight the selected words" }).click();
+  await expect(items(page)).toHaveCount(1);
+  await open(page, "/tides/index.html");
+  await expect(items(page)).toHaveCount(1);
+  expect(await painted(page)).toEqual(["twice a day"]);
+});
+
 test("unreadable saved data is left untouched", async ({ page }) => {
   await page.addInitScript((key) => {
     if (!sessionStorage.getItem("seeded")) {

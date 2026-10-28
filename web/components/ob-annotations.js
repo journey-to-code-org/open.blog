@@ -198,7 +198,8 @@ export class ObAnnotations extends HTMLElement {
     if (!passages || !prose) return;
     this.#passages = passages;
     this.#prose = prose;
-    this.#work = { site: location.origin, path: location.pathname };
+    // The path the build published for this post, so /tides/ and /tides/index.html are one work.
+    this.#work = { site: location.origin, path: passages.work };
     if (!this.#ui) {
       instances += 1;
       this.#ui = this.#build(`ob-annotations-${instances}`);
@@ -227,6 +228,11 @@ export class ObAnnotations extends HTMLElement {
   /** What is saved here, read again; used on load and when another tab changes it. */
   #reload() {
     const read = readStore(storage);
+    // After a failed write the document in memory holds changes that are saved nowhere else: keep it.
+    if (this.#persistence === "full" && (read.status === "ok" || read.status === "empty")) {
+      this.#render();
+      return;
+    }
     if (read.status === "unreadable") this.#persistence = "unreadable";
     else if (read.status === "blocked") this.#persistence = "blocked";
     else this.#persistence = "saved";
@@ -362,7 +368,8 @@ export class ObAnnotations extends HTMLElement {
   /** Apply a change to the freshest saved document, keep it, and report where it went. */
   #commit(change) {
     let base = this.#document;
-    if (this.#persistence === "saved" || this.#persistence === "full") {
+    // When storage is full, the document in memory is the freshest: it holds the changes that could not be saved.
+    if (this.#persistence === "saved") {
       const read = readStore(storage);
       if (read.status === "ok" || read.status === "empty") base = read.document;
       else if (read.status === "unreadable") this.#persistence = "unreadable";
