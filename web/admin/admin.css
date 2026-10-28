@@ -4773,6 +4773,23 @@ a.oba-btn-primary {
   overflow-wrap: anywhere;
 }
 
+/* Buttons in a form shrink to the column and wrap their words rather than push past the screen. */
+.oba-landing-form .oba-btn {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding-inline: 0.6rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 40rem) {
+  .oba-landing-form fieldset {
+    margin-inline: 0;
+    padding-inline: 0.5rem;
+  }
+}
+
 .oba-landing-add-row {
   margin: 0.5rem 0 1rem;
 }
