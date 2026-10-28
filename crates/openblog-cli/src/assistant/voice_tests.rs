@@ -605,7 +605,7 @@ fn the_built_in_voice_match_skill_validates_and_forbids_full_rewrites() {
 
 #[test]
 fn a_suggestion_anchored_to_one_short_passage_stays_applicable() {
-    let markdown = "Intro line.\n\nIt is what it is, truly.\n\nEnd.";
+    let markdown = "Intro line that sets the scene properly.\n\nIt is what it is, truly.\n\nEnd of the piece, with a closing thought.";
     let request = match_request(markdown);
     let findings = validate_review_findings(
         &json!({ "findings": [match_finding("It is what it is, truly.", json!("Honestly, that is that."))] }),
@@ -631,7 +631,7 @@ fn a_suggestion_anchored_to_one_short_passage_stays_applicable() {
 
 #[test]
 fn a_suggestion_that_does_not_anchor_is_shown_as_advice_only() {
-    let request = match_request("Intro line.\n\nIt is what it is, truly.\n\nEnd.");
+    let request = match_request("Intro line that sets the scene properly.\n\nIt is what it is, truly.\n\nEnd of the piece, with a closing thought.");
     let findings = validate_review_findings(
         &json!({ "findings": [match_finding("A sentence the author never wrote.", json!("Something warmer."))] }),
         &request,
@@ -811,4 +811,58 @@ fn with_no_sample_selected_a_request_differs_from_before_only_by_the_engine_guid
             "responseSchema": { "completion": "string, at most 2000 Unicode code points" },
         })
     );
+}
+
+#[test]
+fn a_passage_that_is_most_of_the_document_or_spans_a_paragraph_break_is_advice() {
+    // Short enough, but more than half of the document.
+    let document = "First sentence of the piece, and not much more than that after it.";
+    let evidence = &document[..40];
+    let findings = validate_review_findings(
+        &json!({ "findings": [match_finding(evidence, json!("Rewritten."))] }),
+        &match_request(document),
+    )
+    .unwrap();
+    assert_eq!(findings.findings[0].suggestion, None, "near-whole document");
+
+    // Spans a blank line.
+    let padding = "x".repeat(400);
+    let document = format!(
+        "{padding}{b}{b}Tail of paragraph one.{b}{b}Head of paragraph two.{b}{b}{padding}",
+        b = "\n"
+    );
+    let evidence = "Tail of paragraph one.\n\nHead of paragraph two.";
+    let findings = validate_review_findings(
+        &json!({ "findings": [match_finding(evidence, json!("Rewritten."))] }),
+        &match_request(&document),
+    )
+    .unwrap();
+    assert_eq!(findings.findings[0].suggestion, None, "spans a blank line");
+}
+
+#[test]
+fn at_most_five_voice_match_suggestions_are_applicable_per_review() {
+    let sentences: Vec<String> = (0..7)
+        .map(|n| format!("Sentence number {n} stands alone here."))
+        .collect();
+    let document = sentences.join(" ");
+    let findings: Vec<Json> = sentences
+        .iter()
+        .enumerate()
+        .map(|(n, sentence)| {
+            let mut finding = match_finding(sentence, json!("Warmer."));
+            finding["id"] = json!(format!("m{n}"));
+            finding
+        })
+        .collect();
+    let set = validate_review_findings(&json!({ "findings": findings }), &match_request(&document))
+        .unwrap();
+    let applicable = set
+        .findings
+        .iter()
+        .filter(|f| f.suggestion.is_some())
+        .count();
+    assert_eq!(applicable, 5);
+    assert!(set.findings[5].suggestion.is_none());
+    assert!(set.findings[6].explanation.contains("shown as advice only"));
 }

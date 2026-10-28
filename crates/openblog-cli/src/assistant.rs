@@ -2304,7 +2304,27 @@ pub const VOICE_REVIEW_SKILL: &str = "voice-review";
 /// The built-in skill that proposes anchored replacements so a passage sounds more like the author.
 pub const VOICE_MATCH_SKILL: &str = "voice-match";
 /// The longest passage, in Unicode code points, a voice-match suggestion may replace.
-pub const VOICE_MATCH_MAX_PASSAGE: usize = 2_000;
+pub const VOICE_MATCH_MAX_PASSAGE: usize = 600;
+/// At most this many voice-match suggestions per review are applicable; the rest are advice.
+pub const VOICE_MATCH_MAX_ANCHORED: usize = 5;
+
+/// Whether the characters contain a blank line (two newlines separated only by spaces or tabs).
+fn spans_blank_line(characters: &[char]) -> bool {
+    let mut newlines = 0;
+    for character in characters {
+        match character {
+            '\n' => {
+                newlines += 1;
+                if newlines >= 2 {
+                    return true;
+                }
+            }
+            '\r' | ' ' | '\t' => {}
+            _ => newlines = 0,
+        }
+    }
+    false
+}
 
 fn is_voice_skill(id: &str) -> bool {
     id == VOICE_REVIEW_SKILL || id == VOICE_MATCH_SKILL
@@ -2357,6 +2377,7 @@ pub fn validate_review_findings(
     let mut findings = Vec::with_capacity(values.len());
     let mut ids = std::collections::BTreeSet::new();
     let markdown_characters = document.markdown.chars().collect::<Vec<_>>();
+    let mut anchored_voice_matches = 0;
     for (index, value) in values.iter().enumerate() {
         let number = index + 1;
         let id = required_review_text(value, "id", number, 100)?;
@@ -2435,8 +2456,14 @@ pub fn validate_review_findings(
         // anchor or the whole review is rejected, as before.
         let (range, anchored) = match located {
             Some(range) if skill_id == VOICE_MATCH_SKILL => {
-                let bounded = range.end - range.start <= VOICE_MATCH_MAX_PASSAGE
-                    && !(range.start == 0 && range.end == character_count);
+                let length = range.end - range.start;
+                let bounded = length <= VOICE_MATCH_MAX_PASSAGE
+                    && length * 2 < character_count
+                    && !spans_blank_line(&markdown_characters[range.start..range.end])
+                    && anchored_voice_matches < VOICE_MATCH_MAX_ANCHORED;
+                if bounded {
+                    anchored_voice_matches += 1;
+                }
                 (range, bounded)
             }
             Some(range) => (range, true),
