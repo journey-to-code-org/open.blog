@@ -88,8 +88,8 @@ mod comparisons;
 mod landing;
 mod look;
 mod reading_paths;
-mod voice_guide;
 mod voice;
+mod voice_guide;
 
 use crate::atlas_store;
 use crate::auth::{self, Sessions, Throttle, Users};
