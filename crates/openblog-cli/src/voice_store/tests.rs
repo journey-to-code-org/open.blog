@@ -729,3 +729,48 @@ fn a_failed_original_removal_never_costs_the_rough_draft_and_the_move_can_be_fin
     assert!(portable.join(POLISHED).is_file());
 }
 
+#[test]
+fn a_polished_draft_this_release_cannot_read_is_never_overwritten() {
+    let project = Project::with_session("a-mistake-i-made");
+    lock_rough(&project, Visibility::Private);
+    let path = project.0.join(PRIVATE_DIR).join(POLISHED);
+    let first = polished("Clean.");
+    write_polished(&project.0, Visibility::Private, &first, None).unwrap();
+    let text = fs::read_to_string(&path)
+        .unwrap()
+        .replace("voice.format: 1", "voice.format: 2");
+    assert!(text.contains("voice.format: 2"));
+    fs::write(&path, &text).unwrap();
+    let error = write_polished(
+        &project.0,
+        Visibility::Private,
+        &polished("Cleaner."),
+        Some(&revision(text.as_bytes())),
+    )
+    .unwrap_err();
+    assert!(matches!(error, StoreError::Refused(_)), "{error}");
+    assert!(error.to_string().contains("newer"), "{error}");
+    assert_eq!(fs::read_to_string(&path).unwrap(), text);
+}
+
+#[test]
+fn saving_a_polished_draft_keeps_keys_a_newer_release_added() {
+    let project = Project::with_session("a-mistake-i-made");
+    lock_rough(&project, Visibility::Private);
+    let mut first = polished("Clean.");
+    first.extra.insert(
+        "futureKey".into(),
+        openblog_core::frontmatter::Value::Scalar("kept".into()),
+    );
+    let written = write_polished(&project.0, Visibility::Private, &first, None).unwrap();
+    write_polished(
+        &project.0,
+        Visibility::Private,
+        &polished("Cleaner."),
+        Some(&written.revision),
+    )
+    .unwrap();
+    let saved = fs::read_to_string(project.0.join(PRIVATE_DIR).join(POLISHED)).unwrap();
+    assert!(saved.contains("futureKey: kept"), "{saved}");
+    assert!(saved.contains("Cleaner."));
+}

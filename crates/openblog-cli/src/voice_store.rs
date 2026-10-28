@@ -451,7 +451,7 @@ pub fn write_polished(
     let file = voice::polished_file_name(rough_name).ok_or_else(|| {
         StoreError::Refused("A polished draft must name a rough draft file.".into())
     })?;
-    let bytes = write_text(sample)?;
+    let mut bytes = write_text(sample)?;
     let rough_path = path_of(root, visibility, rough_name)?;
     let path = path_of(root, visibility, &file)?;
     let _lock = lock(root)?;
@@ -493,10 +493,30 @@ pub fn write_polished(
                     current: Some(now),
                 });
             }
-            // Only a polished draft is ever replaced, whatever the name says.
-            if declares_rough(existing) {
-                return refused("That file holds a rough draft, which is never changed.");
+            // Only a readable polished draft of this very rough draft is ever replaced. A file
+            // this release cannot read (a newer format, or damaged) is left for its owner.
+            let old = match VoiceSample::parse_bytes(existing) {
+                Ok(old) => old,
+                Err(error) => {
+                    return refused(format!(
+                        "The saved polished draft cannot be read by this release, so it is left as it is. {error}"
+                    ))
+                }
+            };
+            if old.voice.stage != VoiceStage::Polished
+                || old.voice.prompt != sample.voice.prompt
+                || old.voice.rough_of != sample.voice.rough_of
+            {
+                return refused(
+                    "That file is not the polished draft of this rough draft, so it is left as it is.",
+                );
             }
+            // Keep keys a newer release added that this save does not carry.
+            let mut merged = sample.clone();
+            for (key, value) in old.extra {
+                merged.extra.entry(key).or_insert(value);
+            }
+            bytes = write_text(&merged)?;
             replace(&path, &bytes)?;
         }
     }
@@ -506,18 +526,6 @@ pub fn write_polished(
         revision: revision(&bytes),
         created: current.is_none(),
     })
-}
-
-/// Whether the front matter in `bytes` declares the rough stage, even if the file is otherwise
-/// unreadable.
-fn declares_rough(bytes: &[u8]) -> bool {
-    let Ok(text) = std::str::from_utf8(bytes) else {
-        return false;
-    };
-    text.lines()
-        .skip(1)
-        .take_while(|line| line.trim_end() != "---")
-        .any(|line| line.trim() == "voice.stage: rough")
 }
 
 fn replace(path: &Path, bytes: &[u8]) -> Result<()> {
