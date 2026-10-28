@@ -1,4 +1,4 @@
-# ADR 0350: Voice samples and the voice guide are selected as Assistant context by id and reloaded on the server
+# ADR 0278: Voice samples and the voice guide are selected as Assistant context by id and reloaded on the server
 
 - Status: Accepted
 - Date: 2026-10-28
@@ -58,4 +58,4 @@ context id is, what the browser may send, what the server does with it, and how 
 ## Consequences
 
 - Review, completion and the voice-guide task share one resolver, so a fourth path gets the rules for free.
-- No-sample requests are unchanged apart from the engine guide's own version (ADR 0353).
+- No-sample requests are unchanged apart from the engine guide's own version (ADR 0281).

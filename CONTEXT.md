@@ -2538,7 +2538,7 @@ _Avoid_: Final draft, edited version
 **Voice gap**:
 Something the author's voice material cannot yet show: a pack or prompt with no sample, a prompt with only a
 rough draft, or a guide trait marked `(one sample)`. It is computed by the core from the catalog, the library
-and the saved guide, in catalog order, and is not AI (ADR 0353).
+and the saved guide, in catalog order, and is not AI (ADR 0281).
 _Avoid_: Weakness, missing score
 
 **Promotion**:
@@ -2552,5 +2552,5 @@ A Markdown description of how the author writes, built from quoted sample eviden
 used as Assistant context. The provider proposes it from selected samples; every trait carries a short quote
 that occurs word for word in a named sample, and a trait that rests on one sample says `(one sample)` until a
 second shows it. It is saved only when the author approves it, to `assistant/context/voice.md` or its private
-mirror, and is context to compare against, never a source of instructions (ADR 0351, ADR 0353).
+mirror, and is context to compare against, never a source of instructions (ADR 0279, ADR 0281).
 _Avoid_: Style guide, persona, system prompt

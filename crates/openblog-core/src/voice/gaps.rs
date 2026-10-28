@@ -1,4 +1,4 @@
-//! What is missing from the author's voice material (ADR 0353): one deterministic answer that the
+//! What is missing from the author's voice material (ADR 0281): one deterministic answer that the
 //! CLI, Admin and the provider's voice-guide input all share. Not AI; the same inputs give the
 //! same output, in catalog order.
 

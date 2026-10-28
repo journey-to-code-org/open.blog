@@ -1,4 +1,4 @@
-//! Voice samples and the voice guide as Assistant context (ADR 0350 to 0353).
+//! Voice samples and the voice guide as Assistant context (ADR 0278 to 0281).
 //!
 //! The context catalog lists samples beside the other context files, and an Assistant request names
 //! them by id (`voice:<portable|private>:<file>`). The browser can only name a sample: its text is
@@ -92,7 +92,7 @@ pub fn read_guide(root: &Path) -> Option<(Visibility, String)> {
     None
 }
 
-/// The gaps in this project's voice material (ADR 0353). `guide` is the text to read the
+/// The gaps in this project's voice material (ADR 0281). `guide` is the text to read the
 /// one-sample markers from; pass the guide the caller is working with.
 pub fn gaps_for(root: &Path, guide: Option<&str>) -> Gaps {
     let catalog = voice_store::load_catalog(root);

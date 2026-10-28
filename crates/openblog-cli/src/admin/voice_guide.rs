@@ -1,4 +1,4 @@
-//! The voice-guide route (ADR 0351, #456): propose a guide from selected samples, show it as a
+//! The voice-guide route (ADR 0279, #456): propose a guide from selected samples, show it as a
 //! diff against the saved guide, and write nothing. Saving is the ordinary context save the
 //! author triggers afterwards.
 

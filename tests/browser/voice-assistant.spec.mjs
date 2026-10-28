@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Voice samples and the voice guide as Assistant context (epic #409, ADRs 0350 to 0353), in the
+// Voice samples and the voice guide as Assistant context (epic #409, ADRs 0278 to 0281), in the
 // real Admin: samples written by the real CLI are listed in the Context view with stage, pack,
 // visibility and size; selecting them discloses them with a running total; a proposed guide is
 // shown as changes against the saved guide and nothing is written until Save; Discard writes

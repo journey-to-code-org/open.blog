@@ -1,6 +1,6 @@
 //! The voice guide: the validated shape of a provider's proposal, its deterministic Markdown
-//! rendering, and the reading of `(one sample)` markers back out of a saved guide (ADR 0351,
-//! ADR 0353).
+//! rendering, and the reading of `(one sample)` markers back out of a saved guide (ADR 0279,
+//! ADR 0281).
 //!
 //! Pure and network free. A guide is built from the author's own words: every trait carries a short
 //! verbatim quote and the file name of the sample it came from, and a result whose quote does not

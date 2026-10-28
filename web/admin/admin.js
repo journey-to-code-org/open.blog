@@ -8,6 +8,9 @@ import { blockEditor, editableBlockKind, openPieceDialog } from "./block-forms.j
 import { buildChecksPanel } from "./checks-panel.js";
 import { buildHistory } from "./landing-history.js";
 import { pasteNotice, pasteToMarkdown } from "./paste.js";
+import { buildVoiceInvitation, createVoiceLibrary } from "./voice-library.js";
+import { createVoiceSession } from "./voice-session.js";
+import { clearVoiceCopies, invitationVisible } from "./voice.js";
 import {
   LIMITS as LANDING_LIMITS,
   PREVIEW_SIZES,
@@ -105,7 +108,8 @@ export function normalizeAdminPreferences(value) {
   // Layouts saved before the research workspace showed research only with Evidence Studio, so a
   // layout that hid Evidence Studio keeps the workspace hidden too (ADR 0120).
   if (!suppliedOrder.includes("research") && hiddenModules.includes("evidence") && !hiddenModules.includes("research")) hiddenModules.push("research");
-  return { schemaVersion: 1, preset, density, editorMode, moduleOrder, hiddenModules };
+  // Only a dismissed invitation is written, so every other set of preferences keeps its exact shape.
+  return { schemaVersion: 1, preset, density, editorMode, moduleOrder, hiddenModules, ...(input.voiceInvitationDismissed === true ? { voiceInvitationDismissed: true } : {}) };
 }
 
 export function visibleAdminModules(preferences, available = ADMIN_OPTIONAL_MODULES) {
@@ -11009,6 +11013,7 @@ export class ObAdmin extends AdminElement {
     if (["analytics", "contributors"].includes(this.activeRoute)) visible.add(this.activeRoute);
     if (researchPanelForRoute(this.activeRoute)) visible.add("research");
     if (this.activeRoute === "moderation") visible.add("analytics");
+    if (this.activeRoute === "voice") visible.add("assistant");
     return visible;
   }
 
@@ -11183,6 +11188,7 @@ export class ObAdmin extends AdminElement {
    * signed in. Signing in again as that user returns to them; anyone else discards them.
    */
   showSessionEnded(message = "Your session ended. Sign in again.") {
+    clearVoiceCopies();
     const key = workspacePanelKey(this.currentHash);
     if (key && key !== "overview" && this.hasUnsavedView() && !this.isSavingView()) this.keepCurrentView(key);
     this.keptOwner = this.kept.size ? this.user : "";
@@ -11285,6 +11291,7 @@ export class ObAdmin extends AdminElement {
             // Already signed out is fine.
           }
           this.api.csrf = "";
+          clearVoiceCopies();
           this.showLogin();
         },
       },
@@ -11330,6 +11337,8 @@ export class ObAdmin extends AdminElement {
         ? { title: researchPanel(panel).title, detail: researchPanel(panel).detail }
       : active === "contributors"
         ? { title: "Contributors", detail: "Manage reusable public identities for bylines and contribution credits." }
+      : active === "voice"
+        ? { title: "Voice", detail: "Gather your own voice: three prompts, three minutes, a rough draft that stays exactly as you wrote it, and a polished copy that is yours to refine." }
       : active === "landing"
         ? { title: "Landing page", detail: "Build the first page your visitors see from sections you add, order and preview, without writing any code." }
       : active === "paths"
@@ -11371,6 +11380,8 @@ export class ObAdmin extends AdminElement {
         "nav",
         { class: "oba-toolbelt", "aria-label": "Admin tools" },
         toolGroup("Content", ...contentTabs),
+        // Voice sessions follow the Assistant module of the chosen layout (ADR 0272), and are always shown on their own page.
+        h("div", { class: "oba-progressive-tools", "data-admin-module": "assistant", hidden: !visibleModules.has("assistant") }, toolGroup("Assistant", h("a", { class: "oba-tab", "aria-current": active === "voice" ? "page" : null, href: "#/voice" }, "Voice"))),
         h("div", { class: "oba-progressive-tools", "data-admin-module": "analytics", hidden: !visibleModules.has("analytics") }, toolGroup("Observe", h("a", { class: "oba-tab", "aria-current": active === "analytics" ? "page" : null, href: "#/analytics" }, "Analytics"), h("a", { class: "oba-tab", "aria-current": active === "moderation" ? "page" : null, href: "#/moderation" }, "Moderation inbox"))),
         // One entry for the whole research workspace; its panels are listed in the workspace's own navigation.
         h("div", { class: "oba-progressive-tools", "data-admin-module": "research", hidden: !visibleModules.has("research") }, toolGroup("Research", h("a", { class: "oba-tab", "aria-current": panel ? "true" : null, href: researchHref("overview") }, "Research workspace"))),
@@ -11590,6 +11601,7 @@ export class ObAdmin extends AdminElement {
     const go = (hash) => (location.hash = hash);
     const commands = [
       { label: "Overview", category: "Workspace", keywords: "home dashboard status", run: () => go("#/overview") },
+      { label: "Voice session", category: "Assistant", keywords: "voice writing prompt rough draft timer samples", run: () => go("#/voice") },
       { label: "Landing page", category: "Site", keywords: "home page sections welcome builder layout", run: () => go("#/landing") },
       { label: "Customize look", category: "Site", keywords: "colors fonts theme text size corners spacing width customize style", run: () => go("#/look") },
       { label: "Appearance", category: "Site", keywords: "theme light dark mode button system preference", run: () => go("#/appearance") },
@@ -11814,6 +11826,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "analytics") await this.showAnalytics(Number(tail) || 30);
       else if (head === "moderation" || head === "feedback") await this.showModeration(tail, params);
       else if (head === "contributors") await this.showContributors();
+      else if (head === "voice") await this.showVoice(tail, params);
       else if (head === "landing") await this.showLanding();
       else if (head === "paths") await this.showReadingPaths(tail);
       else if (head === "comparisons") await this.showComparisons(tail);
@@ -12018,6 +12031,36 @@ export class ObAdmin extends AdminElement {
     if (focus === "issues") {
       healthPanel.focus();
       healthPanel.scrollIntoView({ block: "start" });
+    }
+    // The page is already on screen: the invitation arrives after it, so asking can never delay the home.
+    this.offerVoiceInvitation(this.viewVersion);
+  }
+
+  /**
+   * The one-time invitation to the Voice view (ADR 0277): only with no samples, no open session and no earlier
+   * dismissal. If the question cannot be answered the card is simply not shown, and if Admin has moved to
+   * another view by the time the answer comes, nothing is added to it.
+   */
+  async offerVoiceInvitation(version) {
+    try {
+      const voiceStatus = await this.api.call("GET", "voice/status");
+      if (this.viewVersion !== version || !this.workspaceMain) return;
+      if (!invitationVisible({ dismissed: this.preferences?.voiceInvitationDismissed === true, status: voiceStatus })) return;
+      const invitation = buildVoiceInvitation({
+        onDismiss: async () => {
+          // Stored settings that could not be read are replaced only from Personalize.
+          if (this.preferencesUnreadable) return false;
+          await this.saveWorkspacePreferences((saved) => ({ ...saved, voiceInvitationDismissed: true }));
+          return true;
+        },
+        onGone: () => {
+          // Focus stays in the page: it moves to the first thing that follows the card.
+          this.querySelector?.(".oba-overview-metrics a")?.focus();
+        },
+      });
+      this.workspaceMain.insertBefore(invitation.element, this.workspaceMain.firstChild);
+    } catch {
+      // Without an answer the invitation stays away; nothing else on this page needs it.
     }
   }
 
@@ -13836,6 +13879,37 @@ export class ObAdmin extends AdminElement {
     if (wide()) openPreview();
     this.viewDirty = () => isDirty();
     this.viewBusy = () => busy || publishing;
+  }
+
+  // ---- voice sessions (ADR 0272)
+
+  /**
+   * `#/voice`: draw three prompts, write a rough draft against the server's clock, then refine a polished
+   * copy. The view's own unsaved-changes test is the polished draft's: a rough draft is saved on the server
+   * as it is written and locked at the end, so it never counts as unsaved work.
+   */
+  async showVoice(tail, params) {
+    const inLibrary = tail === "library" || tail.startsWith("library/");
+    const view = inLibrary
+      ? createVoiceLibrary({ api: this.api, user: this.user })
+      : createVoiceSession({
+          api: this.api,
+          user: this.user,
+          params,
+          go: (hash) => {
+            location.hash = hash;
+          },
+        });
+    const nav = h(
+      "nav",
+      { class: "oba-voice-nav", "aria-label": "Voice" },
+      h("a", { class: "oba-tab", "aria-current": inLibrary ? null : "page", href: "#/voice" }, "Write a sample"),
+      h("a", { class: "oba-tab", "aria-current": inLibrary ? "page" : null, href: "#/voice/library" }, "Sample library"),
+    );
+    this.mount(this.shell("voice", nav, view.element));
+    this.viewDirty = () => view.isDirty();
+    this.viewBusy = () => view.isBusy();
+    await view.load(tail.startsWith("library/") ? safeDecodeURIComponent(tail.slice("library/".length)) : "");
   }
 
   // ---- customize look (ADR 0256, #350)

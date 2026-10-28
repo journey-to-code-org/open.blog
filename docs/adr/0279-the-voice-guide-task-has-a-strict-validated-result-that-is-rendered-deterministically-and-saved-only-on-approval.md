@@ -1,10 +1,10 @@
-# ADR 0351: The voice-guide task has a strict validated result that is rendered deterministically and saved only on approval
+# ADR 0279: The voice-guide task has a strict validated result that is rendered deterministically and saved only on approval
 
 - Status: Accepted
 - Date: 2026-10-28
 - Parent epic: [#409](https://github.com/journey-to-code-org/open.blog/issues/409)
 - Tasks: #455, #456
-- Builds on: ADR 0266 (an AI tool proposes, never applies), ADR 0350 (samples as context)
+- Builds on: ADR 0266 (an AI tool proposes, never applies), ADR 0278 (samples as context)
 
 ## Context
 
@@ -16,7 +16,7 @@ saved.
 ## Decision
 
 - **A new Assistant task, `voice-guide`.** Its input is the current guide (if any), the selected samples (read
-  by the server, ADR 0350) and a summary of the gaps (ADR 0353); all of it sits under `untrustedData`. The
+  by the server, ADR 0278) and a summary of the gaps (ADR 0281); all of it sits under `untrustedData`. The
   trusted part is the engine guide, the task's own instruction and the `voice-guide` skill.
 - **The result is strict JSON**:
   `{ sections: [{ id, traits: [{ statement, quote, sample, oneSample }] }], unknown: [string] }`, with no other
@@ -68,7 +68,7 @@ saved.
 ## Consequences
 
 - A guide saved from a proposal has a quote for every claim, and `(one sample)` marks the ones a second sample
-  has not yet confirmed (ADR 0353 reads those markers).
+  has not yet confirmed (ADR 0281 reads those markers).
 - Provider adapters are unchanged: they only gain the new result type and its schema.
 
 ## Amendment: private samples never reach portable context

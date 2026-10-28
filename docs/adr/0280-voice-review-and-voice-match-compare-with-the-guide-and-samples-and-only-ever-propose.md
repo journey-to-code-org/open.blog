@@ -1,15 +1,15 @@
-# ADR 0352: Voice review and voice match compare with the guide and samples and only ever propose
+# ADR 0280: Voice review and voice match compare with the guide and samples and only ever propose
 
 - Status: Accepted
 - Date: 2026-10-28
 - Parent epic: [#409](https://github.com/journey-to-code-org/open.blog/issues/409)
 - Tasks: #458, #459, #460
-- Builds on: ADR 0266 (AI proposes, never applies), ADR 0350 (samples as context), ADR 0351 (the guide)
+- Builds on: ADR 0266 (AI proposes, never applies), ADR 0278 (samples as context), ADR 0279 (the guide)
 
 ## Context
 
 The `voice-review` skill told the model to compare with "explicitly supplied voice context", and nothing
-supplied any. Now the guide and samples are context (ADR 0350). The review must use them, say what each
+supplied any. Now the guide and samples are context (ADR 0278). The review must use them, say what each
 finding rests on, and leave the author's deliberate choices alone. A second skill should help the author make a
 passage sound more like themselves, through the apply and undo path reviews already have.
 
@@ -48,7 +48,7 @@ passage sound more like themselves, through the apply and undo path reviews alre
 ### Completion (#460)
 
 - **Completion leans toward the voice guide through the context it already has.** The guide is an ordinary context
-  item (`portable:voice`, `private:voice`, ADR 0350); when the author has selected it and AI autocomplete is on,
+  item (`portable:voice`, `private:voice`, ADR 0278); when the author has selected it and AI autocomplete is on,
   the completion request carries it as an `untrustedData.context` entry with `kind: "voice-guide"`, and nothing
   else about completion changes. An unselected guide is never sent, and a request without it is unchanged.
 - **Turning autocomplete on says what it will send.** The status after enabling names every selected context

@@ -288,8 +288,8 @@ openblog voice --scrap --yes       # give up the open session and save nothing
 ### Use voice samples and a voice guide with the Assistant
 
 Your samples and a **voice guide** can be chosen as Assistant context, so reviews and suggestions
-sound like you and not like a model (ADRs [0350](adr/0350-voice-samples-and-the-voice-guide-are-selected-as-assistant-context-by-id-and-reloaded-on-the-server.md)
-to [0353](adr/0353-the-engine-guide-teaches-voice-samples-and-gaps-are-computed-by-the-core.md)).
+sound like you and not like a model (ADRs [0278](adr/0278-voice-samples-and-the-voice-guide-are-selected-as-assistant-context-by-id-and-reloaded-on-the-server.md)
+to [0281](adr/0281-the-engine-guide-teaches-voice-samples-and-gaps-are-computed-by-the-core.md)).
 Nothing is sent unless you select it and run a request, and nothing here changes a project that has no samples.
 
 - **Choose samples.** In the Assistant's Context view a **Voice samples** section lists each sample with its

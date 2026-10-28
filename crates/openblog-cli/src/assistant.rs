@@ -79,7 +79,7 @@ pub enum SkillScope {
 pub enum SkillOutputKind {
     Review,
     Interactions,
-    /// A skill for the voice-guide task (ADR 0351); it is not a document-review skill.
+    /// A skill for the voice-guide task (ADR 0279); it is not a document-review skill.
     VoiceGuide,
 }
 
@@ -455,7 +455,7 @@ impl AssistantRequest {
         }
     }
 
-    /// Propose a voice guide from selected samples (ADR 0351). `samples` were read by the server
+    /// Propose a voice guide from selected samples (ADR 0279). `samples` were read by the server
     /// for this request; `current_guide` is the saved guide's text, if any; `gaps` is the
     /// deterministic summary of what is missing.
     pub fn voice_guide(
@@ -613,7 +613,7 @@ enum ContextIdentity {
     Portable(String),
     Private(String),
     PostSnapshot(String),
-    /// A voice sample (ADR 0350): `voice:<portable|private>:<file>`.
+    /// A voice sample (ADR 0278): `voice:<portable|private>:<file>`.
     VoiceSample {
         visibility: ContextVisibility,
         file: String,
@@ -678,7 +678,7 @@ impl ContextIdentity {
     }
 }
 
-/// What a voice sample says about itself in a request (ADR 0350).
+/// What a voice sample says about itself in a request (ADR 0278).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VoiceSampleMeta {
     pub stage: String,
@@ -1588,7 +1588,7 @@ fn anthropic_output_schema(request: &AssistantRequest) -> Json {
 }
 
 /// The `untrustedData.context` entries of a request. Every entry carries `id`, `name`, `visibility` and
-/// `content`; a voice sample or the voice guide adds fields saying what it is (ADR 0350), and no other
+/// `content`; a voice sample or the voice guide adds fields saying what it is (ADR 0278), and no other
 /// entry changes.
 fn context_entries(context: &[ReviewContext]) -> Vec<Json> {
     context
@@ -1938,7 +1938,7 @@ pub fn legacy_quiz_payload(request: &AssistantRequest) -> Result<Json, Assistant
 }
 
 /// Check a voice-guide result against the samples that were selected for this request. Invalid
-/// results are rejected with a plain reason and nothing is shown as a guide (ADR 0351).
+/// results are rejected with a plain reason and nothing is shown as a guide (ADR 0279).
 pub fn validate_voice_guide(
     value: &Json,
     request: &AssistantRequest,
@@ -2452,7 +2452,7 @@ pub fn validate_review_findings(
             unique_evidence_range(&markdown_characters, &evidence)
         };
         // A voice-match suggestion is applicable only when it anchors to one bounded passage; one that
-        // does not is kept as advice, never applied (ADR 0352). Every other skill needs an exact
+        // does not is kept as advice, never applied (ADR 0280). Every other skill needs an exact
         // anchor or the whole review is rejected, as before.
         let (range, anchored) = match located {
             Some(range) if skill_id == VOICE_MATCH_SKILL => {
@@ -2512,7 +2512,7 @@ pub fn validate_review_findings(
                 )))
             }
         };
-        // A voice finding is only supplied-context when it names its evidence (ADR 0352).
+        // A voice finding is only supplied-context when it names its evidence (ADR 0280).
         let verification = if is_voice_skill(&skill_id)
             && verification == FindingVerification::SuppliedContext
             && has_voice_context(context)

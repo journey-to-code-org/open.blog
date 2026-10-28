@@ -1,10 +1,10 @@
-# ADR 0353: The engine guide teaches voice samples and gaps are computed by the core
+# ADR 0281: The engine guide teaches voice samples and gaps are computed by the core
 
 - Status: Accepted
 - Date: 2026-10-28
 - Parent epic: [#409](https://github.com/journey-to-code-org/open.blog/issues/409)
 - Tasks: #461, #462
-- Builds on: ADR 0266 (stages and immutability), ADR 0350 to 0352
+- Builds on: ADR 0266 (stages and immutability), ADR 0278 to 0280
 
 ## Context
 

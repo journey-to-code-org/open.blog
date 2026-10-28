@@ -1,4 +1,4 @@
-//! Voice samples and the voice guide as Assistant context (epic #409, ADRs 0350 to 0353): the
+//! Voice samples and the voice guide as Assistant context (epic #409, ADRs 0278 to 0281): the
 //! catalog lists samples, a request names them by id and the server reads them again, and the
 //! provider call sees them as untrusted data.
 

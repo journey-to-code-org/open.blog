@@ -798,10 +798,18 @@ fn locking_with_a_private_override_on_a_portable_session_keeps_the_folder_out_of
         t(0),
     )
     .unwrap();
-    voice_session::save_draft(&project.0, "words", t(5)).unwrap();
+    voice_session::save_draft(&project.0, None, "words", t(5)).unwrap();
     let ignore_path = project.0.join(".gitignore");
     fs::write(&ignore_path, "/dist\n").unwrap();
-    voice_session::lock(&project.0, &catalog, None, Some(Visibility::Private), t(10)).unwrap();
+    voice_session::lock(
+        &project.0,
+        None,
+        &catalog,
+        None,
+        Some(Visibility::Private),
+        t(10),
+    )
+    .unwrap();
     assert!(fs::read_to_string(&ignore_path)
         .unwrap()
         .lines()

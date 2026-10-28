@@ -1,4 +1,4 @@
-//! Voice samples and the voice guide in normalized Assistant requests (epic #409, ADR 0350): they are
+//! Voice samples and the voice guide in normalized Assistant requests (epic #409, ADR 0278): they are
 //! labelled untrusted data, they never reach the trusted parts of a request, and a request without
 //! them is unchanged.
 
@@ -751,7 +751,7 @@ fn every_kind_of_request_carries_the_voice_sample_rules_before_any_sample() {
 
 #[test]
 fn with_no_sample_selected_a_request_differs_from_before_only_by_the_engine_guide() {
-    // The only change a request without voice context sees is the engine guide itself (ADR 0353):
+    // The only change a request without voice context sees is the engine guide itself (ADR 0281):
     // its version and the one new capability. Every other byte is the earlier request.
     let author = ReviewContext::new("portable:author", "author.md", "Prefer plain words.").unwrap();
     let engine_facts: Vec<Json> = engine_capabilities()
