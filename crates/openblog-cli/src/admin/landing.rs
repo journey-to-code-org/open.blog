@@ -125,15 +125,28 @@ pub(super) fn get(state: &AppState) -> Response {
     }
 }
 
-/// Keep the stored page that is about to be replaced and return it if it is a readable page.
+/// Keep the stored page that is about to be replaced and return it if it is a readable page. A file
+/// that is not a readable page is kept as raw bytes. If the backup fails the caller must not replace
+/// the file.
 fn keep_previous(
     state: &AppState,
     previous: Option<&store::Stored>,
-) -> Option<openblog_core::landing::LandingPage> {
-    let stored = previous?;
-    let page = stored.parsed.as_ref().ok()?;
-    let _ = history::keep_current(&state.root, &stored.revision, page);
-    Some(page.clone())
+) -> Result<Option<openblog_core::landing::LandingPage>, Response> {
+    let Some(stored) = previous else {
+        return Ok(None);
+    };
+    let kept = match stored.parsed.as_ref() {
+        Ok(page) => {
+            history::keep_current(&state.root, &stored.revision, page).map(|()| Some(page.clone()))
+        }
+        Err(_) => history::keep_raw(&state.root, &stored.revision, &stored.text).map(|()| None),
+    };
+    kept.map_err(|error| {
+        Response::error(
+            500,
+            &format!("The current landing page could not be kept, so nothing was changed: {error}"),
+        )
+    })
 }
 
 /// Keep the page just saved as the newest version. A failure is reported, never raised: the page file is
@@ -189,7 +202,10 @@ pub(super) fn save(state: &AppState, req: &Request) -> Response {
         .ok()
         .flatten();
     // The page about to be replaced is kept first, so a save never loses it (ADR 0354).
-    let previous_page = keep_previous(state, previous.as_ref());
+    let previous_page = match keep_previous(state, previous.as_ref()) {
+        Ok(page) => page,
+        Err(response) => return response,
+    };
     match store::save(
         &state.root,
         &config.paths.content,
@@ -325,7 +341,10 @@ pub(super) fn history_restore(state: &AppState, req: &Request) -> Response {
     let previous = store::read(&state.root, &config.paths.content)
         .ok()
         .flatten();
-    let previous_page = keep_previous(state, previous.as_ref());
+    let previous_page = match keep_previous(state, previous.as_ref()) {
+        Ok(page) => page,
+        Err(response) => return response,
+    };
     match store::save(
         &state.root,
         &config.paths.content,

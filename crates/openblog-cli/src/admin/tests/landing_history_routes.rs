@@ -274,3 +274,54 @@ fn a_page_written_by_a_newer_release_is_never_overwritten_by_a_restore() {
     assert_eq!(answer["newerVersion"], true);
     assert_eq!(fs::read_to_string(landing_file(&f)).unwrap(), newer);
 }
+
+#[test]
+fn a_failed_backup_aborts_the_save_and_leaves_the_page_unchanged() {
+    let f = fixture("history-backup-fails");
+    let session = login_ok(&f);
+    let first = save(&f, &session, "First", &Json::Null);
+    let by_hand = fs::read_to_string(landing_file(&f))
+        .unwrap()
+        .replace("First", "By hand");
+    fs::write(landing_file(&f), &by_hand).unwrap();
+    // The history folder cannot be made: a file stands where it should be.
+    let folder = f.dir.join(".openblog/private/landing-history");
+    fs::remove_dir_all(&folder).unwrap();
+    fs::write(&folder, "in the way").unwrap();
+    let current = body_json(&handle(
+        &f.state,
+        &authed(req("GET", "/admin/api/landing"), &session, false),
+    ));
+    assert_ne!(current["revision"], first["revision"]);
+    let (status, answer) = source_call(
+        &f,
+        &session,
+        "PUT",
+        "/admin/api/landing",
+        json!({"page": page("Third"), "revision": current["revision"]}),
+    );
+    assert_eq!(status, 500, "{answer}");
+    assert_eq!(fs::read_to_string(landing_file(&f)).unwrap(), by_hand);
+}
+
+#[test]
+fn an_unparseable_page_is_kept_as_raw_bytes_before_it_is_replaced() {
+    let f = fixture("history-raw");
+    let session = login_ok(&f);
+    save(&f, &session, "First", &Json::Null);
+    let broken = "{ this is not json";
+    fs::write(landing_file(&f), broken).unwrap();
+    let current = body_json(&handle(
+        &f.state,
+        &authed(req("GET", "/admin/api/landing"), &session, false),
+    ));
+    save(&f, &session, "Fresh", &current["revision"]);
+    let folder = f.dir.join(".openblog/private/landing-history");
+    let raw: Vec<_> = fs::read_dir(&folder)
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_name().to_string_lossy().ends_with(".bak"))
+        .collect();
+    assert_eq!(raw.len(), 1);
+    assert_eq!(fs::read_to_string(raw[0].path()).unwrap(), broken);
+}
