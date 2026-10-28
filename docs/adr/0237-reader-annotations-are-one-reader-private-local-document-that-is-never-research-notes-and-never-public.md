@@ -1,4 +1,4 @@
-# ADR 0234: Reader annotations are one reader-private local document, never research notes and never public
+# ADR 0237: Reader annotations are one reader-private local document, never research notes and never public
 
 - Status: Accepted
 - Date: 2026-10-27
@@ -39,7 +39,7 @@ Admin.
 
 - #85 to #87 consume one validated shape and have nothing to decide about identity or privacy.
 - Because only the browser holds the data, a cleared browser loses it unless the reader exported it
-  (ADR 0236).
+  (ADR 0239).
 
 ## Domain language
 

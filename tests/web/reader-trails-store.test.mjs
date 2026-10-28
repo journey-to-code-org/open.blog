@@ -1,4 +1,4 @@
-// Saved sources and reading trails in the reader's local store (ADR 0239): every change is checked by
+// Saved sources and reading trails in the reader's local store (ADR 0242): every change is checked by
 // the contract, duplicates and limits are refused by name, and nothing is saved over unreadable data.
 import test from "node:test";
 import assert from "node:assert/strict";

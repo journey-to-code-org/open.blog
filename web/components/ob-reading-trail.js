@@ -1,5 +1,5 @@
 // <ob-reading-trail> lets a reader keep saved sources and reading trails in their own browser
-// (ADRs 0234, 0239 and 0240, docs/specs/reader-annotations.md). The page is complete without it: the
+// (ADRs 0237, 0242 and 0243, docs/specs/reader-annotations.md). The page is complete without it: the
 // region's static text says what it needs.
 //
 // Nothing is recorded as the reader reads. A trail is a list the reader builds by hand: sources

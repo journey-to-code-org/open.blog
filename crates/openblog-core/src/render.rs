@@ -243,7 +243,7 @@ pub(crate) const THIRD_PERSPECTIVE_ANCHOR: &str = "ob-third-perspective";
 pub(crate) const FUTURE_SUGGESTION_ANCHOR: &str = "ob-future-suggestion";
 /// The id of the page data element that holds a post's passage text.
 pub const PASSAGE_DATA_ELEMENT_ID: &str = "ob-passages";
-/// A post's region for the reader's own highlights and notes (ADR 0238). It
+/// A post's region for the reader's own highlights and notes (ADR 0241). It
 /// holds only text: the saved annotations never leave the reader's browser.
 const READER_ANNOTATIONS_REGION: &str = "<section id=\"ob-annotations\" class=\"ob-annotations\" aria-labelledby=\"ob-annotations-title\">
 <h2 id=\"ob-annotations-title\">Your highlights and notes</h2>
@@ -253,9 +253,9 @@ const READER_ANNOTATIONS_REGION: &str = "<section id=\"ob-annotations\" class=\"
 </section>
 ";
 /// A post's region for the reader's own saved sources and reading trails
-/// (ADR 0239), beside the highlights. It holds only text: a trail is built by
+/// (ADR 0242), beside the highlights. It holds only text: a trail is built by
 /// hand in the reader's browser and nothing is recorded as they read. The same
-/// panel exports, imports, turns off and erases that data (ADR 0240).
+/// panel exports, imports, turns off and erases that data (ADR 0243).
 const READER_TRAIL_REGION: &str = "<section id=\"ob-reading-trail\" class=\"ob-reading-trail\" aria-labelledby=\"ob-reading-trail-title\">
 <h2 id=\"ob-reading-trail-title\">Your reading trails and saved sources</h2>
 <ob-reading-trail>
@@ -2216,7 +2216,7 @@ impl<'a> Renderer<'a> {
         if let Some((region, _)) = &passage_feedback {
             body.push_str(region);
         }
-        // A reader's own highlights and private notes (ADR 0238), kept in
+        // A reader's own highlights and private notes (ADR 0241), kept in
         // that reader's browser; the region's static text is the no-JavaScript path.
         let reader_annotations = c.reader_annotations.enabled;
         if reader_annotations {

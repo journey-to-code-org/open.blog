@@ -1,16 +1,16 @@
-# ADR 0238: Highlights and notes are opt-in per site, keep the article unchanged and save only to bounded local storage
+# ADR 0241: Highlights and notes are opt-in per site, keep the article unchanged and save only to bounded local storage
 
 - Status: Accepted
 - Date: 2026-10-27
 - Decision issue: [#85](https://github.com/journey-to-code-org/open.blog/issues/85)
 - Parent story: [#30](https://github.com/journey-to-code-org/open.blog/issues/30)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: ADR 0076, ADR 0077, ADR 0082, ADR 0234, ADR 0235, ADR 0237
+- Builds on: ADR 0076, ADR 0077, ADR 0082, ADR 0237, ADR 0238, ADR 0240
 - Serves: [#86](https://github.com/journey-to-code-org/open.blog/issues/86), [#87](https://github.com/journey-to-code-org/open.blog/issues/87)
 
 ## Context
 
-The contract (ADRs 0234-0237) defines a reader's annotation document and nothing uses it. The first use
+The contract (ADRs 0237-0240) defines a reader's annotation document and nothing uses it. The first use
 is selecting words in a post, keeping a highlight or a private note, and finding it again on a later
 visit, possibly after the author has revised the post. The post must read the same for everyone, reading
 must never need storage, and what a reader keeps must survive a failing or full browser store without
@@ -34,7 +34,7 @@ being lost or corrupted.
   selection that cannot be quoted (it crosses sections, or spans a note marker, code or embedded content) is
   explained, not guessed. A selection is kept as the last valid one, so moving focus to a button does not
   lose it; a note can instead be attached to a section (with its digest) or the whole post.
-- **Staleness is derived on every visit** with `assessAnnotations` (ADR 0235). A highlight whose words
+- **Staleness is derived on every visit** with `assessAnnotations` (ADR 0238). A highlight whose words
   are found again in changed text is shown as moved and painted at the new place; one that cannot be found, or
   is ambiguous, is shown as not found with the reason in plain words and stays in the list with its quoted
   words, never silently moved or deleted. It can still be edited and deleted.
@@ -48,11 +48,11 @@ being lost or corrupted.
 - **Reader text is only ever set as text.** Notes are shown with `textContent` in a pre-wrapped block;
   messages never repeat reader text except the reader's own selected words, shown as text.
 - **Identity.** The work is `location.origin` plus `location.pathname`, which is already percent-encoded
-  (ADR 0235); the revision is the passage revision the page published.
+  (ADR 0238); the revision is the passage revision the page published.
 
 ## Consequences
 
 - #86 and #87 read and write the same key through `reader-annotations-store.js` and reuse its validated
   changes; import and export live beside it.
 - A reader in a browser without the Custom Highlight API gets the list but no paint, by design.
-- There is no Rust twin: reader data never reaches the build, Admin or a hosted function (ADR 0234).
+- There is no Rust twin: reader data never reaches the build, Admin or a hosted function (ADR 0237).

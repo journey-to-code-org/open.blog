@@ -1,17 +1,17 @@
-# ADR 0239: Reading trails are built by hand, nothing is recorded as a reader reads, and a linked source remembers the work it was found in
+# ADR 0242: Reading trails are built by hand, nothing is recorded as a reader reads, and a linked source remembers the work it was found in
 
 - Status: Accepted
 - Date: 2026-10-27
 - Decision issue: [#86](https://github.com/journey-to-code-org/open.blog/issues/86)
 - Parent story: [#30](https://github.com/journey-to-code-org/open.blog/issues/30)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: ADR 0234, ADR 0235, ADR 0237, ADR 0238
+- Builds on: ADR 0237, ADR 0238, ADR 0240, ADR 0241
 - Serves: [#87](https://github.com/journey-to-code-org/open.blog/issues/87)
 
 ## Context
 
-The contract (ADRs 0234-0237) already holds saved sources and trails, and highlights and notes are kept
-on a post (ADR 0238). A reader also needs somewhere to see what they have kept across posts, to save a
+The contract (ADRs 0237-0240) already holds saved sources and trails, and highlights and notes are kept
+on a post (ADR 0241). A reader also needs somewhere to see what they have kept across posts, to save a
 post or a reference it cites, to line things up as a trail, and to remove one thing or everything. The
 story forbids tracking: no server learns what anyone reads, and a trail must be something the reader
 chose to start.

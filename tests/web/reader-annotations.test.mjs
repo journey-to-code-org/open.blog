@@ -1,4 +1,4 @@
-// The reader-annotation contract (ADRs 0234-0237): validation, scoped failures,
+// The reader-annotation contract (ADRs 0237-0240): validation, scoped failures,
 // stale state, privacy of exports, and purity. Fixtures are in
 // tests/fixtures/reader-annotations.json.
 import test from "node:test";

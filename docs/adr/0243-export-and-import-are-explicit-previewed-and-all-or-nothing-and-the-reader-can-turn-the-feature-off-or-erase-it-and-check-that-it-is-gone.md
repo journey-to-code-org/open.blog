@@ -1,15 +1,15 @@
-# ADR 0240: Export and import are explicit, previewed and all-or-nothing, and the reader can turn the feature off or erase it and check that it is gone
+# ADR 0243: Export and import are explicit, previewed and all-or-nothing, and the reader can turn the feature off or erase it and check that it is gone
 
 - Status: Accepted
 - Date: 2026-10-27
 - Decision issue: [#87](https://github.com/journey-to-code-org/open.blog/issues/87)
 - Parent story: [#30](https://github.com/journey-to-code-org/open.blog/issues/30)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: ADR 0234, ADR 0236, ADR 0237, ADR 0239
+- Builds on: ADR 0237, ADR 0239, ADR 0240, ADR 0242
 
 ## Context
 
-Highlights, notes, saved sources and trails live in one document in the reader's browser (ADR 0234). The
+Highlights, notes, saved sources and trails live in one document in the reader's browser (ADR 0237). The
 reader needs to take that document elsewhere and bring one back, to see what a file would contain before
 it leaves, to see what a file would change before it is kept, and to stop the feature or remove its data
 and know that it worked. A file is easy to forward and easy to forge, so both directions treat it as
@@ -22,11 +22,11 @@ untrusted.
   left out unless "Include the text of my notes and source notes" is checked, and the sentence above the
   button says, before the file exists, how many highlights, notes, sources, trails and steps it will hold,
   its size in bytes, whether notes are included, and how many notes on a section or the whole post would be
-  dropped (ADR 0236). "Show exactly what the file contains" displays the file's text. The file is the
+  dropped (ADR 0239). "Show exactly what the file contains" displays the file's text. The file is the
   document and nothing else: the export function is `exportDocument` plus `serializeDocument`, so no site
   setting, page text or identifier outside the document can reach it, and a test pins its top-level keys.
 - **Import is read, planned, previewed, then kept.** The file is size-checked before it is read (4 MiB, the
-  contract's limit), then read by the same validator as every read (ADR 0237). A file that fails is
+  contract's limit), then read by the same validator as every read (ADR 0240). A file that fails is
   refused whole with up to eight problems, each a plain sentence and the record it names (such as
   `annotations[0]`), never the reader's text. A file from a newer version is refused as such. A valid file
   is merged with what is saved by `planImport`, which changes nothing and returns what would happen.
@@ -47,14 +47,14 @@ untrusted.
   saved document, plans again, and refuses ("changed since the preview") if the result is not exactly
   what was previewed, so another tab's change cannot be lost. Unreadable saved data is never written over, and
   an import into a browser that denies storage is refused with the reason. Every failure leaves the browser's data
-  as it was. After a change both panels refresh through the window event (ADR 0239). Cancelling at any
+  as it was. After a change both panels refresh through the window event (ADR 0242). Cancelling at any
   point changes nothing and returns focus to the file chooser.
 - **The reader can turn the feature off.** One more key, `openblog.reader-annotations.off`, holds the
   choice, in this browser only. Off means nothing is read, painted, offered or saved: the highlights
   region shows a notice, the trail panel shows only export, the switch and erase. Saved data is kept (it
   is exportable and can be turned back on). Turning on removes the key. A site that has turned
   `readerAnnotations` on still publishes the same static HTML; the switch is the reader's, not the site's.
-- **Erase is complete and checkable.** "Clear all my local data" (ADR 0239) still removes the document key
+- **Erase is complete and checkable.** "Clear all my local data" (ADR 0242) still removes the document key
   whatever it holds, after asking. The panel states, from the browser itself each time it draws, what is
   kept ("Kept in this browser: nothing.") and which storage keys the feature holds (`none`, or the
   names), so a reader can see an erase worked, and a test checks the keys directly. It never touches the

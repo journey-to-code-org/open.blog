@@ -112,7 +112,7 @@ pub struct SiteConfig {
         skip_serializing_if = "ReadingModesConfig::is_default"
     )]
     pub reading_modes: ReadingModesConfig,
-    /// Opt-in local highlights and private notes for readers (ADR 0238).
+    /// Opt-in local highlights and private notes for readers (ADR 0241).
     /// Omitted from the written file while it is off.
     #[serde(skip_serializing_if = "ReaderAnnotationsConfig::is_off")]
     pub reader_annotations: ReaderAnnotationsConfig,

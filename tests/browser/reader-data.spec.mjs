@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// A reader's export, import and privacy controls (#87, ADR 0240): an explicit export that states what it
+// A reader's export, import and privacy controls (#87, ADR 0243): an explicit export that states what it
 // holds, a previewed import that refuses hostile, oversized or newer files and changes nothing on refusal,
 // a switch that turns the feature off without losing data, and an erase that can be checked.
 

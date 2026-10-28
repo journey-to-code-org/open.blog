@@ -1,4 +1,4 @@
-// The reader-annotation contract (ADRs 0234-0237, docs/specs/reader-annotations.md).
+// The reader-annotation contract (ADRs 0237-0240, docs/specs/reader-annotations.md).
 //
 // A reader's highlights, private notes, saved sources and reading trails live in
 // one versioned document kept in that reader's own browser. This module defines
