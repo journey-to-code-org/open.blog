@@ -187,26 +187,13 @@ for (const [name, viewport] of [["phone", { width: 320, height: 640 }], ["deskto
 
     test("sources the forms would rewrite stay protected, and a piece Apply with no change keeps its bytes", async ({ page }) => {
       const odd = [
-        "|a|b|
-|---|---|
-|1|2|",
+        "|a|b|\n|---|---|\n|1|2|",
         "* [ ] star item",
-        "```piece hours
-note: x
-bogus: y
-```",
-        "```piece hours
-note:   spaced   
-days: Mon
-hours: 9 to 5
-```",
-        "> [!NOTE]
-> Fine.",
+        "```piece hours\nnote: x\nbogus: y\n```",
+        "```piece hours\nnote:   spaced   \ndays: Mon\nhours: 9 to 5\n```",
+        "> [!NOTE]\n> Fine.",
         "End.",
-      ].join("
-
-") + "
-";
+      ].join("\n\n") + "\n";
       await openNewPost(page);
       await useMarkdown(page, odd, [0, 0]);
       await mode(page, "Visual").click();
@@ -223,16 +210,13 @@ hours: 9 to 5
 
     test("HTML typed into a callout is refused with a message", async ({ page }) => {
       await openNewPost(page);
-      await useMarkdown(page, "> [!NOTE]
-> Fine.
-", [0, 0]);
+      await useMarkdown(page, "> [!NOTE]\n> Fine.\n", [0, 0]);
       await mode(page, "Visual").click();
       const callout = visual(page).locator('section[aria-label="Callout block"]');
       await callout.getByRole("button", { name: "Edit callout" }).click();
       await callout.getByLabel("Callout text").fill("<script>alert(1)</script>");
       await callout.getByRole("button", { name: "Apply" }).click();
       await expect(callout.getByRole("alert")).toContainText("HTML tags are not allowed");
-    });
     });
   });
 }
