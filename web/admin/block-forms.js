@@ -71,7 +71,8 @@ export function parseTaskList(source) {
     if (!match) return null;
     items.push({ checked: match[1] !== " ", text: match[2] });
   }
-  return items.length ? items : null;
+  // Offer the form only when it would write exactly what is there now.
+  return items.length && taskListMarkdown(items) === trimEnd(source) ? items : null;
 }
 
 export function taskListMarkdown(items) {
@@ -105,7 +106,9 @@ export function parseTable(source) {
   }
   if (/`[^`]*(?<!\\)\|[^`]*`/.test(lines[0])) return null;
   const align = divider.map((cell) => (cell.startsWith(":") && cell.endsWith(":") ? "center" : cell.endsWith(":") ? "right" : cell.startsWith(":") ? "left" : ""));
-  return { header, align, rows };
+  const table = { header, align, rows };
+  // Offer the form only when it would write exactly what is there now.
+  return tableMarkdown(table) === trimEnd(source) ? table : null;
 }
 
 export function tableMarkdown({ header, align, rows }) {
@@ -142,7 +145,7 @@ export function embedProblem(provider, url) {
 // ----- pieces (the ```piece fence) -----------------------------------------------------
 
 /** Read a `piece` fence into `{ kind, values }` for the form; the engine validates on save. */
-export function parsePieceFence(source) {
+export function parsePieceFence(source, schema = null) {
   const lines = trimEnd(source).split("\n");
   const open = /^ {0,3}(`{3,})piece[ \t]+([a-z]+)[ \t]*$/.exec(lines[0] || "");
   if (!open) return null;
@@ -162,16 +165,34 @@ export function parsePieceFence(source) {
     }
   }
   for (const pair of values) pair[1] = pair[1].replace(/\n+$/, "");
+  // With the schema known, a field it does not have, or a repeat of a field that is not a list field,
+  // is something the form would drop or merge: leave the block protected.
+  if (schema) {
+    const top = new Set(schema.fields.map((field) => field.name));
+    const listNames = new Set((schema.list?.fields || []).map((field) => field.name));
+    const seen = new Set();
+    for (const [name] of values) {
+      if (!top.has(name) && !listNames.has(name)) return null;
+      if (top.has(name) && seen.has(name)) return null;
+      seen.add(name);
+    }
+  }
   return { kind: open[2], values };
 }
 
 /** Which form edits a protected block, or "" when none does (it stays protected). */
-export function editableBlockKind(label, source) {
+export function editableBlockKind(label, source, pieces = []) {
   if (label === "Callout") return parseCallout(source) ? "callout" : "";
   if (label === "Table") return parseTable(source) ? "table" : "";
   if (label === "Task list") return parseTaskList(source) ? "tasklist" : "";
   if (label === "Embedded media") return parseEmbed(source) ? "embed" : "";
-  if (label === "Piece") return parsePieceFence(source) ? "piece" : "";
+  if (label === "Piece") {
+    const parsed = parsePieceFence(source);
+    if (!parsed) return "";
+    if (!pieces.length) return "piece";
+    const schema = pieces.find((piece) => piece.kind === parsed.kind);
+    return schema && parsePieceFence(source, schema) ? "piece" : "";
+  }
   return "";
 }
 
@@ -583,15 +604,19 @@ export function blockEditor(kind, source, { pieces = [], build } = {}) {
   if (kind === "tasklist") return wrapRead(taskListEditor(source));
   if (kind === "table") return wrapRead(tableEditor(source));
   if (kind === "embed") return wrapRead(embedEditor(source));
-  const parsed = parsePieceFence(source);
-  const schema = pieces.find((piece) => piece.kind === parsed?.kind);
+  const kindOnly = parsePieceFence(source);
+  const schema = pieces.find((piece) => piece.kind === kindOnly?.kind);
+  const parsed = schema ? parsePieceFence(source, schema) : null;
   if (!parsed || !schema) return null;
   const form = buildPieceForm(schema, parsed.values);
+  const snapshot = JSON.stringify(form.values());
   return {
     element: form.element,
     focus: form.focus,
     async read() {
       form.clearProblems();
+      // Nothing changed: hand back the block exactly as it was, however it was written.
+      if (JSON.stringify(form.values()) === snapshot) return { markdown: source };
       const result = await build(schema.kind, form.values());
       if (result.problems?.length) {
         form.showProblems(result.problems);

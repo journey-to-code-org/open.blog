@@ -185,6 +185,42 @@ for (const [name, viewport] of [["phone", { width: 320, height: 640 }], ["deskto
       await expect(markdown(page)).toHaveValue(DRAFT);
     });
 
+    test("sources the forms would rewrite stay protected, and a piece Apply with no change keeps its bytes", async ({ page }) => {
+      const odd = [
+        "|a|b|
+|---|---|
+|1|2|",
+        "* [ ] star item",
+        "```piece hours
+note: x
+bogus: y
+```",
+        "```piece hours
+note:   spaced   
+days: Mon
+hours: 9 to 5
+```",
+        "> [!NOTE]
+> Fine.",
+        "End.",
+      ].join("
+
+") + "
+";
+      await openNewPost(page);
+      await useMarkdown(page, odd, [0, 0]);
+      await mode(page, "Visual").click();
+      await expect(visual(page).locator('section[aria-label="Table block"] [data-block-edit]')).toHaveCount(0);
+      await expect(visual(page).locator('section[aria-label="Task list block"] [data-block-edit]')).toHaveCount(0);
+      const pieces = visual(page).locator('section[aria-label="Piece block"]');
+      await expect(pieces).toHaveCount(2);
+      await expect(pieces.nth(0).locator("[data-block-edit]")).toHaveCount(0);
+      await pieces.nth(1).getByRole("button", { name: "Edit piece" }).click();
+      await pieces.nth(1).getByRole("button", { name: "Apply" }).click();
+      await mode(page, "Markdown").click();
+      await expect(markdown(page)).toHaveValue(odd);
+    });
+
     test("HTML typed into a callout is refused with a message", async ({ page }) => {
       await openNewPost(page);
       await useMarkdown(page, "> [!NOTE]
@@ -196,6 +232,7 @@ for (const [name, viewport] of [["phone", { width: 320, height: 640 }], ["deskto
       await callout.getByLabel("Callout text").fill("<script>alert(1)</script>");
       await callout.getByRole("button", { name: "Apply" }).click();
       await expect(callout.getByRole("alert")).toContainText("HTML tags are not allowed");
+    });
     });
   });
 }
