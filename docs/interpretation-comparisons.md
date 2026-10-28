@@ -42,6 +42,14 @@ selector only narrows what is shown, never the evidence, and printing shows ever
 adds no evidence of its own: any evidence it lists must already be cited by the reading it explains, and
 the page shows evidence only beside the readings.
 
+An explanation may also carry `authors` (up to five display names), a one-line `prerequisite` such as
+"The first section of the article", the `modes` it serves (`guided`, `deep-dive`; leave out for all), a
+`language` and `translationOf` naming the explanation it translates, and a `revision` number of your own.
+The prerequisite is advice and the page says the article can be read without it. To retire an
+explanation, add `"withdrawn": {"at": "<time>", "reason": "<note for you>"}`: it leaves every public
+output, the reason is never shown, and its level is free for a replacement. See
+[ADR 0350](adr/0350-an-explanation-states-its-authors-prerequisite-modes-and-withdrawal-and-one-explanation-serves-every-mode.md).
+
 ## AI drafts and your responsibility
 
 If an AI tool drafted a reading or an explanation, mark it as such and name the tool. It stays a draft

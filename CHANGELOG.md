@@ -5,6 +5,11 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Audience explanations can now state more. An explanation in an interpretation comparison may name its
+  authors, a prerequisite ("helpful to know first", never a barrier), the reading modes it serves, its
+  language and the explanation it translates, and the author can withdraw it without deleting it. An AI
+  draft still reaches no page without a current approval of its exact text, and editing the byline,
+  prerequisite or language withdraws that approval. Existing comparison files are unchanged.
 - Interpretation comparison fixes. An AI-drafted reading's approval now covers its attribution, uncertainty
   note and language as well as its statement, so changing any of them withdraws the approval. A published
   page says the author approved an AI draft and never shows the approving Admin login name. An explanation

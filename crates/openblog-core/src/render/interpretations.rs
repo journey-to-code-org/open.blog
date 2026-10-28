@@ -300,7 +300,25 @@ fn explanation_item(
             text(&about)
         )),
     }
+    if let Some(p) = &x.prerequisite {
+        body.push_str(&format!(
+            "<p class=\"ob-explanation-prerequisite\">Helpful to know first: {}. You can read the article without it.</p>
+",
+            text(p)
+        ));
+    }
     body.push_str(&paragraphs(&x.text));
+    if !x.authors.is_empty() {
+        body.push_str(&format!(
+            "<p class=\"ob-explanation-authors\">Written by {}.</p>
+",
+            x.authors
+                .iter()
+                .map(|a| text(a))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
     if let Some(label) = provenance_label(&x.provenance) {
         body.push_str(&format!(
             "<p class=\"ob-interp-provenance\">{}</p>\n",

@@ -225,6 +225,7 @@ fn reason_text(reason: WithheldReason) -> &'static str {
         WithheldReason::AttributionNotPublic => {
             "it is attributed to a source that is not published"
         }
+        WithheldReason::Withdrawn => "the author withdrew it",
         WithheldReason::Draft => "the comparison is a draft",
         WithheldReason::TooFewInterpretations => {
             "fewer than two interpretations can be shown, so the comparison is not published"
