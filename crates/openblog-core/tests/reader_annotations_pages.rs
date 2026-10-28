@@ -90,6 +90,32 @@ fn an_opted_in_post_also_carries_the_trail_region_with_its_disclosure_and_script
 }
 
 #[test]
+fn an_opted_in_post_carries_the_reading_history_region_between_notes_and_trails() {
+    let files = build(&config(ON));
+    let page = &files["tides/index.html"];
+    let script =
+        "<script type=\"module\" src=\"/assets/components/ob-reflection-history.js\"></script>";
+    assert_eq!(page.matches("<ob-reflection-history>").count(), 1);
+    assert_eq!(page.matches(script).count(), 1);
+    assert!(page.contains("aria-labelledby=\"ob-reflection-history-title\""));
+    assert!(page.contains("<h2 id=\"ob-reflection-history-title\">Your readings over time</h2>"));
+    // The no-JavaScript text says what it needs and that nothing leaves the browser.
+    assert!(page.contains("needs JavaScript"));
+    assert!(page.contains("Readings stay in this browser only"));
+    assert!(page.find("<ob-annotations>").unwrap() < page.find("<ob-reflection-history>").unwrap());
+    assert!(
+        page.find("<ob-reflection-history>").unwrap() < page.find("<ob-reading-trail>").unwrap()
+    );
+    assert!(page.find(script).unwrap() < page.find("</head>").unwrap());
+}
+
+#[test]
+fn a_site_that_does_not_opt_in_has_no_reading_history_region_or_script() {
+    let page = &build(&config(""))["tides/index.html"];
+    assert!(!page.contains("ob-reflection-history"));
+}
+
+#[test]
 fn a_site_that_does_not_opt_in_has_no_trail_region_or_script() {
     let page = &build(&config(""))["tides/index.html"];
     assert!(!page.contains("ob-reading-trail"));

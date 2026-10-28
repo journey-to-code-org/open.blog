@@ -176,8 +176,8 @@ the logic, `ob-reading-trail.js` the controls). Nothing here is uploaded or sent
 [ADR 0500](../adr/0500-a-reflection-is-a-private-immutable-snapshot-in-the-reader-annotation-document-and-a-submitted-copy-is-a-separate-explicit-bounded-act.md)
 extends the document to version 2 with `reflections`: snapshots of how the reader read a work, kept
 beside highlights and notes in the same key. `web/components/reader-reflections.js` holds the pure
-functions; tests are `tests/web/reader-reflections.test.mjs`. This is the data layer; the comparison view and
-the export, delete and submit controls are separate tasks.
+functions; tests are `tests/web/reader-reflections.test.mjs`. The comparison view is described below; the
+export, delete and submit controls are a separate task.
 
 ```json
 { "id": "refl-2", "kind": "reflection", "work": { "site": "https://example.com", "path": "/posts/tea/" },
@@ -201,3 +201,24 @@ the export, delete and submit controls are separate tasks.
   returns a bounded Third Perspective submission (ADR 0113) or the submission reader's refusal; it changes and saves
   nothing, and the copy carries no id, label, history, dates or other snapshot. `markSubmitted` records a send the
   reader made. The local snapshot stays private and is never converted.
+
+### Comparing readings on-device
+
+`web/components/ob-reflection-history.js` (`<ob-reflection-history>`, the "Your readings over time" region, after the
+highlights and notes and before the reading trails) is the comparison view. It is local only: it requests nothing.
+
+- **Without JavaScript** the region is one paragraph saying that keeping and comparing readings needs JavaScript, that
+  readings stay in the browser and are never judged, and that the post reads as usual.
+- **Saving a reading.** A form (whole post or one section, an optional label, which reading it follows, the words) calls
+  `addReflection` or `reviseReflection`. A new reading follows the latest one by default, and "a new line of thought" starts
+  another history. Quotation targets are not offered.
+- **Timeline.** Each history is an ordered list, earliest first, so the sequence reads the same by keyboard and screen
+  reader. Labels are edited in place (Enter saves, Escape cancels); the words never are.
+- **Comparison.** Two selects choose any two readings; they appear as two articles, written first then written later, side
+  by side where there is room and stacked in the same order where there is not. Nothing is scored, ranked, diffed or
+  summarised, and no text says which reading is better or right.
+- **Stale context.** Beside every reading, in both the list and the comparison, the page says whether the post has changed
+  since it was written (`articleChanged`) and whether the part it was about was found, moved or is gone. The reading is
+  never rewritten.
+- **Storage.** Denied, full or unreadable storage is announced and readings are kept for the visit only, as for highlights.
+  Turning the feature off hides the region's form and list and leaves the saved data alone.

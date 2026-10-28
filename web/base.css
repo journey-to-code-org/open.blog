@@ -3641,6 +3641,137 @@ ob-annotations [hidden] {
   outline-offset: 2px;
 }
 
+/* Reader interpretation history (ADR 0500): the same quiet controls. Two readings sit side by side where
+   there is room and one after the other where there is not; the order in the page is the same either way. */
+
+.ob-reflection-history {
+  max-inline-size: 60rem;
+}
+
+ob-reflection-history {
+  display: block;
+}
+
+ob-reflection-history [hidden] {
+  display: none;
+}
+
+.ob-reflection-history-make,
+.ob-reflection-history-body,
+.ob-reflection-history-line,
+.ob-reflection-history-compare,
+.ob-reflection-history-reading {
+  display: grid;
+  gap: 1rem;
+  min-inline-size: 0;
+}
+
+.ob-reflection-history-where {
+  display: grid;
+  gap: .5rem;
+}
+
+.ob-reflection-history-choice,
+.ob-reflection-history-field {
+  display: grid;
+  gap: .25rem;
+}
+
+.ob-reflection-history-choice {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+
+.ob-reflection-history textarea,
+.ob-reflection-history select,
+.ob-reflection-history input[type="text"] {
+  inline-size: 100%;
+  max-inline-size: 100%;
+  box-sizing: border-box;
+  font: inherit;
+}
+
+.ob-reflection-history-meta,
+.ob-reflection-history-state,
+.ob-reflection-history-hint,
+.ob-reflection-history-position,
+.ob-reflection-history-empty,
+.ob-reflection-history-notice,
+.ob-reflection-history-status,
+.ob-reflection-history-error,
+.ob-reflection-history-lead,
+.ob-reflection-history-title {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ob-reflection-history-meta,
+.ob-reflection-history-state,
+.ob-reflection-history-hint,
+.ob-reflection-history-position {
+  font-size: .9em;
+}
+
+.ob-reflection-history-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ob-reflection-history-notice,
+.ob-reflection-history-error {
+  padding: .5rem .75rem;
+  border: 1px solid currentColor;
+  border-radius: .35rem;
+}
+
+.ob-reflection-history-status:empty {
+  display: none;
+}
+
+.ob-reflection-history-list {
+  display: grid;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-reflection-history-item,
+.ob-reflection-history-column {
+  display: grid;
+  gap: .5rem;
+  min-inline-size: 0;
+  padding: .75rem 1rem;
+  border: 1px solid var(--ob-color-border);
+  border-radius: .35rem;
+}
+
+.ob-reflection-history-picks {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+}
+
+.ob-reflection-history-pair {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+}
+
+.ob-reflection-history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1rem;
+  align-items: center;
+}
+
+.ob-reflection-history :focus-visible,
+.ob-reflection-history [aria-invalid="true"] {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
 /* Reader saved sources and reading trails (ADR 0242): the same quiet, one-column controls. */
 
 .ob-reading-trail {

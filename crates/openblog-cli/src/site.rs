@@ -183,6 +183,14 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
         include_str!("../../../web/components/ob-annotations.js"),
     ),
     (
+        "components/ob-reflection-history.js",
+        include_str!("../../../web/components/ob-reflection-history.js"),
+    ),
+    (
+        "components/reader-reflections.js",
+        include_str!("../../../web/components/reader-reflections.js"),
+    ),
+    (
         "components/ob-reading-trail.js",
         include_str!("../../../web/components/ob-reading-trail.js"),
     ),

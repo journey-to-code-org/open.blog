@@ -263,6 +263,16 @@ const READER_TRAIL_REGION: &str = "<section id=\"ob-reading-trail\" class=\"ob-r
 </ob-reading-trail>
 </section>
 ";
+/// A post's region for the reader's private interpretation history (ADR 0500),
+/// after the highlights and notes. It holds only text: readings are kept and
+/// compared in the reader's browser and never leave it.
+const READER_REFLECTION_HISTORY_REGION: &str = "<section id=\"ob-reflection-history\" class=\"ob-reflection-history\" aria-labelledby=\"ob-reflection-history-title\">
+<h2 id=\"ob-reflection-history-title\">Your readings over time</h2>
+<ob-reflection-history>
+<p class=\"ob-reflection-history-static\">Keeping and comparing your own readings of this post needs JavaScript. With it, you can save how you read the post now, and later put an earlier reading beside a later one. Readings stay in this browser only, are never judged, and nothing is sent to anyone. Without it, the post reads as usual.</p>
+</ob-reflection-history>
+</section>
+";
 /// The page data element holding what a reader may name in an evidence
 /// offer (ADR 0116): only what the site publishes.
 pub const EVIDENCE_DATA_ELEMENT_ID: &str = "ob-evidence-references";
@@ -2221,6 +2231,7 @@ impl<'a> Renderer<'a> {
         let reader_annotations = c.reader_annotations.enabled;
         if reader_annotations {
             body.push_str(READER_ANNOTATIONS_REGION);
+            body.push_str(READER_REFLECTION_HISTORY_REGION);
             body.push_str(READER_TRAIL_REGION);
         }
         // Approved Third Perspectives, each a reader's and never an author's,
@@ -2417,6 +2428,7 @@ impl<'a> Renderer<'a> {
             participation_scripts: [
                 passage_feedback.as_ref().map(|_| "ob-passage-feedback.js"),
                 reader_annotations.then_some("ob-annotations.js"),
+                reader_annotations.then_some("ob-reflection-history.js"),
                 reader_annotations.then_some("ob-reading-trail.js"),
                 third_perspective
                     .as_ref()
