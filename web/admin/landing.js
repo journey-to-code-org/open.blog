@@ -342,7 +342,7 @@ export function restoreSection(sections, removed) {
   return [...sections.slice(0, at), section, ...sections.slice(at)];
 }
 
-// ---------------------------------------------------------------- starter layouts (ADR 0370, #338)
+// ---------------------------------------------------------------- starter layouts (ADR 0258, #338)
 
 const SAMPLE_NOTE = "This is a sample layout. Every sentence marked as a sample is a stand-in: replace it with your own words, then choose Save. Delete this note when you are done.";
 
@@ -424,7 +424,7 @@ export function applyLayout(page, sections) {
   return { page: { ...page, sections }, previous: page.sections };
 }
 
-// ---------------------------------------------------------------- plain words, empty states and the tour (ADR 0371, #339)
+// ---------------------------------------------------------------- plain words, empty states and the tour (ADR 0259, #339)
 
 /** The short list of words the page uses, for the Help part. Technical terms appear only here, in brackets. */
 export const GLOSSARY = Object.freeze([

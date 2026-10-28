@@ -1,11 +1,11 @@
-# ADR 0371: The landing builder speaks plain words, says what to do next, and offers one short dismissible tour
+# ADR 0259: The landing builder speaks plain words, says what to do next, and offers one short dismissible tour
 
 - Status: Accepted
 - Date: 2026-10-28
 - Decision issue: [#339](https://github.com/journey-to-code-org/open.blog/issues/339)
 - Parent story: [#320](https://github.com/journey-to-code-org/open.blog/issues/320)
 - Parent epic: [#314](https://github.com/journey-to-code-org/open.blog/issues/314)
-- Builds on: ADR 0249, ADR 0370
+- Builds on: ADR 0249, ADR 0258
 
 ## Context
 

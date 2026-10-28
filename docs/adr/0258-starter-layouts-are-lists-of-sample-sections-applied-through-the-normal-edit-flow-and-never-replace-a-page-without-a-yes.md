@@ -1,4 +1,4 @@
-# ADR 0370: Starter layouts are lists of sample sections, applied through the normal edit flow, and never replace a page without a yes
+# ADR 0258: Starter layouts are lists of sample sections, applied through the normal edit flow, and never replace a page without a yes
 
 - Status: Accepted
 - Date: 2026-10-28

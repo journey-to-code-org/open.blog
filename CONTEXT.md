@@ -2450,17 +2450,17 @@ _Avoid_: HTML block, WYSIWYG box, Markdown field
 A ready-made list of sample landing sections (Welcome, Small business, Portfolio, Newsletter) or an empty page
 (Start from scratch), chosen in the Landing page builder. It is plain section data with every stand-in sentence
 marked "Sample", it is applied like any other unsaved edit, it can be undone, and it never replaces existing
-sections without asking (ADR 0370).
+sections without asking (ADR 0258).
 _Avoid_: Template, theme, preset
 
 **Landing tour**:
 The optional three-step introduction to the Landing page builder: a labelled region in the page with Next,
 Back, Skip the tour and Finish the tour, closed also by Escape. Once closed in any way it is never shown
-again for that account on that device (ADR 0371).
+again for that account on that device (ADR 0259).
 _Avoid_: Onboarding wizard, walkthrough modal, coach marks
 
 **Landing Help words**:
 The short list under "Help: what the words on this page mean" in the Landing page builder, explaining
 section, layout, hide, preview, save, publish (make it live), web address and picture description. Technical
-terms appear only there, in brackets (ADR 0371).
+terms appear only there, in brackets (ADR 0259).
 _Avoid_: Glossary page, documentation

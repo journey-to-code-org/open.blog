@@ -9,11 +9,11 @@ All notable changes to open.blog are recorded here. Releases follow
 description", "video code"), every problem message says what to do next, an empty page points to the ready-made
 layouts, Publish is explained as "make it live", a short Help list explains the words, and an optional
 three-step tour (skippable, keyboard and screen-reader friendly, never shown again once closed) introduces the
-page (ADR 0371).
+page (ADR 0259).
 - Start your landing page from a ready-made layout: Welcome, Small business, Portfolio or Newsletter, each with
   clearly marked sample words to replace, or Start from scratch. A first visit offers the choices; Choose a
   ready-made layout and Reset to default are always there. Choosing one is unsaved until you save, can be undone,
-  and asks first before it replaces sections you already have (ADR 0370).
+  and asks first before it replaces sections you already have (ADR 0258).
 - Customize the look with simple presets, never CSS (engine and storage; the Admin screen comes next): a new
   optional `appearance` setting in `openblog.json` holds an accent color, one of eight curated looks (Calm,
   Warm, Bold, Night, Garden, Paper, Ocean, Sunset), a font style, a text size, corner roundness, spacing, page

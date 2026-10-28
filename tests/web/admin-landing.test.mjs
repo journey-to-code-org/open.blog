@@ -290,7 +290,7 @@ test("the Text section is a rich text field and a picture without a description 
   assert.deepEqual(sectionProblems({ id: "t", type: "rich-text", markdown: "Look ![Tea](https://example.com/a.png)" }), []);
 });
 
-// ---------------------------------------------------------------- starter layouts (ADR 0370, #338)
+// ---------------------------------------------------------------- starter layouts (ADR 0258, #338)
 
 import { STARTERS, applyLayout, replacingNeedsConfirm, starterSections } from "../../web/admin/landing.js";
 import { writeFileSync as writeFixture } from "node:fs";
@@ -352,7 +352,7 @@ test("the starters shared with the Rust render test are up to date", () => {
   assert.equal(readFileSync(path, "utf8").replace(/\r\n/g, "\n"), expected, "run UPDATE_STARTERS=1 node --test tests/web/admin-landing.test.mjs");
 });
 
-// ---------------------------------------------------------------- plain-language copy and the tour (ADR 0371, #339)
+// ---------------------------------------------------------------- plain-language copy and the tour (ADR 0259, #339)
 
 import { EMPTY_STATE_TEXT, GLOSSARY, TOUR_STEPS, createTourStore, previewLeftOutText } from "../../web/admin/landing.js";
 

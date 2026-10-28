@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 
-// Starter layouts in the Landing page builder (ADR 0370, #338): choose, undo, reset and start from scratch,
+// Starter layouts in the Landing page builder (ADR 0258, #338): choose, undo, reset and start from scratch,
 // from the real binary and Admin Studio. Nothing existing is replaced without a yes.
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -167,7 +167,7 @@ test("the layout choices work by keyboard and fit a phone without sideways scrol
   await expect(page.locator("[data-landing-toast]")).toContainText("Your page now uses the Welcome layout.");
 });
 
-// ---------------------------------------------------------------- the short tour and plain-language help (ADR 0371, #339)
+// ---------------------------------------------------------------- the short tour and plain-language help (ADR 0259, #339)
 
 const tour = (page) => page.locator("[data-landing-tour]");
 

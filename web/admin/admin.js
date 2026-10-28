@@ -13086,7 +13086,7 @@ export class ObAdmin extends AdminElement {
       onEdited();
     };
 
-    // ----- starting points (ADR 0370, #338): a layout is a list of sections, applied like any other edit
+    // ----- starting points (ADR 0258, #338): a layout is a list of sections, applied like any other edit
     const layoutContext = { posts: posts || [] };
     const defaultSections = () => (loaded.legacy ? pageFrom(loaded.legacy).sections : starterSections("welcome", layoutContext));
     const startersPanel = h("section", { class: "oba-landing-picker oba-landing-starters", id: "oba-landing-starters", "aria-labelledby": "oba-landing-starters-title", hidden: true, "data-landing-starters": "true" });
@@ -13203,7 +13203,7 @@ export class ObAdmin extends AdminElement {
       }
     });
 
-    // ----- the short tour (ADR 0371, #339): three steps, skippable, never shown again once dismissed
+    // ----- the short tour (ADR 0259, #339): three steps, skippable, never shown again once dismissed
     const tourStore = createTourStore(`ob-landing-tour:${this.user}`);
     const tour = h("section", { class: "oba-notice oba-landing-tour", "aria-labelledby": "oba-landing-tour-title", hidden: true, "data-landing-tour": "true" });
     let tourShown = false;
