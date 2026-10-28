@@ -1,4 +1,4 @@
-//! Resumable timed voice sessions (ADR 0351).
+//! Resumable timed voice sessions (ADR 0267).
 //!
 //! A session is one timed sitting with one prompt. Its only state is a private record,
 //! `.openblog/private/voice/session.json`, holding the prompt, the catalog version, when it

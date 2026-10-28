@@ -1038,8 +1038,8 @@ _Avoid_: Widget, block, embed, custom HTML
 **Piece**:
 One of nine small structured things (button, image with caption, video, map, opening hours, contact details,
 social links, questions and answers, call-out) added with a form to a post or to the landing page. It is
-validated data with one form schema shared by both places; in a post it is Markdown (a `> [!NOTE]` call-out, or a
-```` ```piece <kind> ```` fence of `field: value` lines), and a video or map is a privacy-enhanced, lazy, titled
+validated data with one form schema shared by both places; in a post it is Markdown (a `> [!NOTE]` call-out, or a ```` ```piece <kind> ````
+fence of `field: value` lines), and a video or map is a privacy-enhanced, lazy, titled
 frame with a link beside it that becomes only the link in a portable export (ADR 0253).
 _Avoid_: Widget, shortcode, embed code, custom HTML
 
@@ -2502,27 +2502,27 @@ _Avoid_: Glossary page, documentation
 **Voice prompt**:
 One short writing invitation from a versioned catalog, with a genre, a suggested length and the standing rule
 "write it the way you would say it" (stored once for the whole catalog, not per prompt). Prompts have stable
-kebab-case ids (ADR 0350, ADR 0352).
+kebab-case ids (ADR 0266, ADR 0268).
 _Avoid_: Writing prompt, exercise, question
 
 **Prompt pack**:
 A named group of voice prompts for one genre (teaching, stories, opinions, reviews, people, craft, humor,
 expertise, everyday life, openings and endings). A site can add prompts and hide whole packs without forking
-the bundled catalog (ADR 0352).
+the bundled catalog (ADR 0268).
 _Avoid_: Category, deck, topic
 
 **Voice session**:
 One timed sitting: a draw of three prompts, one choice, a bounded writing window and a locked rough draft.
 Its only state is the private record `.openblog/private/voice/session.json`, which lets any surface resume
 with the original deadline; there is one per site, and the record is removed when the session is locked or
-scrapped (ADR 0351).
+scrapped (ADR 0267).
 _Avoid_: Quiz, exercise, writing sprint
 
 **Voice sample**:
 One stored answer to one voice prompt at one stage, `rough` or `polished`. The rough stage is immutable once
 its session ends: nothing, including spell-check, autocorrect, AI and any save path, rewrites it, and the
 store refuses to. A voice sample is Assistant context, not a Post, so it is never published, built into the
-site, fed or exported (ADR 0350).
+site, fed or exported (ADR 0266).
 _Avoid_: Draft post, writing sample, entry
 
 **Rough draft**:
@@ -2532,7 +2532,7 @@ _Avoid_: First draft, raw draft
 
 **Polished draft**:
 The `polished` stage of a voice sample: the author's own revision of one rough draft, named by `roughOf`. It is
-author-owned and editable; an AI tool may propose changes to it but never applies them (ADR 0350).
+author-owned and editable; an AI tool may propose changes to it but never applies them (ADR 0266).
 _Avoid_: Final draft, edited version
 
 **Voice guide**:

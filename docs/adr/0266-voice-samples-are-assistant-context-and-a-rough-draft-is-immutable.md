@@ -1,4 +1,4 @@
-# ADR 0350: Voice samples are Assistant context and a rough draft is immutable
+# ADR 0266: Voice samples are Assistant context and a rough draft is immutable
 
 - Status: Accepted
 - Date: 2026-10-28
@@ -54,11 +54,11 @@ first, and so must the rule everything else leans on: the author's rough words a
 ## What would trigger revisiting this
 
 - Authors asking to fix a typo in a rough draft. The answer is a polished draft, which exists for that.
-- A hosted store for samples. That is a new decision with its own privacy review (ADR 0351 keeps the format
+- A hosted store for samples. That is a new decision with its own privacy review (ADR 0267 keeps the format
   portable so it can move).
 
 ## Consequences
 
 - The store, not the callers, owns the rule; new surfaces get it for free.
 - The terms are in [CONTEXT.md](../../CONTEXT.md#voice-samples). The file format and session record are in
-  [ADR 0351](0351-the-voice-sample-file-format-and-session-record-are-versioned-flat-markdown-and-json.md).
+  [ADR 0267](0267-the-voice-sample-file-format-and-session-record-are-versioned-flat-markdown-and-json.md).

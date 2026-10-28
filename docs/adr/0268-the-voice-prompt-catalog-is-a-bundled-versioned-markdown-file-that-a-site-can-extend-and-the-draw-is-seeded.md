@@ -1,11 +1,11 @@
-# ADR 0352: The voice prompt catalog is a bundled, versioned Markdown file that a site can extend, and the draw is seeded
+# ADR 0268: The voice prompt catalog is a bundled, versioned Markdown file that a site can extend, and the draw is seeded
 
 - Status: Accepted
 - Date: 2026-10-28
 - Decision issue: [#433](https://github.com/journey-to-code-org/open.blog/issues/433)
 - Parent story: [#412](https://github.com/journey-to-code-org/open.blog/issues/412)
 - Parent epic: [#406](https://github.com/journey-to-code-org/open.blog/issues/406)
-- Builds on: ADR 0350, ADR 0351
+- Builds on: ADR 0266, ADR 0267
 
 ## Context
 

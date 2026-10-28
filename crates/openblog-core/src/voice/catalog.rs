@@ -1,5 +1,5 @@
 //! The voice prompt catalog: packs of prompts, parsed from Markdown, merged with a site's own
-//! additions (ADR 0352). Pure: callers pass text in.
+//! additions (ADR 0268). Pure: callers pass text in.
 //!
 //! ```text
 //! ---

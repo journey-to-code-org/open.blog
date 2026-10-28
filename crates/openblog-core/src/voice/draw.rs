@@ -1,4 +1,4 @@
-//! Drawing three prompts that feel random and steadily fill the gaps (ADR 0352).
+//! Drawing three prompts that feel random and steadily fill the gaps (ADR 0268).
 //!
 //! Pure and deterministic: the same catalog, library and seed always give the same draw. Callers
 //! pass the entropy, so a test can pin it and a real session can pass the clock or an OS random

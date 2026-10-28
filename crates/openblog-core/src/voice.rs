@@ -1,5 +1,5 @@
 //! Voice samples: the author's own writing, captured so Assistant tools can learn how they sound
-//! (ADR 0350, ADR 0351).
+//! (ADR 0266, ADR 0267).
 //!
 //! A sample is a Markdown file: front matter, a blank line, then the author's text. This module
 //! parses, validates and serializes that file deterministically, with no I/O. Where the file

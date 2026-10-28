@@ -229,7 +229,7 @@ selecting one uses the saved Markdown snapshot and never silently contacts the U
 ### Where voice samples are kept
 
 Voice samples are the author's own writing, captured so Assistant tools can learn how you sound
-(see [ADR 0350](adr/0350-voice-samples-are-assistant-context-and-a-rough-draft-is-immutable.md)).
+(see [ADR 0266](adr/0266-voice-samples-are-assistant-context-and-a-rough-draft-is-immutable.md)).
 They are Assistant context, not posts: they are never published, built into the site, added to a
 feed, or exported. The foundation (files, storage and prompt catalog) ships first; the commands
 and Admin screens that write them follow.

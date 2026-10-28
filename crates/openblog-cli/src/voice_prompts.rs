@@ -1,4 +1,4 @@
-//! The bundled voice prompt catalog (ADR 0352).
+//! The bundled voice prompt catalog (ADR 0268).
 //!
 //! The text lives in `voice_prompts/catalog.md`, compiled into the binary. Parsing, merging with a
 //! site's own prompts and drawing are pure functions in `openblog_core::voice`.

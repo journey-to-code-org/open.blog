@@ -4,7 +4,7 @@ import test from "node:test";
 import { showPrivateContextWarning } from "../../web/admin/admin.js";
 import { withDom } from "./dom-shim.mjs";
 
-// A private voice sample that Git tracks could be published or shared by accident (ADR 0350). The
+// A private voice sample that Git tracks could be published or shared by accident (ADR 0266). The
 // server names the file in the Context view's warning; the page must show it, plainly, and hide the
 // notice again when everything is safe.
 

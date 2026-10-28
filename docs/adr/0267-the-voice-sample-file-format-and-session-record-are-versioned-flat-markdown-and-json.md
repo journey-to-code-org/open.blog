@@ -1,11 +1,11 @@
-# ADR 0351: The voice sample file format and session record are versioned, flat Markdown and JSON
+# ADR 0267: The voice sample file format and session record are versioned, flat Markdown and JSON
 
 - Status: Accepted
 - Date: 2026-10-28
 - Decision issue: [#430](https://github.com/journey-to-code-org/open.blog/issues/430)
 - Parent story: [#411](https://github.com/journey-to-code-org/open.blog/issues/411)
 - Parent epic: [#406](https://github.com/journey-to-code-org/open.blog/issues/406)
-- Builds on: ADR 0350
+- Builds on: ADR 0266
 
 ## Context
 
@@ -28,7 +28,7 @@ rewrite it. So the format is small, versioned from the first byte, and conservat
   `title`, `subtitle`, `slug`, `date` (RFC 3339 with a time), `description` and `tags`.
 - **`voice.format` is the file format version** (this release writes 1 and reads 1). A file with a newer
   format is refused with a sentence telling the author to update, and is never rewritten. `voice.catalog` is
-  the prompt catalog version the prompt came from; a newer one is refused the same way (ADR 0352).
+  the prompt catalog version the prompt came from; a newer one is refused the same way (ADR 0268).
 - **Strict where it protects the library.** Unknown `voice.stage` values, a polished draft without
   `voice.roughOf`, a rough draft with one, a `roughOf` that is not the file name of a rough draft for the same
   prompt, an empty body, null characters and ids that are not lowercase kebab-case are all refused, each with

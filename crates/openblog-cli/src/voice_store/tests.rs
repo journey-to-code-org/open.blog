@@ -527,7 +527,7 @@ fn revisions_are_a_stable_sha256_of_the_bytes() {
     );
 }
 
-// ---- Samples stay out of everything public (ADR 0350) ----
+// ---- Samples stay out of everything public (ADR 0266) ----
 
 use crate::site::{self, BuildOptions};
 

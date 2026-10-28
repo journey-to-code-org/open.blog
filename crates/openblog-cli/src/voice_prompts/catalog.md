@@ -4,7 +4,7 @@ rule: Write it the way you would say it. Typos are fine; nobody will fix them an
 ---
 
 <!--
-The bundled voice prompt catalog (ADR 0352). Ids are stable forever: never rename or reuse one.
+The bundled voice prompt catalog (ADR 0268). Ids are stable forever: never rename or reuse one.
 Format: `## pack-id: Title`, an optional summary line, then `### prompt-id: Title`, a `words: lo-hi`
 line and the invitation. The standing rule above is stored once and shown with every prompt.
 -->

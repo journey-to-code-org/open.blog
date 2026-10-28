@@ -1,4 +1,4 @@
-//! The voice sample store (ADR 0350, ADR 0351): the one place that reads and writes sample files.
+//! The voice sample store (ADR 0266, ADR 0267): the one place that reads and writes sample files.
 //!
 //! Samples live beside the other Assistant context, in `assistant/context/voice/` (portable) or
 //! `.openblog/private/context/voice/` (private), as `<YYYY-MM-DD>-<prompt-id>-<stage>.md`. Every
