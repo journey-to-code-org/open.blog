@@ -823,18 +823,16 @@ fn a_portable_export_never_carries_a_voice_sample() {
     let mut private = rough(&format!("private {marker} rough"));
     private.date = "2026-10-29T09:30:00Z".into();
     write_rough(&project.0, Visibility::Private, &private).unwrap();
-    for (name, format) in [("a.md", crate::portable_export::Format::Markdown)] {
-        let out = project.0.join("exports").join(name);
-        crate::portable_export::run(
-            &project.0,
-            "hello-world",
-            format,
-            Some(out.to_str().unwrap()),
-            true,
-            false,
-        )
-        .unwrap();
-        let text = fs::read_to_string(&out).unwrap();
-        assert!(!text.contains(marker), "{name} leaks a sample");
-    }
+    let out = project.0.join("exports").join("a.md");
+    crate::portable_export::run(
+        &project.0,
+        "hello-world",
+        crate::portable_export::Format::Markdown,
+        Some(out.to_str().unwrap()),
+        true,
+        false,
+    )
+    .unwrap();
+    let text = fs::read_to_string(&out).unwrap();
+    assert!(!text.contains(marker), "the export leaks a sample");
 }
